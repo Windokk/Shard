@@ -1,6 +1,8 @@
 #include "camera.hpp"
 
+#include <algorithm>
 #include <iostream>
+#include <string>
 
 #include "engine/objects/actors/actor.hpp"
 
@@ -26,6 +28,16 @@ namespace Shard::Engine::Objects::Components {
         this->fov = fov;
         this->orthographic = ortho;
         this->orthoSize = orthoSize;
+
+        SanitizePlanes();
+    }
+
+    void Camera::SanitizePlanes()
+    {
+        if (!orthographic)
+            nearPlane = std::max(nearPlane, MIN_NEAR_PLANE);
+
+        farPlane = std::max(farPlane, nearPlane + MIN_NEAR_PLANE);
     }
 
     void Camera::Destroy()
@@ -69,6 +81,9 @@ namespace Shard::Engine::Objects::Components {
     {
         if (!activated || parent == nullptr || parent->transform == nullptr)
             return;
+
+        // The planes are editable fields, so they can be changed (or left unset) without going through Init()
+        SanitizePlanes();
 
         // Reset matrices
         view = glm::mat4(1.0f);
@@ -165,6 +180,9 @@ namespace Shard::Engine::Objects::Components {
         float orthoSize = 1.0f;
         if (componentData.contains("orthoSize") && componentData["orthoSize"].is_number())
             orthoSize = componentData["orthoSize"].get<float>();
+
+        if (!isOrtho && *nearOpt < MIN_NEAR_PLANE)
+            DEBUG_WARNING("Camera near plane " + std::to_string(*nearOpt) + " is too small for a perspective camera, using " + std::to_string(MIN_NEAR_PLANE));
 
         Init(width, height, *nearOpt, *farOpt, *fovOpt, isOrtho, orthoSize);
 

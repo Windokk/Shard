@@ -36,6 +36,7 @@ namespace Shard::Engine::Levels{
         bool success = false;
         std::vector<std::string> meshPathsInProject;
         std::vector<std::string> materialPathsInProject;
+        std::vector<std::string> probeBakePathsInProject;
         std::string skyboxEnvMapPathInProject;
     };
 
@@ -107,6 +108,21 @@ namespace Shard::Engine::Levels{
             bool IsDirty() { return dirty; }
 
             void SetDirty(bool dirty) { this->dirty = dirty; }
+
+            /// @brief Makes `pathInProject` (an equirectangular RGB image, e.g. an .hdr) this level's skybox,
+            /// creating the skybox if the level has none. Takes effect immediately - the sky, the IBL
+            /// lighting and the probes' sky term all read level->skybox every frame - but note the map
+            /// is loaded and IBL-convolved synchronously the first time it is used.
+            /// @return false (logged) if the file can't be used as an environment map; the level's current
+            /// skybox, if any, is then left as it was.
+            bool SetSkybox(const std::string& pathInProject);
+
+            /// @brief Removes the level's skybox (and its draw command). No-op if it has none.
+            void ClearSkybox();
+
+            /// @brief Path in the project of the skybox's image, or empty if the level has no skybox. This
+            /// is what the level file stores.
+            std::string GetSkyboxPath() const;
 
             float ambientIntensity = 0.3f;
             std::shared_ptr<Objects::Skybox> skybox;

@@ -50,12 +50,16 @@ struct GPUMaterial
     uvec2 metallicTex;
     uvec2 roughnessTex;
     uvec2 normalTex;
+    uvec2 emissiveTex;
+    uvec2 padding; // rounds the struct to 96 bytes, the std430 array stride - keeps this in step with the
+                   // C++ GPUMaterial (raytrace_scene.hpp), which spells the same padding out
 };
 
 const uint TEX_ALBEDO_BIT    = 1u;
 const uint TEX_METALLIC_BIT  = 2u;
 const uint TEX_ROUGHNESS_BIT = 4u;
 const uint TEX_NORMAL_BIT    = 8u;
+const uint TEX_EMISSIVE_BIT  = 16u;
 
 struct HitInfo
 {

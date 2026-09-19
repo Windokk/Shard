@@ -13,6 +13,7 @@ namespace Shard::Engine::Levels {
 
 namespace Shard::Engine::Rendering {
     class Mesh;
+    class Material;
 }
 
 namespace Shard::Engine::Rendering::Raytracing {
@@ -48,12 +49,21 @@ namespace Shard::Engine::Rendering::Raytracing {
         float roughness = 0.9f;
         float metallic  = 0.0f;
         float ior       = 1.5f;
-        uint32_t textureFlags = 0; // bit 0 = albedo, 1 = metallic, 2 = roughness, 3 = normal
+        uint32_t textureFlags = 0; // bit 0 = albedo, 1 = metallic, 2 = roughness, 3 = normal, 4 = emissive
         glm::uvec2 albedoTex    = glm::uvec2(0);
         glm::uvec2 metallicTex  = glm::uvec2(0);
         glm::uvec2 roughnessTex = glm::uvec2(0);
         glm::uvec2 normalTex    = glm::uvec2(0);
+        glm::uvec2 emissiveTex  = glm::uvec2(0);
+        glm::uvec2 padding      = glm::uvec2(0); // std430 rounds a struct containing vec4s up to a multiple
+                                                 // of 16 bytes ; spelled out so the CPU stride matches the
+                                                 // GPU's (the matching GLSL struct declares it too)
     };
+
+    // The materials SSBO is uploaded as a raw memcpy of std::vector<GPUMaterial> and indexed by the GLSL
+    // struct of the same name (raytracing_types.glsl) - a size that isn't a multiple of 16 would silently
+    // skew every material after the first.
+    static_assert(sizeof(GPUMaterial) % 16 == 0, "GPUMaterial must match the std430 array stride of its GLSL twin");
 
     enum GPUMaterialTextureBit : uint32_t
     {
@@ -61,6 +71,7 @@ namespace Shard::Engine::Rendering::Raytracing {
         GPUMaterialTexMetallic  = 1u << 1,
         GPUMaterialTexRoughness = 1u << 2,
         GPUMaterialTexNormal    = 1u << 3,
+        GPUMaterialTexEmissive  = 1u << 4,
     };
 
     struct RaytraceScene
@@ -99,6 +110,14 @@ namespace Shard::Engine::Rendering::Raytracing {
     // Sentinel for ModelSnapshot::materialIndicesPerSubmesh - see its comment.
     constexpr uint32_t kSkippedSubmesh = 0xFFFFFFFFu;
 
+    // Flattens one material's scalar parameters (albedo/roughness/metallic/emissive) and, for each of the
+    // texture slots the raytracer understands (albedo/metallicMap/roughnessMap/normalMap/emissiveMap),
+    // its bindless handle + textureFlags bit. Uses the same parameter names as the rasterizer's "lit"
+    // shader, so a material authored for it works here unchanged. A null material yields the defaults.
+    // Public (rather than an implementation detail of SceneBuilder) so it can be tested against a fake
+    // Material without a GL context - the handles it reads come from Material::GetTextureParameter.
+    GPUMaterial ExtractMaterial(const std::shared_ptr<Material>& mat);
+
     class SceneBuilder
     {
         public:
@@ -112,9 +131,9 @@ namespace Shard::Engine::Rendering::Raytracing {
             // Walks every active Model component in `level`, flattens their (world-transformed)
             // triangles and materials into GPU-ready arrays, and builds a BVH over them. Materials are
             // read from their scalar parameters (albedo/roughness/metallic/emissive) plus, when present,
-            // bindless handles for their albedo/metallic/roughness/normal textures - a texture, when
-            // assigned, takes priority over (multiplies, for metallic/roughness) the scalar value. See
-            // GPUMaterial's comment for how the handles are packed.
+            // bindless handles for their albedo/metallic/roughness/normal/emissive textures - a texture,
+            // when assigned, takes priority over (multiplies, for metallic/roughness/emissive) the scalar
+            // value. See GPUMaterial's comment for how the handles are packed.
             //
             // Equivalent to BuildFromSnapshot(CaptureSnapshot(level)) - kept as a single call for
             // callers (the offline Raytracer) that want the whole thing done synchronously in one shot.

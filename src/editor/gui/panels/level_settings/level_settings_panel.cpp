@@ -1,8 +1,12 @@
 #include "level_settings_panel.hpp"
 
 #include "engine/core/engine.hpp"
+#include "engine/filesystem/filesystem.hpp"
 #include "engine/levels/level.hpp"
 #include "engine/levels/level_manager.hpp"
+
+#include "editor/gui/dragdrop/asset_drag_drop.hpp"
+#include "editor/gui/IconsLucide.h"
 
 #include "imgui/imgui.h"
 
@@ -57,6 +61,112 @@ namespace Shard::Editor::GUI{
         ImGui::EndDisabled();
     }
 
+    void LevelSettingsPanel::ApplySkybox(Levels::Level* level, const std::string& pathInProject)
+    {
+        m_SkyboxError.clear();
+
+        if (pathInProject.empty())
+        {
+            level->ClearSkybox();
+            level->SetDirty(true);
+            return;
+        }
+
+        auto* assets = Core::GetEngine().GetAssetIDManager();
+        std::shared_ptr<Filesystem::AssetInfos> info = assets->GetAssetFromID(assets->GetIDFromNameInProject(pathInProject));
+
+        if (!info || info->baseInfos.nameInProject != pathInProject)
+        {
+            m_SkyboxError = "Unknown asset : " + pathInProject;
+            return;
+        }
+
+        if (info->baseInfos.type != Filesystem::Type::T_IMAGE)
+        {
+            m_SkyboxError = pathInProject + " isn't an image.";
+            return;
+        }
+
+        if (pathInProject == level->GetSkyboxPath())
+            return;
+
+        if (!level->SetSkybox(pathInProject))
+        {
+            m_SkyboxError = "Couldn't use " + pathInProject + " as a skybox : it must be an equirectangular RGB image (see the console).";
+            return;
+        }
+
+        level->SetDirty(true);
+    }
+
+    void LevelSettingsPanel::DrawSkyboxSection(Levels::Level* level)
+    {
+        if (!ImGui::TreeNodeEx("Skybox", ImGuiTreeNodeFlags_DefaultOpen | ImGuiTreeNodeFlags_Framed))
+            return;
+
+        // A different level is now shown - drop the previous one's half-typed text and error.
+        if (level != m_LastLevel)
+        {
+            m_LastLevel = level;
+            m_SkyboxInputActive = false;
+            m_SkyboxError.clear();
+        }
+
+        if (!m_SkyboxInputActive)
+            m_SkyboxInput = level->GetSkyboxPath();
+
+        char buffer[256];
+        strncpy(buffer, m_SkyboxInput.c_str(), sizeof(buffer) - 1);
+        buffer[sizeof(buffer) - 1] = '\0';
+
+        const float clearWidth = ImGui::GetFrameHeight();
+
+        ImGui::AlignTextToFramePadding();
+        ImGui::TextUnformatted("Skybox file");
+        ImGui::SameLine();
+
+        ImGui::SetNextItemWidth(-(clearWidth + ImGui::GetStyle().ItemSpacing.x));
+        const bool submitted = ImGui::InputTextWithHint("##SkyboxFile", "None - drop an image here", buffer, sizeof(buffer),
+                                                        ImGuiInputTextFlags_EnterReturnsTrue | ImGuiInputTextFlags_AutoSelectAll);
+        m_SkyboxInputActive = ImGui::IsItemActive();
+        if (m_SkyboxInputActive)
+            m_SkyboxInput = buffer;
+
+        if (ImGui::IsItemHovered())
+            ImGui::SetTooltip("Equirectangular image used as the level's sky and image-based lighting.\nDrag one from the asset browser, or type its path and press Enter.");
+
+        if (submitted)
+            ApplySkybox(level, buffer);
+
+        // Same drag-and-drop the Properties panel's asset fields accept.
+        if (ImGui::BeginDragDropTarget())
+        {
+            std::vector<std::string> dropped = DragDrop::AcceptAssetDragDropPayload();
+            if (!dropped.empty())
+                ApplySkybox(level, dropped[0]);
+            ImGui::EndDragDropTarget();
+        }
+
+        ImGui::SameLine();
+
+        ImGui::BeginDisabled(level->GetSkyboxPath().empty());
+        if (ImGui::Button((std::string(ICON_LC_X) + "##ClearSkybox").c_str(), ImVec2(clearWidth, clearWidth)))
+            ApplySkybox(level, "");
+        ImGui::EndDisabled();
+
+        if (ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled))
+            ImGui::SetTooltip("Remove the skybox");
+
+        if (!m_SkyboxError.empty())
+        {
+            ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(0.95f, 0.45f, 0.40f, 1.0f));
+            ImGui::TextWrapped("%s", m_SkyboxError.c_str());
+            ImGui::PopStyleColor();
+        }
+
+        ImGui::TreePop();
+    }
+
     void LevelSettingsPanel::DrawRenderingCategory()
     {
         Levels::Level* level = GetEngine().GetLevelManager()->GetLevelAt(0);
@@ -65,6 +175,8 @@ namespace Shard::Editor::GUI{
             return;
 
         ImGui::Indent();
+
+        DrawSkyboxSection(level);
 
         // Ambient - see the comment on Level::ambientIntensity/lit.frag's SampleSSAO for the exact
         // semantics : an additive light floor always present, even with zero real lights/DDGI/IBL.
@@ -75,9 +187,6 @@ namespace Shard::Editor::GUI{
             ImGui::TreePop();
         }
 
-        // Screen-space ambient occlusion (see SSAOManager) - the 3 render passes always run regardless
-        // of ssaoEnabled (see the field's own comment in level.hpp), so this checkbox is a cheap,
-        // instant toggle rather than something that (de)registers passes.
         if (ImGui::TreeNodeEx("Screen-Space Ambient Occlusion", ImGuiTreeNodeFlags_DefaultOpen | ImGuiTreeNodeFlags_Framed))
         {
             if (ImGui::Checkbox("Enabled", &level->ssaoEnabled))
@@ -89,12 +198,7 @@ namespace Shard::Editor::GUI{
             bool changed = false;
             changed |= ImGui::DragFloat("Radius", &level->ssaoRadius, 0.01f, 0.01f, 5.0f);
             changed |= ImGui::DragFloat("Bias", &level->ssaoBias, 0.001f, 0.0f, 0.5f);
-            // Power > 1 darkens occluded areas more aggressively (see ssao.frag) - this is what
-            // makes the effect actually read as contact shadowing rather than a faint gray wash.
             changed |= ImGui::DragFloat("Power", &level->ssaoPower, 0.05f, 0.5f, 6.0f);
-            // Allowed past 1.0 as an amplification knob - SampleSSAO's mix() extrapolates beyond
-            // the raw (already power-curved) AO value and clamps the result, so this can push the
-            // effect further without re-running the SSAO passes themselves.
             changed |= ImGui::DragFloat("Intensity", &level->ssaoIntensity, 0.01f, 0.0f, 3.0f);
 
             if (changed)

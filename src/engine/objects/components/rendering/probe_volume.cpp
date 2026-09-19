@@ -8,9 +8,16 @@
 #include "engine/objects/actors/actor.hpp"
 
 #include "engine/core/engine.hpp"
+#include "engine/core/resources/resources_manager.hpp"
 #include "engine/filesystem/assetID.hpp"
+#include "engine/projects/project.hpp"
+#include "engine/serialization/assets/asset_database_serializer.hpp"
+#include "engine/debugging/logger.hpp"
 
 #include <glm/gtc/matrix_transform.hpp>
+
+#include <cctype>
+#include <filesystem>
 
 #include "probe_volume.reflection.hpp"
 
@@ -109,8 +116,25 @@ namespace Shard::Engine::Objects::Components{
         if(parent && parent->level && parent->level->IsLoaded())
         {
             auto probeManager = GetEngineContext()->GetRenderer()->GetProbeManager();
-            probeManager->RebuildScene(parent->level);
-            probeManager->AddActiveVolume(this);
+            auto* resources = GetEngineContext()->GetResourcesManager();
+
+            // Normally the level's asset prefetcher already decoded the bake on a worker thread and it is
+            // waiting in the resource cache - this only reads the file itself if it isn't (a volume
+            // activated from the editor after the level loaded, ...).
+            std::shared_ptr<const Rendering::ProbeBakeData> baked;
+            if(!bakedData.empty())
+                baked = resources->GetProbeBake(bakedData);
+
+            if(!probeManager->AddActiveVolume(this, baked))
+            {
+                // Live volume (never baked, or its bake is out of date) : it traces against a scene, which
+                // is the expensive part a baked volume gets to skip entirely.
+                probeManager->RebuildScene(parent->level);
+            }
+
+            // Uploaded (or refused) - either way the CPU copy has served its purpose.
+            if(!bakedData.empty())
+                resources->UnloadProbeBake(bakedData);
         }
     }
 
@@ -157,7 +181,19 @@ namespace Shard::Engine::Objects::Components{
         if (name == "halfExtent" || name == "probeCounts" || name == "raysPerProbe" || name == "enableRelocation")
         {
             if(parent && parent->level && parent->level->IsLoaded())
-                GetEngineContext()->GetRenderer()->GetProbeManager()->RebuildGrid(this);
+            {
+                auto probeManager = GetEngineContext()->GetRenderer()->GetProbeManager();
+                const bool wasBaked = probeManager->IsVolumeBaked(this);
+
+                // Any of these fields invalidates baked data - it was traced on the old grid - so the
+                // rebuild always leaves the volume live (see ProbeManager::RebuildGrid()). bakedData is
+                // left alone : the file is now merely out of date, and the next bake overwrites it.
+                probeManager->RebuildGrid(this);
+
+                // A baked volume never needed a scene, so it may have none. A live one does.
+                if(wasBaked)
+                    probeManager->RebuildScene(parent->level);
+            }
         }
     }
 
@@ -202,6 +238,12 @@ namespace Shard::Engine::Objects::Components{
         if (componentData.contains("enableRelocation") && componentData["enableRelocation"].is_boolean())
             enableRelocation = componentData["enableRelocation"].get<bool>();
 
+        // Set before Activate() below, which is what consumes it.
+        if (componentData.contains("bakedData") && componentData["bakedData"].is_string())
+            bakedData = componentData["bakedData"].get<std::string>();
+        else
+            bakedData.clear();
+
         if (componentData.contains("active") && componentData["active"].is_boolean() && componentData["active"].get<bool>())
             Activate();
         else
@@ -228,12 +270,135 @@ namespace Shard::Engine::Objects::Components{
         comp["indirectIntensity"] = indirectIntensity;
         comp["enableRelocation"] = enableRelocation;
 
+        if (!bakedData.empty())
+            comp["bakedData"] = bakedData;
+
         return comp;
     }
 
     std::shared_ptr<Component> ProbeVolume::Clone() const
     {
-        return Object::Create<ProbeVolume>(*this);
+        std::shared_ptr<ProbeVolume> clone = Object::Create<ProbeVolume>(*this);
+
+        // A copy is a different volume : if it kept the reference, baking either of the two would
+        // overwrite the file the other one is still loading.
+        clone->bakedData.clear();
+
+        return clone;
+    }
+
+    namespace {
+        // Keeps a level/actor name usable as part of a file name on every platform.
+        std::string SanitizeForFileName(const std::string& name)
+        {
+            std::string out;
+            out.reserve(name.size());
+            for (unsigned char c : name)
+                out.push_back((std::isalnum(c) || c == '-' || c == '_') ? (char)c : '_');
+            return out.empty() ? std::string("unnamed") : out;
+        }
+    }
+
+    bool ProbeVolume::Bake()
+    {
+        if (!activated || !parent || !parent->level || !parent->level->IsLoaded())
+        {
+            DEBUG_WARNING("ProbeVolume : only an active volume in a loaded level can be baked.");
+            return false;
+        }
+
+        Core::IEngineContext* engine = GetEngineContext();
+        const Filesystem::Path resRoot = engine->GetFileManager()->GetProjectResRoot();
+
+        // Re-bake : overwrite this volume's own file. First bake : a new file in the project's "probes"
+        // folder. Its name only has to be unique NOW - once written, the level file stores the full path,
+        // so it doesn't matter that actor names (or the level's) can change later.
+        std::string relative = bakedData;
+        if (relative.empty())
+        {
+            const std::string stem = "probes/" + SanitizeForFileName(parent->level->GetName()) + "_" + SanitizeForFileName(parent->GetName());
+            relative = stem + Rendering::kProbeBakeExtension;
+
+            for (int n = 2; (resRoot / relative).Exists(); n++)
+                relative = stem + "_" + std::to_string(n) + Rendering::kProbeBakeExtension;
+        }
+
+        return engine->GetRenderer()->GetProbeManager()->BeginBake(this, parent->level, resRoot / relative);
+    }
+
+    void ProbeVolume::OnBakeFinished(const Filesystem::Path& file)
+    {
+        Core::IEngineContext* engine = GetEngineContext();
+        Filesystem::FileManager* fileManager = engine->GetFileManager();
+
+        const std::string nameInProject = fileManager->GetFileInfos(file).nameInProject;
+        if (nameInProject.empty())
+        {
+            DEBUG_ERROR("ProbeVolume : baked to '" + file.full + "', which is outside the project's resources - the level cannot reference it.");
+            return;
+        }
+
+        // The asset database is otherwise only read at project load, so without this the file has no ID
+        // and the next level load couldn't resolve its path.
+        fileManager->RegisterAsset(file);
+
+        bakedData = nameInProject;
+
+        // A previous bake of this volume may still be cached (CPU side) from an earlier load.
+        engine->GetResourcesManager()->UnloadProbeBake(bakedData);
+
+        // Written straight away rather than at project shutdown, so a crash between here and then can't
+        // leave a saved level pointing at a file the database has never heard of.
+        if (auto project = engine->GetCurrentProject())
+            Serialization::SerializeAssetDataBase(project->GetAssetDatabasePath());
+
+        if (parent && parent->level)
+            parent->level->SetDirty(true);
+
+        DEBUG_INFO("ProbeVolume : baked GI probes saved to " + bakedData + " - save the level to keep the reference.");
+    }
+
+    void ProbeVolume::ClearBake()
+    {
+        Core::IEngineContext* engine = GetEngineContext();
+
+        if (!bakedData.empty())
+        {
+            Filesystem::AssetIDManager* assetManager = engine->GetAssetIDManager();
+
+            std::error_code ec;
+            std::filesystem::remove((engine->GetFileManager()->GetProjectResRoot() / bakedData).full, ec);
+
+            Filesystem::AssetID id = assetManager->GetIDFromNameInProject(bakedData);
+            std::shared_ptr<Filesystem::AssetInfos> info = assetManager->GetAssetFromID(id);
+            if (info && info->baseInfos.nameInProject == bakedData)
+            {
+                assetManager->DestroyID(id);
+
+                if (auto project = engine->GetCurrentProject())
+                    Serialization::SerializeAssetDataBase(project->GetAssetDatabasePath());
+            }
+
+            engine->GetResourcesManager()->UnloadProbeBake(bakedData);
+            bakedData.clear();
+        }
+
+        if (parent && parent->level)
+        {
+            parent->level->SetDirty(true);
+
+            // A baked volume was running without a scene - back to live means it needs one again. (A
+            // volume that was merely out of date is already live and already has its scene.)
+            if (activated && parent->level->IsLoaded())
+            {
+                auto probeManager = engine->GetRenderer()->GetProbeManager();
+                if (probeManager->IsVolumeBaked(this))
+                {
+                    probeManager->RebuildGrid(this);
+                    probeManager->RebuildScene(parent->level);
+                }
+            }
+        }
     }
 
 }

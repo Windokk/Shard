@@ -109,12 +109,6 @@ namespace Shard::Engine::Rendering {
 
         renderer->AddRenderPass(rawPass, "SSAORawPass", {"SSAODepthNormalPass"});
 
-        DrawCommand ssaoCmd{};
-        ssaoCmd.fullscreenTri = true;
-        ssaoCmd.bindCameraState = false;
-        ssaoCmd.material = m_SSAOMaterial;
-        renderer->AddOrUpdateCommands({ssaoCmd}, {"SSAORawPass"}, false);
-
         // ---- Blur pass (full-screen triangle sampling the raw AO pass) ----
 
         m_BlurShader = Core::GetEngine().GetResourcesManager()->GetShader("shaders/ssao/ssao_blur");
@@ -138,15 +132,26 @@ namespace Shard::Engine::Rendering {
         blurPass->barrierAfter = MemoryBarrierBit::TextureFetch;
 
         renderer->AddRenderPass(blurPass, "SSAOBlurPass", {"SSAORawPass"});
+        renderer->AddDependencyToPass("ForwardPass", "SSAOBlurPass");
+
+        SubmitFullscreenCommands(renderer);
+
+        BuildKernelAndNoise();
+    }
+
+    void SSAOManager::SubmitFullscreenCommands(Renderer* renderer)
+    {
+        DrawCommand ssaoCmd{};
+        ssaoCmd.fullscreenTri = true;
+        ssaoCmd.bindCameraState = false;
+        ssaoCmd.material = m_SSAOMaterial;
+        renderer->AddOrUpdateCommands({ssaoCmd}, {"SSAORawPass"}, false);
 
         DrawCommand blurCmd{};
         blurCmd.fullscreenTri = true;
         blurCmd.bindCameraState = false;
         blurCmd.material = m_BlurMaterial;
         renderer->AddOrUpdateCommands({blurCmd}, {"SSAOBlurPass"}, false);
-        renderer->AddDependencyToPass("ForwardPass", "SSAOBlurPass");
-
-        BuildKernelAndNoise();
     }
 
     void SSAOManager::BuildKernelAndNoise()

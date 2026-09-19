@@ -274,6 +274,12 @@ vec3 TraceAndShadeDirect(vec3 ro, vec3 rd, out float outHitDist, out float outVa
         if ((mat.textureFlags & TEX_ROUGHNESS_BIT) != 0u)
             roughness *= texture(sampler2D(mat.roughnessTex), uv).r;
 
+        // Modulates the scalar factor already in `radiance` (same as lit.frag's emissiveMap * emissive),
+        // so an emissive texture feeds the probes - and through them the bounce light - not just the
+        // forward pass.
+        if ((mat.textureFlags & TEX_EMISSIVE_BIT) != 0u)
+            radiance *= texture(sampler2D(mat.emissiveTex), uv).rgb;
+
         if ((mat.textureFlags & TEX_NORMAL_BIT) != 0u)
         {
             vec3 tangent = normalize(attrib.t0.xyz * w0 + attrib.t1.xyz * hit.bary.x + attrib.t2.xyz * hit.bary.y);
@@ -338,7 +344,13 @@ vec3 TraceAndShadeDirect(vec3 ro, vec3 rd, out float outHitDist, out float outVa
         float NdotL = dot(n, toLight);
         if (NdotL > 0.0)
         {
-            bool occluded = TraceRayAny(hitPos + n * 1e-3, toLight, dist - 2e-3);
+            // A light authored with castShadow off is unshadowed in the forward pass (no shadow map is
+            // ever sampled for it), so its indirect light has to be unshadowed too - otherwise the probes
+            // contradict the direct lighting they are supposed to extend. The visible case : a light
+            // placed at or inside the ceiling of a room (Cornell box) lights the whole interior directly,
+            // yet every shadow ray toward it hit the ceiling here, so the probes saw no light at all and
+            // the room got no bounce or colour bleed.
+            bool occluded = (light.castShadow != 0) && TraceRayAny(hitPos + n * 1e-3, toLight, dist - 2e-3);
             if (!occluded)
             {
                 vec3 h = normalize(viewDir + toLight);

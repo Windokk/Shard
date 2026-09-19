@@ -117,6 +117,15 @@ namespace Shard::Engine::Filesystem{
 
             // File and directory browsing
             FileInfos GetFileInfos(const Path& path);
+
+            // Gives a file that was created while the editor is running (a baked probe volume, ...) an
+            // asset ID, so it can be referenced by its path in the project and loaded like any imported
+            // resource. The asset database is otherwise only read at project load, so without this a file
+            // created in-session has no ID until the next launch. No-op (returns the existing ID) if the
+            // file is already registered. Returns an ID-less AssetID if `path` is outside the engine and
+            // project resource roots.
+            AssetID RegisterAsset(const Path& path);
+
             void Init(Path projectResPath, Path engineResPath, Path projectRoot);
             std::vector<FileInfos> ListDirectory(const Path &path, std::vector<Type> acceptedExtensions, bool includeDirs = false, bool recursive = false);
 

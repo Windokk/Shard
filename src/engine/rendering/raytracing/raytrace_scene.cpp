@@ -126,67 +126,75 @@ namespace Shard::Engine::Rendering::Raytracing {
             return false;
         }
 
-        // Reads scalar parameters, then (when the material has one bound) a bindless handle for each of
-        // the 4 texture slots the raytracer understands - same sampler names the rasterizer's "lit" shader
-        // uses, so any material authored for the rasterizer picks up its textures here for free.
-        GPUMaterial ExtractMaterial(const std::shared_ptr<Material>& mat)
-        {
-            GPUMaterial gm;
+    }
 
-            if (!mat)
-                return gm;
+    // Reads scalar parameters, then (when the material has one bound) a bindless handle for each of
+    // the 5 texture slots the raytracer understands - same sampler names the rasterizer's "lit" shader
+    // uses, so any material authored for the rasterizer picks up its textures here for free.
+    GPUMaterial ExtractMaterial(const std::shared_ptr<Material>& mat)
+    {
+        GPUMaterial gm;
 
-            if (auto v = mat->GetScalarParameter("albedo"))
-            {
-                if (auto* vec3v = std::get_if<glm::vec3>(&*v))
-                    gm.albedo = glm::vec4(*vec3v, 1.0f);
-                else if (auto* vec4v = std::get_if<glm::vec4>(&*v))
-                    gm.albedo = *vec4v;
-            }
-
-            if (auto v = mat->GetScalarParameter("roughness"))
-                if (auto* f = std::get_if<float>(&*v))
-                    gm.roughness = *f;
-
-            if (auto v = mat->GetScalarParameter("metallic"))
-                if (auto* f = std::get_if<float>(&*v))
-                    gm.metallic = *f;
-
-            if (auto v = mat->GetScalarParameter("emissive"))
-            {
-                if (auto* vec3v = std::get_if<glm::vec3>(&*v))
-                    gm.emissive = glm::vec4(*vec3v, 1.0f);
-                else if (auto* f = std::get_if<float>(&*v))
-                    gm.emissive = glm::vec4(*f);
-            }
-
-            if (uint64_t h = mat->GetTextureParameter("albedo"))
-            {
-                gm.albedoTex = PackBindlessHandle(h);
-                gm.textureFlags |= GPUMaterialTexAlbedo;
-            }
-
-            if (uint64_t h = mat->GetTextureParameter("metallicMap"))
-            {
-                gm.metallicTex = PackBindlessHandle(h);
-                gm.textureFlags |= GPUMaterialTexMetallic;
-            }
-
-            if (uint64_t h = mat->GetTextureParameter("roughnessMap"))
-            {
-                gm.roughnessTex = PackBindlessHandle(h);
-                gm.textureFlags |= GPUMaterialTexRoughness;
-            }
-
-            if (uint64_t h = mat->GetTextureParameter("normalMap"))
-            {
-                gm.normalTex = PackBindlessHandle(h);
-                gm.textureFlags |= GPUMaterialTexNormal;
-            }
-
+        if (!mat)
             return gm;
+
+        if (auto v = mat->GetScalarParameter("albedo"))
+        {
+            if (auto* vec3v = std::get_if<glm::vec3>(&*v))
+                gm.albedo = glm::vec4(*vec3v, 1.0f);
+            else if (auto* vec4v = std::get_if<glm::vec4>(&*v))
+                gm.albedo = *vec4v;
         }
 
+        if (auto v = mat->GetScalarParameter("roughness"))
+            if (auto* f = std::get_if<float>(&*v))
+                gm.roughness = *f;
+
+        if (auto v = mat->GetScalarParameter("metallic"))
+            if (auto* f = std::get_if<float>(&*v))
+                gm.metallic = *f;
+
+        if (auto v = mat->GetScalarParameter("emissive"))
+        {
+            if (auto* vec3v = std::get_if<glm::vec3>(&*v))
+                gm.emissive = glm::vec4(*vec3v, 1.0f);
+            else if (auto* f = std::get_if<float>(&*v))
+                gm.emissive = glm::vec4(*f);
+        }
+
+        if (uint64_t h = mat->GetTextureParameter("albedo"))
+        {
+            gm.albedoTex = PackBindlessHandle(h);
+            gm.textureFlags |= GPUMaterialTexAlbedo;
+        }
+
+        if (uint64_t h = mat->GetTextureParameter("metallicMap"))
+        {
+            gm.metallicTex = PackBindlessHandle(h);
+            gm.textureFlags |= GPUMaterialTexMetallic;
+        }
+
+        if (uint64_t h = mat->GetTextureParameter("roughnessMap"))
+        {
+            gm.roughnessTex = PackBindlessHandle(h);
+            gm.textureFlags |= GPUMaterialTexRoughness;
+        }
+
+        if (uint64_t h = mat->GetTextureParameter("normalMap"))
+        {
+            gm.normalTex = PackBindlessHandle(h);
+            gm.textureFlags |= GPUMaterialTexNormal;
+        }
+
+        // Multiplies the `emissive` scalar above (glTF-style, same as lit.frag) rather than replacing it,
+        // so a map with no `emissive` factor stays dark here exactly as it does in the forward pass.
+        if (uint64_t h = mat->GetTextureParameter("emissiveMap"))
+        {
+            gm.emissiveTex = PackBindlessHandle(h);
+            gm.textureFlags |= GPUMaterialTexEmissive;
+        }
+
+        return gm;
     }
 
     RaytraceScene SceneBuilder::Build(Levels::Level* level)

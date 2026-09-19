@@ -10,6 +10,7 @@ namespace Shard::Engine::Rendering{
     class Renderer;
     class Mesh;
     class Texture2D;
+    struct ProbeBakeData;
     class Shader;
     class ComputeShader;
     class Material;
@@ -113,13 +114,20 @@ namespace Shard::Engine::Core::Resources{
             /// @return A shared pointer to a SoundAsset
             std::shared_ptr<Audio::SoundAsset> GetSound(std::string pathInProject);
 
+            /// @brief Retrieves a baked probe volume's CPU-side data (Tries to load it if it isn't loaded yet - normally the level prefetcher already decoded it on a worker thread, see AdoptProbeBake)
+            /// @param pathInProject The path of the .probes file in the project
+            /// @return The decoded data, or null if the file is unknown or unreadable
+            std::shared_ptr<Rendering::ProbeBakeData> GetProbeBake(const std::string& pathInProject);
+
             /// @brief Inserts an already-built mesh/texture into the cache under `pathInProject`. No-op if `pathInProject` is already cached.
             void AdoptMesh(const std::string &pathInProject, std::shared_ptr<Rendering::Mesh> mesh);
             void AdoptTexture(const std::string &pathInProject, std::shared_ptr<Rendering::Texture2D> texture);
+            void AdoptProbeBake(const std::string &pathInProject, std::shared_ptr<Rendering::ProbeBakeData> probeBake);
 
-            /// @brief True if `pathInProject` is already resident in the mesh/texture cache.
+            /// @brief True if `pathInProject` is already resident in the mesh/texture/probe bake cache.
             bool HasMesh(const std::string &pathInProject) const;
             bool HasTexture(const std::string &pathInProject) const;
+            bool HasProbeBake(const std::string &pathInProject) const;
 
             /// @brief Unloads all unused dependencies of a given asset (recursively)
             /// @param assetName The name of the "root" asset
@@ -134,6 +142,9 @@ namespace Shard::Engine::Core::Resources{
             void UnloadLevel(const std::string& name);
             void UnloadSound(const std::string& name);
 
+            /// @brief Drops the CPU-side copy of a probe bake. Baked data is only needed until it has been uploaded to the GPU (or, after a re-bake, until the stale copy has to make way for the new file), so unlike textures it is not kept resident.
+            void UnloadProbeBake(const std::string& name);
+
         private:
 
             std::unordered_map<std::string, std::shared_ptr<Rendering::Mesh>> meshes;
@@ -144,6 +155,7 @@ namespace Shard::Engine::Core::Resources{
             std::unordered_map<std::string, std::shared_ptr<Rendering::Material>> materials;
             std::unordered_map<std::string, std::shared_ptr<Levels::Level>> levels;
             std::unordered_map<std::string, std::shared_ptr<Audio::SoundAsset>> sounds;
+            std::unordered_map<std::string, std::shared_ptr<Rendering::ProbeBakeData>> probeBakes;
         };
 
 }

@@ -8,6 +8,7 @@
 #include "engine/filesystem/filesystem.hpp"
 #include "engine/rendering/texture/texture.hpp"
 #include "engine/rendering/mesh/mesh.hpp"
+#include "engine/rendering/lighting/probe_bake.hpp"
 
 namespace Shard::Engine::Levels{
 
@@ -27,13 +28,14 @@ namespace Shard::Engine::Levels{
         private:
 
             enum class State { Idle, Decoding };
-            enum class DecodeKind { Texture, Mesh };
+            enum class DecodeKind { Texture, Mesh, ProbeBake };
 
             struct DecodeJob {
                 DecodeKind kind;
                 std::string pathInProject;
                 std::future<Rendering::TextureDecodeResult> textureFuture;
                 std::future<Rendering::MeshCPUData> meshFuture;
+                std::future<std::shared_ptr<Rendering::ProbeBakeData>> probeBakeFuture;
             };
 
             void ApplyAll();

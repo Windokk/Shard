@@ -117,10 +117,6 @@ namespace Shard::Engine::Rendering{
         glBindTexture(GL_TEXTURE_2D, ID);
     }
 
-    // glBindImageTexture only accepts a specific subset of sized internal formats (no 3-component or
-    // depth formats) - binding an unsupported one fails silently with a GL_INVALID_VALUE error and the
-    // shader reads/writes garbage, so this is checked explicitly instead of surfacing as a mysterious
-    // black output image later.
     static bool IsImageLoadStoreFormat(uint32_t glInternalFormat)
     {
         switch (glInternalFormat)
@@ -235,7 +231,7 @@ namespace Shard::Engine::Rendering{
             case TextureInternalFormat::R16F:
                 glSpecs.internalFormat = GL_R16F;
                 glSpecs.format = GL_RED;
-                glSpecs.type = GL_FLOAT;
+                glSpecs.type = spec.halfFloatPixelData ? GL_HALF_FLOAT : GL_FLOAT;
                 break;
 
             // RG
@@ -248,7 +244,7 @@ namespace Shard::Engine::Rendering{
             case TextureInternalFormat::RG16F:
                 glSpecs.internalFormat = GL_RG16F;
                 glSpecs.format = GL_RG;
-                glSpecs.type = GL_FLOAT;
+                glSpecs.type = spec.halfFloatPixelData ? GL_HALF_FLOAT : GL_FLOAT;
                 break;
 
             // RGB
@@ -262,7 +258,7 @@ namespace Shard::Engine::Rendering{
             case TextureInternalFormat::RGB16F:
                 glSpecs.internalFormat = GL_RGB16F;
                 glSpecs.format = GL_RGB;
-                glSpecs.type = GL_FLOAT;
+                glSpecs.type = spec.halfFloatPixelData ? GL_HALF_FLOAT : GL_FLOAT;
                 break;
 
             case TextureInternalFormat::RGB32F:
@@ -288,7 +284,7 @@ namespace Shard::Engine::Rendering{
             case TextureInternalFormat::RGBA16F:
                 glSpecs.internalFormat = GL_RGBA16F;
                 glSpecs.format = GL_RGBA;
-                glSpecs.type = GL_FLOAT;
+                glSpecs.type = spec.halfFloatPixelData ? GL_HALF_FLOAT : GL_FLOAT;
                 break;
 
             case TextureInternalFormat::RGBA32F:

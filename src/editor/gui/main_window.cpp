@@ -687,16 +687,22 @@ namespace Shard::Editor::Core{
         if(!probeManager)
             return;
 
-        // One long-lived progress notification, opened when a scene build starts and closed when it
-        // finishes. The handles survive across frames; 0 means "no notification currently open".
+        // One long-lived progress notification, opened when a scene build (or a full probe bake, which
+        // includes one) starts and closed when it finishes. The handles survive across frames; 0 means
+        // "no notification currently open".
         static GUI::Notifications::ProgressId probeBuildNotif = 0;
         static bool tracking = false;
+        static bool trackingBake = false; // what the open notification is tracking, to word its ending
 
-        if(probeManager->IsSceneBuilding())
+        // A bake reports its own combined progress (scene build + tracing) and takes over from the plain
+        // scene-build one, which it would otherwise duplicate.
+        const bool baking = probeManager->IsBaking();
+
+        if(baking || probeManager->IsSceneBuilding())
         {
-            const float progress = std::clamp(probeManager->GetSceneBuildProgress(), 0.0f, 1.0f);
+            const float progress = std::clamp(baking ? probeManager->GetBakeProgress() : probeManager->GetSceneBuildProgress(), 0.0f, 1.0f);
             const int percent = (int)std::lround(progress * 100.0f);
-            const std::string message = std::string(probeManager->GetSceneBuildPhase())
+            const std::string message = std::string(baking ? probeManager->GetBakePhase() : probeManager->GetSceneBuildPhase())
                 + " - " + std::to_string(percent) + "%";
 
             if(!tracking)
@@ -708,11 +714,23 @@ namespace Shard::Editor::Core{
             {
                 GUI::Notifications::UpdateProgress(probeBuildNotif, progress, message);
             }
+
+            trackingBake = trackingBake || baking;
         }
         else if(tracking)
         {
-            GUI::Notifications::EndProgress(probeBuildNotif, true, "GI probe scene ready");
+            if(trackingBake)
+            {
+                const bool ok = probeManager->DidLastBakeSucceed();
+                GUI::Notifications::EndProgress(probeBuildNotif, ok, ok ? "GI probes baked - save the level to keep them" : "GI probe bake failed - see the log");
+            }
+            else
+            {
+                GUI::Notifications::EndProgress(probeBuildNotif, true, "GI probe scene ready");
+            }
+
             tracking = false;
+            trackingBake = false;
             probeBuildNotif = 0;
         }
     }

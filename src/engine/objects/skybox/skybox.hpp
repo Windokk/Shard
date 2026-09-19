@@ -33,6 +33,10 @@ namespace Shard::Engine::Objects
             /// won't re-run the constructor that first added it.
             void CreateDrawCommands();
 
+            /// @brief Removes the skybox's draw command from the ForwardPass, so a skybox that is being
+            /// dropped from its level stops rendering. No-op if it was never submitted.
+            void RemoveDrawCommands();
+
         private:
 
             std::shared_ptr<Rendering::EnvironmentMap> m_EnvMap;

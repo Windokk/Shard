@@ -109,6 +109,14 @@ namespace Shard::Engine::Rendering {
         // practice for a texture a compute shader will bind as an image (BindImage) - it pins down a
         // fixed format/mip count up front, which is what image load/store needs to stay well-defined.
         bool immutableStorage = false;
+
+        // The pixel data handed to Texture2D::Create() and returned by ReadPixels() is packed 16-bit
+        // half floats (GL_HALF_FLOAT) instead of the 32-bit floats every *16F format uses by default.
+        // Only meaningful for R16F/RG16F/RGB16F/RGBA16F. Lets a half-float texture be saved to and
+        // restored from disk byte-for-byte (see ProbeBakeData) with no float<->half conversion, and makes
+        // GetPixelDataSize() the true readback size - with the default float path it under-reports a
+        // *16F texture's ReadPixels() output by half.
+        bool halfFloatPixelData = false;
     };
 
     // Result of decoding an image file into CPU memory, with no GL calls involved - safe to produce

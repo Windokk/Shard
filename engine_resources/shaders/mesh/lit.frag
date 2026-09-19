@@ -110,11 +110,27 @@ layout(binding = 20) uniform sampler2D spotShadowMaps[10];
 
 layout(binding = 30) uniform samplerCubeArray pointShadowMapArray;
 
+// Emission map - a material texture slot like albedo/metallicMap/roughnessMap/normalMap, so it has to be
+// a real sampler (GLMaterial::Bind binds material textures per unit, by this binding) rather than a
+// bindless handle like ssaoTextureHandle. Parked on unit 31, the last of the 32 units : 0-30 are all taken
+// above, so there is NO free unit left - a new sampler means freeing one first (e.g. shrinking the
+// cascade/spot/point shadow ranges), not just picking a number.
+layout(binding = 31) uniform sampler2D emissiveMap;
+
 // PBR values
 const float PI = 3.141592653589793;
 uniform float metallic;
 uniform float roughness;
 uniform float ambientIntensity;
+
+// Self-illumination, glTF-style : emissiveMap.rgb * emissive, so `emissive` is the colour/intensity factor
+// (values above 1 are fine - the scene is HDR) and an unset material stays non-emissive (factor 0). The
+// default emissiveMap is white (see GLMaterial::GetDefaultTexture), which makes a plain `emissive` value
+// with no map a flat glow, and a map alone - with no `emissive` set - deliberately show nothing, same as
+// metallic/roughness need their scalar alongside their maps. Reset to 0 before every draw by
+// GLRendererAPI::BindLevelState (a persistent program uniform would otherwise leak from one material into
+// the next).
+uniform vec3 emissive;
 
 // Screen-space ambient occlusion (see SSAOManager) - ssaoTextureHandle is a bindless texture handle
 // (low/high 32 bits of an ARB_bindless_texture handle), reconstructed into a
@@ -298,15 +314,23 @@ vec2 DDGI_SampleDistance(int v, int probeIndex, vec3 dir) {
     return DDGI_SampleDistanceAtlas(v, uv);
 }
 
-// Index of the smallest active volume whose grid AABB contains p, or -1 if none does. "Smallest" =
+// Index of the smallest active volume whose box contains p, or -1 if none does. "Smallest" =
 // smallest cell volume, so a dense local ProbeVolume nested inside a coarse room-scale one wins for
 // points it covers, with no explicit priority field (see ProbeVolume's header comment).
+//
+// "Box" is the volume's FULL extent (halfExtent around its centre), not the AABB of the probe positions :
+// ProbeVolume::GetGridOrigin() insets the lattice by half a cell so no probe sits exactly on a room's wall,
+// which is exactly why a volume is meant to be sized flush against the room - so the walls, floor and
+// ceiling lie in that outer half cell. Testing against the lattice AABB alone rejected every one of those
+// surfaces (no GI at all - black for anything without env reflections, the sudden cut in luminosity where
+// the lattice ends). DDGI_SampleVolume clamps to the outermost probe layer there, which is the intended
+// behaviour for the outer half cell.
 int DDGI_PickVolume(vec3 p) {
     int best = -1;
     float bestCell = 1e30;
     for (int v = 0; v < ddgi_volumeCount; v++) {
-        vec3 gmin = ddgi_gridOrigin[v];
-        vec3 gmax = gmin + ddgi_gridSpacing[v] * max(ddgi_probeCounts[v] - 1.0, vec3(0.0));
+        vec3 gmin = ddgi_gridOrigin[v] - ddgi_gridSpacing[v] * 0.5;
+        vec3 gmax = ddgi_gridOrigin[v] + ddgi_gridSpacing[v] * (max(ddgi_probeCounts[v] - 1.0, vec3(0.0)) + 0.5);
         if (all(greaterThanEqual(p, gmin)) && all(lessThanEqual(p, gmax))) {
             float cell = ddgi_gridSpacing[v].x * ddgi_gridSpacing[v].y * ddgi_gridSpacing[v].z;
             if (cell < bestCell) { bestCell = cell; best = v; }
@@ -315,47 +339,63 @@ int DDGI_PickVolume(vec3 p) {
     return best;
 }
 
-// Trilinearly blends the 8 probes of volume `v` surrounding worldPos, sampling each one TWICE - once
-// toward N (`outDiffuse`, the cosine-lobe irradiance a diffuse surface receives) and once toward
-// `specDir` (`outSpecular`, the same data read as incoming radiance from the reflection direction).
-// Both share one loop on purpose : a probe's weight depends only on where the shading point is relative
-// to that probe, never on which direction the tile is then read in, so the expensive half - eight
-// Chebyshev visibility lookups into the distance atlas - is paid once instead of twice.
+// Blends the 3x3x3 probes of volume `v` around worldPos with a quadratic B-spline, sampling each one
+// TWICE - once toward N (`outDiffuse`, the cosine-lobe irradiance a diffuse surface receives) and once
+// toward `specDir` (`outSpecular`, the same data read as incoming radiance from the reflection
+// direction). Both share one loop on purpose : a probe's weight depends only on where the shading point
+// is relative to that probe, never on which direction the tile is then read in, so the expensive half -
+// the Chebyshev visibility lookups into the distance atlas - is paid once instead of twice.
 //
-// Each probe's trilinear grid weight is scaled by DDGI_VisibilityWeight (occluded probe -> ~0) and by
-// the probe's classification flag (probe embedded in geometry -> 0), and every probe position includes
-// its relocation offset (see DDGI_ProbeState / probe_relocate.comp).
+// Each probe's spline weight is scaled by DDGI_VisibilityWeight (occluded probe -> ~0), by the probe's
+// classification flag (probe embedded in geometry -> 0) and by a back-face weight; every probe position
+// includes its relocation offset (see DDGI_ProbeState / probe_relocate.comp).
 void DDGI_SampleVolume(int v, vec3 worldPos, vec3 N, vec3 specDir, out vec3 outDiffuse, out vec3 outSpecular) {
     // Bias the sampled position off the surface along its normal before gridding, same as
-    // probe_trace.comp's SampleIndirect (see that function's comment) - kept in sync since they're
-    // sibling copies of the same trilinear-probe-blend logic (one feeding the next bounce, this one
-    // shading what the player actually sees). Missing this bias here used to mean the *final* shaded
-    // pixel sampled the grid right at the surface it sits on, which is far more prone to picking up the
-    // wrong side of a nearby occlusion boundary than the (correctly biased) bounce-feedback path was -
-    // most visible as weak/missing colored bounce light right where two differently-tinted surfaces
-    // meet (e.g. a colored curtain near the floor).
+    // probe_trace.comp's SampleIndirect (see that function's comment) - the bias is kept in sync since
+    // they're sibling lookups (one feeding the next bounce, this one shading what the player actually
+    // sees). The blend kernel is NOT shared : SampleIndirect stays a cheap 8-tap trilinear blend, because
+    // its result is re-averaged by the bounce loop and never seen directly, so its creases don't show;
+    // only this final-pixel path needs the smoother, costlier B-spline below.
+    //
+    // Missing this bias here used to mean the *final* shaded pixel sampled the grid right at the surface it
+    // sits on, which is far more prone to picking up the wrong side of a nearby occlusion boundary than the
+    // (correctly biased) bounce-feedback path was - most visible as weak/missing colored bounce light right
+    // where two differently-tinted surfaces meet (e.g. a colored curtain near the floor).
     vec3 biasedPos = worldPos + N * (0.25 * min(min(ddgi_gridSpacing[v].x, ddgi_gridSpacing[v].y), ddgi_gridSpacing[v].z));
 
     vec3 gridPos = (biasedPos - ddgi_gridOrigin[v]) / max(ddgi_gridSpacing[v], vec3(1e-4));
-    vec3 base = floor(gridPos);
-    vec3 frac = clamp(gridPos - base, 0.0, 1.0);
+
+    // Quadratic B-spline blend over the 3x3x3 probes around the NEAREST lattice node, not a 2x2x2 trilinear
+    // blend of the enclosing cell. A 2-tap blend can't be smooth : plain trilinear weights are C0, so the
+    // light has a slope jump on every lattice plane (creases, a "cross" through any glow spanning a couple
+    // of probes), and easing them (smoothstep) forces the slope to ZERO at every plane, which turns a
+    // gradient into a staircase of plateaus with steep risers - visible as vertical/horizontal banding on a
+    // flat wall. The quadratic B-spline is C1 with a non-zero slope through the nodes, so the field moves
+    // continuously with no terraces and no creases. Cost : up to 27 probes per fragment instead of 8 (taps
+    // whose weight is exactly 0 - i.e. everything but a 2x2x2 block when the point sits half-way between two
+    // nodes - are skipped below). The weights are the standard (0.5(.5-d)^2, .75-d^2, 0.5(.5+d)^2) for
+    // d in [-0.5, 0.5) from the nearest node, and always sum to 1 per axis.
+    vec3 nearest = floor(gridPos + 0.5);
+    vec3 d = gridPos - nearest;
+    vec3 tapWeights[3] = vec3[](0.5 * (0.5 - d) * (0.5 - d), 0.75 - d * d, 0.5 * (0.5 + d) * (0.5 + d));
+
+    vec3 maxCoord = max(ddgi_probeCounts[v] - 1.0, 0.0);
+    int rowStride = int(ddgi_probeCounts[v].x);
+    int layerStride = int(ddgi_probeCounts[v].x) * int(ddgi_probeCounts[v].y);
 
     vec3 irradiance = vec3(0.0);
     vec3 specRadiance = vec3(0.0);
     float totalWeight = 0.0;
 
-    for (int i = 0; i < 8; i++) {
-        vec3 offset = vec3(float(i & 1), float((i >> 1) & 1), float((i >> 2) & 1));
-        vec3 probeCoord = clamp(base + offset, vec3(0.0), max(ddgi_probeCounts[v] - 1.0, 0.0));
-
-        vec3 w = mix(1.0 - frac, frac, offset);
-        float trilinearWeight = w.x * w.y * w.z;
-        if (trilinearWeight <= 0.0)
+    for (int i = 0; i < 27; i++) {
+        ivec3 tap = ivec3(i % 3, (i / 3) % 3, i / 9);
+        float kernelWeight = tapWeights[tap.x].x * tapWeights[tap.y].y * tapWeights[tap.z].z;
+        if (kernelWeight <= 0.0)
             continue;
 
-        int probeIndex = int(probeCoord.x)
-            + int(probeCoord.y) * int(ddgi_probeCounts[v].x)
-            + int(probeCoord.z) * int(ddgi_probeCounts[v].x) * int(ddgi_probeCounts[v].y);
+        // Off the lattice edge the outermost probe layer is reused (clamp), so the field goes flat there.
+        vec3 probeCoord = clamp(nearest + vec3(tap - 1), vec3(0.0), maxCoord);
+        int probeIndex = int(probeCoord.x) + int(probeCoord.y) * rowStride + int(probeCoord.z) * layerStride;
 
         vec4 state = DDGI_ProbeState(v, probeIndex);
         if (state.w <= 0.0) // probe classified as embedded in geometry
@@ -370,7 +410,25 @@ void DDGI_SampleVolume(int v, vec3 worldPos, vec3 N, vec3 specDir, out vec3 outD
         vec3 dirToPoint = toPoint / max(distToPoint, 1e-5);
 
         float visWeight = DDGI_VisibilityWeight(DDGI_SampleDistance(v, probeIndex, dirToPoint), distToPoint);
-        float weight = trilinearWeight * visWeight;
+
+        // Smooth back-face weight : a probe on the far side of the surface being shaded (behind the wall)
+        // fades out instead of leaking dark/wrong light through it. Chebyshev alone can't do this - it is
+        // fooled by rays that graze an edge or miss into the sky, and the 3x3x3 footprint reaches one probe
+        // layer further than the old 2x2x2 one, so it needs the extra guard. Continuous in the probe's
+        // position, so it adds no seams. Measured from the unbiased point : that's the real surface.
+        //
+        // Known limit : valid probes OUTSIDE a room (one layer past an embedded wall/ceiling layer) are dark
+        // and Chebyshev can't see the wall between them and the room, so they darken the last ~0.5 units
+        // before a wall/ceiling junction - a smooth vignette. Do NOT "fix" that by fading taps that lie behind
+        // an embedded probe on the lattice : that rule flips on/off as the shading point crosses the embedded
+        // probe's plane and shows up as a hard seam across every surface (tried; a wide ramp only trades the
+        // seam for a corner discontinuity). The real cure is a volume that fits the room, so no probe layer
+        // sits outside it.
+        vec3 toProbe = probeWorldPos - worldPos;
+        float facing = dot(toProbe, N) / max(length(toProbe), 1e-5);
+        float backfaceWeight = (facing * 0.5 + 0.5) * (facing * 0.5 + 0.5);
+
+        float weight = kernelWeight * visWeight * backfaceWeight;
         if (weight <= 0.0)
             continue;
 
@@ -656,6 +714,10 @@ void main() {
     // purely a lit.frag-side gate, off is a no-op.
     ambientDiffuse = SampleSSAO(ambientDiffuse);
 
-    vec3 lighting = result + ambientDiffuse + specularIBL;
+    // Emission is light the surface itself gives off, so it goes on after everything else and is not
+    // touched by SSAO, shadows or the material's albedo/metallic - it doesn't depend on any incoming light.
+    vec3 emission = texture(emissiveMap, texCoord).rgb * emissive;
+
+    vec3 lighting = result + ambientDiffuse + specularIBL + emission;
     fragColor = vec4(lighting, baseColor.a);
 }

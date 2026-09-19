@@ -10,6 +10,7 @@
 #include "editor/gui/IconsLucide.h"
 
 #include <glm/glm.hpp>
+#include <cmath>
 #include <type_traits>
 #include <unordered_map>
 #include <algorithm>
@@ -24,15 +25,14 @@
 #include "engine/objects/components/rendering/probe_volume.hpp"
 #include "engine/objects/components/physics/physics_body.hpp"
 #include "engine/objects/components/core/registry/component_registry.hpp"
+#include "engine/rendering/renderer/renderer.hpp"
+#include "engine/rendering/lighting/probe_manager.hpp"
 
 using namespace Shard::Engine::Objects;
 using namespace Shard::Engine::Objects::Components;
 
 namespace Shard::Editor::GUI{
 
-    // Any actor/component edit made through this panel (field edits, add/remove component, shape
-    // add/remove/param edits) marks the currently loaded level dirty, so the "unsaved changes"
-    // warning popup knows to fire before the level is replaced/unloaded (see editor/gui/popups.hpp).
     static void MarkLevelDirty()
     {
         if (auto* level = Engine::Core::GetEngine().GetLevelManager()->GetLevelAt(0))
@@ -440,6 +440,69 @@ namespace Shard::Editor::GUI{
         }
     }
 
+    void DrawProbeVolumeBake(std::shared_ptr<Component> comp)
+    {
+        auto volume = std::dynamic_pointer_cast<ProbeVolume>(comp);
+        if (!volume)
+            return;
+
+        auto probeManager = Engine::Core::GetEngine().GetRenderer()->GetProbeManager();
+        if (!probeManager)
+            return;
+
+        ImGui::Separator();
+        ImGui::Text("Baked GI");
+
+        const bool baking = probeManager->IsBaking();
+        const bool bakingThis = probeManager->GetBakingVolume() == volume.get();
+        const bool baked = probeManager->IsVolumeBaked(volume.get());
+        const bool hasFile = !volume->bakedData.empty();
+
+        if (bakingThis)
+        {
+            ImGui::TextDisabled("Baking - %s (%d%%)", probeManager->GetBakePhase(), (int)std::lround(probeManager->GetBakeProgress() * 100.0f));
+        }
+        else if (baked)
+        {
+            ImGui::TextDisabled("Baked : %s", volume->bakedData.c_str());
+            ImGui::TextDisabled("Static - re-bake to pick up lighting or geometry changes.");
+        }
+        else if (hasFile)
+        {
+            ImGui::TextColored(ImVec4(0.95f, 0.75f, 0.30f, 1.0f), "%s is out of date - running live.", volume->bakedData.c_str());
+        }
+        else
+        {
+            ImGui::TextDisabled("Live (not baked) - traced every frame.");
+        }
+
+        // Only an active volume in the loaded level can be baked (it needs its GPU grid), and only one
+        // bake runs at a time.
+        ImGui::BeginDisabled(baking || !volume->Active());
+        if (ImGui::Button((std::string(baked || hasFile ? "Re-bake" : "Bake") + "##ProbeVolumeBake").c_str()))
+            volume->Bake();
+        ImGui::EndDisabled();
+
+        if (ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled))
+            ImGui::SetTooltip("Traces this volume to convergence and saves the result next to the level,\nso it loads instantly instead of being recomputed on every level load.");
+
+        if (hasFile)
+        {
+            ImGui::SameLine();
+
+            ImGui::BeginDisabled(baking);
+            if (ImGui::Button("Delete Bake##ProbeVolumeBake"))
+            {
+                volume->ClearBake();
+                MarkLevelDirty();
+            }
+            ImGui::EndDisabled();
+
+            if (ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled))
+                ImGui::SetTooltip("Deletes the baked file and puts this volume back on live, real-time updates.");
+        }
+    }
+
     void PropertiesPanel::Draw(std::shared_ptr<Actor> actor)
     {
         ImGui::Begin("Properties");
@@ -666,6 +729,7 @@ namespace Shard::Editor::GUI{
             }
 
             DrawPhysicsBodyShapes(comp);
+            DrawProbeVolumeBake(comp);
         }
 
         return removeRequested;

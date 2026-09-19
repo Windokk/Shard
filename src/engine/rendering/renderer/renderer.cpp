@@ -290,6 +290,11 @@ namespace Shard::Engine::Rendering{
         m_VerticesCount = 0;
         m_PrimitivesCount = 0;
         m_DrawCallsCount = 0;
+
+        // Level-owned content is gone, but renderer-owned passes (SSAO's full-screen raw/blur draws) had
+        // their only draw command wiped along with it - put those back.
+        if(m_SSAOManager)
+            m_SSAOManager->SubmitFullscreenCommands(this);
     }
 
     uint64_t Renderer::GenerateSortKey(const DrawCommand& cmd, const uint32_t submeshID)

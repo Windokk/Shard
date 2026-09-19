@@ -90,6 +90,35 @@ namespace Shard::Engine::Filesystem{
         return infos;
     }
 
+    AssetID FileManager::RegisterAsset(const Path &path)
+    {
+        AssetIDManager* assetManager = Core::GetEngine().GetAssetIDManager();
+
+        FileInfos infos = GetFileInfos(path);
+        if(infos.nameInProject.empty()){
+            DEBUG_ERROR("Cannot register asset outside of the resource roots : " + path.full);
+            return AssetID{};
+        }
+
+        // GetFileInfos() resolves the ID by name, and an unknown name comes back as the default
+        // AssetID - which could coincide with a real asset's ID, hence the name comparison.
+        std::shared_ptr<AssetInfos> existing = assetManager->GetAssetFromID(infos.ID);
+        if(existing && existing->baseInfos.nameInProject == infos.nameInProject)
+            return infos.ID;
+
+        AssetID id = assetManager->GenerateNewID();
+        if(id.GetAsInt() < 0)
+            return AssetID{};
+
+        infos.ID = id;
+
+        std::shared_ptr<AssetInfos> assetInfos = std::make_shared<AssetInfos>();
+        assetInfos->baseInfos = infos;
+        assetManager->AssignID(id, assetInfos);
+
+        return id;
+    }
+
     std::string Path::ReadFile() const
     {
         // Replace "/" with native dir separator

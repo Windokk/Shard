@@ -83,6 +83,29 @@ namespace Shard::Engine::Levels{
             jobs.push_back(std::move(job));
         }
 
+        // Baked probe volumes : same treatment as a texture - the file read + validation happens on a
+        // worker thread, and the main thread only has to upload the result once the volume activates.
+        // That is what keeps a baked level from stalling on a synchronous multi-megabyte read.
+        std::unordered_set<std::string> seenProbeBakes;
+
+        for(auto& p : levelManifest.probeBakePathsInProject){
+            if(!seenProbeBakes.insert(p).second)
+                continue;
+            if(resources->HasProbeBake(p))
+                continue;
+
+            auto info = assetManager->GetAssetFromID(assetManager->GetIDFromNameInProject(p));
+            if(!info || info->baseInfos.nameInProject != p)
+                continue;
+
+            DecodeJob job;
+            job.kind = DecodeKind::ProbeBake;
+            job.pathInProject = p;
+            Filesystem::Path path = info->baseInfos.path;
+            job.probeBakeFuture = std::async(std::launch::async, [path](){ return Rendering::DecodeProbeBakeFile(path); });
+            jobs.push_back(std::move(job));
+        }
+
         totalCount = (int)jobs.size();
         state = State::Decoding;
     }
@@ -95,9 +118,18 @@ namespace Shard::Engine::Levels{
         int completed = 0;
         bool allReady = true;
         for(auto& job : jobs){
-            bool ready = (job.kind == DecodeKind::Mesh)
-                ? job.meshFuture.wait_for(std::chrono::seconds(0)) == std::future_status::ready
-                : job.textureFuture.wait_for(std::chrono::seconds(0)) == std::future_status::ready;
+            bool ready = false;
+            switch(job.kind){
+                case DecodeKind::Mesh:
+                    ready = job.meshFuture.wait_for(std::chrono::seconds(0)) == std::future_status::ready;
+                    break;
+                case DecodeKind::Texture:
+                    ready = job.textureFuture.wait_for(std::chrono::seconds(0)) == std::future_status::ready;
+                    break;
+                case DecodeKind::ProbeBake:
+                    ready = job.probeBakeFuture.wait_for(std::chrono::seconds(0)) == std::future_status::ready;
+                    break;
+            }
 
             if(ready) completed++;
             else allReady = false;
@@ -126,6 +158,13 @@ namespace Shard::Engine::Levels{
                 std::shared_ptr<Rendering::Mesh> mesh = Rendering::Mesh::Create();
                 mesh->CreateFromData(data);
                 resources->AdoptMesh(job.pathInProject, mesh);
+            }
+            else if(job.kind == DecodeKind::ProbeBake){
+                // No GL work to do here : the decoded CPU data just goes into the cache, and
+                // ProbeVolume::Activate() uploads it when the level's volumes come up.
+                std::shared_ptr<Rendering::ProbeBakeData> data = job.probeBakeFuture.get();
+                if(data)
+                    resources->AdoptProbeBake(job.pathInProject, data);
             }
             else{
                 Rendering::TextureDecodeResult data = job.textureFuture.get();

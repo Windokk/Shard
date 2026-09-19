@@ -158,6 +158,9 @@ namespace Shard::Engine::Rendering{
         else if(StartsWith(samplerName, "normal")){
             return Core::GetEngine().GetResourcesManager()->GetTexture("textures/default_normal.png")->GetHandle();
         }
+        else if(StartsWith(samplerName, "emissive")){
+            return Core::GetEngine().GetResourcesManager()->GetTexture("textures/white.png")->GetHandle();
+        }
         return 0;
     }
 

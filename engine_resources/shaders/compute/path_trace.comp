@@ -141,6 +141,7 @@ vec3 TracePath(vec3 ro, vec3 rd)
         vec3 albedo = mat.albedo.rgb;
         float roughness = mat.roughness;
         float metallic = mat.metallic;
+        vec3 emission = mat.emissive.rgb;
 
         if (mat.textureFlags != 0u)
         {
@@ -157,6 +158,10 @@ vec3 TracePath(vec3 ro, vec3 rd)
             if ((mat.textureFlags & TEX_ROUGHNESS_BIT) != 0u)
                 roughness *= texture(sampler2D(mat.roughnessTex), uv).r;
 
+            // Modulates the scalar factor (same as lit.frag's emissiveMap * emissive), not overrides it.
+            if ((mat.textureFlags & TEX_EMISSIVE_BIT) != 0u)
+                emission *= texture(sampler2D(mat.emissiveTex), uv).rgb;
+
             if ((mat.textureFlags & TEX_NORMAL_BIT) != 0u)
             {
                 vec3 tangent = normalize(attrib.t0.xyz * w0 + attrib.t1.xyz * hit.bary.x + attrib.t2.xyz * hit.bary.y);
@@ -169,7 +174,7 @@ vec3 TracePath(vec3 ro, vec3 rd)
             }
         }
 
-        radiance += throughput * mat.emissive.rgb;
+        radiance += throughput * emission;
 
         vec3 viewDir = normalize(-rd);
         vec3 F0 = mix(vec3(0.04), albedo, metallic);

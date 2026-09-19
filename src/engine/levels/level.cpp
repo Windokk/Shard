@@ -127,6 +127,10 @@ namespace Shard::Engine::Levels{
                     }
                 }
             }
+            else if (type == "probeVolume") {
+                if (component.contains("bakedData") && component["bakedData"].is_string() && !component["bakedData"].get<std::string>().empty())
+                    manifest.probeBakePathsInProject.push_back(component["bakedData"].get<std::string>());
+            }
         }
     }
 
@@ -180,29 +184,10 @@ namespace Shard::Engine::Levels{
 
                 //Rendering settings
                 if(settings.contains("skybox")){
-                    auto& skyboxFolder = settings["skybox"];
-                    if(skyboxFolder.is_string()){
-                        std::shared_ptr<Rendering::Shader> shader = Core::GetEngine().GetResourcesManager()->GetShader("shaders/skybox/skybox");
-                        std::shared_ptr<Rendering::EnvironmentMap> envMap = Core::GetEngine().GetResourcesManager()->GetEnvMap(settings["skybox"]);
-                        Rendering::PipelineSpecifications specs;
-                        specs.depthCompare = Rendering::DepthCompareOp::LessOrEqual;
-                        specs.depthWrite = false;
-                        specs.shader = shader;
-                        specs.topology = Rendering::PrimitiveTopology::Triangles;
-                        specs.debugName = "SkyboxPipeline";
-
-                        std::shared_ptr<Rendering::Pipeline> skyboxPipeline = Core::GetEngine().GetRenderer()->GetOrAddPipeline(specs);
-
-                        std::shared_ptr<Rendering::Material> skyboxMat = Rendering::Material::Create(shader, skyboxPipeline, false, Rendering::Opacity::Opaque);
-
-                        if(shader != nullptr && envMap != nullptr)
-                        {
-                            std::shared_ptr<Objects::Skybox> sb = Core::Object::Create<Objects::Skybox>(envMap, skyboxMat);
-                            this->skybox = sb;
-                        }
-                        else{
+                    auto& skyboxFile = settings["skybox"];
+                    if(skyboxFile.is_string()){
+                        if(!SetSkybox(skyboxFile.get<std::string>()))
                             DEBUG_ERROR("Couldn't deserialize skybox : shader or cubemap missing");
-                        }
                     }
                 }
             
@@ -289,8 +274,9 @@ namespace Shard::Engine::Levels{
 
         full["actors"] = actorsArray;
 
-        if(skybox){
-            full["settings"]["skybox"] = Core::GetEngine().GetFileManager()->GetFileInfos(Core::GetEngine().GetAssetIDManager()->GetAssetFromID(skybox->GetEnvMap()->GetAssetID())->baseInfos.path).nameInProject;
+        const std::string skyboxFile = GetSkyboxPath();
+        if(!skyboxFile.empty()){
+            full["settings"]["skybox"] = skyboxFile;
         }
 
         full["settings"]["ambient_intensity"] = ambientIntensity;
@@ -305,6 +291,60 @@ namespace Shard::Engine::Levels{
         filePath.WriteFile(fileContent);
 
         dirty = false;
+    }
+
+    bool Level::SetSkybox(const std::string &pathInProject)
+    {
+        Core::Resources::ResourcesManager* resources = Core::GetEngine().GetResourcesManager();
+
+        // Loading (and IBL-convolving) the map is the part that can fail - bad path, not an image, not
+        // 3-channel - so it goes first : a failed attempt must leave the current skybox untouched.
+        std::shared_ptr<Rendering::EnvironmentMap> envMap = resources->GetEnvMap(pathInProject);
+        if(!envMap)
+            return false;
+
+        // Already have a skybox : keep its material and pipeline, just point it at the new map. Its draw
+        // command is updated in place (see Skybox::CreateDrawCommands).
+        if(skybox){
+            skybox->SetEnvironmentMap(envMap);
+            return true;
+        }
+
+        std::shared_ptr<Rendering::Shader> shader = resources->GetShader("shaders/skybox/skybox");
+        if(!shader)
+            return false;
+
+        Rendering::PipelineSpecifications specs;
+        specs.depthCompare = Rendering::DepthCompareOp::LessOrEqual;
+        specs.depthWrite = false;
+        specs.shader = shader;
+        specs.topology = Rendering::PrimitiveTopology::Triangles;
+        specs.debugName = "SkyboxPipeline";
+
+        std::shared_ptr<Rendering::Pipeline> skyboxPipeline = Core::GetEngine().GetRenderer()->GetOrAddPipeline(specs);
+
+        std::shared_ptr<Rendering::Material> skyboxMat = Rendering::Material::Create(shader, skyboxPipeline, false, Rendering::Opacity::Opaque);
+
+        this->skybox = Core::Object::Create<Objects::Skybox>(envMap, skyboxMat);
+        return true;
+    }
+
+    void Level::ClearSkybox()
+    {
+        if(!skybox)
+            return;
+
+        skybox->RemoveDrawCommands();
+        skybox = nullptr;
+    }
+
+    std::string Level::GetSkyboxPath() const
+    {
+        if(!skybox || !skybox->GetEnvMap())
+            return "";
+
+        std::shared_ptr<Filesystem::AssetInfos> infos = Core::GetEngine().GetAssetIDManager()->GetAssetFromID(skybox->GetEnvMap()->GetAssetID());
+        return infos ? infos->baseInfos.nameInProject : "";
     }
 
     void Level::SetBuildIndex(int buildIndex)

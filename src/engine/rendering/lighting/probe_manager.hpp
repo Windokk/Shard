@@ -9,7 +9,9 @@
 
 #include <glm/glm.hpp>
 
+#include "engine/filesystem/filesystem.hpp"
 #include "engine/rendering/lighting/light_manager.hpp"
+#include "engine/rendering/lighting/probe_bake.hpp"
 #include "engine/rendering/raytracing/raytrace_scene.hpp"
 
 namespace Shard::Engine::Levels {
@@ -70,6 +72,27 @@ namespace Shard::Engine::Rendering {
     // spreads its probes over.
     constexpr float kBaseTemporalHysteresis = 0.97f;
 
+    // ---- Baking (see the "Baked volumes" section of the ProbeManager class comment) ----
+    // A bake runs the ordinary update at full rate (stride 1) for kBakeConvergenceIterations +
+    // kBakeAveragingIterations iterations, in two phases :
+    //  1. Convergence : the usual exponential blend, but with a lower hysteresis (0.95, ~20 iterations of
+    //     memory instead of ~33) so the cross-frame bounce chain - one hop per iteration, each hop
+    //     smoothed by the blend - settles in a couple of hundred iterations rather than several hundred.
+    //  2. Averaging : the published atlas is turned into a true running mean of the iterations that
+    //     follow (hysteresis j/(j+1) on the j-th one). The bounce is already settled by then, so unlike
+    //     during phase 1 it cannot bias the average, and the noise floor drops well under what the
+    //     real-time hysteresis leaves in (~1/sqrt(N) of one iteration's noise, versus ~12%).
+    // Both are per-bake one-off costs paid in the editor, so they lean towards quality.
+    constexpr int kBakeConvergenceIterations = 256;
+    constexpr int kBakeAveragingIterations = 256;
+    constexpr float kBakeConvergenceHysteresis = 0.95f;
+
+    // Bake iterations are spread over frames so a big volume doesn't stall the editor (or trip the OS
+    // GPU watchdog) : each frame runs as many iterations as fit in ~kBakeRaysPerFrame traced rays, but
+    // at least one and at most kBakeMaxIterationsPerFrame.
+    constexpr uint32_t kBakeRaysPerFrame = 1u << 20;
+    constexpr int kBakeMaxIterationsPerFrame = 16;
+
     // Owns the scene-wide resources for real-time diffuse GI via a grid of irradiance probes
     // (DDGI-like : a handful of rays traced per probe per frame against a persistent BVH, encoded into
     // an octahedral irradiance atlas, sampled in lit.frag). Mirrors LightManager/ShadowManager : a
@@ -115,6 +138,16 @@ namespace Shard::Engine::Rendering {
     // two overlapping ones). The ray fan IS given a fresh random rotation every frame per volume (see
     // m_RayRNG) specifically so the temporal hysteresis blend can average out angular aliasing over time
     // instead of locking in whatever a fixed ray set happened to sample once.
+    //
+    // Baked volumes : all of the above is what a "live" volume does, and it costs a BVH build at level
+    // load plus a few seconds of visible convergence. A volume can instead be baked - BeginBake() runs the
+    // same update for a fixed, higher-quality schedule (see kBakeConvergenceIterations), reads the
+    // published atlases and per-probe state back and writes them to a file (see probe_bake.hpp). At the
+    // next level load AddActiveVolume() is handed that file's data and the volume comes up already
+    // converged : the atlases are uploaded as-is, no scene is built and no probe is ever traced again.
+    // A baked volume is static - it costs nothing per frame, but it also no longer reacts to lighting or
+    // geometry changes, nor to indirectIntensity ; deleting the bake (or editing the volume's grid, which
+    // invalidates it) puts it back on the live path.
     class ProbeManager
     {
         public:
@@ -134,16 +167,58 @@ namespace Shard::Engine::Rendering {
             // (Re)allocates `volume`'s probe grid SSBO and atlases to match its current bounds/
             // resolution. No-op if `volume` isn't currently active (see AddActiveVolume). Called
             // automatically by AddActiveVolume() and whenever an active volume's grid fields change.
+            // Always leaves the volume LIVE from a clean, zeroed grid - a baked volume that goes through
+            // here loses its baked data (which no longer matches the new grid anyway), so the caller must
+            // then make sure a scene exists to trace against (RebuildScene()) - see ProbeVolume.
             void RebuildGrid(Objects::Components::ProbeVolume* volume);
 
             // Activates `volume` if it isn't already active and there's room (see kMaxProbeVolumes) -
             // beyond the cap, activation is refused (logged) rather than silently evicting an existing
             // volume. A volume already active is a no-op (RebuildGrid(volume) is what re-syncs an
             // existing slot after a field edit, not this).
-            void AddActiveVolume(Objects::Components::ProbeVolume* volume);
+            //
+            // If `baked` is given and matches the volume's current grid (see IsProbeBakeCompatible), the
+            // volume comes up baked : its atlases and probe state are uploaded straight from `baked`, and
+            // it needs no scene and no per-frame work. A `baked` that no longer matches (the volume was
+            // resized, moved, ...) is refused with a warning and the volume comes up live instead.
+            //
+            // Returns true iff the volume is active AND running from baked data. On false the caller
+            // must make sure a scene exists for the live volume to trace against (RebuildScene()).
+            bool AddActiveVolume(Objects::Components::ProbeVolume* volume, const std::shared_ptr<const ProbeBakeData>& baked = nullptr);
 
-            // No-op unless `volume` is currently active. Frees that volume's GPU resources.
+            // No-op unless `volume` is currently active. Frees that volume's GPU resources. Also aborts
+            // a bake of that volume that is still in progress.
             void RemoveActiveVolume(Objects::Components::ProbeVolume* volume);
+
+            // True if `volume` is active and currently shows baked data rather than tracing live.
+            bool IsVolumeBaked(const Objects::Components::ProbeVolume* volume) const;
+
+            // ---- Baking ----
+            // Starts baking `volume` (which must be active) into `file`. Discards the volume's current
+            // atlases, rebuilds the scene from `level` so the bake sees the geometry as it is NOW, then
+            // traces the volume over the following frames (progress: IsBaking()/GetBakeProgress()/
+            // GetBakePhase() - the editor mirrors them into a notification) and finally writes `file`.
+            // When it completes, the volume is switched to baked mode in place - the atlases it just
+            // converged are the ones it keeps using, so nothing is reloaded - and
+            // ProbeVolume::OnBakeFinished() is told the file so it can register it as an asset and
+            // reference it from the level. Only one bake runs at a time. Returns false (logged) if it
+            // couldn't start.
+            bool BeginBake(Objects::Components::ProbeVolume* volume, Levels::Level* level, const Filesystem::Path& file);
+
+            // Aborts a bake in progress, leaving the volume live. No-op if none is running.
+            void CancelBake();
+
+            bool IsBaking() const { return m_Bake.active; }
+            const Objects::Components::ProbeVolume* GetBakingVolume() const { return m_Bake.active ? m_Bake.volume : nullptr; }
+
+            // 0 -> 1 across the whole bake : the first fifth is the scene build (same phases as
+            // GetSceneBuildPhase()), the rest is tracing. GetBakePhase() is a static string literal.
+            float GetBakeProgress() const;
+            const char* GetBakePhase() const;
+
+            // Whether the most recent bake ran to completion and wrote its file - lets the editor's
+            // notification close as a success or a failure once IsBaking() goes false.
+            bool DidLastBakeSucceed() const { return m_LastBakeSucceeded; }
 
             // Dispatches this frame's probe ray-trace + border-fixup compute passes for every active
             // volume. No-op if there are no active volumes or no persistent scene has been built yet
@@ -174,7 +249,9 @@ namespace Shard::Engine::Rendering {
             // rather than caching an index. IsVolumeReady() also requires that Update() has actually
             // dispatched a trace pass for that slot at least once - without it, a freshly (re)allocated
             // atlas whose trace/border-fixup shaders failed to compile would still report ready with
-            // GPU-undefined contents, making lit.frag sample garbage/black instead of skipping it.
+            // GPU-undefined contents, making lit.frag sample garbage/black instead of skipping it. A
+            // baked volume is ready as soon as it is uploaded (its atlases are complete by construction,
+            // and it never depends on the scene being built).
             bool IsVolumeReady(int index) const;
             std::shared_ptr<Texture2D> GetIrradianceAtlas(int index) const;
             std::shared_ptr<Texture2D> GetDistanceAtlas(int index) const;
@@ -257,17 +334,72 @@ namespace Shard::Engine::Rendering {
                 // test that gives a tile a full overwrite on its first update instead of fading in
                 // from black through the hysteresis blend.
                 uint32_t frameIndex = 0;
+
+                // True once this volume runs from baked data (see the class comment). A baked slot only
+                // owns probeStateBuffer, publishedAtlas and publishedDistanceAtlas - the probe grid SSBO
+                // and the four scratch atlases (ray + irradiance, both flavours) exist purely for the
+                // live trace/convolve/blend passes and are released - and Update() skips it entirely.
+                bool baked = false;
+
+                // The grid placement the baked atlases were traced on. Served by GetGridOrigin()/
+                // GetGridSpacing() in place of the volume's own, so baked light stays where it was baked
+                // even if the actor is moved afterwards (the volume then just stops matching its data,
+                // which the next load's compatibility check reports).
+                glm::vec3 bakedOrigin = glm::vec3(0.0f);
+                glm::vec3 bakedSpacing = glm::vec3(1.0f);
+            };
+
+            // One iteration's worth of overrides for UpdateVolume() while baking - see the bake constants.
+            struct BakeStep
+            {
+                float hysteresis = 0.0f;
+                // True during the averaging phase (see kBakeAveragingIterations) : the bounce has settled
+                // and probe classification/relocation are frozen at their converged values, so this
+                // iteration's rays can be a FULLY random rotation of the fan - each iteration then an
+                // independent quadrature whose angular aliasing averages out (see UpdateVolume()).
+                bool averaging = false;
+            };
+
+            struct BakeJob
+            {
+                bool active = false;
+                Objects::Components::ProbeVolume* volume = nullptr;
+                Filesystem::Path file;
+                int iteration = 0;
             };
 
             void EnsureShaders();
             void UploadScene(const Raytracing::RaytraceScene& scene);
 
             VolumeSlot* FindSlot(Objects::Components::ProbeVolume* volume);
+            const VolumeSlot* FindSlot(const Objects::Components::ProbeVolume* volume) const;
             const VolumeSlot* FindSlot(int index) const;
+
+            // Full live (re)allocation - see the public RebuildGrid(). Also the fallback of the baked
+            // path in AddActiveVolume() when the data turns out unusable.
             void RebuildGrid(VolumeSlot& slot);
-            void UpdateVolume(VolumeSlot& slot, Renderer* renderer);
+
+            // Baked counterpart : builds `slot` from `baked` instead of from zeros (caller has already
+            // checked compatibility).
+            void ApplyBake(VolumeSlot& slot, const ProbeBakeData& baked);
+
+            // Flips `slot` to baked mode and releases what only the live passes need (see VolumeSlot::baked).
+            void MarkBaked(VolumeSlot& slot, const glm::vec3& origin, const glm::vec3& spacing);
+
+            static bool IsSlotReady(const VolumeSlot& slot, bool sceneBuilt);
+
+            void UpdateVolume(VolumeSlot& slot, Renderer* renderer, const BakeStep* bake = nullptr);
+
+            // Advances the running bake by this frame's share of iterations, and finishes it once the
+            // last one is done. Called from Update() once the scene is built.
+            void StepBake(Renderer* renderer);
+            void FinishBake(VolumeSlot& slot);
+            void EndBake(bool succeeded);
 
             std::vector<VolumeSlot> m_Volumes;
+
+            BakeJob m_Bake;
+            bool m_LastBakeSucceeded = false;
 
             // ---- Persistent scene (rebuilt on demand, see RebuildScene()) - shared across every volume ----
             bool m_SceneBuilt = false;

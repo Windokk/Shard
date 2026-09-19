@@ -58,6 +58,55 @@ namespace Shard::Engine::Rendering {
             return glm::mat3_cast(glm::angleAxis(angle, axis));
         }
 
+        // Uniformly distributed random rotation over SO(3) (Shoemake's random unit quaternion). Unlike
+        // RandomRotation() above this has NO bounded angle : it is only for a bake's averaging phase, where
+        // the visibility flicker that motivated the bound averages out over hundreds of iterations, and where
+        // a bounded jitter would leave every probe with the same fixed angular quadrature (see the comment on
+        // uRayRotation in probe_irradiance_convolve.comp).
+        glm::mat3 UniformRandomRotation(std::mt19937& rng)
+        {
+            std::uniform_real_distribution<float> dist(0.0f, 1.0f);
+
+            const float u1 = dist(rng);
+            const float u2 = dist(rng) * 6.28318530718f;
+            const float u3 = dist(rng) * 6.28318530718f;
+            const float a = std::sqrt(1.0f - u1);
+            const float b = std::sqrt(u1);
+
+            return glm::mat3_cast(glm::quat(b * std::cos(u3), a * std::sin(u2), a * std::cos(u2), b * std::sin(u3)));
+        }
+
+        // Each ray maps directly to one texel of the probe's octahedral tile (see probe_trace.comp), so
+        // raysPerProbe is rounded down to the nearest perfect square, and capped at kMaxRaysPerProbe
+        // (probe_irradiance_convolve.comp stages a whole tile in shared memory, which has to be a
+        // compile-time size - and past ~256 rays, more rays is the wrong way to spend the budget
+        // anyway : noise falls with their square root while cost is linear in them). Shared by the grid
+        // (re)build and by the baked-data compatibility check, which must agree on it exactly.
+        uint32_t ComputeTileSize(int raysPerProbe)
+        {
+            int rays = std::clamp(raysPerProbe, 1, kMaxRaysPerProbe);
+            return (uint32_t)std::max(1, (int)std::floor(std::sqrt((float)rays)));
+        }
+
+        // Atlas texture layout shared by every atlas (see VolumeSlot). `halfFloatPixelData` is set for the
+        // two PUBLISHED atlases, the only ones ever saved to or restored from a bake file : it makes
+        // their upload data and readback raw halves (see TextureSpecifications::halfFloatPixelData).
+        TextureSpecifications MakeAtlasSpec(uint32_t atlasSize, TextureInternalFormat format, bool halfFloatPixelData)
+        {
+            TextureSpecifications spec;
+            spec.width = atlasSize;
+            spec.height = atlasSize;
+            spec.internalFormat = format;
+            spec.generateMips = false;
+            spec.immutableStorage = true;
+            spec.minFilter = TextureFilter::Linear;
+            spec.magFilter = TextureFilter::Linear;
+            spec.wrapS = TextureWrap::ClampEdge;
+            spec.wrapT = TextureWrap::ClampEdge;
+            spec.halfFloatPixelData = halfFloatPixelData;
+            return spec;
+        }
+
     }
 
     ProbeManager::ProbeManager() : m_RayRNG(std::random_device{}()) {}
@@ -138,6 +187,14 @@ namespace Shard::Engine::Rendering {
         return nullptr;
     }
 
+    const ProbeManager::VolumeSlot* ProbeManager::FindSlot(const Objects::Components::ProbeVolume* volume) const
+    {
+        for (auto& slot : m_Volumes)
+            if (slot.volume == volume)
+                return &slot;
+        return nullptr;
+    }
+
     const ProbeManager::VolumeSlot* ProbeManager::FindSlot(int index) const
     {
         if (index < 0 || index >= (int)m_Volumes.size())
@@ -150,6 +207,10 @@ namespace Shard::Engine::Rendering {
         Objects::Components::ProbeVolume* volume = slot.volume;
         if (!volume)
             return;
+
+        // A full live rebuild always leaves the slot live : whatever baked data it held is for the
+        // old grid, and the scratch atlases a live slot needs are (re)created below.
+        slot.baked = false;
 
         glm::ivec3 counts = glm::max(volume->probeCounts, glm::ivec3(1));
         slot.probeCount = (uint32_t)(counts.x * counts.y * counts.z);
@@ -176,28 +237,14 @@ namespace Shard::Engine::Rendering {
         slot.probeStateBuffer = StorageBuffer::Create((uint32_t)(initialState.size() * sizeof(glm::vec4)));
         slot.probeStateBuffer->SetData(initialState.data(), (uint32_t)(initialState.size() * sizeof(glm::vec4)));
 
-        // Each ray maps directly to one texel of the probe's octahedral tile (see probe_trace.comp), so
-        // raysPerProbe is rounded down to the nearest perfect square here, and capped at
-        // kMaxRaysPerProbe (probe_irradiance_convolve.comp stages a whole tile in shared memory, which
-        // has to be a compile-time size - and past ~256 rays, more rays is the wrong way to spend the
-        // budget anyway : noise falls with their square root while cost is linear in them).
-        int raysPerProbe = std::clamp(volume->raysPerProbe, 1, kMaxRaysPerProbe);
-        slot.tileSize = (uint32_t)std::max(1, (int)std::floor(std::sqrt((float)raysPerProbe)));
+        // See ComputeTileSize() for how raysPerProbe becomes a tile size.
+        slot.tileSize = ComputeTileSize(volume->raysPerProbe);
 
         slot.atlasProbesPerRow = std::max(1u, (uint32_t)std::ceil(std::sqrt((float)slot.probeCount)));
         uint32_t strideWithBorder = slot.tileSize + 2; // +1 texel of border on each side, see probe_border_fixup.comp
         slot.atlasSize = slot.atlasProbesPerRow * strideWithBorder;
 
-        TextureSpecifications atlasSpec;
-        atlasSpec.width = slot.atlasSize;
-        atlasSpec.height = slot.atlasSize;
-        atlasSpec.internalFormat = TextureInternalFormat::RGBA16F;
-        atlasSpec.generateMips = false;
-        atlasSpec.immutableStorage = true;
-        atlasSpec.minFilter = TextureFilter::Linear;
-        atlasSpec.magFilter = TextureFilter::Linear;
-        atlasSpec.wrapS = TextureWrap::ClampEdge;
-        atlasSpec.wrapT = TextureWrap::ClampEdge;
+        TextureSpecifications atlasSpec = MakeAtlasSpec(slot.atlasSize, TextureInternalFormat::RGBA16F, false);
 
         // Zero-fill rather than leaving the (immutable-storage) contents undefined. With round-robin
         // probe updates a probe's tile isn't written until its own turn comes round, up to
@@ -208,19 +255,61 @@ namespace Shard::Engine::Rendering {
         // return 0 for such a probe, so it is excluded from the blend entirely until it has real data.
         std::vector<float> zeros((size_t)slot.atlasSize * slot.atlasSize * 4, 0.0f);
 
+        // The published pair is the one that gets saved/restored by a bake, hence the raw-half data
+        // path. All-zero bytes are a valid all-zero half, and `zeros` is over-sized for half data
+        // (it is laid out for the 32-bit float path the other atlases use), which is harmless.
+        TextureSpecifications publishedSpec = MakeAtlasSpec(slot.atlasSize, TextureInternalFormat::RGBA16F, true);
+
         slot.rayAtlas = Texture2D::Create(atlasSpec, zeros.data());
         slot.irradianceAtlas = Texture2D::Create(atlasSpec, zeros.data());
-        slot.publishedAtlas = Texture2D::Create(atlasSpec, zeros.data());
+        slot.publishedAtlas = Texture2D::Create(publishedSpec, zeros.data());
 
         // Distance atlas trio - same size/layout, RG16F (mean, mean^2) instead of RGBA16F radiance.
-        TextureSpecifications distAtlasSpec = atlasSpec;
-        distAtlasSpec.internalFormat = TextureInternalFormat::RG16F;
+        TextureSpecifications distAtlasSpec = MakeAtlasSpec(slot.atlasSize, TextureInternalFormat::RG16F, false);
+        TextureSpecifications publishedDistSpec = MakeAtlasSpec(slot.atlasSize, TextureInternalFormat::RG16F, true);
 
         slot.rayDistAtlas = Texture2D::Create(distAtlasSpec, zeros.data());
         slot.distanceAtlas = Texture2D::Create(distAtlasSpec, zeros.data());
-        slot.publishedDistanceAtlas = Texture2D::Create(distAtlasSpec, zeros.data());
+        slot.publishedDistanceAtlas = Texture2D::Create(publishedDistSpec, zeros.data());
 
         slot.frameIndex = 0;
+    }
+
+    void ProbeManager::MarkBaked(VolumeSlot& slot, const glm::vec3& origin, const glm::vec3& spacing)
+    {
+        slot.baked = true;
+        slot.bakedOrigin = origin;
+        slot.bakedSpacing = spacing;
+        slot.frameIndex = 0;
+
+        // Live-only resources : see VolumeSlot::baked.
+        slot.probeBuffer.reset();
+        slot.rayAtlas.reset();
+        slot.irradianceAtlas.reset();
+        slot.rayDistAtlas.reset();
+        slot.distanceAtlas.reset();
+    }
+
+    void ProbeManager::ApplyBake(VolumeSlot& slot, const ProbeBakeData& baked)
+    {
+        slot.probeCount = baked.probeCount;
+        slot.tileSize = baked.tileSize;
+        slot.atlasProbesPerRow = baked.atlasProbesPerRow;
+        slot.atlasSize = baked.atlasSize;
+
+        const uint32_t stateBytes = (uint32_t)(baked.probeState.size() * sizeof(glm::vec4));
+        slot.probeStateBuffer = StorageBuffer::Create(stateBytes);
+        slot.probeStateBuffer->SetData(baked.probeState.data(), stateBytes);
+
+        // Straight from the file's bytes - the atlases were saved in exactly the format they are
+        // uploaded in (see TextureSpecifications::halfFloatPixelData), so this is one glTexSubImage2D
+        // each, no conversion.
+        TextureSpecifications irradianceSpec = MakeAtlasSpec(slot.atlasSize, TextureInternalFormat::RGBA16F, true);
+        TextureSpecifications distanceSpec = MakeAtlasSpec(slot.atlasSize, TextureInternalFormat::RG16F, true);
+        slot.publishedAtlas = Texture2D::Create(irradianceSpec, baked.irradiance.data());
+        slot.publishedDistanceAtlas = Texture2D::Create(distanceSpec, baked.distance.data());
+
+        MarkBaked(slot, baked.gridOrigin, baked.gridSpacing);
     }
 
     void ProbeManager::RebuildGrid(Objects::Components::ProbeVolume* volume)
@@ -229,33 +318,135 @@ namespace Shard::Engine::Rendering {
         if (!slot)
             return;
 
+        // The bake in flight was tracing the grid that is about to be replaced.
+        if (m_Bake.active && m_Bake.volume == volume)
+            EndBake(false);
+
         RebuildGrid(*slot);
     }
 
-    void ProbeManager::AddActiveVolume(Objects::Components::ProbeVolume* volume)
+    bool ProbeManager::AddActiveVolume(Objects::Components::ProbeVolume* volume, const std::shared_ptr<const ProbeBakeData>& baked)
     {
-        if (!volume || FindSlot(volume))
-            return;
+        if (!volume)
+            return false;
+
+        if (VolumeSlot* existing = FindSlot(volume))
+            return existing->baked;
 
         if ((int)m_Volumes.size() >= kMaxProbeVolumes)
         {
             DEBUG_ERROR("ProbeManager : cannot activate ProbeVolume, already at the max of ", kMaxProbeVolumes, " simultaneously active volumes");
-            return;
+            return false;
         }
 
         VolumeSlot slot;
         slot.volume = volume;
         m_Volumes.push_back(std::move(slot));
-        RebuildGrid(m_Volumes.back());
+        VolumeSlot& added = m_Volumes.back();
+
+        if (baked)
+        {
+            std::string whyNot;
+            if (IsProbeBakeCompatible(*baked, glm::max(volume->probeCounts, glm::ivec3(1)), ComputeTileSize(volume->raysPerProbe),
+                                      volume->GetGridOrigin(), volume->GetGridSpacing(), &whyNot))
+            {
+                ApplyBake(added, *baked);
+                DEBUG_INFO("ProbeManager : ProbeVolume loaded from baked probe data (", added.probeCount, " probes, ", added.atlasSize, "x", added.atlasSize, " atlas) - no scene build or tracing needed.");
+                return true;
+            }
+
+            DEBUG_WARNING("ProbeManager : the baked probe data of this volume is out of date (", whyNot, ") - running it live. Re-bake the volume to refresh it.");
+        }
+
+        RebuildGrid(added);
+        return false;
     }
 
     void ProbeManager::RemoveActiveVolume(Objects::Components::ProbeVolume* volume)
     {
+        if (m_Bake.active && m_Bake.volume == volume)
+            EndBake(false);
+
         auto it = std::find_if(m_Volumes.begin(), m_Volumes.end(),
             [volume](const VolumeSlot& slot) { return slot.volume == volume; });
 
         if (it != m_Volumes.end())
             m_Volumes.erase(it);
+    }
+
+    bool ProbeManager::IsVolumeBaked(const Objects::Components::ProbeVolume* volume) const
+    {
+        const VolumeSlot* slot = FindSlot(volume);
+        return slot && slot->baked;
+    }
+
+    bool ProbeManager::BeginBake(Objects::Components::ProbeVolume* volume, Levels::Level* level, const Filesystem::Path& file)
+    {
+        if (!volume || !level)
+            return false;
+
+        if (m_Bake.active)
+        {
+            DEBUG_WARNING("ProbeManager : a probe bake is already running, ignoring the new request.");
+            return false;
+        }
+
+        VolumeSlot* slot = FindSlot(volume);
+        if (!slot)
+        {
+            DEBUG_ERROR("ProbeManager : cannot bake a ProbeVolume that isn't active.");
+            return false;
+        }
+
+        // Start from a clean grid : zeroed atlases, all-active probes with no relocation offset, frame 0.
+        // A bake must not depend on whatever the live volume (or a previous bake) had accumulated.
+        RebuildGrid(*slot);
+
+        // Always rebuild the scene, even if one is already built - it may predate geometry edits, and a
+        // bake is precisely the moment the result has to reflect the level as it is now.
+        RebuildScene(level);
+
+        m_Bake = BakeJob{};
+        m_Bake.active = true;
+        m_Bake.volume = volume;
+        m_Bake.file = file;
+        m_LastBakeSucceeded = false;
+
+        return true;
+    }
+
+    void ProbeManager::CancelBake()
+    {
+        if (m_Bake.active)
+            EndBake(false);
+    }
+
+    void ProbeManager::EndBake(bool succeeded)
+    {
+        m_Bake = BakeJob{};
+        m_LastBakeSucceeded = succeeded;
+    }
+
+    float ProbeManager::GetBakeProgress() const
+    {
+        if (!m_Bake.active)
+            return 0.0f;
+
+        constexpr float kSceneShare = 0.2f;
+
+        if (m_SceneBuilding.load(std::memory_order_relaxed))
+            return kSceneShare * std::clamp(m_SceneBuildProgress.load(std::memory_order_relaxed), 0.0f, 1.0f);
+
+        constexpr int total = kBakeConvergenceIterations + kBakeAveragingIterations;
+        return kSceneShare + (1.0f - kSceneShare) * std::clamp((float)m_Bake.iteration / (float)total, 0.0f, 1.0f);
+    }
+
+    const char* ProbeManager::GetBakePhase() const
+    {
+        if (m_SceneBuilding.load(std::memory_order_relaxed))
+            return m_SceneBuildPhase.load(std::memory_order_relaxed);
+
+        return "Tracing probes";
     }
 
     void ProbeManager::EnsureShaders()
@@ -372,7 +563,7 @@ namespace Shard::Engine::Rendering {
         }
     }
 
-    void ProbeManager::UpdateVolume(VolumeSlot& slot, Renderer* renderer)
+    void ProbeManager::UpdateVolume(VolumeSlot& slot, Renderer* renderer, const BakeStep* bake)
     {
         if (!slot.volume || !slot.rayAtlas || !slot.irradianceAtlas || !slot.publishedAtlas ||
             !slot.rayDistAtlas || !slot.distanceAtlas || !slot.publishedDistanceAtlas || slot.probeCount == 0)
@@ -381,8 +572,9 @@ namespace Shard::Engine::Rendering {
         // Round-robin probe update (see the class comment) : this frame only touches the probes whose
         // index is congruent to `phase` modulo `stride`. updateCount is how many that is - every
         // dispatch below is sized from it rather than from probeCount, which is the whole point (a
-        // stride of N costs 1/N the rays, 1/N the convolve work, 1/N the blend work).
-        const int stride = std::clamp(slot.volume->probeUpdateStride, 1, kMaxProbeUpdateStride);
+        // stride of N costs 1/N the rays, 1/N the convolve work, 1/N the blend work). A bake always
+        // updates every probe on every iteration : its cost is the iteration count, not the frame time.
+        const int stride = bake ? 1 : std::clamp(slot.volume->probeUpdateStride, 1, kMaxProbeUpdateStride);
         const uint32_t phase = slot.frameIndex % (uint32_t)stride;
         const uint32_t updateCount = phase < slot.probeCount
             ? (slot.probeCount - phase + (uint32_t)stride - 1) / (uint32_t)stride
@@ -403,8 +595,29 @@ namespace Shard::Engine::Rendering {
         uint32_t traceGroupsX = (updateCount * raysPerProbe + 63) / 64;
         uint32_t perProbeGroupsX = (updateCount + 63) / 64; // classify / relocate : one thread per probe
 
+        // Real-time keeps the jitter to a quarter of the angle between adjacent rays (see
+        // RandomRotation() - anything wilder makes the visibility test flicker frame to frame). A bake
+        // averages hundreds of iterations, so there it can afford, and benefits from, a jitter of half
+        // that spacing : every texel's ray then lands uniformly anywhere inside its own cell of the
+        // octahedral map, i.e. the average converges to the cell's integral, not to a handful of
+        // fixed sample points.
+        //
+        // The bake's AVERAGING phase goes further and uses a fully random rotation per iteration. With any
+        // bounded jitter the average converges to a fixed set of cell integrals, weighted at the cell
+        // centres - a deterministic 10x10 angular quadrature whose aliasing error (a small bright emitter
+        // is hit by 0 or 5 rays depending on where it falls in each probe's cell grid, worth +-12% per
+        // probe at 100 rays and up to ~35% at the worst) is different for every probe and does NOT average
+        // away however many iterations run - visible as blotches and crosses in the lit result. A random
+        // rotation per iteration makes each iteration an independent unbiased quadrature instead, so that
+        // error becomes ordinary noise that the running mean shrinks by 1/sqrt(iterations). Classification
+        // and relocation are frozen for those iterations (they threshold a per-iteration ray sample and
+        // would otherwise flip borderline probes at random).
+        const bool averagingPhase = bake && bake->averaging;
+
         float raySpacingRadians = 3.5449077f / std::max(1.0f, (float)slot.tileSize);
-        glm::mat3 rayRotation = RandomRotation(m_RayRNG, raySpacingRadians * 0.25f);
+        glm::mat3 rayRotation = averagingPhase
+            ? UniformRandomRotation(m_RayRNG)
+            : RandomRotation(m_RayRNG, raySpacingRadians * (bake ? 0.5f : 0.25f));
 
         glm::vec3 gridOrigin = slot.volume->GetGridOrigin();
         glm::vec3 gridSpacing = slot.volume->GetGridSpacing();
@@ -420,7 +633,7 @@ namespace Shard::Engine::Rendering {
         // N frames takes one blend step every N frames, so each step has to move N times as far).
         const float hysteresis = firstUpdateForTheseProbes
             ? 0.0f
-            : std::pow(kBaseTemporalHysteresis, (float)stride);
+            : (bake ? bake->hysteresis : std::pow(kBaseTemporalHysteresis, (float)stride));
 
         {
             m_TracePipeline->Bind();
@@ -466,6 +679,8 @@ namespace Shard::Engine::Rendering {
             renderer->DispatchCompute(m_TracePipeline, traceGroupsX, 1, 1, MemoryBarrierBit::ImageAccess | MemoryBarrierBit::TextureFetch);
         }
 
+        // Skipped during a bake's averaging phase - see averagingPhase above.
+        if (!averagingPhase)
         {
             m_ClassifyPipeline->Bind();
 
@@ -521,6 +736,9 @@ namespace Shard::Engine::Rendering {
             m_ConvolveShader->SetInt("uAtlasProbesPerRow", (int)slot.atlasProbesPerRow);
             m_ConvolveShader->SetInt("uUpdateStride", stride);
             m_ConvolveShader->SetInt("uUpdatePhase", (int)phase);
+            // The rotation this iteration's rays were actually traced with - the convolve weights each ray
+            // by its real direction.
+            m_ConvolveShader->SetMat3("uRayRotation", rayRotation);
 
             renderer->DispatchCompute(m_ConvolvePipeline, updateCount, 1, 1, MemoryBarrierBit::ImageAccess);
         }
@@ -629,7 +847,21 @@ namespace Shard::Engine::Rendering {
             m_SceneBuilding.store(false, std::memory_order_relaxed);
         }
 
-        if (!m_SceneBuilt || m_Volumes.empty())
+        // A bake is waiting on the scene build. If that build finished without leaving a scene (the level
+        // has no geometry, or the build threw), nothing will ever unblock it - fail it instead of letting
+        // the editor's progress notification sit there forever.
+        if (m_Bake.active && !m_SceneBuilding.load(std::memory_order_relaxed) && !m_SceneBuilt)
+        {
+            DEBUG_ERROR("ProbeManager : probe bake aborted, the level has no geometry to trace against.");
+            EndBake(false);
+        }
+
+        // Baked volumes do no per-frame work at all (and need no scene), so a level made only of those
+        // never gets past here.
+        const bool anyLive = std::any_of(m_Volumes.begin(), m_Volumes.end(),
+            [](const VolumeSlot& slot) { return !slot.baked; });
+
+        if (!m_SceneBuilt || !anyLive)
             return;
 
         EnsureShaders();
@@ -668,17 +900,122 @@ namespace Shard::Engine::Rendering {
                 m_SkyIrradiance = level->skybox->GetEnvMap()->GetIrradiance();
         }
 
+        if (m_Bake.active)
+            StepBake(renderer);
+
         for (auto& slot : m_Volumes)
+        {
+            if (slot.baked)
+                continue;
+
+            // The volume being baked is driven by StepBake() above, on the bake's own schedule.
+            if (m_Bake.active && slot.volume == m_Bake.volume)
+                continue;
+
             UpdateVolume(slot, renderer);
+        }
+    }
+
+    void ProbeManager::StepBake(Renderer* renderer)
+    {
+        VolumeSlot* slot = FindSlot(m_Bake.volume);
+        if (!slot || slot->baked)
+        {
+            EndBake(false);
+            return;
+        }
+
+        constexpr int totalIterations = kBakeConvergenceIterations + kBakeAveragingIterations;
+
+        // As many iterations as fit in this frame's ray budget - see kBakeRaysPerFrame.
+        const uint32_t raysPerIteration = std::max(1u, slot->probeCount * slot->tileSize * slot->tileSize);
+        const int iterationsThisFrame = std::clamp((int)(kBakeRaysPerFrame / raysPerIteration), 1, kBakeMaxIterationsPerFrame);
+
+        for (int n = 0; n < iterationsThisFrame && m_Bake.iteration < totalIterations; n++)
+        {
+            BakeStep step;
+            if (m_Bake.iteration < kBakeConvergenceIterations)
+            {
+                step.hysteresis = kBakeConvergenceHysteresis;
+            }
+            else
+            {
+                // j-th averaging iteration : blending with weight 1/(j+1) makes the published atlas the
+                // running mean of everything since the phase began (the converged state counts as the
+                // first sample).
+                const float j = (float)(m_Bake.iteration - kBakeConvergenceIterations + 1);
+                step.hysteresis = j / (j + 1.0f);
+                step.averaging = true;
+            }
+
+            // The very first iteration overrides this to 0 inside UpdateVolume() - a full overwrite of
+            // the zeroed atlas rather than a fade-in from black.
+            UpdateVolume(*slot, renderer, &step);
+            m_Bake.iteration++;
+        }
+
+        if (m_Bake.iteration >= totalIterations)
+            FinishBake(*slot);
+    }
+
+    void ProbeManager::FinishBake(VolumeSlot& slot)
+    {
+        Objects::Components::ProbeVolume* volume = slot.volume;
+
+        // The last blend dispatch wrote the published atlases through image stores, and the state buffer
+        // through an SSBO : both need their host-readback barrier before the blocking reads below.
+        Core::GetEngine().GetRenderer()->GetRendererAPI()->MemoryBarrier(MemoryBarrierBit::TextureUpdate | MemoryBarrierBit::BufferUpdate);
+
+        ProbeBakeData data;
+        data.probeCounts = glm::max(volume->probeCounts, glm::ivec3(1));
+        data.tileSize = slot.tileSize;
+        data.atlasProbesPerRow = slot.atlasProbesPerRow;
+        data.atlasSize = slot.atlasSize;
+        data.probeCount = slot.probeCount;
+        data.gridOrigin = volume->GetGridOrigin();
+        data.gridSpacing = volume->GetGridSpacing();
+
+        data.irradiance.resize((size_t)slot.atlasSize * slot.atlasSize * 4);
+        data.distance.resize((size_t)slot.atlasSize * slot.atlasSize * 2);
+        data.probeState.resize(slot.probeCount);
+
+        // The published atlases were created with halfFloatPixelData, so ReadPixels() hands back their
+        // raw halves - exactly what goes into the file.
+        slot.publishedAtlas->ReadPixels(data.irradiance.data(), data.irradiance.size() * sizeof(uint16_t));
+        slot.publishedDistanceAtlas->ReadPixels(data.distance.data(), data.distance.size() * sizeof(uint16_t));
+        slot.probeStateBuffer->GetData(data.probeState.data(), (uint32_t)(data.probeState.size() * sizeof(glm::vec4)));
+
+        const Filesystem::Path file = m_Bake.file;
+
+        if (!WriteProbeBakeFile(file, data))
+        {
+            // Leaves the volume live, still holding its converged atlases - nothing is lost but the file.
+            EndBake(false);
+            return;
+        }
+
+        // Keep using the atlases that were just baked, in place : they ARE the baked data, so there is
+        // nothing to reload.
+        MarkBaked(slot, data.gridOrigin, data.gridSpacing);
+        EndBake(true);
+
+        volume->OnBakeFinished(file);
+    }
+
+    bool ProbeManager::IsSlotReady(const VolumeSlot& slot, bool sceneBuilt)
+    {
+        if (!slot.publishedAtlas || !slot.publishedDistanceAtlas)
+            return false;
+
+        // A baked slot's atlases are complete the moment they are uploaded, and it never depends on the
+        // scene. A live one needs the scene built and at least one trace pass dispatched.
+        return slot.baked || (sceneBuilt && slot.frameIndex > 0);
     }
 
     bool ProbeManager::IsReady() const
     {
-        if (!m_SceneBuilt)
-            return false;
-
         for (auto& slot : m_Volumes)
-            if (slot.publishedAtlas && slot.publishedDistanceAtlas && slot.frameIndex > 0)
+            if (IsSlotReady(slot, m_SceneBuilt))
                 return true;
 
         return false;
@@ -687,7 +1024,7 @@ namespace Shard::Engine::Rendering {
     bool ProbeManager::IsVolumeReady(int index) const
     {
         const VolumeSlot* slot = FindSlot(index);
-        return m_SceneBuilt && slot && slot->publishedAtlas && slot->publishedDistanceAtlas && slot->frameIndex > 0;
+        return slot && IsSlotReady(*slot, m_SceneBuilt);
     }
 
     std::shared_ptr<Texture2D> ProbeManager::GetIrradianceAtlas(int index) const
@@ -711,12 +1048,16 @@ namespace Shard::Engine::Rendering {
     glm::vec3 ProbeManager::GetGridOrigin(int index) const
     {
         const VolumeSlot* slot = FindSlot(index);
+        if (slot && slot->baked)
+            return slot->bakedOrigin;
         return (slot && slot->volume) ? slot->volume->GetGridOrigin() : glm::vec3(0.0f);
     }
 
     glm::vec3 ProbeManager::GetGridSpacing(int index) const
     {
         const VolumeSlot* slot = FindSlot(index);
+        if (slot && slot->baked)
+            return slot->bakedSpacing;
         return (slot && slot->volume) ? slot->volume->GetGridSpacing() : glm::vec3(1.0f);
     }
 

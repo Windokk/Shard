@@ -1,12 +1,13 @@
 #pragma once
 
+#include <string>
+
+namespace Shard::Engine::Levels{
+    class Level;
+}
+
 namespace Shard::Editor::GUI{
 
-    // Editor panel for level-wide (not per-actor) settings - the level-scoped counterpart to
-    // PropertiesPanel, which only ever edits the selected actor. Fields are grouped into collapsible
-    // categories (General, Rendering, ...) rather than driven by the Component reflection system
-    // (see FieldInfo/ClassDescriptor in reflection_fields.hpp) since Level isn't a Component and these
-    // fields don't need to be inspectable/serializable through that generic machinery.
     class LevelSettingsPanel
     {
         public:
@@ -15,5 +16,13 @@ namespace Shard::Editor::GUI{
         private:
             void DrawGeneralCategory();
             void DrawRenderingCategory();
+            void DrawSkyboxSection(Engine::Levels::Level* level);
+
+            void ApplySkybox(Engine::Levels::Level* level, const std::string& pathInProject);
+
+            std::string m_SkyboxInput;
+            bool m_SkyboxInputActive = false;
+            std::string m_SkyboxError;
+            Engine::Levels::Level* m_LastLevel = nullptr;
     };
 }

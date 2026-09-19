@@ -56,9 +56,6 @@ namespace Shard::Engine::Rendering{
 
     void GLRendererAPI::Clear(ClearBit clearBits)
     {
-        // Runs once per pass (see Renderer::BeginRenderPass) : bounds how stale the cache can get
-        // from GL state changed outside it (ImGui, compute dispatches) without losing the caching
-        // benefit within a pass, where the vast majority of draw calls live.
         GLStateCache::Reset();
 
         GLbitfield bits = 0;
@@ -123,10 +120,6 @@ namespace Shard::Engine::Rendering{
 
         for (auto& [name, texture] : pass->customSamplers)
         {
-            // Routed through GLStateCache (like every other texture bind, see GLMaterial::Bind and
-            // BindLevelState) rather than raw glActiveTexture+glBindTexture : besides being one DSA
-            // call instead of two, a raw bind here would silently desync the cache's per-unit
-            // bookkeeping for the rest of the pass since it doesn't go through the same tracking.
             GLStateCache::BindTextureUnit(textureSlot, texture);
 
             glShader->SetInt(name, textureSlot);
@@ -188,27 +181,18 @@ namespace Shard::Engine::Rendering{
         shader->SetMat4("model", modelMatrix);
         shader->SetInt("objID", objectID);
 
+        shader->SetVec3("emissive", glm::vec3(0.0f));
+
         auto level = Core::GetEngine().GetLevelManager()->GetLevelAt(0);
 
-        // ambientIntensity is a level global, but a material may legitimately override it for its own
-        // draw (light_bulb.mat sets it high for a cheap self-lit look). It's a persistent program
-        // uniform and the pass-globals block below only runs once per program per pass, so without
-        // this an override leaks into every following draw in the pass (seen as whole meshes washing
-        // out after the light bulbs are drawn). Re-assert the level value every draw, before the gate;
-        // GLMaterial::Bind() runs after this and re-applies the material's own value when it has one,
-        // so a per-material override now lasts exactly one draw.
         if (level)
         {
             shader->SetFloat("ambientIntensity", level->ambientIntensity);
 
-            // Same re-assertion reasoning as ambientIntensity just above (see its comment) - a level
-            // toggle, not a per-material one, but pushed the same way for consistency and to stay
-            // correct if a material ever legitimately needs to override it later.
             shader->SetBool("ssaoEnabled", level->ssaoEnabled);
             shader->SetFloat("ssaoIntensity", level->ssaoIntensity);
         }
 
-        // Everything below (skybox IBL, lights, camera pos) is constant for every draw call in this pass : only reapply it the first time this program is used since the last reset.
         if (!applyPassGlobals)
             return;
 
@@ -226,12 +210,6 @@ namespace Shard::Engine::Rendering{
             GLStateCache::BindTextureUnit(samplers.find("ibl_brdfLUT")->second.binding, level->skybox->GetEnvMap()->GetBRDFLUT()->GetHandle());
         }
 
-        // Real-time GI probes (see ProbeManager) : only bind the atlas/grid data when at least one volume
-        // is actually ready to sample; ddgi_enabled otherwise stays false and lit.frag falls back to IBL.
-        // Up to kMaxProbeVolumes volumes can be simultaneously active (see ProbeManager's class comment) -
-        // each gets its own slot in lit.frag's ddgi_* arrays; DDGI_PickVolume there picks which one to
-        // sample per shading point. ddgi_volumeCount is the number of array slots below actually filled
-        // in this frame (skipping any volume that isn't ready yet), not GetActiveVolumeCount() itself.
         auto probeManager = Core::GetEngine().GetRenderer()->GetProbeManager();
         bool ddgiReady = probeManager && probeManager->IsReady();
         shader->SetBool("ddgi_enabled", ddgiReady);
@@ -240,7 +218,7 @@ namespace Shard::Engine::Rendering{
         {
             const auto& samplers = shader->GetActiveSamplersMap();
             int volumeCount = 0;
-            int lastReady = -1; // last volume bound, reused to pad the unused ddgi_* slots below
+            int lastReady = -1;
 
             for (int i = 0; i < probeManager->GetActiveVolumeCount(); i++)
             {
@@ -250,8 +228,6 @@ namespace Shard::Engine::Rendering{
                 std::string idx = "[" + std::to_string(volumeCount) + "]"; // ddgi_* uniform-array element
                 std::string num = std::to_string(volumeCount);              // ddgi_*Atlas<n> scalar sampler
 
-                // Atlases are per-volume scalar samplers (ddgi_irradianceAtlas0/1, ddgi_distanceAtlas0/1)
-                // - see the comment on their declaration in lit.frag for why they're not arrays.
                 auto atlasSampler = samplers.find("ddgi_irradianceAtlas" + num);
                 if (atlasSampler != samplers.end())
                     GLStateCache::BindTextureUnit(atlasSampler->second.binding, probeManager->GetIrradianceAtlas(i)->GetHandle());
@@ -260,9 +236,6 @@ namespace Shard::Engine::Rendering{
                 if (distAtlasSampler != samplers.end())
                     GLStateCache::BindTextureUnit(distAtlasSampler->second.binding, probeManager->GetDistanceAtlas(i)->GetHandle());
 
-                // Per-probe state (.w classification, .xyz relocation offset). One SSBO binding per
-                // ready volume : 14 for the first, 15 for the second - matches lit.frag's
-                // DDGIProbeState<n> blocks and stays clear of the LightBuffer at 0.
                 auto probeStateBuffer = probeManager->GetProbeStateBuffer(i);
                 if (probeStateBuffer)
                     probeStateBuffer->Bind(14 + volumeCount);
@@ -279,10 +252,6 @@ namespace Shard::Engine::Rendering{
                 volumeCount++;
             }
 
-            // Point every unused ddgi_* slot at the last bound volume's resources. DDGI_PickVolume only
-            // ever returns an index < ddgi_volumeCount so these are never actually sampled, but leaving
-            // an active sampler / readonly SSBO block with nothing bound trips warnings (and undefined
-            // reads) on stricter drivers.
             for (int s = volumeCount; lastReady >= 0 && s < kMaxProbeVolumes; s++)
             {
                 std::string num = std::to_string(s);
@@ -305,11 +274,6 @@ namespace Shard::Engine::Rendering{
 
         shader->SetInt("lightNB", Core::GetEngine().GetRenderer()->GetLightManager()->GetLightsCount());
         shader->SetVec3("camPos", Core::GetEngine().GetCameraManager()->GetActiveCamera()->parent->transform->GetWorldPosition());
-        // ambientIntensity is now re-asserted every draw at the top of this function (see the comment
-        // there) rather than only here, so a per-material override can't leak past its own draw.
-
-        // Forward+ cluster grid (see LightCullingManager) - lit.frag's GetClusterIndex uses these to
-        // find the point/spot light list for the fragment's cluster instead of scanning every light.
         auto lightCullingManager = Core::GetEngine().GetRenderer()->GetLightCullingManager();
         if (lightCullingManager)
         {

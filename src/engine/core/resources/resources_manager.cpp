@@ -10,6 +10,8 @@
 
 #include "engine/rendering/texture/cubemap/envmap.hpp"
 
+#include "engine/rendering/lighting/probe_bake.hpp"
+
 #include "engine/rendering/mesh/mesh.hpp"
 #include "engine/rendering/pipeline/pipeline.hpp"
 #include "engine/rendering/shader/shader.hpp"
@@ -291,6 +293,41 @@ namespace Shard::Engine::Core::Resources{
 
             return LoadSound(pathInProject, assetInfos->baseInfos.path);
         }
+    }
+
+    std::shared_ptr<Rendering::ProbeBakeData> ResourcesManager::GetProbeBake(const std::string &pathInProject)
+    {
+        auto it = probeBakes.find(pathInProject);
+        if (it != probeBakes.end())
+            return it->second;
+
+        Filesystem::AssetIDManager* assetManager = Core::GetEngine().GetAssetIDManager();
+        std::shared_ptr<Filesystem::AssetInfos> assetInfos = assetManager->GetAssetFromID(assetManager->GetIDFromNameInProject(pathInProject));
+
+        if(assetInfos == nullptr || assetInfos->baseInfos.nameInProject != pathInProject){
+            DEBUG_ERROR("Unknown probe bake : " + pathInProject);
+            return nullptr;
+        }
+
+        std::shared_ptr<Rendering::ProbeBakeData> data = Rendering::DecodeProbeBakeFile(assetInfos->baseInfos.path);
+        if(data)
+            probeBakes.emplace(pathInProject, data);
+        return data;
+    }
+
+    void ResourcesManager::AdoptProbeBake(const std::string &pathInProject, std::shared_ptr<Rendering::ProbeBakeData> probeBake)
+    {
+        probeBakes.emplace(pathInProject, probeBake);
+    }
+
+    bool ResourcesManager::HasProbeBake(const std::string &pathInProject) const
+    {
+        return probeBakes.find(pathInProject) != probeBakes.end();
+    }
+
+    void ResourcesManager::UnloadProbeBake(const std::string &name)
+    {
+        probeBakes.erase(name);
     }
 
     void ResourcesManager::AdoptMesh(const std::string &pathInProject, std::shared_ptr<Rendering::Mesh> mesh)

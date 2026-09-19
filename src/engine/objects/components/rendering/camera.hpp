@@ -107,11 +107,14 @@ namespace Shard::Engine::Objects::Components {
                 return glm::vec2(width, height);
             }
 
-            FIELD(Editable)
-            float farPlane = 0;
+            // Smallest near plane a perspective camera may use (matches the viewport's slider minimum)
+            static constexpr float MIN_NEAR_PLANE = 0.01f;
 
             FIELD(Editable)
-            float nearPlane = 0;
+            float farPlane = 100.0f;
+
+            FIELD(Editable)
+            float nearPlane = 0.1f;
 
             FIELD(Editable)
             bool orthographic = false;
@@ -127,7 +130,9 @@ namespace Shard::Engine::Objects::Components {
 
         private:
 
-
+            // A perspective projection needs 0 < near < far : with near == 0 every depth collapses onto the
+            // far plane and the scene disappears, and the shadow cascade splits turn into NaN.
+            void SanitizePlanes();
 
             // Matrices
             glm::mat4 view;

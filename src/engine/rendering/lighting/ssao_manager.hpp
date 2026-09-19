@@ -34,6 +34,13 @@ namespace Shard::Engine::Rendering {
         public:
             void Init(Renderer* renderer, int width, int height);
 
+            // Submits the one permanent full-screen-triangle command each of the raw/blur passes draws.
+            // These passes belong to the renderer, not to any level, but Renderer::ClearPassesContent()
+            // (a level swap / play-mode reload) empties every pass's draw list - so it has to call this
+            // again afterwards, otherwise both passes draw nothing, the AO target stays cleared to 0 and
+            // lit.frag's SampleSSAO multiplies every ambient/indirect term (DDGI included) by 0.
+            void SubmitFullscreenCommands(Renderer* renderer);
+
             // Refreshes this frame's view/projection/radius/bias/noise-tiling and re-dispatches the 3
             // passes via the render graph (actual dispatch happens later, in Renderer::DrawFrame(), when
             // the DAG execution order reaches these passes - this only updates their customUniforms).
