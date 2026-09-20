@@ -125,6 +125,8 @@ namespace Shard::Engine::Time{
 
             void SetFixedDeltaTime(float fixedStep) { fixedDeltaTime = fixedStep; }
 
+            void SetMaxAccumulatedTime(float maxAccumulated) { maxAccumulatedTime = maxAccumulated; }
+
             float GetFixedDeltaTime() { return fixedDeltaTime; }
             float GetDeltaTime() { return deltaTime; }
 

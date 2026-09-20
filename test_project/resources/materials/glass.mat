@@ -13,7 +13,7 @@
             "roughness": 0.0
         },
         {
-            "useEnvReflections": false
+            "useEnvReflections": true
         }
     ]
 }

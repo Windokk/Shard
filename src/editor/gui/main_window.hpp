@@ -14,6 +14,7 @@
 #include "editor/gui/panels/asset_editor_registry.hpp"
 #include "editor/gui/panels/level_tree/level_tree.hpp"
 #include "editor/gui/panels/level_settings/level_settings_panel.hpp"
+#include "editor/gui/panels/project_settings/project_settings_panel.hpp"
 #include "editor/gui/panels/console/console.hpp"
 #include "editor/gui/panels/profiler/profiler_panel.hpp"
 #include "editor/gui/panels/menu_bar/menu_bar.hpp"
@@ -66,6 +67,7 @@ namespace Shard::Editor::Core {
         bool console = true;
         bool profiler = true;
         bool levelSettings = true;
+        bool projectSettings = false;
     };
 
     class EditorMainWindow : public Engine::Core::Platform::IWindow {
@@ -140,6 +142,7 @@ namespace Shard::Editor::Core {
         GUI::PropertiesPanel* propertiesPanel = nullptr;
         GUI::LevelTree* levelTree = nullptr;
         GUI::LevelSettingsPanel* levelSettingsPanel = nullptr;
+        GUI::ProjectSettingsPanel* projectSettingsPanel = nullptr;
         GUI::Console* console = nullptr;
         GUI::ProfilerPanel* profilerPanel = nullptr;
         GUI::MenuBar* menuBar = nullptr;

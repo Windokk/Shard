@@ -756,6 +756,8 @@ namespace Shard::Engine::Rendering{
                     case ViewMode::Normals:
                     case ViewMode::Depth:
                     case ViewMode::UVs:
+                    case ViewMode::GlobalIllumination:
+                    case ViewMode::SSAO:
                         m_SkipFullscreenCommands = true;
                         m_RendererAPI->SetDebugView(state);
                         ExecuteRenderPass();

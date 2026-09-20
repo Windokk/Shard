@@ -741,6 +741,22 @@ void main() {
     // floor darkened in contact points, which is correct - occlusion blocks that flat "always there"
     // light too, physically). The 3 SSAO passes always run (see SSAOManager::Init) - ssaoEnabled is
     // purely a lit.frag-side gate, off is a no-op.
+    // Debug views 7 (GI only) / 8 (SSAO only) - see ViewMode. GI shows the indirect light before SSAO
+    // (diffuse + specular, no direct light/emission); SSAO shows the raw occlusion term, white = none.
+    if (viewMode == 7) {
+        fragColor = vec4(ambientDiffuse + specularIBL, 1.0);
+        return;
+    }
+    if (viewMode == 8) {
+        float ao = 1.0;
+        if (ssaoEnabled && ssaoTextureHandle != uvec2(0)) {
+            sampler2D ssaoTex = sampler2D(ssaoTextureHandle);
+            ao = texture(ssaoTex, gl_FragCoord.xy / vec2(textureSize(ssaoTex, 0))).r;
+            ao = clamp(mix(1.0, ao, ssaoIntensity), 0.0, 1.0);
+        }
+        fragColor = vec4(vec3(ao), 1.0);
+        return;
+    }
     ambientDiffuse = SampleSSAO(ambientDiffuse);
 
     // Emission is light the surface itself gives off, so it goes on after everything else and is not

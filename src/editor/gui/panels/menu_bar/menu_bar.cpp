@@ -84,6 +84,11 @@ namespace Shard::Editor::GUI{
 
         ImGui::Separator();
 
+        if (ImGui::MenuItem("Project Settings..."))
+            parent->panelVisibility.projectSettings = true;
+
+        ImGui::Separator();
+
         if (ImGui::MenuItem("Exit"))
         {
             auto* current = GetEngine().GetLevelManager()->GetLevelAt(0);

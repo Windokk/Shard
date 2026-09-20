@@ -314,6 +314,7 @@ namespace Shard::Editor::Core{
         levelTree = new GUI::LevelTree();
         levelTree->SetParentWindow(this);
         levelSettingsPanel = new GUI::LevelSettingsPanel();
+        projectSettingsPanel = new GUI::ProjectSettingsPanel();
         viewport = new GUI::ViewportWindow();
         viewport->SetParentWindow(this);
         console = new GUI::Console();
@@ -664,6 +665,8 @@ namespace Shard::Editor::Core{
             levelTree->Draw();
         if(panelVisibility.levelSettings)
             levelSettingsPanel->Draw();
+        if(panelVisibility.projectSettings)
+            projectSettingsPanel->Draw(&panelVisibility.projectSettings);
         if(panelVisibility.console)
             console->Draw();
         if(panelVisibility.profiler)

@@ -245,6 +245,14 @@ namespace Shard::Engine::Debugging{
 
             std::array<ProfileClock::time_point, kProfileCategoryCount> m_SampleStart{};
             std::array<ProfileClock::time_point, kRenderSubSampleCount> m_RenderSubSampleStart{};
+
+            // Cost (ms) of one Begin/End pair itself, measured at startup. Every sample includes it in
+            // its own duration, and Rendering also contains the pairs of all its sub-samples, so it is
+            // subtracted back out to report only the time spent in the measured code.
+            float m_SampleOverheadMs = 0.0f;
+            uint32_t m_RenderSubSampleCount = 0;
+
+            void CalibrateOverhead();
     };
 
     // RAII helper : samples a category for the lifetime of the enclosing scope.

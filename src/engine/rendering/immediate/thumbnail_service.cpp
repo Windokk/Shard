@@ -309,7 +309,7 @@ namespace Shard::Engine::Rendering {
                 glm::vec3 normal(sinf(theta) * cosf(phi), cosf(theta), sinf(theta) * sinf(phi));
 
                 Vertex v;
-                v.position = normal;
+                v.position = normal * 1.2f;
                 v.texCoord = glm::vec2(static_cast<float>(s) / kSectors, static_cast<float>(r) / kRings);
                 v.normal = normal;
                 v.color = glm::vec4(1.0f);

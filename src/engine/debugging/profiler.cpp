@@ -34,6 +34,8 @@ namespace Shard::Engine::Debugging{
    
     Profiler::Profiler(){
 
+        CalibrateOverhead();
+
         #ifdef _WIN32
             // Wildcarded on the "phys_N" suffix so we pick up every physical
             // adapter (e.g. integrated + discrete) this process has memory on.
@@ -207,6 +209,25 @@ namespace Shard::Engine::Debugging{
         #endif
     }
 
+    void Profiler::CalibrateOverhead()
+    {
+        constexpr int kIterations = 20000;
+
+        auto start = ProfileClock::now();
+        for (int i = 0; i < kIterations; i++)
+        {
+            BeginRenderSubSample(RenderSubSample::CameraUpdate);
+            EndRenderSubSample(RenderSubSample::CameraUpdate);
+        }
+        auto total = ProfileClock::now() - start;
+
+        // Raw (uncorrected) cost of a pair : the empty scopes above measure nothing but themselves.
+        m_SampleOverheadMs = std::chrono::duration<float, std::milli>(total).count() / kIterations;
+
+        m_CurrentFrame = FrameProfile{};
+        m_RenderSubSampleCount = 0;
+    }
+
     void Profiler::BeginSample(ProfileCategory category)
     {
         m_SampleStart[static_cast<size_t>(category)] = ProfileClock::now();
@@ -216,7 +237,8 @@ namespace Shard::Engine::Debugging{
     {
         auto elapsed = ProfileClock::now() - m_SampleStart[static_cast<size_t>(category)];
         float ms = std::chrono::duration<float, std::milli>(elapsed).count();
-        m_CurrentFrame.categoryMs[static_cast<size_t>(category)] += ms;
+        ms -= m_SampleOverheadMs;
+        m_CurrentFrame.categoryMs[static_cast<size_t>(category)] += ms > 0.0f ? ms : 0.0f;
     }
 
     void Profiler::BeginRenderSubSample(RenderSubSample sample)
@@ -228,12 +250,21 @@ namespace Shard::Engine::Debugging{
     {
         auto elapsed = ProfileClock::now() - m_RenderSubSampleStart[static_cast<size_t>(sample)];
         float ms = std::chrono::duration<float, std::milli>(elapsed).count();
-        m_CurrentFrame.renderSubMs[static_cast<size_t>(sample)] += ms;
+        ms -= m_SampleOverheadMs;
+        m_CurrentFrame.renderSubMs[static_cast<size_t>(sample)] += ms > 0.0f ? ms : 0.0f;
+        m_RenderSubSampleCount++;
     }
 
     void Profiler::EndFrameSampling()
     {
         m_CurrentFrame.totalMs = Core::GetEngine().GetTimeManager()->GetDeltaTime() * 1000.0f;
+
+        // Rendering's wall time contains every sub-sample's own bookkeeping : remove it.
+        float& renderingMs = m_CurrentFrame.categoryMs[static_cast<size_t>(ProfileCategory::Rendering)];
+        renderingMs -= m_RenderSubSampleCount * m_SampleOverheadMs;
+        if (renderingMs < 0.0f)
+            renderingMs = 0.0f;
+        m_RenderSubSampleCount = 0;
 
         float tracked = 0.0f;
         for (size_t i = 0; i < kProfileCategoryCount; i++)

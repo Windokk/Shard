@@ -90,7 +90,9 @@ namespace Shard::Engine::Rendering {
         ShadedWireframe = 3,
         Normals = 4,
         Depth = 5,
-        UVs = 6
+        UVs = 6,
+        GlobalIllumination = 7,
+        SSAO = 8
     };
 
     struct DebugViewState
