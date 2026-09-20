@@ -32,6 +32,10 @@ namespace Shard::Engine::Rendering {
             // mutations (so the cull pass reads up-to-date light data) and before ForwardPass executes.
             void Update();
 
+            /// @brief Re-binds the light grid / index list to the slots lit.frag reads them from (2/3).
+            /// For callers that temporarily bound something else there (see ImmediateRenderer).
+            void BindShadingBuffers();
+
             uint32_t GetGridSizeX() const { return m_GridSizeX; }
             uint32_t GetGridSizeY() const { return m_GridSizeY; }
             float GetClusterScaleZ() const { return m_ClusterScaleZ; }

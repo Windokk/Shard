@@ -611,6 +611,12 @@ namespace Shard::Editor::Core{
             outlineMaskPass->enabled = settings.showOutlines;
             outlinePass->enabled = settings.showOutlines;
 
+            Rendering::DebugViewState debugView;
+            debugView.mode = settings.viewMode;
+            debugView.showLighting = settings.showLighting;
+            debugView.showShadows = settings.showShadows;
+            renderer->SetDebugView(debugView);
+
             // Re-submit the selected actor's model(s) every frame rather than only on selection change -
             // AddToPass captures the transform's current matrix at call time (see
             // Mesh::CreateDrawCommands), so without this the mask would keep drawing the object at

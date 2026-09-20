@@ -4,6 +4,7 @@
 #include "engine/core/resources/resources_manager.hpp"
 
 #include "engine/rendering/material/material.hpp"
+#include "engine/rendering/renderer/renderer.hpp"
 #include "engine/rendering/texture/texture.hpp"
 
 #include "engine/debugging/logger.hpp"
@@ -168,8 +169,17 @@ namespace Shard::Editor::GUI{
             return;
         }
 
+        std::string nameInProject = Core::GetEngine().GetFileManager()->GetFileInfos(path).nameInProject;
+
         // The edited texture set may differ from what the resident material was loaded with
-        Core::GetEngine().GetResourcesManager()->RefreshDependencies(Core::GetEngine().GetFileManager()->GetFileInfos(path).nameInProject);
+        Core::GetEngine().GetResourcesManager()->RefreshDependencies(nameInProject);
+
+        // Its asset browser thumbnail shows the old look
+        Rendering::ThumbnailRequest thumbnail;
+        thumbnail.kind = Rendering::ThumbnailKind::Material;
+        thumbnail.nameInProject = nameInProject;
+        thumbnail.filePath = path;
+        Core::GetEngine().GetRenderer()->GetThumbnailService()->Invalidate(thumbnail);
 
         dirty = false;
     }

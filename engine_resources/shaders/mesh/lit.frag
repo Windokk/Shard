@@ -41,6 +41,13 @@ uniform vec3 camPos;
 
 uniform bool masked;
 
+// Editor viewport debug views (see DebugViewState). 0 Lit, 1 Unlit, 2 Wireframe, 3 Shaded+Wireframe
+// (wire sweep), 4 Normals, 5 Depth, 6 UVs. showLighting = false swaps the lighting for a flat
+// camera-facing shade; showShadows = false treats every light as fully unshadowed.
+uniform int viewMode;
+uniform bool showLighting;
+uniform bool showShadows;
+
 // Shadow maps
 
 #define MAX_DIRECTIONAL_LIGHTS 3
@@ -576,6 +583,28 @@ void main() {
     vec3 V = normalize(camPos - worldPos);
     vec3 result = vec3(0.0);
 
+    if (viewMode != 0) {
+        if (viewMode == 2) { fragColor = vec4(0.85, 0.9, 1.0, 1.0); return; }
+        if (viewMode == 3) { fragColor = vec4(0.02, 0.02, 0.03, 1.0); return; }
+        if (viewMode == 4) { fragColor = vec4(worldNormal * 0.5 + 0.5, 1.0); return; }
+        if (viewMode == 5) {
+            float d = length(camPos - worldPos);
+            fragColor = vec4(vec3(1.0 - d / (d + 20.0)), 1.0);
+            return;
+        }
+        if (viewMode == 6) { fragColor = vec4(fract(texCoord), 0.0, 1.0); return; }
+        if (viewMode == 1) {
+            fragColor = vec4(baseColor.rgb + texture(emissiveMap, texCoord).rgb * emissive, baseColor.a);
+            return;
+        }
+    }
+
+    if (!showLighting) {
+        float facing = 0.25 + 0.75 * max(dot(worldNormal, V), 0.0);
+        fragColor = vec4(baseColor.rgb * facing + texture(emissiveMap, texCoord).rgb * emissive, baseColor.a);
+        return;
+    }
+
     // Directional lights: never clustered (at most a handful in any scene - see
     // LightManager::MAX_DIRECTIONAL_LIGHTS), so still a plain scan of the full light list.
     for (int i = 0; i < lightNB; ++i) {
@@ -586,7 +615,7 @@ void main() {
         vec3 L = -normalize(l.direction.xyz);
         float visibility = 1.0;
 
-        if (l.castShadow == 1 && l.shadowIndex >= 0) {
+        if (showShadows && l.castShadow == 1 && l.shadowIndex >= 0) {
             int cascadeIdx = selectCascade(l.shadowIndex);
             visibility = ShadowCalculationDir(dirShadowMaps[cascadeIdx], dirLightSpaceMatrices[cascadeIdx], L, worldPos, worldNormal);
         }
@@ -620,7 +649,7 @@ void main() {
             float falloff = clamp(1.0 - dist / l.radius, 0.0, 1.0);
             attenuation *= falloff * falloff;
 
-            if (l.castShadow == 1 && l.shadowIndex >= 0){
+            if (showShadows && l.castShadow == 1 && l.shadowIndex >= 0){
                 visibility = ShadowCalculationPoint(l.shadowIndex, l.position.xyz, worldPos, pointLightFarPlanes[l.shadowIndex], worldNormal);
             }
         }
@@ -645,7 +674,7 @@ void main() {
 
             attenuation *= spotIntensity;
 
-            if (l.castShadow == 1 && l.shadowIndex >= 0) {
+            if (showShadows && l.castShadow == 1 && l.shadowIndex >= 0) {
                 visibility = ShadowCalculationSpot(spotShadowMaps[l.shadowIndex], L, spotLightSpaceMatrices[l.shadowIndex], worldNormal);
             }
         }

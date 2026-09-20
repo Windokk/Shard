@@ -26,7 +26,12 @@ namespace Shard::Engine::Rendering{
 
             void SetClearColor(float r, float g, float b, float a) override;
 
+            glm::vec4 GetClearColor() override;
+
             void Clear(ClearBit clearBits) override;
+
+            void InvalidateStateCache() override;
+            void SetDebugView(const DebugViewState& state) override;
 
             std::string GetDeviceVendor() override;
             std::string GetRendererName() override;

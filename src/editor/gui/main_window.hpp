@@ -42,6 +42,9 @@ namespace Shard::Editor::Core {
         bool showGizmos = true;
         bool showDDGIGizmos = true;
         bool showPhysicsShapes = true;
+        bool showLighting = true;
+        bool showShadows = true;
+        Engine::Rendering::ViewMode viewMode = Engine::Rendering::ViewMode::Lit;
 
         // Gizmo snapping
         bool snapLocation = false;
@@ -52,8 +55,6 @@ namespace Shard::Editor::Core {
         float scaleSnap = 0.25f;
 
         /// TODO
-        /// bool showShadows;
-        /// bool showLights;
         /// bool showBillboards;
     };
 

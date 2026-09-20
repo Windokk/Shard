@@ -167,7 +167,7 @@ namespace Shard::Editor::GUI{
 
             // Context menu / shortcuts only *request* an action (pendingAction); it runs once per frame
             // after the item loop (ProcessAction), since most of them rebuild `items`.
-            enum class Action { None, Open, Cut, Copy, Paste, Duplicate, Rename, Delete, Refresh, NewFolder, NewMaterial, NewLevel, Reveal, CopyPath };
+            enum class Action { None, Open, Cut, Copy, Paste, Duplicate, Rename, Delete, Refresh, NewFolder, NewMaterial, NewLevel, Reveal, CopyPath, RefreshThumbnail };
 
             void DrawContextMenu();
             void ProcessAction();

@@ -55,6 +55,19 @@ namespace Shard::Engine::Rendering {
 
             virtual void BlitToScreen(uint32_t screenWidth, uint32_t screenHeight) = 0;
 
+            /// @brief Blocking readback of the (resolved) color attachment as tightly packed RGBA8,
+            /// top row first. Call ResolveMultisampled() first if this framebuffer is multisampled.
+            /// @return false if there is no color attachment to read
+            virtual bool ReadPixelsRGBA8(std::vector<uint8_t>& outPixels) = 0;
+
+            /// @brief Writes tightly packed RGBA8 pixels, top row first (the layout ReadPixelsRGBA8 produces),
+            /// into a rectangle of this framebuffer's color attachment. Must not be multisampled.
+            virtual void UploadColorRegion(uint32_t x, uint32_t y, uint32_t width, uint32_t height, const uint8_t* rgba) = 0;
+
+            /// @brief Copies (and rescales, with filtering) this framebuffer's resolved color attachment
+            /// into a rectangle of `dst`'s color attachment. `dst` must not be multisampled.
+            virtual void BlitColorTo(Framebuffer& dst, uint32_t dstX, uint32_t dstY, uint32_t dstWidth, uint32_t dstHeight) = 0;
+
             virtual uint32_t GetColorAttachment() const = 0;
             virtual uint32_t GetDepthAttachment() const = 0;
             virtual uint32_t GetResolveColorAttachment() const = 0;

@@ -140,7 +140,27 @@ namespace Shard::Engine::Rendering{
                 s_BlendEqValid = true;
             }
 
+            // Forces every subsequent draw to rasterize as lines regardless of the pipeline's own
+            // polygon mode (editor wireframe views), with a small bias so lines win the depth test
+            // against a filled sweep of the same geometry.
+            static void SetForceLine(bool force){
+                if (s_ForceLine == force)
+                    return;
+                s_ForceLine = force;
+                s_PolygonModeValid = false;
+                if (force){
+                    glEnable(GL_POLYGON_OFFSET_LINE);
+                    glPolygonOffset(-1.0f, -1.0f);
+                }
+                else{
+                    glDisable(GL_POLYGON_OFFSET_LINE);
+                    glPolygonMode(GL_FRONT_AND_BACK, GL_FILL);
+                }
+            }
+
             static void SetPolygonMode(GLenum mode){
+                if (s_ForceLine)
+                    mode = GL_LINE;
                 if (s_PolygonModeValid && s_PolygonMode == mode)
                     return;
                 glPolygonMode(GL_FRONT_AND_BACK, mode);
@@ -220,6 +240,7 @@ namespace Shard::Engine::Rendering{
 
             inline static GLenum s_PolygonMode = 0;
             inline static bool s_PolygonModeValid = false;
+            inline static bool s_ForceLine = false;
 
             inline static GLuint s_PassGlobalsProgram[static_cast<size_t>(PassGlobalsKind::Count)] = {};
             inline static bool s_PassGlobalsValid[static_cast<size_t>(PassGlobalsKind::Count)] = {};

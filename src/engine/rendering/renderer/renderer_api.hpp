@@ -6,6 +6,8 @@
 
 #include <type_traits>
 
+#include <glm/glm.hpp>
+
 namespace Shard::Engine::Rendering {
 
     class DrawCommand;
@@ -79,6 +81,27 @@ namespace Shard::Engine::Rendering {
         uint32_t maxSharedMemorySize = 0;                 // GL_MAX_COMPUTE_SHARED_MEMORY_SIZE, in bytes
     };
 
+    /// Values are mirrored by lit.frag's `viewMode` uniform - keep in sync.
+    enum class ViewMode : int
+    {
+        Lit = 0,
+        Unlit = 1,
+        Wireframe = 2,
+        ShadedWireframe = 3,
+        Normals = 4,
+        Depth = 5,
+        UVs = 6
+    };
+
+    struct DebugViewState
+    {
+        ViewMode mode = ViewMode::Lit;
+        bool showLighting = true;
+        bool showShadows = true;
+        /// Rasterize every draw as lines (with a small depth bias so it can overlay a filled sweep).
+        bool wireframeRaster = false;
+    };
+
     class RendererAPI{
         public: 
             enum class API : uint32_t
@@ -90,6 +113,11 @@ namespace Shard::Engine::Rendering {
             };
 
             virtual ~RendererAPI() = default;
+
+            /// @brief Editor-style viewport debug view, applied to the main scene view only (never to
+            /// studio/immediate views). Set by the Renderer around the forward pass.
+            virtual void SetDebugView(const DebugViewState& state) { m_DebugView = state; }
+            const DebugViewState& GetDebugView() const { return m_DebugView; }
 
             virtual void ExecuteDrawCommand(const DrawCommand& command, const std::shared_ptr<RenderPass> pass) = 0;
 
@@ -109,7 +137,14 @@ namespace Shard::Engine::Rendering {
 
             virtual void SetClearColor(float r, float g, float b, float a) = 0;
 
+            /// @brief The clear color currently set on the API (whoever set it, including raw calls).
+            virtual glm::vec4 GetClearColor() = 0;
+
             virtual void Clear(ClearBit clearBits) = 0;
+
+            /// @brief Forget every piece of API state the backend caches to skip redundant calls. Call after
+            /// touching the API outside the normal draw path (immediate renders, raw calls, ...).
+            virtual void InvalidateStateCache() = 0;
 
             virtual std::string GetDeviceVendor() = 0;
             virtual std::string GetRendererName() = 0;
@@ -117,6 +152,7 @@ namespace Shard::Engine::Rendering {
 
         protected:
             API api;
+            DebugViewState m_DebugView;
     };
 
 }

@@ -13,6 +13,7 @@
 #include "engine/rendering/lighting/light_culling_manager.hpp"
 #include "engine/rendering/camera/camera_manager.hpp"
 #include "engine/core/resources/resources_manager.hpp"
+#include "engine/objects/actors/actor.hpp"
 #include "engine/debugging/profiler.hpp"
 #include <queue>
 #include <algorithm>
@@ -154,6 +155,9 @@ namespace Shard::Engine::Rendering{
         m_LightCullingManager = std::make_shared<LightCullingManager>();
         m_LightCullingManager->Init(this);
 
+        m_ImmediateRenderer.Init(this);
+        m_ThumbnailService.Init(this);
+
         struct Vertex {
             glm::vec3 position;
             glm::vec2 texCoord;
@@ -272,6 +276,8 @@ namespace Shard::Engine::Rendering{
 
     void Renderer::Shutdown()
     {
+        m_ThumbnailService.Shutdown();
+        m_ImmediateRenderer.Shutdown();
         m_ViewportBuffer->Destroy();
         m_LightManager->Clear();
     }
@@ -715,7 +721,60 @@ namespace Shard::Engine::Rendering{
             if (!pass->enabled)
                 continue;
             BeginRenderPass(pass);
-            ExecuteRenderPass();
+
+            if (passName == "ForwardPass")
+            {
+                // Debug views only ever touch the main scene render. Backgrounds (fullscreen
+                // triangles, i.e. the skybox) are dropped from every mode that isn't a filled lit/unlit view.
+                DebugViewState state = m_DebugView;
+                m_SkipFullscreenCommands = false;
+
+                switch (state.mode)
+                {
+                    case ViewMode::Wireframe:
+                        state.wireframeRaster = true;
+                        m_SkipFullscreenCommands = true;
+                        m_RendererAPI->SetDebugView(state);
+                        ExecuteRenderPass();
+                        break;
+
+                    case ViewMode::ShadedWireframe:
+                        state.mode = ViewMode::Lit;
+                        m_RendererAPI->SetDebugView(state);
+                        ExecuteRenderPass();
+
+                        // Second sweep over the same list as lines. Reset() so per-pass uniforms and
+                        // polygon mode are re-applied for the new state.
+                        m_RendererAPI->InvalidateStateCache();
+                        state.mode = ViewMode::ShadedWireframe;
+                        state.wireframeRaster = true;
+                        m_SkipFullscreenCommands = true;
+                        m_RendererAPI->SetDebugView(state);
+                        ExecuteRenderPass();
+                        break;
+
+                    case ViewMode::Normals:
+                    case ViewMode::Depth:
+                    case ViewMode::UVs:
+                        m_SkipFullscreenCommands = true;
+                        m_RendererAPI->SetDebugView(state);
+                        ExecuteRenderPass();
+                        break;
+
+                    default:
+                        m_RendererAPI->SetDebugView(state);
+                        ExecuteRenderPass();
+                        break;
+                }
+
+                m_SkipFullscreenCommands = false;
+                m_RendererAPI->SetDebugView(DebugViewState{});
+            }
+            else
+            {
+                ExecuteRenderPass();
+            }
+
             EndRenderPass();
         }
 
@@ -743,25 +802,61 @@ namespace Shard::Engine::Rendering{
         m_RendererAPI->Clear(clearMask);
     }
 
+    bool Renderer::GetCurrentView(RenderView& out)
+    {
+        if(!m_ViewStack.empty())
+        {
+            out = m_ViewStack.back();
+            return true;
+        }
+
+        auto camera = Core::GetEngine().GetCameraManager()->GetActiveCamera();
+        if(!camera)
+            return false;
+
+        out.view = camera->GetView();
+        out.projection = camera->GetProjection();
+        out.position = camera->parent->transform->GetWorldPosition();
+        out.orthographic = camera->IsOrthographic();
+        return true;
+    }
+
+    void Renderer::RenderImmediate(const std::shared_ptr<RenderPass>& pass, const RenderView& view)
+    {
+        PushView(view);
+        BeginRenderPass(pass);
+        ExecuteRenderPass();
+        EndRenderPass();
+        PopView();
+        m_CurrentPass = nullptr;
+    }
+
     void Renderer::ExecuteRenderPass()
     {
-        auto camera = Core::GetEngine().GetCameraManager()->GetActiveCamera();
-
-        // Benign transient: right after boot (before the editor builds its viewport camera) or
-        // during a level swap there can be a frame with no active camera. Skip the pass, and warn
-        // only on the no-camera -> still-no-camera edge so a genuine "stuck" state stays visible
-        // without spamming one line per pass per frame.
-        static bool hadCameraLastCall = true;
-        if(!camera)
+        // With a pushed view the active camera is irrelevant (and may not even exist, e.g. a
+        // thumbnail rendered while no level is loaded).
+        std::shared_ptr<Objects::Components::Camera> camera = nullptr;
+        if(m_ViewStack.empty())
         {
-            if(hadCameraLastCall)
-                DEBUG_WARNING("No active camera - skipping render passes until one is set");
-            hadCameraLastCall = false;
-            return;
-        }
-        hadCameraLastCall = true;
+            camera = Core::GetEngine().GetCameraManager()->GetActiveCamera();
 
-        bool cullingActive = camera->frustumCulling && m_CurrentPass->allowCulling;
+            // Benign transient: right after boot (before the editor builds its viewport camera) or
+            // during a level swap there can be a frame with no active camera. Skip the pass, and warn
+            // only on the no-camera -> still-no-camera edge so a genuine "stuck" state stays visible
+            // without spamming one line per pass per frame.
+            static bool hadCameraLastCall = true;
+            if(!camera)
+            {
+                if(hadCameraLastCall)
+                    DEBUG_WARNING("No active camera - skipping render passes until one is set");
+                hadCameraLastCall = false;
+                return;
+            }
+            hadCameraLastCall = true;
+        }
+
+        // The camera's frustum only describes the active camera's view, so a pushed view is never culled.
+        bool cullingActive = camera && camera->frustumCulling && m_CurrentPass->allowCulling;
 
         for(auto& drawCmd : (m_CurrentPass->externalDrawList ? *m_CurrentPass->externalDrawList : m_CurrentPass->drawList)){
 
@@ -805,7 +900,7 @@ namespace Shard::Engine::Rendering{
                 }
             }
 
-            if (skip)
+            if (skip || (m_SkipFullscreenCommands && drawCmd.fullscreenTri))
                 continue;
 
             m_RendererAPI->ExecuteDrawCommand(drawCmd, m_CurrentPass);

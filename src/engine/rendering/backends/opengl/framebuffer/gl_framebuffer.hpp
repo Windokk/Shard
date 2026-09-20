@@ -18,6 +18,12 @@ namespace Shard::Engine::Rendering{
 
             void BlitToScreen(uint32_t screenWidth, uint32_t screenHeight) override;
 
+            bool ReadPixelsRGBA8(std::vector<uint8_t>& outPixels) override;
+
+            void UploadColorRegion(uint32_t x, uint32_t y, uint32_t width, uint32_t height, const uint8_t* rgba) override;
+
+            void BlitColorTo(Framebuffer& dst, uint32_t dstX, uint32_t dstY, uint32_t dstWidth, uint32_t dstHeight) override;
+
             void ResolveMultisampled() override;
 
             void AttachCubemapArray(uint32_t texture) override;

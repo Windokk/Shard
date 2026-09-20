@@ -632,6 +632,39 @@ namespace Shard::Editor::GUI {
 
         ImGui::Checkbox("Show Physics Shapes ?", &parent->settings.showPhysicsShapes);
 
+        ImGui::Separator();
+
+        ImGui::Checkbox("Show Lighting ?", &parent->settings.showLighting);
+        ImGui::Checkbox("Show Shadows ?", &parent->settings.showShadows);
+
+        namespace Rendering = Engine::Rendering;
+        static const struct { const char* label; Rendering::ViewMode mode; } viewModes[] = {
+            { "Lit", Rendering::ViewMode::Lit },
+            { "Unlit", Rendering::ViewMode::Unlit },
+            { "Wireframe", Rendering::ViewMode::Wireframe },
+            { "Shaded + Wireframe", Rendering::ViewMode::ShadedWireframe },
+            { "Normals", Rendering::ViewMode::Normals },
+            { "Depth", Rendering::ViewMode::Depth },
+            { "UVs", Rendering::ViewMode::UVs },
+        };
+
+        const char* currentLabel = "Lit";
+        for (auto& vm : viewModes)
+            if (vm.mode == parent->settings.viewMode)
+                currentLabel = vm.label;
+
+        if (ImGui::BeginCombo("View Mode", currentLabel))
+        {
+            for (auto& vm : viewModes)
+            {
+                const bool selected = (vm.mode == parent->settings.viewMode);
+                if (ImGui::Selectable(vm.label, selected))
+                    parent->settings.viewMode = vm.mode;
+                if (selected) ImGui::SetItemDefaultFocus();
+            }
+            ImGui::EndCombo();
+        }
+
         auto physicsDebugPass = Engine::Core::GetEngine().GetRenderer()->GetRenderPass("PhysicsDebugPass");
         if (physicsDebugPass)
             physicsDebugPass->enabled = parent->settings.showPhysicsShapes;

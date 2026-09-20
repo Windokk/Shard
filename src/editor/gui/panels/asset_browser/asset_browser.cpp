@@ -8,8 +8,8 @@
 #include "engine/core/resources/resources_manager.hpp"
 #include "engine/rendering/renderer/renderer.hpp"
 #include "engine/rendering/texture/texture.hpp"
+#include "engine/rendering/immediate/thumbnail_service.hpp"
 
-#include "editor/gui/resources/mesh_thumbnail_cache.hpp"
 #include "editor/gui/panels/asset_editor_registry.hpp"
 #include "editor/gui/dragdrop/asset_drag_drop.hpp"
 #include "editor/gui/popups.hpp"
@@ -182,7 +182,7 @@ namespace Shard::Editor::GUI{
         if (dirty)
             Refresh();
 
-        MeshThumbnailCache::Instance().BeginFrame();
+        Engine::Core::GetEngine().GetRenderer()->GetThumbnailService()->BeginFrame();
 
         ImGui::Begin("Asset Browser");
 
@@ -518,17 +518,25 @@ namespace Shard::Editor::GUI{
                                 icon_min.y + ThumbnailSize.y
                             );
 
-                            // Real preview for images and static meshes; every other type falls
+                            // Real preview for images, meshes and materials; every other type falls
                             // back to its atlas icon. Images sample their own already-loaded
-                            // texture directly; meshes are rendered white/unlit into a shared
-                            // thumbnail atlas the first time they're seen (see MeshThumbnailCache).
+                            // texture directly; meshes and materials are rendered lit into the
+                            // thumbnail atlas the first time they're seen (see ThumbnailService).
                             std::shared_ptr<Engine::Rendering::Texture2D> imageThumbnail;
-                            const AtlasRegion* meshThumbnail = nullptr;
+                            Engine::Rendering::ThumbnailRegion assetThumbnail;
+                            bool hasAssetThumbnail = false;
+                            auto* thumbnails = Engine::Core::GetEngine().GetRenderer()->GetThumbnailService();
 
                             if (!item_data->isDirectory && item_data->type == Engine::Filesystem::Type::T_IMAGE)
                                 imageThumbnail = Engine::Core::GetEngine().GetResourcesManager()->GetTexture(item_data->nameInProject);
-                            else if (!item_data->isDirectory && item_data->type == Engine::Filesystem::Type::T_MODEL)
-                                meshThumbnail = MeshThumbnailCache::Instance().GetOrCreateThumbnail(item_data->nameInProject);
+                            else if (!item_data->isDirectory && (item_data->type == Engine::Filesystem::Type::T_MODEL || item_data->type == Engine::Filesystem::Type::T_MATERIAL))
+                            {
+                                Engine::Rendering::ThumbnailRequest request;
+                                request.kind = item_data->type == Engine::Filesystem::Type::T_MODEL ? Engine::Rendering::ThumbnailKind::Mesh : Engine::Rendering::ThumbnailKind::Material;
+                                request.nameInProject = item_data->nameInProject;
+                                request.filePath = item_data->path;
+                                hasAssetThumbnail = thumbnails->Get(request, assetThumbnail);
+                            }
 
                             if (imageThumbnail && imageThumbnail->IsValid())
                             {
@@ -540,14 +548,14 @@ namespace Shard::Editor::GUI{
                                 );
                                 draw_list->AddRect(icon_min, icon_max, IM_COL32(0, 0, 0, 130));
                             }
-                            else if (meshThumbnail)
+                            else if (hasAssetThumbnail)
                             {
                                 draw_list->AddImage(
-                                    (void*)(intptr_t)MeshThumbnailCache::Instance().GetAtlasTextureHandle(),
+                                    (void*)(intptr_t)thumbnails->GetAtlasTexture(),
                                     icon_min,
                                     icon_max,
-                                    meshThumbnail->uv0,
-                                    meshThumbnail->uv1
+                                    ImVec2(assetThumbnail.uv0.x, assetThumbnail.uv0.y),
+                                    ImVec2(assetThumbnail.uv1.x, assetThumbnail.uv1.y)
                                 );
                                 draw_list->AddRect(icon_min, icon_max, IM_COL32(0, 0, 0, 130));
                             }
@@ -797,6 +805,12 @@ namespace Shard::Editor::GUI{
 
             if (ImGui::MenuItem("Copy Path", nullptr, false, single))
                 pendingAction = Action::CopyPath;
+
+            bool hasThumbnail = false;
+            for (const Asset* item : GetSelectedItems())
+                hasThumbnail |= !item->isDirectory && (item->type == Engine::Filesystem::Type::T_MODEL || item->type == Engine::Filesystem::Type::T_MATERIAL);
+            if (hasThumbnail && ImGui::MenuItem("Refresh Thumbnail"))
+                pendingAction = Action::RefreshThumbnail;
         }
         else
         {
@@ -942,6 +956,26 @@ namespace Shard::Editor::GUI{
                 changed = true;
                 break;
             }
+
+            case Action::RefreshThumbnail:
+                for (const Asset* item : selected)
+                {
+                    if (item->isDirectory)
+                        continue;
+
+                    Engine::Rendering::ThumbnailRequest request;
+                    if (item->type == Engine::Filesystem::Type::T_MODEL)
+                        request.kind = Engine::Rendering::ThumbnailKind::Mesh;
+                    else if (item->type == Engine::Filesystem::Type::T_MATERIAL)
+                        request.kind = Engine::Rendering::ThumbnailKind::Material;
+                    else
+                        continue;
+
+                    request.nameInProject = item->nameInProject;
+                    request.filePath = item->path;
+                    Engine::Core::GetEngine().GetRenderer()->GetThumbnailService()->Invalidate(request);
+                }
+                break;
 
             case Action::NewFolder:
             case Action::NewMaterial:

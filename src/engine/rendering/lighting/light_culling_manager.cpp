@@ -59,6 +59,12 @@ namespace Shard::Engine::Rendering {
         m_GlobalIndexCounterBuffer->SetData(&zero, sizeof(uint32_t));
     }
 
+    void LightCullingManager::BindShadingBuffers()
+    {
+        m_LightGridBuffer->Bind(2);
+        m_LightIndexListBuffer->Bind(3);
+    }
+
     void LightCullingManager::Update()
     {
         if (!m_BuildPipeline || !m_CullPipeline)

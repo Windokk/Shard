@@ -54,6 +54,13 @@ namespace Shard::Engine::Rendering{
         glClearColor(r, g, b, a);
     }
 
+    glm::vec4 GLRendererAPI::GetClearColor()
+    {
+        glm::vec4 color;
+        glGetFloatv(GL_COLOR_CLEAR_VALUE, &color.x);
+        return color;
+    }
+
     void GLRendererAPI::Clear(ClearBit clearBits)
     {
         GLStateCache::Reset();
@@ -72,6 +79,17 @@ namespace Shard::Engine::Rendering{
             bits |= GL_STENCIL_BUFFER_BIT;
 
         glClear(bits);
+    }
+
+    void GLRendererAPI::InvalidateStateCache()
+    {
+        GLStateCache::Reset();
+    }
+
+    void GLRendererAPI::SetDebugView(const DebugViewState& state)
+    {
+        m_DebugView = state;
+        GLStateCache::SetForceLine(state.wireframeRaster);
     }
 
     std::string GLRendererAPI::GetDeviceVendor()
@@ -183,9 +201,30 @@ namespace Shard::Engine::Rendering{
 
         shader->SetVec3("emissive", glm::vec3(0.0f));
 
+        // Editor debug view (main scene view only - studio/immediate renders always look normal).
+        {
+            RenderView view;
+            const bool studioView = Core::GetEngine().GetRenderer()->GetCurrentView(view) && view.lighting == ViewLighting::Studio;
+            const DebugViewState& dv = m_DebugView;
+            shader->SetInt("viewMode", studioView ? 0 : static_cast<int>(dv.mode));
+            shader->SetBool("showLighting", studioView || dv.showLighting);
+            shader->SetBool("showShadows", studioView || dv.showShadows);
+        }
+
         auto level = Core::GetEngine().GetLevelManager()->GetLevelAt(0);
 
-        if (level)
+        RenderView currentView;
+        Core::GetEngine().GetRenderer()->GetCurrentView(currentView);
+        const bool studio = currentView.lighting == ViewLighting::Studio;
+
+        if (studio)
+        {
+            // Fixed studio look : none of the level's lighting settings apply, and SSAO's texture is
+            // the main viewport's (screen-space), which would be meaningless for another view.
+            shader->SetFloat("ambientIntensity", currentView.studioAmbient);
+            shader->SetBool("ssaoEnabled", false);
+        }
+        else if (level)
         {
             shader->SetFloat("ambientIntensity", level->ambientIntensity);
 
@@ -199,19 +238,26 @@ namespace Shard::Engine::Rendering{
         const auto& uniforms = shader->GetActiveUniformsMap();
         auto it = uniforms.find("useEnvReflections");
 
-        if(it != uniforms.end() && level->skybox){
+        // A studio view brings its own environment so its look never depends on the level.
+        std::shared_ptr<EnvironmentMap> envMap;
+        if (studio)
+            envMap = currentView.studioEnvironment;
+        else if (level && level->skybox)
+            envMap = level->skybox->GetEnvMap();
+
+        if(it != uniforms.end() && envMap){
             //Bind skybox data
             const auto& samplers = shader->GetActiveSamplersMap();
 
-            GLStateCache::BindTextureUnit(samplers.find("ibl_irradianceMap")->second.binding, level->skybox->GetEnvMap()->GetIrradiance()->GetHandle());
+            GLStateCache::BindTextureUnit(samplers.find("ibl_irradianceMap")->second.binding, envMap->GetIrradiance()->GetHandle());
 
-            GLStateCache::BindTextureUnit(samplers.find("ibl_prefilteredEnvMap")->second.binding, level->skybox->GetEnvMap()->GetPrefilter()->GetHandle());
+            GLStateCache::BindTextureUnit(samplers.find("ibl_prefilteredEnvMap")->second.binding, envMap->GetPrefilter()->GetHandle());
 
-            GLStateCache::BindTextureUnit(samplers.find("ibl_brdfLUT")->second.binding, level->skybox->GetEnvMap()->GetBRDFLUT()->GetHandle());
+            GLStateCache::BindTextureUnit(samplers.find("ibl_brdfLUT")->second.binding, envMap->GetBRDFLUT()->GetHandle());
         }
 
         auto probeManager = Core::GetEngine().GetRenderer()->GetProbeManager();
-        bool ddgiReady = probeManager && probeManager->IsReady();
+        bool ddgiReady = !studio && probeManager && probeManager->IsReady();
         shader->SetBool("ddgi_enabled", ddgiReady);
 
         if (ddgiReady)
@@ -272,10 +318,18 @@ namespace Shard::Engine::Rendering{
             shader->SetInt("ddgi_volumeCount", volumeCount);
         }
 
-        shader->SetInt("lightNB", Core::GetEngine().GetRenderer()->GetLightManager()->GetLightsCount());
-        shader->SetVec3("camPos", Core::GetEngine().GetCameraManager()->GetActiveCamera()->parent->transform->GetWorldPosition());
+        shader->SetInt("lightNB", studio ? currentView.studioLightCount : Core::GetEngine().GetRenderer()->GetLightManager()->GetLightsCount());
+        shader->SetVec3("camPos", currentView.position);
         auto lightCullingManager = Core::GetEngine().GetRenderer()->GetLightCullingManager();
-        if (lightCullingManager)
+        if (studio)
+        {
+            // The studio rig has no point/spot lights : a single-cluster grid whose one (empty) entry
+            // ImmediateRenderer binds in place of the scene's cluster buffers.
+            shader->SetUVec2("clusterGridSizeXY", 1, 1);
+            shader->SetFloat("clusterScaleZ", 0.0f);
+            shader->SetFloat("clusterBiasZ", 0.0f);
+        }
+        else if (lightCullingManager)
         {
             shader->SetUVec2("clusterGridSizeXY", lightCullingManager->GetGridSizeX(), lightCullingManager->GetGridSizeY());
             shader->SetFloat("clusterScaleZ", lightCullingManager->GetClusterScaleZ());
@@ -324,9 +378,12 @@ namespace Shard::Engine::Rendering{
                     GLStateCache::NeedsPassGlobalsUpdate(program, GLStateCache::PassGlobalsKind::Level));
 
             if(command.bindCameraState && GLStateCache::NeedsPassGlobalsUpdate(program, GLStateCache::PassGlobalsKind::Camera)){
-                pipeline->GetSpecifications().shader->SetMat4("uProjection", Core::GetEngine().GetCameraManager()->GetActiveCamera()->GetProjection());
-                pipeline->GetSpecifications().shader->SetMat4("uView", Core::GetEngine().GetCameraManager()->GetActiveCamera()->GetView());
-                pipeline->GetSpecifications().shader->SetBool("uIsOrtho", Core::GetEngine().GetCameraManager()->GetActiveCamera()->IsOrthographic());
+                RenderView currentView;
+                if (Core::GetEngine().GetRenderer()->GetCurrentView(currentView)) {
+                    pipeline->GetSpecifications().shader->SetMat4("uProjection", currentView.projection);
+                    pipeline->GetSpecifications().shader->SetMat4("uView", currentView.view);
+                    pipeline->GetSpecifications().shader->SetBool("uIsOrtho", currentView.orthographic);
+                }
             }
 
             if(pass->overridePipeline){

@@ -4,6 +4,11 @@
         "dependencies":[5]          
     },
 
+    "materials/preview_default.mat":{
+        "id":48,
+        "dependencies":[4,5,20]
+    },
+
     "shaders/fb/framebuffer.vert":{
         "id":2,
         "dependencies":[]            

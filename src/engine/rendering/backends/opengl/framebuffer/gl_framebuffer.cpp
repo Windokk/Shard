@@ -263,6 +263,65 @@ namespace Shard::Engine::Rendering{
         glBindFramebuffer(GL_FRAMEBUFFER, 0);
     }
 
+    bool GLFramebuffer::ReadPixelsRGBA8(std::vector<uint8_t>& outPixels)
+    {
+        if (!m_Specifications.hasColor)
+            return false;
+
+        const uint32_t width = m_Specifications.width;
+        const uint32_t height = m_Specifications.height;
+        const size_t rowBytes = size_t(width) * 4;
+
+        uint32_t readFBO = m_Specifications.multisampled ? m_ResolveFBO : m_FBO;
+
+        std::vector<uint8_t> bottomUp(rowBytes * height);
+
+        glBindFramebuffer(GL_READ_FRAMEBUFFER, readFBO);
+        glReadBuffer(GL_COLOR_ATTACHMENT0);
+        glPixelStorei(GL_PACK_ALIGNMENT, 1);
+        glReadPixels(0, 0, width, height, GL_RGBA, GL_UNSIGNED_BYTE, bottomUp.data());
+        glBindFramebuffer(GL_FRAMEBUFFER, 0);
+
+        // GL rows start at the bottom; image files / CPU consumers expect the top row first.
+        outPixels.resize(bottomUp.size());
+        for (uint32_t y = 0; y < height; ++y)
+            memcpy(outPixels.data() + y * rowBytes, bottomUp.data() + (height - 1 - y) * rowBytes, rowBytes);
+
+        return true;
+    }
+
+    void GLFramebuffer::UploadColorRegion(uint32_t x, uint32_t y, uint32_t width, uint32_t height, const uint8_t* rgba)
+    {
+        if (!m_Specifications.hasColor || m_Specifications.multisampled)
+            return;
+
+        // GL texture rows start at the bottom : flip the top-first input.
+        const size_t rowBytes = size_t(width) * 4;
+        std::vector<uint8_t> bottomUp(rowBytes * height);
+        for (uint32_t row = 0; row < height; ++row)
+            memcpy(bottomUp.data() + row * rowBytes, rgba + (height - 1 - row) * rowBytes, rowBytes);
+
+        glPixelStorei(GL_UNPACK_ALIGNMENT, 1);
+        glTextureSubImage2D(m_ColorAttachment, 0, x, y, width, height, GL_RGBA, GL_UNSIGNED_BYTE, bottomUp.data());
+    }
+
+    void GLFramebuffer::BlitColorTo(Framebuffer& dst, uint32_t dstX, uint32_t dstY, uint32_t dstWidth, uint32_t dstHeight)
+    {
+        uint32_t readFBO = m_Specifications.multisampled ? m_ResolveFBO : m_FBO;
+
+        glBindFramebuffer(GL_READ_FRAMEBUFFER, readFBO);
+        glBindFramebuffer(GL_DRAW_FRAMEBUFFER, dst.GetHandle());
+
+        glBlitFramebuffer(
+            0, 0, m_Specifications.width, m_Specifications.height,
+            dstX, dstY, dstX + dstWidth, dstY + dstHeight,
+            GL_COLOR_BUFFER_BIT,
+            GL_LINEAR
+        );
+
+        glBindFramebuffer(GL_FRAMEBUFFER, 0);
+    }
+
     void GLFramebuffer::ResolveMultisampled()
     {
         if (!m_Specifications.multisampled) return;

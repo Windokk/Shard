@@ -10,6 +10,10 @@
 
 #include "engine/rendering/mesh/mesh.hpp"
 
+#include "engine/rendering/renderer/render_view.hpp"
+#include "engine/rendering/immediate/immediate_renderer.hpp"
+#include "engine/rendering/immediate/thumbnail_service.hpp"
+
 #include <map>
 #include <variant>
 
@@ -93,6 +97,28 @@ namespace Shard::Engine::Rendering {
 
             void RescaleFramebuffers(int newWidth, int newHeight);
 
+            /// @brief Overrides the view every draw is issued from, until the matching PopView().
+            /// Nests. While a view is pushed, frustum culling is skipped (the camera's frustum belongs
+            /// to the active camera, not to the pushed view).
+            void PushView(const RenderView& view) { m_ViewStack.push_back(view); }
+            void PopView() { if (!m_ViewStack.empty()) m_ViewStack.pop_back(); }
+            bool HasViewOverride() const { return !m_ViewStack.empty(); }
+
+            /// @brief The view draws are currently issued from : the top pushed view, else the active
+            /// camera's. Returns false when there is neither.
+            bool GetCurrentView(RenderView& out);
+
+            /// @brief Runs one pass right now from `view`, outside the retained pass graph (see
+            /// ImmediateRenderer, which is the intended caller). The pass is not registered anywhere.
+            void RenderImmediate(const std::shared_ptr<RenderPass>& pass, const RenderView& view);
+
+            /// @brief Editor viewport debug view for the main scene render (view mode, lighting/shadow toggles).
+            void SetDebugView(const DebugViewState& state) { m_DebugView = state; }
+            const DebugViewState& GetDebugView() const { return m_DebugView; }
+
+            ImmediateRenderer* GetImmediateRenderer() { return &m_ImmediateRenderer; }
+            ThumbnailService* GetThumbnailService() { return &m_ThumbnailService; }
+
             uint32_t GetViewportTextureHandle() const { return m_ViewportBuffer->GetResolveColorAttachment(); }
 
             std::shared_ptr<Framebuffer> GetViewportFramebuffer() const { return m_ViewportBuffer; }
@@ -143,6 +169,9 @@ namespace Shard::Engine::Rendering {
             std::unordered_map<std::string, std::shared_ptr<RenderPass>> m_RenderPasses;
             std::vector<std::string> m_ExecutionOrder;
             std::shared_ptr<RenderPass> m_CurrentPass;
+            std::vector<RenderView> m_ViewStack;
+            ImmediateRenderer m_ImmediateRenderer;
+            ThumbnailService m_ThumbnailService;
             std::vector<std::string> m_PassInsertionOrder;
             
             std::unordered_map<std::string, std::vector<std::string>> m_RenderPassDependencies;
@@ -169,6 +198,9 @@ namespace Shard::Engine::Rendering {
             std::shared_ptr<RendererSettings> m_Settings;
 
             bool m_NeedExecutionOrderRebuild = false;
+
+            DebugViewState m_DebugView;
+            bool m_SkipFullscreenCommands = false;
 
             uint32_t m_DrawCallsCount = 0;
             uint32_t m_PrimitivesCount = 0;
