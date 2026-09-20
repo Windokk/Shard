@@ -281,9 +281,6 @@ namespace Shard::Editor::GUI{
 
         ImGui::Separator();
 
-        if (ImGui::MenuItem("Toggle Grid", nullptr, parent->settings.showGrid))
-            parent->settings.showGrid = !parent->settings.showGrid;
-
         if (ImGui::MenuItem("Toggle Gizmos", nullptr, parent->settings.showGizmos))
             parent->settings.showGizmos = !parent->settings.showGizmos;
 

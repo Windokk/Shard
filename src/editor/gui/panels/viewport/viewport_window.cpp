@@ -19,6 +19,7 @@
 
 #include <algorithm>
 #include <cfloat>
+#include <cstdio>
 
 #include <Jolt/Physics/Collision/CollisionCollectorImpl.h>
 
@@ -155,12 +156,6 @@ namespace Shard::Editor::GUI {
         if(parent && parent->GetSelectedActor() && parent->settings.showGizmos)
             DrawObjectGizmo();
 
-        glm::mat4 view = camera->GetView();
-        glm::mat4 proj = camera->GetProjection();
-
-        if(parent->settings.showGrid)  
-            ImGuizmo::DrawGrid(glm::value_ptr(view), glm::value_ptr(proj), glm::value_ptr(glm::mat4(1.0f)), 100);
-
         viewportPos = ImGui::GetWindowPos();
 
         ImGui::SameLine();
@@ -234,12 +229,16 @@ namespace Shard::Editor::GUI {
         ImGui::SameLine();
         DrawGizmoButton(ICON_LC_SCALING, ImGuizmo::SCALE);
 
+        // Snap toggle + increment for the selected tool, right next to the tool buttons
+        ImGui::SameLine(0.0f, ImGui::GetStyle().ItemSpacing.x * 3.0f);
+        DrawSnapControls();
 
         ImGui::SameLine();
 
         float playButtonWidth = ImGui::CalcTextSize(ICON_LC_PLAY).x + ImGui::GetStyle().FramePadding.x * 2;
         float centerX = std::max(0.0f, (toolbarWidth - playButtonWidth) / 2.0f);
-        ImGui::SetCursorPosX(centerX);
+        // Never centre the play button on top of the left-hand controls in a narrow viewport
+        ImGui::SetCursorPosX(std::max(centerX, ImGui::GetCursorPosX()));
 
         if (Engine::Core::GetEngine().IsInPlayMode())
         {
@@ -413,12 +412,36 @@ namespace Shard::Editor::GUI {
         // so hand it the actor's world matrix, and convert back to local when writing the result back.
         glm::mat4 transform = selected->transform->GetWorldMatrix();
 
+        // Only the active mode's increment is handed to ImGuizmo (nullptr = free movement). Translate
+        // reads one step per axis, rotate (degrees) and scale only read the first component.
+        const auto& settings = parent->settings;
+        float snapValues[3] = { 0.0f, 0.0f, 0.0f };
+        const float* snap = nullptr;
+
+        auto ApplySnap = [&](bool enabled, float step)
+        {
+            if (!enabled)
+                return;
+            snapValues[0] = snapValues[1] = snapValues[2] = step;
+            snap = snapValues;
+        };
+
+        switch (currentGizmoOp)
+        {
+            case ImGuizmo::TRANSLATE: ApplySnap(settings.snapLocation, settings.locationSnap); break;
+            case ImGuizmo::ROTATE:    ApplySnap(settings.snapRotation, settings.rotationSnap); break;
+            case ImGuizmo::SCALE:     ApplySnap(settings.snapScale,    settings.scaleSnap);    break;
+            default: break;
+        }
+
         ImGuizmo::Manipulate(
             glm::value_ptr(view),
             glm::value_ptr(proj),
             currentGizmoOp,
             currentGizmoMode,
-            glm::value_ptr(transform)
+            glm::value_ptr(transform),
+            nullptr,
+            snap
         );
 
         if (ImGuizmo::IsUsing() && !gizmoActive)
@@ -600,7 +623,6 @@ namespace Shard::Editor::GUI {
 
         ImGui::Checkbox("Show Outlines ?", &parent->settings.showOutlines);
         ImGui::Checkbox("Show Gizmos ?", &parent->settings.showGizmos);
-        ImGui::Checkbox("Show Grid ?", &parent->settings.showGrid);
 
         ImGui::Checkbox("Show DDGI Gizmos ?", &parent->settings.showDDGIGizmos);
 
@@ -615,6 +637,79 @@ namespace Shard::Editor::GUI {
             physicsDebugPass->enabled = parent->settings.showPhysicsShapes;
 
         ImGui::End();
+    }
+
+    void ViewportWindow::DrawSnapControls()
+    {
+        static const float locationSteps[] = { 0.1f, 0.25f, 0.5f, 1.0f, 2.0f, 5.0f, 10.0f, 50.0f, 100.0f };
+        static const float rotationSteps[] = { 5.0f, 10.0f, 15.0f, 30.0f, 45.0f, 60.0f, 90.0f, 120.0f };
+        static const float scaleSteps[]    = { 0.03125f, 0.0625f, 0.125f, 0.25f, 0.5f, 1.0f, 5.0f, 10.0f };
+
+        // Snap toggle + increment dropdown for the tool currently selected in the toolbar. Each
+        // mode keeps its own toggle/increment (see EditorSettings), so switching tool swaps them.
+        auto& s = parent->settings;
+        bool* enabled = nullptr;
+        float* value = nullptr;
+        const float* steps = nullptr;
+        int stepCount = 0;
+        const char* suffix = "";
+        const char* tooltip = "";
+
+        switch (currentGizmoOp)
+        {
+            case ImGuizmo::TRANSLATE:
+                enabled = &s.snapLocation; value = &s.locationSnap;
+                steps = locationSteps; stepCount = IM_ARRAYSIZE(locationSteps);
+                tooltip = "Location snap";
+                break;
+            case ImGuizmo::ROTATE:
+                enabled = &s.snapRotation; value = &s.rotationSnap;
+                steps = rotationSteps; stepCount = IM_ARRAYSIZE(rotationSteps);
+                suffix = "\xC2\xB0";
+                tooltip = "Rotation snap";
+                break;
+            case ImGuizmo::SCALE:
+                enabled = &s.snapScale; value = &s.scaleSnap;
+                steps = scaleSteps; stepCount = IM_ARRAYSIZE(scaleSteps);
+                tooltip = "Scale snap";
+                break;
+            default:
+                return;
+        }
+
+        ImGui::PushID("GizmoSnap");
+
+        // Latch the state before the click: the button flips *enabled, and the pop must match the push.
+        const bool wasEnabled = *enabled;
+        if (wasEnabled) ImGui::PushStyleColor(ImGuiCol_Button, ImGui::GetStyleColorVec4(ImGuiCol_ButtonActive));
+        if (ImGui::Button(ICON_LC_MAGNET)) *enabled = !*enabled;
+        if (wasEnabled) ImGui::PopStyleColor();
+        if (ImGui::IsItemHovered()) ImGui::SetTooltip("%s (%s)", tooltip, *enabled ? "on" : "off");
+
+        ImGui::SameLine(0.0f, 2.0f);
+
+        char preview[32];
+        snprintf(preview, sizeof(preview), "%g%s", *value, suffix);
+
+        // Dimmed while snapping is off, but still editable so the increment can be picked first.
+        ImGui::PushStyleVar(ImGuiStyleVar_Alpha, ImGui::GetStyle().Alpha * (*enabled ? 1.0f : 0.6f));
+        ImGui::SetNextItemWidth(72.0f);
+        if (ImGui::BeginCombo("##SnapValue", preview))
+        {
+            for (int i = 0; i < stepCount; i++)
+            {
+                char item[32];
+                snprintf(item, sizeof(item), "%g%s", steps[i], suffix);
+                const bool selected = (*value == steps[i]);
+                if (ImGui::Selectable(item, selected))
+                    *value = steps[i];
+                if (selected) ImGui::SetItemDefaultFocus();
+            }
+            ImGui::EndCombo();
+        }
+        ImGui::PopStyleVar();
+
+        ImGui::PopID();
     }
 
     void ViewportWindow::ShowRaytraceSettings()

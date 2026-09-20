@@ -168,6 +168,9 @@ namespace Shard::Editor::GUI{
             return;
         }
 
+        // The edited texture set may differ from what the resident material was loaded with
+        Core::GetEngine().GetResourcesManager()->RefreshDependencies(Core::GetEngine().GetFileManager()->GetFileInfos(path).nameInProject);
+
         dirty = false;
     }
 

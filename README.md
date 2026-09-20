@@ -14,10 +14,14 @@
 
 ## Screenshots
 
-<img src=".github/ScreenShot0.jpg"/>
-<p align="center"><i>Path traced render</i></p>
-<img src=".github/ScreenShot1.png"/>
-<p align="center"><i>View in engine</i></p>
+<div align="center">
+  <img src=".github/ScreenShot0.jpg"/>
+  <p><i>Path traced render</i></p>
+  <img src=".github/ScreenShot1.png"/>
+  <p><i>View in engine</i></p>
+  <img src=".github/Screenshot2.png"/>
+  <p><i>Real-time baked ddgi (~0.34ms)</i></p>
+</div>
 
 ## How to use (Linux)
 

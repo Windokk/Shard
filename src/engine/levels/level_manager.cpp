@@ -56,7 +56,7 @@ namespace Shard::Engine::Levels{
         // renders; otherwise Renderer::Render() runs once with no active camera.
         bool loadComplete = false;
         do {
-            loadComplete = prefetcher.Pump();
+            loadComplete = prefetcher.Pump(-1.0f); // loading screen : no per-frame upload budget
             if(tickCallback)
                 tickCallback(prefetcher.GetProgress());
         } while(!loadComplete);
@@ -120,6 +120,10 @@ namespace Shard::Engine::Levels{
         }
 
         LoadLevel(level);
+
+        // Only now, with the new level's dependencies retained: whatever the old level held that the new
+        // one doesn't need is evicted, and what they share is never unloaded/reloaded.
+        engine.GetResourcesManager()->CollectUnused();
     }
 
     Level* LevelManager::GetLevelAt(int index){

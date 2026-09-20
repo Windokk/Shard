@@ -13,10 +13,13 @@
 #include "editor/gui/panels/asset_editor_registry.hpp"
 #include "editor/gui/dragdrop/asset_drag_drop.hpp"
 #include "editor/gui/popups.hpp"
+#include "editor/gui/notifications.hpp"
+#include "editor/gui/panels/asset_browser/asset_operations.hpp"
 
 #include <cstdio>
 #include <functional>
 #include <algorithm>
+#include <filesystem>
 
 namespace Shard::Editor::GUI{
 
@@ -188,6 +191,9 @@ namespace Shard::Editor::GUI{
 
         DrawAssets();
 
+        ProcessAction();
+        DrawDialogs();
+
         ImGui::End();
     }
 
@@ -310,9 +316,23 @@ namespace Shard::Editor::GUI{
             selection.AdapterIndexToStorageId = [](ImGuiSelectionBasicStorage* self_, int idx) { AssetBrowser* self = (AssetBrowser*)self_->UserData; return self->items[idx].id; };
             selection.ApplyRequests(ms_io);
 
-            const bool want_delete = (ImGui::Shortcut(ImGuiKey_Delete, ImGuiInputFlags_Repeat) && (selection.Size > 0)) || requestDelete;
-            const int item_curr_idx_to_focus = want_delete ? selection.ApplyDeletionPreLoop(ms_io, items.size()) : -1;
-            requestDelete = false;
+            // Keyboard shortcuts (this child has focus). They set the same pendingAction the context menu does.
+            if (ImGui::Shortcut(ImGuiKey_Delete) && selection.Size > 0)
+                pendingAction = Action::Delete;
+            else if (ImGui::Shortcut(ImGuiMod_Ctrl | ImGuiKey_C) && selection.Size > 0)
+                pendingAction = Action::Copy;
+            else if (ImGui::Shortcut(ImGuiMod_Ctrl | ImGuiKey_X) && selection.Size > 0)
+                pendingAction = Action::Cut;
+            else if (ImGui::Shortcut(ImGuiMod_Ctrl | ImGuiKey_V) && !clipboard.empty())
+                pendingAction = Action::Paste;
+            else if (ImGui::Shortcut(ImGuiMod_Ctrl | ImGuiKey_D) && selection.Size > 0)
+                pendingAction = Action::Duplicate;
+            else if (ImGui::Shortcut(ImGuiKey_F2) && selection.Size == 1)
+                pendingAction = Action::Rename;
+            else if (ImGui::Shortcut(ImGuiKey_F5))
+                pendingAction = Action::Refresh;
+
+            const int item_curr_idx_to_focus = -1;
 
             // Push LayoutSelectableSpacing (which is LayoutItemSpacing minus hit-spacing, if we decide to have hit gaps between items)
             // Altering style ItemSpacing may seem unnecessary as we position every items using SetCursorScreenPos()...
@@ -353,15 +373,20 @@ namespace Shard::Editor::GUI{
 
                         bool item_hovered = ImGui::IsItemHovered();
 
-                        if (item_hovered && ImGui::IsMouseDoubleClicked(ImGuiMouseButton_Left))
+                        // Right-click acts on the clicked item (or the whole selection if it is part of it)
+                        if (item_hovered && ImGui::IsMouseClicked(ImGuiMouseButton_Right))
                         {
-                            if (item_data->isDirectory)
-                                NavigateTo(item_data->path.full);
-                            else if (item_data->type == Engine::Filesystem::Type::T_LEVEL)
-                                RequestOpenLevel(item_data->path);
-                            else
-                                AssetEditorRegistry::Instance().TryOpen(item_data->type, item_data->path);
+                            if (!item_is_selected)
+                            {
+                                selection.Clear();
+                                selection.SetItemSelected(item_data->id, true);
+                                item_is_selected = true;
+                            }
+                            contextTargetId = item_data->id;
                         }
+
+                        if (item_hovered && ImGui::IsMouseDoubleClicked(ImGuiMouseButton_Left))
+                            OpenItem(*item_data);
 
                         if (!ImGui::IsDragDropActive() && ImGui::IsItemHovered(ImGuiHoveredFlags_DelayNormal))
                         {
@@ -590,13 +615,16 @@ namespace Shard::Editor::GUI{
             clipper.End();
             ImGui::PopStyleVar(); // ImGuiStyleVar_ItemSpacing
 
-            // Context menu
+            // Right-click on empty space : no item target, nothing selected
+            if (ImGui::IsWindowHovered() && !ImGui::IsAnyItemHovered() && ImGui::IsMouseClicked(ImGuiMouseButton_Right))
+            {
+                contextTargetId = 0;
+                selection.Clear();
+            }
+
             if (ImGui::BeginPopupContextWindow())
             {
-                ImGui::Text("Selection: %d items", selection.Size);
-                ImGui::Separator();
-                if (ImGui::MenuItem("Delete", "Del", false, selection.Size > 0))
-                    requestDelete = true;
+                DrawContextMenu();
                 ImGui::EndPopup();
             }
 
@@ -698,50 +726,407 @@ namespace Shard::Editor::GUI{
         this->parent = parent;
     }
 
-    void AssetBrowser::RenameAsset(const std::string& oldPath, const std::string& newName)
+    void AssetBrowser::OpenItem(const Asset& item)
     {
-        if (newName.empty())
-            return;
+        if (item.isDirectory)
+            NavigateTo(item.path.full);
+        else if (item.type == Engine::Filesystem::Type::T_LEVEL)
+            RequestOpenLevel(item.path);
+        else
+            AssetEditorRegistry::Instance().TryOpen(item.type, item.path);
+    }
 
-        auto& engine = Engine::Core::GetEngine();
-        auto* fileManager = engine.GetFileManager();
-
-        Engine::Filesystem::Path oldFile(oldPath);
-
-        if (!oldFile.Exists())
-            return;
-
-        std::string cleanName = newName;
-        std::replace(cleanName.begin(), cleanName.end(), '\\', '_');
-        std::replace(cleanName.begin(), cleanName.end(), '/', '_');
-
-        std::string extension = "";
-        if (!oldFile.IsDirectory())
-            extension = oldFile.GetExtensionString();
-
-        std::string finalName = cleanName;
-
-        if (!extension.empty())
+    std::vector<const Asset*> AssetBrowser::GetSelectedItems() const
+    {
+        std::vector<const Asset*> selected;
+        for (const Asset& item : items)
         {
-            if (cleanName.find(extension) == std::string::npos)
-                finalName += "." + extension;
+            if (selection.Contains(item.id))
+                selected.push_back(&item);
+        }
+        return selected;
+    }
+
+    const Asset* AssetBrowser::FindItem(ImGuiID id) const
+    {
+        for (const Asset& item : items)
+        {
+            if (item.id == id)
+                return &item;
+        }
+        return nullptr;
+    }
+
+    void AssetBrowser::DrawContextMenu()
+    {
+        const Asset* target = contextTargetId != 0 ? FindItem(contextTargetId) : nullptr;
+        const bool onItem = target != nullptr && selection.Size > 0;
+        const bool single = selection.Size == 1;
+        const bool canPaste = !clipboard.empty();
+
+        if (onItem)
+        {
+            if (single && ImGui::MenuItem("Open"))
+                pendingAction = Action::Open;
+            if (ImGui::MenuItem("Show in Explorer"))
+                pendingAction = Action::Reveal;
+
+            ImGui::Separator();
+
+            if (ImGui::MenuItem("Cut", "Ctrl+X"))
+                pendingAction = Action::Cut;
+            if (ImGui::MenuItem("Copy", "Ctrl+C"))
+                pendingAction = Action::Copy;
+            // Pasting onto a folder drops the clipboard *into* it
+            if (ImGui::MenuItem(single && target->isDirectory ? "Paste Into Folder" : "Paste", "Ctrl+V", false, canPaste))
+            {
+                pendingAction = Action::Paste;
+                pasteTargetDir = single && target->isDirectory ? target->path : Engine::Filesystem::Path("");
+            }
+            if (ImGui::MenuItem("Duplicate", "Ctrl+D"))
+                pendingAction = Action::Duplicate;
+
+            ImGui::Separator();
+
+            if (ImGui::MenuItem("Rename", "F2", false, single))
+                pendingAction = Action::Rename;
+            if (ImGui::MenuItem("Delete", "Del"))
+                pendingAction = Action::Delete;
+
+            ImGui::Separator();
+
+            if (ImGui::MenuItem("Copy Path", nullptr, false, single))
+                pendingAction = Action::CopyPath;
+        }
+        else
+        {
+            if (ImGui::BeginMenu("Create"))
+            {
+                if (ImGui::MenuItem("Folder"))
+                    pendingAction = Action::NewFolder;
+                if (ImGui::MenuItem("Material"))
+                    pendingAction = Action::NewMaterial;
+                if (ImGui::MenuItem("Level"))
+                    pendingAction = Action::NewLevel;
+                ImGui::EndMenu();
+            }
+
+            if (ImGui::MenuItem("Paste", "Ctrl+V", false, canPaste))
+            {
+                pendingAction = Action::Paste;
+                pasteTargetDir = Engine::Filesystem::Path("");
+            }
+
+            ImGui::Separator();
+
+            if (ImGui::MenuItem("Show in Explorer"))
+                pendingAction = Action::Reveal;
         }
 
-        Engine::Filesystem::Path newPath =
-            Engine::Filesystem::Path(oldFile.GetParent()) / finalName;
+        if (ImGui::MenuItem("Refresh", "F5"))
+            pendingAction = Action::Refresh;
+    }
 
-        if (newPath.Exists())
+    void AssetBrowser::ProcessAction()
+    {
+        const Action action = pendingAction;
+        pendingAction = Action::None;
+
+        if (action == Action::None)
             return;
 
-        fileManager->RenameFile(oldFile, newPath);
+        namespace Ops = AssetOperations;
+        using Engine::Filesystem::Path;
+        namespace fs = std::filesystem;
 
-        auto* assetManager = engine.GetAssetIDManager();
-        if (assetManager)
-            /// @todo modify assets database, resources, etc...
-            //assetManager->OnAssetRenamed(oldFile, newPath);
+        std::vector<const Asset*> selected = GetSelectedItems();
+        std::vector<std::string> failures;
 
-        renamingID = {};
-        renameBuffer[0] = '\0';
+        // name/extension split for making a sibling path : a folder's "extension" is part of its name
+        auto splitName = [](const Path& p, std::string& stem, std::string& extension)
+        {
+            fs::path fsPath(p.full);
+            if (fs::is_directory(fsPath))
+            {
+                stem = fsPath.filename().string();
+                extension.clear();
+            }
+            else
+            {
+                stem = fsPath.stem().string();
+                extension = fsPath.extension().string();
+            }
+        };
+
+        bool changed = false;
+
+        switch (action)
+        {
+            case Action::Open:
+                if (selected.size() == 1)
+                    OpenItem(*selected[0]);
+                break;
+
+            case Action::Cut:
+            case Action::Copy:
+                clipboard.clear();
+                for (const Asset* item : selected)
+                    clipboard.push_back(item->path);
+                clipboardCut = action == Action::Cut;
+                break;
+
+            case Action::Paste:
+            {
+                Path destination = pasteTargetDir.full.empty() ? currentPath : pasteTargetDir;
+                pasteTargetDir = Path("");
+
+                for (const Path& source : clipboard)
+                {
+                    std::string stem, extension;
+                    splitName(source, stem, extension);
+
+                    if (clipboardCut)
+                    {
+                        // Cutting into the folder it already is in is a no-op
+                        if (fs::equivalent(fs::path(source.full).parent_path(), fs::path(destination.full)))
+                            continue;
+
+                        Ops::Result r = Ops::Move(source, Ops::UniquePath(destination, stem, extension));
+                        if (!r.ok) failures.push_back(r.message);
+                    }
+                    else
+                    {
+                        Ops::Result r = Ops::Copy(source, Ops::UniquePath(destination, stem, extension));
+                        if (!r.ok) failures.push_back(r.message);
+                    }
+                }
+
+                if (clipboardCut)
+                    clipboard.clear();
+                changed = true;
+                break;
+            }
+
+            case Action::Duplicate:
+                for (const Asset* item : selected)
+                {
+                    std::string stem, extension;
+                    splitName(item->path, stem, extension);
+
+                    Ops::Result r = Ops::Copy(item->path, Ops::UniquePath(Path(fs::path(item->path.full).parent_path().string()), stem, extension, true));
+                    if (!r.ok) failures.push_back(r.message);
+                }
+                changed = true;
+                break;
+
+            case Action::Rename:
+                if (selected.size() == 1)
+                    BeginRename(selected[0]->path);
+                break;
+
+            case Action::Delete:
+            {
+                std::vector<Path> paths;
+                for (const Asset* item : selected)
+                    paths.push_back(item->path);
+                if (!paths.empty())
+                    ConfirmDelete(paths);
+                break;
+            }
+
+            case Action::Refresh:
+            {
+                std::string summary = Ops::Sync(currentPath);
+                if (!summary.empty())
+                    Notifications::Info("Asset browser : %s", summary.c_str());
+                changed = true;
+                break;
+            }
+
+            case Action::NewFolder:
+            case Action::NewMaterial:
+            case Action::NewLevel:
+            {
+                Path created;
+                Ops::Result r = action == Action::NewFolder ? Ops::CreateFolder(currentPath, created)
+                              : action == Action::NewMaterial ? Ops::CreateMaterial(currentPath, created)
+                              : Ops::CreateLevel(currentPath, created);
+                if (!r.ok)
+                    failures.push_back(r.message);
+                else
+                    BeginRename(created); // name it right away, like every content browser does
+                changed = true;
+                break;
+            }
+
+            case Action::Reveal:
+                if (!selected.empty())
+                    Ops::RevealInFileExplorer(selected[0]->path.full, true);
+                else
+                    Ops::RevealInFileExplorer(currentPath.full, false);
+                break;
+
+            case Action::CopyPath:
+                if (selected.size() == 1)
+                    ImGui::SetClipboardText(selected[0]->nameInProject.c_str());
+                break;
+
+            default:
+                break;
+        }
+
+        if (changed)
+        {
+            selection.Clear();
+            dirty = true;
+        }
+
+        ReportFailures("Asset Browser", failures);
+    }
+
+    void AssetBrowser::ReportFailures(const std::string& title, const std::vector<std::string>& failures)
+    {
+        if (failures.empty())
+            return;
+
+        std::string message;
+        for (const std::string& failure : failures)
+            message += (message.empty() ? "" : "\n\n") + failure;
+
+        Popups::Show(Popups::PopupType::Error, title, message);
+    }
+
+    void AssetBrowser::ConfirmDelete(const std::vector<Engine::Filesystem::Path>& paths)
+    {
+        namespace fs = std::filesystem;
+
+        std::string message = paths.size() == 1
+            ? "Delete \"" + fs::path(paths[0].full).filename().string() + "\" ?"
+            : "Delete " + std::to_string(paths.size()) + " items ?";
+
+        // What would be left pointing at a missing asset, as far as the asset database knows
+        std::vector<std::string> referencedBy;
+        for (const auto& path : paths)
+        {
+            for (const std::string& name : AssetOperations::ReferencedBy(path))
+            {
+                if (std::find(referencedBy.begin(), referencedBy.end(), name) == referencedBy.end())
+                    referencedBy.push_back(name);
+            }
+        }
+
+        if (!referencedBy.empty())
+        {
+            message += "\n\nStill referenced by :";
+            for (size_t i = 0; i < referencedBy.size() && i < 6; i++)
+                message += "\n  - " + referencedBy[i];
+            if (referencedBy.size() > 6)
+                message += "\n  ... and " + std::to_string(referencedBy.size() - 6) + " more";
+        }
+
+        message += "\n\nThis cannot be undone.";
+
+        Popups::Show(Popups::PopupType::Warning, "Delete", message, {
+            { "Delete", [this, paths]()
+                {
+                    std::vector<std::string> failures;
+                    for (const auto& path : paths)
+                    {
+                        AssetOperations::Result r = AssetOperations::Delete(path);
+                        if (!r.ok) failures.push_back(r.message);
+                    }
+                    selection.Clear();
+                    dirty = true;
+                    ReportFailures("Delete", failures);
+                } },
+            { "Cancel", nullptr }
+        });
+    }
+
+    void AssetBrowser::BeginRename(const Engine::Filesystem::Path& path)
+    {
+        namespace fs = std::filesystem;
+
+        fs::path fsPath(path.full);
+        std::string name = fs::is_directory(fsPath) ? fsPath.filename().string() : fsPath.stem().string();
+
+        renamePath = path;
+        snprintf(renameBuffer, sizeof(renameBuffer), "%s", name.c_str());
+        openRenamePopup = true;
+    }
+
+    void AssetBrowser::ApplyRename()
+    {
+        namespace fs = std::filesystem;
+
+        fs::path oldPath(renamePath.full);
+
+        std::string name = renameBuffer;
+        // Trim
+        name.erase(0, name.find_first_not_of(' '));
+        name.erase(name.find_last_not_of(' ') + 1);
+
+        if (name.empty() || name.find_first_of("\\/:*?\"<>|") != std::string::npos)
+        {
+            Popups::Show(Popups::PopupType::Error, "Rename", "A name cannot be empty or contain any of  \\ / : * ? \" < > |");
+            return;
+        }
+
+        // A file keeps its extension (it is what decides its type), unless it was typed in full
+        std::string extension = fs::is_directory(oldPath) ? "" : oldPath.extension().string();
+        auto lower = [](std::string s) { std::transform(s.begin(), s.end(), s.begin(), ::tolower); return s; };
+        if (!extension.empty() && lower(name).size() >= extension.size() && lower(name).compare(lower(name).size() - extension.size(), extension.size(), lower(extension)) == 0)
+            extension.clear();
+
+        fs::path newPath = oldPath.parent_path() / (name + extension);
+
+        if (newPath == oldPath)
+            return;
+
+        AssetOperations::Result r = AssetOperations::Move(renamePath, Engine::Filesystem::Path(newPath.string()));
+        if (!r.ok)
+            Popups::Show(Popups::PopupType::Error, "Rename", r.message);
+
+        selection.Clear();
+        dirty = true;
+    }
+
+    void AssetBrowser::DrawDialogs()
+    {
+        if (openRenamePopup)
+        {
+            ImGui::OpenPopup("Rename Asset");
+            openRenamePopup = false;
+        }
+
+        ImGui::SetNextWindowPos(ImGui::GetMainViewport()->GetCenter(), ImGuiCond_Appearing, ImVec2(0.5f, 0.5f));
+        if (ImGui::BeginPopupModal("Rename Asset", nullptr, ImGuiWindowFlags_AlwaysAutoResize))
+        {
+            ImGui::TextDisabled("%s", Engine::Filesystem::Path(renamePath.full).GetFilename().c_str());
+
+            if (ImGui::IsWindowAppearing())
+                ImGui::SetKeyboardFocusHere();
+
+            ImGui::SetNextItemWidth(280.0f);
+            bool confirmed = ImGui::InputText("##rename", renameBuffer, sizeof(renameBuffer), ImGuiInputTextFlags_EnterReturnsTrue | ImGuiInputTextFlags_AutoSelectAll);
+
+            ImGui::Spacing();
+
+            if (ImGui::Button("Rename", ImVec2(100.0f, 0.0f)))
+                confirmed = true;
+            ImGui::SameLine();
+            const bool cancelled = ImGui::Button("Cancel", ImVec2(100.0f, 0.0f)) || ImGui::IsKeyPressed(ImGuiKey_Escape);
+
+            if (confirmed)
+            {
+                ApplyRename();
+                ImGui::CloseCurrentPopup();
+            }
+            else if (cancelled)
+                ImGui::CloseCurrentPopup();
+
+            ImGui::EndPopup();
+        }
     }
 
     void AssetBrowser::NavigateTo(const std::string& path)

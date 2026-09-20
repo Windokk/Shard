@@ -261,6 +261,7 @@ namespace Shard::Engine{
                 if(level)
                 {
                     GetLevelManager()->LoadLevel(level);
+                    GetResourcesManager()->CollectUnused();
                 }
                 else
                     DEBUG_ERROR("Error re-loading level !");

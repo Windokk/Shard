@@ -127,6 +127,10 @@ namespace Shard::Engine::Levels{
                     }
                 }
             }
+            else if (type == "audio") {
+                if (component.contains("sound") && component["sound"].is_string() && !component["sound"].get<std::string>().empty())
+                    manifest.soundPathsInProject.push_back(component["sound"].get<std::string>());
+            }
             else if (type == "probeVolume") {
                 if (component.contains("bakedData") && component["bakedData"].is_string() && !component["bakedData"].get<std::string>().empty())
                     manifest.probeBakePathsInProject.push_back(component["bakedData"].get<std::string>());
@@ -149,8 +153,9 @@ namespace Shard::Engine::Levels{
                 }
             }
 
-            if (data.contains("skybox") && data["skybox"].is_string()) {
-                manifest.skyboxEnvMapPathInProject = data["skybox"].get<std::string>();
+            // Same place Level::Deserialize reads it from
+            if (data.contains("settings") && data["settings"].contains("skybox") && data["settings"]["skybox"].is_string()) {
+                manifest.skyboxEnvMapPathInProject = data["settings"]["skybox"].get<std::string>();
             }
 
             manifest.success = true;
@@ -289,6 +294,10 @@ namespace Shard::Engine::Levels{
         std::string fileContent = full.dump();
 
         filePath.WriteFile(fileContent);
+
+        // Keep the dependency graph (and the asset database's dependency list) in step with the file
+        if(auto info = Core::GetEngine().GetAssetIDManager()->GetAssetFromID(assetID))
+            Core::GetEngine().GetResourcesManager()->RefreshDependencies(info->baseInfos.nameInProject);
 
         dirty = false;
     }

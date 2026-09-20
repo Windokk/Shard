@@ -163,21 +163,43 @@ namespace Shard::Editor::GUI{
             void DrawBreadcrumb();
             void DrawAssets();
             void UpdateLayoutSizes(float avail_width);
-            void RenameAsset(const std::string &oldPath, const std::string &newName);
             void RequestOpenLevel(const Engine::Filesystem::Path &path);
+
+            // Context menu / shortcuts only *request* an action (pendingAction); it runs once per frame
+            // after the item loop (ProcessAction), since most of them rebuild `items`.
+            enum class Action { None, Open, Cut, Copy, Paste, Duplicate, Rename, Delete, Refresh, NewFolder, NewMaterial, NewLevel, Reveal, CopyPath };
+
+            void DrawContextMenu();
+            void ProcessAction();
+            void DrawDialogs();
+            void OpenItem(const Asset& item);
+            std::vector<const Asset*> GetSelectedItems() const;
+            const Asset* FindItem(ImGuiID id) const;
+
+            void BeginRename(const Engine::Filesystem::Path& path);
+            void ApplyRename();
+            void ConfirmDelete(const std::vector<Engine::Filesystem::Path>& paths);
+            void ReportFailures(const std::string& title, const std::vector<std::string>& failures);
 
             Core::EditorMainWindow* parent = nullptr;
 
             Engine::Filesystem::Path currentPath;
             float thumbnailSize = 72.f;
 
-            int renamingID = -1;
+            Action pendingAction = Action::None;
+            ImGuiID contextTargetId = 0;                    // item that was right-clicked (0 = empty space)
+            Engine::Filesystem::Path pasteTargetDir;        // folder to paste into (empty = the current folder)
+
+            std::vector<Engine::Filesystem::Path> clipboard;
+            bool clipboardCut = false;
+
+            Engine::Filesystem::Path renamePath;
             char renameBuffer[256]{};
+            bool openRenamePopup = false;
 
             std::vector<Asset> items;               // Our items
             ExampleSelectionWithDeletion selection;     // Our selection (ImGuiSelectionBasicStorage + helper funcs to handle deletion)
             ImGuiID         nextItemId = 0;             // Unique identifier when creating new items
-            bool            requestDelete = false;      // Deferred deletion request
             bool            requestSort = false;        // Deferred sort request
             float           zoomWheelAccum = 0.0f;      // Mouse wheel accumulator to handle smooth wheels better
 

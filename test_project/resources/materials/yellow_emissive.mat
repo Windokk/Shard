@@ -1,0 +1,26 @@
+{
+    "recievesShadows": true,
+    "renderMode": "opaque",
+    "shader": "shaders/mesh/lit",
+    "uniforms": [
+        {
+            "albedo": "textures/white.png"
+        },
+        {
+            "metallic": 1.0
+        },
+        {
+            "roughness": 1.0
+        },
+        {
+            "useEnvReflections": false
+        },
+        {
+            "emissive": [
+                3.0,
+                3.0,
+                0.0
+            ]
+        }
+    ]
+}

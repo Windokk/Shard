@@ -1,6 +1,8 @@
 #pragma once
 
 #include <unordered_map>
+#include <unordered_set>
+#include <vector>
 
 #include "engine/filesystem/filesystem.hpp"
 #include "engine/rendering/mesh/mesh.hpp"
@@ -26,8 +28,6 @@ namespace Shard::Engine::Core::Resources{
         public:
             
             /// @brief Indexes all assets in the project and engine directories with unique IDs.
-            /// Scans `projectDir` and `engineDir`, assigning each asset a unique ID via the Asset ID Manager.
-            /// This enables consistent asset lookup and loading at runtime.
             /// @param projectResDir Path to the project's asset directory.
             void ConstructGlobalFileIndex(const Filesystem::Path &projectResDir);
             
@@ -123,15 +123,37 @@ namespace Shard::Engine::Core::Resources{
             void AdoptMesh(const std::string &pathInProject, std::shared_ptr<Rendering::Mesh> mesh);
             void AdoptTexture(const std::string &pathInProject, std::shared_ptr<Rendering::Texture2D> texture);
             void AdoptProbeBake(const std::string &pathInProject, std::shared_ptr<Rendering::ProbeBakeData> probeBake);
+            void AdoptSound(const std::string &pathInProject, std::shared_ptr<Audio::SoundAsset> sound);
 
             /// @brief True if `pathInProject` is already resident in the mesh/texture/probe bake cache.
             bool HasMesh(const std::string &pathInProject) const;
             bool HasTexture(const std::string &pathInProject) const;
             bool HasProbeBake(const std::string &pathInProject) const;
+            bool HasSound(const std::string &pathInProject) const;
 
-            /// @brief Unloads all unused dependencies of a given asset (recursively)
+            /// @brief Unloads a level/material and, recursively, every dependency nothing else needs. A no-op
+            /// if the asset itself is still needed (a loaded level depends on it, or a Model holds it) - it
+            /// would otherwise be left pointing at released resources (materials store raw texture handles).
             /// @param assetName The name of the "root" asset
             void UnLoadDependencies(const std::string &assetName);
+
+            /// @brief Re-reads a level/material file and rebuilds its dependency list (in the resident graph
+            /// and in the asset database entry, which is persisted with the project). Call it after such a
+            /// file was saved. No-op for other asset types or unknown assets.
+            void RefreshDependencies(const std::string &pathInProject);
+
+            /// @brief Evicts every resource that was released by an unloaded level/asset (UnloadLevel, UnLoadDependencies) and that nothing needs anymore.
+            /// @return The number of evicted resources
+            int CollectUnused();
+
+            /// @brief True if something still needs the asset : a loaded level/material depends on it, or
+            /// something outside the cache holds it (a Model, the skybox, the loaded level itself...).
+            /// Such an asset must not be renamed, moved or deleted from under its users.
+            bool IsInUse(const std::string &pathInProject) const;
+
+            /// @brief Drops the asset from every cache (and whatever only it kept alive) so its file can be
+            /// renamed/moved/deleted. Returns false, changing nothing, if the asset is in use.
+            bool TryUnloadAsset(const std::string &pathInProject);
 
             void UnloadMesh(const std::string& name);
             void UnloadMaterial(const std::string& name);
@@ -146,6 +168,38 @@ namespace Shard::Engine::Core::Resources{
             void UnloadProbeBake(const std::string& name);
 
         private:
+
+            enum class Kind { Mesh, Texture, EnvMap, Shader, ComputeShader, Material, Level, Sound, ProbeBake };
+
+            struct Key {
+                Kind kind;
+                std::string path;
+                bool operator==(const Key& o) const { return kind == o.kind && path == o.path; }
+            };
+
+            struct KeyHash {
+                size_t operator()(const Key& k) const { return std::hash<std::string>()(k.path) ^ ((size_t)k.kind << 1); }
+            };
+
+            /// Replaces the set of resources the resident `owner` keeps alive (each one gets +1 retain), and mirrors it into the owner's AssetInfos::dependencies.
+            void SetDependencies(const Key& owner, const std::vector<Key>& deps);
+            /// Only the asset database half of SetDependencies : for an owner that is not resident (nothing to retain).
+            void StoreDependencies(const Key& owner, const std::vector<Key>& deps);
+            /// Drops the retains `owner` holds. The released keys become eviction candidates.
+            void ReleaseDependencies(const Key& owner);
+            bool IsResident(const Key& key) const;
+            /// Resident, not retained, not held outside the cache, not an engine resource.
+            bool IsEvictable(const Key& key) const;
+            void Evict(const Key& key);
+            std::vector<Key> LevelDependencyKeys(const Filesystem::Path& levelPath) const;
+            std::vector<Key> MaterialDependencyKeys(const Filesystem::Path& materialPath) const;
+
+            /// Retains held by resident owners on each resource (absent = 0)
+            std::unordered_map<Key, int, KeyHash> retainCount;
+            /// What each resident owner (level, material) retains
+            std::unordered_map<Key, std::vector<Key>, KeyHash> dependencies;
+            /// Released since the last CollectUnused()
+            std::unordered_set<Key, KeyHash> evictionCandidates;
 
             std::unordered_map<std::string, std::shared_ptr<Rendering::Mesh>> meshes;
             std::unordered_map<std::string, std::shared_ptr<Rendering::Texture2D>> textures;

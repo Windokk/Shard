@@ -4,9 +4,6 @@
     "shader": "shaders/mesh/lit",
     "uniforms": [
         {
-            "albedo": "textures/white.png"
-        },
-        {
             "normalMap": "textures/dragon_normal.png"
         },
         {
@@ -24,6 +21,9 @@
                 0.0,
                 1.0
             ]
+        },
+        {
+            "albedo": "textures/white.png"
         }
     ]
 }

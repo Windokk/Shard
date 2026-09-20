@@ -37,6 +37,7 @@ namespace Shard::Engine::Levels{
         std::vector<std::string> meshPathsInProject;
         std::vector<std::string> materialPathsInProject;
         std::vector<std::string> probeBakePathsInProject;
+        std::vector<std::string> soundPathsInProject;
         std::string skyboxEnvMapPathInProject;
     };
 

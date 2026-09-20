@@ -4,7 +4,7 @@
     "shader": "shaders/mesh/lit",
     "uniforms": [
         {
-            "albedo": "textures/white.png"
+            "albedo": "textures/cerberus_gun/Cerberus_A.tga"
         },
         {
             "metallic": 1.0
@@ -13,14 +13,16 @@
             "roughness": 1.0
         },
         {
-            "useEnvReflections": false
+            "useEnvReflections": true
         },
         {
-            "emissive": [
-                5.0,
-                5.0,
-                5.0
-            ]
+            "normalMap": "textures/cerberus_gun/Cerberus_N.tga"
+        },
+        {
+            "metallicMap": "textures/cerberus_gun/Cerberus_M.tga"
+        },
+        {
+            "roughnessMap": "textures/cerberus_gun/Cerberus_R.tga"
         }
     ]
 }

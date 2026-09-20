@@ -38,21 +38,23 @@ namespace Shard::Editor::Core {
     struct EditorSettings{
 
         // Viewport settings
-
         bool showOutlines = true;
         bool showGizmos = true;
-        bool showGrid;
         bool showDDGIGizmos = true;
         bool showPhysicsShapes = true;
+
+        // Gizmo snapping
+        bool snapLocation = false;
+        bool snapRotation = false;
+        bool snapScale = false;
+        float locationSnap = 1.0f;
+        float rotationSnap = 15.0f;
+        float scaleSnap = 0.25f;
 
         /// TODO
         /// bool showShadows;
         /// bool showLights;
         /// bool showBillboards;
-        /// EditorViewportBuffer currentBuffer;
-
-        // TODO Cam settings
-
     };
 
     struct PanelVisibility{

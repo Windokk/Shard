@@ -40,6 +40,7 @@ namespace Shard::Editor::GUI {
             
         private:
             void DrawToolbar();
+            void DrawSnapControls();
             void DrawViewGizmo();
             void DrawObjectGizmo();
             void HandleAssetDrop();
