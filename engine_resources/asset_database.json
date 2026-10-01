@@ -194,6 +194,16 @@
         "dependencies":[]
     },
 
+    "shaders/editor/grid.vert":{
+        "id":49,
+        "dependencies":[]
+    },
+
+    "shaders/editor/grid.frag":{
+        "id":50,
+        "dependencies":[]
+    },
+
     "shaders/compute/path_trace.comp":{
         "id":35,
         "dependencies":[]

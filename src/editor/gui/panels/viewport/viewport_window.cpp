@@ -634,6 +634,20 @@ namespace Shard::Editor::GUI {
 
         ImGui::Separator();
 
+        ImGui::Checkbox("Show Grid ?", &parent->settings.showGrid);
+        if (parent->settings.showGrid)
+        {
+            ImGui::Indent();
+            ImGui::Checkbox("X axis", &parent->settings.showGridX);
+            ImGui::SameLine();
+            ImGui::Checkbox("Y axis", &parent->settings.showGridY);
+            ImGui::SameLine();
+            ImGui::Checkbox("Z axis", &parent->settings.showGridZ);
+            ImGui::Unindent();
+        }
+
+        ImGui::Separator();
+
         ImGui::Checkbox("Show Lighting ?", &parent->settings.showLighting);
         ImGui::Checkbox("Show Shadows ?", &parent->settings.showShadows);
 

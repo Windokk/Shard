@@ -45,6 +45,13 @@ namespace Shard::Editor::Core {
         bool showPhysicsShapes = true;
         bool showLighting = true;
         bool showShadows = true;
+
+        // Infinite grid : one toggle per plane, named after the axis the plane is perpendicular to
+        // (Y = the XZ floor). Squares match the location snap increment, or 1m with snapping off.
+        bool showGrid = true;
+        bool showGridX = false;
+        bool showGridY = true;
+        bool showGridZ = false;
         Engine::Rendering::ViewMode viewMode = Engine::Rendering::ViewMode::Lit;
 
         // Gizmo snapping
@@ -157,5 +164,8 @@ namespace Shard::Editor::Core {
         // otherwise never come back. Re-submitted every frame in SwapBuffers alongside the selected
         // actor's mask commands so the outline survives any such reload.
         std::vector<std::pair<std::string, std::shared_ptr<Engine::Rendering::Material>>> outlinePipelineFullscreenCommands;
+
+        // Same story for the three grid planes (X/Y/Z), except these need the camera matrices bound.
+        std::vector<std::pair<std::string, std::shared_ptr<Engine::Rendering::Material>>> gridCommands;
     };
 }

@@ -602,6 +602,46 @@ namespace Shard::Editor::Core{
             renderer->AddOrUpdateCommands({cmd}, {"EditorOutlinePass"}, false);
             outlinePipelineFullscreenCommands.push_back({"EditorOutlinePass", outlineMaterial});
 
+            /// Infinite grid - one fullscreen pass per plane, ray-plane intersected in the fragment
+            /// shader and depth-tested against the scene (it writes gl_FragDepth, not depth itself).
+
+            std::shared_ptr<Rendering::Shader> gridShader = Engine::Core::GetEngine().GetResourcesManager()->GetShader("shaders/editor/grid");
+
+            Rendering::PipelineSpecifications gridPipelineSpecs;
+            gridPipelineSpecs.depthTest = true;
+            gridPipelineSpecs.depthWrite = false;
+            gridPipelineSpecs.blending = true;
+            gridPipelineSpecs.cullMode = Rendering::CullMode::None;
+            gridPipelineSpecs.shader = gridShader;
+            gridPipelineSpecs.debugName = "EditorGridPipeline";
+            gridPipelineSpecs.vertexLayout = {};
+            std::shared_ptr<Rendering::Pipeline> gridPipeline = renderer->GetOrAddPipeline(gridPipelineSpecs);
+            // Translucent : the material constructor overwrites the pipeline's blend state from its
+            // opacity (Opaque would silently turn blending off).
+            std::shared_ptr<Rendering::Material> gridMaterial = Rendering::Material::Create(gridShader, gridPipeline, false, Rendering::Opacity::Translucent);
+
+            const char* gridPassNames[3] = {"EditorGridPassX", "EditorGridPassY", "EditorGridPassZ"};
+            for (int axis = 0; axis < 3; axis++)
+            {
+                std::shared_ptr<Rendering::RenderPass> gridPass = std::make_shared<Rendering::RenderPass>();
+                gridPass->clearColor = false;
+                gridPass->clearDepth = false;
+                gridPass->customPipeline = gridPipeline;
+                gridPass->target = renderer->GetViewportFramebuffer();
+                gridPass->overridePipeline = true;
+                gridPass->customUniforms["axis"] = axis;
+                gridPass->customUniforms["cellSize"] = 1.0f;
+
+                renderer->AddRenderPass(gridPass, gridPassNames[axis], {"ForwardPass"});
+
+                Rendering::DrawCommand gridCmd{};
+                gridCmd.fullscreenTri = true;
+                gridCmd.bindCameraState = true;
+                gridCmd.material = gridMaterial;
+                renderer->AddOrUpdateCommands({gridCmd}, {gridPassNames[axis]}, false);
+                gridCommands.push_back({gridPassNames[axis], gridMaterial});
+            }
+
             renderPassesInitialized = true;
         }
 
@@ -628,6 +668,27 @@ namespace Shard::Editor::Core{
                 for(auto& comp : selectedActor->GetComponents())
                     if(auto model = std::dynamic_pointer_cast<Engine::Objects::Components::Model>(comp))
                         model->AddToPass("EditorOutlineMaskPass");
+
+            // Grid squares follow the location snap increment (1m when snapping is off).
+            const float gridCell = (settings.snapLocation && settings.locationSnap > 0.0f) ? settings.locationSnap : 1.0f;
+            const bool gridPlaneEnabled[3] = { settings.showGridX, settings.showGridY, settings.showGridZ };
+            const char* gridPassNames[3] = {"EditorGridPassX", "EditorGridPassY", "EditorGridPassZ"};
+            for (int axis = 0; axis < 3; axis++)
+            {
+                auto gridPass = renderer->GetRenderPass(gridPassNames[axis]);
+                gridPass->enabled = settings.showGrid && gridPlaneEnabled[axis];
+                gridPass->customUniforms["cellSize"] = gridCell;
+            }
+
+            // Grid passes also lose their command on a level reload.
+            for(auto& [passName, material] : gridCommands)
+            {
+                Rendering::DrawCommand gridCmd{};
+                gridCmd.fullscreenTri = true;
+                gridCmd.bindCameraState = true;
+                gridCmd.material = material;
+                renderer->AddOrUpdateCommands({gridCmd}, {passName}, false);
+            }
 
             // Same reasoning as above, but for the JFA/composite passes' single permanent fullscreen
             // command each (see where outlinePipelineFullscreenCommands is populated in the one-time
