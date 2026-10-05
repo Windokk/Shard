@@ -1,5 +1,5 @@
-#include "engine/core/engine.hpp"
-#include "engine/core/resources/resources_manager.hpp"
+#include "engine/world/engine.hpp"
+#include "engine/assets/resources_manager.hpp"
 #include "game_module_loader.hpp"
 #include "apps/player/core/platform/glfw/glfw_platform.hpp"
 

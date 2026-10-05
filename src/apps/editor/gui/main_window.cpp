@@ -1,6 +1,6 @@
 #include "main_window.hpp"
 
-#include "engine/core/engine.hpp"
+#include "engine/world/engine.hpp"
 
 #include "apps/editor/gui/panels/asset_browser/asset_browser.hpp"
 
@@ -19,15 +19,15 @@
 
 #include "engine/renderer/features/lighting/probe_manager.hpp"
 
-#include "engine/core/resources/resources_manager.hpp"
+#include "engine/assets/resources_manager.hpp"
 #include "engine/world/levels/level_manager.hpp"
-#include "engine/projects/project.hpp"
+#include "engine/assets/project/project.hpp"
 #include "engine/renderer/frontend/renderer.hpp"
 #include "engine/renderer/material/shader.hpp"
 #include "engine/renderer/rhi/pipelines/pipeline.hpp"
 #include "engine/renderer/material/material.hpp"
 #include "engine/renderer/components/model_component.hpp"
-#include "engine/core/engine.hpp"
+#include "engine/world/engine.hpp"
 
 namespace Shard::Editor::Core{
 

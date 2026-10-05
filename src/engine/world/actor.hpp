@@ -2,7 +2,7 @@
 
 #include "engine/world/level_object.hpp"
 
-#include "engine/core/engine.hpp"
+#include "engine/world/engine.hpp"
 
 #include "engine/world/components/transform.hpp"
 #include "engine/renderer/components/light_component.hpp"
@@ -13,7 +13,7 @@
 
 #include "engine/world/levels/level.hpp"
 
-#include "engine/events/event_system.hpp"
+#include "engine/world/event_system.hpp"
 
 #include <stdexcept>
 #include <iostream>

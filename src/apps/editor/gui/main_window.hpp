@@ -3,7 +3,7 @@
 #include "engine/platform/iwindow.hpp"
 #include "engine/renderer/frontend/renderer.hpp"
 #include "engine/renderer/material/material.hpp"
-#include "engine/debugging/logger.hpp"
+#include "engine/core/diagnostics/logger.hpp"
 #include "engine/world/actor.hpp"
 
 #include "apps/editor/core/platform/glfw/glfw_input.hpp"

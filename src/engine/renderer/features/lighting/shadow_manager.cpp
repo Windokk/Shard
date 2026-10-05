@@ -10,11 +10,11 @@
 #include "engine/renderer/rhi/pipelines/pipeline.hpp"
 #include "engine/renderer/rhi/resources/framebuffer/framebuffer.hpp"
 
-#include "engine/core/engine.hpp"
+#include "engine/world/engine.hpp"
 
 #include "engine/renderer/frontend/camera_manager.hpp"
 
-#include "engine/core/resources/resources_manager.hpp"
+#include "engine/assets/resources_manager.hpp"
 
 #include "engine/renderer/frontend/renderer.hpp"
 

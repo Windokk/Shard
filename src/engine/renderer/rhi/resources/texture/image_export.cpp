@@ -2,7 +2,7 @@
 
 #include "engine/renderer/rhi/resources/texture/texture.hpp"
 
-#include "engine/debugging/logger.hpp"
+#include "engine/core/diagnostics/logger.hpp"
 
 #include <stb/stb_image_write.h>
 

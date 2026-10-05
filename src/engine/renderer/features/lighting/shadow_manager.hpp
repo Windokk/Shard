@@ -4,7 +4,7 @@
 
 #include <map>
 
-#include <engine/debugging/logger.hpp>
+#include <engine/core/diagnostics/logger.hpp>
 
 namespace Shard::Engine::Objects::Components{
     class Camera;

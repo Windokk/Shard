@@ -2,7 +2,7 @@
 
 #include "config.h"
 
-#include "engine/debugging/logger.hpp"
+#include "engine/core/diagnostics/logger.hpp"
 
 using namespace nlohmann;
 

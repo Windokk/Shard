@@ -25,7 +25,7 @@
 #include "engine/renderer/utils.hpp"
 #include <glm/gtc/quaternion.hpp>
 
-#include "engine/debugging/logger.hpp"
+#include "engine/core/diagnostics/logger.hpp"
 
 
 

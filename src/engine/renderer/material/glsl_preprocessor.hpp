@@ -2,7 +2,7 @@
 
 #include <string>
 
-#include "engine/filesystem/filesystem.hpp"
+#include "engine/assets/vfs/filesystem.hpp"
 
 namespace Shard::Engine::Rendering {
 

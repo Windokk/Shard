@@ -7,7 +7,7 @@
 #include <fstream>
 #include <type_traits>
 
-#include "engine/debugging/logger.hpp"
+#include "engine/core/diagnostics/logger.hpp"
 
 namespace Shard::Engine::Rendering {
 

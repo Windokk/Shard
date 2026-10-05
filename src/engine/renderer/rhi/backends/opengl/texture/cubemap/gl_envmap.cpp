@@ -1,6 +1,6 @@
 #include "gl_envmap.hpp"
 
-#include "engine/core/engine.hpp"
+#include "engine/world/engine.hpp"
 
 #include "engine/renderer/rhi/backends/opengl/gl_utils.hpp"
 
@@ -8,7 +8,7 @@
 
 #include <stb/stb_image.h>
 
-#include "engine/core/resources/resources_manager.hpp"
+#include "engine/assets/resources_manager.hpp"
 
 #include "engine/renderer/rhi/backends/opengl/shader/gl_shader.hpp"
 

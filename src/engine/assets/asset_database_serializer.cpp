@@ -1,7 +1,7 @@
 #include "asset_database_serializer.hpp"
 
-#include "engine/debugging/logger.hpp"
-#include "engine/core/engine.hpp"
+#include "engine/core/diagnostics/logger.hpp"
+#include "engine/world/engine.hpp"
 
 using namespace nlohmann;
 

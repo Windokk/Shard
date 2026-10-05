@@ -15,9 +15,9 @@
 
 #include "engine/world/components/registry/component_registry.hpp"
 
-#include "engine/core/engine.hpp"
+#include "engine/world/engine.hpp"
 
-#include "engine/core/resources/resources_manager.hpp"
+#include "engine/assets/resources_manager.hpp"
 
 using namespace Shard::Engine;
 using namespace Shard::Engine::Core;

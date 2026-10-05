@@ -4,7 +4,7 @@
 
 #include <nlohmann/json.hpp>
 
-#include "engine/core/object.hpp"
+#include "engine/world/object.hpp"
 
 using namespace nlohmann;
 using ordered_json = nlohmann::ordered_json;

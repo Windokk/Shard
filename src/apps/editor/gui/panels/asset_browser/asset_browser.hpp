@@ -1,6 +1,6 @@
 #pragma once
 
-#include "engine/core/engine.hpp"
+#include "engine/world/engine.hpp"
 
 #include "apps/editor/gui/resources/editor_resources.hpp"
 

@@ -1,7 +1,7 @@
 #include <gtest/gtest.h>
 
 #include "engine/physics/physics_manager.hpp"
-#include "engine/time/time_manager.hpp"
+#include "engine/world/time_manager.hpp"
 
 using Shard::Engine::Physics::PhysicsManager;
 using Shard::Engine::Time::TimeManager;

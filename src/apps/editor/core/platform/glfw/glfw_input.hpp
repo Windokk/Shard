@@ -4,7 +4,7 @@
 #include <iostream>
 
 #include "engine/input/keys.hpp"
-#include "engine/debugging/logger.hpp"
+#include "engine/core/diagnostics/logger.hpp"
 #include "engine/platform/iplatform.hpp"
 
 #include "engine/renderer/rhi/backends/glad/include/glad/gl.h"

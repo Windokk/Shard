@@ -1,6 +1,6 @@
 #include "light_culling_manager.hpp"
 
-#include "engine/core/engine.hpp"
+#include "engine/world/engine.hpp"
 
 #include "engine/renderer/frontend/renderer.hpp"
 #include "engine/renderer/rhi/renderer_api.hpp"
@@ -13,7 +13,7 @@
 #include "engine/renderer/components/camera.hpp"
 #include "engine/renderer/frontend/camera_manager.hpp"
 
-#include "engine/debugging/logger.hpp"
+#include "engine/core/diagnostics/logger.hpp"
 
 #include <glm/glm.hpp>
 #include <glm/gtc/matrix_inverse.hpp>

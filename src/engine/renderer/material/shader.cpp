@@ -1,11 +1,11 @@
 #include "shader.hpp"
 
-#include "engine/core/engine.hpp"
+#include "engine/world/engine.hpp"
 
 #include "engine/renderer/rhi/backends/opengl/shader/gl_shader.hpp"
 
 #include "engine/renderer/frontend/renderer.hpp"
-#include "engine/debugging/logger.hpp"
+#include "engine/core/diagnostics/logger.hpp"
 
 namespace Shard::Engine::Rendering 
 {

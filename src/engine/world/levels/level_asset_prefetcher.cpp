@@ -5,12 +5,12 @@
 #include <thread>
 #include <algorithm>
 
-#include "engine/core/engine.hpp"
-#include "engine/core/resources/resources_manager.hpp"
+#include "engine/world/engine.hpp"
+#include "engine/assets/resources_manager.hpp"
 #include "engine/world/levels/level.hpp"
 #include "engine/audio/sound_asset.hpp"
 #include "engine/assets/serialization/material/material_serializer.hpp"
-#include "engine/debugging/logger.hpp"
+#include "engine/core/diagnostics/logger.hpp"
 
 namespace Shard::Engine::Levels{
 

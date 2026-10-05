@@ -7,7 +7,7 @@
 #include <algorithm>
 #include <vector>
 
-#include "engine/filesystem/assetID.hpp"
+#include "engine/assets/assetID.hpp"
 
 enum class TypeID : uint16_t {
     // Invalid / base

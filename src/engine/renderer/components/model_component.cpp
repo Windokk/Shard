@@ -2,8 +2,8 @@
 
 #include <algorithm>
 
-#include "engine/core/engine.hpp"
-#include "engine/core/resources/resources_manager.hpp"
+#include "engine/world/engine.hpp"
+#include "engine/assets/resources_manager.hpp"
 
 #include "engine/renderer/frontend/renderer.hpp"
 #include "engine/renderer/material/material.hpp"

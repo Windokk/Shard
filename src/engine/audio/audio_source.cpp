@@ -2,9 +2,9 @@
 
 #include "engine/world/actor.hpp"
 
-#include "engine/core/engine.hpp"
+#include "engine/world/engine.hpp"
 
-#include "engine/filesystem/assetID.hpp"
+#include "engine/assets/assetID.hpp"
 
 #include "audio_source.reflection.hpp"
 

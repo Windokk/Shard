@@ -3,7 +3,7 @@
 #include <string>
 #include <vector>
 
-#include "engine/filesystem/filesystem.hpp"
+#include "engine/assets/vfs/filesystem.hpp"
 
 // File operations behind the asset browser's context menu. Unlike a plain filesystem call, each one keeps
 // the rest of the project consistent : the asset database (IDs survive a rename/move, so the dependency

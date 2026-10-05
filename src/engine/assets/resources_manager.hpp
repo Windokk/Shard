@@ -4,7 +4,7 @@
 #include <unordered_set>
 #include <vector>
 
-#include "engine/filesystem/filesystem.hpp"
+#include "engine/assets/vfs/filesystem.hpp"
 #include "engine/renderer/rhi/resources/mesh/mesh.hpp"
 #include "engine/world/levels/level.hpp"
 

@@ -3,7 +3,7 @@
 #include "engine/renderer/rhi/backends/opengl/gl_utils.hpp"
 #include "engine/renderer/material/glsl_preprocessor.hpp"
 
-#include "engine/debugging/logger.hpp"
+#include "engine/core/diagnostics/logger.hpp"
 
 namespace Shard::Engine::Rendering{
 

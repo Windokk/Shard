@@ -7,12 +7,12 @@
 #include "engine/world/components/transform.hpp"
 #include "engine/world/actor.hpp"
 
-#include "engine/core/engine.hpp"
-#include "engine/core/resources/resources_manager.hpp"
-#include "engine/filesystem/assetID.hpp"
-#include "engine/projects/project.hpp"
+#include "engine/world/engine.hpp"
+#include "engine/assets/resources_manager.hpp"
+#include "engine/assets/assetID.hpp"
+#include "engine/assets/project/project.hpp"
 #include "engine/assets/asset_database_serializer.hpp"
-#include "engine/debugging/logger.hpp"
+#include "engine/core/diagnostics/logger.hpp"
 
 #include <glm/gtc/matrix_transform.hpp>
 

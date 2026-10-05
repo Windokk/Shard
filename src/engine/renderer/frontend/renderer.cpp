@@ -1,6 +1,6 @@
 #include "renderer.hpp"
 
-#include "engine/core/engine.hpp"
+#include "engine/world/engine.hpp"
 
 #include "engine/renderer/material/material.hpp"
 #include "engine/renderer/rhi/pipelines/pipeline.hpp"
@@ -12,9 +12,9 @@
 #include "engine/renderer/features/lighting/ssao_manager.hpp"
 #include "engine/renderer/features/lighting/light_culling_manager.hpp"
 #include "engine/renderer/frontend/camera_manager.hpp"
-#include "engine/core/resources/resources_manager.hpp"
+#include "engine/assets/resources_manager.hpp"
 #include "engine/world/actor.hpp"
-#include "engine/debugging/profiler.hpp"
+#include "engine/core/diagnostics/profiler.hpp"
 #include <queue>
 #include <algorithm>
 #include <glm/gtx/string_cast.hpp>

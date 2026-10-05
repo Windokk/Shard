@@ -3,7 +3,7 @@
 #include <iomanip>
 #include <ctime>
 
-#include "engine/core/engine.hpp"
+#include "engine/world/engine.hpp"
 
 namespace Shard::Engine::Debugging{
     

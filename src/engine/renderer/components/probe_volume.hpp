@@ -4,7 +4,7 @@
 
 #include <glm/glm.hpp>
 
-#include "engine/filesystem/filesystem.hpp"
+#include "engine/assets/vfs/filesystem.hpp"
 #include "engine/renderer/components/volume.hpp"
 
 namespace Shard::Engine::Objects::Components

@@ -17,8 +17,8 @@
 
 #include "engine/renderer/utils.hpp"
 
-#include "engine/core/reflection_fields.hpp"
-#include "engine/core/attributes.hpp"
+#include "engine/assets/reflection/reflection_fields.hpp"
+#include "engine/assets/reflection/attributes.hpp"
 
 #include "engine/renderer/features/debug/debug_shapes.hpp"
 

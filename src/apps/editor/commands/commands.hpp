@@ -6,7 +6,7 @@
 #include <cstring>
 #include <cassert>
 
-#include "engine/core/reflection_fields.hpp"
+#include "engine/assets/reflection/reflection_fields.hpp"
 
 #include "engine/world/components/transform.hpp"
 #include <glm/gtx/string_cast.hpp>

@@ -1,6 +1,6 @@
 #include "glfw_window.hpp"
 
-#include "engine/core/engine.hpp"
+#include "engine/world/engine.hpp"
 
 #include "engine/renderer/frontend/renderer.hpp"
 

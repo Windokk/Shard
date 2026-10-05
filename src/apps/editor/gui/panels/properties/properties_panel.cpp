@@ -1,7 +1,7 @@
 #include "properties_panel.hpp"
 
-#include "engine/core/reflection_fields.hpp"
-#include "engine/core/engine.hpp"
+#include "engine/assets/reflection/reflection_fields.hpp"
+#include "engine/world/engine.hpp"
 #include "engine/world/levels/level.hpp"
 #include "engine/world/levels/level_manager.hpp"
 

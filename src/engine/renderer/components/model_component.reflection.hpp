@@ -1,7 +1,7 @@
 #pragma once
 
 #include "model_component.hpp"
-#include "engine/core/reflection_fields.hpp"
+#include "engine/assets/reflection/reflection_fields.hpp"
 
 // Reflection for class Model
 

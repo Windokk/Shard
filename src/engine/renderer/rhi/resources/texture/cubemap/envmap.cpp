@@ -1,6 +1,6 @@
 #include "envmap.hpp"
 
-#include "engine/core/engine.hpp"
+#include "engine/world/engine.hpp"
 
 #include "engine/renderer/rhi/backends/opengl/texture/cubemap/gl_envmap.hpp"
 

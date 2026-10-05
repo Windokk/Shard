@@ -4,7 +4,7 @@
 
 #include "engine/renderer/utils.hpp"
 
-#include "engine/filesystem/filesystem.hpp"
+#include "engine/assets/vfs/filesystem.hpp"
 
 namespace Shard::Engine::Rendering {
     

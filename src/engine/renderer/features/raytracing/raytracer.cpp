@@ -3,7 +3,7 @@
 #include "engine/renderer/features/raytracing/bvh.hpp"
 #include "engine/renderer/features/raytracing/raytrace_scene.hpp"
 
-#include "engine/core/engine.hpp"
+#include "engine/world/engine.hpp"
 
 #include "engine/world/levels/level.hpp"
 
@@ -19,7 +19,7 @@
 #include "engine/renderer/material/compute_shader.hpp"
 #include "engine/renderer/rhi/pipelines/compute_pipeline.hpp"
 
-#include "engine/debugging/logger.hpp"
+#include "engine/core/diagnostics/logger.hpp"
 
 #include <algorithm>
 #include <chrono>

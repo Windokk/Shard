@@ -5,9 +5,9 @@
 #include <glm/gtc/matrix_transform.hpp>
 #include <glm/gtx/string_cast.hpp>
 
-#include "engine/core/engine.hpp"
+#include "engine/world/engine.hpp"
 #include "engine/platform/iwindow.hpp"
-#include "engine/debugging/logger.hpp"
+#include "engine/core/diagnostics/logger.hpp"
 
 #include "engine/renderer/frontend/renderer.hpp"
 

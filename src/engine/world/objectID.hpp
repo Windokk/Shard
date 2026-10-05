@@ -8,7 +8,7 @@
 #include <functional>
 #include <memory>
 
-#include "engine/debugging/logger.hpp"
+#include "engine/core/diagnostics/logger.hpp"
 
 namespace Shard::Engine::Core
 {

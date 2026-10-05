@@ -1,6 +1,6 @@
 #include <gtest/gtest.h>
 
-#include "engine/events/event_system.hpp"
+#include "engine/world/event_system.hpp"
 
 using namespace Shard::Engine::Events;
 using Shard::Engine::Core::ObjectID;

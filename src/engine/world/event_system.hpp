@@ -2,7 +2,7 @@
 
 #include "engine/physics/physics_manager.hpp"
 
-#include "engine/core/objectID.hpp"
+#include "engine/world/objectID.hpp"
 
 #include <unordered_map>
 #include <functional>

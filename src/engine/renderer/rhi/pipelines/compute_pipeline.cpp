@@ -1,6 +1,6 @@
 #include "compute_pipeline.hpp"
 
-#include "engine/core/engine.hpp"
+#include "engine/world/engine.hpp"
 
 #include "engine/renderer/rhi/backends/opengl/pipeline/gl_compute_pipeline.hpp"
 

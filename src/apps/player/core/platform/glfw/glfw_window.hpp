@@ -4,7 +4,7 @@
 
 #include "engine/renderer/frontend/renderer.hpp"
 
-#include "engine/debugging/logger.hpp"
+#include "engine/core/diagnostics/logger.hpp"
 
 #include "glfw_input.hpp"
 

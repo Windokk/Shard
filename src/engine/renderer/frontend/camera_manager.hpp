@@ -2,7 +2,7 @@
 
 #include "engine/renderer/utils.hpp"
 #include "engine/renderer/components/camera.hpp"
-#include "engine/core/objectID.hpp"
+#include "engine/world/objectID.hpp"
 
 #include <string>
 #include <vector>

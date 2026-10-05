@@ -2,9 +2,9 @@
 
 #include <algorithm>
 
-#include "engine/core/engine.hpp"
+#include "engine/world/engine.hpp"
 
-#include "engine/projects/project.hpp"
+#include "engine/assets/project/project.hpp"
 #include "engine/audio/audio_source.hpp"
 
 namespace Shard::Engine::Objects{

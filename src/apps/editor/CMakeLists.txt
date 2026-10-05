@@ -33,3 +33,4 @@ set(GLFW_LIB_DIR ${CMAKE_BINARY_DIR})
 target_link_directories(ShardEditor PUBLIC ${GLFW_LIB_DIR})
 
 target_link_libraries(ShardEditor PRIVATE Engine glfw3)
+shard_copy_fmod(ShardEditor)

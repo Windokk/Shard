@@ -1,5 +1,5 @@
 #include "engine/world/components/registry/component_registration.hpp"
-#include "engine/core/engine.hpp"
+#include "engine/world/engine.hpp"
 
 #include "character.reflection.hpp"
 

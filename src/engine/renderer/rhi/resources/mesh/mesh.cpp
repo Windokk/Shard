@@ -2,7 +2,7 @@
 
 #include "engine/renderer/rhi/backends/opengl/mesh/gl_mesh.hpp"
 #include "engine/renderer/frontend/renderer.hpp"
-#include "engine/core/engine.hpp"
+#include "engine/world/engine.hpp"
 
 #include "engine/world/actor.hpp"
 

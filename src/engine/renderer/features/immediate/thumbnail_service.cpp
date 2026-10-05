@@ -1,7 +1,7 @@
 #include "thumbnail_service.hpp"
 
-#include "engine/core/engine.hpp"
-#include "engine/core/resources/resources_manager.hpp"
+#include "engine/world/engine.hpp"
+#include "engine/assets/resources_manager.hpp"
 
 #include "engine/renderer/features/immediate/immediate_renderer.hpp"
 #include "engine/renderer/material/material.hpp"
@@ -11,7 +11,7 @@
 #include "engine/renderer/rhi/resources/texture/image_export.hpp"
 #include "engine/assets/serialization/material/material_serializer.hpp"
 
-#include "engine/debugging/logger.hpp"
+#include "engine/core/diagnostics/logger.hpp"
 
 #include <stb/stb_image.h>
 

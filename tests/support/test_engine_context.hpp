@@ -2,9 +2,9 @@
 
 #include <gtest/gtest.h>
 
-#include "engine/core/engine.hpp"
-#include "engine/core/objectID.hpp"
-#include "engine/events/event_system.hpp"
+#include "engine/world/engine.hpp"
+#include "engine/world/objectID.hpp"
+#include "engine/world/event_system.hpp"
 
 // Minimal IEngineContext usable from tests without a real window/GL/audio/physics
 // bootstrap. Only ObjectIDManager and EventDispatcher are backed by real instances,

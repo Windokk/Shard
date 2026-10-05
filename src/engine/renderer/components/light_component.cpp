@@ -4,8 +4,8 @@
 #include "engine/world/components/transform.hpp"
 #include "engine/world/actor.hpp"
 
-#include "engine/core/engine.hpp"
-#include "engine/debugging/logger.hpp"
+#include "engine/world/engine.hpp"
+#include "engine/core/diagnostics/logger.hpp"
 
 #include "light_component.reflection.hpp"
 

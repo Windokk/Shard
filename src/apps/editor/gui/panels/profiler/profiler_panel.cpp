@@ -1,6 +1,6 @@
 #include "profiler_panel.hpp"
 
-#include "engine/core/engine.hpp"
+#include "engine/world/engine.hpp"
 
 #include "imgui/imgui.h"
 

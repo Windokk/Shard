@@ -1,14 +1,14 @@
 #include "engine/world/levels/level_manager.hpp"
 
-#include "engine/debugging/logger.hpp"
+#include "engine/core/diagnostics/logger.hpp"
 #include "level_manager.hpp"
 
-#include "engine/core/engine.hpp"
-#include "engine/core/resources/resources_manager.hpp"
-#include "engine/core/objectID.hpp"
+#include "engine/world/engine.hpp"
+#include "engine/assets/resources_manager.hpp"
+#include "engine/world/objectID.hpp"
 #include "engine/renderer/frontend/renderer.hpp"
 
-#include "engine/projects/project.hpp"
+#include "engine/assets/project/project.hpp"
 
 namespace Shard::Engine::Levels{
     void LevelManager::LoadLevel(std::shared_ptr<Level> lvl)

@@ -5,7 +5,7 @@
 #include <future>
 #include <atomic>
 
-#include "engine/filesystem/filesystem.hpp"
+#include "engine/assets/vfs/filesystem.hpp"
 #include "engine/renderer/rhi/resources/texture/texture.hpp"
 #include "engine/renderer/rhi/resources/mesh/mesh.hpp"
 #include "engine/renderer/features/lighting/probe_bake.hpp"

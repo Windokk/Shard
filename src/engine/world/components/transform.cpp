@@ -9,7 +9,7 @@
 #include "engine/renderer/components/volume.hpp"
 #include "engine/renderer/features/lighting/shadow_manager.hpp"
 
-#include "engine/core/engine.hpp"
+#include "engine/world/engine.hpp"
 
 #include "transform.reflection.hpp"
 

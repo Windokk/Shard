@@ -2,10 +2,10 @@
 
 #include "apps/editor/gui/main_window.hpp"
 
-#include "engine/projects/project.hpp"
+#include "engine/assets/project/project.hpp"
 #include "engine/world/levels/level_manager.hpp"
 #include "engine/world/levels/level.hpp"
-#include "engine/core/resources/resources_manager.hpp"
+#include "engine/assets/resources_manager.hpp"
 #include "engine/renderer/frontend/renderer.hpp"
 #include "engine/renderer/rhi/resources/texture/texture.hpp"
 #include "engine/renderer/features/immediate/thumbnail_service.hpp"

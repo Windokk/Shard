@@ -1,6 +1,6 @@
 #include "object.hpp"
 
-#include "engine/core/engine.hpp"
+#include "engine/world/engine.hpp"
 
 namespace Shard::Engine::Core{
 

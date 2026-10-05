@@ -1,6 +1,6 @@
 #include "assetID.hpp"
 
-#include "engine/filesystem/filesystem.hpp"
+#include "engine/assets/vfs/filesystem.hpp"
 
 namespace Shard::Engine::Filesystem{
     

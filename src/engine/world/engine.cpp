@@ -4,13 +4,13 @@
 #include <string>
 #include <thread>
 
-#include "engine/core/resources/resources_manager.hpp"
-#include "engine/debugging/logger.hpp"
+#include "engine/assets/resources_manager.hpp"
+#include "engine/core/diagnostics/logger.hpp"
 #include "engine/assets/serialization/project/project_serializer.hpp"
 #include "engine/world/levels/level_manager.hpp"
-#include "engine/debugging/profiler.hpp"
+#include "engine/core/diagnostics/profiler.hpp"
 #include "engine/platform/iplatform.hpp"
-#include "engine/time/time_manager.hpp"
+#include "engine/world/time_manager.hpp"
 #include "engine/renderer/frontend/camera_manager.hpp"
 #include "engine/world/actor.hpp"
 #include "engine/audio/audio_manager.hpp"

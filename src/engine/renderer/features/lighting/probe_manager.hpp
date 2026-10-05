@@ -9,7 +9,7 @@
 
 #include <glm/glm.hpp>
 
-#include "engine/filesystem/filesystem.hpp"
+#include "engine/assets/vfs/filesystem.hpp"
 #include "engine/renderer/features/lighting/light_manager.hpp"
 #include "engine/renderer/features/lighting/probe_bake.hpp"
 #include "engine/renderer/features/raytracing/raytrace_scene.hpp"

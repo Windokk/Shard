@@ -6,7 +6,7 @@
 
 #include "engine/renderer/utils.hpp"
 
-#include "engine/filesystem/filesystem.hpp"
+#include "engine/assets/vfs/filesystem.hpp"
 
 #include "engine/world/components/transform.hpp"
 

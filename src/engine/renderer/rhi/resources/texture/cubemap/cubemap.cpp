@@ -1,6 +1,6 @@
 #include "cubemap.hpp"
 
-#include "engine/core/engine.hpp"
+#include "engine/world/engine.hpp"
 
 #include "engine/renderer/rhi/backends/opengl/texture/cubemap/gl_cubemap.hpp"
 
@@ -8,7 +8,7 @@
 
 #include "engine/renderer/frontend/renderer.hpp"
 
-#include "engine/debugging/logger.hpp"
+#include "engine/core/diagnostics/logger.hpp"
 
 namespace Shard::Engine::Rendering{
     std::shared_ptr<Cubemap> Cubemap::Create(const TextureSpecifications& specs, std::array<unsigned char*, 6> faces)

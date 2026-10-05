@@ -2,7 +2,7 @@
 
 #include "../glad/include/glad/gl.h"
 
-#include "engine/debugging/logger.hpp"
+#include "engine/core/diagnostics/logger.hpp"
 
 namespace Shard::Engine::Rendering{
 

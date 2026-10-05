@@ -4,7 +4,7 @@
 
 #include "engine/renderer/frontend/renderer.hpp"
 
-#include "engine/core/attributes.hpp"
+#include "engine/assets/reflection/attributes.hpp"
 
 #include "engine/renderer/features/lighting/light_manager.hpp"
 

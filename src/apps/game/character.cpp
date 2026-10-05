@@ -2,11 +2,11 @@
 
 #include "engine/world/actor.hpp"
 
-#include "engine/core/engine.hpp"
+#include "engine/world/engine.hpp"
 
 #include "engine/platform/iplatform.hpp"
 
-#include "engine/time/time_manager.hpp"
+#include "engine/world/time_manager.hpp"
 
 #include <thread>
 #include <iostream>

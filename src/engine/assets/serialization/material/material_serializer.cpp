@@ -1,8 +1,8 @@
 #include "material_serializer.hpp"
 
-#include "engine/core/resources/resources_manager.hpp"
+#include "engine/assets/resources_manager.hpp"
 
-#include "engine/core/engine.hpp"
+#include "engine/world/engine.hpp"
 
 #include <nlohmann/json.hpp>
 

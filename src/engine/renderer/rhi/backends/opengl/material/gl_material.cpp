@@ -6,10 +6,10 @@
 #include "engine/renderer/rhi/backends/opengl/shader/gl_shader.hpp"
 #include "engine/renderer/rhi/backends/opengl/texture/gl_texture.hpp"
 
-#include "engine/debugging/logger.hpp"
-#include "engine/core/engine.hpp"
-#include "engine/core/resources/resources_manager.hpp"
-#include "engine/filesystem/assetID.hpp"
+#include "engine/core/diagnostics/logger.hpp"
+#include "engine/world/engine.hpp"
+#include "engine/assets/resources_manager.hpp"
+#include "engine/assets/assetID.hpp"
 #include "engine/renderer/frontend/renderer.hpp"
 
 namespace Shard::Engine::Rendering{

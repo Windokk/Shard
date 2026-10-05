@@ -8,7 +8,7 @@
 #include <memory>
 #include <typeinfo>
 
-#include "engine/core/reflection_fields.hpp"
+#include "engine/assets/reflection/reflection_fields.hpp"
 
 namespace Shard::Editor::GUI{
 

@@ -4,8 +4,8 @@
 
 #include <glm/glm.hpp>
 
-#include "engine/filesystem/filesystem.hpp"
-#include "engine/debugging/logger.hpp"
+#include "engine/assets/vfs/filesystem.hpp"
+#include "engine/core/diagnostics/logger.hpp"
 
 namespace Shard::Engine::Projects{
 

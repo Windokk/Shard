@@ -6,9 +6,9 @@
 
 #include "engine/assets/asset_database_serializer.hpp"
 
-#include "engine/core/engine.hpp"
+#include "engine/world/engine.hpp"
 
-#include "engine/projects/project.hpp"
+#include "engine/assets/project/project.hpp"
 
 #include "engine/renderer/rhi/resources/texture/cubemap/envmap.hpp"
 

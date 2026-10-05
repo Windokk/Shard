@@ -8,12 +8,12 @@
 #include <set>
 #include <sstream>
 
-#include "engine/core/engine.hpp"
-#include "engine/projects/project.hpp"
+#include "engine/world/engine.hpp"
+#include "engine/assets/project/project.hpp"
 #include "engine/world/levels/level.hpp"
-#include "engine/core/resources/resources_manager.hpp"
+#include "engine/assets/resources_manager.hpp"
 #include "engine/assets/asset_database_serializer.hpp"
-#include "engine/debugging/logger.hpp"
+#include "engine/core/diagnostics/logger.hpp"
 
 namespace Shard::Editor::GUI::AssetOperations
 {

@@ -1,7 +1,7 @@
 #include "level_settings_panel.hpp"
 
-#include "engine/core/engine.hpp"
-#include "engine/filesystem/filesystem.hpp"
+#include "engine/world/engine.hpp"
+#include "engine/assets/vfs/filesystem.hpp"
 #include "engine/world/levels/level.hpp"
 #include "engine/world/levels/level_manager.hpp"
 

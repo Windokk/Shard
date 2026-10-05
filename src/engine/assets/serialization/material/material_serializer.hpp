@@ -3,7 +3,7 @@
 #include <string>
 #include <vector>
 
-#include "engine/filesystem/filesystem.hpp"
+#include "engine/assets/vfs/filesystem.hpp"
 
 namespace Shard::Engine::Rendering{
     class Material;

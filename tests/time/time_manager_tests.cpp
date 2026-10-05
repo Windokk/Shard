@@ -1,6 +1,6 @@
 #include <gtest/gtest.h>
 
-#include "engine/time/time_manager.hpp"
+#include "engine/world/time_manager.hpp"
 
 using Shard::Engine::Time::TimeManager;
 

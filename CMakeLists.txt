@@ -46,9 +46,9 @@ add_subdirectory(submodules/jolt/Build)
 
 # Subdirs (Shard)
 add_subdirectory(src/engine)
-add_subdirectory(src/game)
-add_subdirectory(src/editor)
-add_subdirectory(src/game-app)
+add_subdirectory(src/apps/game)
+add_subdirectory(src/apps/editor)
+add_subdirectory(src/apps/player)
 
 enable_testing()
 add_subdirectory(tests)

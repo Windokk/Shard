@@ -3,11 +3,11 @@
 #include <string>
 #include <vector>
 
-#include "engine/core/objectID.hpp"
+#include "engine/world/objectID.hpp"
 #include "engine/world/components/script.hpp"
 #include "engine/renderer/components/model_component.hpp"
 #include "engine/world/skybox.hpp"
-#include "engine/filesystem/filesystem.hpp"
+#include "engine/assets/vfs/filesystem.hpp"
 
 namespace Shard::Engine::Objects{
 

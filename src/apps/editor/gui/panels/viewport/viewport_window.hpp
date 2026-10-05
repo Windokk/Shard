@@ -2,7 +2,7 @@
 
 #include "apps/editor/core/platform/glfw/glfw_input.hpp"
 #include "engine/world/actor.hpp"
-#include "engine/events/event_system.hpp"
+#include "engine/world/event_system.hpp"
 
 #include "apps/editor/commands/command_stack.hpp"
 

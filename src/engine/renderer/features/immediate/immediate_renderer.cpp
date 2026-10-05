@@ -1,7 +1,7 @@
 #include "immediate_renderer.hpp"
 
-#include "engine/core/engine.hpp"
-#include "engine/core/resources/resources_manager.hpp"
+#include "engine/world/engine.hpp"
+#include "engine/assets/resources_manager.hpp"
 
 #include "engine/renderer/frontend/renderer.hpp"
 #include "engine/renderer/rhi/renderer_api.hpp"
@@ -14,7 +14,7 @@
 #include "engine/renderer/rhi/resources/texture/image_export.hpp"
 #include "engine/renderer/material/shader.hpp"
 
-#include "engine/debugging/logger.hpp"
+#include "engine/core/diagnostics/logger.hpp"
 
 #include <glm/gtc/matrix_transform.hpp>
 

@@ -1,6 +1,6 @@
 #pragma once
 
-#include "engine/filesystem/filesystem.hpp"
+#include "engine/assets/vfs/filesystem.hpp"
 
 namespace Shard::Editor::GUI{
 

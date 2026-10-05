@@ -1,7 +1,7 @@
 #pragma once
 
 #include "camera.hpp"
-#include "engine/core/reflection_fields.hpp"
+#include "engine/assets/reflection/reflection_fields.hpp"
 
 // Reflection for class Camera
 

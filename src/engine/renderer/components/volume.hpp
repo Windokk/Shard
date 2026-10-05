@@ -4,7 +4,7 @@
 
 #include "engine/world/components/component.hpp"
 
-#include "engine/core/attributes.hpp"
+#include "engine/assets/reflection/attributes.hpp"
 
 #include "engine/renderer/utils.hpp"
 

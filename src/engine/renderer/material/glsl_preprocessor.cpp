@@ -1,6 +1,6 @@
 #include "glsl_preprocessor.hpp"
 
-#include "engine/debugging/logger.hpp"
+#include "engine/core/diagnostics/logger.hpp"
 
 #include <sstream>
 #include <unordered_set>

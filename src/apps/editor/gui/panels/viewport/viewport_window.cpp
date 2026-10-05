@@ -1,6 +1,6 @@
 #include "viewport_window.hpp"
 
-#include "engine/core/engine.hpp"
+#include "engine/world/engine.hpp"
 #include "engine/platform/iplatform.hpp"
 #include "engine/world/levels/level_manager.hpp"
 #include "engine/world/components/transform.reflection.hpp"
@@ -23,8 +23,8 @@
 
 #include <Jolt/Physics/Collision/CollisionCollectorImpl.h>
 
-#include "engine/debugging/profiler.hpp"
-#include "engine/time/time_manager.hpp"
+#include "engine/core/diagnostics/profiler.hpp"
+#include "engine/world/time_manager.hpp"
 
 namespace {
 

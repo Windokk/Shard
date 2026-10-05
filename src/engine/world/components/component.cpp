@@ -1,6 +1,6 @@
 #include "component.hpp"
 
-#include "engine/debugging/logger.hpp"
+#include "engine/core/diagnostics/logger.hpp"
 #include "engine/world/actor.hpp"
 
 namespace Shard::Engine::Objects::Components {

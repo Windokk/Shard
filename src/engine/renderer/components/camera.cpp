@@ -10,7 +10,7 @@
 
 #include "engine/platform/iplatform.hpp"
 
-#include "engine/core/engine.hpp"
+#include "engine/world/engine.hpp"
 #include <glm/gtx/string_cast.hpp>
 
 namespace Shard::Engine::Objects::Components {

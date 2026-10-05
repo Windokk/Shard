@@ -1,6 +1,6 @@
 #include "texture.hpp"
 
-#include "engine/core/engine.hpp"
+#include "engine/world/engine.hpp"
 
 #include "engine/renderer/rhi/backends/opengl/texture/gl_texture.hpp"
 
@@ -8,7 +8,7 @@
 
 #include "engine/renderer/frontend/renderer.hpp"
 
-#include "engine/debugging/logger.hpp"
+#include "engine/core/diagnostics/logger.hpp"
 
 #include <algorithm>
 

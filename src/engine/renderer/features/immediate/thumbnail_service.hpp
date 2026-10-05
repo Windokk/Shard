@@ -1,6 +1,6 @@
 #pragma once
 
-#include "engine/filesystem/filesystem.hpp"
+#include "engine/assets/vfs/filesystem.hpp"
 #include "engine/renderer/rhi/resources/framebuffer/framebuffer.hpp"
 
 #include <glm/glm.hpp>

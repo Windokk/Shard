@@ -1,6 +1,6 @@
 #include <gtest/gtest.h>
 
-#include "engine/core/objectID.hpp"
+#include "engine/world/objectID.hpp"
 
 using namespace Shard::Engine::Core;
 

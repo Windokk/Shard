@@ -5,7 +5,7 @@
 
 #include "engine/renderer/components/probe_volume.hpp"
 
-#include "engine/core/engine.hpp"
+#include "engine/world/engine.hpp"
 
 #include "engine/renderer/frontend/renderer.hpp"
 #include "engine/renderer/rhi/renderer_api.hpp"
@@ -19,7 +19,7 @@
 #include "engine/world/levels/level_manager.hpp"
 #include "engine/world/skybox.hpp"
 
-#include "engine/debugging/logger.hpp"
+#include "engine/core/diagnostics/logger.hpp"
 
 #include <algorithm>
 #include <cmath>

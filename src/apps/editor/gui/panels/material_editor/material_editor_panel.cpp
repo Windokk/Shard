@@ -1,13 +1,13 @@
 #include "material_editor_panel.hpp"
 
-#include "engine/core/engine.hpp"
-#include "engine/core/resources/resources_manager.hpp"
+#include "engine/world/engine.hpp"
+#include "engine/assets/resources_manager.hpp"
 
 #include "engine/renderer/material/material.hpp"
 #include "engine/renderer/frontend/renderer.hpp"
 #include "engine/renderer/rhi/resources/texture/texture.hpp"
 
-#include "engine/debugging/logger.hpp"
+#include "engine/core/diagnostics/logger.hpp"
 
 #include "imgui/imgui.h"
 

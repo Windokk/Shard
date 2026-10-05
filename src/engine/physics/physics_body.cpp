@@ -1,7 +1,7 @@
 #include "physics_body.hpp"
 
 #include "engine/world/actor.hpp"
-#include "engine/core/engine.hpp"
+#include "engine/world/engine.hpp"
 #include "engine/renderer/rhi/resources/mesh/mesh.hpp"
 
 #include "physics_body.reflection.hpp"

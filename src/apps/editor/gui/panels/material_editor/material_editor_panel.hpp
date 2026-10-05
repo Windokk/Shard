@@ -1,6 +1,6 @@
 #pragma once
 
-#include "engine/filesystem/filesystem.hpp"
+#include "engine/assets/vfs/filesystem.hpp"
 #include "engine/renderer/material/shader.hpp"
 
 #include "apps/editor/gui/panels/asset_editor.hpp"

@@ -4,10 +4,10 @@
 #include "apps/editor/gui/popups.hpp"
 #include "apps/editor/commands/command_stack.hpp"
 
-#include "engine/core/engine.hpp"
+#include "engine/world/engine.hpp"
 #include "engine/world/levels/level_manager.hpp"
 #include "engine/world/levels/level.hpp"
-#include "engine/projects/project.hpp"
+#include "engine/assets/project/project.hpp"
 
 #include "imgui/imgui.h"
 #include "ImGuizmo.h"

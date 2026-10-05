@@ -3,7 +3,7 @@
 #include <vector>
 #include <memory>
 
-#include "engine/core/object.hpp"
+#include "engine/world/object.hpp"
 
 
 namespace Shard::Engine::Objects{

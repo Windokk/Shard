@@ -1,5 +1,5 @@
-#include "engine/core/engine.hpp"
-#include "engine/core/resources/resources_manager.hpp"
+#include "engine/world/engine.hpp"
+#include "engine/assets/resources_manager.hpp"
 #include "editor_module_loader.hpp"
 #include "apps/editor/commands/command_stack.hpp"
 #include "apps/editor/core/platform/glfw/glfw_platform.hpp"

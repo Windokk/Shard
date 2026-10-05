@@ -1,6 +1,6 @@
 #include "pipeline.hpp"
 
-#include "engine/core/engine.hpp"
+#include "engine/world/engine.hpp"
 
 #include "engine/renderer/material/shader.hpp"
 

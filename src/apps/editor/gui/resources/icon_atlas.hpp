@@ -2,7 +2,7 @@
 #pragma once
 
 #include "engine/renderer/rhi/resources/texture/texture.hpp"
-#include "engine/filesystem/filesystem.hpp"
+#include "engine/assets/vfs/filesystem.hpp"
 
 #include <imgui/imgui.h>
 

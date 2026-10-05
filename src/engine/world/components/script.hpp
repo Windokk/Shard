@@ -2,9 +2,9 @@
 
 #include "engine/world/components/component.hpp"
 
-#include "engine/events/event_system.hpp"
+#include "engine/world/event_system.hpp"
 
-#include "engine/core/attributes.hpp"
+#include "engine/assets/reflection/attributes.hpp"
 
 namespace Shard::Engine::Objects::Components
 {

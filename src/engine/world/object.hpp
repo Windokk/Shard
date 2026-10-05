@@ -1,6 +1,6 @@
 #pragma once
 
-#include "engine/core/objectID.hpp"
+#include "engine/world/objectID.hpp"
 
 struct FieldChangedEvent;
 

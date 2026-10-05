@@ -1,12 +1,12 @@
 #include "project_settings_panel.hpp"
 
-#include "engine/core/engine.hpp"
+#include "engine/world/engine.hpp"
 #include "engine/world/levels/level.hpp"
 #include "engine/world/levels/level_manager.hpp"
 #include "engine/physics/physics_manager.hpp"
-#include "engine/projects/project.hpp"
+#include "engine/assets/project/project.hpp"
 #include "engine/assets/serialization/project/project_serializer.hpp"
-#include "engine/time/time_manager.hpp"
+#include "engine/world/time_manager.hpp"
 
 #include "imgui/imgui.h"
 

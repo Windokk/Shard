@@ -20,6 +20,7 @@ target_include_directories(ShardGame PRIVATE
 
 target_link_directories(ShardGame PUBLIC ${GLFW_LIB_DIR})
 target_link_libraries(ShardGame PRIVATE Engine glfw3)
+shard_copy_fmod(ShardGame)
 
 set_target_properties(ShardGame PROPERTIES
     WIN32_EXECUTABLE TRUE

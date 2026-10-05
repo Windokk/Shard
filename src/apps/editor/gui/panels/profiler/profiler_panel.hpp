@@ -1,6 +1,6 @@
 #pragma once
 
-#include "engine/debugging/profiler.hpp"
+#include "engine/core/diagnostics/profiler.hpp"
 
 namespace Shard::Editor::GUI{
 

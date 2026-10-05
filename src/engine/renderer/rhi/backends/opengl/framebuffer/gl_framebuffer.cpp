@@ -3,7 +3,7 @@
 #include "engine/renderer/material/shader.hpp"
 #include "engine/renderer/rhi/backends/opengl/gl_utils.hpp"
 
-#include "engine/debugging/logger.hpp"
+#include "engine/core/diagnostics/logger.hpp"
 
 #include "engine/renderer/rhi/backends/opengl/texture/gl_texture.hpp"
 

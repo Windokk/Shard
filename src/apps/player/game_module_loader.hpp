@@ -15,7 +15,7 @@
 
 #include "engine/world/components/registry/component_registry.hpp"
 
-#include "engine/core/engine.hpp"
+#include "engine/world/engine.hpp"
 
 using namespace Shard::Engine;
 using namespace Shard::Engine::Core;

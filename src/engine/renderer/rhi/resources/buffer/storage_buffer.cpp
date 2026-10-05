@@ -1,6 +1,6 @@
 #include "storage_buffer.hpp"
 
-#include "engine/core/engine.hpp"
+#include "engine/world/engine.hpp"
 #include "engine/renderer/frontend/renderer.hpp"
 
 #include "engine/renderer/rhi/backends/opengl/buffer/gl_storage_buffer.hpp"

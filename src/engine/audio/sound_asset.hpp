@@ -2,7 +2,7 @@
 
 #include <string>
 
-#include "engine/filesystem/assetID.hpp"
+#include "engine/assets/assetID.hpp"
 
 namespace Shard::Engine::Audio
 {

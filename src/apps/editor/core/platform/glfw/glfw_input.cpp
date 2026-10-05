@@ -1,6 +1,6 @@
 #include "glfw_input.hpp"
 
-#include "engine/core/engine.hpp"
+#include "engine/world/engine.hpp"
 
 #include "apps/editor/gui/main_window.hpp"
 

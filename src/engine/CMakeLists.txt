@@ -1,7 +1,7 @@
 file(GLOB_RECURSE ENGINE_SOURCES
   ${CMAKE_CURRENT_SOURCE_DIR}/*.cpp
-  ${CMAKE_CURRENT_SOURCE_DIR}/rendering/backends/glad/src/gl.c
-  ${CMAKE_CURRENT_SOURCE_DIR}/rendering/backends/glad/src/vulkan.c
+  ${CMAKE_CURRENT_SOURCE_DIR}/renderer/rhi/backends/glad/src/gl.c
+  ${CMAKE_CURRENT_SOURCE_DIR}/renderer/rhi/backends/glad/src/vulkan.c
   ${CMAKE_SOURCE_DIR}/submodules/ufbx/ufbx.c
 )
 
@@ -65,3 +65,13 @@ elseif(UNIX)
   target_link_libraries(Engine PRIVATE freetype fmod -lz)
   target_link_libraries(Engine PUBLIC Jolt)
 endif()
+
+# Executables that link Engine need fmod.dll next to them (otherwise they exit with 0xc0000135 on
+# Windows, which also breaks gtest_discover_tests at build time). Call this after add_executable.
+function(shard_copy_fmod target)
+  if(WIN32 AND EXISTS "${FMOD_API_DIR}/lib/x64/fmod.dll")
+    add_custom_command(TARGET ${target} POST_BUILD
+      COMMAND ${CMAKE_COMMAND} -E copy_if_different
+              "${FMOD_API_DIR}/lib/x64/fmod.dll" "$<TARGET_FILE_DIR:${target}>")
+  endif()
+endfunction()

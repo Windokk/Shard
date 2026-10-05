@@ -2,9 +2,9 @@
 
 #include "engine/renderer/rhi/backends/opengl/renderer_api/gl_api.hpp"
 
-#include "engine/core/engine.hpp"
+#include "engine/world/engine.hpp"
 
-#include "engine/debugging/logger.hpp"
+#include "engine/core/diagnostics/logger.hpp"
 
 namespace Shard::Engine::Rendering{
 

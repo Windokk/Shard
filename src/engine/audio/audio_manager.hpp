@@ -8,7 +8,7 @@
 #include <glm/glm.hpp>
 #include <fmod.hpp>
 
-#include "engine/filesystem/filesystem.hpp"
+#include "engine/assets/vfs/filesystem.hpp"
 #include "audioID.hpp"
 
 namespace Shard::Engine::Audio

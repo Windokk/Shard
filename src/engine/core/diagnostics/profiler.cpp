@@ -1,6 +1,6 @@
 #include "profiler.hpp"
 
-#include "engine/core/engine.hpp"
+#include "engine/world/engine.hpp"
 
 #ifdef __WIN32__
 #define byte cs_byte
@@ -21,12 +21,12 @@
 
 #endif
 
-#include "engine/debugging/logger.hpp"
+#include "engine/core/diagnostics/logger.hpp"
 #include "engine/renderer/frontend/renderer.hpp"
 #include "engine/renderer/features/lighting/light_manager.hpp"
 #include "engine/audio/audio_manager.hpp"
 #include "engine/world/levels/level_manager.hpp"
-#include "engine/time/time_manager.hpp"
+#include "engine/world/time_manager.hpp"
 #include "engine/renderer/rhi/resources/mesh/mesh.hpp"
 #include "engine/platform/iplatform.hpp"
 
