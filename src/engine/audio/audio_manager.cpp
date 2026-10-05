@@ -4,16 +4,16 @@
 
 #include <fmod_errors.h>
 
-#include "engine/objects/actors/actor.hpp"
-#include "engine/levels/level_manager.hpp"
-#include "engine/rendering/utils.hpp"
-#include "engine/rendering/renderer/renderer.hpp"
-#include "engine/rendering/camera/camera_manager.hpp"
+#include "engine/world/actor.hpp"
+#include "engine/world/levels/level_manager.hpp"
+#include "engine/renderer/utils.hpp"
+#include "engine/renderer/frontend/renderer.hpp"
+#include "engine/renderer/frontend/camera_manager.hpp"
 #include "engine/time/time_manager.hpp"
 #include "engine/core/engine.hpp"
 #include "engine/debugging/logger.hpp"
 
-#include "engine/objects/components/audio/audio_source.hpp"
+#include "engine/audio/audio_source.hpp"
 #include "engine/core/resources/resources_manager.hpp"
 #include "sound_asset.hpp"
 

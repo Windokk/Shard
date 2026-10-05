@@ -1,10 +1,10 @@
 #include "physics_manager.hpp"
 
-#include "engine/levels/level_manager.hpp"
+#include "engine/world/levels/level_manager.hpp"
 
-#include "engine/objects/components/physics/physics_body.hpp"
+#include "engine/physics/physics_body.hpp"
 
-#include "engine/objects/actors/actor.hpp"
+#include "engine/world/actor.hpp"
 
 #include "engine/core/engine.hpp"
 

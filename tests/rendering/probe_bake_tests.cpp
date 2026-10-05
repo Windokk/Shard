@@ -6,7 +6,7 @@
 #include <fstream>
 #include <string>
 
-#include "engine/rendering/lighting/probe_bake.hpp"
+#include "engine/renderer/features/lighting/probe_bake.hpp"
 
 using namespace Shard::Engine;
 using namespace Shard::Engine::Rendering;

@@ -2,9 +2,9 @@
 
 #include "support/test_engine_context.hpp"
 
-#include "engine/objects/actors/actor.hpp"
-#include "engine/objects/components/rendering/camera.hpp"
-#include "engine/objects/components/physics/physics_body.hpp"
+#include "engine/world/actor.hpp"
+#include "engine/renderer/components/camera.hpp"
+#include "engine/physics/physics_body.hpp"
 
 using namespace Shard::Engine::Core;
 using namespace Shard::Engine::Objects;

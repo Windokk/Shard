@@ -22,13 +22,13 @@
 #endif
 
 #include "engine/debugging/logger.hpp"
-#include "engine/rendering/renderer/renderer.hpp"
-#include "engine/rendering/lighting/light_manager.hpp"
+#include "engine/renderer/frontend/renderer.hpp"
+#include "engine/renderer/features/lighting/light_manager.hpp"
 #include "engine/audio/audio_manager.hpp"
-#include "engine/levels/level_manager.hpp"
+#include "engine/world/levels/level_manager.hpp"
 #include "engine/time/time_manager.hpp"
-#include "engine/rendering/mesh/mesh.hpp"
-#include "engine/core/platform/iplatform.hpp"
+#include "engine/renderer/rhi/resources/mesh/mesh.hpp"
+#include "engine/platform/iplatform.hpp"
 
 namespace Shard::Engine::Debugging{
    

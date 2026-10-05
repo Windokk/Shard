@@ -1,7 +1,7 @@
 #include "project.hpp"
 
-#include "engine/serialization/project/project_serializer.hpp"
-#include "engine/serialization/assets/asset_database_serializer.hpp"
+#include "engine/assets/serialization/project/project_serializer.hpp"
+#include "engine/assets/asset_database_serializer.hpp"
 
 namespace Shard::Engine::Projects{
     Project::Project(std::string name, Filesystem::Path projectRoot, Filesystem::Path projectResourcesRoot, Filesystem::Path pluginsFolder, BuildSettings buildSettings, EditorPreferences editorPreferences, Filesystem::Path assetDatabasePath)

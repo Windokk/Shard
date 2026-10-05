@@ -5,8 +5,8 @@
 #include <vector>
 
 #include "engine/filesystem/filesystem.hpp"
-#include "engine/rendering/mesh/mesh.hpp"
-#include "engine/levels/level.hpp"
+#include "engine/renderer/rhi/resources/mesh/mesh.hpp"
+#include "engine/world/levels/level.hpp"
 
 namespace Shard::Engine::Rendering{
     class Renderer;

@@ -2,27 +2,27 @@
 
 #include <algorithm>
 
-#include "engine/serialization/material/material_serializer.hpp"
+#include "engine/assets/serialization/material/material_serializer.hpp"
 
-#include "engine/serialization/assets/asset_database_serializer.hpp"
+#include "engine/assets/asset_database_serializer.hpp"
 
 #include "engine/core/engine.hpp"
 
 #include "engine/projects/project.hpp"
 
-#include "engine/rendering/texture/cubemap/envmap.hpp"
+#include "engine/renderer/rhi/resources/texture/cubemap/envmap.hpp"
 
-#include "engine/rendering/lighting/probe_bake.hpp"
+#include "engine/renderer/features/lighting/probe_bake.hpp"
 
-#include "engine/rendering/mesh/mesh.hpp"
-#include "engine/rendering/pipeline/pipeline.hpp"
-#include "engine/rendering/shader/shader.hpp"
-#include "engine/rendering/shader/compute_shader.hpp"
-#include "engine/rendering/material/material.hpp"
+#include "engine/renderer/rhi/resources/mesh/mesh.hpp"
+#include "engine/renderer/rhi/pipelines/pipeline.hpp"
+#include "engine/renderer/material/shader.hpp"
+#include "engine/renderer/material/compute_shader.hpp"
+#include "engine/renderer/material/material.hpp"
 
 #include "engine/audio/sound_asset.hpp"
 
-#include "engine/levels/level.hpp"
+#include "engine/world/levels/level.hpp"
 
 namespace Shard::Engine::Core::Resources{
 
