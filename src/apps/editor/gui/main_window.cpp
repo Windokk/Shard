@@ -429,7 +429,7 @@ namespace Shard::Editor::Core{
 
             std::shared_ptr<Rendering::Framebuffer> fbOutlineMask = Rendering::Framebuffer::Create(fbOutlineMaskSpecs);
 
-            std::shared_ptr<Rendering::Shader> outlineMaskShader = Engine::Core::GetEngine().GetResourcesManager()->GetShader("shaders/editor/outline_mask");
+            std::shared_ptr<Rendering::Shader> outlineMaskShader = Engine::Core::GetEngine().GetResourcesManager()->Get<Engine::Rendering::Shader>(Engine::Core::Resources::AssetKind::Shader, "shaders/editor/outline_mask");
             
             Rendering::PipelineSpecifications outlineMaskPipelineSpecs;
             outlineMaskPipelineSpecs.shader = outlineMaskShader;
@@ -487,7 +487,7 @@ namespace Shard::Editor::Core{
             jfaInitPipelineSpecs.depthTest = false;
             jfaInitPipelineSpecs.depthWrite = false;
             jfaInitPipelineSpecs.blending = false;
-            jfaInitPipelineSpecs.shader = Engine::Core::GetEngine().GetResourcesManager()->GetShader("shaders/editor/jfa_init");
+            jfaInitPipelineSpecs.shader = Engine::Core::GetEngine().GetResourcesManager()->Get<Engine::Rendering::Shader>(Engine::Core::Resources::AssetKind::Shader, "shaders/editor/jfa_init");
             jfaInitPipelineSpecs.debugName = "JFAInitPipeline";
             jfaInitPipelineSpecs.vertexLayout = {};
             std::shared_ptr<Rendering::Pipeline> jfaInitPipeline = renderer->GetOrAddPipeline(jfaInitPipelineSpecs);
@@ -512,7 +512,7 @@ namespace Shard::Editor::Core{
             jfaStepPipelineSpecs.depthTest = false;
             jfaStepPipelineSpecs.depthWrite = false;
             jfaStepPipelineSpecs.blending = false;
-            jfaStepPipelineSpecs.shader = Engine::Core::GetEngine().GetResourcesManager()->GetShader("shaders/editor/jfa_step");
+            jfaStepPipelineSpecs.shader = Engine::Core::GetEngine().GetResourcesManager()->Get<Engine::Rendering::Shader>(Engine::Core::Resources::AssetKind::Shader, "shaders/editor/jfa_step");
             jfaStepPipelineSpecs.debugName = "JFAStepPipeline";
             jfaStepPipelineSpecs.vertexLayout = {};
             std::shared_ptr<Rendering::Pipeline> jfaStepPipeline = renderer->GetOrAddPipeline(jfaStepPipelineSpecs);
@@ -563,7 +563,7 @@ namespace Shard::Editor::Core{
             /// (the only ones outline.frag doesn't discard) land on top of the final image instead of
             /// into a framebuffer nothing ever samples.
 
-            std::shared_ptr<Rendering::Shader> outlineShader = Engine::Core::GetEngine().GetResourcesManager()->GetShader("shaders/editor/outline");
+            std::shared_ptr<Rendering::Shader> outlineShader = Engine::Core::GetEngine().GetResourcesManager()->Get<Engine::Rendering::Shader>(Engine::Core::Resources::AssetKind::Shader, "shaders/editor/outline");
 
             Rendering::PipelineSpecifications outlinePipelineSpecs;
             outlinePipelineSpecs.depthTest = false;
@@ -600,7 +600,7 @@ namespace Shard::Editor::Core{
             /// Infinite grid - one fullscreen pass per plane, ray-plane intersected in the fragment
             /// shader and depth-tested against the scene (it writes gl_FragDepth, not depth itself).
 
-            std::shared_ptr<Rendering::Shader> gridShader = Engine::Core::GetEngine().GetResourcesManager()->GetShader("shaders/editor/grid");
+            std::shared_ptr<Rendering::Shader> gridShader = Engine::Core::GetEngine().GetResourcesManager()->Get<Engine::Rendering::Shader>(Engine::Core::Resources::AssetKind::Shader, "shaders/editor/grid");
 
             Rendering::PipelineSpecifications gridPipelineSpecs;
             gridPipelineSpecs.depthTest = true;

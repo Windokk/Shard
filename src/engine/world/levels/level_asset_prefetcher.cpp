@@ -9,7 +9,7 @@
 #include "engine/assets/resources_manager.hpp"
 #include "engine/world/levels/level.hpp"
 #include "engine/audio/sound_asset.hpp"
-#include "engine/assets/serialization/material/material_serializer.hpp"
+#include "engine/assets/serialization/material/material_asset_refs.hpp"
 #include "engine/core/diagnostics/logger.hpp"
 
 namespace Shard::Engine::Levels{
@@ -54,7 +54,7 @@ namespace Shard::Engine::Levels{
         for(auto& p : levelManifest.meshPathsInProject){
             if(!seenMeshes.insert(p).second)
                 continue;
-            if(resources->HasMesh(p))
+            if(resources->Has(Core::Resources::AssetKind::Mesh, p))
                 continue;
 
             auto info = assetManager->GetAssetFromID(assetManager->GetIDFromNameInProject(p));
@@ -71,7 +71,7 @@ namespace Shard::Engine::Levels{
         for(auto& p : texturePaths){
             if(!seenTextures.insert(p).second)
                 continue;
-            if(resources->HasTexture(p))
+            if(resources->Has(Core::Resources::AssetKind::Texture, p))
                 continue;
 
             auto info = assetManager->GetAssetFromID(assetManager->GetIDFromNameInProject(p));
@@ -93,7 +93,7 @@ namespace Shard::Engine::Levels{
         for(auto& p : levelManifest.probeBakePathsInProject){
             if(!seenProbeBakes.insert(p).second)
                 continue;
-            if(resources->HasProbeBake(p))
+            if(resources->Has(Core::Resources::AssetKind::ProbeBake, p))
                 continue;
 
             auto info = assetManager->GetAssetFromID(assetManager->GetIDFromNameInProject(p));
@@ -114,7 +114,7 @@ namespace Shard::Engine::Levels{
         for(auto& p : levelManifest.soundPathsInProject){
             if(!seenSounds.insert(p).second)
                 continue;
-            if(resources->HasSound(p))
+            if(resources->Has(Core::Resources::AssetKind::Sound, p))
                 continue;
 
             auto info = assetManager->GetAssetFromID(assetManager->GetIDFromNameInProject(p));
@@ -236,14 +236,14 @@ namespace Shard::Engine::Levels{
 
             std::shared_ptr<Rendering::Mesh> mesh = Rendering::Mesh::Create();
             mesh->CreateFromData(data);
-            resources->AdoptMesh(job.pathInProject, mesh);
+            resources->Adopt(Core::Resources::AssetKind::Mesh, job.pathInProject, mesh);
         }
         else if(job.kind == DecodeKind::ProbeBake){
             // No GL work to do here : the decoded CPU data just goes into the cache, and
             // ProbeVolume::Activate() uploads it when the level's volumes come up.
             std::shared_ptr<Rendering::ProbeBakeData> data = job.probeBakeFuture.get();
             if(data)
-                resources->AdoptProbeBake(job.pathInProject, data);
+                resources->Adopt(Core::Resources::AssetKind::ProbeBake, job.pathInProject, data);
         }
         else if(job.kind == DecodeKind::Sound){
             std::string bytes = job.soundFuture.get();
@@ -252,7 +252,7 @@ namespace Shard::Engine::Levels{
 
             std::shared_ptr<Audio::SoundAsset> sound = std::make_shared<Audio::SoundAsset>();
             sound->SetBuffer(std::move(bytes));
-            resources->AdoptSound(job.pathInProject, sound);
+            resources->Adopt(Core::Resources::AssetKind::Sound, job.pathInProject, sound);
         }
         else{
             Rendering::TextureDecodeResult data = job.textureFuture.get();
@@ -269,7 +269,7 @@ namespace Shard::Engine::Levels{
             specs.minFilter = Rendering::TextureFilter::LinearMipmapLinear;
 
             std::shared_ptr<Rendering::Texture2D> texture = Rendering::Texture2D::Create(specs, data.pixels.data());
-            resources->AdoptTexture(job.pathInProject, texture);
+            resources->Adopt(Core::Resources::AssetKind::Texture, job.pathInProject, texture);
         }
     }
 

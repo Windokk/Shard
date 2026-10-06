@@ -1,16 +1,18 @@
 # Layers, bottom to top (the dependency rules are checked by scripts/check_deps.py):
 #   ShardCore     <- nothing
 #   ShardPlatform <- ShardCore
-#   Engine        <- everything else (links the two above)
+#   ShardAssets   <- ShardPlatform, ShardCore
+#   Engine        <- everything else (links the three above)
 file(GLOB_RECURSE CORE_SOURCES ${CMAKE_CURRENT_SOURCE_DIR}/core/*.cpp)
 file(GLOB_RECURSE PLATFORM_SOURCES ${CMAKE_CURRENT_SOURCE_DIR}/platform/*.cpp)
+file(GLOB_RECURSE ASSETS_SOURCES ${CMAKE_CURRENT_SOURCE_DIR}/assets/*.cpp)
 file(GLOB_RECURSE ENGINE_SOURCES
   ${CMAKE_CURRENT_SOURCE_DIR}/*.cpp
   ${CMAKE_CURRENT_SOURCE_DIR}/renderer/rhi/backends/glad/src/gl.c
   ${CMAKE_CURRENT_SOURCE_DIR}/renderer/rhi/backends/glad/src/vulkan.c
   ${CMAKE_SOURCE_DIR}/submodules/ufbx/ufbx.c
 )
-list(FILTER ENGINE_SOURCES EXCLUDE REGEX "/engine/(core|platform)/")
+list(FILTER ENGINE_SOURCES EXCLUDE REGEX "/engine/(core|platform|assets)/")
 
 if(WIN32)
 set(THREADS_PREFER_PTHREAD_FLAG ON)
@@ -34,8 +36,16 @@ target_compile_definitions(ShardPlatform PRIVATE BUILD_ENGINE)
 target_include_directories(ShardPlatform PUBLIC "${CMAKE_SOURCE_DIR}/submodules/glfw/include/")
 target_link_libraries(ShardPlatform PUBLIC ShardCore)
 
+add_library(ShardAssets STATIC ${ASSETS_SOURCES})
+target_compile_definitions(ShardAssets PRIVATE BUILD_ENGINE)
+target_include_directories(ShardAssets PUBLIC
+    "${CMAKE_SOURCE_DIR}/submodules/"
+    "${CMAKE_SOURCE_DIR}/submodules/json/single_include/"
+)
+target_link_libraries(ShardAssets PUBLIC ShardPlatform ShardCore)
+
 add_library(Engine STATIC ${ENGINE_SOURCES})
-target_link_libraries(Engine PUBLIC ShardPlatform ShardCore)
+target_link_libraries(Engine PUBLIC ShardAssets ShardPlatform ShardCore)
 
 set(FMOD_API_DIR "" CACHE PATH "Path to fmod api")
 

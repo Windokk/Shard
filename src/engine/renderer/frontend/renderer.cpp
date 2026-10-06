@@ -13,6 +13,7 @@
 #include "engine/renderer/features/lighting/light_culling_manager.hpp"
 #include "engine/renderer/frontend/camera_manager.hpp"
 #include "engine/assets/resources_manager.hpp"
+#include "engine/renderer/frontend/render_asset_kinds.hpp"
 #include "engine/world/actor.hpp"
 #include "engine/core/diagnostics/profiler.hpp"
 #include <queue>
@@ -24,6 +25,10 @@ namespace Shard::Engine::Rendering{
     void Renderer::Init(std::shared_ptr<RendererSettings> initialSettings)
     {
         m_Settings = initialSettings;
+
+        // Before anything below asks the resources manager for a shader or a texture
+        RegisterAssetKinds(*Core::GetEngine().GetResourcesManager());
+
         m_RendererAPI = RendererAPI::Create(initialSettings->api);
 
         if (Debugging::Profiler* profiler = Debugging::Profiler::Active())
@@ -187,12 +192,12 @@ namespace Shard::Engine::Rendering{
         pipelineSpecs.debugName = "PhysicsDebug";
         pipelineSpecs.polygonMode = Rendering::PolygonMode::Line;
         pipelineSpecs.topology = Rendering::PrimitiveTopology::Lines;
-        pipelineSpecs.shader = Core::GetEngine().GetResourcesManager()->GetShader("shaders/mesh/unlit");
+        pipelineSpecs.shader = Core::GetEngine().GetResourcesManager()->Get<Rendering::Shader>(Core::Resources::AssetKind::Shader, "shaders/mesh/unlit");
         pipelineSpecs.vertexLayout = vertexLayout;
 
         std::shared_ptr<Rendering::Pipeline> pipeline = Core::GetEngine().GetRenderer()->GetOrAddPipeline(pipelineSpecs);
 
-        m_DebugMat = Rendering::Material::Create(Core::GetEngine().GetResourcesManager()->GetShader("shaders/mesh/unlit"), pipeline, false, Rendering::Opacity::Opaque);
+        m_DebugMat = Rendering::Material::Create(Core::GetEngine().GetResourcesManager()->Get<Rendering::Shader>(Core::Resources::AssetKind::Shader, "shaders/mesh/unlit"), pipeline, false, Rendering::Opacity::Opaque);
         m_DebugMat->SetScalarParameter("useTexture", false);
     }
 

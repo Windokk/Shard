@@ -404,7 +404,7 @@ namespace Shard::Editor::GUI{
 
                                 if (item_data->type == Engine::Filesystem::Type::T_IMAGE)
                                 {
-                                    auto tex = Engine::Core::GetEngine().GetResourcesManager()->GetTexture(item_data->nameInProject);
+                                    auto tex = Engine::Core::GetEngine().GetResourcesManager()->Get<Engine::Rendering::Texture2D>(Engine::Core::Resources::AssetKind::Texture, item_data->nameInProject);
                                     if (tex)
                                         ImGui::TextDisabled("%u x %u", tex->GetWidth(), tex->GetHeight());
                                 }
@@ -528,7 +528,7 @@ namespace Shard::Editor::GUI{
                             auto* thumbnails = Engine::Core::GetEngine().GetRenderer()->GetThumbnailService();
 
                             if (!item_data->isDirectory && item_data->type == Engine::Filesystem::Type::T_IMAGE)
-                                imageThumbnail = Engine::Core::GetEngine().GetResourcesManager()->GetTexture(item_data->nameInProject);
+                                imageThumbnail = Engine::Core::GetEngine().GetResourcesManager()->Get<Engine::Rendering::Texture2D>(Engine::Core::Resources::AssetKind::Texture, item_data->nameInProject);
                             else if (!item_data->isDirectory && (item_data->type == Engine::Filesystem::Type::T_MODEL || item_data->type == Engine::Filesystem::Type::T_MATERIAL))
                             {
                                 Engine::Rendering::ThumbnailRequest request;

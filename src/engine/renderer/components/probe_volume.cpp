@@ -123,7 +123,7 @@ namespace Shard::Engine::Objects::Components{
             // activated from the editor after the level loaded, ...).
             std::shared_ptr<const Rendering::ProbeBakeData> baked;
             if(!bakedData.empty())
-                baked = resources->GetProbeBake(bakedData);
+                baked = resources->Get<Rendering::ProbeBakeData>(Core::Resources::AssetKind::ProbeBake, bakedData);
 
             if(!probeManager->AddActiveVolume(this, baked))
             {
@@ -134,7 +134,7 @@ namespace Shard::Engine::Objects::Components{
 
             // Uploaded (or refused) - either way the CPU copy has served its purpose.
             if(!bakedData.empty())
-                resources->UnloadProbeBake(bakedData);
+                resources->Unload(Core::Resources::AssetKind::ProbeBake, bakedData);
         }
     }
 
@@ -345,12 +345,12 @@ namespace Shard::Engine::Objects::Components{
         bakedData = nameInProject;
 
         // A previous bake of this volume may still be cached (CPU side) from an earlier load.
-        engine->GetResourcesManager()->UnloadProbeBake(bakedData);
+        engine->GetResourcesManager()->Unload(Core::Resources::AssetKind::ProbeBake, bakedData);
 
         // Written straight away rather than at project shutdown, so a crash between here and then can't
         // leave a saved level pointing at a file the database has never heard of.
         if (auto project = engine->GetCurrentProject())
-            Serialization::SerializeAssetDataBase(project->GetAssetDatabasePath());
+            Serialization::SerializeAssetDataBase(project->GetAssetDatabasePath(), *engine->GetAssetIDManager());
 
         if (parent && parent->level)
             parent->level->SetDirty(true);
@@ -376,10 +376,10 @@ namespace Shard::Engine::Objects::Components{
                 assetManager->DestroyID(id);
 
                 if (auto project = engine->GetCurrentProject())
-                    Serialization::SerializeAssetDataBase(project->GetAssetDatabasePath());
+                    Serialization::SerializeAssetDataBase(project->GetAssetDatabasePath(), *engine->GetAssetIDManager());
             }
 
-            engine->GetResourcesManager()->UnloadProbeBake(bakedData);
+            engine->GetResourcesManager()->Unload(Core::Resources::AssetKind::ProbeBake, bakedData);
             bakedData.clear();
         }
 

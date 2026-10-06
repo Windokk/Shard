@@ -198,7 +198,7 @@ namespace Shard::Engine::Rendering {
             return;
 
         PipelineSpecifications specs;
-        specs.shader = Core::GetEngine().GetResourcesManager()->GetShader("shaders/mesh/unlit");
+        specs.shader = Core::GetEngine().GetResourcesManager()->Get<Rendering::Shader>(Core::Resources::AssetKind::Shader, "shaders/mesh/unlit");
         specs.depthTest = true;
         specs.depthWrite = true;
         specs.blending = false;

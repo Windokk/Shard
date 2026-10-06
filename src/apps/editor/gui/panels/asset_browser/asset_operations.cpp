@@ -75,7 +75,8 @@ namespace Shard::Editor::GUI::AssetOperations
 
         void PersistDatabase()
         {
-            Engine::Serialization::SerializeAssetDataBase(Engine::Core::GetEngine().GetCurrentProject()->GetAssetDatabasePath());
+            Engine::Serialization::SerializeAssetDataBase(Engine::Core::GetEngine().GetCurrentProject()->GetAssetDatabasePath(),
+                                                          *Engine::Core::GetEngine().GetAssetIDManager());
         }
 
         std::string FirstInUse(const AssetList& assets)

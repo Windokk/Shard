@@ -1,7 +1,6 @@
 #include "filesystem.hpp"
 
 #include "engine/core/diagnostics/logger.hpp"
-#include "engine/world/engine.hpp"
 
 namespace Shard::Engine::Filesystem{
 
@@ -73,12 +72,12 @@ namespace Shard::Engine::Filesystem{
         if(IsPathInside(engineResPath, path)){
             // This file is part of the engine ressources
             infos.nameInProject = path.RelativeTo(engineResPath).full;
-            infos.ID = Core::GetEngine().GetAssetIDManager()->GetIDFromNameInProject(infos.nameInProject);
+            infos.ID = assetIDs->GetIDFromNameInProject(infos.nameInProject);
         }
         else if(IsPathInside(projectResPath, path)){
             // This file is part of the project ressources
             infos.nameInProject = path.RelativeTo(projectResPath).full;
-            infos.ID = Core::GetEngine().GetAssetIDManager()->GetIDFromNameInProject(infos.nameInProject);
+            infos.ID = assetIDs->GetIDFromNameInProject(infos.nameInProject);
         }
         else{
             infos.nameInProject = "";
@@ -92,7 +91,7 @@ namespace Shard::Engine::Filesystem{
 
     AssetID FileManager::RegisterAsset(const Path &path)
     {
-        AssetIDManager* assetManager = Core::GetEngine().GetAssetIDManager();
+        AssetIDManager* assetManager = assetIDs;
 
         FileInfos infos = GetFileInfos(path);
         if(infos.nameInProject.empty()){

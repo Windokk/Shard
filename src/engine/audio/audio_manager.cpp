@@ -53,6 +53,24 @@ namespace Shard::Engine::Audio
     {
         AudioManager::masterVolume = masterVolume;
 
+        {
+            Core::Resources::AssetKindInfo info;
+            info.load = [](const std::string&, const Filesystem::AssetInfos& infos) -> std::shared_ptr<void> {
+                const Filesystem::Path& path = infos.baseInfos.path;
+                if (!path.Exists())
+                {
+                    DEBUG_ERROR("Couldn't load sound: " + path.full);
+                    return nullptr;
+                }
+
+                std::shared_ptr<SoundAsset> sound = std::make_shared<SoundAsset>();
+                sound->SetBuffer(path.ReadFile());
+                return sound;
+            };
+            info.setAssetID = [](void* resource, Filesystem::AssetID id){ static_cast<SoundAsset*>(resource)->SetAssetID(id); };
+            Core::GetEngine().GetResourcesManager()->RegisterKind(Core::Resources::AssetKind::Sound, std::move(info));
+        }
+
         if (Debugging::Profiler* profiler = Debugging::Profiler::Active())
         {
             profiler->AddStatsProvider([this](Debugging::MinimalStatistics& stats)
@@ -76,7 +94,7 @@ namespace Shard::Engine::Audio
 
     void AudioManager::CreateSound(AudioID id, const std::string& pathInProject, glm::vec3 pos, bool spatialize)
     {
-        std::shared_ptr<SoundAsset> soundAsset = Core::GetEngine().GetResourcesManager()->GetSound(pathInProject);
+        std::shared_ptr<SoundAsset> soundAsset = Core::GetEngine().GetResourcesManager()->Get<Audio::SoundAsset>(Core::Resources::AssetKind::Sound, pathInProject);
         if (!soundAsset) {
             return;
         }

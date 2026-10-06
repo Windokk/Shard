@@ -308,7 +308,7 @@ namespace Shard::Engine::Levels{
 
         // Loading (and IBL-convolving) the map is the part that can fail - bad path, not an image, not
         // 3-channel - so it goes first : a failed attempt must leave the current skybox untouched.
-        std::shared_ptr<Rendering::EnvironmentMap> envMap = resources->GetEnvMap(pathInProject);
+        std::shared_ptr<Rendering::EnvironmentMap> envMap = resources->Get<Rendering::EnvironmentMap>(Core::Resources::AssetKind::EnvMap, pathInProject);
         if(!envMap)
             return false;
 
@@ -319,7 +319,7 @@ namespace Shard::Engine::Levels{
             return true;
         }
 
-        std::shared_ptr<Rendering::Shader> shader = resources->GetShader("shaders/skybox/skybox");
+        std::shared_ptr<Rendering::Shader> shader = resources->Get<Rendering::Shader>(Core::Resources::AssetKind::Shader, "shaders/skybox/skybox");
         if(!shader)
             return false;
 

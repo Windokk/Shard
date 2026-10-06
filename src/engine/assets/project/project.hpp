@@ -98,7 +98,7 @@ namespace Shard::Engine::Projects{
                     BuildSettings buildSettings,
                     EditorPreferences editorPreferences, Filesystem::Path assetDatabasePath);
 
-            void Shutdown(std::string path);
+            void Shutdown(std::string path, const Filesystem::AssetIDManager& assetIDManager);
 
             Filesystem::Path GetProjectResourcesPath() { return projectResourcesRoot; }
             Filesystem::Path GetProjectRoot() { return projectRoot; }

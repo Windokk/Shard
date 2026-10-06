@@ -52,7 +52,7 @@ namespace Shard::Engine{
 
             m_Context.fileManager->Init(m_Context.currentProject->GetProjectResourcesPath(), m_Context.fileManager->GetCurrentExecutablePath() / "engine_resources", m_Context.currentProject->GetProjectRoot());
             
-            m_Context.resourcesManager->ConstructGlobalFileIndex(m_Context.currentProject->GetProjectResourcesPath());
+            m_Context.resourcesManager->ConstructGlobalFileIndex(m_Context.currentProject->GetProjectResourcesPath(), m_Context.currentProject->GetAssetDatabasePath());
 
             m_Context.platform->CreateWindow("Shard", settings.windowWidth, settings.windowHeight, settings.fullscreen, settings.vsync, settings.api);
 
@@ -106,13 +106,14 @@ namespace Shard::Engine{
             m_Context.renderer = new Rendering::Renderer();
             m_Context.cameraManager = new Rendering::CameraManager();
 
-            m_Context.resourcesManager = new Resources::ResourcesManager();
-            m_Context.fileManager = new Filesystem::FileManager();
             m_Context.assetIDManager = new Filesystem::AssetIDManager();
+            m_Context.fileManager = new Filesystem::FileManager(*m_Context.assetIDManager);
+            m_Context.resourcesManager = new Resources::ResourcesManager(*m_Context.fileManager, *m_Context.assetIDManager);
 
             m_Context.objIDManager = new ObjectIDManager();
 
             m_Context.levelManager = new Levels::LevelManager();
+            Levels::RegisterLevelAssetKind(*m_Context.resourcesManager);
 
             m_Context.eventDispatcher = new Events::EventDispatcher();
 
@@ -200,7 +201,7 @@ namespace Shard::Engine{
 
         void EngineInstance::Destroy()
         {
-            m_Context.currentProject->Shutdown(m_EngineSettings.project);
+            m_Context.currentProject->Shutdown(m_EngineSettings.project, *m_Context.assetIDManager);
             m_Context.profiler->Shutdown();
             Debugging::Profiler::SetActive(nullptr);
             m_Context.platform->GetInput()->Shutdown();
@@ -264,10 +265,10 @@ namespace Shard::Engine{
             {
                 std::string levelNameInProject = GetAssetIDManager()->GetAssetFromID(GetLevelManager()->GetLevelAt(0)->GetAssetID())->baseInfos.nameInProject;
                 GetLevelManager()->UnloadLevel(0);
-                GetResourcesManager()->UnloadLevel(levelNameInProject);
+                GetResourcesManager()->Unload(Core::Resources::AssetKind::Level, levelNameInProject);
                 GetRenderer()->ClearPassesContent();
                 GetObjectIDManager()->Reset();
-                auto level = GetResourcesManager()->GetLevel(levelNameInProject);
+                auto level = GetResourcesManager()->Get<Levels::Level>(Core::Resources::AssetKind::Level, levelNameInProject);
                 if(level)
                 {
                     GetLevelManager()->LoadLevel(level);

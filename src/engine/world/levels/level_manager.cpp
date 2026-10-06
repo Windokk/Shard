@@ -11,6 +11,39 @@
 #include "engine/assets/project/project.hpp"
 
 namespace Shard::Engine::Levels{
+
+    void RegisterLevelAssetKind(Core::Resources::ResourcesManager& resources)
+    {
+        using namespace Core::Resources;
+
+        AssetKindInfo info;
+        info.load = [](const std::string& pathInProject, const Filesystem::AssetInfos& infos) -> std::shared_ptr<void> {
+            const Filesystem::Path& path = infos.baseInfos.path;
+            std::shared_ptr<Level> level = std::make_shared<Level>("unitialized_level", path);
+            int buildIndex = Core::GetEngine().GetBuildSettings()->GetLevelBuildIndex(pathInProject);
+            if(buildIndex != -1){
+                level->SetBuildIndex(buildIndex);
+            }
+            level->Deserialize(path);
+            return level;
+        };
+        info.setAssetID = [](void* resource, Filesystem::AssetID id){ static_cast<Level*>(resource)->SetAssetID(id); };
+        info.ownerType = Filesystem::Type::T_LEVEL;
+        info.evictable = false;
+        info.dependencies = [](const Filesystem::Path& path){
+            std::vector<ResourceKey> keys;
+            LevelAssetManifest manifest = CollectLevelAssetRefs(path);
+            for(auto& p : manifest.meshPathsInProject) keys.push_back({AssetKind::Mesh, p});
+            for(auto& p : manifest.materialPathsInProject) keys.push_back({AssetKind::Material, p});
+            for(auto& p : manifest.probeBakePathsInProject) keys.push_back({AssetKind::ProbeBake, p});
+            for(auto& p : manifest.soundPathsInProject) keys.push_back({AssetKind::Sound, p});
+            if(!manifest.skyboxEnvMapPathInProject.empty())
+                keys.push_back({AssetKind::EnvMap, manifest.skyboxEnvMapPathInProject});
+            return keys;
+        };
+        resources.RegisterKind(AssetKind::Level, std::move(info));
+    }
+
     void LevelManager::LoadLevel(std::shared_ptr<Level> lvl)
     {
         if(!lvl)
@@ -98,7 +131,7 @@ namespace Shard::Engine::Levels{
             while(!levelBuffer.empty()){
                 std::string nameInProject = assetIDManager->GetAssetFromID(levelBuffer[0]->GetAssetID())->baseInfos.nameInProject;
                 UnloadLevel(0);
-                resourcesManager->UnloadLevel(nameInProject);
+                resourcesManager->Unload(Core::Resources::AssetKind::Level, nameInProject);
             }
 
             engine.GetRenderer()->ClearPassesContent();
@@ -112,7 +145,7 @@ namespace Shard::Engine::Levels{
             engine.GetObjectIDManager()->Reset();
         }
 
-        auto level = engine.GetResourcesManager()->GetLevel(pathInProject);
+        auto level = engine.GetResourcesManager()->Get<Levels::Level>(Core::Resources::AssetKind::Level, pathInProject);
 
         if(!level){
             DEBUG_ERROR("Error loading level : " + pathInProject);

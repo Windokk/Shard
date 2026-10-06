@@ -31,7 +31,7 @@ namespace Shard::Engine::Serialization{
         try {
             json data = json::parse(src);
 
-            std::shared_ptr<Shader> shader = Core::GetEngine().GetResourcesManager()->GetShader(data["shader"]);
+            std::shared_ptr<Shader> shader = Core::GetEngine().GetResourcesManager()->Get<Shader>(AssetKind::Shader, data["shader"]);
 
             if(!shader){
                 DEBUG_ERROR("No shader found : " + ((std::string)data["shader"]));
@@ -69,12 +69,12 @@ namespace Shard::Engine::Serialization{
 
                     // Texture
                     if (value.is_string()) {
-                        // GetTexture() returns nullptr when the referenced path isn't a registered asset
+                        // Get<Texture2D>() returns nullptr when the referenced path isn't a registered asset
                         // (missing file, stale/wrong path in the .mat, or the asset database out of sync
                         // with it) - dereferencing it unconditionally here used to segfault instead of
                         // hitting the "No texture found" error path right below, which is exactly what a
                         // bad texture path should produce.
-                        std::shared_ptr<Texture2D> texture = Core::GetEngine().GetResourcesManager()->GetTexture(value.get<std::string>());
+                        std::shared_ptr<Texture2D> texture = Core::GetEngine().GetResourcesManager()->Get<Texture2D>(AssetKind::Texture, value.get<std::string>());
                         uint32_t tex = texture ? texture->GetHandle() : 0;
                         if(tex){
                             mat->SetTextureParameter(name, tex);
@@ -131,41 +131,4 @@ namespace Shard::Engine::Serialization{
             return nullptr;
         }
     }
-
-    MaterialAssetRefs PeekMaterialAssetRefs(const Filesystem::Path &path)
-    {
-        MaterialAssetRefs refs;
-
-        if(!path.Exists()){
-            return refs;
-        }
-
-        std::string src = path.ReadFile();
-
-        try {
-            json data = json::parse(src);
-
-            if(data.contains("shader") && data["shader"].is_string()){
-                refs.shaderPathInProject = data["shader"].get<std::string>();
-            }
-
-            if(data.contains("uniforms")){
-                for(auto& uniform : data["uniforms"]){
-                    for(auto it = uniform.begin(); it != uniform.end(); ++it){
-                        if(it.value().is_string()){
-                            refs.texturePathsInProject.push_back(it.value().get<std::string>());
-                        }
-                    }
-                }
-            }
-
-            refs.success = true;
-
-        } catch (const json::parse_error& e) {
-            DEBUG_ERROR("JSON parse error: " + (std::string)e.what());
-        }
-
-        return refs;
-    }
 }
-

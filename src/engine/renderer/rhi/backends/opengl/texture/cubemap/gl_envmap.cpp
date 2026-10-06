@@ -138,7 +138,7 @@ namespace Shard::Engine::Rendering{
 
         std::shared_ptr<Texture2D> hdrTex = Texture2D::Create(specs, data);
 
-        std::shared_ptr<Shader> equirectangularToCubemapShaderAbstract = Core::GetEngine().GetResourcesManager()->GetShader("shaders/ibl/equirectToCubemap");
+        std::shared_ptr<Shader> equirectangularToCubemapShaderAbstract = Core::GetEngine().GetResourcesManager()->Get<Rendering::Shader>(Core::Resources::AssetKind::Shader, "shaders/ibl/equirectToCubemap");
 
         std::shared_ptr<GLShader> equirectangularToCubemapShader = std::static_pointer_cast<GLShader>(equirectangularToCubemapShaderAbstract);
 
@@ -325,7 +325,7 @@ namespace Shard::Engine::Rendering{
 
     void GLEnvironmentMapGenerator::CreateIrradiance(std::shared_ptr<Cubemap> irradianceMap, std::shared_ptr<Cubemap> cubemap)
     {
-        std::shared_ptr<Shader> irradianceShaderAbstract = Core::GetEngine().GetResourcesManager()->GetShader("shaders/ibl/irradiance");
+        std::shared_ptr<Shader> irradianceShaderAbstract = Core::GetEngine().GetResourcesManager()->Get<Rendering::Shader>(Core::Resources::AssetKind::Shader, "shaders/ibl/irradiance");
 
         std::shared_ptr<GLShader> irradianceShader = std::static_pointer_cast<GLShader>(irradianceShaderAbstract);
 
@@ -360,7 +360,7 @@ namespace Shard::Engine::Rendering{
 
     void GLEnvironmentMapGenerator::CreatePrefilter(std::shared_ptr<Cubemap> prefilterMap, std::shared_ptr<Cubemap> cubemap)
     {
-        std::shared_ptr<Shader> prefilterShaderAbstract = Core::GetEngine().GetResourcesManager()->GetShader("shaders/ibl/prefilter");
+        std::shared_ptr<Shader> prefilterShaderAbstract = Core::GetEngine().GetResourcesManager()->Get<Rendering::Shader>(Core::Resources::AssetKind::Shader, "shaders/ibl/prefilter");
 
         std::shared_ptr<GLShader> prefilterShader = std::static_pointer_cast<GLShader>(prefilterShaderAbstract);
 
@@ -403,7 +403,7 @@ namespace Shard::Engine::Rendering{
 
     void GLEnvironmentMapGenerator::CreateBRDFLUT(std::shared_ptr<Texture2D> brdfLUT)
     {
-        std::shared_ptr<Shader> brdfShaderAbstract = Core::GetEngine().GetResourcesManager()->GetShader("shaders/ibl/brdf");
+        std::shared_ptr<Shader> brdfShaderAbstract = Core::GetEngine().GetResourcesManager()->Get<Rendering::Shader>(Core::Resources::AssetKind::Shader, "shaders/ibl/brdf");
 
         std::shared_ptr<GLShader> brdfShader = std::static_pointer_cast<GLShader>(brdfShaderAbstract);
 

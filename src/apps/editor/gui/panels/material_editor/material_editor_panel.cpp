@@ -69,7 +69,7 @@ namespace Shard::Editor::GUI{
         renderModeIndex = mode == "translucent" ? 2 : (mode == "masked" ? 1 : 0);
 
         if(!shaderPath.empty())
-            shader = Core::GetEngine().GetResourcesManager()->GetShader(shaderPath);
+            shader = Core::GetEngine().GetResourcesManager()->Get<Engine::Rendering::Shader>(Engine::Core::Resources::AssetKind::Shader, shaderPath);
 
         if(data.contains("uniforms") && data["uniforms"].is_array()){
             for(auto& uniform : data["uniforms"]){
@@ -210,7 +210,7 @@ namespace Shard::Editor::GUI{
             ImGui::SetNextItemWidth(-FLT_MIN);
             if(ImGui::InputText("##Shader", shaderBuffer, sizeof(shaderBuffer), ImGuiInputTextFlags_EnterReturnsTrue)){
                 shaderPath = shaderBuffer;
-                shader = Core::GetEngine().GetResourcesManager()->GetShader(shaderPath);
+                shader = Core::GetEngine().GetResourcesManager()->Get<Engine::Rendering::Shader>(Engine::Core::Resources::AssetKind::Shader, shaderPath);
                 dirty = true;
             }
             ImGui::SameLine(0, 8);
@@ -428,7 +428,7 @@ namespace Shard::Editor::GUI{
     {
         auto& engine = Core::GetEngine();
         std::string pathInProject = engine.GetFileManager()->GetFileInfos(path).nameInProject;
-        auto mat = engine.GetResourcesManager()->GetMaterial(pathInProject);
+        auto mat = engine.GetResourcesManager()->Get<Engine::Rendering::Material>(Engine::Core::Resources::AssetKind::Material, pathInProject);
 
         if(!mat)
             return;
@@ -442,7 +442,7 @@ namespace Shard::Editor::GUI{
             case MatParamKind::Vec4:  mat->SetScalarParameter(param.name, param.vec4Value); break;
             case MatParamKind::Mat4:  mat->SetScalarParameter(param.name, param.mat4Value); break;
             case MatParamKind::Texture:{
-                auto tex = engine.GetResourcesManager()->GetTexture(param.texturePath);
+                auto tex = engine.GetResourcesManager()->Get<Engine::Rendering::Texture2D>(Engine::Core::Resources::AssetKind::Texture, param.texturePath);
                 if(tex)
                     mat->SetTextureParameter(param.name, tex->GetHandle());
                 break;

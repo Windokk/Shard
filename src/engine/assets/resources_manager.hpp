@@ -1,135 +1,113 @@
 #pragma once
 
+#include <cstdint>
+#include <functional>
+#include <memory>
+#include <optional>
+#include <string>
 #include <unordered_map>
 #include <unordered_set>
 #include <vector>
 
 #include "engine/assets/vfs/filesystem.hpp"
-#include "engine/renderer/rhi/resources/mesh/mesh.hpp"
-#include "engine/world/levels/level.hpp"
-
-namespace Shard::Engine::Rendering{
-    class Renderer;
-    class Mesh;
-    class Texture2D;
-    struct ProbeBakeData;
-    class Shader;
-    class ComputeShader;
-    class Material;
-}
-
-namespace Shard::Engine::Audio{
-    class SoundAsset;
-}
 
 namespace Shard::Engine::Core::Resources{
 
+    /// The kinds of resources the cache holds. This layer does not know what a kind is : the module that
+    /// owns the type registers it (renderer : Mesh..Material and ProbeBake, audio : Sound, world : Level)
+    /// with ResourcesManager::RegisterKind. Modules added later (genres, game) use ids from FirstUser.
+    enum class AssetKind : uint16_t {
+        Mesh,
+        Texture,
+        EnvMap,
+        Shader,
+        ComputeShader,
+        Material,
+        Level,
+        Sound,
+        ProbeBake,
+        FirstUser
+    };
+
+    struct ResourceKey {
+        AssetKind kind;
+        std::string path;
+        bool operator==(const ResourceKey& o) const { return kind == o.kind && path == o.path; }
+    };
+
+    struct ResourceKeyHash {
+        size_t operator()(const ResourceKey& k) const { return std::hash<std::string>()(k.path) ^ ((size_t)k.kind << 1); }
+    };
+
+    /// What the cache needs to know about a kind of resource, supplied by the module that owns it.
+    struct AssetKindInfo {
+        /// Builds the resource from its asset database entry (already resolved by the manager).
+        /// Returns null if it can't be loaded.
+        std::function<std::shared_ptr<void>(const std::string& pathInProject, const Filesystem::AssetInfos& infos)> load;
+
+        /// Gives a resource that enters the cache (loaded or adopted) its AssetID. Optional.
+        std::function<void(void* resource, Filesystem::AssetID id)> setAssetID;
+
+        /// Only for kinds that keep other resources alive (level, material) : the resources the file at
+        /// `path` needs. Such a resource is an "owner" in the dependency graph.
+        std::function<std::vector<ResourceKey>(const Filesystem::Path& path)> dependencies;
+
+        /// Asset type of the files of an owner kind (levels, materials), to find the kind of a file.
+        std::optional<Filesystem::Type> ownerType;
+
+        /// The resource is keyed by its path in the project, but its asset database entry may be named
+        /// with a suffix on top of it (shaders : ".vert", compute shaders : ".comp").
+        std::string nameSuffix;
+
+        /// Database names a resource of this kind stands for when it is somebody's dependency
+        /// (path + suffix). A shader is three files.
+        std::vector<std::string> dependencySuffixes = {""};
+
+        /// False if something else owns the lifetime of these resources (the level manager for levels) :
+        /// the cache then never sweeps them.
+        bool evictable = true;
+
+        /// Logged (followed by the path) when the asset database has no entry for a requested path.
+        /// Empty : silent.
+        std::string unknownMessage;
+    };
+
     class ResourcesManager{
         public:
-            
+
+            ResourcesManager(Filesystem::FileManager& fileManager, Filesystem::AssetIDManager& assetIDManager);
+
+            /// @brief Declares a kind of resource. Call it before anything of that kind is requested.
+            void RegisterKind(AssetKind kind, AssetKindInfo info);
+
             /// @brief Indexes all assets in the project and engine directories with unique IDs.
             /// @param projectResDir Path to the project's asset directory.
-            void ConstructGlobalFileIndex(const Filesystem::Path &projectResDir);
-            
-            /// @brief Loads a FBX model from a path and adds it to the project's loaded models lists
-            /// @param name The name of the model in the project
-            /// @param path The normalized path at which the model is located (filename + extension expected)
-            /// @return A shared pointer to a Mesh
-            std::shared_ptr<Rendering::Mesh> LoadModel(const std::string &pathInProject, const Filesystem::Path &path);
-            
-            /// @brief Loads a texture2D from a given path and adds it to the project's loaded textures list
-            /// @param name The name of the texture2D in the project
-            /// @param path The normalized path at which the texture2D is located (filename + extension expected)
-            /// @return A shared pointer to a Texture2D
-            std::shared_ptr<Rendering::Texture2D> LoadTexture(const std::string &pathInProject, const Filesystem::Path &path);
-            
-            std::shared_ptr<Rendering::EnvironmentMap> LoadEnvMap(const std::string &pathInProject, const Filesystem::Path &path);
+            /// @param projectDatabasePath Path to the project's asset database.
+            void ConstructGlobalFileIndex(const Filesystem::Path &projectResDir, const Filesystem::Path &projectDatabasePath);
 
-            /// @brief Loads a shader program from given vertex, fragment, and geometry shader paths and adds it to the project's loaded shaders list
-            /// @param name The name of the shader program in the project
-            /// @param vsPath The normalized path to the vertex shader source file
-            /// @param fsPath The normalized path to the fragment shader source file
-            /// @param gsPath The normalized path to the geometry shader source file (optional or empty if not used)
-            /// @return A shared pointer to a Shader
-            std::shared_ptr<Rendering::Shader> LoadShader(const std::string &pathInProject, const Filesystem::Path &vsPath, const Filesystem::Path &fsPath, const Filesystem::Path &gsPath);
+            /// @brief Retrieves a resource from the cache (Tries to load it if it isn't loaded yet)
+            /// @param kind The kind of resource
+            /// @param pathInProject The path of the resource in the project
+            /// @return A shared pointer to the resource, null if it is unknown or can't be loaded
+            template<class T>
+            std::shared_ptr<T> Get(AssetKind kind, const std::string& pathInProject)
+            {
+                return std::static_pointer_cast<T>(GetRaw(kind, pathInProject));
+            }
 
-            /// @brief Loads a compute shader from a given single-file source path and adds it to the project's loaded compute shaders list
-            /// @param name The name of the compute shader in the project
-            /// @param path The normalized path to the compute shader source file (.comp)
-            /// @return A shared pointer to a ComputeShader
-            std::shared_ptr<Rendering::ComputeShader> LoadComputeShader(const std::string &pathInProject, const Filesystem::Path &path);
+            /// @brief Inserts an already-built resource into the cache under `pathInProject`. No-op if `pathInProject` is already cached.
+            template<class T>
+            void Adopt(AssetKind kind, const std::string& pathInProject, std::shared_ptr<T> resource)
+            {
+                AdoptRaw(kind, pathInProject, std::move(resource));
+            }
 
-            /// @brief Loads a material from a given path and adds it to the project's loaded materials list
-            /// @param name The name of the material in the project
-            /// @param path The normalized path at which the material is located (filename + extension expected)
-            /// @return A shared pointer to a Material
-            std::shared_ptr<Rendering::Material> LoadMaterial(const std::string &pathInProject, const Filesystem::Path &path);
+            /// @brief True if `pathInProject` is already resident in the cache.
+            bool Has(AssetKind kind, const std::string& pathInProject) const;
 
-            /// @brief Loads a level from a given path and adds it to the project's loaded levels list
-            /// @param name The name of the level in the project
-            /// @param path The normalized path at which the level is located (filename + extension expected)
-            /// @return A shared pointer to a Level
-            std::shared_ptr<Levels::Level> LoadLevel(const std::string &pathInProject, const Filesystem::Path& path);
-
-            /// @brief Loads the raw bytes of a sound file and adds it to the project's loaded sounds list
-            /// @param name The name of the sound in the project
-            /// @param path The normalized path at which the sound is located (filename + extension expected)
-            /// @return A shared pointer to a SoundAsset
-            std::shared_ptr<Audio::SoundAsset> LoadSound(const std::string &pathInProject, const Filesystem::Path &path);
-
-            /// @brief Retrieves mesh from the project's loaded meshes lists (Tries to load it if it isn't loaded yet)
-            /// @param name The name of the mesh in the project
-            /// @return A shared pointer to a Mesh
-            std::shared_ptr<Rendering::Mesh> GetMesh(std::string pathInProject);
-
-            /// @brief Retrieves material from the project's loaded materials lists (Tries to load it if it isn't loaded yet)
-            /// @param name The name of the material in the project
-            /// @return A shared pointer to a Material
-            std::shared_ptr<Rendering::Material> GetMaterial(std::string pathInProject);
-
-            /// @brief Retrieves shader from the project's loaded shaders lists (Tries to load it if it isn't loaded yet)
-            /// @param name The name of the shader in the project
-            /// @return A shared pointer to a Shader
-            std::shared_ptr<Rendering::Shader> GetShader(std::string pathInProject);
-
-            /// @brief Retrieves compute shader from the project's loaded compute shaders lists (Tries to load it if it isn't loaded yet)
-            /// @param name The name of the compute shader in the project
-            /// @return A shared pointer to a ComputeShader
-            std::shared_ptr<Rendering::ComputeShader> GetComputeShader(std::string pathInProject);
-
-            /// @brief Retrieves a texture2D from the project's loaded textures lists (Tries to load it if it isn't loaded yet)
-            /// @param name The name of the texture2D in the project
-            /// @return A shared pointer to a Texture
-            std::shared_ptr<Rendering::Texture2D> GetTexture(std::string pathInProject);
-
-            std::shared_ptr<Rendering::EnvironmentMap> GetEnvMap(std::string pathInProject);
-
-            /// @brief Retrieves level from the project's loaded levels lists (Tries to load it if it isn't loaded yet)
-            /// @param name The name of the level in the project
-            /// @return A shared pointer to a Level
-            std::shared_ptr<Levels::Level> GetLevel(const std::string& pathInProject);
-
-            /// @brief Retrieves a sound's raw bytes from the project's loaded sounds list (Tries to load it if it isn't loaded yet)
-            /// @param name The name of the sound in the project
-            /// @return A shared pointer to a SoundAsset
-            std::shared_ptr<Audio::SoundAsset> GetSound(std::string pathInProject);
-
-            /// @brief Retrieves a baked probe volume's CPU-side data (Tries to load it if it isn't loaded yet - normally the level prefetcher already decoded it on a worker thread, see AdoptProbeBake)
-            /// @param pathInProject The path of the .probes file in the project
-            /// @return The decoded data, or null if the file is unknown or unreadable
-            std::shared_ptr<Rendering::ProbeBakeData> GetProbeBake(const std::string& pathInProject);
-
-            /// @brief Inserts an already-built mesh/texture into the cache under `pathInProject`. No-op if `pathInProject` is already cached.
-            void AdoptMesh(const std::string &pathInProject, std::shared_ptr<Rendering::Mesh> mesh);
-            void AdoptTexture(const std::string &pathInProject, std::shared_ptr<Rendering::Texture2D> texture);
-            void AdoptProbeBake(const std::string &pathInProject, std::shared_ptr<Rendering::ProbeBakeData> probeBake);
-            void AdoptSound(const std::string &pathInProject, std::shared_ptr<Audio::SoundAsset> sound);
-
-            /// @brief True if `pathInProject` is already resident in the mesh/texture/probe bake cache.
-            bool HasMesh(const std::string &pathInProject) const;
-            bool HasTexture(const std::string &pathInProject) const;
-            bool HasProbeBake(const std::string &pathInProject) const;
-            bool HasSound(const std::string &pathInProject) const;
+            /// @brief Drops a resource from the cache. A kind with dependencies also releases what it kept alive.
+            /// Other resources that were holding it keep it alive on their own.
+            void Unload(AssetKind kind, const std::string& pathInProject);
 
             /// @brief Unloads a level/material and, recursively, every dependency nothing else needs. A no-op
             /// if the asset itself is still needed (a loaded level depends on it, or a Model holds it) - it
@@ -142,7 +120,7 @@ namespace Shard::Engine::Core::Resources{
             /// file was saved. No-op for other asset types or unknown assets.
             void RefreshDependencies(const std::string &pathInProject);
 
-            /// @brief Evicts every resource that was released by an unloaded level/asset (UnloadLevel, UnLoadDependencies) and that nothing needs anymore.
+            /// @brief Evicts every resource that was released by an unloaded level/asset (Unload, UnLoadDependencies) and that nothing needs anymore.
             /// @return The number of evicted resources
             int CollectUnused();
 
@@ -155,61 +133,41 @@ namespace Shard::Engine::Core::Resources{
             /// renamed/moved/deleted. Returns false, changing nothing, if the asset is in use.
             bool TryUnloadAsset(const std::string &pathInProject);
 
-            void UnloadMesh(const std::string& name);
-            void UnloadMaterial(const std::string& name);
-            void UnloadShader(const std::string& name);
-            void UnloadComputeShader(const std::string& name);
-            void UnloadImage(const std::string& name);
-            void UnloadEnvMap(const std::string& name);
-            void UnloadLevel(const std::string& name);
-            void UnloadSound(const std::string& name);
-
-            /// @brief Drops the CPU-side copy of a probe bake. Baked data is only needed until it has been uploaded to the GPU (or, after a re-bake, until the stale copy has to make way for the new file), so unlike textures it is not kept resident.
-            void UnloadProbeBake(const std::string& name);
-
         private:
 
-            enum class Kind { Mesh, Texture, EnvMap, Shader, ComputeShader, Material, Level, Sound, ProbeBake };
+            std::shared_ptr<void> GetRaw(AssetKind kind, const std::string& pathInProject);
+            void AdoptRaw(AssetKind kind, const std::string& pathInProject, std::shared_ptr<void> resource);
 
-            struct Key {
-                Kind kind;
-                std::string path;
-                bool operator==(const Key& o) const { return kind == o.kind && path == o.path; }
-            };
-
-            struct KeyHash {
-                size_t operator()(const Key& k) const { return std::hash<std::string>()(k.path) ^ ((size_t)k.kind << 1); }
-            };
+            const AssetKindInfo* KindInfo(AssetKind kind) const;
+            /// Resolves a path in the project to its asset ID, only if it really is that asset (an unknown
+            /// name comes back as the default AssetID, which could coincide with a real one).
+            bool ResolveAsset(const std::string& pathInProject, Filesystem::AssetID& outID) const;
+            long UseCount(const ResourceKey& key) const;
 
             /// Replaces the set of resources the resident `owner` keeps alive (each one gets +1 retain), and mirrors it into the owner's AssetInfos::dependencies.
-            void SetDependencies(const Key& owner, const std::vector<Key>& deps);
+            void SetDependencies(const ResourceKey& owner, const std::vector<ResourceKey>& deps);
             /// Only the asset database half of SetDependencies : for an owner that is not resident (nothing to retain).
-            void StoreDependencies(const Key& owner, const std::vector<Key>& deps);
+            void StoreDependencies(const ResourceKey& owner, const std::vector<ResourceKey>& deps);
             /// Drops the retains `owner` holds. The released keys become eviction candidates.
-            void ReleaseDependencies(const Key& owner);
-            bool IsResident(const Key& key) const;
+            void ReleaseDependencies(const ResourceKey& owner);
+            bool IsResident(const ResourceKey& key) const;
             /// Resident, not retained, not held outside the cache, not an engine resource.
-            bool IsEvictable(const Key& key) const;
-            void Evict(const Key& key);
-            std::vector<Key> LevelDependencyKeys(const Filesystem::Path& levelPath) const;
-            std::vector<Key> MaterialDependencyKeys(const Filesystem::Path& materialPath) const;
+            bool IsEvictable(const ResourceKey& key) const;
+            void Evict(const ResourceKey& key);
+
+            Filesystem::FileManager* files;
+            Filesystem::AssetIDManager* ids;
+
+            /// Indexed by AssetKind
+            std::vector<std::optional<AssetKindInfo>> kinds;
+            std::vector<std::unordered_map<std::string, std::shared_ptr<void>>> resident;
 
             /// Retains held by resident owners on each resource (absent = 0)
-            std::unordered_map<Key, int, KeyHash> retainCount;
+            std::unordered_map<ResourceKey, int, ResourceKeyHash> retainCount;
             /// What each resident owner (level, material) retains
-            std::unordered_map<Key, std::vector<Key>, KeyHash> dependencies;
+            std::unordered_map<ResourceKey, std::vector<ResourceKey>, ResourceKeyHash> dependencies;
             /// Released since the last CollectUnused()
-            std::unordered_set<Key, KeyHash> evictionCandidates;
-
-            std::unordered_map<std::string, std::shared_ptr<Rendering::Mesh>> meshes;
-            std::unordered_map<std::string, std::shared_ptr<Rendering::Texture2D>> textures;
-            std::unordered_map<std::string, std::shared_ptr<Rendering::EnvironmentMap>> envmaps;
-            std::unordered_map<std::string, std::shared_ptr<Rendering::Shader>> shaders;
-            std::unordered_map<std::string, std::shared_ptr<Rendering::ComputeShader>> computeShaders;
-            std::unordered_map<std::string, std::shared_ptr<Rendering::Material>> materials;
-            std::unordered_map<std::string, std::shared_ptr<Levels::Level>> levels;
-            std::unordered_map<std::string, std::shared_ptr<Audio::SoundAsset>> sounds;
-            std::unordered_map<std::string, std::shared_ptr<Rendering::ProbeBakeData>> probeBakes;
+            std::unordered_set<ResourceKey, ResourceKeyHash> evictionCandidates;
         };
 
 }

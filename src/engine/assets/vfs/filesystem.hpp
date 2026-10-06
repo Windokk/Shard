@@ -113,6 +113,8 @@ namespace Shard::Engine::Filesystem{
     class FileManager {
         public:
 
+            explicit FileManager(AssetIDManager& assetIDManager) : assetIDs(&assetIDManager) {}
+
             Path GetCurrentExecutablePath();
 
             // File and directory browsing
@@ -147,5 +149,6 @@ namespace Shard::Engine::Filesystem{
             Path engineResPath = Path("");
             Path projectRoot = Path("");
             Path projectResPath = Path("");
+            AssetIDManager* assetIDs = nullptr;
     };
 }

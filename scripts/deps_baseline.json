@@ -1,8 +1,5 @@
 {
   "edges": {
-    "engine/assets -> engine/audio": 1,
-    "engine/assets -> engine/renderer": 12,
-    "engine/assets -> engine/world": 6,
     "engine/audio -> engine/renderer": 2,
     "engine/physics -> engine/renderer": 2,
     "engine/world -> engine/audio": 4,

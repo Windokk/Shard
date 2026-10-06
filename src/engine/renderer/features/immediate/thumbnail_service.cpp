@@ -9,7 +9,7 @@
 #include "engine/renderer/frontend/renderer.hpp"
 #include "engine/renderer/material/shader.hpp"
 #include "engine/renderer/rhi/resources/texture/image_export.hpp"
-#include "engine/assets/serialization/material/material_serializer.hpp"
+#include "engine/renderer/material/material_serializer.hpp"
 
 #include "engine/core/diagnostics/logger.hpp"
 
@@ -370,8 +370,8 @@ namespace Shard::Engine::Rendering {
 
         if (request.kind == ThumbnailKind::Mesh)
         {
-            auto mesh = resources->GetMesh(request.nameInProject);
-            auto material = resources->GetMaterial("materials/preview_default.mat");
+            auto mesh = resources->Get<Rendering::Mesh>(Core::Resources::AssetKind::Mesh, request.nameInProject);
+            auto material = resources->Get<Rendering::Material>(Core::Resources::AssetKind::Material, "materials/preview_default.mat");
             if (!mesh || mesh->GetIndexCount() == 0 || !material)
                 return false;
 

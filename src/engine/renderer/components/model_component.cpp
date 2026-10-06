@@ -103,14 +103,14 @@ namespace Shard::Engine::Objects::Components{
             for (auto& [slot, path] : parsed)
             {
                 auto material =
-                    GetEngineContext()->GetResourcesManager()->GetMaterial(path);
+                    GetEngineContext()->GetResourcesManager()->Get<Rendering::Material>(Core::Resources::AssetKind::Material, path);
 
                 if (!material)
                 {
                     DEBUG_ERROR("Failed to load material: " + path + ", using fallback");
 
                     material =
-                        GetEngineContext()->GetResourcesManager()->GetMaterial("materials/default.mat");
+                        GetEngineContext()->GetResourcesManager()->Get<Rendering::Material>(Core::Resources::AssetKind::Material, "materials/default.mat");
 
                     if (!material)
                     {
@@ -160,7 +160,7 @@ namespace Shard::Engine::Objects::Components{
         if(!activated)
             return;
         
-        std::shared_ptr<Rendering::Mesh> newMesh = GetEngineContext()->GetResourcesManager()->GetMesh(meshPath);
+        std::shared_ptr<Rendering::Mesh> newMesh = GetEngineContext()->GetResourcesManager()->Get<Rendering::Mesh>(Core::Resources::AssetKind::Mesh, meshPath);
 
         if(newMesh){
             if(mesh)
@@ -176,7 +176,7 @@ namespace Shard::Engine::Objects::Components{
                     resized[i] = materials[i];
 
                 std::shared_ptr<Rendering::Material> defaultMaterial =
-                    GetEngineContext()->GetResourcesManager()->GetMaterial("materials/default.mat");
+                    GetEngineContext()->GetResourcesManager()->Get<Rendering::Material>(Core::Resources::AssetKind::Material, "materials/default.mat");
 
                 for(auto& mat : resized)
                 {
@@ -212,7 +212,7 @@ namespace Shard::Engine::Objects::Components{
 
             if(mesh)
                 RemoveFromDrawList();
-            this->mesh = GetEngineContext()->GetResourcesManager()->GetMesh(name);
+            this->mesh = GetEngineContext()->GetResourcesManager()->Get<Rendering::Mesh>(Core::Resources::AssetKind::Mesh, name);
             this->meshID = mesh->GetAssetID();
 
             size_t submeshCount = mesh->GetSubMeshes().size();
@@ -223,7 +223,7 @@ namespace Shard::Engine::Objects::Components{
                     resized[i] = materials[i];
 
                 std::shared_ptr<Rendering::Material> defaultMaterial =
-                    GetEngineContext()->GetResourcesManager()->GetMaterial("materials/default.mat");
+                    GetEngineContext()->GetResourcesManager()->Get<Rendering::Material>(Core::Resources::AssetKind::Material, "materials/default.mat");
 
                 for(auto& mat : resized)
                 {
@@ -389,7 +389,7 @@ namespace Shard::Engine::Objects::Components{
             Update();
             std::vector<std::shared_ptr<Rendering::Material>> mats = {};
             for(auto matID : materialsID){
-                mats.push_back(GetEngineContext()->GetResourcesManager()->GetMaterial(GetEngineContext()->GetAssetIDManager()->GetAssetFromID(matID)->baseInfos.nameInProject));
+                mats.push_back(GetEngineContext()->GetResourcesManager()->Get<Rendering::Material>(Core::Resources::AssetKind::Material, GetEngineContext()->GetAssetIDManager()->GetAssetFromID(matID)->baseInfos.nameInProject));
             }
             SetMaterials(std::move(mats));
         }

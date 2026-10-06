@@ -147,19 +147,19 @@ namespace Shard::Engine::Rendering{
     uint32_t GLMaterial::GetDefaultTexture(std::string samplerName)
     {
         if(StartsWith(samplerName, "albedo")){
-            return Core::GetEngine().GetResourcesManager()->GetTexture("textures/white.png")->GetHandle();
+            return Core::GetEngine().GetResourcesManager()->Get<Rendering::Texture2D>(Core::Resources::AssetKind::Texture, "textures/white.png")->GetHandle();
         }
         else if(StartsWith(samplerName, "roughness")){
-            return Core::GetEngine().GetResourcesManager()->GetTexture("textures/white.png")->GetHandle();
+            return Core::GetEngine().GetResourcesManager()->Get<Rendering::Texture2D>(Core::Resources::AssetKind::Texture, "textures/white.png")->GetHandle();
         }
         else if(StartsWith(samplerName, "metallic")){
-            return Core::GetEngine().GetResourcesManager()->GetTexture("textures/white.png")->GetHandle();
+            return Core::GetEngine().GetResourcesManager()->Get<Rendering::Texture2D>(Core::Resources::AssetKind::Texture, "textures/white.png")->GetHandle();
         }
         else if(StartsWith(samplerName, "normal")){
-            return Core::GetEngine().GetResourcesManager()->GetTexture("textures/default_normal.png")->GetHandle();
+            return Core::GetEngine().GetResourcesManager()->Get<Rendering::Texture2D>(Core::Resources::AssetKind::Texture, "textures/default_normal.png")->GetHandle();
         }
         else if(StartsWith(samplerName, "emissive")){
-            return Core::GetEngine().GetResourcesManager()->GetTexture("textures/white.png")->GetHandle();
+            return Core::GetEngine().GetResourcesManager()->Get<Rendering::Texture2D>(Core::Resources::AssetKind::Texture, "textures/white.png")->GetHandle();
         }
         return 0;
     }

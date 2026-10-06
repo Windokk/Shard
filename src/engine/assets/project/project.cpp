@@ -15,9 +15,9 @@ namespace Shard::Engine::Projects{
         this->assetDatabasePath = assetDatabasePath;
     }
 
-    void Project::Shutdown(std::string path)
+    void Project::Shutdown(std::string path, const Filesystem::AssetIDManager& assetIDManager)
     {
         Serialization::SerializeProject(this, path);
-        Serialization::SerializeAssetDataBase(assetDatabasePath);
+        Serialization::SerializeAssetDataBase(assetDatabasePath, assetIDManager);
     }
 }

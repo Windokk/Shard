@@ -5,7 +5,15 @@
 #include "level.hpp"
 #include "level_asset_prefetcher.hpp"
 
+namespace Shard::Engine::Core::Resources{
+    class ResourcesManager;
+}
+
 namespace Shard::Engine::Levels{
+
+    /// Registers the level asset kind with the resources manager. Levels are owned by the LevelManager,
+    /// so the cache never sweeps them.
+    void RegisterLevelAssetKind(Core::Resources::ResourcesManager& resources);
 
     class LevelManager {
         public:

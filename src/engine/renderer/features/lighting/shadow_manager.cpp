@@ -42,9 +42,9 @@ namespace Shard::Engine::Rendering{
         m_SpotShadowsResolution = spotShadowsResolution;
         m_DirShadowsResolution = dirShadowsResolution;
 
-        m_DirShader = Core::GetEngine().GetResourcesManager()->GetShader("shaders/shadows/shadow_dir");
-        m_PointShader = Core::GetEngine().GetResourcesManager()->GetShader("shaders/shadows/shadow_point");
-        m_SpotShader = Core::GetEngine().GetResourcesManager()->GetShader("shaders/shadows/shadow_spot");
+        m_DirShader = Core::GetEngine().GetResourcesManager()->Get<Rendering::Shader>(Core::Resources::AssetKind::Shader, "shaders/shadows/shadow_dir");
+        m_PointShader = Core::GetEngine().GetResourcesManager()->Get<Rendering::Shader>(Core::Resources::AssetKind::Shader, "shaders/shadows/shadow_point");
+        m_SpotShader = Core::GetEngine().GetResourcesManager()->Get<Rendering::Shader>(Core::Resources::AssetKind::Shader, "shaders/shadows/shadow_spot");
         m_ShadowMaps.clear();
         m_PointLightCount = 0;
         m_CurrentPointLightCapacity = 0;

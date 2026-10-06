@@ -58,7 +58,7 @@ namespace Shard::Engine::Rendering {
         // ---- Depth+normal prepass (real scene geometry, RenderPass::overridePipeline - see the class
         // comment) ----
 
-        m_PrepassShader = Core::GetEngine().GetResourcesManager()->GetShader("shaders/ssao/depth_normal");
+        m_PrepassShader = Core::GetEngine().GetResourcesManager()->Get<Rendering::Shader>(Core::Resources::AssetKind::Shader, "shaders/ssao/depth_normal");
 
         PipelineSpecifications prepassPipelineSpecs;
         prepassPipelineSpecs.shader = m_PrepassShader;
@@ -87,7 +87,7 @@ namespace Shard::Engine::Rendering {
 
         // ---- Raw AO pass (full-screen triangle sampling the prepass) ----
 
-        m_SSAOShader = Core::GetEngine().GetResourcesManager()->GetShader("shaders/ssao/ssao");
+        m_SSAOShader = Core::GetEngine().GetResourcesManager()->Get<Rendering::Shader>(Core::Resources::AssetKind::Shader, "shaders/ssao/ssao");
 
         PipelineSpecifications ssaoPipelineSpecs;
         ssaoPipelineSpecs.shader = m_SSAOShader;
@@ -111,7 +111,7 @@ namespace Shard::Engine::Rendering {
 
         // ---- Blur pass (full-screen triangle sampling the raw AO pass) ----
 
-        m_BlurShader = Core::GetEngine().GetResourcesManager()->GetShader("shaders/ssao/ssao_blur");
+        m_BlurShader = Core::GetEngine().GetResourcesManager()->Get<Rendering::Shader>(Core::Resources::AssetKind::Shader, "shaders/ssao/ssao_blur");
 
         PipelineSpecifications blurPipelineSpecs;
         blurPipelineSpecs.shader = m_BlurShader;

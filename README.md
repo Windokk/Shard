@@ -26,12 +26,11 @@ Done when: the violation count goes down, the build and the tests pass, and the 
 
 ### Current state (frozen in `scripts/deps_baseline.json`, lowered after each step)
 Layers, bottom to top: `core` < `platform` < `assets` < `world` < {`renderer`, `physics`, `audio`, `input`} < `genres` < `apps`.
-Run `python scripts/check_deps.py --matrix` for the full picture. Current violations: 8 module pairs, 52 includes (started at 13 pairs, 66 includes).
+Run `python scripts/check_deps.py --matrix` for the full picture. Current violations: 5 module pairs, 33 includes (started at 13 pairs, 66 includes).
 
 | Violation | Includes | Cause |
 |---|---|---|
 | `world` -> renderer | 23 | `Actor` knows Light/Probe/Camera; `Level` and `Skybox` call the renderer |
-| `assets` -> renderer 12, world 6, audio 1 | 19 | `resources_manager` (mesh, shader, material, pipeline, envmap), `material_serializer`, serializers include `world/engine.hpp` |
 | `physics` -> renderer 2, `audio` -> renderer 2 (peers) | 4 | `physics_body` (`mesh.hpp`, `debug_shapes`), `audio_manager` (`renderer.hpp`, `camera_manager`) |
 | `world` -> audio 4, physics 2 | 6 | `Actor`, `Level`, `level_asset_prefetcher` |
 | `gl*()` calls outside the backends | 1 file | `apps/editor/gui/main_window.cpp` (`glClearColor`, `glClear`) |
@@ -41,9 +40,9 @@ Not measured yet: dependencies inside `renderer/` (60% of the engine code).
 ### Steps
 - [x] **0 - Safeguards**: `scripts/check_deps.py` + baseline + CI job (`.github/workflows/deps.yml`); folder structure finished (reflection, `Object`/`engine.cpp`, `FileManager` -> `assets/vfs/`, projects, events, time, diagnostics, `keys.hpp` -> `platform/`); the duplicated GLFW code of editor/player is merged into `engine/platform/glfw/` (`GLFWInput`, `GLFWWindowBase`, `GLFWPlatform<WindowT>`). Side effect: the player now maps the Enter key (it was missing from its copy).
 - [x] **1 - Foundation & platform** (`ShardCore`, `ShardPlatform`): `core` no longer depends on anything and `platform` only on `core`. `COL_RGB` -> `core/color.hpp`; `logger.cpp` no longer includes the engine; the profiler knows no module: stats are filled by providers that each module registers (renderer, audio, engine) and the scoped samples use `Profiler::Active()`. Separate CMake targets `ShardCore` and `ShardPlatform` (linked by `Engine`). Checked: build, 61 tests, editor and player start on a scratch copy of `cornell.lvl`.
-- [ ] **2 - Assets** (`ShardAssets`, the main knot): `resources_manager` becomes a generic handle cache with a per-type loader registry; `material_serializer` moves to `renderer/material/`; `Mesh` split into CPU `MeshData` (assets) and GPU resource (rhi).
+- [x] **2 - Assets** (`ShardAssets`): `assets` depends on nothing above it. `ResourcesManager` is a generic cache: the module that owns a type registers it with `RegisterKind(AssetKind, AssetKindInfo)` (loader, AssetID setter, dependencies, eviction rules) and call sites use `Get<T>(AssetKind, path)`, `Has`, `Adopt`, `Unload`. The renderer registers mesh/texture/envmap/shader/compute/material/probe bake (`renderer/frontend/render_asset_kinds.cpp`), audio the sound, world the level. `material_serializer` -> `renderer/material/` (the JSON reader `PeekMaterialAssetRefs` stays in `assets/`, it has no renderer type). The managers `assets` needs (`AssetIDManager`, `FileManager`) are injected instead of fetched from the `Engine` singleton. Checked: build, 79 tests (18 new for the resources manager), editor and player start. The `Mesh` CPU/GPU split moved to step 4, it is what decouples `physics`.
 - [ ] **3 - World** (`ShardWorld`, removes `world` -> renderer/audio/physics): `Actor` only knows `Component` + the registry; the renderer reads the world (`RenderScene::Collect(const Level&)`, no snapshot yet); `Skybox` becomes a renderer component; world -> audio/physics through the registry (asset-dependency visitor via reflection); event types live in the module that defines them; frame loop of `engine.cpp` split into named stages with no behavior change.
-- [ ] **4 - Peers** (`ShardPhysics`, `ShardAudio`): audio listener comes from a world component; `debug_shapes` becomes a core debug-draw interface implemented by `renderer/features/debug`.
+- [ ] **4 - Peers** (`ShardPhysics`, `ShardAudio`): audio listener comes from a world component; `Mesh` split into CPU `MeshData` (assets) and GPU resource (rhi) so `physics_body` stops including `mesh.hpp`; `debug_shapes` becomes a core debug-draw interface implemented by `renderer/features/debug`.
 - [ ] **5 - Renderer** (`ShardRHI`, `ShardRenderer`): measure internal deps first (target order `rhi` < `material` < `features` < `frontend`); move the two `gl*` calls out of `main_window.cpp`.
 - [ ] **6 - Final lock**: `Engine` becomes an `INTERFACE` target grouping the others; merge `game_module_loader.hpp` and `editor_module_loader.hpp` into the engine; baseline at zero.
 

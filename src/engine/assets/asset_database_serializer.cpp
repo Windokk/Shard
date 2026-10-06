@@ -1,13 +1,13 @@
 #include "asset_database_serializer.hpp"
 
 #include "engine/core/diagnostics/logger.hpp"
-#include "engine/world/engine.hpp"
 
 using namespace nlohmann;
 
 namespace Shard::Engine::Serialization{
 
-    void DeserializeAssetDataBase(const Filesystem::Path resourcesPath, const Filesystem::Path databasePath){
+    void DeserializeAssetDataBase(const Filesystem::Path resourcesPath, const Filesystem::Path databasePath,
+                                  Filesystem::FileManager& files, Filesystem::AssetIDManager& ids){
 
         if(!databasePath.Exists()){
             DEBUG_ERROR("Database at path : \"" + databasePath.full +"\" doesn't exist !");
@@ -29,7 +29,7 @@ namespace Shard::Engine::Serialization{
             for(auto [key, value] : data.items()){
                 std::shared_ptr<Filesystem::AssetInfos> assetInfos = std::make_shared<Filesystem::AssetInfos>();
                 std::vector<Filesystem::AssetID> dependencies;
-                assetInfos->baseInfos = Core::GetEngine().GetFileManager()->GetFileInfos(resourcesPath / key);
+                assetInfos->baseInfos = files.GetFileInfos(resourcesPath / key);
                 if (value.is_object() && value.size() > 1 && value.contains("dependencies")) {
                     for (const auto& dependencyID : value["dependencies"]) {
                         if (dependencyID.is_number_integer()) {
@@ -42,11 +42,11 @@ namespace Shard::Engine::Serialization{
                 if (value.contains("id")) {
                     int currentID = value["id"].get<int>();
                     maxID = std::max(maxID, currentID);
-                    Core::GetEngine().GetAssetIDManager()->AssignID(Core::GetEngine().GetAssetIDManager()->GenerateNewIDWithValue(currentID), assetInfos);
+                    ids.AssignID(ids.GenerateNewIDWithValue(currentID), assetInfos);
                 }
             }
 
-            Core::GetEngine().GetAssetIDManager()->InitCounter(maxID+1);
+            ids.InitCounter(maxID+1);
 
         } catch (const json::parse_error& e) {
             DEBUG_ERROR("JSON parse error for : ", databasePath.full , ", error : " , (std::string)e.what());
@@ -54,11 +54,11 @@ namespace Shard::Engine::Serialization{
         }
     }
 
-    void SerializeAssetDataBase(const Filesystem::Path databasePath)
+    void SerializeAssetDataBase(const Filesystem::Path databasePath, const Filesystem::AssetIDManager& ids)
     {
         ordered_json fileContent;
 
-        for(auto& pair : Core::GetEngine().GetAssetIDManager()->AssetIDMap){
+        for(auto& pair : ids.AssetIDMap){
 
             if(pair.first.GetAsInt() > 500) //This means it's a project resource, as engine resources IDs stop at 500
             {
