@@ -1,7 +1,5 @@
 #include "profiler.hpp"
 
-#include "engine/world/engine.hpp"
-
 #ifdef __WIN32__
 #define byte cs_byte
 #include <windows.h>
@@ -22,13 +20,6 @@
 #endif
 
 #include "engine/core/diagnostics/logger.hpp"
-#include "engine/renderer/frontend/renderer.hpp"
-#include "engine/renderer/features/lighting/light_manager.hpp"
-#include "engine/audio/audio_manager.hpp"
-#include "engine/world/levels/level_manager.hpp"
-#include "engine/world/time_manager.hpp"
-#include "engine/renderer/rhi/resources/mesh/mesh.hpp"
-#include "engine/platform/iplatform.hpp"
 
 namespace Shard::Engine::Debugging{
    
@@ -166,25 +157,17 @@ namespace Shard::Engine::Debugging{
         #endif
     }
 
+    void Profiler::AddStatsProvider(StatsProvider provider)
+    {
+        m_StatsProviders.push_back(std::move(provider));
+    }
+
     MinimalStatistics Profiler::GetStats()
     {
         MinimalStatistics ret{};
 
-        ret.frameTimeMs = Core::GetEngine().GetTimeManager()->GetDeltaTime() * 1000;
-        ret.fps = 1000 / ret.frameTimeMs;
-
-        ret.actors = Core::GetEngine().GetLevelManager()->GetLevelAt(0)->transforms.size();
-
-        Rendering::Renderer* renderer = Core::GetEngine().GetRenderer();
-
-        ret.lights = renderer->GetLightManager()->GetLightsCount();
-        ret.cmds = renderer->GetDrawCallsCount();
-        ret.primitives = renderer->GetPrimitivesCount();
-        ret.vertices = renderer->GetVerticesCount();
-
-        ret.sounds = Core::GetEngine().GetAudioManager()->GetSoundsCount();
-
-        Core::Platform::SystemInfos infos = Core::GetEngine().GetWindow()->GetSystemInfos();
+        for (const StatsProvider& provider : m_StatsProviders)
+            provider(ret);
 
         #if defined(_WIN64) || defined(_WIN32)
         {
@@ -255,9 +238,9 @@ namespace Shard::Engine::Debugging{
         m_RenderSubSampleCount++;
     }
 
-    void Profiler::EndFrameSampling()
+    void Profiler::EndFrameSampling(float frameMs)
     {
-        m_CurrentFrame.totalMs = Core::GetEngine().GetTimeManager()->GetDeltaTime() * 1000.0f;
+        m_CurrentFrame.totalMs = frameMs;
 
         // Rendering's wall time contains every sub-sample's own bookkeeping : remove it.
         float& renderingMs = m_CurrentFrame.categoryMs[static_cast<size_t>(ProfileCategory::Rendering)];
@@ -289,22 +272,26 @@ namespace Shard::Engine::Debugging{
     ScopedProfileSample::ScopedProfileSample(ProfileCategory category)
         : category(category)
     {
-        Core::GetEngine().GetProfiler()->BeginSample(category);
+        if (Profiler* profiler = Profiler::Active())
+            profiler->BeginSample(category);
     }
 
     ScopedProfileSample::~ScopedProfileSample()
     {
-        Core::GetEngine().GetProfiler()->EndSample(category);
+        if (Profiler* profiler = Profiler::Active())
+            profiler->EndSample(category);
     }
 
     ScopedRenderSubSample::ScopedRenderSubSample(RenderSubSample sample)
         : sample(sample)
     {
-        Core::GetEngine().GetProfiler()->BeginRenderSubSample(sample);
+        if (Profiler* profiler = Profiler::Active())
+            profiler->BeginRenderSubSample(sample);
     }
 
     ScopedRenderSubSample::~ScopedRenderSubSample()
     {
-        Core::GetEngine().GetProfiler()->EndRenderSubSample(sample);
+        if (Profiler* profiler = Profiler::Active())
+            profiler->EndRenderSubSample(sample);
     }
 }

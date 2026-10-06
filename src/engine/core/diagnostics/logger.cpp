@@ -3,8 +3,6 @@
 #include <iomanip>
 #include <ctime>
 
-#include "engine/world/engine.hpp"
-
 namespace Shard::Engine::Debugging{
     
     void Logger::AddSink(LogSink sink)

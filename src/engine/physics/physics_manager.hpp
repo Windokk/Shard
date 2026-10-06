@@ -22,7 +22,7 @@
 #include <mutex>
 #include <functional>
 
-#include "engine/renderer/utils.hpp"
+#include "engine/core/color.hpp"
 #include <glm/gtc/quaternion.hpp>
 
 #include "engine/core/diagnostics/logger.hpp"

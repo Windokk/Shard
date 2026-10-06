@@ -1,6 +1,6 @@
 #pragma once
 
-#include "engine/renderer/utils.hpp"
+#include "engine/core/color.hpp"
 #include "engine/renderer/components/camera.hpp"
 #include "engine/world/objectID.hpp"
 

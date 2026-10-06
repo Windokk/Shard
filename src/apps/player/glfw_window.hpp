@@ -6,16 +6,14 @@
 
 #include "engine/core/diagnostics/logger.hpp"
 
-#include "glfw_input.hpp"
+#include "engine/platform/glfw/glfw_window_base.hpp"
 
 namespace Shard::Game::Core::Platform {
 
-    class GLFWWindow : public Engine::Core::Platform::IWindow {
+    class GLFWWindow : public Engine::Core::Platform::GLFWWindowBase {
     public:
         void Init(const std::string& title, const int& width, const int& height, 
                     const bool& fullscreen, const int& vsync, const uint32_t& api) override;
-
-        void SetGLFWInputManager(GLFWInput* inputManager);
 
         void SetTitle(const std::string& title) override;
 
@@ -40,8 +38,6 @@ namespace Shard::Game::Core::Platform {
         int GetBytesPerPixel() const override;
 
         Engine::Core::Platform::SystemInfos GetSystemInfos() const override;
-
-        GLFWInput* inputManager;
 
     private:
         GLFWwindow* window = nullptr;

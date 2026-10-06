@@ -255,7 +255,7 @@ namespace Shard::Editor::Core{
         }
 
         glfwMakeContextCurrent(window);
-        glfwSetWindowUserPointer(window, this);
+        glfwSetWindowUserPointer(window, static_cast<Engine::Core::Platform::GLFWWindowBase*>(this));
         glfwSwapInterval(vsync);
 
         if(api == (uint32_t)Engine::Rendering::RendererAPI::API::OpenGL)
@@ -264,11 +264,6 @@ namespace Shard::Editor::Core{
         {    
             //gladLoadVulkan(Engine::Core::GetEngine().GetRenderer()->GetDevicePointer?,(GLADloadfunc)glfwGetProcAddress);
         }
-    }
-
-    void EditorMainWindow::SetGLFWInputManager(GLFWInput *inputManager)
-    {
-        this->inputManager = inputManager;
     }
 
     void EditorMainWindow::SetTitle(const std::string &title)

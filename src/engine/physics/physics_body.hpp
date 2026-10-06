@@ -15,7 +15,7 @@
 
 #include "engine/world/components/component.hpp"
 
-#include "engine/renderer/utils.hpp"
+#include "engine/core/color.hpp"
 
 #include "engine/assets/reflection/reflection_fields.hpp"
 #include "engine/assets/reflection/attributes.hpp"

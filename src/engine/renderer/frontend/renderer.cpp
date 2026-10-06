@@ -26,6 +26,17 @@ namespace Shard::Engine::Rendering{
         m_Settings = initialSettings;
         m_RendererAPI = RendererAPI::Create(initialSettings->api);
 
+        if (Debugging::Profiler* profiler = Debugging::Profiler::Active())
+        {
+            profiler->AddStatsProvider([this](Debugging::MinimalStatistics& stats)
+            {
+                stats.lights = GetLightManager()->GetLightsCount();
+                stats.cmds = GetDrawCallsCount();
+                stats.primitives = GetPrimitivesCount();
+                stats.vertices = GetVerticesCount();
+            });
+        }
+
         ToggleMultisampling(initialSettings->multisampling);
 
         //Init viewport framebuffers

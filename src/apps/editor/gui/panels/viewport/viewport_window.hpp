@@ -1,6 +1,6 @@
 #pragma once
 
-#include "apps/editor/core/platform/glfw/glfw_input.hpp"
+#include "engine/platform/glfw/glfw_input.hpp"
 #include "engine/world/actor.hpp"
 #include "engine/world/event_system.hpp"
 

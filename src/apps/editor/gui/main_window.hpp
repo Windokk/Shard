@@ -6,7 +6,9 @@
 #include "engine/core/diagnostics/logger.hpp"
 #include "engine/world/actor.hpp"
 
-#include "apps/editor/core/platform/glfw/glfw_input.hpp"
+#include "engine/renderer/rhi/backends/glad/include/glad/gl.h"
+#include "engine/renderer/rhi/backends/glad/include/glad/vulkan.h"
+#include "engine/platform/glfw/glfw_window_base.hpp"
 #include "apps/editor/gui/panels/viewport/viewport_window.hpp"
 #include "apps/editor/gui/panels/properties/properties_panel.hpp"
 #include "apps/editor/gui/panels/asset_browser/asset_browser.hpp"
@@ -77,12 +79,10 @@ namespace Shard::Editor::Core {
         bool projectSettings = false;
     };
 
-    class EditorMainWindow : public Engine::Core::Platform::IWindow {
+    class EditorMainWindow : public Engine::Core::Platform::GLFWWindowBase {
     public:
         void Init(const std::string& title, const int& width, const int& height, 
                     const bool& fullscreen, const int& vsync, const uint32_t& api) override;
-
-        void SetGLFWInputManager(GLFWInput* inputManager);
 
         void SetTitle(const std::string& title) override;
 
@@ -118,7 +118,6 @@ namespace Shard::Editor::Core {
 
         Engine::Core::Platform::SystemInfos GetSystemInfos() const override;
 
-        GLFWInput* inputManager;
         
         GUI::ViewportWindow* viewport = nullptr;
 

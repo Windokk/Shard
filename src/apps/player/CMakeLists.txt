@@ -1,11 +1,6 @@
-file(GLOB SOURCES
-    ${CMAKE_CURRENT_SOURCE_DIR}/glfw/*.cpp
-    ${CMAKE_CURRENT_SOURCE_DIR}/core/platform/glfw/*.cpp
-)
-
 add_executable(ShardGame
     ${CMAKE_CURRENT_SOURCE_DIR}/main.cpp
-    ${SOURCES}
+    ${CMAKE_CURRENT_SOURCE_DIR}/glfw_window.cpp
 )
 
 set(GLFW_LIB_DIR ${CMAKE_BINARY_DIR})

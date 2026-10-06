@@ -6,7 +6,7 @@
 
 #include "engine/assets/reflection/attributes.hpp"
 
-#include "engine/renderer/utils.hpp"
+#include "engine/core/color.hpp"
 
 namespace Shard::Engine::Rendering {
     class DebugShape;

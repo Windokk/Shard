@@ -2,7 +2,7 @@
 
 #include <memory>
 
-#include "engine/renderer/utils.hpp"
+#include "engine/core/color.hpp"
 
 namespace Shard::Engine::Rendering {
 

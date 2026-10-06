@@ -6,12 +6,13 @@
 
 #include "engine/world/actor.hpp"
 #include "engine/world/levels/level_manager.hpp"
-#include "engine/renderer/utils.hpp"
+#include "engine/core/color.hpp"
 #include "engine/renderer/frontend/renderer.hpp"
 #include "engine/renderer/frontend/camera_manager.hpp"
 #include "engine/world/time_manager.hpp"
 #include "engine/world/engine.hpp"
 #include "engine/core/diagnostics/logger.hpp"
+#include "engine/core/diagnostics/profiler.hpp"
 
 #include "engine/audio/audio_source.hpp"
 #include "engine/assets/resources_manager.hpp"
@@ -51,6 +52,14 @@ namespace Shard::Engine::Audio
     void AudioManager::Init(float masterVolume)
     {
         AudioManager::masterVolume = masterVolume;
+
+        if (Debugging::Profiler* profiler = Debugging::Profiler::Active())
+        {
+            profiler->AddStatsProvider([this](Debugging::MinimalStatistics& stats)
+            {
+                stats.sounds = GetSoundsCount();
+            });
+        }
 
         // Initialize FMOD system
         FMOD_RESULT result = FMOD_System_Create(&system, FMOD_VERSION);

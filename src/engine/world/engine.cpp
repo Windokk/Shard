@@ -124,6 +124,15 @@ namespace Shard::Engine{
             m_Context.timeManager = new Time::TimeManager();
 
             m_Context.profiler = new Debugging::Profiler();
+            Debugging::Profiler::SetActive(m_Context.profiler);
+
+            m_Context.profiler->AddStatsProvider([this](Debugging::MinimalStatistics& stats)
+            {
+                stats.frameTimeMs = m_Context.timeManager->GetDeltaTime() * 1000;
+                stats.fps = 1000 / stats.frameTimeMs;
+
+                stats.actors = m_Context.levelManager->GetLevelAt(0)->transforms.size();
+            });
         }
 
         Platform::IWindow *EngineInstance::GetWindow() const
@@ -193,6 +202,7 @@ namespace Shard::Engine{
         {
             m_Context.currentProject->Shutdown(m_EngineSettings.project);
             m_Context.profiler->Shutdown();
+            Debugging::Profiler::SetActive(nullptr);
             m_Context.platform->GetInput()->Shutdown();
             m_Context.audioManager->Shutdown();
             m_Context.physicsManager->Shutdown();
@@ -289,7 +299,7 @@ namespace Shard::Engine{
                 m_Context.platform->GetWindow()->SwapBuffers();
             }
 
-            m_Context.profiler->EndFrameSampling();
+            m_Context.profiler->EndFrameSampling(m_Context.timeManager->GetDeltaTime() * 1000.0f);
 
             if(m_Context.platform->GetInput()->WasKeyPressed(Key::Escape))
             {

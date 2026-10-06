@@ -1,7 +1,8 @@
 #include "engine/world/engine.hpp"
 #include "engine/assets/resources_manager.hpp"
 #include "game_module_loader.hpp"
-#include "apps/player/core/platform/glfw/glfw_platform.hpp"
+#include "engine/platform/glfw/glfw_platform.hpp"
+#include "apps/player/glfw_window.hpp"
 
 using namespace Shard;
 using namespace Shard::Engine;
@@ -131,7 +132,7 @@ int main(int argc, char* argv[]) {
     }
 
     // Platform creation
-    engineSettings.platform = new Shard::Game::Core::Platform::GLFWPlatform();
+    engineSettings.platform = new Shard::Engine::Core::Platform::GLFWPlatform<Shard::Game::Core::Platform::GLFWWindow>();
 
     // Engine startup
     Engine::Core::GetEngine().Init(engineSettings);

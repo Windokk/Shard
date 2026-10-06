@@ -3,16 +3,17 @@
 #include <unordered_map>
 #include <iostream>
 
-#include "engine/input/keys.hpp"
+#include "engine/platform/keys.hpp"
 #include "engine/core/diagnostics/logger.hpp"
 #include "engine/platform/iplatform.hpp"
 
-#include "engine/renderer/rhi/backends/glad/include/glad/gl.h"
-#include "engine/renderer/rhi/backends/glad/include/glad/vulkan.h"
+// The platform layer must not pull a GL/Vulkan loader: GLFW only declares its own API here.
+#ifndef GLFW_INCLUDE_NONE
+#define GLFW_INCLUDE_NONE
+#endif
+#include <GLFW/glfw3.h>
 
-#include "GLFW/glfw3.h"
-
-namespace Shard::Editor::Core
+namespace Shard::Engine::Core::Platform
 {
     class GLFWInput : public Engine::Core::Platform::IInput{
         public:

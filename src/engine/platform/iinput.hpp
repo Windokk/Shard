@@ -3,7 +3,7 @@
 #include <string>
 #include <vector>
 
-#include "engine/input/keys.hpp"
+#include "engine/platform/keys.hpp"
 
 namespace Shard::Engine::Core::Platform {
 

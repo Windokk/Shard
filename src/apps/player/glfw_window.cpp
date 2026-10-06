@@ -33,7 +33,7 @@ namespace Shard::Game::Core::Platform{
         }
 
         glfwMakeContextCurrent(window);
-        glfwSetWindowUserPointer(window, this);
+        glfwSetWindowUserPointer(window, static_cast<Engine::Core::Platform::GLFWWindowBase*>(this));
         glfwSetWindowSizeCallback(window, [](GLFWwindow* window, int width, int height) {
             Engine::Core::GetEngine().GetRenderer()->RescaleFramebuffers(width, height);
         });
@@ -45,11 +45,6 @@ namespace Shard::Game::Core::Platform{
         {    
             //gladLoadVulkan(Engine::Core::GetEngine().GetRenderer()->GetDevicePointer?,(GLADloadfunc)glfwGetProcAddress);
         }
-    }
-
-    void Platform::GLFWWindow::SetGLFWInputManager(GLFWInput *inputManager)
-    {
-        this->inputManager = inputManager;
     }
 
     void Platform::GLFWWindow::SetTitle(const std::string &title)

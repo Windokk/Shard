@@ -12,6 +12,7 @@
 #include <vector>
 #include <array>
 #include <chrono>
+#include <functional>
 
 namespace Shard::Engine::Debugging{
 
@@ -197,10 +198,20 @@ namespace Shard::Engine::Debugging{
         public:
             static constexpr size_t kHistoryLength = 200;
 
+            // A provider fills the fields of MinimalStatistics it owns. The profiler knows no engine
+            // module: each statistic is registered by the code that has access to it.
+            using StatsProvider = std::function<void(MinimalStatistics&)>;
+
             Profiler();
             float GetGPUMem();
+            void AddStatsProvider(StatsProvider provider);
             MinimalStatistics GetStats();
             void Shutdown();
+
+            // Profiler used by ScopedProfileSample / ScopedRenderSubSample (null when there is none:
+            // the scopes then do nothing). Set by whoever owns the profiler.
+            static Profiler* Active() { return s_Active; }
+            static void SetActive(Profiler* profiler) { s_Active = profiler; }
 
             // Per-subsystem frame timing.
             // BeginSample/EndSample can be called multiple times per category within a single
@@ -216,8 +227,8 @@ namespace Shard::Engine::Debugging{
 
             // Closes the current frame : derives the "Other" bucket, pushes the frame into the
             // history ring buffer, and resets the accumulator for the next frame. Call once per
-            // frame, after all tracked subsystems have run.
-            void EndFrameSampling();
+            // frame, after all tracked subsystems have run. frameMs is the frame's total duration.
+            void EndFrameSampling(float frameMs);
 
             const FrameProfile& GetLastFrameProfile() const { return m_LastFrame; }
             const std::array<FrameProfile, kHistoryLength>& GetProfileHistory() const { return m_History; }
@@ -253,6 +264,10 @@ namespace Shard::Engine::Debugging{
             uint32_t m_RenderSubSampleCount = 0;
 
             void CalibrateOverhead();
+
+            std::vector<StatsProvider> m_StatsProviders;
+
+            static inline Profiler* s_Active = nullptr;
     };
 
     // RAII helper : samples a category for the lifetime of the enclosing scope.

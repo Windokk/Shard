@@ -1,11 +1,10 @@
-#include "engine/world/engine.hpp"
+#include "engine/platform/glfw/glfw_input.hpp"
+#include "engine/platform/glfw/glfw_window_base.hpp"
 
-#include "glfw_window.hpp"
-
-namespace Shard::Game::Core::Platform{
+namespace Shard::Engine::Core::Platform {
 
     void GLFWInput::SetWindow(GLFWwindow * window)
-    {
+    { 
         win = window;
     }
 
@@ -16,14 +15,14 @@ namespace Shard::Game::Core::Platform{
         mPreviousMouseState.clear();
 
         glfwSetKeyCallback(win, [](GLFWwindow* w, int key, int sc, int action, int mods) {
-            auto* window = static_cast<GLFWWindow*>(glfwGetWindowUserPointer(w));
+            auto* window = static_cast<GLFWWindowBase*>(glfwGetWindowUserPointer(w));
             if (window) {
                 window->inputManager->KeyCallback(key, action);
             }
         });
 
         glfwSetMouseButtonCallback(win, [](GLFWwindow* w, int button, int action, int mods) {
-            auto* window = static_cast<GLFWWindow*>(glfwGetWindowUserPointer(w));
+            auto* window = static_cast<GLFWWindowBase*>(glfwGetWindowUserPointer(w));
             if (window) {
                 window->inputManager->MouseCallback(button, action);
             }
