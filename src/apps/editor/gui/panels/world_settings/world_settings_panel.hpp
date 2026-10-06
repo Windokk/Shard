@@ -2,13 +2,13 @@
 
 #include <string>
 
-namespace Shard::Engine::Levels{
-    class Level;
+namespace Shard::Engine::Worlds{
+    class World;
 }
 
 namespace Shard::Editor::GUI{
 
-    class LevelSettingsPanel
+    class WorldSettingsPanel
     {
         public:
             void Draw();
@@ -16,13 +16,13 @@ namespace Shard::Editor::GUI{
         private:
             void DrawGeneralCategory();
             void DrawRenderingCategory();
-            void DrawSkyboxSection(Engine::Levels::Level* level);
+            void DrawSkyboxSection(Engine::Worlds::World* world);
 
-            void ApplySkybox(Engine::Levels::Level* level, const std::string& pathInProject);
+            void ApplySkybox(Engine::Worlds::World* world, const std::string& pathInProject);
 
             std::string m_SkyboxInput;
             bool m_SkyboxInputActive = false;
             std::string m_SkyboxError;
-            Engine::Levels::Level* m_LastLevel = nullptr;
+            Engine::Worlds::World* m_LastWorld = nullptr;
     };
 }

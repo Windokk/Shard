@@ -3,6 +3,7 @@
 #include "engine/world/actor.hpp"
 #include "engine/world/engine.hpp"
 #include "engine/renderer/rhi/resources/mesh/mesh.hpp"
+#include "engine/renderer/frontend/renderer.hpp"
 
 #include "physics_body.reflection.hpp"
 
@@ -506,7 +507,7 @@ namespace Shard::Engine::Objects::Components{
                 cmd.indexOffset = 0;
                 cmd.material = GetEngineContext()->GetRenderer()->GetDebugMaterial();
                 cmd.mesh = m_DebugShapes[i]->m_Mesh;
-                cmd.modelID = parent->GetComponentIDInLevel(local_id);
+                cmd.modelID = parent->GetComponentIDInWorld(local_id);
 
                 // Each shape's debug mesh is generated in its own local space (unscaled, uncentered),
                 // so fold that shape's offset/rotation into the model matrix on top of the actor's
@@ -620,7 +621,7 @@ namespace Shard::Engine::Objects::Components{
 
             if (debugShape->m_Mesh)
             {
-                uint64_t cmdID = Rendering::MakeCommandID(debugShape->m_Mesh->GetAssetID().GetAsInt(), parent->GetComponentIDInLevel(local_id), i);
+                uint64_t cmdID = Rendering::MakeCommandID(debugShape->m_Mesh->GetAssetID().GetAsInt(), parent->GetComponentIDInWorld(local_id), i);
                 GetEngineContext()->GetRenderer()->RemoveCommands({cmdID}, {"PhysicsDebugPass"}, false);
             }
 

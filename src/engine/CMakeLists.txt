@@ -2,17 +2,19 @@
 #   ShardCore     <- nothing
 #   ShardPlatform <- ShardCore
 #   ShardAssets   <- ShardPlatform, ShardCore
-#   Engine        <- everything else (links the three above)
+#   ShardWorld    <- ShardAssets (and below)
+#   Engine        <- everything else (links the four above)
 file(GLOB_RECURSE CORE_SOURCES ${CMAKE_CURRENT_SOURCE_DIR}/core/*.cpp)
 file(GLOB_RECURSE PLATFORM_SOURCES ${CMAKE_CURRENT_SOURCE_DIR}/platform/*.cpp)
 file(GLOB_RECURSE ASSETS_SOURCES ${CMAKE_CURRENT_SOURCE_DIR}/assets/*.cpp)
+file(GLOB_RECURSE WORLD_SOURCES ${CMAKE_CURRENT_SOURCE_DIR}/world/*.cpp)
 file(GLOB_RECURSE ENGINE_SOURCES
   ${CMAKE_CURRENT_SOURCE_DIR}/*.cpp
   ${CMAKE_CURRENT_SOURCE_DIR}/renderer/rhi/backends/glad/src/gl.c
   ${CMAKE_CURRENT_SOURCE_DIR}/renderer/rhi/backends/glad/src/vulkan.c
   ${CMAKE_SOURCE_DIR}/submodules/ufbx/ufbx.c
 )
-list(FILTER ENGINE_SOURCES EXCLUDE REGEX "/engine/(core|platform|assets)/")
+list(FILTER ENGINE_SOURCES EXCLUDE REGEX "/engine/(core|platform|assets|world)/")
 
 if(WIN32)
 set(THREADS_PREFER_PTHREAD_FLAG ON)
@@ -44,8 +46,16 @@ target_include_directories(ShardAssets PUBLIC
 )
 target_link_libraries(ShardAssets PUBLIC ShardPlatform ShardCore)
 
+add_library(ShardWorld STATIC ${WORLD_SOURCES})
+target_compile_definitions(ShardWorld PRIVATE BUILD_ENGINE)
+target_include_directories(ShardWorld PUBLIC
+    "${CMAKE_SOURCE_DIR}/src/"
+    "${CMAKE_SOURCE_DIR}/submodules/glm/"
+)
+target_link_libraries(ShardWorld PUBLIC ShardAssets ShardPlatform ShardCore)
+
 add_library(Engine STATIC ${ENGINE_SOURCES})
-target_link_libraries(Engine PUBLIC ShardAssets ShardPlatform ShardCore)
+target_link_libraries(Engine PUBLIC ShardWorld ShardAssets ShardPlatform ShardCore)
 
 set(FMOD_API_DIR "" CACHE PATH "Path to fmod api")
 

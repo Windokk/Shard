@@ -9,7 +9,7 @@
 
 namespace Shard::Engine::Objects::Components
 {
-    // Places a real-time diffuse GI probe grid in the level (see ProbeManager). Bounding box (halfExtent)
+    // Places a real-time diffuse GI probe grid in the world (see ProbeManager). Bounding box (halfExtent)
     // and its wireframe gizmo come from Volume - this adds the probe grid resolution/ray count and a
     // second gizmo (small white spheres, one per probe - see RebuildProbeVisualization()). Up to
     // ProbeManager::kMaxProbeVolumes volumes can be simultaneously active (see
@@ -18,7 +18,7 @@ namespace Shard::Engine::Objects::Components
     // automatically overrides a coarser one it's nested inside without any explicit priority field. This
     // is the fix for an object too small for a room-scale grid to resolve at all (e.g. a small prop
     // sitting inside a building-sized probe volume, where the grid spacing is many times the prop's own
-    // size) : give it its own small ProbeVolume instead of trying to make the whole level's grid denser.
+    // size) : give it its own small ProbeVolume instead of trying to make the whole world's grid denser.
     // The grid is axis-aligned in world space, centered on this component's actor position - it does not
     // follow the actor's rotation/scale, only its translation.
     class CLASS() ProbeVolume : public Volume{
@@ -44,8 +44,8 @@ namespace Shard::Engine::Objects::Components
 
             // ---- Baking (see ProbeManager's "Baked volumes" comment) ----
             // Path in the project (e.g. "probes/sponza_Probes_0.probes") of this volume's baked probe data,
-            // referenced by the level file the way a material references a texture : the level's asset
-            // prefetcher decodes it on a worker thread while the level loads, and Activate() uploads it so
+            // referenced by the world file the way a material references a texture : the world's asset
+            // prefetcher decodes it on a worker thread while the world loads, and Activate() uploads it so
             // the volume comes up already converged. Empty if the volume has never been baked. It is
             // deliberately NOT cleared when the volume is edited : the file is then just out of date (the
             // next load says so and runs the volume live) and re-baking overwrites it in place.
@@ -53,7 +53,7 @@ namespace Shard::Engine::Objects::Components
 
             // Bakes this volume into a file under the project's "probes" folder (or, for a re-bake, over
             // the file it already has), asynchronously - see ProbeManager::BeginBake(). Needs the volume to
-            // be active in a loaded level. Returns false (logged) if the bake couldn't start.
+            // be active in a loaded world. Returns false (logged) if the bake couldn't start.
             bool Bake();
 
             // Deletes this volume's baked data (file, asset entry, reference) and puts it back on live
@@ -61,8 +61,8 @@ namespace Shard::Engine::Objects::Components
             void ClearBake();
 
             // Called by ProbeManager the moment a bake has written `file` : registers it as an asset (so
-            // the next level load can resolve it by path), records it in bakedData and flags the level as
-            // having unsaved changes - the level file has to be saved for the reference to persist.
+            // the next world load can resolve it by path), records it in bakedData and flags the world as
+            // having unsaved changes - the world file has to be saved for the reference to persist.
             void OnBakeFinished(const Filesystem::Path& file);
 
             FIELD(Editable)

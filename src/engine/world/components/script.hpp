@@ -6,6 +6,14 @@
 
 #include "engine/assets/reflection/attributes.hpp"
 
+// Defined by the physics module (engine/physics/physics_events.hpp) : include it to implement the contact callbacks.
+namespace Shard::Engine::Events
+{
+    struct ContactAddedEvent;
+    struct ContactPersistedEvent;
+    struct ContactRemovedEvent;
+}
+
 namespace Shard::Engine::Objects::Components
 {
     /// @brief Main scripting component. All scripts should inherit from this component. Scripts method are called from their parent actor, in order of addition
@@ -15,12 +23,12 @@ namespace Shard::Engine::Objects::Components
 
             void Destroy() override;
 
-            /// @brief Called when the level is loaded
+            /// @brief Called when the world is loaded
             /// @note Only called on actors with tag "Persistent" 
-            virtual void OnLevelLoaded();
+            virtual void OnWorldLoaded();
 
-            /// @brief Called when the level is unloaded
-            virtual void OnLevelUnloaded();
+            /// @brief Called when the world is unloaded
+            virtual void OnWorldUnloaded();
 
             /// @brief Called when this script component is added to an actor parent
             virtual void OnCreate();

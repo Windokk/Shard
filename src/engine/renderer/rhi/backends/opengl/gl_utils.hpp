@@ -185,7 +185,7 @@ namespace Shard::Engine::Rendering{
             // command needs camera state is decided per-command (not per-program), so a program's
             // first use might skip one kind while still needing another later - sharing a single flag
             // could wrongly suppress that later update.
-            enum class PassGlobalsKind { Level = 0, Camera = 1, Count = 2 };
+            enum class PassGlobalsKind { World = 0, Camera = 1, Count = 2 };
 
             static bool NeedsPassGlobalsUpdate(GLuint program, PassGlobalsKind kind){
                 size_t i = static_cast<size_t>(kind);

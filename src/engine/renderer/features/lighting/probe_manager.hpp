@@ -14,8 +14,8 @@
 #include "engine/renderer/features/lighting/probe_bake.hpp"
 #include "engine/renderer/features/raytracing/raytrace_scene.hpp"
 
-namespace Shard::Engine::Levels {
-    class Level;
+namespace Shard::Engine::Worlds {
+    class World;
 }
 
 namespace Shard::Engine::Objects::Components {
@@ -133,17 +133,17 @@ namespace Shard::Engine::Rendering {
     //
     // Scope kept intentionally simple beyond that : a persistent BVH/triangle/material snapshot rebuilt
     // on demand rather than every frame (so moving static geometry doesn't affect the GI until
-    // RebuildScene() is called again, shared across every volume since it's level-wide, not per-volume),
+    // RebuildScene() is called again, shared across every volume since it's world-wide, not per-volume),
     // and no cross-fading at a volume's boundary (a fragment picks exactly one volume, no blend between
     // two overlapping ones). The ray fan IS given a fresh random rotation every frame per volume (see
     // m_RayRNG) specifically so the temporal hysteresis blend can average out angular aliasing over time
     // instead of locking in whatever a fixed ray set happened to sample once.
     //
-    // Baked volumes : all of the above is what a "live" volume does, and it costs a BVH build at level
+    // Baked volumes : all of the above is what a "live" volume does, and it costs a BVH build at world
     // load plus a few seconds of visible convergence. A volume can instead be baked - BeginBake() runs the
     // same update for a fixed, higher-quality schedule (see kBakeConvergenceIterations), reads the
     // published atlases and per-probe state back and writes them to a file (see probe_bake.hpp). At the
-    // next level load AddActiveVolume() is handed that file's data and the volume comes up already
+    // next world load AddActiveVolume() is handed that file's data and the volume comes up already
     // converged : the atlases are uploaded as-is, no scene is built and no probe is ever traced again.
     // A baked volume is static - it costs nothing per frame, but it also no longer reacts to lighting or
     // geometry changes, nor to indirectIntensity ; deleting the bake (or editing the volume's grid, which
@@ -154,7 +154,7 @@ namespace Shard::Engine::Rendering {
             ProbeManager();
             ~ProbeManager();
 
-            // Kicks off a rebuild of the persistent BVH/triangle/material SSBOs from the level's
+            // Kicks off a rebuild of the persistent BVH/triangle/material SSBOs from the world's
             // current geometry - NOT every frame, since rebuilding a full SAH BVH every frame would
             // defeat the point of a persistent one. Non-blocking: the (potentially expensive, for large
             // scenes) triangle-flatten + BVH-build work runs on a background thread via
@@ -162,7 +162,7 @@ namespace Shard::Engine::Rendering {
             // uploads it once ready (m_SceneBuilt stays false, and probe tracing is skipped, until
             // then - same as before a first RebuildScene() call). Shared across every active volume,
             // since the scene geometry itself doesn't depend on how many probe volumes exist.
-            void RebuildScene(Levels::Level* level);
+            void RebuildScene(Worlds::World* world);
 
             // (Re)allocates `volume`'s probe grid SSBO and atlases to match its current bounds/
             // resolution. No-op if `volume` isn't currently active (see AddActiveVolume). Called
@@ -195,15 +195,15 @@ namespace Shard::Engine::Rendering {
 
             // ---- Baking ----
             // Starts baking `volume` (which must be active) into `file`. Discards the volume's current
-            // atlases, rebuilds the scene from `level` so the bake sees the geometry as it is NOW, then
+            // atlases, rebuilds the scene from `world` so the bake sees the geometry as it is NOW, then
             // traces the volume over the following frames (progress: IsBaking()/GetBakeProgress()/
             // GetBakePhase() - the editor mirrors them into a notification) and finally writes `file`.
             // When it completes, the volume is switched to baked mode in place - the atlases it just
             // converged are the ones it keeps using, so nothing is reloaded - and
             // ProbeVolume::OnBakeFinished() is told the file so it can register it as an asset and
-            // reference it from the level. Only one bake runs at a time. Returns false (logged) if it
+            // reference it from the world. Only one bake runs at a time. Returns false (logged) if it
             // couldn't start.
-            bool BeginBake(Objects::Components::ProbeVolume* volume, Levels::Level* level, const Filesystem::Path& file);
+            bool BeginBake(Objects::Components::ProbeVolume* volume, Worlds::World* world, const Filesystem::Path& file);
 
             // Aborts a bake in progress, leaving the volume live. No-op if none is running.
             void CancelBake();
@@ -410,7 +410,7 @@ namespace Shard::Engine::Rendering {
 
             // In-flight background BVH build kicked off by RebuildScene(), picked up by Update() once
             // ready. Guarded by a generation counter so a second RebuildScene() call (e.g. ProbeVolume
-            // is activated twice while a level loads - once mid-Deserialize, once from Level::OnLoad())
+            // is activated twice while a world loads - once mid-Deserialize, once from World::OnLoad())
             // can supersede a still-running first build without waiting on it: any future whose
             // generation no longer matches m_SceneBuildGeneration is drained and discarded rather than
             // uploaded. Superseded futures are parked in m_AbandonedSceneBuilds instead of being
@@ -436,13 +436,13 @@ namespace Shard::Engine::Rendering {
             std::shared_ptr<StorageBuffer> m_LightBuffer;
             std::vector<LightData> m_FlatLights;
 
-            // The loaded level's skybox, cosine-convolved - the exact same cubemap lit.frag samples as
+            // The loaded world's skybox, cosine-convolved - the exact same cubemap lit.frag samples as
             // ibl_irradianceMap. probe_trace.comp returns it for rays that escape the scene, instead of
             // the hardcoded blue-white constant it used to. Refreshed every frame in Update() rather
-            // than cached at RebuildScene() time so swapping a level's skybox takes effect immediately
-            // and an unloaded level can't leave a dangling reference. Null when the level has no
+            // than cached at RebuildScene() time so swapping a world's skybox takes effect immediately
+            // and an unloaded world can't leave a dangling reference. Null when the world has no
             // skybox, in which case sky radiance is zero - matching the forward pass, which gives a
-            // skybox-less level no IBL either.
+            // skybox-less world no IBL either.
             std::shared_ptr<Cubemap> m_SkyIrradiance;
 
             std::shared_ptr<ComputeShader> m_TraceShader;

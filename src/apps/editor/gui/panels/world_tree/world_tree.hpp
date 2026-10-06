@@ -1,6 +1,6 @@
 #pragma once
 
-#include "engine/world/levels/level.hpp"
+#include "engine/world/world.hpp"
 #include "engine/world/actor.hpp"
 
 #include <typeinfo>
@@ -13,7 +13,7 @@ namespace Shard::Editor::Core{
 namespace Shard::Editor::GUI{
 
 
-    class LevelTree
+    class WorldTree
     {
         public:
             void Draw();
@@ -25,8 +25,8 @@ namespace Shard::Editor::GUI{
             void DrawActorNode(std::shared_ptr<Engine::Objects::Actor> actor);
 
             // Detaches `actor` from wherever it currently sits (another actor's children, or the
-            // level's root actor list) and reattaches it under `newParent` - or, if `newParent` is
-            // null, as a new root actor of the level.
+            // world's root actor list) and reattaches it under `newParent` - or, if `newParent` is
+            // null, as a new root actor of the world.
             void ReparentActor(std::shared_ptr<Engine::Objects::Actor> actor, std::shared_ptr<Engine::Objects::Actor> newParent);
 
             Core::EditorMainWindow* parent = nullptr;

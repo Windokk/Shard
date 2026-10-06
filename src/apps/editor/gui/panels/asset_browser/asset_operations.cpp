@@ -10,7 +10,7 @@
 
 #include "engine/world/engine.hpp"
 #include "engine/assets/project/project.hpp"
-#include "engine/world/levels/level.hpp"
+#include "engine/world/world.hpp"
 #include "engine/assets/resources_manager.hpp"
 #include "engine/assets/asset_database_serializer.hpp"
 #include "engine/core/diagnostics/logger.hpp"
@@ -120,7 +120,7 @@ namespace Shard::Editor::GUI::AssetOperations
             return changed;
         }
 
-        /// Levels and materials name the assets they use by their path in the project : rewrite those
+        /// Worlds and materials name the assets they use by their path in the project : rewrite those
         /// strings after a rename/move. A quoted-string match keeps this to real references.
         int RewriteReferences(const std::string& oldName, const std::string& newName, bool isDirectory)
         {
@@ -138,7 +138,7 @@ namespace Shard::Editor::GUI::AssetOperations
             for(auto& [id, info] : Engine::Core::GetEngine().GetAssetIDManager()->AssetIDMap){
                 if(id.GetAsInt() < kFirstProjectAssetID)
                     continue;
-                if(info->baseInfos.type != Engine::Filesystem::Type::T_LEVEL && info->baseInfos.type != Engine::Filesystem::Type::T_MATERIAL)
+                if(info->baseInfos.type != Engine::Filesystem::Type::T_WORLD && info->baseInfos.type != Engine::Filesystem::Type::T_MATERIAL)
                     continue;
 
                 fs::path file(info->baseInfos.path.full);
@@ -152,7 +152,7 @@ namespace Shard::Editor::GUI::AssetOperations
             return rewritten;
         }
 
-        /// Follows a rename/move (or, with an empty `newName`, a deletion) in the project's list of levels.
+        /// Follows a rename/move (or, with an empty `newName`, a deletion) in the project's list of worlds.
         void RemapBuildSettings(const std::string& oldName, const std::string& newName, bool isDirectory)
         {
             auto& list = Engine::Core::GetEngine().GetBuildSettings()->buildIndex;
@@ -247,7 +247,7 @@ namespace Shard::Editor::GUI::AssetOperations
 
         std::string busy = FirstInUse(affected);
         if(!busy.empty())
-            return Fail("\"" + busy + "\" is used by the loaded level (or one of its assets). Load another level first.");
+            return Fail("\"" + busy + "\" is used by the loaded world (or one of its assets). Load another world first.");
 
         auto* resources = Engine::Core::GetEngine().GetResourcesManager();
         for(auto& [id, info] : affected)
@@ -319,7 +319,7 @@ namespace Shard::Editor::GUI::AssetOperations
 
         std::string busy = FirstInUse(affected);
         if(!busy.empty())
-            return Fail("\"" + busy + "\" is used by the loaded level (or one of its assets). Load another level first.");
+            return Fail("\"" + busy + "\" is used by the loaded world (or one of its assets). Load another world first.");
 
         auto* resources = Engine::Core::GetEngine().GetResourcesManager();
         for(auto& [id, info] : affected)
@@ -412,22 +412,22 @@ namespace Shard::Editor::GUI::AssetOperations
         return {};
     }
 
-    Result CreateLevel(const Path& dir, Path& created)
+    Result CreateWorld(const Path& dir, Path& created)
     {
-        created = UniquePath(dir, "NewLevel", ".lvl");
+        created = UniquePath(dir, "NewWorld", ".world");
 
-        auto level = std::make_shared<Engine::Levels::Level>(fs::path(created.full).stem().string(), created);
-        level->Serialize(created);
+        auto world = std::make_shared<Engine::Worlds::World>(fs::path(created.full).stem().string(), created);
+        world->Serialize(created);
 
         if(!fs::exists(created.full)){
             created = Path("");
-            return Fail("Couldn't create the level.");
+            return Fail("Couldn't create the world.");
         }
 
         auto* engine = &Engine::Core::GetEngine();
         engine->GetFileManager()->RegisterAsset(Path(created.full, true));
 
-        // Only levels listed in the build settings can be loaded (they get their build index from it)
+        // Only worlds listed in the build settings can be loaded (they get their build index from it)
         std::string name;
         if(NameInProject(fs::path(created.full), name))
             engine->GetBuildSettings()->AddToBuildSettings(Path(name));

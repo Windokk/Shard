@@ -52,7 +52,7 @@ namespace Shard::Engine::Rendering{
 
             void BindPassData(const std::shared_ptr<RenderPass> pass, std::shared_ptr<Material> material);
 
-            void BindLevelState(std::shared_ptr<Shader> shader, glm::mat4 modelMatrix, int objectID, bool applyPassGlobals);
+            void BindWorldState(std::shared_ptr<Shader> shader, glm::mat4 modelMatrix, int objectID, bool applyPassGlobals);
 
             void DrawIndexed(const std::shared_ptr<Pipeline> pipeline, uint32_t indexCount, uint32_t indexOffset);
                 

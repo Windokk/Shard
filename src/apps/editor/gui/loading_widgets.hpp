@@ -1,6 +1,6 @@
 #pragma once
 
-// Small shared drawing helpers for "something is loading" UI - used by both the full-screen level
+// Small shared drawing helpers for "something is loading" UI - used by both the full-screen world
 // loading overlay (main_window.cpp) and the DDGI probe-bake progress toast (ImGuiNotify.hpp), so the
 // two don't drift into two different-looking loading widgets. Header-only (inline), matching
 // ImGuiNotify.hpp's own style, so either caller can use it without a new translation unit to wire into

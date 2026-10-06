@@ -23,11 +23,11 @@ namespace Shard::Engine::Rendering {
     // hook mirroring ShadowManager::BindShadowMaps, called from GLRendererAPI::ExecuteDrawCommand for
     // every regular (non-override-pipeline) draw.
     //
-    // The 3 passes always run every frame regardless of any level's ssaoEnabled - only the multiply in
-    // lit.frag is gated by that flag (see Level::ssaoEnabled). Every mesh gets submitted to the depth+
+    // The 3 passes always run every frame regardless of any world's ssaoEnabled - only the multiply in
+    // lit.frag is gated by that flag (see World::ssaoEnabled). Every mesh gets submitted to the depth+
     // normal prepass the same way it's submitted to ForwardPass (see Model::AddToDrawList in
     // model_component.cpp), which means the prepass' RenderPass must already be registered by the time
-    // any level loads - that's why Init() (not a lazily-created-on-first-use path like ProbeManager's
+    // any world loads - that's why Init() (not a lazily-created-on-first-use path like ProbeManager's
     // volumes) unconditionally creates all 3 passes up front.
     class SSAOManager
     {
@@ -35,8 +35,8 @@ namespace Shard::Engine::Rendering {
             void Init(Renderer* renderer, int width, int height);
 
             // Submits the one permanent full-screen-triangle command each of the raw/blur passes draws.
-            // These passes belong to the renderer, not to any level, but Renderer::ClearPassesContent()
-            // (a level swap / play-mode reload) empties every pass's draw list - so it has to call this
+            // These passes belong to the renderer, not to any world, but Renderer::ClearPassesContent()
+            // (a world swap / play-mode reload) empties every pass's draw list - so it has to call this
             // again afterwards, otherwise both passes draw nothing, the AO target stays cleared to 0 and
             // lit.frag's SampleSSAO multiplies every ambient/indirect term (DDGI included) by 0.
             void SubmitFullscreenCommands(Renderer* renderer);

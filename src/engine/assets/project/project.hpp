@@ -13,42 +13,42 @@ namespace Shard::Engine::Projects{
         // TODO : Target system
 
 
-        /// @brief A list of level paths to include in the build
+        /// @brief A list of world paths to include in the build
         std::vector<Filesystem::Path> buildIndex;
         
 
-        int GetLevelBuildIndex(const Filesystem::Path lvlPath) {
+        int GetWorldBuildIndex(const Filesystem::Path worldPath) {
 
             for(int i = 0; i < buildIndex.size(); i++){
-                if(buildIndex[i] == lvlPath){
+                if(buildIndex[i] == worldPath){
                     return i;
                 }
             }
             return -1; // Not found
         }
 
-        void AddToBuildSettings(Filesystem::Path lvlPath){
+        void AddToBuildSettings(Filesystem::Path worldPath){
             
             for(int i = 0; i < buildIndex.size(); i++){
-                if(buildIndex[i] == lvlPath){
-                    DEBUG_INFO("Level already added to build settings, not re-adding it");
+                if(buildIndex[i] == worldPath){
+                    DEBUG_INFO("World already added to build settings, not re-adding it");
                     return;
                 }
             }
 
-            buildIndex.push_back(lvlPath);
+            buildIndex.push_back(worldPath);
         }
 
-        void ChangeBuildIndex(Filesystem::Path lvlPath, int newBuildIndex) {
-            int oldBuildIndex = GetLevelBuildIndex(lvlPath);
+        void ChangeBuildIndex(Filesystem::Path worldPath, int newBuildIndex) {
+            int oldBuildIndex = GetWorldBuildIndex(worldPath);
             if (oldBuildIndex == -1) {
-                DEBUG_ERROR("Tried to change level's build index, but level is not yet registered in the build settings");
+                DEBUG_ERROR("Tried to change world's build index, but world is not yet registered in the build settings");
                 return;
             }
 
             auto& indexList = buildIndex;
 
-            // Erase the level from its old pos
+            // Erase the world from its old pos
             indexList.erase(indexList.begin() + oldBuildIndex);
 
             if (newBuildIndex > oldBuildIndex) {
@@ -57,8 +57,8 @@ namespace Shard::Engine::Projects{
 
             newBuildIndex = std::clamp(newBuildIndex, 0, static_cast<int>(indexList.size()));
 
-            // Insert the level at the new position
-            indexList.insert(indexList.begin() + newBuildIndex, lvlPath);
+            // Insert the world at the new position
+            indexList.insert(indexList.begin() + newBuildIndex, worldPath);
         }
     };
 

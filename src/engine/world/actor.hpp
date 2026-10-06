@@ -1,17 +1,13 @@
 #pragma once
 
-#include "engine/world/level_object.hpp"
+#include "engine/world/world_object.hpp"
 
 #include "engine/world/engine.hpp"
 
 #include "engine/world/components/transform.hpp"
-#include "engine/renderer/components/light_component.hpp"
-#include "engine/renderer/components/probe_volume.hpp"
-#include "engine/physics/physics_body.hpp"
+#include "engine/world/components/script.hpp"
 
-#include "engine/renderer/frontend/camera_manager.hpp"
-
-#include "engine/world/levels/level.hpp"
+#include "engine/world/world.hpp"
 
 #include "engine/world/event_system.hpp"
 
@@ -22,7 +18,7 @@ namespace Shard::Engine::Objects{
 
     using namespace Components;
 
-    class Actor : public LevelObject{
+    class Actor : public WorldObject{
         
         std::vector<std::shared_ptr<Component>> components;
         std::string name;
@@ -54,9 +50,14 @@ namespace Shard::Engine::Objects{
             template <typename T>
             std::shared_ptr<T> AddComponent();
 
+            /// @brief Adds a component from the name of its type : an engine component ("model", "light"...,
+            /// the names their serialized form carries) or a custom one registered in the component registry.
+            /// @return The component, null (logged) if the type is unknown
+            std::shared_ptr<Component> AddComponentByName(const std::string& typeName);
+
             void Destroy() override;
 
-            int GetComponentIDInLevel(int componentIndex) { 
+            int GetComponentIDInWorld(int componentIndex) { 
                 if(componentIndex >= 0 && id.GetAsInt() >= 0){
                     return (id.GetAsInt() << 12) | (componentIndex & 0xFFF);
                 }
@@ -67,14 +68,12 @@ namespace Shard::Engine::Objects{
             std::string GetName() { return name; }
             void SetName(std::string name) { this->name = name; }
 
-            void AddChild(std::shared_ptr<LevelObject> o) override;
+            void AddChild(std::shared_ptr<WorldObject> o) override;
 
-            void SetLevel(Levels::Level* lvl);
-
-            void RegisterComponentEvents(const std::shared_ptr<Script>& component);
+            void SetWorld(Worlds::World* world);
 
             std::shared_ptr<Transform> transform = nullptr;
-            Levels::Level* level = nullptr;
+            Worlds::World* world = nullptr;
 
             void Activate();
 
@@ -86,7 +85,7 @@ namespace Shard::Engine::Objects{
 
             std::shared_ptr<Actor> Clone();
 
-            /// @brief Attaches this actor to newParent (or detaches to the level root if nullptr).
+            /// @brief Attaches this actor to newParent (or detaches to the world root if nullptr).
             /// @param keepWorldTransform If true (default), the actor's local Transform is recomputed
             /// so its world-space position/rotation/scale stay the same after reparenting - like
             /// "attach in place" in Unity/Unreal. If false, the local Transform is left untouched, so
@@ -95,6 +94,13 @@ namespace Shard::Engine::Objects{
 
         protected:
             bool activated = true;
+
+        private:
+            /// Adds an already built component to the actor, and to its world
+            void AttachComponent(const std::shared_ptr<Component>& component);
+
+            /// Makes the world (and, through it, the modules) aware of a component of this actor
+            void RegisterInWorld(const std::shared_ptr<Component>& component, bool cloned);
     };
 
     
@@ -169,47 +175,7 @@ namespace Shard::Engine::Objects{
 
         std::shared_ptr<T> component = Object::CreateWithContext<T>(engine, AsShared<Actor>(), components.size());
 
-        components.push_back(component);
-
-        if(level != nullptr){
-            if constexpr (IsSubclassOf<Light, T>()) {
-                component->SetLightIndex(level->lights.size());
-                level->lights.push_back(component);
-                level->lightComps.emplace(GetComponentIDInLevel(component->GetLocalId()), component);
-            }
-
-            if constexpr (IsSubclassOf<Model, T>()) {
-                level->models.emplace(GetComponentIDInLevel(component->GetLocalId()), component);
-            }
-
-            if constexpr (IsSubclassOf<Transform, T>()) {
-                level->transforms.emplace(GetComponentIDInLevel(component->GetLocalId()), component);
-            }
-
-            if constexpr (IsSubclassOf<PhysicsBody, T>()) {
-                level->physicsBodies.emplace(GetComponentIDInLevel(component->GetLocalId()), component);
-            }
-
-            if constexpr (IsSubclassOf<ProbeVolume, T>()) {
-                level->probeVolume = component;
-                component->Activate();
-            }
-
-            if constexpr (IsSubclassOf<AudioSource, T>()) {
-                level->audioSources.emplace(GetComponentIDInLevel(component->GetLocalId()), component);
-            }
-
-            if constexpr (IsSubclassOf<Script, T>()) {
-                level->scripts.emplace(GetComponentIDInLevel(component->GetLocalId()), component);
-                RegisterComponentEvents(component);
-                component->OnCreate();
-            }
-
-            if constexpr (IsSubclassOf<Camera, T>()) {
-                level->cameras.emplace(GetComponentIDInLevel(component->GetLocalId()), component);
-                static_pointer_cast<Camera>(component)->AddToCameraManager();
-            }
-        }
+        AttachComponent(component);
 
         return component;
     }

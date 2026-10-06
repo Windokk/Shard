@@ -1,8 +1,8 @@
 #include "project_settings_panel.hpp"
 
 #include "engine/world/engine.hpp"
-#include "engine/world/levels/level.hpp"
-#include "engine/world/levels/level_manager.hpp"
+#include "engine/world/world.hpp"
+#include "engine/world/world_manager.hpp"
 #include "engine/physics/physics_manager.hpp"
 #include "engine/assets/project/project.hpp"
 #include "engine/assets/serialization/project/project_serializer.hpp"
@@ -161,8 +161,8 @@ namespace Shard::Editor::GUI{
     {
         auto* build = GetEngine().GetCurrentProject()->GetBuildSettings();
 
-        ImGui::SeparatorText("Levels in Build");
-        ImGui::TextDisabled("Index 0 is the level loaded when the game starts.");
+        ImGui::SeparatorText("Worlds in Build");
+        ImGui::TextDisabled("Index 0 is the world loaded when the game starts.");
 
         int moveFrom = -1, moveTo = -1, remove = -1;
 
@@ -205,15 +205,15 @@ namespace Shard::Editor::GUI{
         }
 
         if (build->buildIndex.empty())
-            ImGui::TextDisabled("No levels in the build.");
+            ImGui::TextDisabled("No worlds in the build.");
 
         ImGui::Separator();
-        if (ImGui::Button("Add Open Level"))
+        if (ImGui::Button("Add Open World"))
         {
-            if (auto* level = GetEngine().GetLevelManager()->GetLevelAt(0))
+            if (auto* world = GetEngine().GetWorldManager()->GetWorldAt(0))
             {
                 size_t before = build->buildIndex.size();
-                build->AddToBuildSettings(level->GetPath());
+                build->AddToBuildSettings(world->GetPath());
                 m_Dirty |= build->buildIndex.size() != before;
             }
         }

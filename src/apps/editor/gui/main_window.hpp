@@ -14,8 +14,8 @@
 #include "apps/editor/gui/panels/asset_browser/asset_browser.hpp"
 #include "apps/editor/gui/panels/material_editor/material_editor_panel.hpp"
 #include "apps/editor/gui/panels/asset_editor_registry.hpp"
-#include "apps/editor/gui/panels/level_tree/level_tree.hpp"
-#include "apps/editor/gui/panels/level_settings/level_settings_panel.hpp"
+#include "apps/editor/gui/panels/world_tree/world_tree.hpp"
+#include "apps/editor/gui/panels/world_settings/world_settings_panel.hpp"
 #include "apps/editor/gui/panels/project_settings/project_settings_panel.hpp"
 #include "apps/editor/gui/panels/console/console.hpp"
 #include "apps/editor/gui/panels/profiler/profiler_panel.hpp"
@@ -70,12 +70,12 @@ namespace Shard::Editor::Core {
 
     struct PanelVisibility{
         bool viewport = true;
-        bool levelTree = true;
+        bool worldTree = true;
         bool properties = true;
         bool assetBrowser = true;
         bool console = true;
         bool profiler = true;
-        bool levelSettings = true;
+        bool worldSettings = true;
         bool projectSettings = false;
     };
 
@@ -146,8 +146,8 @@ namespace Shard::Editor::Core {
         GUI::AssetBrowser* assetBrowser = nullptr;
         GUI::MaterialEditorPanel* materialEditorPanel = nullptr;
         GUI::PropertiesPanel* propertiesPanel = nullptr;
-        GUI::LevelTree* levelTree = nullptr;
-        GUI::LevelSettingsPanel* levelSettingsPanel = nullptr;
+        GUI::WorldTree* worldTree = nullptr;
+        GUI::WorldSettingsPanel* worldSettingsPanel = nullptr;
         GUI::ProjectSettingsPanel* projectSettingsPanel = nullptr;
         GUI::Console* console = nullptr;
         GUI::ProfilerPanel* profilerPanel = nullptr;
@@ -157,8 +157,8 @@ namespace Shard::Editor::Core {
         std::shared_ptr<Engine::Objects::Actor> selectedActor = nullptr;
 
         // The JFA (init/step) and outline composite passes each only ever hold a single, permanent
-        // fullscreen-triangle draw command (see the render pass setup in SwapBuffers) - a level reload
-        // (Renderer::ClearPassesContent(), see EngineInstance::Run()'s m_ReloadCurrentLevel handling)
+        // fullscreen-triangle draw command (see the render pass setup in SwapBuffers) - a world reload
+        // (Renderer::ClearPassesContent(), see EngineInstance::Run()'s m_ReloadCurrentWorld handling)
         // wipes every pass's draw list, and since that setup only ever runs once, those commands would
         // otherwise never come back. Re-submitted every frame in SwapBuffers alongside the selected
         // actor's mask commands so the outline survives any such reload.

@@ -1,8 +1,10 @@
 #include "physics_manager.hpp"
 
-#include "engine/world/levels/level_manager.hpp"
+#include "engine/world/world_manager.hpp"
 
 #include "engine/physics/physics_body.hpp"
+#include "engine/physics/physics_events.hpp"
+#include "engine/physics/physics_world_data.hpp"
 
 #include "engine/world/actor.hpp"
 
@@ -147,17 +149,11 @@ namespace Shard::Engine::Physics {
             return;
 
         for(auto& script : comp1->parent->GetComponents<Objects::Components::Script>()){
-            Core::GetEngine().GetEventDispatcher()->emitToComponent(
-                script->parent->GetComponentIDInLevel(script->GetLocalId()),
-                Events::ContactAddedEvent(*comp2, contactManifold, contactSettings, Core::ObjectID(0))
-            );
+            script->OnContactAdded(Events::ContactAddedEvent(*comp2, contactManifold, contactSettings, Core::ObjectID(0)));
         }
 
         for(auto& script : comp2->parent->GetComponents<Objects::Components::Script>()){
-            Core::GetEngine().GetEventDispatcher()->emitToComponent(
-                script->parent->GetComponentIDInLevel(script->GetLocalId()),
-                Events::ContactAddedEvent(*comp1, contactManifold, contactSettings, Core::ObjectID(0))
-            );
+            script->OnContactAdded(Events::ContactAddedEvent(*comp1, contactManifold, contactSettings, Core::ObjectID(0)));
         }
     }
 
@@ -170,17 +166,11 @@ namespace Shard::Engine::Physics {
             return;
 
         for(auto& script : comp1->parent->GetComponents<Objects::Components::Script>()){
-            Core::GetEngine().GetEventDispatcher()->emitToComponent(
-                script->parent->GetComponentIDInLevel(script->GetLocalId()),
-                Events::ContactPersistedEvent(*comp2, contactManifold, contactSettings, Core::ObjectID(0))
-            );
+            script->OnContactPersisted(Events::ContactPersistedEvent(*comp2, contactManifold, contactSettings, Core::ObjectID(0)));
         }
 
         for(auto& script : comp2->parent->GetComponents<Objects::Components::Script>()){
-            Core::GetEngine().GetEventDispatcher()->emitToComponent(
-                script->parent->GetComponentIDInLevel(script->GetLocalId()),
-                Events::ContactPersistedEvent(*comp1, contactManifold, contactSettings, Core::ObjectID(0))
-            );
+            script->OnContactPersisted(Events::ContactPersistedEvent(*comp1, contactManifold, contactSettings, Core::ObjectID(0)));
         }
     }
     
@@ -193,17 +183,11 @@ namespace Shard::Engine::Physics {
             return;
 
         for(auto& script : comp1->parent->GetComponents<Objects::Components::Script>()){
-            Core::GetEngine().GetEventDispatcher()->emitToComponent(
-                script->parent->GetComponentIDInLevel(script->GetLocalId()),
-                Events::ContactRemovedEvent(*comp2, Core::ObjectID(0))
-            );
+            script->OnContactEnded(Events::ContactRemovedEvent(*comp2, Core::ObjectID(0)));
         }
 
         for(auto& script : comp2->parent->GetComponents<Objects::Components::Script>()){
-            Core::GetEngine().GetEventDispatcher()->emitToComponent(
-                script->parent->GetComponentIDInLevel(script->GetLocalId()),
-                Events::ContactRemovedEvent(*comp1, Core::ObjectID(0))
-            );
+            script->OnContactEnded(Events::ContactRemovedEvent(*comp1, Core::ObjectID(0)));
         }
 
     }
@@ -221,9 +205,9 @@ namespace Shard::Engine::Physics {
  
     void PhysicsManager::TickBodies(float deltaTime){
         
-        if(int levelCount = Core::GetEngine().GetLevelManager()->GetLoadedLevelCount() > 0){
-            for(int i = 0; i < levelCount; i++){
-                for (auto& [id,physicsBody] : Core::GetEngine().GetLevelManager()->GetLevelAt(i)->physicsBodies){
+        if(int worldCount = Core::GetEngine().GetWorldManager()->GetLoadedWorldCount() > 0){
+            for(int i = 0; i < worldCount; i++){
+                for (auto& [id,physicsBody] : Core::GetEngine().GetWorldManager()->GetWorldAt(i)->Ext<PhysicsWorldData>().bodies){
                     if(physicsBody->Active())
                         physicsBody->Tick(deltaTime);
                 }

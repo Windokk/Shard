@@ -20,7 +20,7 @@
 #include "engine/renderer/features/lighting/probe_manager.hpp"
 
 #include "engine/assets/resources_manager.hpp"
-#include "engine/world/levels/level_manager.hpp"
+#include "engine/world/world_manager.hpp"
 #include "engine/assets/project/project.hpp"
 #include "engine/renderer/frontend/renderer.hpp"
 #include "engine/renderer/material/shader.hpp"
@@ -226,8 +226,8 @@ namespace Shard::Editor::Core{
                 if(auto model = std::dynamic_pointer_cast<Engine::Objects::Components::Model>(comp))
                     model->AddToPass("EditorOutlineMaskPass");
 
-        if(levelTree)
-            levelTree->SetSelection(newPtr);
+        if(worldTree)
+            worldTree->SetSelection(newPtr);
     }
 
     void EditorMainWindow::Init(const std::string &title, const int &width, const int &height, const bool &fullscreen, const int &vsync, const uint32_t& api)
@@ -306,9 +306,9 @@ namespace Shard::Editor::Core{
         materialEditorPanel = new GUI::MaterialEditorPanel();
         GUI::AssetEditorRegistry::Instance().Register(Engine::Filesystem::Type::T_MATERIAL, materialEditorPanel);
         propertiesPanel = new GUI::PropertiesPanel();
-        levelTree = new GUI::LevelTree();
-        levelTree->SetParentWindow(this);
-        levelSettingsPanel = new GUI::LevelSettingsPanel();
+        worldTree = new GUI::WorldTree();
+        worldTree->SetParentWindow(this);
+        worldSettingsPanel = new GUI::WorldSettingsPanel();
         projectSettingsPanel = new GUI::ProjectSettingsPanel();
         viewport = new GUI::ViewportWindow();
         viewport->SetParentWindow(this);
@@ -329,7 +329,7 @@ namespace Shard::Editor::Core{
         ImGui::SetNextWindowPos(ImVec2(mainViewport->WorkPos.x + mainViewport->WorkSize.x * 0.5f,
                                         mainViewport->WorkPos.y + mainViewport->WorkSize.y * 0.5f),
                                         ImGuiCond_Always, ImVec2(0.5f, 0.5f));
-        // Fully opaque - this overlay stands in for the whole editor while a level loads, so letting the
+        // Fully opaque - this overlay stands in for the whole editor while a world loads, so letting the
         // still-mid-initialization viewport/panels show through underneath it (the old 0.85 alpha) read
         // as a rendering glitch rather than a deliberate loading screen.
         ImGui::SetNextWindowBgAlpha(1.0f);
@@ -347,7 +347,7 @@ namespace Shard::Editor::Core{
         ImGui::PushStyleVar(ImGuiStyleVar_WindowRounding, 12.0f);
         ImGui::PushStyleVar(ImGuiStyleVar_WindowBorderSize, 1.5f);
 
-        if(ImGui::Begin("##LoadingLevelOverlay", nullptr, flags))
+        if(ImGui::Begin("##LoadingWorldOverlay", nullptr, flags))
         {
             // Matches the editor's own blue-teal accent (see ImGuiCol_SliderGrabActive/ButtonHovered in
             // SetupImGuiStyle) so this overlay doesn't look like it belongs to a different app.
@@ -363,7 +363,7 @@ namespace Shard::Editor::Core{
             GUI::LoadingWidgets::SpinnerFadePulsar(drawList, spinnerCentre, spinnerRadius, accent, 1.8f, 2);
             ImGui::Dummy(ImVec2(barWidth, spinnerRadius * 2.0f + 14.0f));
 
-            const char* label = "Loading Level...";
+            const char* label = "Loading World...";
             float labelWidth = ImGui::CalcTextSize(label).x;
             ImGui::SetCursorPosX(ImGui::GetCursorPosX() + (barWidth - labelWidth) * 0.5f);
             ImGui::TextUnformatted(label);
@@ -675,7 +675,7 @@ namespace Shard::Editor::Core{
                 gridPass->customUniforms["cellSize"] = gridCell;
             }
 
-            // Grid passes also lose their command on a level reload.
+            // Grid passes also lose their command on a world reload.
             for(auto& [passName, material] : gridCommands)
             {
                 Rendering::DrawCommand gridCmd{};
@@ -687,7 +687,7 @@ namespace Shard::Editor::Core{
 
             // Same reasoning as above, but for the JFA/composite passes' single permanent fullscreen
             // command each (see where outlinePipelineFullscreenCommands is populated in the one-time
-            // setup above) - a level reload clears every pass's draw list (ClearPassesContent), and
+            // setup above) - a world reload clears every pass's draw list (ClearPassesContent), and
             // that setup never runs again, so without this the outline silhouette mask would keep
             // updating correctly on selection while nothing ever turns it into a visible outline again.
             for(auto& [passName, material] : outlinePipelineFullscreenCommands)
@@ -717,10 +717,10 @@ namespace Shard::Editor::Core{
             viewport->Draw();
         if(panelVisibility.properties)
             propertiesPanel->Draw(selectedActor);
-        if(panelVisibility.levelTree)
-            levelTree->Draw();
-        if(panelVisibility.levelSettings)
-            levelSettingsPanel->Draw();
+        if(panelVisibility.worldTree)
+            worldTree->Draw();
+        if(panelVisibility.worldSettings)
+            worldSettingsPanel->Draw();
         if(panelVisibility.projectSettings)
             projectSettingsPanel->Draw(&panelVisibility.projectSettings);
         if(panelVisibility.console)
@@ -730,8 +730,8 @@ namespace Shard::Editor::Core{
 
         materialEditorPanel->Draw();
 
-        if(Engine::Core::GetEngine().GetLevelManager()->IsAsyncLoadInProgress())
-            DrawLoadingOverlay(Engine::Core::GetEngine().GetLevelManager()->GetAsyncLoadProgress());
+        if(Engine::Core::GetEngine().GetWorldManager()->IsAsyncLoadInProgress())
+            DrawLoadingOverlay(Engine::Core::GetEngine().GetWorldManager()->GetAsyncLoadProgress());
 
         UpdateProbeBuildNotification();
         GUI::Notifications::RenderFrame();
@@ -787,7 +787,7 @@ namespace Shard::Editor::Core{
             if(trackingBake)
             {
                 const bool ok = probeManager->DidLastBakeSucceed();
-                GUI::Notifications::EndProgress(probeBuildNotif, ok, ok ? "GI probes baked - save the level to keep them" : "GI probe bake failed - see the log");
+                GUI::Notifications::EndProgress(probeBuildNotif, ok, ok ? "GI probes baked - save the world to keep them" : "GI probe bake failed - see the log");
             }
             else
             {
@@ -869,8 +869,8 @@ namespace Shard::Editor::Core{
         if(input->IsKeyDown(Engine::Input::Key::LeftControl)){
         
             if(input->WasKeyPressed(Engine::Input::Key::S)){
-                Engine::Core::GetEngine().GetLevelManager()->GetLevelAt(0)->Serialize(
-                    Engine::Core::GetEngine().GetLevelManager()->GetLevelAt(0)->GetPath()
+                Engine::Core::GetEngine().GetWorldManager()->GetWorldAt(0)->Serialize(
+                    Engine::Core::GetEngine().GetWorldManager()->GetWorldAt(0)->GetPath()
                 );
                 return;
             }

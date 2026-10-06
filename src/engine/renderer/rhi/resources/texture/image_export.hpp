@@ -22,10 +22,10 @@ namespace Shard::Engine::Rendering{
         // Convenience for the common offline-render case : reads back a texture using a float internal
         // format (RGBA32F, RGB16F, ...) and writes it straight to a .hdr file. Fails (returns false) if
         // the texture doesn't use a float format - use ReadPixels + WritePNG for 8-bit textures instead.
-        bool WriteTextureAsHDR(const std::shared_ptr<Texture2D>& texture, const Filesystem::Path& path, uint32_t level = 0);
+        bool WriteTextureAsHDR(const std::shared_ptr<Texture2D>& texture, const Filesystem::Path& path, uint32_t world = 0);
 
         // Convenience for exporting an 8-bit-per-channel texture (RGBA8, RGB8, ...) straight to PNG.
         // Fails (returns false) if the texture uses a float or integer internal format.
-        bool WriteTextureAsPNG(const std::shared_ptr<Texture2D>& texture, const Filesystem::Path& path, uint32_t level = 0);
+        bool WriteTextureAsPNG(const std::shared_ptr<Texture2D>& texture, const Filesystem::Path& path, uint32_t world = 0);
     }
 }

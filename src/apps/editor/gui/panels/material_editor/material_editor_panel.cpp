@@ -224,7 +224,7 @@ namespace Shard::Editor::GUI{
             if(ImGui::Checkbox("Receives Shadows", &receivesShadows))
                 dirty = true;
 
-            ImGui::TextDisabled("Shader/render mode changes apply after the level is reloaded.");
+            ImGui::TextDisabled("Shader/render mode changes apply after the world is reloaded.");
 
             ImGui::Separator();
             ImGui::Text("Parameters");

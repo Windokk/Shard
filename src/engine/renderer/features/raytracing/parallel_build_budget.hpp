@@ -10,9 +10,9 @@
 //
 // Why this needs to be shared rather than each caller computing its own hardware_concurrency()-sized
 // budget : ProbeManager::RebuildScene() can be called again before a previous build finishes (e.g. a
-// ProbeVolume activates twice while a level loads, or a level is closed and reopened right away) - the
+// ProbeVolume activates twice while a world loads, or a world is closed and reopened right away) - the
 // previous build isn't cancelled, just superseded (see that function's comment), so it keeps running in
-// the background. Loading a further level shortly after can start a third build on top of that. With
+// the background. Loading a further world shortly after can start a third build on top of that. With
 // each Build()/BuildFromSnapshot() call independently assuming it owns the whole machine, two or three
 // overlapping builds each spawn their own full batch of worker threads - past the OS's thread limit,
 // creating one more throws std::system_error. Sharing one budget across all of them keeps the total

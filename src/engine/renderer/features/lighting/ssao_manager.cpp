@@ -14,8 +14,8 @@
 #include "engine/renderer/components/camera.hpp"
 #include "engine/renderer/frontend/camera_manager.hpp"
 
-#include "engine/world/levels/level.hpp"
-#include "engine/world/levels/level_manager.hpp"
+#include "engine/world/world.hpp"
+#include "engine/world/world_manager.hpp"
 
 #include <glm/gtc/random.hpp>
 
@@ -196,8 +196,8 @@ namespace Shard::Engine::Rendering {
     {
         auto renderer = Core::GetEngine().GetRenderer();
 
-        auto level = Core::GetEngine().GetLevelManager()->GetLevelAt(0);
-        if (!level)
+        auto world = Core::GetEngine().GetWorldManager()->GetWorldAt(0);
+        if (!world)
             return;
 
         auto cam = Core::GetEngine().GetCameraManager()->GetActiveCamera();
@@ -213,9 +213,9 @@ namespace Shard::Engine::Rendering {
 
         auto rawPass = renderer->GetRenderPass("SSAORawPass");
         rawPass->customUniforms["projection"] = projection;
-        rawPass->customUniforms["radius"] = level->ssaoRadius;
-        rawPass->customUniforms["bias"] = level->ssaoBias;
-        rawPass->customUniforms["power"] = level->ssaoPower;
+        rawPass->customUniforms["radius"] = world->ssaoRadius;
+        rawPass->customUniforms["bias"] = world->ssaoBias;
+        rawPass->customUniforms["power"] = world->ssaoPower;
         rawPass->customUniforms["noiseScale"] = glm::vec2(
             float(m_PrepassFramebuffer->GetWidth()) / float(kNoiseTileSize),
             float(m_PrepassFramebuffer->GetHeight()) / float(kNoiseTileSize)

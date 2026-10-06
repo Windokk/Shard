@@ -9,6 +9,7 @@
 #include "engine/renderer/material/material.hpp"
 
 #include "engine/world/actor.hpp"
+#include "engine/renderer/frontend/render_world_data.hpp"
 
 #include "model_component.reflection.hpp"
 
@@ -187,7 +188,7 @@ namespace Shard::Engine::Objects::Components{
                 SetMaterials(std::move(resized));
             }
 
-            UpdateReferenceInLevel();
+            UpdateReferenceInWorld();
 
             // Re-register the new mesh into whatever extra passes it was in before the swap (e.g. this
             // is the currently selected actor's EditorOutlineMaskPass entry) - RemoveFromDrawList()
@@ -235,7 +236,7 @@ namespace Shard::Engine::Objects::Components{
             }
 
             this->Update();
-            UpdateReferenceInLevel();
+            UpdateReferenceInWorld();
 
             // Re-register the new mesh into whatever extra passes it was in before the swap (e.g. this
             // is the currently selected actor's EditorOutlineMaskPass entry) - RemoveFromDrawList()
@@ -245,13 +246,18 @@ namespace Shard::Engine::Objects::Components{
         }
     }
 
-    void Model::UpdateReferenceInLevel()
+    void Model::OnTransformChanged(uint8_t)
     {
-        if (!parent || !parent->level || !mesh || !activated)
+        UpdateReferenceInWorld();
+    }
+
+    void Model::UpdateReferenceInWorld()
+    {
+        if (!parent || !parent->world || !mesh || !activated)
         {
             return;
         }
-        parent->level->meshes[parent->GetComponentIDInLevel(local_id)] = { parent->transform->GetWorldMatrix(), mesh.get() };
+        parent->world->Ext<Rendering::RenderWorldData>().meshes[parent->GetComponentIDInWorld(local_id)] = { parent->transform->GetWorldMatrix(), mesh.get() };
         
         Update();
     }
@@ -274,17 +280,17 @@ namespace Shard::Engine::Objects::Components{
         if(!activated)
             return;
 
-        if (materials.size() > 0 && mesh != nullptr && parent->level && parent->level->IsLoaded()){
+        if (materials.size() > 0 && mesh != nullptr && parent->world && parent->world->IsLoaded()){
 
             std::shared_ptr<Transform> tr = parent->transform;
 
-            std::vector<Rendering::DrawCommand> cmds = mesh->CreateDrawCommands(tr, parent->GetComponentIDInLevel(local_id), this->materials);
+            std::vector<Rendering::DrawCommand> cmds = mesh->CreateDrawCommands(tr, parent->GetComponentIDInWorld(local_id), this->materials);
 
             std::vector<std::string> passesName;
             passesName.push_back("ForwardPass");
             // SSAO's depth+normal prepass (see SSAOManager) needs every mesh's real geometry, the same
             // way ForwardPass does - it always runs (SSAOManager::Init registers it unconditionally),
-            // only Level::ssaoEnabled gates whether lit.frag actually uses the result.
+            // only World::ssaoEnabled gates whether lit.frag actually uses the result.
             passesName.push_back("SSAODepthNormalPass");
 
             GetEngineContext()->GetRenderer()->AddOrUpdateCommands(cmds, passesName, true);
@@ -299,11 +305,11 @@ namespace Shard::Engine::Objects::Components{
         if (std::find(extraPasses.begin(), extraPasses.end(), passName) == extraPasses.end())
             extraPasses.push_back(passName);
 
-        if (materials.size() > 0 && mesh != nullptr && parent->level && parent->level->IsLoaded()){
+        if (materials.size() > 0 && mesh != nullptr && parent->world && parent->world->IsLoaded()){
 
             std::shared_ptr<Transform> tr = parent->transform;
 
-            std::vector<Rendering::DrawCommand> cmds = mesh->CreateDrawCommands(tr, parent->GetComponentIDInLevel(local_id), this->materials);
+            std::vector<Rendering::DrawCommand> cmds = mesh->CreateDrawCommands(tr, parent->GetComponentIDInWorld(local_id), this->materials);
 
             GetEngineContext()->GetRenderer()->AddOrUpdateCommands(cmds, {passName}, false);
         }
@@ -313,11 +319,11 @@ namespace Shard::Engine::Objects::Components{
     {
         extraPasses.erase(std::remove(extraPasses.begin(), extraPasses.end(), passName), extraPasses.end());
 
-        if (materials.size() > 0 && mesh != nullptr && parent->level && parent->level->IsLoaded()){
+        if (materials.size() > 0 && mesh != nullptr && parent->world && parent->world->IsLoaded()){
 
             std::vector<uint64_t> cmdsID;
             for(int i = 0; i < mesh->GetSubMeshes().size(); i++){
-                cmdsID.push_back(Rendering::MakeCommandID(mesh->GetAssetID().GetAsInt(), parent->GetComponentIDInLevel(local_id), i));
+                cmdsID.push_back(Rendering::MakeCommandID(mesh->GetAssetID().GetAsInt(), parent->GetComponentIDInWorld(local_id), i));
             }
 
             GetEngineContext()->GetRenderer()->RemoveCommands(cmdsID, {passName}, false);
@@ -348,12 +354,12 @@ namespace Shard::Engine::Objects::Components{
 
     void Model::RemoveFromDrawList()
     {
-        if (materials.size() > 0 && mesh != nullptr && parent->level->IsLoaded()){
+        if (materials.size() > 0 && mesh != nullptr && parent->world->IsLoaded()){
 
             std::shared_ptr<Transform> tr = parent->transform;
             std::vector<uint64_t> cmdsID;
             for(int i = 0; i < mesh->GetSubMeshes().size(); i++){
-                cmdsID.push_back(Rendering::MakeCommandID(mesh->GetAssetID().GetAsInt(), parent->GetComponentIDInLevel(local_id), i));
+                cmdsID.push_back(Rendering::MakeCommandID(mesh->GetAssetID().GetAsInt(), parent->GetComponentIDInWorld(local_id), i));
             }
 
             std::vector<std::string> passesName;

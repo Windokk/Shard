@@ -29,7 +29,7 @@ namespace {
         int loads = 0;
         int adoptedIDs = 0;
         std::vector<ResourceKey> materialDeps;
-        std::vector<ResourceKey> levelDeps;
+        std::vector<ResourceKey> worldDeps;
 
         void AddAsset(int id, const std::string& nameInProject, Filesystem::Type type = Filesystem::Type::T_IMAGE)
         {
@@ -78,15 +78,15 @@ namespace {
                 rm.RegisterKind(AssetKind::Material, std::move(info));
             }
             {
-                AssetKindInfo info; // owned by the level manager in the engine: never swept
+                AssetKindInfo info; // owned by the world manager in the engine: never swept
                 info.load = [this](const std::string&, const Filesystem::AssetInfos&) -> std::shared_ptr<void> {
                     loads++;
                     return std::make_shared<Lvl>();
                 };
-                info.ownerType = Filesystem::Type::T_LEVEL;
+                info.ownerType = Filesystem::Type::T_WORLD;
                 info.evictable = false;
-                info.dependencies = [this](const Filesystem::Path&) { return levelDeps; };
-                rm.RegisterKind(AssetKind::Level, std::move(info));
+                info.dependencies = [this](const Filesystem::Path&) { return worldDeps; };
+                rm.RegisterKind(AssetKind::World, std::move(info));
             }
         }
     };
@@ -259,19 +259,19 @@ namespace {
         EXPECT_TRUE(rm.Has(AssetKind::Texture, "textures/white.png"));
     }
 
-    TEST_F(ResourcesManagerTest, LevelIsNeverSweptButReleasesItsDependencies)
+    TEST_F(ResourcesManagerTest, WorldIsNeverSweptButReleasesItsDependencies)
     {
         AddAsset(501, "textures/a.png");
-        AddAsset(502, "levels/l.lvl", Filesystem::Type::T_LEVEL);
-        levelDeps = {{AssetKind::Texture, "textures/a.png"}};
+        AddAsset(502, "worlds/l.world", Filesystem::Type::T_WORLD);
+        worldDeps = {{AssetKind::Texture, "textures/a.png"}};
 
         rm.Get<Tex>(AssetKind::Texture, "textures/a.png");
-        auto level = rm.Get<Lvl>(AssetKind::Level, "levels/l.lvl");
-        ASSERT_NE(level, nullptr);
+        auto world = rm.Get<Lvl>(AssetKind::World, "worlds/l.world");
+        ASSERT_NE(world, nullptr);
 
-        rm.UnLoadDependencies("levels/l.lvl"); // unloads the level (owned elsewhere) then sweeps
+        rm.UnLoadDependencies("worlds/l.world"); // unloads the world (owned elsewhere) then sweeps
 
-        EXPECT_FALSE(rm.Has(AssetKind::Level, "levels/l.lvl"));
+        EXPECT_FALSE(rm.Has(AssetKind::World, "worlds/l.world"));
         EXPECT_FALSE(rm.Has(AssetKind::Texture, "textures/a.png"));
     }
 

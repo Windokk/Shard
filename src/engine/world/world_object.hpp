@@ -8,14 +8,14 @@
 
 namespace Shard::Engine::Objects{
 
-    class LevelObject : public Core::Object{
+    class WorldObject : public Core::Object{
         public:
 
-            virtual ~LevelObject();
+            virtual ~WorldObject();
 
-            std::shared_ptr<LevelObject> GetChild(int index);
+            std::shared_ptr<WorldObject> GetChild(int index);
 
-            std::shared_ptr<LevelObject> GetChild(Core::ObjectID id);
+            std::shared_ptr<WorldObject> GetChild(Core::ObjectID id);
             std::vector<Core::ObjectID> GetChildrenID(bool recursive = false){ 
                 std::vector<Core::ObjectID> ids;
 
@@ -23,7 +23,7 @@ namespace Shard::Engine::Objects{
                 
                 if (recursive) {
                     for (const auto& childID : children) {
-                        std::shared_ptr<LevelObject> child = GetChild(childID);
+                        std::shared_ptr<WorldObject> child = GetChild(childID);
                         if (child) {
                             std::vector<Core::ObjectID> subChildren = child->GetChildrenID(true);
                             ids.insert(ids.end(), subChildren.begin(), subChildren.end());
@@ -35,7 +35,7 @@ namespace Shard::Engine::Objects{
             }
             int GetChildrenCount() { return children.size(); }
 
-            virtual void AddChild(std::shared_ptr<LevelObject> o);
+            virtual void AddChild(std::shared_ptr<WorldObject> o);
 
             void DeleteChildRef(Core::ObjectID child){
                 for(int i = 0; i < children.size(); i++){
@@ -45,7 +45,7 @@ namespace Shard::Engine::Objects{
                 }
             }
 
-            std::shared_ptr<LevelObject> GetParent();
+            std::shared_ptr<WorldObject> GetParent();
             void SetParent(Core::ObjectID parentID) { this->parent = parentID; }
 
             Core::ObjectID GetID() { return id; }

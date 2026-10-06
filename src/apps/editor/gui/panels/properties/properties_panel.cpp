@@ -2,8 +2,8 @@
 
 #include "engine/assets/reflection/reflection_fields.hpp"
 #include "engine/world/engine.hpp"
-#include "engine/world/levels/level.hpp"
-#include "engine/world/levels/level_manager.hpp"
+#include "engine/world/world.hpp"
+#include "engine/world/world_manager.hpp"
 
 #include "apps/editor/gui/main_window.hpp"
 #include "apps/editor/gui/dragdrop/asset_drag_drop.hpp"
@@ -33,10 +33,10 @@ using namespace Shard::Engine::Objects::Components;
 
 namespace Shard::Editor::GUI{
 
-    static void MarkLevelDirty()
+    static void MarkWorldDirty()
     {
-        if (auto* level = Engine::Core::GetEngine().GetLevelManager()->GetLevelAt(0))
-            level->SetDirty(true);
+        if (auto* world = Engine::Core::GetEngine().GetWorldManager()->GetWorldAt(0))
+            world->SetDirty(true);
     }
 
     template<typename T>
@@ -362,7 +362,7 @@ namespace Shard::Editor::GUI{
                     if (ImGui::Combo("##ShapeType", &currentType, shapeTypeNames, IM_ARRAYSIZE(shapeTypeNames)))
                     {
                         body->SetShapeType(i, static_cast<Physics::PhysicsShape>(currentType));
-                        MarkLevelDirty();
+                        MarkWorldDirty();
                     }
 
                     switch (body->GetShapeType(i))
@@ -418,7 +418,7 @@ namespace Shard::Editor::GUI{
                 if (paramsChanged)
                 {
                     body->MarkShapesDirty();
-                    MarkLevelDirty();
+                    MarkWorldDirty();
                 }
 
                 ImGui::TreePop();
@@ -430,13 +430,13 @@ namespace Shard::Editor::GUI{
         if (indexToRemove != static_cast<size_t>(-1))
         {
             body->RemoveShape(indexToRemove);
-            MarkLevelDirty();
+            MarkWorldDirty();
         }
 
         if (ImGui::Button("Add Shape"))
         {
             body->AddShape();
-            MarkLevelDirty();
+            MarkWorldDirty();
         }
     }
 
@@ -476,7 +476,7 @@ namespace Shard::Editor::GUI{
             ImGui::TextDisabled("Live (not baked) - traced every frame.");
         }
 
-        // Only an active volume in the loaded level can be baked (it needs its GPU grid), and only one
+        // Only an active volume in the loaded world can be baked (it needs its GPU grid), and only one
         // bake runs at a time.
         ImGui::BeginDisabled(baking || !volume->Active());
         if (ImGui::Button((std::string(baked || hasFile ? "Re-bake" : "Bake") + "##ProbeVolumeBake").c_str()))
@@ -484,7 +484,7 @@ namespace Shard::Editor::GUI{
         ImGui::EndDisabled();
 
         if (ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled))
-            ImGui::SetTooltip("Traces this volume to convergence and saves the result next to the level,\nso it loads instantly instead of being recomputed on every level load.");
+            ImGui::SetTooltip("Traces this volume to convergence and saves the result next to the world,\nso it loads instantly instead of being recomputed on every world load.");
 
         if (hasFile)
         {
@@ -494,7 +494,7 @@ namespace Shard::Editor::GUI{
             if (ImGui::Button("Delete Bake##ProbeVolumeBake"))
             {
                 volume->ClearBake();
-                MarkLevelDirty();
+                MarkWorldDirty();
             }
             ImGui::EndDisabled();
 
@@ -524,7 +524,7 @@ namespace Shard::Editor::GUI{
             if (componentToRemove)
             {
                 actor->RemoveComponent(componentToRemove);
-                MarkLevelDirty();
+                MarkWorldDirty();
             }
 
             ImGui::Separator();
@@ -564,39 +564,39 @@ namespace Shard::Editor::GUI{
     {
         if (ImGui::MenuItem("Light")) {
             actor->AddComponent<Engine::Objects::Components::Light>();
-            MarkLevelDirty();
+            MarkWorldDirty();
         }
 
         if (ImGui::MenuItem("Camera")) {
             actor->AddComponent<Engine::Objects::Components::Camera>();
-            MarkLevelDirty();
+            MarkWorldDirty();
         }
 
         if (ImGui::MenuItem("Audio Source")) {
             actor->AddComponent<Engine::Objects::Components::AudioSource>();
-            MarkLevelDirty();
+            MarkWorldDirty();
         }
 
         if (ImGui::MenuItem("Physics Body")) {
             actor->AddComponent<Engine::Objects::Components::PhysicsBody>();
-            MarkLevelDirty();
+            MarkWorldDirty();
         }
 
         if (ImGui::MenuItem("Model")) {
             actor->AddComponent<Engine::Objects::Components::Model>();
-            MarkLevelDirty();
+            MarkWorldDirty();
         }
 
         if (ImGui::MenuItem("Probe Volume")) {
             actor->AddComponent<Engine::Objects::Components::ProbeVolume>();
-            MarkLevelDirty();
+            MarkWorldDirty();
         }
 
         // Everything registered through REGISTER_COMPONENT (game-side custom components, e.g.
         // scripts) - these aren't special-cased engine types like the ones above, so the registry is
-        // the only way to instantiate them by name (Level::DeserializeComponents does the same thing
-        // for level files). CreateComponentByName hands back a parent-less component (see
-        // DECLARE_COMPONENT); AddComponentRaw is what wires it into this actor/level.
+        // the only way to instantiate them by name (World::DeserializeComponents does the same thing
+        // for world files). CreateComponentByName hands back a parent-less component (see
+        // DECLARE_COMPONENT); AddComponentRaw is what wires it into this actor/world.
         const auto& customComponents = GetComponentRegistry().GetAll();
         if (!customComponents.empty())
         {
@@ -618,7 +618,7 @@ namespace Shard::Editor::GUI{
                     if (component)
                     {
                         actor->AddComponentRaw(component);
-                        MarkLevelDirty();
+                        MarkWorldDirty();
                     }
                 }
             }
@@ -637,7 +637,7 @@ namespace Shard::Editor::GUI{
         if (ImGui::InputText("##ActorName", buffer, sizeof(buffer)))
         {
             actor->SetName(buffer);
-            MarkLevelDirty();
+            MarkWorldDirty();
         }
 
         ImGui::Text("Object ID: %d", actor->GetID().GetAsInt());
@@ -659,7 +659,7 @@ namespace Shard::Editor::GUI{
         if (ImGui::Checkbox(id.c_str(), &active))
         {
             active ? comp->Activate() : comp->DeActivate();
-            MarkLevelDirty();
+            MarkWorldDirty();
         }
 
         ImGui::SameLine();
@@ -768,7 +768,7 @@ namespace Shard::Editor::GUI{
                 if (ImGui::DragFloat(id.c_str(), v, 0.05f, field->min, field->max))
                 {
                     FieldChangedEvent evt{ field };
-                    comp->OnFieldChanged(evt); MarkLevelDirty();
+                    comp->OnFieldChanged(evt); MarkWorldDirty();
                 }
                 break;
             }
@@ -779,7 +779,7 @@ namespace Shard::Editor::GUI{
                 if (ImGui::DragScalar(id.c_str(), ImGuiDataType_Double, v, 0.05f, &field->min, &field->max))
                 {
                     FieldChangedEvent evt{ field };
-                    comp->OnFieldChanged(evt); MarkLevelDirty();
+                    comp->OnFieldChanged(evt); MarkWorldDirty();
                 }
                 break;
             }
@@ -792,7 +792,7 @@ namespace Shard::Editor::GUI{
                 {
                     *v = static_cast<int8_t>(tmp);
                     FieldChangedEvent evt{ field };
-                    comp->OnFieldChanged(evt); MarkLevelDirty();
+                    comp->OnFieldChanged(evt); MarkWorldDirty();
                 }
                 break;
             }
@@ -805,7 +805,7 @@ namespace Shard::Editor::GUI{
                 {
                     *v = static_cast<int16_t>(tmp);
                     FieldChangedEvent evt{ field };
-                    comp->OnFieldChanged(evt); MarkLevelDirty();
+                    comp->OnFieldChanged(evt); MarkWorldDirty();
                 }
                 break;
             }
@@ -816,7 +816,7 @@ namespace Shard::Editor::GUI{
                 if (ImGui::DragInt(id.c_str(), v, 0.05f, (int32_t)field->min, (int32_t)field->max))
                 {
                     FieldChangedEvent evt{ field };
-                    comp->OnFieldChanged(evt); MarkLevelDirty();
+                    comp->OnFieldChanged(evt); MarkWorldDirty();
                 }
                 break;
             }
@@ -827,7 +827,7 @@ namespace Shard::Editor::GUI{
                 if (ImGui::DragScalar(id.c_str(), ImGuiDataType_S64, v, 0.05f, (int64_t*)&field->min, (int64_t*)&field->max))
                 {
                     FieldChangedEvent evt{ field };
-                    comp->OnFieldChanged(evt); MarkLevelDirty();
+                    comp->OnFieldChanged(evt); MarkWorldDirty();
                 }
                 break;
             }
@@ -840,7 +840,7 @@ namespace Shard::Editor::GUI{
                 {
                     *v = static_cast<uint8_t>(tmp);
                     FieldChangedEvent evt{ field };
-                    comp->OnFieldChanged(evt); MarkLevelDirty();
+                    comp->OnFieldChanged(evt); MarkWorldDirty();
                 }
                 break;
             }
@@ -853,7 +853,7 @@ namespace Shard::Editor::GUI{
                 {
                     *v = static_cast<uint16_t>(tmp);
                     FieldChangedEvent evt{ field };
-                    comp->OnFieldChanged(evt); MarkLevelDirty();
+                    comp->OnFieldChanged(evt); MarkWorldDirty();
                 }
                 break;
             }
@@ -864,7 +864,7 @@ namespace Shard::Editor::GUI{
                 if (ImGui::DragScalar(id.c_str(), ImGuiDataType_U32, v, 0, (uint32_t*)&field->max))
                 {
                     FieldChangedEvent evt{ field };
-                    comp->OnFieldChanged(evt); MarkLevelDirty();
+                    comp->OnFieldChanged(evt); MarkWorldDirty();
                 }
                 break;
             }
@@ -875,7 +875,7 @@ namespace Shard::Editor::GUI{
                 if (ImGui::DragScalar(id.c_str(), ImGuiDataType_U64, v, 0, (uint64_t*)&field->max))
                 {
                     FieldChangedEvent evt{ field };
-                    comp->OnFieldChanged(evt); MarkLevelDirty();
+                    comp->OnFieldChanged(evt); MarkWorldDirty();
                 }
                 break;
             }
@@ -885,7 +885,7 @@ namespace Shard::Editor::GUI{
                 if (ImGui::Checkbox(id.c_str(), v))
                 {
                     FieldChangedEvent evt{ field };
-                    comp->OnFieldChanged(evt); MarkLevelDirty();
+                    comp->OnFieldChanged(evt); MarkWorldDirty();
                 }
                 break;
             }
@@ -925,7 +925,7 @@ namespace Shard::Editor::GUI{
                             *static_cast<Filesystem::AssetID*>(value) = manager->GetIDFromNameInProject(buffer);
                         }
                         FieldChangedEvent evt{ field };
-                        comp->OnFieldChanged(evt); MarkLevelDirty();
+                        comp->OnFieldChanged(evt); MarkWorldDirty();
                     }
 
                     // Accept an asset dragged from the browser onto this field - works for any
@@ -938,7 +938,7 @@ namespace Shard::Editor::GUI{
                         {
                             *static_cast<Filesystem::AssetID*>(value) = manager->GetIDFromNameInProject(dropped[0]);
                             FieldChangedEvent evt{ field };
-                            comp->OnFieldChanged(evt); MarkLevelDirty();
+                            comp->OnFieldChanged(evt); MarkWorldDirty();
                         }
                         ImGui::EndDragDropTarget();
                     }
@@ -960,7 +960,7 @@ namespace Shard::Editor::GUI{
                 {
                     *str = std::string(buffer);
                     FieldChangedEvent evt{ field };
-                    comp->OnFieldChanged(evt); MarkLevelDirty();
+                    comp->OnFieldChanged(evt); MarkWorldDirty();
                 }
                 break;
             }
@@ -971,7 +971,7 @@ namespace Shard::Editor::GUI{
                 if (DrawQuatEuler(fieldName, *quat, field->min, field->max))
                 {
                     FieldChangedEvent evt{ field };
-                    comp->OnFieldChanged(evt); MarkLevelDirty();
+                    comp->OnFieldChanged(evt); MarkWorldDirty();
                 }
                 break;
             }
@@ -991,7 +991,7 @@ namespace Shard::Editor::GUI{
                     memcpy(value, &current, field->enumDesc->size);
 
                     FieldChangedEvent evt{ field };
-                    comp->OnFieldChanged(evt); MarkLevelDirty();
+                    comp->OnFieldChanged(evt); MarkWorldDirty();
                 }
                 break;
             }
@@ -1024,7 +1024,7 @@ namespace Shard::Editor::GUI{
                 if (InputVector4<float>(fieldName, &vec->x, 0.1f, field->min, field->max))
                 {
                     FieldChangedEvent evt{ field };
-                    comp->OnFieldChanged(evt); MarkLevelDirty();
+                    comp->OnFieldChanged(evt); MarkWorldDirty();
                 }
                 break;
             } 
@@ -1035,7 +1035,7 @@ namespace Shard::Editor::GUI{
                 if (InputVector3<float>(fieldName, &vec->x, 0.1f, field->min, field->max))
                 {
                     FieldChangedEvent evt{ field };
-                    comp->OnFieldChanged(evt); MarkLevelDirty();
+                    comp->OnFieldChanged(evt); MarkWorldDirty();
                 }
                 break;
             }
@@ -1046,7 +1046,7 @@ namespace Shard::Editor::GUI{
                 if (InputVector2<float>(fieldName, &vec->x, 0.1f, field->min, field->max))
                 {
                     FieldChangedEvent evt{ field };
-                    comp->OnFieldChanged(evt); MarkLevelDirty();
+                    comp->OnFieldChanged(evt); MarkWorldDirty();
                 }
                 break;
             }
@@ -1057,7 +1057,7 @@ namespace Shard::Editor::GUI{
                 if (InputVector2<int>(fieldName, &vec->x, 1.0f, (int)field->min, (int)field->max))
                 {
                     FieldChangedEvent evt{ field };
-                    comp->OnFieldChanged(evt); MarkLevelDirty();
+                    comp->OnFieldChanged(evt); MarkWorldDirty();
                 }
                 break;
             } 
@@ -1068,7 +1068,7 @@ namespace Shard::Editor::GUI{
                 if (InputVector3<int>(fieldName, &vec->x, 1.0f, (int)field->min, (int)field->max))
                 {
                     FieldChangedEvent evt{ field };
-                    comp->OnFieldChanged(evt); MarkLevelDirty();
+                    comp->OnFieldChanged(evt); MarkWorldDirty();
                 }
                 break;
             }
@@ -1079,7 +1079,7 @@ namespace Shard::Editor::GUI{
                 if (InputVector4<int>(fieldName, &vec->x, 1.0f, (int)field->min, (int)field->max))
                 {
                     FieldChangedEvent evt{ field };
-                    comp->OnFieldChanged(evt); MarkLevelDirty();
+                    comp->OnFieldChanged(evt); MarkWorldDirty();
                 }
                 break;
             }
@@ -1090,7 +1090,7 @@ namespace Shard::Editor::GUI{
                 if (InputVector2<unsigned int>(fieldName, &vec->x, 1.0f, 0.0f, (int)field->max))
                 {
                     FieldChangedEvent evt{ field };
-                    comp->OnFieldChanged(evt); MarkLevelDirty();
+                    comp->OnFieldChanged(evt); MarkWorldDirty();
                 }
                 break;
             } 
@@ -1101,7 +1101,7 @@ namespace Shard::Editor::GUI{
                 if (InputVector3<unsigned int>(fieldName, &vec->x, 1.0f, 0.0f, (int)field->max))
                 {
                     FieldChangedEvent evt{ field };
-                    comp->OnFieldChanged(evt); MarkLevelDirty();
+                    comp->OnFieldChanged(evt); MarkWorldDirty();
                 }
                 break;
             }
@@ -1112,7 +1112,7 @@ namespace Shard::Editor::GUI{
                 if (InputVector4<unsigned int>(fieldName, &vec->x, 1.0f, 0.0f, (int)field->max))
                 {
                     FieldChangedEvent evt{ field };
-                    comp->OnFieldChanged(evt); MarkLevelDirty();
+                    comp->OnFieldChanged(evt); MarkWorldDirty();
                 }
                 break;
             }
@@ -1123,7 +1123,7 @@ namespace Shard::Editor::GUI{
                 if (InputMatrix(field->name, *mat))
                 {
                     FieldChangedEvent evt{ field };
-                    comp->OnFieldChanged(evt); MarkLevelDirty();
+                    comp->OnFieldChanged(evt); MarkWorldDirty();
                 }
                 break;
             }
@@ -1134,7 +1134,7 @@ namespace Shard::Editor::GUI{
                 if (InputMatrix(field->name, *mat))
                 {
                     FieldChangedEvent evt{ field };
-                    comp->OnFieldChanged(evt); MarkLevelDirty();
+                    comp->OnFieldChanged(evt); MarkWorldDirty();
                 }
                 break;
             }
@@ -1145,7 +1145,7 @@ namespace Shard::Editor::GUI{
                 if (InputMatrix(field->name, *mat))
                 {
                     FieldChangedEvent evt{ field };
-                    comp->OnFieldChanged(evt); MarkLevelDirty();
+                    comp->OnFieldChanged(evt); MarkWorldDirty();
                 }
                 break;
             }
@@ -1159,7 +1159,7 @@ namespace Shard::Editor::GUI{
                     *v = COL_RGB(value[0], value[1], value[2]);
 
                     FieldChangedEvent evt{field};
-                    comp->OnFieldChanged(evt); MarkLevelDirty();
+                    comp->OnFieldChanged(evt); MarkWorldDirty();
                 }
                 break;
             }
@@ -1173,7 +1173,7 @@ namespace Shard::Editor::GUI{
                     *v = COL_RGBA(value[0], value[1], value[2], value[3]);
 
                     FieldChangedEvent evt{field};
-                    comp->OnFieldChanged(evt); MarkLevelDirty();
+                    comp->OnFieldChanged(evt); MarkWorldDirty();
                 }
                 break;
             }
@@ -1193,7 +1193,7 @@ namespace Shard::Editor::GUI{
                     str[255] = '\0';
 
                     FieldChangedEvent evt{ field };
-                    comp->OnFieldChanged(evt); MarkLevelDirty();
+                    comp->OnFieldChanged(evt); MarkWorldDirty();
                 }
 
                 break;

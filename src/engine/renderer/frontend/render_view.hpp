@@ -10,12 +10,12 @@ namespace Shard::Engine::Rendering {
 
     /// @brief Where a view's scene lighting comes from.
     enum class ViewLighting {
-        /// The live level : its light buffer, clustered light culling, DDGI, SSAO and shadows. The
+        /// The live world : its light buffer, clustered light culling, DDGI, SSAO and shadows. The
         /// clustered culling and SSAO results are built for the active camera, so this is only
         /// meaningful for the main frame.
         Scene,
         /// A self-contained fixed studio rig (see ImmediateRenderer) : a few directional lights, a flat
-        /// ambient term, and no clustered lights / DDGI / SSAO / shadows. Independent of the level.
+        /// ambient term, and no clustered lights / DDGI / SSAO / shadows. Independent of the world.
         Studio
     };
 
@@ -35,10 +35,10 @@ namespace Shard::Engine::Rendering {
         ViewLighting lighting = ViewLighting::Scene;
 
         /// Only read when lighting == Studio : number of lights in the rig bound at light buffer slot 0,
-        /// and the flat ambient intensity that replaces Level::ambientIntensity.
+        /// and the flat ambient intensity that replaces World::ambientIntensity.
         int studioLightCount = 0;
         float studioAmbient = 0.0f;
-        /// Image-based lighting used in place of the level's skybox. May be null (no IBL bound).
+        /// Image-based lighting used in place of the world's skybox. May be null (no IBL bound).
         std::shared_ptr<EnvironmentMap> studioEnvironment;
     };
 }

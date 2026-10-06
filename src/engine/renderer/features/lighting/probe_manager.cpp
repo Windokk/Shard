@@ -16,8 +16,9 @@
 #include "engine/renderer/material/compute_shader.hpp"
 #include "engine/renderer/rhi/pipelines/compute_pipeline.hpp"
 
-#include "engine/world/levels/level_manager.hpp"
-#include "engine/world/skybox.hpp"
+#include "engine/world/world_manager.hpp"
+#include "engine/renderer/frontend/render_world_data.hpp"
+#include "engine/renderer/frontend/skybox.hpp"
 
 #include "engine/core/diagnostics/logger.hpp"
 
@@ -112,16 +113,16 @@ namespace Shard::Engine::Rendering {
     ProbeManager::ProbeManager() : m_RayRNG(std::random_device{}()) {}
     ProbeManager::~ProbeManager() = default;
 
-    void ProbeManager::RebuildScene(Levels::Level* level)
+    void ProbeManager::RebuildScene(Worlds::World* world)
     {
-        if (!level)
+        if (!world)
             return;
 
         // CaptureSnapshot() is the only GL-touching (bindless texture handle resolution) part, and
         // it's cheap (bounded by model/material count) - do it here, synchronously, on the calling
         // (main/GL) thread. The expensive part (triangle flatten + BVH build, bounded by triangle
         // count) runs in the background via BuildFromSnapshot(), which touches no engine/GL state.
-        Raytracing::RaytraceSceneSnapshot snapshot = Raytracing::SceneBuilder::CaptureSnapshot(level, /*excludeMasked=*/true);
+        Raytracing::RaytraceSceneSnapshot snapshot = Raytracing::SceneBuilder::CaptureSnapshot(world, /*excludeMasked=*/true);
 
         // Don't let a still-running previous build block this call - std::async futures block their
         // destructor until the task finishes, so reassigning m_PendingSceneBuild directly would defeat
@@ -380,9 +381,9 @@ namespace Shard::Engine::Rendering {
         return slot && slot->baked;
     }
 
-    bool ProbeManager::BeginBake(Objects::Components::ProbeVolume* volume, Levels::Level* level, const Filesystem::Path& file)
+    bool ProbeManager::BeginBake(Objects::Components::ProbeVolume* volume, Worlds::World* world, const Filesystem::Path& file)
     {
-        if (!volume || !level)
+        if (!volume || !world)
             return false;
 
         if (m_Bake.active)
@@ -403,8 +404,8 @@ namespace Shard::Engine::Rendering {
         RebuildGrid(*slot);
 
         // Always rebuild the scene, even if one is already built - it may predate geometry edits, and a
-        // bake is precisely the moment the result has to reflect the level as it is now.
-        RebuildScene(level);
+        // bake is precisely the moment the result has to reflect the world as it is now.
+        RebuildScene(world);
 
         m_Bake = BakeJob{};
         m_Bake.active = true;
@@ -847,16 +848,16 @@ namespace Shard::Engine::Rendering {
             m_SceneBuilding.store(false, std::memory_order_relaxed);
         }
 
-        // A bake is waiting on the scene build. If that build finished without leaving a scene (the level
+        // A bake is waiting on the scene build. If that build finished without leaving a scene (the world
         // has no geometry, or the build threw), nothing will ever unblock it - fail it instead of letting
         // the editor's progress notification sit there forever.
         if (m_Bake.active && !m_SceneBuilding.load(std::memory_order_relaxed) && !m_SceneBuilt)
         {
-            DEBUG_ERROR("ProbeManager : probe bake aborted, the level has no geometry to trace against.");
+            DEBUG_ERROR("ProbeManager : probe bake aborted, the world has no geometry to trace against.");
             EndBake(false);
         }
 
-        // Baked volumes do no per-frame work at all (and need no scene), so a level made only of those
+        // Baked volumes do no per-frame work at all (and need no scene), so a world made only of those
         // never gets past here.
         const bool anyLive = std::any_of(m_Volumes.begin(), m_Volumes.end(),
             [](const VolumeSlot& slot) { return !slot.baked; });
@@ -889,15 +890,19 @@ namespace Shard::Engine::Rendering {
         }
 
         // Sky radiance for rays that escape the scene - see m_SkyIrradiance. Re-read every frame (it's
-        // two pointer hops) instead of cached, so a level swap or a skybox change can't leave this
+        // two pointer hops) instead of cached, so a world swap or a skybox change can't leave this
         // pointing at a freed cubemap.
         m_SkyIrradiance = nullptr;
-        Levels::LevelManager* levelManager = Core::GetEngine().GetLevelManager();
-        if (levelManager && levelManager->GetLoadedLevelCount() > 0)
+        Worlds::WorldManager* worldManager = Core::GetEngine().GetWorldManager();
+        if (worldManager && worldManager->GetLoadedWorldCount() > 0)
         {
-            Levels::Level* level = levelManager->GetLevelAt(0);
-            if (level && level->skybox && level->skybox->GetEnvMap())
-                m_SkyIrradiance = level->skybox->GetEnvMap()->GetIrradiance();
+            Worlds::World* world = worldManager->GetWorldAt(0);
+            if (world)
+            {
+                auto& skybox = world->Ext<RenderWorldData>().skybox;
+                if (skybox && skybox->GetEnvMap())
+                    m_SkyIrradiance = skybox->GetEnvMap()->GetIrradiance();
+            }
         }
 
         if (m_Bake.active)

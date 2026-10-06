@@ -65,7 +65,9 @@ namespace Shard::Engine::Objects::Components
             void Rotate(glm::vec3 angle, bool updateDirty = true);
             void Scale(glm::vec3 deltaScale, bool updateDirty = true);
 
-            void UpdateMeshReferencesInLevel();
+            /// @brief Tells the other components of the actor that this transform changed (see Component::OnTransformChanged)
+            /// @param changes TransformChange flags
+            void NotifyChanged(uint8_t changes);
 
             void OnFieldChanged(const FieldChangedEvent& event) override;
 

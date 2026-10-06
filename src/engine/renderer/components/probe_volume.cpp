@@ -86,7 +86,7 @@ namespace Shard::Engine::Objects::Components{
     {
         Volume::RefreshDebugDrawCommands();
 
-        if (!m_ProbeDebugShape || !m_ProbeDebugShape->m_Mesh || !parent || !parent->level || !parent->level->IsLoaded())
+        if (!m_ProbeDebugShape || !m_ProbeDebugShape->m_Mesh || !parent || !parent->world || !parent->world->IsLoaded())
             return;
 
         Rendering::DrawCommand cmd = {};
@@ -97,7 +97,7 @@ namespace Shard::Engine::Objects::Components{
         cmd.indexOffset = 0;
         cmd.material = GetEngineContext()->GetRenderer()->GetDebugMaterial();
         cmd.mesh = m_ProbeDebugShape->m_Mesh;
-        cmd.modelID = parent->GetComponentIDInLevel(local_id);
+        cmd.modelID = parent->GetComponentIDInWorld(local_id);
         cmd.modelMatrix = GetDebugModelMatrix();
         cmd.objectID = parent->GetID().GetAsInt();
         cmd.vertexCount = m_ProbeDebugShape->m_Mesh->GetVertexCount();
@@ -113,14 +113,14 @@ namespace Shard::Engine::Objects::Components{
         RebuildProbeVisualization();
         Volume::Activate();
 
-        if(parent && parent->level && parent->level->IsLoaded())
+        if(parent && parent->world && parent->world->IsLoaded())
         {
             auto probeManager = GetEngineContext()->GetRenderer()->GetProbeManager();
             auto* resources = GetEngineContext()->GetResourcesManager();
 
-            // Normally the level's asset prefetcher already decoded the bake on a worker thread and it is
+            // Normally the world's asset prefetcher already decoded the bake on a worker thread and it is
             // waiting in the resource cache - this only reads the file itself if it isn't (a volume
-            // activated from the editor after the level loaded, ...).
+            // activated from the editor after the world loaded, ...).
             std::shared_ptr<const Rendering::ProbeBakeData> baked;
             if(!bakedData.empty())
                 baked = resources->Get<Rendering::ProbeBakeData>(Core::Resources::AssetKind::ProbeBake, bakedData);
@@ -129,7 +129,7 @@ namespace Shard::Engine::Objects::Components{
             {
                 // Live volume (never baked, or its bake is out of date) : it traces against a scene, which
                 // is the expensive part a baked volume gets to skip entirely.
-                probeManager->RebuildScene(parent->level);
+                probeManager->RebuildScene(parent->world);
             }
 
             // Uploaded (or refused) - either way the CPU copy has served its purpose.
@@ -142,18 +142,18 @@ namespace Shard::Engine::Objects::Components{
     {
         Volume::DeActivate();
 
-        if(parent && parent->level && parent->level->IsLoaded())
+        if(parent && parent->world && parent->world->IsLoaded())
             GetEngineContext()->GetRenderer()->GetProbeManager()->RemoveActiveVolume(this);
     }
 
     void ProbeVolume::Destroy()
     {
-        if(parent && parent->level && parent->level->IsLoaded())
+        if(parent && parent->world && parent->world->IsLoaded())
             GetEngineContext()->GetRenderer()->GetProbeManager()->RemoveActiveVolume(this);
 
         if (m_ProbeDebugShape && m_ProbeDebugShape->m_Mesh && parent)
         {
-            uint64_t cmdID = Rendering::MakeCommandID(m_ProbeDebugShape->m_Mesh->GetAssetID().GetAsInt(), parent->GetComponentIDInLevel(local_id), 0);
+            uint64_t cmdID = Rendering::MakeCommandID(m_ProbeDebugShape->m_Mesh->GetAssetID().GetAsInt(), parent->GetComponentIDInWorld(local_id), 0);
             GetEngineContext()->GetRenderer()->RemoveCommands({cmdID}, {"ProbeGizmoPass"}, false);
         }
         delete m_ProbeDebugShape;
@@ -180,7 +180,7 @@ namespace Shard::Engine::Objects::Components{
         // (RebuildGrid re-inits probeStateBuffer) - the per-frame dispatch is already gated on the flag.
         if (name == "halfExtent" || name == "probeCounts" || name == "raysPerProbe" || name == "enableRelocation")
         {
-            if(parent && parent->level && parent->level->IsLoaded())
+            if(parent && parent->world && parent->world->IsLoaded())
             {
                 auto probeManager = GetEngineContext()->GetRenderer()->GetProbeManager();
                 const bool wasBaked = probeManager->IsVolumeBaked(this);
@@ -192,7 +192,7 @@ namespace Shard::Engine::Objects::Components{
 
                 // A baked volume never needed a scene, so it may have none. A live one does.
                 if(wasBaked)
-                    probeManager->RebuildScene(parent->level);
+                    probeManager->RebuildScene(parent->world);
             }
         }
     }
@@ -231,7 +231,7 @@ namespace Shard::Engine::Objects::Components{
 
         // "maxBounces" is deliberately not read any more : bounce depth stopped being a setting when
         // multi-bounce moved to a cross-frame feedback loop (see ProbeManager's class comment), and a
-        // level authored before that change would otherwise keep asking for N times the ray cost to get
+        // world authored before that change would otherwise keep asking for N times the ray cost to get
         // FEWER bounces than it now gets for free. Ignoring the old key silently is the right migration
         // - it simply stops being written on the next save.
 
@@ -288,7 +288,7 @@ namespace Shard::Engine::Objects::Components{
     }
 
     namespace {
-        // Keeps a level/actor name usable as part of a file name on every platform.
+        // Keeps a world/actor name usable as part of a file name on every platform.
         std::string SanitizeForFileName(const std::string& name)
         {
             std::string out;
@@ -301,9 +301,9 @@ namespace Shard::Engine::Objects::Components{
 
     bool ProbeVolume::Bake()
     {
-        if (!activated || !parent || !parent->level || !parent->level->IsLoaded())
+        if (!activated || !parent || !parent->world || !parent->world->IsLoaded())
         {
-            DEBUG_WARNING("ProbeVolume : only an active volume in a loaded level can be baked.");
+            DEBUG_WARNING("ProbeVolume : only an active volume in a loaded world can be baked.");
             return false;
         }
 
@@ -311,19 +311,19 @@ namespace Shard::Engine::Objects::Components{
         const Filesystem::Path resRoot = engine->GetFileManager()->GetProjectResRoot();
 
         // Re-bake : overwrite this volume's own file. First bake : a new file in the project's "probes"
-        // folder. Its name only has to be unique NOW - once written, the level file stores the full path,
-        // so it doesn't matter that actor names (or the level's) can change later.
+        // folder. Its name only has to be unique NOW - once written, the world file stores the full path,
+        // so it doesn't matter that actor names (or the world's) can change later.
         std::string relative = bakedData;
         if (relative.empty())
         {
-            const std::string stem = "probes/" + SanitizeForFileName(parent->level->GetName()) + "_" + SanitizeForFileName(parent->GetName());
+            const std::string stem = "probes/" + SanitizeForFileName(parent->world->GetName()) + "_" + SanitizeForFileName(parent->GetName());
             relative = stem + Rendering::kProbeBakeExtension;
 
             for (int n = 2; (resRoot / relative).Exists(); n++)
                 relative = stem + "_" + std::to_string(n) + Rendering::kProbeBakeExtension;
         }
 
-        return engine->GetRenderer()->GetProbeManager()->BeginBake(this, parent->level, resRoot / relative);
+        return engine->GetRenderer()->GetProbeManager()->BeginBake(this, parent->world, resRoot / relative);
     }
 
     void ProbeVolume::OnBakeFinished(const Filesystem::Path& file)
@@ -334,12 +334,12 @@ namespace Shard::Engine::Objects::Components{
         const std::string nameInProject = fileManager->GetFileInfos(file).nameInProject;
         if (nameInProject.empty())
         {
-            DEBUG_ERROR("ProbeVolume : baked to '" + file.full + "', which is outside the project's resources - the level cannot reference it.");
+            DEBUG_ERROR("ProbeVolume : baked to '" + file.full + "', which is outside the project's resources - the world cannot reference it.");
             return;
         }
 
         // The asset database is otherwise only read at project load, so without this the file has no ID
-        // and the next level load couldn't resolve its path.
+        // and the next world load couldn't resolve its path.
         fileManager->RegisterAsset(file);
 
         bakedData = nameInProject;
@@ -348,14 +348,14 @@ namespace Shard::Engine::Objects::Components{
         engine->GetResourcesManager()->Unload(Core::Resources::AssetKind::ProbeBake, bakedData);
 
         // Written straight away rather than at project shutdown, so a crash between here and then can't
-        // leave a saved level pointing at a file the database has never heard of.
+        // leave a saved world pointing at a file the database has never heard of.
         if (auto project = engine->GetCurrentProject())
             Serialization::SerializeAssetDataBase(project->GetAssetDatabasePath(), *engine->GetAssetIDManager());
 
-        if (parent && parent->level)
-            parent->level->SetDirty(true);
+        if (parent && parent->world)
+            parent->world->SetDirty(true);
 
-        DEBUG_INFO("ProbeVolume : baked GI probes saved to " + bakedData + " - save the level to keep the reference.");
+        DEBUG_INFO("ProbeVolume : baked GI probes saved to " + bakedData + " - save the world to keep the reference.");
     }
 
     void ProbeVolume::ClearBake()
@@ -383,19 +383,19 @@ namespace Shard::Engine::Objects::Components{
             bakedData.clear();
         }
 
-        if (parent && parent->level)
+        if (parent && parent->world)
         {
-            parent->level->SetDirty(true);
+            parent->world->SetDirty(true);
 
             // A baked volume was running without a scene - back to live means it needs one again. (A
             // volume that was merely out of date is already live and already has its scene.)
-            if (activated && parent->level->IsLoaded())
+            if (activated && parent->world->IsLoaded())
             {
                 auto probeManager = engine->GetRenderer()->GetProbeManager();
                 if (probeManager->IsVolumeBaked(this))
                 {
                     probeManager->RebuildGrid(this);
-                    probeManager->RebuildScene(parent->level);
+                    probeManager->RebuildScene(parent->world);
                 }
             }
         }

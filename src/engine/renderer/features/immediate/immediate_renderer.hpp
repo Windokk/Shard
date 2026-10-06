@@ -21,7 +21,7 @@ namespace Shard::Engine::Rendering {
     enum class ImmediateLighting {
         /// Every surface drawn as one flat color (ImmediateDesc::unlitColor), whatever its material.
         Unlit,
-        /// Real materials lit by a fixed 3-light studio rig, independent of the level (see ViewLighting::Studio).
+        /// Real materials lit by a fixed 3-light studio rig, independent of the world (see ViewLighting::Studio).
         Studio
     };
 
@@ -138,7 +138,7 @@ namespace Shard::Engine::Rendering {
             std::shared_ptr<StorageBuffer> m_EmptyClusterIndices;
 
             // Soft grey sky-to-ground gradient : the image-based lighting of every Studio render, so a
-            // thumbnail never depends on which level's skybox happens to be loaded.
+            // thumbnail never depends on which world's skybox happens to be loaded.
             std::shared_ptr<EnvironmentMap> m_NeutralEnvironment;
 
             std::shared_ptr<Pipeline> m_UnlitPipeline;

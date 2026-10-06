@@ -44,10 +44,10 @@ namespace Shard::Engine::Rendering{
         }
     }
 
-    size_t Texture2D::GetPixelDataSize(uint32_t level) const
+    size_t Texture2D::GetPixelDataSize(uint32_t world) const
     {
-        uint32_t width = std::max(1u, m_Specifications.width >> level);
-        uint32_t height = std::max(1u, m_Specifications.height >> level);
+        uint32_t width = std::max(1u, m_Specifications.width >> world);
+        uint32_t height = std::max(1u, m_Specifications.height >> world);
 
         return (size_t)width * (size_t)height * BytesPerPixel(m_Specifications.internalFormat);
     }

@@ -384,7 +384,7 @@ namespace Shard::Engine::Rendering {
         else
         {
             // Built fresh from the saved file rather than taken from the resource cache : a resident
-            // material keeps the parameters it was loaded with until the level reloads, so it would keep
+            // material keeps the parameters it was loaded with until the world reloads, so it would keep
             // showing the pre-edit look after a save or a refresh.
             auto material = Serialization::DeserializeMaterial(request.filePath);
             auto sphere = GetPreviewSphere();

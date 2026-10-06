@@ -2,48 +2,26 @@
 
 #include <string>
 #include <vector>
+#include <typeindex>
 
 #include "engine/world/objectID.hpp"
 #include "engine/world/components/script.hpp"
-#include "engine/renderer/components/model_component.hpp"
-#include "engine/world/skybox.hpp"
+#include "engine/world/components/transform.hpp"
+#include "engine/world/world_extension.hpp"
 #include "engine/assets/vfs/filesystem.hpp"
 
 namespace Shard::Engine::Objects{
 
     class Actor;
-
-    namespace Components{
-        class Light;
-        class Camera;
-        class Model;
-        class Script;
-        class AudioSource;
-        class ProbeVolume;
-    }
 }
 
-namespace Shard::Engine::Rendering{
-    class Renderer;
-    class Mesh;
-    class Texture2D;
-}
+namespace Shard::Engine::Worlds{
 
-namespace Shard::Engine::Levels{
+    /// The resources a world file references (what loading the world needs), read straight from the file
+    /// without building the world. Empty if the file can't be parsed.
+    std::vector<Core::Resources::ResourceKey> CollectWorldAssetRefs(const Filesystem::Path& filePath);
 
-    struct LevelAssetManifest
-    {
-        bool success = false;
-        std::vector<std::string> meshPathsInProject;
-        std::vector<std::string> materialPathsInProject;
-        std::vector<std::string> probeBakePathsInProject;
-        std::vector<std::string> soundPathsInProject;
-        std::string skyboxEnvMapPathInProject;
-    };
-
-    LevelAssetManifest CollectLevelAssetRefs(const Filesystem::Path& filePath);
-
-    class Level{
+    class World{
 
         std::unordered_map<Core::ObjectID, std::shared_ptr<Objects::Actor>> rootActors;
         std::string name;
@@ -52,9 +30,9 @@ namespace Shard::Engine::Levels{
 
         bool loaded = false;
 
-        // Set on any editor edit to this level since it was last loaded/saved (see the various
+        // Set on any editor edit to this world since it was last loaded/saved (see the various
         // panels/callers that flip this via SetDirty), cleared by Serialize()/Deserialize(). Drives
-        // the "unsaved changes" warning popup shown before the level is replaced/unloaded.
+        // the "unsaved changes" warning popup shown before the world is replaced/unloaded.
         bool dirty = false;
 
         int buildIndex = -1;
@@ -62,7 +40,7 @@ namespace Shard::Engine::Levels{
         Filesystem::AssetID assetID;
 
         public:
-            Level(std::string name, Filesystem::Path path);
+            World(std::string name, Filesystem::Path path);
 
             void Deserialize(Filesystem::Path filePath);
             void Serialize(Filesystem::Path filePath);
@@ -90,7 +68,7 @@ namespace Shard::Engine::Levels{
             const std::string& GetName() const;
             void SetName(const std::string& name);
             
-            void RemoveComponent(const int idInLevel, const std::shared_ptr<Objects::Components::Component> compPtr);
+            void RemoveComponent(const int idInWorld, const std::shared_ptr<Objects::Components::Component> compPtr);
 
             void SetAssetID(Filesystem::AssetID assetID) {
                 this->assetID = assetID;
@@ -110,24 +88,7 @@ namespace Shard::Engine::Levels{
 
             void SetDirty(bool dirty) { this->dirty = dirty; }
 
-            /// @brief Makes `pathInProject` (an equirectangular RGB image, e.g. an .hdr) this level's skybox,
-            /// creating the skybox if the level has none. Takes effect immediately - the sky, the IBL
-            /// lighting and the probes' sky term all read level->skybox every frame - but note the map
-            /// is loaded and IBL-convolved synchronously the first time it is used.
-            /// @return false (logged) if the file can't be used as an environment map; the level's current
-            /// skybox, if any, is then left as it was.
-            bool SetSkybox(const std::string& pathInProject);
-
-            /// @brief Removes the level's skybox (and its draw command). No-op if it has none.
-            void ClearSkybox();
-
-            /// @brief Path in the project of the skybox's image, or empty if the level has no skybox. This
-            /// is what the level file stores.
-            std::string GetSkyboxPath() const;
-
             float ambientIntensity = 0.3f;
-            std::shared_ptr<Objects::Skybox> skybox;
-            std::shared_ptr<Rendering::Texture2D> ibl_texture;
 
             // Screen-space ambient occlusion (see SSAOManager). Off by default since it darkens every
             // scene's ambient term - the 3 SSAO render passes themselves always run regardless (turning
@@ -144,19 +105,31 @@ namespace Shard::Engine::Levels{
             // never gets convincingly dark even in tight corners. 1.0 = no curve (legacy behavior).
             float ssaoPower = 2.0f;
 
-            std::shared_ptr<Objects::Components::ProbeVolume> probeVolume;
-
-            // These are maps for fast lookup (key: id IN LEVEL, value: ptr to the comp)
-            std::vector<std::shared_ptr<Objects::Components::Light>> lights;
-            std::unordered_map<int, std::shared_ptr<Objects::Components::Light>> lightComps;
+            // These are maps for fast lookup (key: id IN WORLD, value: ptr to the comp). The components that
+            // belong to the other modules (lights, models, physics bodies...) are kept by their module, in an
+            // extension of the world.
             std::unordered_map<int, std::shared_ptr<Objects::Components::Transform>> transforms;
-            std::unordered_map<int, std::shared_ptr<Objects::Components::Model>> models;
-            std::unordered_map<int, std::shared_ptr<Objects::Components::PhysicsBody>> physicsBodies;
-            std::unordered_map<int, std::shared_ptr<Objects::Components::AudioSource>> audioSources;
-            std::unordered_map<int, std::shared_ptr<Objects::Components::Camera>> cameras;
             std::unordered_map<int, std::shared_ptr<Objects::Components::Script>> scripts;
-            std::unordered_map<int, std::pair<glm::mat4, Rendering::Mesh*>> meshes;
-            
+
+            /// @brief What the module that owns `T` keeps on this world (created on first use)
+            template<class T>
+            T& Ext()
+            {
+                static_assert(std::is_base_of<IWorldExtension, T>::value, "T must derive from IWorldExtension");
+                for(auto& [type, extension] : extensions){
+                    if(type == std::type_index(typeid(T)))
+                        return static_cast<T&>(*extension);
+                }
+                extensions.emplace_back(std::type_index(typeid(T)), std::make_unique<T>());
+                return static_cast<T&>(*extensions.back().second);
+            }
+
+            /// @brief Called by the actors when a component joins the world, so the modules can index it
+            void NotifyComponentAdded(int idInWorld, const std::shared_ptr<Objects::Components::Component>& component, bool cloned = false);
+
+        private:
+
+            std::vector<std::pair<std::type_index, std::unique_ptr<IWorldExtension>>> extensions;
     };
 
 }

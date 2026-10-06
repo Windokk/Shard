@@ -39,7 +39,7 @@ namespace Shard::Engine::Core::Platform {
         virtual void SwapBuffers() = 0;
 
         // Renders a single minimal "loading" frame (progress in [0,1]) and presents it - called
-        // repeatedly by a blocking level load (e.g. the boot-time default level) so the window stays
+        // repeatedly by a blocking world load (e.g. the boot-time default world) so the window stays
         // responsive and shows feedback instead of appearing frozen. No-op by default; only
         // implementations with a UI system available.
         virtual void DrawLoadingFrame(float progress) {}

@@ -5,7 +5,7 @@
 
 #include "engine/world/engine.hpp"
 
-#include "engine/world/levels/level.hpp"
+#include "engine/world/world.hpp"
 
 #include "engine/world/actor.hpp"
 #include "engine/renderer/components/camera.hpp"
@@ -33,7 +33,7 @@ namespace Shard::Engine::Rendering::Raytracing {
         ReleaseGPUResources();
     }
 
-    bool Raytracer::Start(Levels::Level* level, const std::shared_ptr<Objects::Components::Camera>& camera,
+    bool Raytracer::Start(Worlds::World* world, const std::shared_ptr<Objects::Components::Camera>& camera,
         const RaytraceSettings& settingsIn, const Filesystem::Path& outputPathIn)
     {
         settings = settingsIn;
@@ -41,14 +41,14 @@ namespace Shard::Engine::Rendering::Raytracing {
         currentSample = 0;
         statusMessage.clear();
 
-        if (!level || !camera || !camera->parent)
+        if (!world || !camera || !camera->parent)
         {
-            statusMessage = "Missing level or camera.";
+            statusMessage = "Missing world or camera.";
             status = RaytraceStatus::Failed;
             return false;
         }
 
-        pendingLevel = level;
+        pendingWorld = world;
         pendingCamera = camera;
 
         status = RaytraceStatus::Preparing;
@@ -58,12 +58,12 @@ namespace Shard::Engine::Rendering::Raytracing {
 
     void Raytracer::BuildScene()
     {
-        Levels::Level* level = pendingLevel;
+        Worlds::World* world = pendingWorld;
         std::shared_ptr<Objects::Components::Camera> camera = pendingCamera;
-        pendingLevel = nullptr;
+        pendingWorld = nullptr;
         pendingCamera.reset();
 
-        RaytraceScene scene = SceneBuilder::Build(level);
+        RaytraceScene scene = SceneBuilder::Build(world);
         if (scene.trianglePositions.empty())
         {
             statusMessage = "Scene has no triangles to render.";
@@ -249,7 +249,7 @@ namespace Shard::Engine::Rendering::Raytracing {
 
         status = RaytraceStatus::Cancelled;
         statusMessage = "Cancelled after " + std::to_string(currentSample) + " / " + std::to_string(settings.samplesPerPixel) + " samples.";
-        pendingLevel = nullptr;
+        pendingWorld = nullptr;
         pendingCamera.reset();
         ReleaseGPUResources();
     }

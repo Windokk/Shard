@@ -5,7 +5,7 @@
 #include "engine/world/engine.hpp"
 
 #include "engine/assets/project/project.hpp"
-#include "engine/audio/audio_source.hpp"
+#include "engine/world/components/registry/component_registry.hpp"
 
 namespace Shard::Engine::Objects{
     
@@ -32,47 +32,50 @@ namespace Shard::Engine::Objects{
             DEBUG_ERROR("An actor can only have one transform component.");
         }
 
-        components.push_back(component);
-
-        // Register in system component arrays
-        if (auto light = std::dynamic_pointer_cast<Light>(component)) {
-            light->SetLightIndex(level->lights.size());
-            level->lights.push_back(light);
-            level->lightComps.emplace(GetComponentIDInLevel(light->GetLocalId()), light);
-        }
-
-        if (auto model = std::dynamic_pointer_cast<Model>(component)) {
-            level->models.emplace(GetComponentIDInLevel(model->GetLocalId()), model);
-        }
-
-        if (auto transform = std::dynamic_pointer_cast<Transform>(component)) {
-            level->transforms.emplace(GetComponentIDInLevel(transform->GetLocalId()), transform);
-        }
-
-        if (auto physics = std::dynamic_pointer_cast<PhysicsBody>(component)) {
-            level->physicsBodies.emplace(GetComponentIDInLevel(physics->GetLocalId()), physics);
-        }
-
-        if (auto audio = std::dynamic_pointer_cast<AudioSource>(component)) {
-            level->audioSources.emplace(GetComponentIDInLevel(audio->GetLocalId()), audio);
-        }
-
-        if (auto script = std::dynamic_pointer_cast<Script>(component)) {
-            level->scripts.emplace(GetComponentIDInLevel(script->GetLocalId()), script);
-
-            uint32_t id = GetComponentIDInLevel(components.size() - 1);
-
-            RegisterComponentEvents(script);
-
-            script->OnCreate();
-        }
-
-        if (auto cam = std::dynamic_pointer_cast<Camera>(component)) {
-            level->cameras.emplace(GetComponentIDInLevel(cam->GetLocalId()), cam);
-            engine->GetCameraManager()->AddCamera(GetID(), cam);
-        }
+        AttachComponent(component);
 
         return component;
+    }
+
+    std::shared_ptr<Component> Actor::AddComponentByName(const std::string& typeName)
+    {
+        auto& registry = GetComponentRegistry();
+
+        if (registry.IsBuiltinComponent(typeName)) {
+            std::shared_ptr<Component> component = registry.CreateBuiltinComponent(typeName, engine, AsShared<Actor>(), components.size());
+            AttachComponent(component);
+            return component;
+        }
+
+        std::shared_ptr<Component> raw = registry.CreateComponentByName(typeName);
+        if (!raw)
+            return nullptr;
+
+        return AddComponentRaw(raw);
+    }
+
+    void Actor::AttachComponent(const std::shared_ptr<Component>& component)
+    {
+        components.push_back(component);
+
+        if (world != nullptr)
+            RegisterInWorld(component, false);
+    }
+
+    void Actor::RegisterInWorld(const std::shared_ptr<Component>& component, bool cloned)
+    {
+        const int idInWorld = GetComponentIDInWorld(component->GetLocalId());
+
+        if (auto tr = std::dynamic_pointer_cast<Transform>(component))
+            world->transforms.emplace(idInWorld, tr);
+
+        // The other modules index what they own (lights, models, physics bodies...)
+        world->NotifyComponentAdded(idInWorld, component, cloned);
+
+        if (auto script = std::dynamic_pointer_cast<Script>(component)) {
+            world->scripts.emplace(idInWorld, script);
+            script->OnCreate();
+        }
     }
 
     void Actor::RemoveComponent(std::shared_ptr<Component> component)
@@ -93,8 +96,8 @@ namespace Shard::Engine::Objects{
             return;
         }
 
-        if (level)
-            level->RemoveComponent(GetComponentIDInLevel(component->GetLocalId()), component);
+        if (world)
+            world->RemoveComponent(GetComponentIDInWorld(component->GetLocalId()), component);
         else
             component->Destroy();
 
@@ -105,33 +108,33 @@ namespace Shard::Engine::Objects{
     {
         for(auto& component : components){
 
-            if(level)
-                level->RemoveComponent(GetComponentIDInLevel(component->GetLocalId()), component);
+            if(world)
+                world->RemoveComponent(GetComponentIDInWorld(component->GetLocalId()), component);
             else
                 component->Destroy();
         }
 
-        if(level){
+        if(world){
 
-            level->RemoveActor(id);
+            world->RemoveActor(id);
             
-            if(level->IsLoaded()){
-                int levelBuildIndex = level->GetBuildIndex();
-                int levelAssetID = engine->GetAssetIDManager()->GetIDFromNameInProject(engine->GetBuildSettings()->buildIndex[levelBuildIndex].full).GetAsInt();
+            if(world->IsLoaded()){
+                int worldBuildIndex = world->GetBuildIndex();
+                int worldAssetID = engine->GetAssetIDManager()->GetIDFromNameInProject(engine->GetBuildSettings()->buildIndex[worldBuildIndex].full).GetAsInt();
 
-                engine->GetEventDispatcher()->emitGlobal(Events::LevelStructureChangedEvent(
-                                                        levelAssetID, Events::DESTROYED, name, GetID()));
+                engine->GetEventDispatcher()->emitGlobal(Events::WorldStructureChangedEvent(
+                                                        worldAssetID, Events::DESTROYED, name, GetID()));
             }
         }
         
-        LevelObject::Destroy();
+        WorldObject::Destroy();
     }
 
-    void Actor::AddChild(std::shared_ptr<LevelObject> o)
+    void Actor::AddChild(std::shared_ptr<WorldObject> o)
     {
-        LevelObject::AddChild(o);
+        WorldObject::AddChild(o);
         if (std::shared_ptr<Actor> actorChild = std::dynamic_pointer_cast<Actor>(o)) {
-            actorChild->SetLevel(this->level);
+            actorChild->SetWorld(this->world);
 
             // The child's cached world matrix (if any) was computed against its old parent chain
             // (or none at all) and must be invalidated now that it hangs off this actor instead.
@@ -150,7 +153,7 @@ namespace Shard::Engine::Objects{
         // Refuse a reparent that would create a cycle (dropping an actor onto itself or one of its
         // own descendants).
         if (newParent) {
-            std::shared_ptr<LevelObject> ancestor = newParent;
+            std::shared_ptr<WorldObject> ancestor = newParent;
             while (ancestor) {
                 if (ancestor->GetID() == id) {
                     DEBUG_ERROR("Cannot parent an actor to one of its own descendants.");
@@ -169,16 +172,16 @@ namespace Shard::Engine::Objects{
 
         if (oldParent)
             oldParent->DeleteChildRef(id);
-        else if (level)
-            level->RemoveActor(id);
+        else if (world)
+            world->RemoveActor(id);
 
         if (newParent) {
             newParent->AddChild(AsShared<Actor>());
         }
         else {
-            LevelObject::SetParent(Core::ObjectID(-1));
-            if (level)
-                level->AddActor(AsShared<Actor>());
+            WorldObject::SetParent(Core::ObjectID(-1));
+            if (world)
+                world->AddActor(AsShared<Actor>());
         }
 
         if (keepWorldTransform)
@@ -187,34 +190,21 @@ namespace Shard::Engine::Objects{
             transform->MarkWorldMatrixDirty();
     }
 
-    void Actor::SetLevel(Levels::Level* lvl)
+    void Actor::SetWorld(Worlds::World* world)
     {
-        if(!lvl) return;
+        if(!world) return;
 
-        this->level = lvl;
+        this->world = world;
 
-        level->transforms.emplace(GetComponentIDInLevel(transform->GetLocalId()), transform);
+        world->transforms.emplace(GetComponentIDInWorld(transform->GetLocalId()), transform);
 
-        if(level->IsLoaded()){
-            int levelBuildIndex = level->GetBuildIndex();
-            int levelAssetID = engine->GetAssetIDManager()->GetIDFromNameInProject(engine->GetBuildSettings()->buildIndex[levelBuildIndex].full).GetAsInt();
+        if(world->IsLoaded()){
+            int worldBuildIndex = world->GetBuildIndex();
+            int worldAssetID = engine->GetAssetIDManager()->GetIDFromNameInProject(engine->GetBuildSettings()->buildIndex[worldBuildIndex].full).GetAsInt();
 
-            engine->GetEventDispatcher()->emitGlobal(Events::LevelStructureChangedEvent(
-                                                    levelAssetID, Events::CREATED, name, GetID()));
+            engine->GetEventDispatcher()->emitGlobal(Events::WorldStructureChangedEvent(
+                                                    worldAssetID, Events::CREATED, name, GetID()));
         }
-    }
-
-    void Actor::RegisterComponentEvents(const std::shared_ptr<Script>& component){
-        
-        engine->GetEventDispatcher()->subscribeToComponent<Events::ContactAddedEvent>(GetComponentIDInLevel(components.size()-1), [component](const Events::ContactAddedEvent& event) {
-            component->OnContactAdded(event);
-        });
-        engine->GetEventDispatcher()->subscribeToComponent<Events::ContactPersistedEvent>(GetComponentIDInLevel(components.size()-1), [component](const Events::ContactPersistedEvent& event) {
-            component->OnContactPersisted(event);
-        });
-        engine->GetEventDispatcher()->subscribeToComponent<Events::ContactRemovedEvent>(GetComponentIDInLevel(components.size()-1), [component](const Events::ContactRemovedEvent& event) {
-            component->OnContactEnded(event);
-        });
     }
 
     void Actor::Activate()
@@ -223,12 +213,12 @@ namespace Shard::Engine::Objects{
         for(auto& component : components){
             component->Activate();
         }
-        if(level->IsLoaded()){
-            int levelBuildIndex = level->GetBuildIndex();
-            int levelAssetID = engine->GetAssetIDManager()->GetIDFromNameInProject(engine->GetBuildSettings()->buildIndex[levelBuildIndex].full).GetAsInt();
+        if(world->IsLoaded()){
+            int worldBuildIndex = world->GetBuildIndex();
+            int worldAssetID = engine->GetAssetIDManager()->GetIDFromNameInProject(engine->GetBuildSettings()->buildIndex[worldBuildIndex].full).GetAsInt();
 
-            engine->GetEventDispatcher()->emitGlobal(Events::LevelStructureChangedEvent(
-                                                    levelAssetID, Events::ACTIVATED, name, GetID()));
+            engine->GetEventDispatcher()->emitGlobal(Events::WorldStructureChangedEvent(
+                                                    worldAssetID, Events::ACTIVATED, name, GetID()));
         }
     }
 
@@ -238,12 +228,12 @@ namespace Shard::Engine::Objects{
         for(auto& component : components){
             component->DeActivate();
         }
-        if(level->IsLoaded()){
-            int levelBuildIndex = level->GetBuildIndex();
-            int levelAssetID = engine->GetAssetIDManager()->GetIDFromNameInProject(engine->GetBuildSettings()->buildIndex[levelBuildIndex].full).GetAsInt();
+        if(world->IsLoaded()){
+            int worldBuildIndex = world->GetBuildIndex();
+            int worldAssetID = engine->GetAssetIDManager()->GetIDFromNameInProject(engine->GetBuildSettings()->buildIndex[worldBuildIndex].full).GetAsInt();
 
-            engine->GetEventDispatcher()->emitGlobal(Events::LevelStructureChangedEvent(
-                                                    levelAssetID, Events::DEACTIVATED, name, GetID()));
+            engine->GetEventDispatcher()->emitGlobal(Events::WorldStructureChangedEvent(
+                                                    worldAssetID, Events::DEACTIVATED, name, GetID()));
         }
     }
     
@@ -251,8 +241,8 @@ namespace Shard::Engine::Objects{
     {
         std::shared_ptr<Actor> copy = Core::Object::CreateWithContext<Actor>(engine, "Copy of "+name, engine);
 
-        if(level)
-            level->transforms.erase(GetComponentIDInLevel(copy->transform->GetLocalId()));
+        if(world)
+            world->transforms.erase(GetComponentIDInWorld(copy->transform->GetLocalId()));
         
         copy->transform->Destroy();
 
@@ -264,11 +254,11 @@ namespace Shard::Engine::Objects{
             std::shared_ptr<Actor> p = std::dynamic_pointer_cast<Actor>(GetParent());
             GetParent()->AddChild(copy);
         }
-        else if(level){
-            level->AddActor(copy);
+        else if(world){
+            world->AddActor(copy);
         }
         else{
-            DEBUG_INFO("Cloning : Base actor was not placed in a level, clone won't be placed in a level either");
+            DEBUG_INFO("Cloning : Base actor was not placed in a world, clone won't be placed in a world either");
         }
 
         for(int i = 0; i < components.size(); i++){
@@ -289,41 +279,13 @@ namespace Shard::Engine::Objects{
                 tr->SetRotation(transform->GetRotation());
                 tr->SetScale(transform->GetScale());
 
-                if(copy->level && copy->level->IsLoaded())
-                    level->transforms.emplace(copy->GetComponentIDInLevel(tr->GetLocalId()), tr);
-
                 copy->transform = tr;
             }
             
-            if(!copy->level || !copy->level->IsLoaded())
+            if(!copy->world || !copy->world->IsLoaded())
                 continue;
 
-            if(std::shared_ptr<Components::AudioSource> audioSource = std::dynamic_pointer_cast<Components::AudioSource>(cloneComp)){
-                level->audioSources.emplace(copy->GetComponentIDInLevel(audioSource->GetLocalId()), audioSource);
-                audioSource->Update();
-            }
-            else if(std::shared_ptr<Components::Script> script = std::dynamic_pointer_cast<Components::Script>(cloneComp)){    
-                level->scripts.emplace(copy->GetComponentIDInLevel(script->GetLocalId()), script);
-                RegisterComponentEvents(script);
-                script->OnCreate();
-            }
-            else if(std::shared_ptr<Components::Camera> camera = std::dynamic_pointer_cast<Components::Camera>(cloneComp)){
-                level->cameras.emplace(copy->GetComponentIDInLevel(camera->GetLocalId()), camera);
-                engine->GetCameraManager()->AddCamera(copy->GetID(), camera);
-            }
-            else if(std::shared_ptr<Components::Light> light = std::dynamic_pointer_cast<Components::Light>(cloneComp)){
-                light->SetLightIndex(level->lights.size());
-                level->lights.push_back(light);
-                level->lightComps.emplace(copy->GetComponentIDInLevel(light->GetLocalId()), light);
-            }
-            else if(std::shared_ptr<Components::Model> model = std::dynamic_pointer_cast<Components::Model>(cloneComp))
-            {
-                level->models.emplace(copy->GetComponentIDInLevel(model->GetLocalId()), model);
-                model->Update();
-            }
-            else if(std::shared_ptr<Components::PhysicsBody> physicsBody = std::dynamic_pointer_cast<Components::PhysicsBody>(cloneComp)){
-                level->physicsBodies.emplace(copy->GetComponentIDInLevel(physicsBody->GetLocalId()), physicsBody);
-            }
+            copy->RegisterInWorld(cloneComp, true);
         }
 
         return copy;

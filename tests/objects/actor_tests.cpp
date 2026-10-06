@@ -99,10 +99,10 @@ TEST_F(ActorTest, ComponentParentPointsBackToOwningActor) {
     EXPECT_EQ(camera->parent, actor);
 }
 
-TEST_F(ActorTest, GetComponentIDInLevelPacksActorAndComponentIndex) {
+TEST_F(ActorTest, GetComponentIDInWorldPacksActorAndComponentIndex) {
     auto actor = Object::CreateWithContext<Actor>(&context, std::string("Player"), &context);
 
-    int packed = actor->GetComponentIDInLevel(2);
+    int packed = actor->GetComponentIDInWorld(2);
 
     EXPECT_EQ(packed, (actor->GetID().GetAsInt() << 12) | 2);
 }

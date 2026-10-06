@@ -1,10 +1,7 @@
 {
   "edges": {
     "engine/audio -> engine/renderer": 2,
-    "engine/physics -> engine/renderer": 2,
-    "engine/world -> engine/audio": 4,
-    "engine/world -> engine/physics": 2,
-    "engine/world -> engine/renderer": 23
+    "engine/physics -> engine/renderer": 3
   },
   "patterns": {
     "gl-call-outside-backend": [

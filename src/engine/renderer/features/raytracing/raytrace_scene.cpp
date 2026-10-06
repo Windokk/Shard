@@ -3,9 +3,10 @@
 #include "engine/renderer/features/raytracing/bvh.hpp"
 #include "engine/renderer/features/raytracing/parallel_build_budget.hpp"
 
-#include "engine/world/levels/level.hpp"
+#include "engine/world/world.hpp"
 
 #include "engine/world/actor.hpp"
+#include "engine/renderer/frontend/render_world_data.hpp"
 #include "engine/renderer/components/model_component.hpp"
 #include "engine/world/components/transform.hpp"
 
@@ -197,21 +198,21 @@ namespace Shard::Engine::Rendering::Raytracing {
         return gm;
     }
 
-    RaytraceScene SceneBuilder::Build(Levels::Level* level)
+    RaytraceScene SceneBuilder::Build(Worlds::World* world)
     {
-        return BuildFromSnapshot(CaptureSnapshot(level));
+        return BuildFromSnapshot(CaptureSnapshot(world));
     }
 
-    RaytraceSceneSnapshot SceneBuilder::CaptureSnapshot(Levels::Level* level, bool excludeMasked)
+    RaytraceSceneSnapshot SceneBuilder::CaptureSnapshot(Worlds::World* world, bool excludeMasked)
     {
         RaytraceSceneSnapshot snapshot;
 
-        if (!level)
+        if (!world)
             return snapshot;
 
         std::unordered_map<Rendering::Material*, uint32_t> materialIndices;
 
-        for (auto& [id, model] : level->models)
+        for (auto& [id, model] : world->Ext<RenderWorldData>().models)
         {
             if (!model || !model->Active())
                 continue;

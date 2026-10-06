@@ -17,7 +17,7 @@ namespace Shard::Engine::Objects{
         // The renderer only derives a command's ID for mesh draws - a fullscreen-triangle command like
         // the skybox's keeps whatever ID it is handed. It used to be handed an uninitialized one, so
         // every CreateDrawCommands() call could add ANOTHER skybox draw instead of updating the existing
-        // one (and none could ever be removed). A level only ever has one skybox, so a fixed key makes
+        // one (and none could ever be removed). A world only ever has one skybox, so a fixed key makes
         // every (re)creation - including a whole new Skybox object replacing the old one - update the
         // same draw command in place, and lets RemoveDrawCommands() find it.
         uint64_t SkyboxCommandID()
@@ -48,7 +48,7 @@ namespace Shard::Engine::Objects{
 
     void Skybox::Destroy()
     {
-        LevelObject::Destroy();
+        WorldObject::Destroy();
     }
 
     void Skybox::CreateDrawCommands()

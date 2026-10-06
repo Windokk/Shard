@@ -11,8 +11,8 @@
 
 #include "engine/renderer/features/lighting/light_manager.hpp"
 
-namespace Shard::Engine::Levels {
-    class Level;
+namespace Shard::Engine::Worlds {
+    class World;
 }
 
 namespace Shard::Engine::Objects::Components {
@@ -64,13 +64,13 @@ namespace Shard::Engine::Rendering::Raytracing {
         public:
             ~Raytracer();
 
-            // Validates the level/camera and transitions to Preparing. This is intentionally cheap and
+            // Validates the world/camera and transitions to Preparing. This is intentionally cheap and
             // does NOT build the scene/BVH or touch the GPU yet - that heavy one-off work (still a single
             // blocking call internally) is deferred to the first Update() call after Start(), so the
             // caller gets a chance to render+present a "Preparing..." frame before the BVH-build stall
             // happens, instead of freezing before any feedback is visible at all. Returns false
-            // immediately (check GetStatusMessage()) if the level/camera are missing.
-            bool Start(Levels::Level* level, const std::shared_ptr<Objects::Components::Camera>& camera,
+            // immediately (check GetStatusMessage()) if the world/camera are missing.
+            bool Start(Worlds::World* world, const std::shared_ptr<Objects::Components::Camera>& camera,
                 const RaytraceSettings& settings, const Filesystem::Path& outputPath);
 
             // No-op unless IsActive(). While Preparing, performs the one-off scene/BVH build + GPU upload
@@ -105,9 +105,9 @@ namespace Shard::Engine::Rendering::Raytracing {
             Filesystem::Path outputPath;
             std::string statusMessage;
 
-            // Captured by Start(), consumed by BuildScene() on the next Update() call. Level is a raw,
+            // Captured by Start(), consumed by BuildScene() on the next Update() call. World is a raw,
             // non-owning pointer (same lifetime assumption as the old single-call Start() had).
-            Levels::Level* pendingLevel = nullptr;
+            Worlds::World* pendingWorld = nullptr;
             std::shared_ptr<Objects::Components::Camera> pendingCamera;
 
             uint32_t currentSample = 0;

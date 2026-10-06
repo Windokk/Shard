@@ -197,8 +197,8 @@ namespace Shard::Engine::Filesystem{
             {".fbx", Type::T_MODEL},
             // Material formats
             {".mat", Type::T_MATERIAL}, {".material", Type::T_MATERIAL},
-            // Level formats
-            {".level", Type::T_LEVEL}, {".lvl", Type::T_LEVEL},
+            // World formats
+            {".world", Type::T_WORLD},
             // Config formats
             {".json", Type::T_CONFIG}, {".ini", Type::T_CONFIG}, {".cfg", Type::T_CONFIG},
             // Directory (fallback, not based on extension)

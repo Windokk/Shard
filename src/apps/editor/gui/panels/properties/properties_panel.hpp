@@ -2,7 +2,7 @@
 
 #include <nlohmann/json.hpp>
 
-#include "engine/world/levels/level.hpp"
+#include "engine/world/world.hpp"
 #include "engine/world/actor.hpp"
 
 #include <memory>

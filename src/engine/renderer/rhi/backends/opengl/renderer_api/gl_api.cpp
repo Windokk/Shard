@@ -20,11 +20,12 @@
 #include "engine/renderer/rhi/resources/texture/texture.hpp"
 
 #include "engine/world/actor.hpp"
+#include "engine/renderer/frontend/render_world_data.hpp"
 
 #include "engine/renderer/rhi/backends/opengl/shader/gl_shader.hpp"
 
 #include "engine/world/engine.hpp"
-#include "engine/world/levels/level_manager.hpp"
+#include "engine/world/world_manager.hpp"
 #include "engine/core/diagnostics/profiler.hpp"
 
 namespace Shard::Engine::Rendering{
@@ -193,7 +194,7 @@ namespace Shard::Engine::Rendering{
         }
     }
 
-    void GLRendererAPI::BindLevelState(std::shared_ptr<Shader> shader, glm::mat4 modelMatrix, int objectID, bool applyPassGlobals)
+    void GLRendererAPI::BindWorldState(std::shared_ptr<Shader> shader, glm::mat4 modelMatrix, int objectID, bool applyPassGlobals)
     {
         // model/objID are genuinely per-object and must always be set.
         shader->SetMat4("model", modelMatrix);
@@ -211,7 +212,7 @@ namespace Shard::Engine::Rendering{
             shader->SetBool("showShadows", studioView || dv.showShadows);
         }
 
-        auto level = Core::GetEngine().GetLevelManager()->GetLevelAt(0);
+        auto world = Core::GetEngine().GetWorldManager()->GetWorldAt(0);
 
         RenderView currentView;
         Core::GetEngine().GetRenderer()->GetCurrentView(currentView);
@@ -219,17 +220,17 @@ namespace Shard::Engine::Rendering{
 
         if (studio)
         {
-            // Fixed studio look : none of the level's lighting settings apply, and SSAO's texture is
+            // Fixed studio look : none of the world's lighting settings apply, and SSAO's texture is
             // the main viewport's (screen-space), which would be meaningless for another view.
             shader->SetFloat("ambientIntensity", currentView.studioAmbient);
             shader->SetBool("ssaoEnabled", false);
         }
-        else if (level)
+        else if (world)
         {
-            shader->SetFloat("ambientIntensity", level->ambientIntensity);
+            shader->SetFloat("ambientIntensity", world->ambientIntensity);
 
-            shader->SetBool("ssaoEnabled", level->ssaoEnabled);
-            shader->SetFloat("ssaoIntensity", level->ssaoIntensity);
+            shader->SetBool("ssaoEnabled", world->ssaoEnabled);
+            shader->SetFloat("ssaoIntensity", world->ssaoIntensity);
         }
 
         if (!applyPassGlobals)
@@ -238,12 +239,12 @@ namespace Shard::Engine::Rendering{
         const auto& uniforms = shader->GetActiveUniformsMap();
         auto it = uniforms.find("useEnvReflections");
 
-        // A studio view brings its own environment so its look never depends on the level.
+        // A studio view brings its own environment so its look never depends on the world.
         std::shared_ptr<EnvironmentMap> envMap;
         if (studio)
             envMap = currentView.studioEnvironment;
-        else if (level && level->skybox)
-            envMap = level->skybox->GetEnvMap();
+        else if (world && world->Ext<RenderWorldData>().skybox)
+            envMap = world->Ext<RenderWorldData>().skybox->GetEnvMap();
 
         if(it != uniforms.end() && envMap){
             //Bind skybox data
@@ -374,8 +375,8 @@ namespace Shard::Engine::Rendering{
             GLuint program = glShader->GetProgram();
 
             if(!command.fullscreenTri)
-                BindLevelState(pipeline->GetSpecifications().shader, command.modelMatrix, command.objectID,
-                    GLStateCache::NeedsPassGlobalsUpdate(program, GLStateCache::PassGlobalsKind::Level));
+                BindWorldState(pipeline->GetSpecifications().shader, command.modelMatrix, command.objectID,
+                    GLStateCache::NeedsPassGlobalsUpdate(program, GLStateCache::PassGlobalsKind::World));
 
             if(command.bindCameraState && GLStateCache::NeedsPassGlobalsUpdate(program, GLStateCache::PassGlobalsKind::Camera)){
                 RenderView currentView;

@@ -51,14 +51,14 @@ namespace Shard::Engine::Rendering {
     bool WriteProbeBakeFile(const Filesystem::Path& path, const ProbeBakeData& data);
 
     // Pure CPU read + validation of a bake file - no GL calls, so it is safe on a worker thread (the
-    // level prefetcher decodes it there alongside the textures). Returns null if the file is missing,
+    // world prefetcher decodes it there alongside the textures). Returns null if the file is missing,
     // truncated, from another format version, or internally inconsistent.
     std::shared_ptr<ProbeBakeData> DecodeProbeBakeFile(const Filesystem::Path& path);
 
     // Whether `data` was traced on exactly this grid. probeCounts and tileSize (which follows from the
     // volume's raysPerProbe) must match exactly, since they fix the atlas layout; the origin/spacing
     // are compared with a small tolerance, because they follow the actor's world position and a moved
-    // volume would otherwise place baked light in the wrong part of the level. On mismatch, `whyNot`
+    // volume would otherwise place baked light in the wrong part of the world. On mismatch, `whyNot`
     // (if given) receives a short reason for the log.
     bool IsProbeBakeCompatible(const ProbeBakeData& data, const glm::ivec3& probeCounts, uint32_t tileSize,
                                const glm::vec3& gridOrigin, const glm::vec3& gridSpacing, std::string* whyNot = nullptr);

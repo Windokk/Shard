@@ -26,7 +26,7 @@ TEST(EventDispatcher, GlobalSubscriberIgnoresUnrelatedEventType) {
         called = true;
     });
 
-    dispatcher.emitGlobal(LevelStructureChangedEvent(1, LevelChangeType::CREATED, "Actor", ObjectID(1)));
+    dispatcher.emitGlobal(WorldStructureChangedEvent(1, WorldChangeType::CREATED, "Actor", ObjectID(1)));
 
     EXPECT_FALSE(called);
 }
@@ -43,24 +43,24 @@ TEST(EventDispatcher, MultipleGlobalSubscribersAllReceiveEvent) {
     EXPECT_EQ(callCount, 2);
 }
 
-TEST(EventDispatcher, LevelScopedEventOnlyReachesMatchingLevel) {
+TEST(EventDispatcher, WorldScopedEventOnlyReachesMatchingWorld) {
     EventDispatcher dispatcher;
-    bool level1Called = false;
-    bool level2Called = false;
+    bool world1Called = false;
+    bool world2Called = false;
 
-    dispatcher.subscribeToLevel<KeyPressedEvent>(1, [&](const KeyPressedEvent&) { level1Called = true; });
-    dispatcher.subscribeToLevel<KeyPressedEvent>(2, [&](const KeyPressedEvent&) { level2Called = true; });
+    dispatcher.subscribeToWorld<KeyPressedEvent>(1, [&](const KeyPressedEvent&) { world1Called = true; });
+    dispatcher.subscribeToWorld<KeyPressedEvent>(2, [&](const KeyPressedEvent&) { world2Called = true; });
 
-    dispatcher.emitToLevel(1, KeyPressedEvent(1, false, ObjectID(1)));
+    dispatcher.emitToWorld(1, KeyPressedEvent(1, false, ObjectID(1)));
 
-    EXPECT_TRUE(level1Called);
-    EXPECT_FALSE(level2Called);
+    EXPECT_TRUE(world1Called);
+    EXPECT_FALSE(world2Called);
 }
 
-TEST(EventDispatcher, EmitToLevelWithNoSubscribersDoesNotThrow) {
+TEST(EventDispatcher, EmitToWorldWithNoSubscribersDoesNotThrow) {
     EventDispatcher dispatcher;
 
-    EXPECT_NO_THROW(dispatcher.emitToLevel(99, KeyPressedEvent(1, false, ObjectID(1))));
+    EXPECT_NO_THROW(dispatcher.emitToWorld(99, KeyPressedEvent(1, false, ObjectID(1))));
 }
 
 TEST(EventDispatcher, ActorScopedEventOnlyReachesMatchingActor) {

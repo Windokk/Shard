@@ -1,6 +1,7 @@
 #include "light_component.hpp"
 
 #include "engine/renderer/frontend/renderer.hpp"
+#include "engine/renderer/frontend/render_world_data.hpp"
 #include "engine/world/components/transform.hpp"
 #include "engine/world/actor.hpp"
 
@@ -48,7 +49,7 @@ namespace Shard::Engine::Objects::Components{
 
         lightData->type = (int)type;
 
-        if(parent && parent->level && parent->level->IsLoaded())
+        if(parent && parent->world && parent->world->IsLoaded())
             GetEngineContext()->GetRenderer()->GetLightManager()->Update(lightIndex);
 
         UpdateExposedValues();
@@ -63,7 +64,7 @@ namespace Shard::Engine::Objects::Components{
 
         lightData->intensity = intensity;
 
-        if(parent && parent->level && parent->level->IsLoaded())
+        if(parent && parent->world && parent->world->IsLoaded())
             GetEngineContext()->GetRenderer()->GetLightManager()->Update(lightIndex);
         
         UpdateExposedValues();
@@ -78,7 +79,7 @@ namespace Shard::Engine::Objects::Components{
 
         lightData->position = glm::vec4(postion, 0);
 
-        if(parent && parent->level && parent->level->IsLoaded())
+        if(parent && parent->world && parent->world->IsLoaded())
             GetEngineContext()->GetRenderer()->GetLightManager()->Update(lightIndex);
     }
 
@@ -91,7 +92,7 @@ namespace Shard::Engine::Objects::Components{
 
         lightData->direction = glm::vec4(glm::normalize(direction), 0);
             
-        if(parent && parent->level && parent->level->IsLoaded())
+        if(parent && parent->world && parent->world->IsLoaded())
             GetEngineContext()->GetRenderer()->GetLightManager()->Update(lightIndex);
     }
     
@@ -104,7 +105,7 @@ namespace Shard::Engine::Objects::Components{
 
         lightData->radius = radius;
         
-        if(parent && parent->level && parent->level->IsLoaded())
+        if(parent && parent->world && parent->world->IsLoaded())
             GetEngineContext()->GetRenderer()->GetLightManager()->Update(lightIndex);
 
         UpdateExposedValues();
@@ -119,7 +120,7 @@ namespace Shard::Engine::Objects::Components{
 
         lightData->color = glm::vec4((glm::vec3)color, 0);
         
-        if(parent && parent->level && parent->level->IsLoaded())
+        if(parent && parent->world && parent->world->IsLoaded())
             GetEngineContext()->GetRenderer()->GetLightManager()->Update(lightIndex);
 
         UpdateExposedValues();
@@ -134,7 +135,7 @@ namespace Shard::Engine::Objects::Components{
 
         lightData->outerCutoff = glm::cos(glm::radians(cutoff));
         
-        if(parent && parent->level && parent->level->IsLoaded())
+        if(parent && parent->world && parent->world->IsLoaded())
             GetEngineContext()->GetRenderer()->GetLightManager()->Update(lightIndex);
 
         UpdateExposedValues();
@@ -149,7 +150,7 @@ namespace Shard::Engine::Objects::Components{
 
         lightData->innerCutoff = glm::cos(glm::radians(cutoff));
         
-        if(parent && parent->level && parent->level->IsLoaded())
+        if(parent && parent->world && parent->world->IsLoaded())
             GetEngineContext()->GetRenderer()->GetLightManager()->Update(lightIndex);
 
         UpdateExposedValues();
@@ -162,7 +163,7 @@ namespace Shard::Engine::Objects::Components{
         if(lightIndex != -1 || !activated)
             return;
         
-        if(parent && parent->level && parent->level->IsLoaded()){
+        if(parent && parent->world && parent->world->IsLoaded()){
             GetEngineContext()->GetRenderer()->GetLightManager()->AddLight(index, lightData);
             GetEngineContext()->GetRenderer()->GetLightManager()->Update(index);
             lightIndex = index;
@@ -178,7 +179,7 @@ namespace Shard::Engine::Objects::Components{
 
         lightData->castShadow = castShadows;
         
-        if(parent && parent->level && parent->level->IsLoaded())
+        if(parent && parent->world && parent->world->IsLoaded())
             GetEngineContext()->GetRenderer()->GetLightManager()->Update(lightIndex);
             
         UpdateExposedValues();
@@ -194,14 +195,24 @@ namespace Shard::Engine::Objects::Components{
         if(!wasInactive || lightIndex != -1)
             return;
 
-        if(!parent || !parent->level || !parent->level->IsLoaded())
+        if(!parent || !parent->world || !parent->world->IsLoaded())
             return;
 
-        SetLightIndex((int)parent->level->lights.size());
-        parent->level->lights.push_back(AsShared<Light>());
+        auto& lights = parent->world->Ext<Rendering::RenderWorldData>().lights;
+        SetLightIndex((int)lights.size());
+        lights.push_back(AsShared<Light>());
     }
 
-    /// @brief Pulls this light out of the LightManager's active buffer (mirrors Level::RemoveComponent's
+    void Light::OnTransformChanged(uint8_t changes)
+    {
+        if(changes & TransformPosition)
+            SetPosition(parent->transform->GetWorldPosition());
+
+        if(changes & TransformRotation)
+            SetDirection(parent->transform->GetWorldForward());
+    }
+
+    /// @brief Pulls this light out of the LightManager's active buffer (mirrors World::RemoveComponent's
     /// Light branch) without fully destroying the component, so it stops lighting the scene until
     /// Activate() re-adds it.
     void Light::DeActivate()
@@ -213,10 +224,10 @@ namespace Shard::Engine::Objects::Components{
 
         Component::DeActivate();
 
-        if(!parent || !parent->level || lightIndex == -1)
+        if(!parent || !parent->world || lightIndex == -1)
             return;
 
-        auto& lights = parent->level->lights;
+        auto& lights = parent->world->Ext<Rendering::RenderWorldData>().lights;
         int index = lightIndex;
 
         if(index < 0 || index >= (int)lights.size())

@@ -247,7 +247,7 @@ namespace Shard::Engine::Rendering {
         pass->drawList = commands;
 
         // Both modes use the studio view : Unlit ignores the lights, but still must not depend on
-        // (or touch) the level's lighting state.
+        // (or touch) the world's lighting state.
         EnsureStudioRig();
         if (desc.lighting == ImmediateLighting::Studio)
             EnsureNeutralEnvironment();

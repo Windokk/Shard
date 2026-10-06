@@ -21,7 +21,7 @@ namespace Shard::Editor::GUI {
             Engine::Filesystem::Type::T_COMPUTE_SHADER,
             Engine::Filesystem::Type::T_TEXT,
             Engine::Filesystem::Type::T_SCRIPT,
-            Engine::Filesystem::Type::T_LEVEL,
+            Engine::Filesystem::Type::T_WORLD,
             Engine::Filesystem::Type::T_MODEL,
             Engine::Filesystem::Type::T_MATERIAL,
             Engine::Filesystem::Type::T_CONFIG,

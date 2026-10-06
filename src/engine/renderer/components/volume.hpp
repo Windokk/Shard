@@ -14,7 +14,7 @@ namespace Shard::Engine::Rendering {
 
 namespace Shard::Engine::Objects::Components
 {
-    // Abstract base for components that occupy a bounding-box region of the level (GI probe volumes,
+    // Abstract base for components that occupy a bounding-box region of the world (GI probe volumes,
     // and future volume types - post-process, reflection, trigger, ...). Owns the box wireframe gizmo
     // (mirrors PhysicsBody's DebugShape/draw-command lifecycle) so every volume type gets it for free;
     // subclasses only need to add whatever effect the volume actually drives. Not directly usable on its
@@ -30,12 +30,14 @@ namespace Shard::Engine::Objects::Components
 
             void OnFieldChanged(const FieldChangedEvent &event) override;
 
+            void OnTransformChanged(uint8_t changes) override;
+
             FIELD(Editable)
             glm::vec3 halfExtent = glm::vec3(1.0f);
 
             // Re-submits this volume's debug draw command(s) with the actor's current transform, without
             // regenerating any mesh - called whenever the actor moves (see
-            // Transform::UpdateMeshReferencesInLevel, which needs this to be public). Subclasses that own
+            // Volume::OnTransformChanged, and public for the callers that move a volume by other means). Subclasses that own
             // additional debug draw commands tied to the same transform (e.g. ProbeVolume's probe markers)
             // should override this to also refresh those, calling Volume::RefreshDebugDrawCommands() for
             // the box itself.

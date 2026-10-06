@@ -23,7 +23,9 @@ namespace Shard::Engine::Objects::Components
             
             void SetMesh(std::string meshPath);
             void SetMesh(Filesystem::AssetID meshID);
-            void UpdateReferenceInLevel();
+            void UpdateReferenceInWorld();
+
+            void OnTransformChanged(uint8_t changes) override;
             void SetMaterials(std::vector<std::shared_ptr<Rendering::Material>> &&materials);
 
             std::shared_ptr<Rendering::Mesh> GetMesh() { return mesh; }

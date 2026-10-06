@@ -1,0 +1,62 @@
+#pragma once
+
+#include <string>
+#include <vector>
+#include <future>
+#include <atomic>
+#include <functional>
+
+#include "engine/assets/resources_manager.hpp"
+
+namespace Shard::Engine::Worlds{
+
+    class AssetPrefetcher{
+
+        public:
+
+            void BeginLoad(const std::string& pathInProject);
+
+            /// @brief Launches pending decodes (at most maxInFlight run at once) and applies the decoded
+            /// assets (GPU upload, insertion in the cache) as they complete, spending at most
+            /// `uploadBudgetMs` per call so a big world streams in over several frames instead of stalling
+            /// one. A negative budget applies everything that is ready (loading-screen mode). At least one
+            /// asset is applied per call when any is ready, so progress is guaranteed.
+            /// @return true once every asset has been applied (or nothing was in progress)
+            bool Pump(float uploadBudgetMs = kDefaultUploadBudgetMs);
+
+            static constexpr float kDefaultUploadBudgetMs = 4.0f;
+
+            bool IsInProgress() const { return state == State::Decoding; }
+
+            // 0-1 (meaningless when not in progress)
+            float GetProgress() const;
+
+        private:
+
+            enum class State { Idle, Decoding };
+
+            /// What to decode comes from the resources manager (the owner kinds know what they reference, the
+            /// kinds that can be decoded ahead of time say how) : this class knows no asset type.
+            struct DecodeJob {
+                Core::Resources::PrefetchTask task;
+                bool started = false;
+                bool applied = false;
+                std::future<std::function<void()>> future;
+            };
+
+            static bool IsDecoded(DecodeJob& job);
+            static void StartDecode(DecodeJob& job);
+            static void Apply(DecodeJob& job);
+
+            State state = State::Idle;
+
+            std::vector<DecodeJob> jobs;
+
+            std::atomic<int> completedCount{0};
+            int totalCount = 0;
+
+            // Worker threads decoding at once. Every asset used to get its own thread, which on a
+            // world with a few hundred textures oversubscribes the CPU and the memory bus.
+            int maxInFlight = 2;
+    };
+}

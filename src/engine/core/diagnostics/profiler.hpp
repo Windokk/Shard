@@ -105,7 +105,7 @@ namespace Shard::Engine::Debugging{
         ////// Memory usage
         float gpuMemoryMB = 0;
 
-        //Level
+        //World
         int actors = 0;
         int lights = 0;
     };

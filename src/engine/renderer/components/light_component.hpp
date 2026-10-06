@@ -21,7 +21,7 @@ namespace Shard::Engine::Objects::Components
             void SetLightIndex(int index);
 
             /// @brief Force this light's cached index to match its new slot after a sibling
-            /// light was removed and the level's light array shifted (does not touch the renderer
+            /// light was removed and the world's light array shifted (does not touch the renderer
             /// side, which LightManager::RemoveLight() already re-indexed on its own)
             void ReindexTo(int index) { lightIndex = index; }
             void SetCastShadow(bool castShadows);
@@ -29,6 +29,8 @@ namespace Shard::Engine::Objects::Components
 
             void Activate() override;
             void DeActivate() override;
+
+            void OnTransformChanged(uint8_t changes) override;
 
             // Directional / Spot light
             void SetDirection(glm::vec3 direction);

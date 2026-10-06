@@ -11,6 +11,11 @@
 #include <cxxabi.h>
 #include <memory>
 
+// The generated *.reflection.hpp files (included from the .cpp of each component) name the engine's types
+// unqualified (Filesystem::AssetID, Rendering::LightType...)
+namespace Shard::Engine {}
+using namespace Shard::Engine;
+
 enum FieldFlags : uint32_t {
     Editable     = 1 << 0,
     ReadOnly     = 1 << 1

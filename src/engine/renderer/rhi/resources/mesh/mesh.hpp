@@ -21,7 +21,7 @@ namespace Shard::Engine::Rendering {
         size_t indexCount;
         size_t vertexCount;
         // Index of the source material slot this submesh belongs to (matches the
-        // mesh's FBX material order, which is what level files address by slot).
+        // mesh's FBX material order, which is what world files address by slot).
         uint32_t materialIndex = 0;
     };
 
@@ -96,7 +96,7 @@ namespace Shard::Engine::Rendering {
 
     // Pure CPU: opens the FBX file, builds geometry via BuildMeshCPUDataFromFBX, and closes it again -
     // no GL calls, safe to call from any thread. Used by both the synchronous
-    // ResourcesManager::LoadModel path and the async level loader's background decode workers.
+    // ResourcesManager::LoadModel path and the async world loader's background decode workers.
     MeshCPUData DecodeMeshFile(const Filesystem::Path& path);
 
     class Mesh : public std::enable_shared_from_this<Mesh>

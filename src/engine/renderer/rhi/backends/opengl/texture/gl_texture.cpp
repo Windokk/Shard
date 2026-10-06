@@ -138,7 +138,7 @@ namespace Shard::Engine::Rendering{
         }
     }
 
-    void GLTexture2D::BindImage(uint32_t unit, TextureAccess access, uint32_t level) const
+    void GLTexture2D::BindImage(uint32_t unit, TextureAccess access, uint32_t world) const
     {
         if (!IsImageLoadStoreFormat(m_GLInternalFormat))
         {
@@ -153,12 +153,12 @@ namespace Shard::Engine::Rendering{
             case TextureAccess::ReadWrite: glAccess = GL_READ_WRITE; break;
         }
 
-        glBindImageTexture(unit, ID, level, GL_FALSE, 0, glAccess, m_GLInternalFormat);
+        glBindImageTexture(unit, ID, world, GL_FALSE, 0, glAccess, m_GLInternalFormat);
     }
 
-    void GLTexture2D::ReadPixels(void* outData, size_t bufferSize, uint32_t level) const
+    void GLTexture2D::ReadPixels(void* outData, size_t bufferSize, uint32_t world) const
     {
-        size_t required = GetPixelDataSize(level);
+        size_t required = GetPixelDataSize(world);
         if (bufferSize < required)
         {
             DEBUG_ERROR("ReadPixels buffer too small (" + std::to_string(bufferSize) + " bytes, needs " + std::to_string(required) + ") - texture " + std::to_string(ID) + " was not read back.");
@@ -168,7 +168,7 @@ namespace Shard::Engine::Rendering{
         GLTextureSpec glSpecs = GLTextureSpec::FromTextureSpecifications(m_Specifications);
 
         glBindTexture(GL_TEXTURE_2D, ID);
-        glGetTexImage(GL_TEXTURE_2D, level, glSpecs.format, glSpecs.type, outData);
+        glGetTexImage(GL_TEXTURE_2D, world, glSpecs.format, glSpecs.type, outData);
     }
 
     bool GLTexture2D::IsValid() const

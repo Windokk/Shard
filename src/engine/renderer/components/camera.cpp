@@ -5,6 +5,7 @@
 #include <string>
 
 #include "engine/world/actor.hpp"
+#include "engine/renderer/frontend/camera_manager.hpp"
 
 #include "camera.reflection.hpp"
 
@@ -49,7 +50,7 @@ namespace Shard::Engine::Objects::Components {
     void Camera::AddToCameraManager()
     {
         if(parent)
-            GetEngineContext()->GetCameraManager()->AddCamera(parent->GetID(), static_pointer_cast<Camera>(shared_from_this()));
+            GetEngineContext()->GetCameraManager()->AddCamera(parent->GetID(), std::static_pointer_cast<Camera>(shared_from_this()));
     }
 
     void Camera::Activate()

@@ -22,7 +22,7 @@ namespace Shard::Engine::Serialization{
     std::shared_ptr<Material> DeserializeMaterial(Filesystem::Path path)
     {
         if(!path.Exists()){
-            DEBUG_ERROR("Level at path : \"" + path.full +"\" doesn't exist !");
+            DEBUG_ERROR("World at path : \"" + path.full +"\" doesn't exist !");
             return nullptr; 
         }
 

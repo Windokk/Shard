@@ -5,8 +5,8 @@
 #include "apps/editor/commands/command_stack.hpp"
 
 #include "engine/world/engine.hpp"
-#include "engine/world/levels/level_manager.hpp"
-#include "engine/world/levels/level.hpp"
+#include "engine/world/world_manager.hpp"
+#include "engine/world/world.hpp"
 #include "engine/assets/project/project.hpp"
 
 #include "imgui/imgui.h"
@@ -18,10 +18,10 @@ namespace Shard::Editor::GUI{
 
     using Engine::Core::GetEngine;
 
-    static void MarkLevelDirty()
+    static void MarkWorldDirty()
     {
-        if (auto* level = GetEngine().GetLevelManager()->GetLevelAt(0))
-            level->SetDirty(true);
+        if (auto* world = GetEngine().GetWorldManager()->GetWorldAt(0))
+            world->SetDirty(true);
     }
 
     void MenuBar::SetParentWindow(Core::EditorMainWindow *parent)
@@ -53,30 +53,30 @@ namespace Shard::Editor::GUI{
         if (!ImGui::BeginMenu("File"))
             return;
 
-        if (ImGui::MenuItem("New Level"))
+        if (ImGui::MenuItem("New World"))
         {
-            auto* current = GetEngine().GetLevelManager()->GetLevelAt(0);
+            auto* current = GetEngine().GetWorldManager()->GetWorldAt(0);
             if (current && current->IsDirty())
             {
                 GUI::Popups::ConfirmUnsavedChanges(current->GetName(),
-                    [this](){ SaveCurrentLevel(); CreateNewLevel(); },
-                    [this](){ CreateNewLevel(); });
+                    [this](){ SaveCurrentWorld(); CreateNewWorld(); },
+                    [this](){ CreateNewWorld(); });
             }
             else
             {
-                CreateNewLevel();
+                CreateNewWorld();
             }
         }
 
-        if (ImGui::MenuItem("Save Level", "Ctrl+S"))
-            SaveCurrentLevel();
+        if (ImGui::MenuItem("Save World", "Ctrl+S"))
+            SaveCurrentWorld();
 
-        if (ImGui::MenuItem("Save Level As..."))
+        if (ImGui::MenuItem("Save World As..."))
         {
-            auto level = GetEngine().GetLevelManager()->GetLevelAt(0);
-            if (level)
+            auto world = GetEngine().GetWorldManager()->GetWorldAt(0);
+            if (world)
             {
-                strncpy(saveAsNameBuffer, level->GetName().c_str(), sizeof(saveAsNameBuffer) - 1);
+                strncpy(saveAsNameBuffer, world->GetName().c_str(), sizeof(saveAsNameBuffer) - 1);
                 saveAsNameBuffer[sizeof(saveAsNameBuffer) - 1] = '\0';
                 openSaveAsPopup = true;
             }
@@ -91,11 +91,11 @@ namespace Shard::Editor::GUI{
 
         if (ImGui::MenuItem("Exit"))
         {
-            auto* current = GetEngine().GetLevelManager()->GetLevelAt(0);
+            auto* current = GetEngine().GetWorldManager()->GetWorldAt(0);
             if (current && current->IsDirty())
             {
                 GUI::Popups::ConfirmUnsavedChanges(current->GetName(),
-                    [this](){ SaveCurrentLevel(); parent->RequestExit(); },
+                    [this](){ SaveCurrentWorld(); parent->RequestExit(); },
                     [this](){ parent->RequestExit(); });
             }
             else
@@ -107,50 +107,50 @@ namespace Shard::Editor::GUI{
         ImGui::EndMenu();
     }
 
-    void MenuBar::CreateNewLevel()
+    void MenuBar::CreateNewWorld()
     {
         auto path = Engine::Filesystem::Path(
-            GetEngine().GetCurrentProject()->GetProjectResourcesPath().full + "/NewLevel.lvl", true);
+            GetEngine().GetCurrentProject()->GetProjectResourcesPath().full + "/NewWorld.world", true);
 
         GetEngine().GetBuildSettings()->AddToBuildSettings(path);
 
-        auto level = std::make_shared<Engine::Levels::Level>("NewLevel", path);
-        level->SetBuildIndex(GetEngine().GetBuildSettings()->GetLevelBuildIndex(path));
-        level->Serialize(path);
+        auto world = std::make_shared<Engine::Worlds::World>("NewWorld", path);
+        world->SetBuildIndex(GetEngine().GetBuildSettings()->GetWorldBuildIndex(path));
+        world->Serialize(path);
 
-        GetEngine().GetLevelManager()->LoadLevel(level);
+        GetEngine().GetWorldManager()->LoadWorld(world);
         parent->SetSelectedActor(nullptr);
     }
 
-    void MenuBar::SaveCurrentLevel()
+    void MenuBar::SaveCurrentWorld()
     {
-        auto level = GetEngine().GetLevelManager()->GetLevelAt(0);
-        if (level)
-            level->Serialize(level->GetPath());
+        auto world = GetEngine().GetWorldManager()->GetWorldAt(0);
+        if (world)
+            world->Serialize(world->GetPath());
     }
 
     void MenuBar::DrawSaveAsPopup()
     {
         if (openSaveAsPopup)
         {
-            ImGui::OpenPopup("Save Level As");
+            ImGui::OpenPopup("Save World As");
             openSaveAsPopup = false;
         }
 
-        if (ImGui::BeginPopup("Save Level As"))
+        if (ImGui::BeginPopup("Save World As"))
         {
             ImGui::InputText("##SaveAsName", saveAsNameBuffer, sizeof(saveAsNameBuffer));
 
             if (ImGui::Button("Save"))
             {
-                auto level = GetEngine().GetLevelManager()->GetLevelAt(0);
-                if (level)
+                auto world = GetEngine().GetWorldManager()->GetWorldAt(0);
+                if (world)
                 {
                     auto newPath = Engine::Filesystem::Path(
-                        level->GetPath().GetParent() + "/" + std::string(saveAsNameBuffer) + ".lvl", true);
+                        world->GetPath().GetParent() + "/" + std::string(saveAsNameBuffer) + ".world", true);
 
                     GetEngine().GetBuildSettings()->AddToBuildSettings(newPath);
-                    level->Serialize(newPath);
+                    world->Serialize(newPath);
                 }
 
                 ImGui::CloseCurrentPopup();
@@ -161,7 +161,7 @@ namespace Shard::Editor::GUI{
             if (ImGui::Button("Cancel"))
                 ImGui::CloseCurrentPopup();
 
-            ImGui::TextDisabled("Saves a copy; keeps editing the original level.");
+            ImGui::TextDisabled("Saves a copy; keeps editing the original world.");
 
             ImGui::EndPopup();
         }
@@ -190,13 +190,13 @@ namespace Shard::Editor::GUI{
             clipboardActor = selected->Clone();
             selected->Destroy();
             parent->SetSelectedActor(clipboardActor);
-            MarkLevelDirty();
+            MarkWorldDirty();
         }
 
         if (ImGui::MenuItem("Paste", nullptr, false, clipboardActor != nullptr))
         {
             parent->SetSelectedActor(clipboardActor->Clone());
-            MarkLevelDirty();
+            MarkWorldDirty();
         }
 
         ImGui::Separator();
@@ -204,7 +204,7 @@ namespace Shard::Editor::GUI{
         if (ImGui::MenuItem("Duplicate", nullptr, false, selected != nullptr))
         {
             parent->SetSelectedActor(selected->Clone());
-            MarkLevelDirty();
+            MarkWorldDirty();
         }
 
         if (ImGui::MenuItem("Rename", nullptr, false, selected != nullptr))
@@ -218,7 +218,7 @@ namespace Shard::Editor::GUI{
         {
             parent->SetSelectedActor(nullptr);
             selected->Destroy();
-            MarkLevelDirty();
+            MarkWorldDirty();
         }
 
         ImGui::EndMenu();
@@ -242,7 +242,7 @@ namespace Shard::Editor::GUI{
                 if (selected)
                 {
                     selected->SetName(renameBuffer);
-                    MarkLevelDirty();
+                    MarkWorldDirty();
                 }
 
                 ImGui::CloseCurrentPopup();
@@ -304,8 +304,8 @@ namespace Shard::Editor::GUI{
             return;
 
         ImGui::MenuItem("Viewport", nullptr, &parent->panelVisibility.viewport);
-        ImGui::MenuItem("Level Tree", nullptr, &parent->panelVisibility.levelTree);
-        ImGui::MenuItem("Level Settings", nullptr, &parent->panelVisibility.levelSettings);
+        ImGui::MenuItem("World Tree", nullptr, &parent->panelVisibility.worldTree);
+        ImGui::MenuItem("World Settings", nullptr, &parent->panelVisibility.worldSettings);
         ImGui::MenuItem("Properties", nullptr, &parent->panelVisibility.properties);
         ImGui::MenuItem("Asset Browser", nullptr, &parent->panelVisibility.assetBrowser);
         ImGui::MenuItem("Console", nullptr, &parent->panelVisibility.console);

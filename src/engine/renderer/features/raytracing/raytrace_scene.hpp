@@ -7,8 +7,8 @@
 
 #include <glm/glm.hpp>
 
-namespace Shard::Engine::Levels {
-    class Level;
+namespace Shard::Engine::Worlds {
+    class World;
 }
 
 namespace Shard::Engine::Rendering {
@@ -84,7 +84,7 @@ namespace Shard::Engine::Rendering::Raytracing {
 
     // Per-model data needed to flatten its triangles, captured up front on the main thread so the
     // (much more expensive, O(triangle count)) flatten+BVH-build pass in BuildFromSnapshot() can run
-    // on a worker thread without touching any live Level/Actor/Transform/Material state - see
+    // on a worker thread without touching any live World/Actor/Transform/Material state - see
     // SceneBuilder::CaptureSnapshot()'s comment for why that split exists.
     struct ModelSnapshot
     {
@@ -128,19 +128,19 @@ namespace Shard::Engine::Rendering::Raytracing {
             // that thread - the callback must be cheap and thread-safe.
             using ProgressCallback = std::function<void(float, const char*)>;
 
-            // Walks every active Model component in `level`, flattens their (world-transformed)
+            // Walks every active Model component in `world`, flattens their (world-transformed)
             // triangles and materials into GPU-ready arrays, and builds a BVH over them. Materials are
             // read from their scalar parameters (albedo/roughness/metallic/emissive) plus, when present,
             // bindless handles for their albedo/metallic/roughness/normal/emissive textures - a texture,
             // when assigned, takes priority over (multiplies, for metallic/roughness/emissive) the scalar
             // value. See GPUMaterial's comment for how the handles are packed.
             //
-            // Equivalent to BuildFromSnapshot(CaptureSnapshot(level)) - kept as a single call for
+            // Equivalent to BuildFromSnapshot(CaptureSnapshot(world)) - kept as a single call for
             // callers (the offline Raytracer) that want the whole thing done synchronously in one shot.
-            static RaytraceScene Build(Levels::Level* level);
+            static RaytraceScene Build(Worlds::World* world);
 
             // Main-thread-only, cheap (bounded by model/material count, not triangle count): walks
-            // `level`'s live actors/materials and produces a self-contained snapshot with every
+            // `world`'s live actors/materials and produces a self-contained snapshot with every
             // GL-touching bit (bindless texture handle resolution via Material::GetTextureParameter)
             // already done. Must be called from the thread that owns the GL context.
             //
@@ -156,10 +156,10 @@ namespace Shard::Engine::Rendering::Raytracing {
             // flicker/leaks on whatever it's stuck next to. Dropping masked geometry from GI capture
             // entirely (no bounce contribution from foliage) reads far better in practice than a biased,
             // unstable solid-card approximation of it.
-            static RaytraceSceneSnapshot CaptureSnapshot(Levels::Level* level, bool excludeMasked = false);
+            static RaytraceSceneSnapshot CaptureSnapshot(Worlds::World* world, bool excludeMasked = false);
 
             // Pure CPU (triangle flattening + BVH build) - touches no engine singleton, no GL, no live
-            // Level/Actor/Transform state, only the snapshot's copied data - safe to call from any
+            // World/Actor/Transform state, only the snapshot's copied data - safe to call from any
             // thread, including a background worker while the main thread continues running.
             //
             // onProgress, when set, is called with a monotonically increasing [0, 1] fraction and a

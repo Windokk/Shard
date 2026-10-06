@@ -163,11 +163,11 @@ namespace Shard::Editor::GUI{
             void DrawBreadcrumb();
             void DrawAssets();
             void UpdateLayoutSizes(float avail_width);
-            void RequestOpenLevel(const Engine::Filesystem::Path &path);
+            void RequestOpenWorld(const Engine::Filesystem::Path &path);
 
             // Context menu / shortcuts only *request* an action (pendingAction); it runs once per frame
             // after the item loop (ProcessAction), since most of them rebuild `items`.
-            enum class Action { None, Open, Cut, Copy, Paste, Duplicate, Rename, Delete, Refresh, NewFolder, NewMaterial, NewLevel, Reveal, CopyPath, RefreshThumbnail };
+            enum class Action { None, Open, Cut, Copy, Paste, Duplicate, Rename, Delete, Refresh, NewFolder, NewMaterial, NewWorld, Reveal, CopyPath, RefreshThumbnail };
 
             void DrawContextMenu();
             void ProcessAction();
@@ -213,7 +213,7 @@ namespace Shard::Editor::GUI{
                 Engine::Filesystem::Type::T_COMPUTE_SHADER,
                 Engine::Filesystem::Type::T_TEXT,
                 Engine::Filesystem::Type::T_SCRIPT,
-                Engine::Filesystem::Type::T_LEVEL,
+                Engine::Filesystem::Type::T_WORLD,
                 Engine::Filesystem::Type::T_MODEL,
                 Engine::Filesystem::Type::T_MATERIAL,
                 Engine::Filesystem::Type::T_CONFIG,

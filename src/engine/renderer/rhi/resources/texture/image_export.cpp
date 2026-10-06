@@ -115,7 +115,7 @@ namespace Shard::Engine::Rendering::ImageExport{
         return result != 0;
     }
 
-    bool WriteTextureAsHDR(const std::shared_ptr<Texture2D>& texture, const Filesystem::Path& path, uint32_t level)
+    bool WriteTextureAsHDR(const std::shared_ptr<Texture2D>& texture, const Filesystem::Path& path, uint32_t world)
     {
         if (!texture)
             return false;
@@ -128,19 +128,19 @@ namespace Shard::Engine::Rendering::ImageExport{
             return false;
         }
 
-        uint32_t width = std::max(1u, spec.width >> level);
-        uint32_t height = std::max(1u, spec.height >> level);
+        uint32_t width = std::max(1u, spec.width >> world);
+        uint32_t height = std::max(1u, spec.height >> world);
         uint32_t channels = ChannelCount(spec.internalFormat);
 
-        size_t byteSize = texture->GetPixelDataSize(level);
+        size_t byteSize = texture->GetPixelDataSize(world);
         std::vector<float> pixels(byteSize / sizeof(float));
 
-        texture->ReadPixels(pixels.data(), byteSize, level);
+        texture->ReadPixels(pixels.data(), byteSize, world);
 
         return WriteHDR(path, width, height, channels, pixels.data());
     }
 
-    bool WriteTextureAsPNG(const std::shared_ptr<Texture2D>& texture, const Filesystem::Path& path, uint32_t level)
+    bool WriteTextureAsPNG(const std::shared_ptr<Texture2D>& texture, const Filesystem::Path& path, uint32_t world)
     {
         if (!texture)
             return false;
@@ -153,14 +153,14 @@ namespace Shard::Engine::Rendering::ImageExport{
             return false;
         }
 
-        uint32_t width = std::max(1u, spec.width >> level);
-        uint32_t height = std::max(1u, spec.height >> level);
+        uint32_t width = std::max(1u, spec.width >> world);
+        uint32_t height = std::max(1u, spec.height >> world);
         uint32_t channels = ChannelCount(spec.internalFormat);
 
-        size_t byteSize = texture->GetPixelDataSize(level);
+        size_t byteSize = texture->GetPixelDataSize(world);
         std::vector<uint8_t> pixels(byteSize);
 
-        texture->ReadPixels(pixels.data(), byteSize, level);
+        texture->ReadPixels(pixels.data(), byteSize, world);
 
         return WritePNG(path, width, height, channels, pixels.data());
     }

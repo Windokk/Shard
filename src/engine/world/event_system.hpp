@@ -1,17 +1,12 @@
 #pragma once
 
-#include "engine/physics/physics_manager.hpp"
-
 #include "engine/world/objectID.hpp"
 
+#include <string>
 #include <unordered_map>
 #include <functional>
 #include <typeindex>
 #include <vector>
-
-namespace Shard::Engine::Objects::Components{
-    class PhysicsBody;
-}
 
 namespace Shard::Engine::Events {
 
@@ -28,29 +23,7 @@ namespace Shard::Engine::Events {
         KeyPressedEvent(const int key, const bool rep, Core::ObjectID source) : keyCode(key), repeated(rep), Event(source) {}
     };
 
-    struct ContactAddedEvent : public Event {
-        const Objects::Components::PhysicsBody& otherBody;
-        const ContactManifold &contactManifold;
-        ContactSettings &contactSettings;
-        ContactAddedEvent(const Objects::Components::PhysicsBody& b2, const ContactManifold &manifold, ContactSettings &settings, Core::ObjectID source)
-             : otherBody(b2), contactManifold(manifold), contactSettings(settings), Event(source) {}
-    };
-
-    struct ContactPersistedEvent : public Event {
-        const Objects::Components::PhysicsBody& otherBody;
-        const ContactManifold &contactManifold;
-        ContactSettings &contactSettings;
-        ContactPersistedEvent(const Objects::Components::PhysicsBody& b2, const ContactManifold &manifold, ContactSettings &settings, Core::ObjectID source)
-             : otherBody(b2), contactManifold(manifold), contactSettings(settings), Event(source) {}
-    };
-
-    struct ContactRemovedEvent : public Event {
-        const Objects::Components::PhysicsBody& otherBody;
-        ContactRemovedEvent(
-        const Objects::Components::PhysicsBody& b2, Core::ObjectID source) : otherBody(b2), Event(source) {}
-    };
-
-    enum LevelChangeType{
+    enum WorldChangeType{
         DESTROYED,
         CREATED,
         MOVED,
@@ -60,12 +33,12 @@ namespace Shard::Engine::Events {
         UNLOADED
     };
 
-    struct LevelStructureChangedEvent : public Event{
-        const int levelAssetID;
-        const LevelChangeType changeType;
+    struct WorldStructureChangedEvent : public Event{
+        const int worldAssetID;
+        const WorldChangeType changeType;
         const std::string actorName;
-        LevelStructureChangedEvent(
-        const int& levelAssetID, const LevelChangeType changeType, const std::string actorName, Core::ObjectID source) : levelAssetID(levelAssetID), actorName(actorName), changeType(changeType), Event(source) {}
+        WorldStructureChangedEvent(
+        const int& worldAssetID, const WorldChangeType changeType, const std::string actorName, Core::ObjectID source) : worldAssetID(worldAssetID), actorName(actorName), changeType(changeType), Event(source) {}
     };
 
     // EventDispatcher
@@ -83,8 +56,8 @@ namespace Shard::Engine::Events {
             }
 
             template<typename T>
-            void subscribeToLevel(int levelID, std::function<void(const T&)> callback) {
-                levelSubscribers[levelID][typeid(T)].emplace_back([cb = std::move(callback)](const Event& e) {
+            void subscribeToWorld(int worldID, std::function<void(const T&)> callback) {
+                worldSubscribers[worldID][typeid(T)].emplace_back([cb = std::move(callback)](const Event& e) {
                     cb(static_cast<const T&>(e));
                 });
             }
@@ -112,9 +85,9 @@ namespace Shard::Engine::Events {
             }
 
             template<typename T>
-            void emitToLevel(int levelID, const T& event) {
-                auto it = levelSubscribers.find(levelID);
-                if (it != levelSubscribers.end()) {
+            void emitToWorld(int worldID, const T& event) {
+                auto it = worldSubscribers.find(worldID);
+                if (it != worldSubscribers.end()) {
                     dispatchTo(it->second, event);
                 }
             }
@@ -153,7 +126,7 @@ namespace Shard::Engine::Events {
 
             // Subscriber storage
             SubscriberMap globalSubscribers;
-            std::unordered_map<int, SubscriberMap> levelSubscribers;
+            std::unordered_map<int, SubscriberMap> worldSubscribers;
             std::unordered_map<Core::ObjectID, SubscriberMap> actorSubscribers;
             std::unordered_map<ComponentID, SubscriberMap> componentSubscribers;
     };

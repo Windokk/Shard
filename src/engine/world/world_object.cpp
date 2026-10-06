@@ -1,4 +1,4 @@
-#include "level_object.hpp"
+#include "world_object.hpp"
 
 #include "engine/core/diagnostics/logger.hpp"
 
@@ -8,16 +8,16 @@
 
 namespace Shard::Engine::Objects{
     
-    std::shared_ptr<LevelObject> LevelObject::GetParent()
+    std::shared_ptr<WorldObject> WorldObject::GetParent()
     {
         auto obj = Core::GetEngine().GetObjectIDManager()->GetObjectFromID(parent);
-        if(auto lvlObj = std::dynamic_pointer_cast<LevelObject>(obj))
-            return lvlObj;
+        if(auto worldObj = std::dynamic_pointer_cast<WorldObject>(obj))
+            return worldObj;
         else
             return nullptr;
     }
 
-    void LevelObject::Destroy()
+    void WorldObject::Destroy()
     {
         if(parent.GetAsInt() != -1){
             GetParent()->DeleteChildRef(id);
@@ -31,31 +31,31 @@ namespace Shard::Engine::Objects{
         Object::Destroy();
     }
 
-    LevelObject::~LevelObject()
+    WorldObject::~WorldObject()
     {
 
     }
 
-    std::shared_ptr<LevelObject> LevelObject::GetChild(int index)
+    std::shared_ptr<WorldObject> WorldObject::GetChild(int index)
     {
         auto obj = Core::GetEngine().GetObjectIDManager()->GetObjectFromID(children[index]);
-        if(auto lvlObj = std::dynamic_pointer_cast<LevelObject>(obj))
-            return lvlObj;
+        if(auto worldObj = std::dynamic_pointer_cast<WorldObject>(obj))
+            return worldObj;
         else
             return nullptr;
     }
 
-    std::shared_ptr<LevelObject> LevelObject::GetChild(Core::ObjectID ObjectID)
+    std::shared_ptr<WorldObject> WorldObject::GetChild(Core::ObjectID ObjectID)
     {
         if (GetID() == ObjectID)
-            return AsShared<LevelObject>();
+            return AsShared<WorldObject>();
 
         for (auto& child : children)
         {
             if (child == ObjectID) {
                 auto obj = Core::GetEngine().GetObjectIDManager()->GetObjectFromID(child);
-                if(auto lvlObj = std::dynamic_pointer_cast<LevelObject>(obj))
-                    return lvlObj;
+                if(auto worldObj = std::dynamic_pointer_cast<WorldObject>(obj))
+                    return worldObj;
                 else
                     return nullptr;
             }
@@ -64,7 +64,7 @@ namespace Shard::Engine::Objects{
         return nullptr;
     }
 
-    void LevelObject::AddChild(std::shared_ptr<LevelObject> o)
+    void WorldObject::AddChild(std::shared_ptr<WorldObject> o)
     {
         children.push_back(o->GetID());
         o->SetParent(id);

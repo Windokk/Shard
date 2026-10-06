@@ -31,9 +31,9 @@ namespace Shard::Engine::Rendering{
 
             void Bind(uint32_t slot = 0) const override;
 
-            void BindImage(uint32_t unit, TextureAccess access, uint32_t level = 0) const override;
+            void BindImage(uint32_t unit, TextureAccess access, uint32_t world = 0) const override;
 
-            void ReadPixels(void* outData, size_t bufferSize, uint32_t level = 0) const override;
+            void ReadPixels(void* outData, size_t bufferSize, uint32_t world = 0) const override;
 
             bool IsValid() const override;
 

@@ -1,9 +1,10 @@
-#include "level_settings_panel.hpp"
+#include "world_settings_panel.hpp"
 
 #include "engine/world/engine.hpp"
 #include "engine/assets/vfs/filesystem.hpp"
-#include "engine/world/levels/level.hpp"
-#include "engine/world/levels/level_manager.hpp"
+#include "engine/world/world.hpp"
+#include "engine/world/world_manager.hpp"
+#include "engine/renderer/frontend/render_world_data.hpp"
 
 #include "apps/editor/gui/dragdrop/asset_drag_drop.hpp"
 #include "apps/editor/gui/IconsLucide.h"
@@ -17,18 +18,18 @@ using Shard::Engine::Core::GetEngine;
 
 namespace Shard::Editor::GUI{
 
-    void LevelSettingsPanel::Draw()
+    void WorldSettingsPanel::Draw()
     {
-        if (!ImGui::Begin("Level Settings"))
+        if (!ImGui::Begin("World Settings"))
         {
             ImGui::End();
             return;
         }
 
-        Levels::Level* level = GetEngine().GetLevelManager()->GetLevelAt(0);
-        if (!level)
+        Worlds::World* world = GetEngine().GetWorldManager()->GetWorldAt(0);
+        if (!world)
         {
-            ImGui::TextDisabled("No level loaded");
+            ImGui::TextDisabled("No world loaded");
             ImGui::End();
             return;
         }
@@ -39,9 +40,9 @@ namespace Shard::Editor::GUI{
         ImGui::End();
     }
 
-    void LevelSettingsPanel::DrawGeneralCategory()
+    void WorldSettingsPanel::DrawGeneralCategory()
     {
-        Levels::Level* level = GetEngine().GetLevelManager()->GetLevelAt(0);
+        Worlds::World* world = GetEngine().GetWorldManager()->GetWorldAt(0);
 
         if (!ImGui::CollapsingHeader("General", ImGuiTreeNodeFlags_DefaultOpen))
             return;
@@ -49,26 +50,26 @@ namespace Shard::Editor::GUI{
         ImGui::BeginDisabled();
 
         char nameBuffer[256];
-        strncpy(nameBuffer, level->GetName().c_str(), sizeof(nameBuffer) - 1);
+        strncpy(nameBuffer, world->GetName().c_str(), sizeof(nameBuffer) - 1);
         nameBuffer[sizeof(nameBuffer) - 1] = '\0';
         ImGui::InputText("Name", nameBuffer, sizeof(nameBuffer));
 
         char pathBuffer[512];
-        strncpy(pathBuffer, level->GetPath().full.c_str(), sizeof(pathBuffer) - 1);
+        strncpy(pathBuffer, world->GetPath().full.c_str(), sizeof(pathBuffer) - 1);
         pathBuffer[sizeof(pathBuffer) - 1] = '\0';
         ImGui::InputText("Path", pathBuffer, sizeof(pathBuffer));
 
         ImGui::EndDisabled();
     }
 
-    void LevelSettingsPanel::ApplySkybox(Levels::Level* level, const std::string& pathInProject)
+    void WorldSettingsPanel::ApplySkybox(Worlds::World* world, const std::string& pathInProject)
     {
         m_SkyboxError.clear();
 
         if (pathInProject.empty())
         {
-            level->ClearSkybox();
-            level->SetDirty(true);
+            world->Ext<Rendering::RenderWorldData>().ClearSkybox();
+            world->SetDirty(true);
             return;
         }
 
@@ -87,33 +88,33 @@ namespace Shard::Editor::GUI{
             return;
         }
 
-        if (pathInProject == level->GetSkyboxPath())
+        if (pathInProject == world->Ext<Rendering::RenderWorldData>().GetSkyboxPath())
             return;
 
-        if (!level->SetSkybox(pathInProject))
+        if (!world->Ext<Rendering::RenderWorldData>().SetSkybox(pathInProject))
         {
             m_SkyboxError = "Couldn't use " + pathInProject + " as a skybox : it must be an equirectangular RGB image (see the console).";
             return;
         }
 
-        level->SetDirty(true);
+        world->SetDirty(true);
     }
 
-    void LevelSettingsPanel::DrawSkyboxSection(Levels::Level* level)
+    void WorldSettingsPanel::DrawSkyboxSection(Worlds::World* world)
     {
         if (!ImGui::TreeNodeEx("Skybox", ImGuiTreeNodeFlags_DefaultOpen | ImGuiTreeNodeFlags_Framed))
             return;
 
-        // A different level is now shown - drop the previous one's half-typed text and error.
-        if (level != m_LastLevel)
+        // A different world is now shown - drop the previous one's half-typed text and error.
+        if (world != m_LastWorld)
         {
-            m_LastLevel = level;
+            m_LastWorld = world;
             m_SkyboxInputActive = false;
             m_SkyboxError.clear();
         }
 
         if (!m_SkyboxInputActive)
-            m_SkyboxInput = level->GetSkyboxPath();
+            m_SkyboxInput = world->Ext<Rendering::RenderWorldData>().GetSkyboxPath();
 
         char buffer[256];
         strncpy(buffer, m_SkyboxInput.c_str(), sizeof(buffer) - 1);
@@ -133,25 +134,25 @@ namespace Shard::Editor::GUI{
             m_SkyboxInput = buffer;
 
         if (ImGui::IsItemHovered())
-            ImGui::SetTooltip("Equirectangular image used as the level's sky and image-based lighting.\nDrag one from the asset browser, or type its path and press Enter.");
+            ImGui::SetTooltip("Equirectangular image used as the world's sky and image-based lighting.\nDrag one from the asset browser, or type its path and press Enter.");
 
         if (submitted)
-            ApplySkybox(level, buffer);
+            ApplySkybox(world, buffer);
 
         // Same drag-and-drop the Properties panel's asset fields accept.
         if (ImGui::BeginDragDropTarget())
         {
             std::vector<std::string> dropped = DragDrop::AcceptAssetDragDropPayload();
             if (!dropped.empty())
-                ApplySkybox(level, dropped[0]);
+                ApplySkybox(world, dropped[0]);
             ImGui::EndDragDropTarget();
         }
 
         ImGui::SameLine();
 
-        ImGui::BeginDisabled(level->GetSkyboxPath().empty());
+        ImGui::BeginDisabled(world->Ext<Rendering::RenderWorldData>().GetSkyboxPath().empty());
         if (ImGui::Button((std::string(ICON_LC_X) + "##ClearSkybox").c_str(), ImVec2(clearWidth, clearWidth)))
-            ApplySkybox(level, "");
+            ApplySkybox(world, "");
         ImGui::EndDisabled();
 
         if (ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled))
@@ -167,44 +168,44 @@ namespace Shard::Editor::GUI{
         ImGui::TreePop();
     }
 
-    void LevelSettingsPanel::DrawRenderingCategory()
+    void WorldSettingsPanel::DrawRenderingCategory()
     {
-        Levels::Level* level = GetEngine().GetLevelManager()->GetLevelAt(0);
+        Worlds::World* world = GetEngine().GetWorldManager()->GetWorldAt(0);
 
         if (!ImGui::CollapsingHeader("Rendering", ImGuiTreeNodeFlags_DefaultOpen))
             return;
 
         ImGui::Indent();
 
-        DrawSkyboxSection(level);
+        DrawSkyboxSection(world);
 
-        // Ambient - see the comment on Level::ambientIntensity/lit.frag's SampleSSAO for the exact
+        // Ambient - see the comment on World::ambientIntensity/lit.frag's SampleSSAO for the exact
         // semantics : an additive light floor always present, even with zero real lights/DDGI/IBL.
         if (ImGui::TreeNodeEx("Ambient", ImGuiTreeNodeFlags_DefaultOpen | ImGuiTreeNodeFlags_Framed))
         {
-            if (ImGui::DragFloat("Intensity", &level->ambientIntensity, 0.01f, 0.0f, 10.0f))
-                level->SetDirty(true);
+            if (ImGui::DragFloat("Intensity", &world->ambientIntensity, 0.01f, 0.0f, 10.0f))
+                world->SetDirty(true);
             ImGui::TreePop();
         }
 
         if (ImGui::TreeNodeEx("Screen-Space Ambient Occlusion", ImGuiTreeNodeFlags_DefaultOpen | ImGuiTreeNodeFlags_Framed))
         {
-            if (ImGui::Checkbox("Enabled", &level->ssaoEnabled))
-                level->SetDirty(true);
+            if (ImGui::Checkbox("Enabled", &world->ssaoEnabled))
+                world->SetDirty(true);
 
-            if (!level->ssaoEnabled)
+            if (!world->ssaoEnabled)
                 ImGui::BeginDisabled();
 
             bool changed = false;
-            changed |= ImGui::DragFloat("Radius", &level->ssaoRadius, 0.01f, 0.01f, 5.0f);
-            changed |= ImGui::DragFloat("Bias", &level->ssaoBias, 0.001f, 0.0f, 0.5f);
-            changed |= ImGui::DragFloat("Power", &level->ssaoPower, 0.05f, 0.5f, 6.0f);
-            changed |= ImGui::DragFloat("Intensity", &level->ssaoIntensity, 0.01f, 0.0f, 3.0f);
+            changed |= ImGui::DragFloat("Radius", &world->ssaoRadius, 0.01f, 0.01f, 5.0f);
+            changed |= ImGui::DragFloat("Bias", &world->ssaoBias, 0.001f, 0.0f, 0.5f);
+            changed |= ImGui::DragFloat("Power", &world->ssaoPower, 0.05f, 0.5f, 6.0f);
+            changed |= ImGui::DragFloat("Intensity", &world->ssaoIntensity, 0.01f, 0.0f, 3.0f);
 
             if (changed)
-                level->SetDirty(true);
+                world->SetDirty(true);
 
-            if (!level->ssaoEnabled)
+            if (!world->ssaoEnabled)
                 ImGui::EndDisabled();
 
             ImGui::TreePop();

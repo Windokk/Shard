@@ -132,7 +132,7 @@ namespace Shard::Engine::Rendering {
     };
 
     // Pure CPU decode (file read + stb_image decode) of an image file - no GL calls, safe to call
-    // from any thread. Used both by Texture2D::Create(spec, filepath) and by the async level loader's
+    // from any thread. Used both by Texture2D::Create(spec, filepath) and by the async world loader's
     // background decode workers.
     TextureDecodeResult DecodeTextureFile(const Filesystem::Path& filepath);
 
@@ -147,18 +147,18 @@ namespace Shard::Engine::Rendering {
             // Binds this texture to an image unit for use with image load/store in a shader (e.g.
             // `imageStore`/`imageLoad` in a compute shader), as opposed to sampled access via Bind().
             // Requires the texture to have been created with immutableStorage = true.
-            virtual void BindImage(uint32_t unit, TextureAccess access, uint32_t level = 0) const = 0;
+            virtual void BindImage(uint32_t unit, TextureAccess access, uint32_t world = 0) const = 0;
 
             // Blocking readback of this texture's pixel data into CPU memory (e.g. to export a
-            // compute-shader-rendered image to disk). outData must be at least GetPixelDataSize(level)
+            // compute-shader-rendered image to disk). outData must be at least GetPixelDataSize(world)
             // bytes. If a compute shader wrote to this texture via BindImage, a
             // MemoryBarrierBit::TextureUpdate barrier must be issued after the dispatch and before this
             // call, or the read may return stale data.
-            virtual void ReadPixels(void* outData, size_t bufferSize, uint32_t level = 0) const = 0;
+            virtual void ReadPixels(void* outData, size_t bufferSize, uint32_t world = 0) const = 0;
 
             // Size in bytes of a full ReadPixels() call for the given mip level, based on this
             // texture's format - use this to size the buffer passed to ReadPixels().
-            size_t GetPixelDataSize(uint32_t level = 0) const;
+            size_t GetPixelDataSize(uint32_t world = 0) const;
 
             uint32_t GetWidth() const { return m_Specifications.width; }
             uint32_t GetHeight() const { return m_Specifications.height; }

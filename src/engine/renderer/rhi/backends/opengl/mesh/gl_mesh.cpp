@@ -73,7 +73,7 @@ namespace Shard::Engine::Rendering{
     void GLMesh::CreateFromFBX(const ufbx_mesh *ufbx_mesh, double scene_unit_meters, ufbx_material_list &ufbx_mats, ufbx_node *mesh_node, COL_RGBA vertexColor)
     {
         // Pure CPU triangulation/dedup/tangent-computation lives in the backend-agnostic
-        // BuildMeshCPUDataFromFBX (mesh.cpp) so it's reusable from the async level loader's
+        // BuildMeshCPUDataFromFBX (mesh.cpp) so it's reusable from the async world loader's
         // background decode workers - this just uploads the result to the GPU.
         CreateFromData(BuildMeshCPUDataFromFBX(ufbx_mesh, scene_unit_meters, ufbx_mats, mesh_node, vertexColor));
     }

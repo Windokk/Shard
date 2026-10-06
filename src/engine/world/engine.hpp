@@ -16,8 +16,8 @@ namespace Shard::Engine{
         class EventDispatcher;
     }
 
-    namespace Levels{
-        class LevelManager;
+    namespace Worlds{
+        class WorldManager;
     }
 
     namespace Audio{
@@ -100,7 +100,7 @@ namespace Shard::Engine{
 
             ObjectIDManager* objIDManager = nullptr;
 
-            Levels::LevelManager* levelManager = nullptr;
+            Worlds::WorldManager* worldManager = nullptr;
 
             Events::EventDispatcher* eventDispatcher = nullptr;
 
@@ -142,7 +142,7 @@ namespace Shard::Engine{
                 virtual Filesystem::AssetIDManager* GetAssetIDManager() const = 0;
                 virtual ObjectIDManager* GetObjectIDManager() const = 0;
                 virtual Physics::PhysicsManager* GetPhysicsManager() const = 0;
-                virtual Levels::LevelManager* GetLevelManager() const = 0;
+                virtual Worlds::WorldManager* GetWorldManager() const = 0;
                 virtual Events::EventDispatcher* GetEventDispatcher() const = 0;
                 virtual Audio::AudioManager* GetAudioManager() const = 0;
                 virtual Audio::AudioIDManager* GetAudioIDManager() const = 0;
@@ -195,7 +195,7 @@ namespace Shard::Engine{
 
                 Physics::PhysicsManager* GetPhysicsManager() const override { return m_Context.physicsManager; }
 
-                Levels::LevelManager* GetLevelManager() const override { return m_Context.levelManager; }
+                Worlds::WorldManager* GetWorldManager() const override { return m_Context.worldManager; }
 
                 Events::EventDispatcher* GetEventDispatcher() const override { return m_Context.eventDispatcher; }
 
@@ -218,13 +218,21 @@ namespace Shard::Engine{
             private:
                 EngineInstance() = default;
 
+                // The stages of a frame, in the order Run() calls them
+                void UpdateSimulation(float fixedDeltaTime);
+                void UpdateWorlds();
+                void SyncPhysicsBodies(float fixedDeltaTime);
+                void RenderFrame();
+                void PollInput();
+                void Present();
+
                 EngineContext m_Context;
 
                 EngineCreationSettings m_EngineSettings;
 
                 bool m_PlayMode = false;
                 bool m_ActivateAllPhysics = false;
-                bool m_ReloadCurrentLevel = false;
+                bool m_ReloadCurrentWorld = false;
                 
                 std::shared_ptr<Rendering::RendererSettings> m_RendererSettings;
         };

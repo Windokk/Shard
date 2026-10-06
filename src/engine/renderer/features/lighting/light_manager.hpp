@@ -58,11 +58,11 @@ namespace Shard::Engine::Rendering {
 
             /// @note Only call this AFTER modifying the light data
             /// @brief Update the light system's storage buffer, and shadow maps
-            /// @param index The global index (level-relative) of the modified light
+            /// @param index The global index (world-relative) of the modified light
             void Update(int index);
 
             /// @brief Add a light to the renderer
-            /// @param index The global index (level-relative) of the light
+            /// @param index The global index (world-relative) of the light
             /// @param light The light's parameters
             void AddLight(int lightIndex, std::shared_ptr<LightData> data);
 
@@ -70,7 +70,7 @@ namespace Shard::Engine::Rendering {
             void Clear();
 
             /// @brief Remove light from renderer (and its associated shadow map)
-            /// @param lightIndex The global (level-relative) light index to remove
+            /// @param lightIndex The global (world-relative) light index to remove
             void RemoveLight(int lightIndex);
 
             /// @brief Getter for lights count

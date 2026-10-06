@@ -2,7 +2,7 @@
 
 #include "engine/world/engine.hpp"
 #include "engine/platform/iplatform.hpp"
-#include "engine/world/levels/level_manager.hpp"
+#include "engine/world/world_manager.hpp"
 #include "engine/world/components/transform.reflection.hpp"
 
 #include "apps/editor/gui/IconsLucide.h"
@@ -12,6 +12,9 @@
 #include "apps/editor/gui/dragdrop/asset_drag_drop.hpp"
 
 #include "engine/renderer/components/model_component.hpp"
+#include "engine/renderer/frontend/render_world_data.hpp"
+#include "engine/renderer/frontend/camera_manager.hpp"
+#include "engine/renderer/components/camera.hpp"
 #include "engine/physics/physics_body.hpp"
 
 
@@ -88,8 +91,8 @@ namespace Shard::Editor::GUI {
     void ViewportWindow::Draw()
     {
         // The editor fly-camera must own the viewport whenever we're not in play mode. Loading or
-        // reloading a level rebinds CameraManager's active camera through Level::OnLoad() - to a
-        // level camera, or to nothing at all when the scene has no camera actor, which left the
+        // reloading a world rebinds CameraManager's active camera through World::OnLoad() - to a
+        // world camera, or to nothing at all when the scene has no camera actor, which left the
         // viewport with no active camera ("Failed to find a valid active camera"). Re-assert it
         // here every editor frame; it's a cheap lookup that no-ops once we're already active.
         if (cameraActor && !Engine::Core::GetEngine().IsInPlayMode())
@@ -480,8 +483,8 @@ namespace Shard::Editor::GUI {
             Commands::CommandStack::Get().End();
             gizmoActive = false;
 
-            if (auto* level = Engine::Core::GetEngine().GetLevelManager()->GetLevelAt(0))
-                level->SetDirty(true);
+            if (auto* world = Engine::Core::GetEngine().GetWorldManager()->GetWorldAt(0))
+                world->SetDirty(true);
         }
     }
 
@@ -493,8 +496,8 @@ namespace Shard::Editor::GUI {
         std::vector<std::string> dropped = DragDrop::AcceptAssetDragDropPayload();
         if (!dropped.empty())
         {
-            auto level = Engine::Core::GetEngine().GetLevelManager()->GetLevelAt(0);
-            if (level)
+            auto world = Engine::Core::GetEngine().GetWorldManager()->GetWorldAt(0);
+            if (world)
             {
                 // Ray from the camera through the drop position - if it lands on existing geometry the
                 // new actor spawns there (dropping onto a floor/wall places it flush against it),
@@ -525,7 +528,7 @@ namespace Shard::Editor::GUI {
                         Engine::Filesystem::Path(nameInProject).GetFilename(false),
                         &Engine::Core::GetEngine());
 
-                    level->AddActor(actor);
+                    world->AddActor(actor);
                     actor->transform->SetPosition(spawnPos);
 
                     auto model = actor->AddComponent<Engine::Objects::Components::Model>();
@@ -569,7 +572,7 @@ namespace Shard::Editor::GUI {
 
         ImGui::Separator();
 
-        // Level stats
+        // World stats
         ImGui::Text("Actors: %d", stats.actors);
         ImGui::Text("Lights: %d", stats.lights);
 
@@ -831,9 +834,9 @@ namespace Shard::Editor::GUI {
 
             ImGui::Separator();
 
-            auto activeLevel = Engine::Core::GetEngine().GetLevelManager()->GetLevelAt(0);
+            auto activeWorld = Engine::Core::GetEngine().GetWorldManager()->GetWorldAt(0);
             auto activeCamera = Engine::Core::GetEngine().GetCameraManager()->GetActiveCamera();
-            bool canRender = activeLevel && activeCamera;
+            bool canRender = activeWorld && activeCamera;
 
             ImGui::BeginDisabled(!canRender);
             if (ImGui::Button(ICON_LC_APERTURE " Render"))
@@ -845,7 +848,7 @@ namespace Shard::Editor::GUI {
                 raytraceStatusMessage.clear();
 
                 auto newRaytracer = std::make_unique<Raytracing::Raytracer>();
-                if (newRaytracer->Start(activeLevel, activeCamera, raytraceSettings, outputPath))
+                if (newRaytracer->Start(activeWorld, activeCamera, raytraceSettings, outputPath))
                     raytracer = std::move(newRaytracer);
                 else
                     raytraceStatusMessage = newRaytracer->GetStatusMessage();
@@ -853,7 +856,7 @@ namespace Shard::Editor::GUI {
             ImGui::EndDisabled();
 
             if (!canRender)
-                ImGui::TextColored(ImVec4(1.0f, 0.6f, 0.3f, 1.0f), "Need a loaded level and an active camera.");
+                ImGui::TextColored(ImVec4(1.0f, 0.6f, 0.3f, 1.0f), "Need a loaded world and an active camera.");
         }
 
         if (!raytraceStatusMessage.empty())
@@ -972,9 +975,9 @@ namespace Shard::Editor::GUI {
                 // raycast above at all, so fall back to a CPU ray-vs-mesh-AABB test for them.
                 // Actors that do have a PhysicsBody are skipped here - the raycast already tests
                 // their real collider shape, which is more accurate than their mesh bounds.
-                if (auto* level = engine->GetLevelManager()->GetLevelAt(0))
+                if (auto* world = engine->GetWorldManager()->GetWorldAt(0))
                 {
-                    for (auto& modelEntry : level->models)
+                    for (auto& modelEntry : world->Ext<Engine::Rendering::RenderWorldData>().models)
                     {
                         auto& modelComp = modelEntry.second;
 

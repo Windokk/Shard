@@ -9,7 +9,7 @@
 // Minimal IEngineContext usable from tests without a real window/GL/audio/physics
 // bootstrap. Only ObjectIDManager and EventDispatcher are backed by real instances,
 // since those are the only subsystems Objects object/component construction depends on
-// when no Level is attached. Every other accessor aborts the test loudly instead of
+// when no World is attached. Every other accessor aborts the test loudly instead of
 // silently returning nullptr, so a test that reaches into an unsupported subsystem
 // fails fast with a clear message rather than crashing on a null deref.
 namespace Shard::Tests {
@@ -45,7 +45,7 @@ namespace Shard::Tests {
             Shard::Engine::Filesystem::FileManager* GetFileManager() const override { Unsupported("GetFileManager"); return nullptr; }
             Shard::Engine::Filesystem::AssetIDManager* GetAssetIDManager() const override { Unsupported("GetAssetIDManager"); return nullptr; }
             Shard::Engine::Physics::PhysicsManager* GetPhysicsManager() const override { Unsupported("GetPhysicsManager"); return nullptr; }
-            Shard::Engine::Levels::LevelManager* GetLevelManager() const override { Unsupported("GetLevelManager"); return nullptr; }
+            Shard::Engine::Worlds::WorldManager* GetWorldManager() const override { Unsupported("GetWorldManager"); return nullptr; }
             Shard::Engine::Audio::AudioManager* GetAudioManager() const override { Unsupported("GetAudioManager"); return nullptr; }
             Shard::Engine::Audio::AudioIDManager* GetAudioIDManager() const override { Unsupported("GetAudioIDManager"); return nullptr; }
             Shard::Engine::Time::TimeManager* GetTimeManager() const override { Unsupported("GetTimeManager"); return nullptr; }

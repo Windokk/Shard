@@ -138,7 +138,7 @@ namespace Shard::Engine::Rendering{
         };
 
         // One group per FBX material slot, kept in the mesh's own material-index
-        // order. Level files (and DCC tools) address materials by that index, so
+        // order. World files (and DCC tools) address materials by that index, so
         // submesh N must map to material slot N. Faces are not necessarily sorted
         // by material in the file, so grouping by encounter order would permute
         // the mapping - an unused slot instead yields an empty submesh that keeps

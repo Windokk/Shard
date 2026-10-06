@@ -1,4 +1,4 @@
-#include "level_tree.hpp"
+#include "world_tree.hpp"
 
 #include "engine/world/engine.hpp"
 
@@ -6,7 +6,7 @@
 #include "apps/editor/gui/panels/common.hpp"
 #include "apps/editor/gui/dragdrop/asset_drag_drop.hpp"
 
-#include "engine/world/levels/level_manager.hpp"
+#include "engine/world/world_manager.hpp"
 #include "engine/renderer/components/model_component.hpp"
 
 namespace Shard::Editor::GUI{
@@ -17,21 +17,21 @@ namespace Shard::Editor::GUI{
     // DragDrop::kAssetPayloadType which carries assets dragged in from the asset browser.
     static constexpr const char* kOutlinerActorPayloadType = "SHARD_OUTLINER_ACTOR";
 
-    void LevelTree::Draw()
+    void WorldTree::Draw()
     {
-        auto level = GetEngine().GetLevelManager()->GetLevelAt(0);
+        auto world = GetEngine().GetWorldManager()->GetWorldAt(0);
 
-        // Stable ImGui ID (###LevelTree) so the title can carry the level's name (and an unsaved-
-        // changes marker) without losing this panel's saved dock position/size every time the level
-        // name changes or a different level is loaded.
-        std::string title = "Level";
-        if (level)
+        // Stable ImGui ID (###WorldTree) so the title can carry the world's name (and an unsaved-
+        // changes marker) without losing this panel's saved dock position/size every time the world
+        // name changes or a different world is loaded.
+        std::string title = "World";
+        if (world)
         {
-            title += " - " + level->GetName();
-            if (level->IsDirty())
+            title += " - " + world->GetName();
+            if (world->IsDirty())
                 title += "*";
         }
-        title += "###LevelTree";
+        title += "###WorldTree";
 
         if (!ImGui::Begin(title.c_str()))
         {
@@ -39,14 +39,14 @@ namespace Shard::Editor::GUI{
             return;
         }
 
-        if (!level)
+        if (!world)
         {
-            ImGui::Text("No level loaded");
+            ImGui::Text("No world loaded");
             ImGui::End();
             return;
         }
 
-        for (const auto& [id, rootActor] : level->GetRootActors())
+        for (const auto& [id, rootActor] : world->GetRootActors())
         {
             if (rootActor)
                 DrawActorNode(rootActor);
@@ -68,7 +68,7 @@ namespace Shard::Editor::GUI{
 
                     auto actor = Engine::Core::Object::CreateWithContext<Engine::Objects::Actor>(
                         &GetEngine(), Engine::Filesystem::Path(nameInProject).GetFilename(false), &GetEngine());
-                    level->AddActor(actor);
+                    world->AddActor(actor);
 
                     auto model = actor->AddComponent<Engine::Objects::Components::Model>();
                     if (model)
@@ -78,11 +78,11 @@ namespace Shard::Editor::GUI{
                     if (parent)
                         parent->SetSelectedActor(actor);
 
-                    level->SetDirty(true);
+                    world->SetDirty(true);
                 }
 
                 // Dropped on empty space rather than on a specific row -> detach from whatever
-                // actor it was parented under and make it a root actor of the level.
+                // actor it was parented under and make it a root actor of the world.
                 if (const ImGuiPayload* payload = ImGui::AcceptDragDropPayload(kOutlinerActorPayloadType))
                 {
                     int droppedIdInt = *(const int*)payload->Data;
@@ -96,21 +96,21 @@ namespace Shard::Editor::GUI{
             }
         }
 
-        // Right-click on empty space (including a level with no actors at all) -> create a root actor.
+        // Right-click on empty space (including a world with no actors at all) -> create a root actor.
         // NoOpenOverItems lets each actor node keep its own context menu (see DrawActorNode).
-        if (ImGui::BeginPopupContextWindow("##LevelTreeContext",
+        if (ImGui::BeginPopupContextWindow("##WorldTreeContext",
                 ImGuiPopupFlags_MouseButtonRight | ImGuiPopupFlags_NoOpenOverItems))
         {
             if (ImGui::MenuItem("Create Actor"))
             {
                 auto actor = Engine::Core::Object::CreateWithContext<Engine::Objects::Actor>(
                     &GetEngine(), "New Actor", &GetEngine());
-                level->AddActor(actor);
+                world->AddActor(actor);
                 selectedID = actor->GetID();
                 if (parent)
                     parent->SetSelectedActor(actor);
 
-                level->SetDirty(true);
+                world->SetDirty(true);
             }
 
             ImGui::EndPopup();
@@ -131,12 +131,12 @@ namespace Shard::Editor::GUI{
     }
     
 
-    void LevelTree::SetParentWindow(Core::EditorMainWindow *parent)
+    void WorldTree::SetParentWindow(Core::EditorMainWindow *parent)
     {
         this->parent = parent;
     }
 
-    void LevelTree::SetSelection(std::shared_ptr<Engine::Objects::Actor> actor)
+    void WorldTree::SetSelection(std::shared_ptr<Engine::Objects::Actor> actor)
     {
         if (actor)
         {
@@ -148,7 +148,7 @@ namespace Shard::Editor::GUI{
         }
     }
 
-    void LevelTree::DrawActorNode(std::shared_ptr<Engine::Objects::Actor> actor)
+    void WorldTree::DrawActorNode(std::shared_ptr<Engine::Objects::Actor> actor)
     {
         ImGuiTreeNodeFlags flags =
             ImGuiTreeNodeFlags_OpenOnArrow |
@@ -214,16 +214,16 @@ namespace Shard::Editor::GUI{
 
                 actor->Destroy();
 
-                if (auto* level = GetEngine().GetLevelManager()->GetLevelAt(0))
-                    level->SetDirty(true);
+                if (auto* world = GetEngine().GetWorldManager()->GetWorldAt(0))
+                    world->SetDirty(true);
             }
 
             if (ImGui::MenuItem("Duplicate"))
             {
                 actor->Clone();
 
-                if (auto* level = GetEngine().GetLevelManager()->GetLevelAt(0))
-                    level->SetDirty(true);
+                if (auto* world = GetEngine().GetWorldManager()->GetWorldAt(0))
+                    world->SetDirty(true);
             }
 
             ImGui::Separator();
@@ -233,8 +233,8 @@ namespace Shard::Editor::GUI{
                 auto child = Engine::Core::Object::CreateWithContext<Engine::Objects::Actor>(&Engine::Core::GetEngine(), "New Actor", &Engine::Core::GetEngine());
                 actor->AddChild(child);
 
-                if (auto* level = GetEngine().GetLevelManager()->GetLevelAt(0))
-                    level->SetDirty(true);
+                if (auto* world = GetEngine().GetWorldManager()->GetWorldAt(0))
+                    world->SetDirty(true);
             }
 
             ImGui::EndPopup();
@@ -256,8 +256,8 @@ namespace Shard::Editor::GUI{
                 {
                     renamingActor->SetName(renameBuffer);
 
-                    if (auto* level = GetEngine().GetLevelManager()->GetLevelAt(0))
-                        level->SetDirty(true);
+                    if (auto* world = GetEngine().GetWorldManager()->GetWorldAt(0))
+                        world->SetDirty(true);
                 }
 
                 renamingActor = nullptr;
@@ -291,7 +291,7 @@ namespace Shard::Editor::GUI{
         }
     }
 
-    void LevelTree::ReparentActor(std::shared_ptr<Engine::Objects::Actor> actor, std::shared_ptr<Engine::Objects::Actor> newParent)
+    void WorldTree::ReparentActor(std::shared_ptr<Engine::Objects::Actor> actor, std::shared_ptr<Engine::Objects::Actor> newParent)
     {
         if (!actor || actor == newParent)
             return;
@@ -300,8 +300,8 @@ namespace Shard::Editor::GUI{
         // Actor::SetParent now, shared with any other caller (scripts, etc).
         actor->SetParent(newParent);
 
-        if (auto* level = GetEngine().GetLevelManager()->GetLevelAt(0))
-            level->SetDirty(true);
+        if (auto* world = GetEngine().GetWorldManager()->GetWorldAt(0))
+            world->SetDirty(true);
     }
 }
 

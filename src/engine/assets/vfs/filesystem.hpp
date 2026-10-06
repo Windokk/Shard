@@ -24,7 +24,7 @@ namespace Shard::Engine::Filesystem{
         T_COMPUTE_SHADER,
         T_TEXT,
         T_SCRIPT,
-        T_LEVEL,
+        T_WORLD,
         T_MODEL,
         T_MATERIAL,
         T_CONFIG,

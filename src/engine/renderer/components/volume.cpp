@@ -1,6 +1,7 @@
 #include "volume.hpp"
 
 #include "engine/world/actor.hpp"
+#include "engine/assets/reflection/reflection_fields.hpp"
 #include "engine/world/engine.hpp"
 
 #include "engine/renderer/frontend/renderer.hpp"
@@ -40,9 +41,14 @@ namespace Shard::Engine::Objects::Components{
         RefreshDebugDrawCommands();
     }
 
+    void Volume::OnTransformChanged(uint8_t)
+    {
+        RefreshDebugDrawCommands();
+    }
+
     void Volume::RefreshDebugDrawCommands()
     {
-        if (!m_DebugShape || !m_DebugShape->m_Mesh || !parent || !parent->level || !parent->level->IsLoaded())
+        if (!m_DebugShape || !m_DebugShape->m_Mesh || !parent || !parent->world || !parent->world->IsLoaded())
             return;
 
         Rendering::DrawCommand cmd = {};
@@ -53,7 +59,7 @@ namespace Shard::Engine::Objects::Components{
         cmd.indexOffset = 0;
         cmd.material = GetEngineContext()->GetRenderer()->GetDebugMaterial();
         cmd.mesh = m_DebugShape->m_Mesh;
-        cmd.modelID = parent->GetComponentIDInLevel(local_id);
+        cmd.modelID = parent->GetComponentIDInWorld(local_id);
         cmd.modelMatrix = GetDebugModelMatrix();
         cmd.objectID = parent->GetID().GetAsInt();
         cmd.vertexCount = m_DebugShape->m_Mesh->GetVertexCount();
@@ -65,7 +71,7 @@ namespace Shard::Engine::Objects::Components{
     {
         if (m_DebugShape && m_DebugShape->m_Mesh && parent)
         {
-            uint64_t cmdID = Rendering::MakeCommandID(m_DebugShape->m_Mesh->GetAssetID().GetAsInt(), parent->GetComponentIDInLevel(local_id), 0);
+            uint64_t cmdID = Rendering::MakeCommandID(m_DebugShape->m_Mesh->GetAssetID().GetAsInt(), parent->GetComponentIDInWorld(local_id), 0);
             GetEngineContext()->GetRenderer()->RemoveCommands({cmdID}, {"ForwardPass"}, false);
         }
 

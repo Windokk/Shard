@@ -75,11 +75,11 @@ namespace Shard::Engine::Serialization{
             Projects::BuildSettings buildSettings;
 
             if(data.contains("buildSettings") && data["buildSettings"].is_array()){
-                for(auto level : data["buildSettings"]){
-                    if(!level.is_string())
+                for(auto world : data["buildSettings"]){
+                    if(!world.is_string())
                         continue;
 
-                    buildSettings.AddToBuildSettings(Filesystem::Path(level));
+                    buildSettings.AddToBuildSettings(Filesystem::Path(world));
                 }
             }
             else{
@@ -151,8 +151,8 @@ namespace Shard::Engine::Serialization{
         data["pluginsFolder"] = pro->GetPluginsFolderPath().RelativeTo(pro->GetProjectRoot()).full;
         data["assetDatabase"] = pro->GetAssetDatabasePath().RelativeTo(pro->GetProjectRoot()).full;
 
-        for(auto& lvl : pro->GetBuildSettings()->buildIndex){
-            data["buildSettings"].push_back(lvl.full);
+        for(auto& world : pro->GetBuildSettings()->buildIndex){
+            data["buildSettings"].push_back(world.full);
         }
 
         Projects::PhysicsSettings* physics = pro->GetPhysicsSettings();

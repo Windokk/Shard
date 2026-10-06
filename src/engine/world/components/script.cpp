@@ -13,11 +13,11 @@ namespace Shard::Engine::Objects::Components
         this->OnDestroyed();
     }
 
-    void Script::OnLevelLoaded()
+    void Script::OnWorldLoaded()
     {
     }
 
-    void Script::OnLevelUnloaded()
+    void Script::OnWorldUnloaded()
     {
     }
 

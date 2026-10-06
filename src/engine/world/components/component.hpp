@@ -25,6 +25,15 @@ namespace Shard::Engine::Objects{
             return std::is_base_of<BaseType, DerivedType>::value;
         }
 
+        /// What moved when a Transform tells the other components of its actor that it changed (bit flags).
+        /// Hierarchy : the transform did not change itself, an ancestor's did, so its world matrix did.
+        enum TransformChange : uint8_t {
+            TransformPosition  = 1 << 0,
+            TransformRotation  = 1 << 1,
+            TransformScale     = 1 << 2,
+            TransformHierarchy = 1 << 3
+        };
+
         class Component : public Core::Object{
 
             public:
@@ -72,6 +81,10 @@ namespace Shard::Engine::Objects{
                 }
 
                 virtual const ClassDescriptor* GetDescriptor() const = 0;
+
+                /// @brief The Transform of this component's actor changed
+                /// @param changes TransformChange flags
+                virtual void OnTransformChanged(uint8_t changes) {}
 
             private:
 

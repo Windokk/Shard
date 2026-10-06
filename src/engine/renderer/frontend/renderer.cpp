@@ -313,7 +313,7 @@ namespace Shard::Engine::Rendering{
         m_PrimitivesCount = 0;
         m_DrawCallsCount = 0;
 
-        // Level-owned content is gone, but renderer-owned passes (SSAO's full-screen raw/blur draws) had
+        // World-owned content is gone, but renderer-owned passes (SSAO's full-screen raw/blur draws) had
         // their only draw command wiped along with it - put those back.
         if(m_SSAOManager)
             m_SSAOManager->SubmitFullscreenCommands(this);
@@ -852,14 +852,14 @@ namespace Shard::Engine::Rendering{
     void Renderer::ExecuteRenderPass()
     {
         // With a pushed view the active camera is irrelevant (and may not even exist, e.g. a
-        // thumbnail rendered while no level is loaded).
+        // thumbnail rendered while no world is loaded).
         std::shared_ptr<Objects::Components::Camera> camera = nullptr;
         if(m_ViewStack.empty())
         {
             camera = Core::GetEngine().GetCameraManager()->GetActiveCamera();
 
             // Benign transient: right after boot (before the editor builds its viewport camera) or
-            // during a level swap there can be a frame with no active camera. Skip the pass, and warn
+            // during a world swap there can be a frame with no active camera. Skip the pass, and warn
             // only on the no-camera -> still-no-camera edge so a genuine "stuck" state stays visible
             // without spamming one line per pass per frame.
             static bool hadCameraLastCall = true;

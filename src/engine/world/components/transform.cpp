@@ -3,11 +3,7 @@
 
 #include <glm/gtx/matrix_decompose.hpp>
 
-#include "engine/renderer/frontend/renderer.hpp"
 #include "engine/world/actor.hpp"
-#include "engine/renderer/components/light_component.hpp"
-#include "engine/renderer/components/volume.hpp"
-#include "engine/renderer/features/lighting/shadow_manager.hpp"
 
 #include "engine/world/engine.hpp"
 
@@ -101,13 +97,7 @@ namespace Shard::Engine::Objects::Components{
 		// value derived from it, otherwise it would read the pre-edit, now-stale cached matrix.
 		MarkWorldMatrixDirty();
 
-		if(parent->HasComponent<Light>()){
-			for(auto& light : parent->GetComponents<Light>()){
-				light->SetPosition(GetWorldPosition());
-			}
-		}
-
-		UpdateMeshReferencesInLevel();
+		NotifyChanged(TransformPosition);
 
 		if(updateDirty)
 			dirtyFlags |= DirtyFlags::Position;
@@ -122,12 +112,7 @@ namespace Shard::Engine::Objects::Components{
 
 		MarkWorldMatrixDirty();
 
-		if(parent->HasComponent<Light>()){
-			for(auto& light : parent->GetComponents<Light>()){
-				light->SetDirection(GetWorldForward());
-			}
-		}
-		UpdateMeshReferencesInLevel();
+		NotifyChanged(TransformRotation);
 
 		if(updateDirty)
 			dirtyFlags |= DirtyFlags::Rotation;
@@ -142,12 +127,7 @@ namespace Shard::Engine::Objects::Components{
 
 		MarkWorldMatrixDirty();
 
-		if(parent->HasComponent<Light>()){
-			for(auto& light : parent->GetComponents<Light>()){
-				light->SetDirection(GetWorldForward());
-			}
-		}
-		UpdateMeshReferencesInLevel();
+		NotifyChanged(TransformRotation);
 
 		if(updateDirty)
 			dirtyFlags |= DirtyFlags::Rotation;
@@ -161,7 +141,7 @@ namespace Shard::Engine::Objects::Components{
         this->scale = scale;
 
 		MarkWorldMatrixDirty();
-		UpdateMeshReferencesInLevel();
+		NotifyChanged(TransformScale);
 
 		if(updateDirty)
 			dirtyFlags |= DirtyFlags::Scale;
@@ -176,13 +156,7 @@ namespace Shard::Engine::Objects::Components{
 
 		MarkWorldMatrixDirty();
 
-		if(parent->HasComponent<Light>()){
-			for(auto& light : parent->GetComponents<Light>()){
-				light->SetPosition(GetWorldPosition());
-			}
-		}
-
-		UpdateMeshReferencesInLevel();
+		NotifyChanged(TransformPosition);
 
 		if(updateDirty)
 			dirtyFlags |= DirtyFlags::Position;
@@ -203,12 +177,7 @@ namespace Shard::Engine::Objects::Components{
 
 		MarkWorldMatrixDirty();
 
-		if(parent->HasComponent<Light>()){
-			for(auto& light : parent->GetComponents<Light>()){
-				light->SetDirection(GetWorldForward());
-			}
-		}
-		UpdateMeshReferencesInLevel();
+		NotifyChanged(TransformRotation);
 
 		if(updateDirty)
 			dirtyFlags |= DirtyFlags::Rotation;
@@ -222,27 +191,22 @@ namespace Shard::Engine::Objects::Components{
         this->scale += deltaScale;
 
 		MarkWorldMatrixDirty();
-		UpdateMeshReferencesInLevel();
+		NotifyChanged(TransformScale);
 
 		if(updateDirty)
 			dirtyFlags |= DirtyFlags::Scale;
     }
 
-	void Transform::UpdateMeshReferencesInLevel()
+	void Transform::NotifyChanged(uint8_t changes)
 	{
         if(!activated)
             return;
 
-		if(parent->HasComponent<Objects::Components::Model>()){
-			for(std::shared_ptr<Objects::Components::Model> comp : parent->GetComponents<Objects::Components::Model>()){
-				comp->UpdateReferenceInLevel();
-			}
-		}
-
-		if(parent->HasComponent<Objects::Components::Volume>()){
-			for(std::shared_ptr<Objects::Components::Volume> comp : parent->GetComponents<Objects::Components::Volume>()){
-				comp->RefreshDebugDrawCommands();
-			}
+		// The other components of the actor (a light, a model...) follow the transform by themselves
+		const auto& siblings = parent->GetComponents();
+		for(size_t i = 0; i < siblings.size(); i++){
+			if(siblings[i].get() != this)
+				siblings[i]->OnTransformChanged(changes);
 		}
 	}
 
@@ -323,11 +287,11 @@ namespace Shard::Engine::Objects::Components{
                 continue;
 
             // Recurse first so the whole subtree is marked dirty regardless of any child's previous
-            // state, then eagerly refresh Model/Volume's level->meshes snapshot (see
-            // UpdateMeshReferencesInLevel) - those are pushed, not pulled each frame, so a descendant
+            // state, then eagerly refresh Model/Volume's world->meshes snapshot (see
+            // NotifyChanged) - those are pushed, not pulled each frame, so a descendant
             // whose own local fields never changed still needs to be told its world matrix moved.
             childActor->transform->MarkWorldMatrixDirty();
-            childActor->transform->UpdateMeshReferencesInLevel();
+            childActor->transform->NotifyChanged(TransformHierarchy);
         }
     }
 
@@ -390,7 +354,7 @@ namespace Shard::Engine::Objects::Components{
 		}
 		
 		
-		UpdateMeshReferencesInLevel();
+		NotifyChanged(TransformHierarchy);
 
 		return true;
     }

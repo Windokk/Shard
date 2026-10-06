@@ -7,10 +7,10 @@
 
 // File operations behind the asset browser's context menu. Unlike a plain filesystem call, each one keeps
 // the rest of the project consistent : the asset database (IDs survive a rename/move, so the dependency
-// lists that reference them stay valid), the level/material files that reference the asset by its path in
+// lists that reference them stay valid), the world/material files that reference the asset by its path in
 // the project, the build settings, and the resources manager's caches.
 //
-// Anything a loaded level (or a resident material) still depends on is refused - it cannot be renamed,
+// Anything a loaded world (or a resident material) still depends on is refused - it cannot be renamed,
 // moved or deleted from under its users - and reported through Result::message.
 namespace Shard::Editor::GUI::AssetOperations
 {
@@ -44,7 +44,7 @@ namespace Shard::Editor::GUI::AssetOperations
     // Creation : each returns the new item's path in `created` (empty on failure).
     Result CreateFolder(const Engine::Filesystem::Path& dir, Engine::Filesystem::Path& created);
     Result CreateMaterial(const Engine::Filesystem::Path& dir, Engine::Filesystem::Path& created);
-    Result CreateLevel(const Engine::Filesystem::Path& dir, Engine::Filesystem::Path& created);
+    Result CreateWorld(const Engine::Filesystem::Path& dir, Engine::Filesystem::Path& created);
 
     /// @brief Brings the asset database in line with the disk for everything under `dir` : files added
     /// outside the editor get an ID, entries whose file is gone (and unused) are dropped.

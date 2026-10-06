@@ -201,7 +201,7 @@ TEST(ProbeBakeCompatibility, RejectsEachKindOfChange) {
     EXPECT_FALSE(IsProbeBakeCompatible(bake, bake.probeCounts, bake.tileSize, bake.gridOrigin, bake.gridSpacing * 2.0f, &why));
     EXPECT_EQ(why, "volume was resized");
 
-    // A moved volume : the baked light would land in the wrong part of the level.
+    // A moved volume : the baked light would land in the wrong part of the world.
     EXPECT_FALSE(IsProbeBakeCompatible(bake, bake.probeCounts, bake.tileSize, bake.gridOrigin + glm::vec3(0.0f, 1.0f, 0.0f), bake.gridSpacing, &why));
     EXPECT_EQ(why, "volume was moved");
 }

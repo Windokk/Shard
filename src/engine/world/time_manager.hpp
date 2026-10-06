@@ -87,7 +87,7 @@ namespace Shard::Engine::Time{
 
                 // The simulation clock only ever advances by whole fixed steps, so whatever real time
                 // the frame took is banked here and paid out by ConsumeFixedSteps(). A frame that
-                // stalls (breakpoint, level load, window drag) is clamped instead of banked in full,
+                // stalls (breakpoint, world load, window drag) is clamped instead of banked in full,
                 // otherwise the next frame would owe more simulation than it can run in time and every
                 // following frame would owe even more - the classic spiral of death.
                 float simulated = deltaTime * timeSpeed;

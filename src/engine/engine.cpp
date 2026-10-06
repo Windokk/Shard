@@ -1,4 +1,4 @@
-#include "engine.hpp"
+#include "engine/world/engine.hpp"
 
 #include <iostream>
 #include <string>
@@ -7,13 +7,18 @@
 #include "engine/assets/resources_manager.hpp"
 #include "engine/core/diagnostics/logger.hpp"
 #include "engine/assets/serialization/project/project_serializer.hpp"
-#include "engine/world/levels/level_manager.hpp"
+#include "engine/world/world_manager.hpp"
 #include "engine/core/diagnostics/profiler.hpp"
 #include "engine/platform/iplatform.hpp"
 #include "engine/world/time_manager.hpp"
 #include "engine/renderer/frontend/camera_manager.hpp"
 #include "engine/world/actor.hpp"
 #include "engine/audio/audio_manager.hpp"
+#include "engine/physics/physics_manager.hpp"
+#include "engine/renderer/frontend/renderer.hpp"
+#include "engine/audio/audio_world_data.hpp"
+#include "engine/physics/physics_world_data.hpp"
+#include "engine/renderer/frontend/render_world_data.hpp"
 
 using namespace std::chrono;
 
@@ -25,7 +30,7 @@ namespace Shard::Engine{
 
     namespace Core{
         
-        using namespace Levels;
+        using namespace Worlds;
         using namespace Engine::Rendering;
         using namespace Physics;
         using namespace Filesystem;
@@ -86,14 +91,14 @@ namespace Shard::Engine{
             }
 
             if(m_Context.currentProject->GetBuildSettings()->buildIndex.size() > 0){
-                Filesystem::Path defaultLevelPath = m_Context.currentProject->GetBuildSettings()->buildIndex[0];
-                DEBUG_LOG("Loading default level : "+defaultLevelPath.full);
+                Filesystem::Path defaultWorldPath = m_Context.currentProject->GetBuildSettings()->buildIndex[0];
+                DEBUG_LOG("Loading default world : "+defaultWorldPath.full);
 
                 // Parallelizes texture/mesh decode across worker threads and keeps pumping window
                 // events (+ drawing a splash frame, on platforms that support one) while it waits, so
-                // a heavy default level doesn't leave the window looking frozen at boot.
+                // a heavy default world doesn't leave the window looking frozen at boot.
                 Platform::IWindow* window = GetWindow();
-                GetLevelManager()->LoadLevelBlocking(defaultLevelPath.full, [window](float progress){
+                GetWorldManager()->LoadWorldBlocking(defaultWorldPath.full, [window](float progress){
                     window->PollEvents();
                     window->DrawLoadingFrame(progress);
                 });
@@ -103,6 +108,12 @@ namespace Shard::Engine{
 
         void EngineInstance::InitSystems()
         {
+            // What each module adds to the world (its components, what it keeps on a world) : the world itself
+            // knows none of them.
+            Rendering::RegisterRenderingModule();
+            Physics::RegisterPhysicsModule();
+            Audio::RegisterAudioModule();
+
             m_Context.renderer = new Rendering::Renderer();
             m_Context.cameraManager = new Rendering::CameraManager();
 
@@ -112,8 +123,9 @@ namespace Shard::Engine{
 
             m_Context.objIDManager = new ObjectIDManager();
 
-            m_Context.levelManager = new Levels::LevelManager();
-            Levels::RegisterLevelAssetKind(*m_Context.resourcesManager);
+            m_Context.worldManager = new Worlds::WorldManager();
+            m_Context.worldManager->onAllWorldsUnloaded = [this]{ m_Context.renderer->ClearPassesContent(); };
+            Worlds::RegisterWorldAssetKind(*m_Context.resourcesManager);
 
             m_Context.eventDispatcher = new Events::EventDispatcher();
 
@@ -132,7 +144,7 @@ namespace Shard::Engine{
                 stats.frameTimeMs = m_Context.timeManager->GetDeltaTime() * 1000;
                 stats.fps = 1000 / stats.frameTimeMs;
 
-                stats.actors = m_Context.levelManager->GetLevelAt(0)->transforms.size();
+                stats.actors = m_Context.worldManager->GetWorldAt(0)->transforms.size();
             });
         }
 
@@ -157,25 +169,25 @@ namespace Shard::Engine{
 
             if(m_PlayMode){
 
-                m_Context.levelManager->GetLevelAt(0)->Serialize(m_Context.levelManager->GetLevelAt(0)->GetPath());
+                m_Context.worldManager->GetWorldAt(0)->Serialize(m_Context.worldManager->GetWorldAt(0)->GetPath());
 
-                for(int i = 0; i < m_Context.levelManager->GetLoadedLevelCount(); i++){
-                    m_Context.levelManager->GetLevelAt(i)->Play();
+                for(int i = 0; i < m_Context.worldManager->GetLoadedWorldCount(); i++){
+                    m_Context.worldManager->GetWorldAt(i)->Play();
                 }
 
-                auto* level = m_Context.levelManager->GetLevelAt(0);
-                if (level && !level->cameras.empty()){
+                auto* world = m_Context.worldManager->GetWorldAt(0);
+                if (world && !world->Ext<Rendering::RenderWorldData>().cameras.empty()){
 
-                    auto cameraEntry = level->cameras.begin();
+                    auto cameraEntry = world->Ext<Rendering::RenderWorldData>().cameras.begin();
                     auto camera = cameraEntry->second;
                     if (!camera) {
-                        DEBUG_ERROR("First camera is not valid for level : ", level->GetName());
+                        DEBUG_ERROR("First camera is not valid for world : ", world->GetName());
                         return;
                     }
 
                     auto parent = camera->parent;
                     if (!parent) {
-                        DEBUG_ERROR("First camera's parent is not valid for level : ", level->GetName());
+                        DEBUG_ERROR("First camera's parent is not valid for world : ", world->GetName());
                         return;
                     }
 
@@ -186,11 +198,11 @@ namespace Shard::Engine{
             }
             else{
                 
-                for(int i = 0; i < m_Context.levelManager->GetLoadedLevelCount(); i++){
-                    m_Context.levelManager->GetLevelAt(i)->Stop();
+                for(int i = 0; i < m_Context.worldManager->GetLoadedWorldCount(); i++){
+                    m_Context.worldManager->GetWorldAt(i)->Stop();
                 }
 
-                m_ReloadCurrentLevel = true;
+                m_ReloadCurrentWorld = true;
             }
         }
 
@@ -207,7 +219,7 @@ namespace Shard::Engine{
             m_Context.platform->GetInput()->Shutdown();
             m_Context.audioManager->Shutdown();
             m_Context.physicsManager->Shutdown();
-            m_Context.levelManager->UnloadAllLevels();
+            m_Context.worldManager->UnloadAllWorlds();
             m_Context.renderer->Shutdown();
             m_Context.platform->GetWindow()->Destroy();
         }
@@ -220,6 +232,25 @@ namespace Shard::Engine{
 
             const float fixedDeltaTime = m_Context.timeManager->GetFixedDeltaTime();
 
+            UpdateSimulation(fixedDeltaTime);
+            UpdateWorlds();
+            SyncPhysicsBodies(fixedDeltaTime);
+            RenderFrame();
+            PollInput();
+            Present();
+
+            m_Context.profiler->EndFrameSampling(m_Context.timeManager->GetDeltaTime() * 1000.0f);
+
+            if(m_Context.platform->GetInput()->WasKeyPressed(Key::Escape))
+            {
+                return false;
+            }
+
+            return true;
+        }
+
+        void EngineInstance::UpdateSimulation(float fixedDeltaTime)
+        {
             if(m_PlayMode){
                 {
                     SHARD_PROFILE_SCOPE(Debugging::ProfileCategory::Physics);
@@ -233,7 +264,7 @@ namespace Shard::Engine{
                     for(int i = 0; i < steps; i++){
                         // Intermediate steps need the bodies re-synced in between (kinematic targets
                         // pushed to Jolt, dynamic results read back); the last step's results are
-                        // picked up by the TickBodies() call further down, before rendering.
+                        // picked up by SyncPhysicsBodies(), before rendering.
                         if(i > 0)
                             m_Context.physicsManager->TickBodies(fixedDeltaTime);
 
@@ -250,7 +281,7 @@ namespace Shard::Engine{
                 }
                 {
                     SHARD_PROFILE_SCOPE(Debugging::ProfileCategory::Scripting);
-                    m_Context.levelManager->Tick();
+                    m_Context.worldManager->Tick();
                 }
             }
             else{
@@ -258,56 +289,54 @@ namespace Shard::Engine{
                 // the moment play mode starts.
                 m_Context.timeManager->ResetAccumulator();
             }
+        }
 
-            m_Context.levelManager->PumpAsyncLoad();
+        void EngineInstance::UpdateWorlds()
+        {
+            m_Context.worldManager->PumpAsyncLoad();
 
-            if(m_ReloadCurrentLevel)
+            if(m_ReloadCurrentWorld)
             {
-                std::string levelNameInProject = GetAssetIDManager()->GetAssetFromID(GetLevelManager()->GetLevelAt(0)->GetAssetID())->baseInfos.nameInProject;
-                GetLevelManager()->UnloadLevel(0);
-                GetResourcesManager()->Unload(Core::Resources::AssetKind::Level, levelNameInProject);
+                std::string worldNameInProject = GetAssetIDManager()->GetAssetFromID(GetWorldManager()->GetWorldAt(0)->GetAssetID())->baseInfos.nameInProject;
+                GetWorldManager()->UnloadWorld(0);
+                GetResourcesManager()->Unload(Core::Resources::AssetKind::World, worldNameInProject);
                 GetRenderer()->ClearPassesContent();
                 GetObjectIDManager()->Reset();
-                auto level = GetResourcesManager()->Get<Levels::Level>(Core::Resources::AssetKind::Level, levelNameInProject);
-                if(level)
+                auto world = GetResourcesManager()->Get<Worlds::World>(Core::Resources::AssetKind::World, worldNameInProject);
+                if(world)
                 {
-                    GetLevelManager()->LoadLevel(level);
+                    GetWorldManager()->LoadWorld(world);
                     GetResourcesManager()->CollectUnused();
                 }
                 else
-                    DEBUG_ERROR("Error re-loading level !");
-                m_ReloadCurrentLevel = false;
+                    DEBUG_ERROR("Error re-loading world !");
+                m_ReloadCurrentWorld = false;
             }
+        }
 
-            {
-                SHARD_PROFILE_SCOPE(Debugging::ProfileCategory::Physics);
-                m_Context.physicsManager->TickBodies(fixedDeltaTime);
-            }
+        void EngineInstance::SyncPhysicsBodies(float fixedDeltaTime)
+        {
+            SHARD_PROFILE_SCOPE(Debugging::ProfileCategory::Physics);
+            m_Context.physicsManager->TickBodies(fixedDeltaTime);
+        }
 
-            {
-                SHARD_PROFILE_SCOPE(Debugging::ProfileCategory::Rendering);
-                m_Context.renderer->Render();
-            }
+        void EngineInstance::RenderFrame()
+        {
+            SHARD_PROFILE_SCOPE(Debugging::ProfileCategory::Rendering);
+            m_Context.renderer->Render();
+        }
 
-            {
-                SHARD_PROFILE_SCOPE(Debugging::ProfileCategory::Input);
-                m_Context.platform->GetInput()->Tick();
-                m_Context.platform->GetWindow()->PollEvents();
-            }
+        void EngineInstance::PollInput()
+        {
+            SHARD_PROFILE_SCOPE(Debugging::ProfileCategory::Input);
+            m_Context.platform->GetInput()->Tick();
+            m_Context.platform->GetWindow()->PollEvents();
+        }
 
-            {
-                SHARD_PROFILE_SCOPE(Debugging::ProfileCategory::Presentation);
-                m_Context.platform->GetWindow()->SwapBuffers();
-            }
-
-            m_Context.profiler->EndFrameSampling(m_Context.timeManager->GetDeltaTime() * 1000.0f);
-
-            if(m_Context.platform->GetInput()->WasKeyPressed(Key::Escape))
-            {
-                return false;
-            }
-
-            return true;
+        void EngineInstance::Present()
+        {
+            SHARD_PROFILE_SCOPE(Debugging::ProfileCategory::Presentation);
+            m_Context.platform->GetWindow()->SwapBuffers();
         }
 
     }

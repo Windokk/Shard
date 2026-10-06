@@ -5,7 +5,7 @@
 #include <fmod_errors.h>
 
 #include "engine/world/actor.hpp"
-#include "engine/world/levels/level_manager.hpp"
+#include "engine/world/world_manager.hpp"
 #include "engine/core/color.hpp"
 #include "engine/renderer/frontend/renderer.hpp"
 #include "engine/renderer/frontend/camera_manager.hpp"
@@ -15,6 +15,7 @@
 #include "engine/core/diagnostics/profiler.hpp"
 
 #include "engine/audio/audio_source.hpp"
+#include "engine/audio/audio_world_data.hpp"
 #include "engine/assets/resources_manager.hpp"
 #include "sound_asset.hpp"
 
@@ -68,6 +69,19 @@ namespace Shard::Engine::Audio
                 return sound;
             };
             info.setAssetID = [](void* resource, Filesystem::AssetID id){ static_cast<SoundAsset*>(resource)->SetAssetID(id); };
+            // The (multi-megabyte) file read moves off the main thread, so the first Play() of an
+            // AudioSource finds the bytes already cached instead of blocking on the disk.
+            info.prefetch = [](Core::Resources::ResourcesManager& resources, const std::string& pathInProject, const Filesystem::Path& file) -> std::function<void()> {
+                auto bytes = std::make_shared<std::string>(file.ReadFile());
+                if(bytes->empty())
+                    return nullptr;
+
+                return [&resources, pathInProject, bytes](){
+                    std::shared_ptr<SoundAsset> sound = std::make_shared<SoundAsset>();
+                    sound->SetBuffer(std::move(*bytes));
+                    resources.Adopt(Core::Resources::AssetKind::Sound, pathInProject, sound);
+                };
+            };
             Core::GetEngine().GetResourcesManager()->RegisterKind(Core::Resources::AssetKind::Sound, std::move(info));
         }
 
@@ -219,9 +233,9 @@ namespace Shard::Engine::Audio
 
     void AudioManager::Tick()
     {
-        if(int levelCount = Core::GetEngine().GetLevelManager()->GetLoadedLevelCount() > 0){
-            for(int i = 0; i < levelCount; i++){
-                for(auto& [id,source] : Core::GetEngine().GetLevelManager()->GetLevelAt(i)->audioSources){
+        if(int worldCount = Core::GetEngine().GetWorldManager()->GetLoadedWorldCount() > 0){
+            for(int i = 0; i < worldCount; i++){
+                for(auto& [id,source] : Core::GetEngine().GetWorldManager()->GetWorldAt(i)->Ext<AudioWorldData>().sources){
                     source->Update();
                 }
 

@@ -80,7 +80,7 @@ namespace Shard::Engine::Core::Resources{
             info->setAssetID(resource.get(), id);
 
         // A material only stores its textures' raw GL handles, so it is the graph edge (not the
-        // material's own pointers) that keeps them alive. Same for a level and its meshes, etc.
+        // material's own pointers) that keeps them alive. Same for a world and its meshes, etc.
         if(info->dependencies)
             SetDependencies({kind, pathInProject}, info->dependencies(assetInfos->baseInfos.path));
 
@@ -129,6 +129,56 @@ namespace Shard::Engine::Core::Resources{
             return false;
         outID = id;
         return true;
+    }
+
+    std::vector<PrefetchTask> ResourcesManager::PlanPrefetch(const std::string& ownerPathInProject)
+    {
+        std::vector<PrefetchTask> tasks;
+        std::unordered_set<ResourceKey, ResourceKeyHash> seen;
+
+        // Owners (world, materials) are walked through their dependency list, everything else is a leaf
+        std::function<void(const std::string&, const Filesystem::Path&, const AssetKindInfo&)> visitOwner =
+            [&](const std::string&, const Filesystem::Path& file, const AssetKindInfo& ownerInfo)
+        {
+            for(const ResourceKey& key : ownerInfo.dependencies(file)){
+                if(!seen.insert(key).second)
+                    continue;
+
+                const AssetKindInfo* info = KindInfo(key.kind);
+                if(!info)
+                    continue;
+
+                Filesystem::AssetID id;
+                if(!ResolveAsset(key.path, id))
+                    continue;
+                Filesystem::Path keyFile = ids->GetAssetFromID(id)->baseInfos.path;
+
+                if(info->dependencies)
+                    visitOwner(key.path, keyFile, *info);
+
+                if(!info->prefetch || Has(key.kind, key.path))
+                    continue;
+
+                PrefetchTask task;
+                task.key = key;
+                task.decode = [this, fn = info->prefetch, key, keyFile](){ return fn(*this, key.path, keyFile); };
+                tasks.push_back(std::move(task));
+            }
+        };
+
+        Filesystem::AssetID ownerID;
+        if(!ResolveAsset(ownerPathInProject, ownerID))
+            return tasks;
+
+        auto ownerAsset = ids->GetAssetFromID(ownerID);
+        for(size_t i = 0; i < kinds.size(); i++){
+            if(kinds[i] && kinds[i]->dependencies && kinds[i]->ownerType && *kinds[i]->ownerType == ownerAsset->baseInfos.type){
+                visitOwner(ownerPathInProject, ownerAsset->baseInfos.path, *kinds[i]);
+                break;
+            }
+        }
+
+        return tasks;
     }
 
     long ResourcesManager::UseCount(const ResourceKey& key) const
@@ -205,7 +255,7 @@ namespace Shard::Engine::Core::Resources{
 
     bool ResourcesManager::IsEvictable(const ResourceKey &key) const
     {
-        // Levels are owned by the LevelManager (Unload), never swept.
+        // Worlds are owned by the WorldManager (Unload), never swept.
         const AssetKindInfo* info = KindInfo(key.kind);
         if(!info || !info->evictable || retainCount.count(key) > 0)
             return false;
@@ -264,7 +314,7 @@ namespace Shard::Engine::Core::Resources{
 
         auto info = ids->GetAssetFromID(id);
 
-        // The owner kind (level, material) is the one whose files have this asset type
+        // The owner kind (world, material) is the one whose files have this asset type
         std::optional<AssetKind> ownerKind;
         for(size_t i = 0; i < kinds.size(); i++){
             if(kinds[i] && kinds[i]->dependencies && kinds[i]->ownerType && *kinds[i]->ownerType == info->baseInfos.type){
@@ -345,7 +395,7 @@ namespace Shard::Engine::Core::Resources{
                 Evict(key);
             }
             else
-                Unload(key.kind, key.path); // owned elsewhere (levels) : dropped on request
+                Unload(key.kind, key.path); // owned elsewhere (worlds) : dropped on request
 
             CollectUnused();
             return;

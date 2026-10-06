@@ -8,7 +8,7 @@ namespace Shard::Engine::Core{
 
     class IEngineContext;
 
-    /// @brief The base class for every type of object (asset instance, level, level object...)
+    /// @brief The base class for every type of object (asset instance, world, world object...)
     class Object : public std::enable_shared_from_this<Object> {
         public:
             virtual ~Object() = default;

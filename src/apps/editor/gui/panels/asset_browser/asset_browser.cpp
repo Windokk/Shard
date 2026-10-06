@@ -3,8 +3,8 @@
 #include "apps/editor/gui/main_window.hpp"
 
 #include "engine/assets/project/project.hpp"
-#include "engine/world/levels/level_manager.hpp"
-#include "engine/world/levels/level.hpp"
+#include "engine/world/world_manager.hpp"
+#include "engine/world/world.hpp"
 #include "engine/assets/resources_manager.hpp"
 #include "engine/renderer/frontend/renderer.hpp"
 #include "engine/renderer/rhi/resources/texture/texture.hpp"
@@ -38,7 +38,7 @@ namespace Shard::Editor::GUI{
             case Engine::Filesystem::Type::T_IMAGE:          return IM_COL32(175, 110, 220, 255); // purple/pink
             case Engine::Filesystem::Type::T_SOUND:          return IM_COL32(26, 188, 156, 255);  // teal
             case Engine::Filesystem::Type::T_SCRIPT:         return IM_COL32(241, 196, 15, 255);  // yellow
-            case Engine::Filesystem::Type::T_LEVEL:          return IM_COL32(231, 76, 60, 255);   // red
+            case Engine::Filesystem::Type::T_WORLD:          return IM_COL32(231, 76, 60, 255);   // red
             case Engine::Filesystem::Type::T_SHADER:         return IM_COL32(52, 152, 219, 255);  // blue
             case Engine::Filesystem::Type::T_COMPUTE_SHADER: return IM_COL32(41, 128, 185, 255);  // dark blue
             case Engine::Filesystem::Type::T_FONT:           return IM_COL32(149, 165, 166, 255); // grey-blue
@@ -60,7 +60,7 @@ namespace Shard::Editor::GUI{
             case Engine::Filesystem::Type::T_IMAGE:          return "Texture";
             case Engine::Filesystem::Type::T_SOUND:          return "Sound";
             case Engine::Filesystem::Type::T_SCRIPT:         return "Script";
-            case Engine::Filesystem::Type::T_LEVEL:          return "Level";
+            case Engine::Filesystem::Type::T_WORLD:          return "World";
             case Engine::Filesystem::Type::T_SHADER:         return "Shader";
             case Engine::Filesystem::Type::T_COMPUTE_SHADER: return "Compute Shader";
             case Engine::Filesystem::Type::T_FONT:           return "Font";
@@ -426,7 +426,7 @@ namespace Shard::Editor::GUI{
 
                         // Drag and drop - the payload carries each dragged item's nameInProject (see
                         // DragDrop::SetAssetDragDropPayload) so any drop target elsewhere in the editor
-                        // (viewport, level tree, inspector asset fields, material slots, ...) can feed
+                        // (viewport, world tree, inspector asset fields, material slots, ...) can feed
                         // it straight into ResourcesManager/AssetIDManager lookups.
                         if (ImGui::BeginDragDropSource())
                         {
@@ -697,36 +697,36 @@ namespace Shard::Editor::GUI{
         LayoutOuterPadding = Spacing.x * 0.5f;
     }
 
-    void AssetBrowser::RequestOpenLevel(const Engine::Filesystem::Path &path)
+    void AssetBrowser::RequestOpenWorld(const Engine::Filesystem::Path &path)
     {
         auto& engine = Engine::Core::GetEngine();
-        auto* levelManager = engine.GetLevelManager();
+        auto* worldManager = engine.GetWorldManager();
 
-        if (levelManager->IsAsyncLoadInProgress())
+        if (worldManager->IsAsyncLoadInProgress())
             return;
 
-        // Whatever's currently loaded is only torn down once the new level has resolved
-        // successfully (see LevelManager::FinishAsyncLoad) - so a bad/missing target here can't
-        // leave the editor with zero levels loaded.
+        // Whatever's currently loaded is only torn down once the new world has resolved
+        // successfully (see WorldManager::FinishAsyncLoad) - so a bad/missing target here can't
+        // leave the editor with zero worlds loaded.
         std::string pathInProject = engine.GetFileManager()->GetFileInfos(path).nameInProject;
 
-        auto* current = levelManager->GetLevelAt(0);
+        auto* current = worldManager->GetWorldAt(0);
         if (current && current->IsDirty())
         {
             GUI::Popups::ConfirmUnsavedChanges(current->GetName(),
-                [levelManager, current, pathInProject]()
+                [worldManager, current, pathInProject]()
                 {
                     current->Serialize(current->GetPath());
-                    levelManager->LoadLevelAsync(pathInProject);
+                    worldManager->LoadWorldAsync(pathInProject);
                 },
-                [levelManager, pathInProject]()
+                [worldManager, pathInProject]()
                 {
-                    levelManager->LoadLevelAsync(pathInProject);
+                    worldManager->LoadWorldAsync(pathInProject);
                 });
             return;
         }
 
-        levelManager->LoadLevelAsync(pathInProject);
+        worldManager->LoadWorldAsync(pathInProject);
     }
 
     void AssetBrowser::SetParentWindow(Core::EditorMainWindow* parent)
@@ -738,8 +738,8 @@ namespace Shard::Editor::GUI{
     {
         if (item.isDirectory)
             NavigateTo(item.path.full);
-        else if (item.type == Engine::Filesystem::Type::T_LEVEL)
-            RequestOpenLevel(item.path);
+        else if (item.type == Engine::Filesystem::Type::T_WORLD)
+            RequestOpenWorld(item.path);
         else
             AssetEditorRegistry::Instance().TryOpen(item.type, item.path);
     }
@@ -820,8 +820,8 @@ namespace Shard::Editor::GUI{
                     pendingAction = Action::NewFolder;
                 if (ImGui::MenuItem("Material"))
                     pendingAction = Action::NewMaterial;
-                if (ImGui::MenuItem("Level"))
-                    pendingAction = Action::NewLevel;
+                if (ImGui::MenuItem("World"))
+                    pendingAction = Action::NewWorld;
                 ImGui::EndMenu();
             }
 
@@ -979,12 +979,12 @@ namespace Shard::Editor::GUI{
 
             case Action::NewFolder:
             case Action::NewMaterial:
-            case Action::NewLevel:
+            case Action::NewWorld:
             {
                 Path created;
                 Ops::Result r = action == Action::NewFolder ? Ops::CreateFolder(currentPath, created)
                               : action == Action::NewMaterial ? Ops::CreateMaterial(currentPath, created)
-                              : Ops::CreateLevel(currentPath, created);
+                              : Ops::CreateWorld(currentPath, created);
                 if (!r.ok)
                     failures.push_back(r.message);
                 else
