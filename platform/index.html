@@ -8,13 +8,13 @@
       
       
       
-        <link rel="canonical" href="https://windokk.github.io/pulse/core-concepts/">
+        <link rel="canonical" href="https://windokk.github.io/pulse/platform/">
       
       
-        <link rel="prev" href="../contributing/">
+        <link rel="prev" href="../modules/">
       
       
-        <link rel="next" href="../modules/">
+        <link rel="next" href="../tutorials/">
       
       
       <link rel="icon" href="../assets/images/favicon.png">
@@ -22,7 +22,7 @@
     
     
       
-        <title>Core concepts - Shard Engine Docs</title>
+        <title>Platform Abstraction Layer (PAL) - Shard Engine Docs</title>
       
     
     
@@ -75,6 +75,11 @@
     <label class="md-overlay" for="__drawer"></label>
     <div data-md-component="skip">
       
+        
+        <a href="#platform-abstraction-layer-pal" class="md-skip">
+          Skip to content
+        </a>
+      
     </div>
     <div data-md-component="announce">
       
@@ -108,7 +113,7 @@
         <div class="md-header__topic" data-md-component="header-topic">
           <span class="md-ellipsis">
             
-              Core concepts
+              Platform Abstraction Layer (PAL)
             
           </span>
         </div>
@@ -284,11 +289,9 @@
   
   
   
-    
   
-  
-    <li class="md-tabs__item md-tabs__item--active">
-      <a href="./" class="md-tabs__link">
+    <li class="md-tabs__item">
+      <a href="../core-concepts/" class="md-tabs__link">
         
   
   
@@ -324,9 +327,11 @@
   
   
   
+    
   
-    <li class="md-tabs__item">
-      <a href="../platform/" class="md-tabs__link">
+  
+    <li class="md-tabs__item md-tabs__item--active">
+      <a href="./" class="md-tabs__link">
         
   
   
@@ -492,17 +497,10 @@
       
   
   
-    
   
   
-  
-    <li class="md-nav__item md-nav__item--active">
-      
-      <input class="md-nav__toggle md-toggle" type="checkbox" id="__toc">
-      
-      
-      
-      <a href="./" class="md-nav__link md-nav__link--active">
+    <li class="md-nav__item">
+      <a href="../core-concepts/" class="md-nav__link">
         
   
   
@@ -513,7 +511,6 @@
   
 
       </a>
-      
     </li>
   
 
@@ -544,10 +541,32 @@
       
   
   
+    
   
   
-    <li class="md-nav__item">
-      <a href="../platform/" class="md-nav__link">
+  
+    <li class="md-nav__item md-nav__item--active">
+      
+      <input class="md-nav__toggle md-toggle" type="checkbox" id="__toc">
+      
+      
+        
+      
+      
+        <label class="md-nav__link md-nav__link--active" for="__toc">
+          
+  
+  
+  <span class="md-ellipsis">
+    Platform Abstraction Layer (PAL)
+    
+  </span>
+  
+
+          <span class="md-nav__icon md-icon"></span>
+        </label>
+      
+      <a href="./" class="md-nav__link md-nav__link--active">
         
   
   
@@ -558,6 +577,44 @@
   
 
       </a>
+      
+        
+
+<nav class="md-nav md-nav--secondary" aria-label="Table of contents">
+  
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      Table of contents
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#building-on-linux" class="md-nav__link">
+    <span class="md-ellipsis">
+      Building on Linux
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#gamepads" class="md-nav__link">
+    <span class="md-ellipsis">
+      Gamepads
+    </span>
+  </a>
+  
+</li>
+      
+    </ul>
+  
+</nav>
+      
     </li>
   
 
@@ -720,6 +777,34 @@
   
   
   
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      Table of contents
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#building-on-linux" class="md-nav__link">
+    <span class="md-ellipsis">
+      Building on Linux
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#gamepads" class="md-nav__link">
+    <span class="md-ellipsis">
+      Gamepads
+    </span>
+  </a>
+  
+</li>
+      
+    </ul>
   
 </nav>
                   </div>
@@ -738,9 +823,74 @@
   
 
 
-  <h1>Core concepts</h1>
-
-
+<h1 id="platform-abstraction-layer-pal">Platform Abstraction Layer (PAL)</h1>
+<p><code>src/engine/platform/</code> is the only place that talks to the OS and to the window system. It depends on <code>ShardCore</code> and SDL3 only; every layer above asks it through its own API, and <code>scripts/check_deps.py</code> fails the CI if an OS or SDL header shows up elsewhere in <code>src/engine/</code>.</p>
+<p>Each module has a public header without any OS type, and one implementation file per OS (<code>*_win32.cpp</code> / <code>*_posix.cpp</code>, selected by <code>#if</code>).</p>
+<table>
+<thead>
+<tr>
+<th>Folder</th>
+<th>What it gives</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>windowing/</code></td>
+<td><code>IWindow</code>, <code>IPlatform</code>; SDL3 backend (<code>SDLWindow</code>, <code>SDLPlatform&lt;T&gt;</code>): GL context, monitors, DPI, HDR, fullscreen</td>
+</tr>
+<tr>
+<td><code>events/</code></td>
+<td><code>OSEvent</code>: typed window system events, several listeners per window</td>
+</tr>
+<tr>
+<td><code>devices/</code></td>
+<td><code>IInput</code> (keyboard, mouse, gamepads), <code>Key</code>, <code>GamepadButton</code>, <code>GamepadAxis</code>; SDL3 backend</td>
+</tr>
+<tr>
+<td><code>clipboard/</code></td>
+<td>Clipboard text, file / folder / message dialogs</td>
+</tr>
+<tr>
+<td><code>filesystem/</code></td>
+<td><code>Paths</code> (user directories), <code>FileWatcher</code> (ReadDirectoryChangesW / inotify), <code>AsyncIO</code> (IOCP / io_uring / thread pool)</td>
+</tr>
+<tr>
+<td><code>lib_loader/</code></td>
+<td><code>DynLib</code>, <code>ModuleLoader</code></td>
+</tr>
+<tr>
+<td><code>thread/</code>, <code>atomic/</code>, <code>time/</code></td>
+<td>Named / prioritised / pinned threads, <code>HardwareConcurrency()</code>, <code>SpinLock</code>, <code>NowNanoseconds()</code>, <code>PreciseSleep()</code></td>
+</tr>
+<tr>
+<td><code>process/</code></td>
+<td>Environment, executable path, <code>Process::Launch</code>, reveal in file manager</td>
+</tr>
+<tr>
+<td><code>crash/</code></td>
+<td>Crash report + minidump, crash hooks, Ctrl+C / SIGTERM handler</td>
+</tr>
+<tr>
+<td><code>network/</code></td>
+<td><code>Socket</code> (UDP / TCP), <code>NamedPipe</code>, <code>SharedMemory</code></td>
+</tr>
+<tr>
+<td><code>hardware/</code></td>
+<td>CPU features, RAM, OS, per-process memory (CPU and GPU)</td>
+</tr>
+</tbody>
+</table>
+<h2 id="building-on-linux">Building on Linux</h2>
+<p>SDL3 is built from source and needs the development packages of the window system (X11 / Wayland, ALSA / PulseAudio, libudev...). <code>liburing-dev</code> is optional: with it the async IO uses io_uring (when the kernel allows it), without it a small thread pool does the same job. <code>AsyncIO::BackendName()</code> tells which one is in use.</p>
+<h2 id="gamepads">Gamepads</h2>
+<p>Connected pads are numbered in the order they were plugged in:</p>
+<div class="highlight"><pre><span></span><code><span class="k">auto</span><span class="o">*</span><span class="w"> </span><span class="n">input</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">GetEngine</span><span class="p">().</span><span class="n">GetInputManager</span><span class="p">();</span>
+<span class="k">if</span><span class="w"> </span><span class="p">(</span><span class="n">input</span><span class="o">-&gt;</span><span class="n">GetGamepadCount</span><span class="p">()</span><span class="w"> </span><span class="o">&gt;</span><span class="w"> </span><span class="mi">0</span><span class="p">)</span><span class="w"> </span><span class="p">{</span>
+<span class="w">    </span><span class="kt">float</span><span class="w"> </span><span class="n">x</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">input</span><span class="o">-&gt;</span><span class="n">GetGamepadAxis</span><span class="p">(</span><span class="mi">0</span><span class="p">,</span><span class="w"> </span><span class="n">Input</span><span class="o">::</span><span class="n">GamepadAxis</span><span class="o">::</span><span class="n">LeftX</span><span class="p">);</span><span class="w">   </span><span class="c1">// dead zone applied</span>
+<span class="w">    </span><span class="k">if</span><span class="w"> </span><span class="p">(</span><span class="n">input</span><span class="o">-&gt;</span><span class="n">WasGamepadButtonPressed</span><span class="p">(</span><span class="mi">0</span><span class="p">,</span><span class="w"> </span><span class="n">Input</span><span class="o">::</span><span class="n">GamepadButton</span><span class="o">::</span><span class="n">South</span><span class="p">))</span>
+<span class="w">        </span><span class="n">input</span><span class="o">-&gt;</span><span class="n">SetGamepadRumble</span><span class="p">(</span><span class="mi">0</span><span class="p">,</span><span class="w"> </span><span class="mf">0.5f</span><span class="p">,</span><span class="w"> </span><span class="mf">0.5f</span><span class="p">,</span><span class="w"> </span><span class="mi">200</span><span class="p">);</span>
+<span class="p">}</span>
+</code></pre></div>
 
 
 

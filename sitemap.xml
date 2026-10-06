@@ -1,39 +1,43 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">
     <url>
-         <loc>https://windokk.github.io/Shard/</loc>
-         <lastmod>2026-09-16</lastmod>
+         <loc>https://windokk.github.io/pulse/</loc>
+         <lastmod>2026-10-06</lastmod>
     </url>
     <url>
-         <loc>https://windokk.github.io/Shard/API-reference/</loc>
-         <lastmod>2026-09-16</lastmod>
+         <loc>https://windokk.github.io/pulse/API-reference/</loc>
+         <lastmod>2026-10-06</lastmod>
     </url>
     <url>
-         <loc>https://windokk.github.io/Shard/contributing/</loc>
-         <lastmod>2026-09-16</lastmod>
+         <loc>https://windokk.github.io/pulse/contributing/</loc>
+         <lastmod>2026-10-06</lastmod>
     </url>
     <url>
-         <loc>https://windokk.github.io/Shard/core-concepts/</loc>
-         <lastmod>2026-09-16</lastmod>
+         <loc>https://windokk.github.io/pulse/core-concepts/</loc>
+         <lastmod>2026-10-06</lastmod>
     </url>
     <url>
-         <loc>https://windokk.github.io/Shard/modules/</loc>
-         <lastmod>2026-09-16</lastmod>
+         <loc>https://windokk.github.io/pulse/modules/</loc>
+         <lastmod>2026-10-06</lastmod>
     </url>
     <url>
-         <loc>https://windokk.github.io/Shard/tutorials/</loc>
-         <lastmod>2026-09-16</lastmod>
+         <loc>https://windokk.github.io/pulse/platform/</loc>
+         <lastmod>2026-10-06</lastmod>
     </url>
     <url>
-         <loc>https://windokk.github.io/Shard/index/</loc>
-         <lastmod>2026-09-16</lastmod>
+         <loc>https://windokk.github.io/pulse/tutorials/</loc>
+         <lastmod>2026-10-06</lastmod>
     </url>
     <url>
-         <loc>https://windokk.github.io/Shard/index/getting-started/</loc>
-         <lastmod>2026-09-16</lastmod>
+         <loc>https://windokk.github.io/pulse/index/</loc>
+         <lastmod>2026-10-06</lastmod>
     </url>
     <url>
-         <loc>https://windokk.github.io/Shard/index/tags/</loc>
-         <lastmod>2026-09-16</lastmod>
+         <loc>https://windokk.github.io/pulse/index/getting-started/</loc>
+         <lastmod>2026-10-06</lastmod>
+    </url>
+    <url>
+         <loc>https://windokk.github.io/pulse/index/tags/</loc>
+         <lastmod>2026-10-06</lastmod>
     </url>
 </urlset>
