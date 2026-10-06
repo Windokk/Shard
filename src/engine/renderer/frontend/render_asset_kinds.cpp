@@ -4,16 +4,16 @@
 #include "engine/assets/serialization/material/material_asset_refs.hpp"
 #include "engine/core/diagnostics/logger.hpp"
 
-#include "engine/renderer/material/material_serializer.hpp"
+#include "engine/renderer/features/material/material_serializer.hpp"
 
 #include "engine/renderer/rhi/resources/texture/texture.hpp"
 #include "engine/renderer/rhi/resources/texture/cubemap/envmap.hpp"
 #include "engine/renderer/features/lighting/probe_bake.hpp"
 #include "engine/renderer/rhi/resources/mesh/mesh.hpp"
 #include "engine/renderer/rhi/pipelines/pipeline.hpp"
-#include "engine/renderer/material/shader.hpp"
-#include "engine/renderer/material/compute_shader.hpp"
-#include "engine/renderer/material/material.hpp"
+#include "engine/renderer/rhi/shader/shader.hpp"
+#include "engine/renderer/rhi/shader/compute_shader.hpp"
+#include "engine/renderer/rhi/material/material.hpp"
 
 namespace Shard::Engine::Rendering{
 

@@ -4,7 +4,7 @@
 
 #include "engine/renderer/rhi/backends/opengl/shader/gl_compute_shader.hpp"
 
-#include "engine/renderer/frontend/renderer.hpp"
+#include "engine/renderer/rhi/renderer_api.hpp"
 
 #include "engine/core/diagnostics/logger.hpp"
 
@@ -12,7 +12,7 @@ namespace Shard::Engine::Rendering
 {
     std::shared_ptr<ComputeShader> ComputeShader::Create(const Filesystem::Path &path)
     {
-        switch (Core::GetEngine().GetRenderer()->GetRendererAPI()->GetAPI())
+        switch (RendererAPI::Current()->GetAPI())
         {
             case RendererAPI::API::OpenGL:
                 return std::make_shared<GLComputeShader>(path);

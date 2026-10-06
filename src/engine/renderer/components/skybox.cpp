@@ -4,11 +4,11 @@
 
 #include "engine/renderer/rhi/resources/texture/cubemap/cubemap.hpp"
 #include "engine/renderer/rhi/resources/texture/cubemap/envmap.hpp"
-#include "engine/renderer/material/material.hpp"
+#include "engine/renderer/rhi/material/material.hpp"
 #include "engine/renderer/rhi/pipelines/pipeline.hpp"
 #include "engine/assets/resources_manager.hpp"
-#include "engine/renderer/frontend/renderer.hpp"
-#include "engine/renderer/material/shader.hpp"
+#include "engine/renderer/rhi/render_context.hpp"
+#include "engine/renderer/rhi/shader/shader.hpp"
 
 namespace Shard::Engine::Objects{
 
@@ -62,7 +62,7 @@ namespace Shard::Engine::Objects{
         specs.topology = Rendering::PrimitiveTopology::Triangles;
         specs.debugName = "SkyboxPipeline";
 
-        std::shared_ptr<Rendering::Pipeline> pipeline = Core::GetEngine().GetRenderer()->GetOrAddPipeline(specs);
+        std::shared_ptr<Rendering::Pipeline> pipeline = Core::GetEngine().GetRenderContext()->GetOrAddPipeline(specs);
         m_Material->SetPipeline(pipeline);
         m_Material->SetTextureParameter("uSkybox", m_EnvMap->GetCubemap()->GetHandle());
 
@@ -77,11 +77,11 @@ namespace Shard::Engine::Objects{
         cmd.material = m_Material;
         cmd.fullscreenTri = true;
 
-        Core::GetEngine().GetRenderer()->AddOrUpdateCommands({cmd}, {"ForwardPass"}, false);
+        Core::GetEngine().GetRenderContext()->AddOrUpdateCommands({cmd}, {"ForwardPass"}, false);
     }
 
     void Skybox::RemoveDrawCommands()
     {
-        Core::GetEngine().GetRenderer()->RemoveCommands({SkyboxCommandID()}, {"ForwardPass"}, false);
+        Core::GetEngine().GetRenderContext()->RemoveCommands({SkyboxCommandID()}, {"ForwardPass"}, false);
     }
 }

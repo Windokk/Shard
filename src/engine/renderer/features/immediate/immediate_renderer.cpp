@@ -3,16 +3,16 @@
 #include "engine/world/engine.hpp"
 #include "engine/assets/resources_manager.hpp"
 
-#include "engine/renderer/frontend/renderer.hpp"
+#include "engine/renderer/rhi/render_context.hpp"
 #include "engine/renderer/rhi/renderer_api.hpp"
 #include "engine/renderer/rhi/resources/buffer/storage_buffer.hpp"
 #include "engine/renderer/features/lighting/light_manager.hpp"
 #include "engine/renderer/features/lighting/light_culling_manager.hpp"
-#include "engine/renderer/material/material.hpp"
+#include "engine/renderer/rhi/material/material.hpp"
 #include "engine/renderer/rhi/pipelines/pipeline.hpp"
 #include "engine/renderer/rhi/resources/texture/cubemap/envmap.hpp"
 #include "engine/renderer/rhi/resources/texture/image_export.hpp"
-#include "engine/renderer/material/shader.hpp"
+#include "engine/renderer/rhi/shader/shader.hpp"
 
 #include "engine/core/diagnostics/logger.hpp"
 
@@ -53,7 +53,7 @@ namespace Shard::Engine::Rendering {
         m_Framebuffer = nullptr;
     }
 
-    void ImmediateRenderer::Init(Renderer* renderer)
+    void ImmediateRenderer::Init(IRenderContext* renderer)
     {
         m_Renderer = renderer;
     }

@@ -4,15 +4,16 @@
 
 #include "engine/renderer/rhi/backends/opengl/pipeline/gl_compute_pipeline.hpp"
 
-#include "engine/renderer/frontend/renderer.hpp"
+#include "engine/renderer/rhi/renderer_api.hpp"
+#include "engine/renderer/rhi/pipelines/pipeline.hpp"
 
-#include "engine/renderer/material/compute_shader.hpp"
+#include "engine/renderer/rhi/shader/compute_shader.hpp"
 
 namespace Shard::Engine::Rendering
 {
     std::shared_ptr<ComputePipeline> ComputePipeline::Create(const ComputePipelineSpecifications &specs)
     {
-        switch(Core::GetEngine().GetRenderer()->GetRendererAPI()->GetAPI())
+        switch(RendererAPI::Current()->GetAPI())
         {
             case RendererAPI::API::OpenGL:
                 return std::make_shared<GLComputePipeline>(specs);

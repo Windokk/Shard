@@ -5,7 +5,7 @@
 
 namespace Shard::Engine::Rendering {
 
-    class Renderer;
+    class IRenderContext;
     class StorageBuffer;
     class ComputeShader;
     class ComputePipeline;
@@ -25,7 +25,7 @@ namespace Shard::Engine::Rendering {
     class LightCullingManager
     {
         public:
-            void Init(Renderer* renderer);
+            void Init(IRenderContext* renderer);
 
             // Rebuilds the cluster AABB grid and re-culls lights into it. Called once per frame from
             // Renderer::BeginFrame(), after LightManager/ShadowManager have applied this frame's light

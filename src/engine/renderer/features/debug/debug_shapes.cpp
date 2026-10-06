@@ -3,7 +3,7 @@
 #include <glm/gtc/constants.hpp>
 
 #include "engine/renderer/rhi/resources/mesh/mesh.hpp"
-#include "engine/renderer/material/shader.hpp"
+#include "engine/renderer/rhi/shader/shader.hpp"
 
 namespace Shard::Engine::Rendering {
 

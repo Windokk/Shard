@@ -4,13 +4,13 @@
 
 #include "engine/renderer/rhi/backends/opengl/texture/cubemap/gl_envmap.hpp"
 
-#include "engine/renderer/frontend/renderer.hpp"
+#include "engine/renderer/rhi/renderer_api.hpp"
 
 namespace Shard::Engine::Rendering{
     
     std::shared_ptr<EnvironmentMap> EnvironmentMap::Create(TextureSpecifications& specs, const std::vector<Filesystem::Path> imageFiles)
     {
-        switch(Core::GetEngine().GetRenderer()->GetRendererAPI()->GetAPI())
+        switch(RendererAPI::Current()->GetAPI())
         {
             case RendererAPI::API::OpenGL:{
                 GLEnvironmentMapGenerator glGenerator;
@@ -32,7 +32,7 @@ namespace Shard::Engine::Rendering{
     }
     std::shared_ptr<EnvironmentMap> EnvironmentMap::Create(TextureSpecifications &specs, const Filesystem::Path hdrFile)
     {
-        switch(Core::GetEngine().GetRenderer()->GetRendererAPI()->GetAPI())
+        switch(RendererAPI::Current()->GetAPI())
         {
             case RendererAPI::API::OpenGL:{
                 static GLEnvironmentMapGenerator glGenerator;

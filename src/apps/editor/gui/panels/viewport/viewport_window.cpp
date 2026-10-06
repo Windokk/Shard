@@ -12,8 +12,8 @@
 #include "apps/editor/gui/dragdrop/asset_drag_drop.hpp"
 
 #include "engine/renderer/components/model_component.hpp"
-#include "engine/renderer/frontend/render_world_data.hpp"
-#include "engine/renderer/frontend/camera_manager.hpp"
+#include "engine/renderer/components/render_world_data.hpp"
+#include "engine/renderer/components/camera_manager.hpp"
 #include "engine/renderer/components/camera.hpp"
 #include "engine/physics/physics_body.hpp"
 

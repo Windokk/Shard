@@ -23,9 +23,9 @@
 #include "engine/world/world_manager.hpp"
 #include "engine/assets/project/project.hpp"
 #include "engine/renderer/frontend/renderer.hpp"
-#include "engine/renderer/material/shader.hpp"
+#include "engine/renderer/rhi/shader/shader.hpp"
 #include "engine/renderer/rhi/pipelines/pipeline.hpp"
-#include "engine/renderer/material/material.hpp"
+#include "engine/renderer/rhi/material/material.hpp"
 #include "engine/renderer/components/model_component.hpp"
 #include "engine/world/engine.hpp"
 
@@ -391,8 +391,9 @@ namespace Shard::Editor::Core{
     {
         EnsureImGuiInitialized();
 
-        glClearColor(0.1f, 0.1f, 0.1f, 1.0f);
-        glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
+        Rendering::RendererAPI* api = Rendering::RendererAPI::Current();
+        api->SetClearColor(0.1f, 0.1f, 0.1f, 1.0f);
+        api->Clear(Rendering::ClearBit::Color | Rendering::ClearBit::Depth);
 
         ImGui_ImplOpenGL3_NewFrame();
         ImGui_ImplGlfw_NewFrame();

@@ -9,7 +9,7 @@
 #include "engine/platform/iwindow.hpp"
 #include "engine/core/diagnostics/logger.hpp"
 
-#include "engine/renderer/frontend/renderer.hpp"
+#include "engine/renderer/rhi/render_context.hpp"
 
 #include "engine/renderer/features/lighting/shadow_manager.hpp"
 
@@ -39,7 +39,7 @@ namespace Shard::Engine::Rendering{
         {
             auto& light = m_Lights[index];
             if (light)
-                Core::GetEngine().GetRenderer()->GetShadowManager()->RegisterOrUpdateLight(index, light);
+                Core::GetEngine().GetRenderContext()->GetShadowManager()->RegisterOrUpdateLight(index, light);
         }
 
         std::vector<LightData> flatLights;
@@ -66,7 +66,7 @@ namespace Shard::Engine::Rendering{
         {
             if (m_Lights[i] && m_Lights[i]->castShadow)
             {
-                Core::GetEngine().GetRenderer()->GetShadowManager()->UnregisterLight(i);
+                Core::GetEngine().GetRenderContext()->GetShadowManager()->UnregisterLight(i);
             }
         }
 
@@ -81,7 +81,7 @@ namespace Shard::Engine::Rendering{
             return;
         }
 
-        auto* renderer = Core::GetEngine().GetRenderer();
+        auto* renderer = Core::GetEngine().GetRenderContext();
         auto shadowMan = renderer->GetShadowManager();
 
         if (m_Lights[lightIndex] && m_Lights[lightIndex]->castShadow)

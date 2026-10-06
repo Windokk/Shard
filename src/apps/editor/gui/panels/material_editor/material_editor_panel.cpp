@@ -3,7 +3,7 @@
 #include "engine/world/engine.hpp"
 #include "engine/assets/resources_manager.hpp"
 
-#include "engine/renderer/material/material.hpp"
+#include "engine/renderer/rhi/material/material.hpp"
 #include "engine/renderer/frontend/renderer.hpp"
 #include "engine/renderer/rhi/resources/texture/texture.hpp"
 

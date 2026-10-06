@@ -1,6 +1,6 @@
 #pragma once
 
-#include "engine/renderer/material/compute_shader.hpp"
+#include "engine/renderer/rhi/shader/compute_shader.hpp"
 
 namespace Shard::Engine::Rendering{
 

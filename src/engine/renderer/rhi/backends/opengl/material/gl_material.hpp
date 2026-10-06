@@ -1,6 +1,6 @@
 #pragma once
 
-#include "engine/renderer/material/material.hpp"
+#include "engine/renderer/rhi/material/material.hpp"
 
 #include <unordered_map>
 

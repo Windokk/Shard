@@ -12,11 +12,11 @@
 #include "engine/renderer/components/light_component.hpp"
 #include "engine/renderer/components/model_component.hpp"
 #include "engine/renderer/components/probe_volume.hpp"
-#include "engine/renderer/frontend/camera_manager.hpp"
-#include "engine/renderer/frontend/renderer.hpp"
+#include "engine/renderer/components/camera_manager.hpp"
+#include "engine/renderer/rhi/render_context.hpp"
 #include "engine/renderer/rhi/resources/texture/cubemap/envmap.hpp"
-#include "engine/renderer/material/material.hpp"
-#include "engine/renderer/material/shader.hpp"
+#include "engine/renderer/rhi/material/material.hpp"
+#include "engine/renderer/rhi/shader/shader.hpp"
 #include "engine/renderer/rhi/pipelines/pipeline.hpp"
 
 namespace Shard::Engine::Rendering{
@@ -147,7 +147,7 @@ namespace Shard::Engine::Rendering{
         specs.topology = PrimitiveTopology::Triangles;
         specs.debugName = "SkyboxPipeline";
 
-        std::shared_ptr<Pipeline> skyboxPipeline = Core::GetEngine().GetRenderer()->GetOrAddPipeline(specs);
+        std::shared_ptr<Pipeline> skyboxPipeline = Core::GetEngine().GetRenderContext()->GetOrAddPipeline(specs);
 
         std::shared_ptr<Material> skyboxMat = Material::Create(shader, skyboxPipeline, false, Opacity::Opaque);
 

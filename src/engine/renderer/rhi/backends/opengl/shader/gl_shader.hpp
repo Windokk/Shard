@@ -1,6 +1,6 @@
 #pragma once
 
-#include "engine/renderer/material/shader.hpp"
+#include "engine/renderer/rhi/shader/shader.hpp"
 
 namespace Shard::Engine::Rendering{
 

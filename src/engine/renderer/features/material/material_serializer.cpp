@@ -7,10 +7,10 @@
 #include <nlohmann/json.hpp>
 
 #include "engine/renderer/rhi/pipelines/pipeline.hpp"
-#include "engine/renderer/material/shader.hpp"
-#include "engine/renderer/material/material.hpp"
+#include "engine/renderer/rhi/shader/shader.hpp"
+#include "engine/renderer/rhi/material/material.hpp"
 
-#include "engine/renderer/frontend/renderer.hpp"
+#include "engine/renderer/rhi/render_context.hpp"
 
 using namespace nlohmann;
 
@@ -60,7 +60,7 @@ namespace Shard::Engine::Serialization{
             else if(mode == "masked")
                 renderMode = Opacity::Masked;
                 
-            std::shared_ptr<Material> mat = Material::Create(shader, Core::GetEngine().GetRenderer()->GetOrAddPipeline({shader}), data["recievesShadows"], renderMode);
+            std::shared_ptr<Material> mat = Material::Create(shader, Core::GetEngine().GetRenderContext()->GetOrAddPipeline({shader}), data["recievesShadows"], renderMode);
 
             for(auto& uniform : data["uniforms"]){
                 for (auto it = uniform.begin(); it != uniform.end(); ++it) {

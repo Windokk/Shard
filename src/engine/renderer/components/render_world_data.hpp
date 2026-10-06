@@ -8,7 +8,7 @@
 #include <glm/glm.hpp>
 
 #include "engine/world/world.hpp"
-#include "engine/renderer/frontend/skybox.hpp"
+#include "engine/renderer/components/skybox.hpp"
 
 namespace Shard::Engine::Objects::Components{
     class Light;

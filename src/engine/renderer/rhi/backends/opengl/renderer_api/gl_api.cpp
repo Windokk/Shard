@@ -1,31 +1,25 @@
 #include "gl_api.hpp"
 
+#include "engine/renderer/rhi/render_pass.hpp"
+#include "engine/renderer/rhi/render_view.hpp"
+#include "engine/renderer/rhi/material/material.hpp"
+
 #include "engine/renderer/rhi/backends/opengl/gl_utils.hpp"
 #include "engine/renderer/rhi/backends/opengl/material/gl_material.hpp"
 #include "engine/renderer/rhi/backends/opengl/pipeline/gl_pipeline.hpp"
 #include "engine/renderer/rhi/backends/opengl/pipeline/gl_compute_pipeline.hpp"
 #include "engine/renderer/rhi/pipelines/compute_pipeline.hpp"
 #include "engine/renderer/rhi/backends/opengl/mesh/gl_mesh.hpp"
-#include "engine/renderer/frontend/camera_manager.hpp"
 #include "engine/renderer/rhi/pipelines/pipeline.hpp"
-#include "engine/renderer/frontend/renderer.hpp"
-#include "engine/renderer/material/shader.hpp"
-#include "engine/renderer/features/lighting/light_manager.hpp"
+#include "engine/renderer/rhi/shader/shader.hpp"
 #include "engine/renderer/rhi/resources/texture/cubemap/envmap.hpp"
-#include "engine/renderer/features/lighting/shadow_manager.hpp"
-#include "engine/renderer/features/lighting/probe_manager.hpp"
-#include "engine/renderer/features/lighting/ssao_manager.hpp"
-#include "engine/renderer/features/lighting/light_culling_manager.hpp"
 #include "engine/renderer/rhi/resources/buffer/storage_buffer.hpp"
 #include "engine/renderer/rhi/resources/texture/texture.hpp"
 
-#include "engine/world/actor.hpp"
-#include "engine/renderer/frontend/render_world_data.hpp"
 
 #include "engine/renderer/rhi/backends/opengl/shader/gl_shader.hpp"
 
 #include "engine/world/engine.hpp"
-#include "engine/world/world_manager.hpp"
 #include "engine/core/diagnostics/profiler.hpp"
 
 namespace Shard::Engine::Rendering{
@@ -80,6 +74,11 @@ namespace Shard::Engine::Rendering{
             bits |= GL_STENCIL_BUFFER_BIT;
 
         glClear(bits);
+    }
+
+    void GLRendererAPI::BindTextureUnit(uint32_t binding, uint32_t handle)
+    {
+        GLStateCache::BindTextureUnit(binding, handle);
     }
 
     void GLRendererAPI::InvalidateStateCache()
@@ -194,150 +193,6 @@ namespace Shard::Engine::Rendering{
         }
     }
 
-    void GLRendererAPI::BindWorldState(std::shared_ptr<Shader> shader, glm::mat4 modelMatrix, int objectID, bool applyPassGlobals)
-    {
-        // model/objID are genuinely per-object and must always be set.
-        shader->SetMat4("model", modelMatrix);
-        shader->SetInt("objID", objectID);
-
-        shader->SetVec3("emissive", glm::vec3(0.0f));
-
-        // Editor debug view (main scene view only - studio/immediate renders always look normal).
-        {
-            RenderView view;
-            const bool studioView = Core::GetEngine().GetRenderer()->GetCurrentView(view) && view.lighting == ViewLighting::Studio;
-            const DebugViewState& dv = m_DebugView;
-            shader->SetInt("viewMode", studioView ? 0 : static_cast<int>(dv.mode));
-            shader->SetBool("showLighting", studioView || dv.showLighting);
-            shader->SetBool("showShadows", studioView || dv.showShadows);
-        }
-
-        auto world = Core::GetEngine().GetWorldManager()->GetWorldAt(0);
-
-        RenderView currentView;
-        Core::GetEngine().GetRenderer()->GetCurrentView(currentView);
-        const bool studio = currentView.lighting == ViewLighting::Studio;
-
-        if (studio)
-        {
-            // Fixed studio look : none of the world's lighting settings apply, and SSAO's texture is
-            // the main viewport's (screen-space), which would be meaningless for another view.
-            shader->SetFloat("ambientIntensity", currentView.studioAmbient);
-            shader->SetBool("ssaoEnabled", false);
-        }
-        else if (world)
-        {
-            shader->SetFloat("ambientIntensity", world->ambientIntensity);
-
-            shader->SetBool("ssaoEnabled", world->ssaoEnabled);
-            shader->SetFloat("ssaoIntensity", world->ssaoIntensity);
-        }
-
-        if (!applyPassGlobals)
-            return;
-
-        const auto& uniforms = shader->GetActiveUniformsMap();
-        auto it = uniforms.find("useEnvReflections");
-
-        // A studio view brings its own environment so its look never depends on the world.
-        std::shared_ptr<EnvironmentMap> envMap;
-        if (studio)
-            envMap = currentView.studioEnvironment;
-        else if (world && world->Ext<RenderWorldData>().skybox)
-            envMap = world->Ext<RenderWorldData>().skybox->GetEnvMap();
-
-        if(it != uniforms.end() && envMap){
-            //Bind skybox data
-            const auto& samplers = shader->GetActiveSamplersMap();
-
-            GLStateCache::BindTextureUnit(samplers.find("ibl_irradianceMap")->second.binding, envMap->GetIrradiance()->GetHandle());
-
-            GLStateCache::BindTextureUnit(samplers.find("ibl_prefilteredEnvMap")->second.binding, envMap->GetPrefilter()->GetHandle());
-
-            GLStateCache::BindTextureUnit(samplers.find("ibl_brdfLUT")->second.binding, envMap->GetBRDFLUT()->GetHandle());
-        }
-
-        auto probeManager = Core::GetEngine().GetRenderer()->GetProbeManager();
-        bool ddgiReady = !studio && probeManager && probeManager->IsReady();
-        shader->SetBool("ddgi_enabled", ddgiReady);
-
-        if (ddgiReady)
-        {
-            const auto& samplers = shader->GetActiveSamplersMap();
-            int volumeCount = 0;
-            int lastReady = -1;
-
-            for (int i = 0; i < probeManager->GetActiveVolumeCount(); i++)
-            {
-                if (!probeManager->IsVolumeReady(i))
-                    continue;
-
-                std::string idx = "[" + std::to_string(volumeCount) + "]"; // ddgi_* uniform-array element
-                std::string num = std::to_string(volumeCount);              // ddgi_*Atlas<n> scalar sampler
-
-                auto atlasSampler = samplers.find("ddgi_irradianceAtlas" + num);
-                if (atlasSampler != samplers.end())
-                    GLStateCache::BindTextureUnit(atlasSampler->second.binding, probeManager->GetIrradianceAtlas(i)->GetHandle());
-
-                auto distAtlasSampler = samplers.find("ddgi_distanceAtlas" + num);
-                if (distAtlasSampler != samplers.end())
-                    GLStateCache::BindTextureUnit(distAtlasSampler->second.binding, probeManager->GetDistanceAtlas(i)->GetHandle());
-
-                auto probeStateBuffer = probeManager->GetProbeStateBuffer(i);
-                if (probeStateBuffer)
-                    probeStateBuffer->Bind(14 + volumeCount);
-
-                shader->SetVec3("ddgi_gridOrigin" + idx, probeManager->GetGridOrigin(i));
-                shader->SetVec3("ddgi_gridSpacing" + idx, probeManager->GetGridSpacing(i));
-                glm::ivec3 counts = probeManager->GetProbeCounts(i);
-                shader->SetVec3("ddgi_probeCounts" + idx, glm::vec3(counts)); // ivec3 stored as vec3, see lit.frag
-                shader->SetInt("ddgi_tileSize" + idx, (int)probeManager->GetTileSize(i));
-                shader->SetInt("ddgi_atlasProbesPerRow" + idx, (int)probeManager->GetAtlasProbesPerRow(i));
-                shader->SetInt("ddgi_atlasSize" + idx, (int)probeManager->GetAtlasSize(i));
-
-                lastReady = i;
-                volumeCount++;
-            }
-
-            for (int s = volumeCount; lastReady >= 0 && s < kMaxProbeVolumes; s++)
-            {
-                std::string num = std::to_string(s);
-
-                auto atlasSampler = samplers.find("ddgi_irradianceAtlas" + num);
-                if (atlasSampler != samplers.end())
-                    GLStateCache::BindTextureUnit(atlasSampler->second.binding, probeManager->GetIrradianceAtlas(lastReady)->GetHandle());
-
-                auto distAtlasSampler = samplers.find("ddgi_distanceAtlas" + num);
-                if (distAtlasSampler != samplers.end())
-                    GLStateCache::BindTextureUnit(distAtlasSampler->second.binding, probeManager->GetDistanceAtlas(lastReady)->GetHandle());
-
-                auto padStateBuffer = probeManager->GetProbeStateBuffer(lastReady);
-                if (padStateBuffer)
-                    padStateBuffer->Bind(14 + s);
-            }
-
-            shader->SetInt("ddgi_volumeCount", volumeCount);
-        }
-
-        shader->SetInt("lightNB", studio ? currentView.studioLightCount : Core::GetEngine().GetRenderer()->GetLightManager()->GetLightsCount());
-        shader->SetVec3("camPos", currentView.position);
-        auto lightCullingManager = Core::GetEngine().GetRenderer()->GetLightCullingManager();
-        if (studio)
-        {
-            // The studio rig has no point/spot lights : a single-cluster grid whose one (empty) entry
-            // ImmediateRenderer binds in place of the scene's cluster buffers.
-            shader->SetUVec2("clusterGridSizeXY", 1, 1);
-            shader->SetFloat("clusterScaleZ", 0.0f);
-            shader->SetFloat("clusterBiasZ", 0.0f);
-        }
-        else if (lightCullingManager)
-        {
-            shader->SetUVec2("clusterGridSizeXY", lightCullingManager->GetGridSizeX(), lightCullingManager->GetGridSizeY());
-            shader->SetFloat("clusterScaleZ", lightCullingManager->GetClusterScaleZ());
-            shader->SetFloat("clusterBiasZ", lightCullingManager->GetClusterBiasZ());
-        }
-    }
-
     void GLRendererAPI::DrawIndexed(const std::shared_ptr<Pipeline> pipeline, uint32_t indexCount, uint32_t indexOffset)
     {
         SHARD_PROFILE_RENDER_SUB_SCOPE(Debugging::RenderSubSample::DrawElements);
@@ -375,12 +230,12 @@ namespace Shard::Engine::Rendering{
             GLuint program = glShader->GetProgram();
 
             if(!command.fullscreenTri)
-                BindWorldState(pipeline->GetSpecifications().shader, command.modelMatrix, command.objectID,
+                m_Scene->BindWorldState(*this, pipeline->GetSpecifications().shader, command.modelMatrix, command.objectID,
                     GLStateCache::NeedsPassGlobalsUpdate(program, GLStateCache::PassGlobalsKind::World));
 
             if(command.bindCameraState && GLStateCache::NeedsPassGlobalsUpdate(program, GLStateCache::PassGlobalsKind::Camera)){
                 RenderView currentView;
-                if (Core::GetEngine().GetRenderer()->GetCurrentView(currentView)) {
+                if (m_Scene->GetCurrentView(currentView)) {
                     pipeline->GetSpecifications().shader->SetMat4("uProjection", currentView.projection);
                     pipeline->GetSpecifications().shader->SetMat4("uView", currentView.view);
                     pipeline->GetSpecifications().shader->SetBool("uIsOrtho", currentView.orthographic);
@@ -391,9 +246,7 @@ namespace Shard::Engine::Rendering{
                 BindPassData(pass, pipeline);
             }
             else{
-                if(command.material->GetRecieveShadows())
-                    Core::GetEngine().GetRenderer()->GetShadowManager()->BindShadowMaps(command.material);
-                Core::GetEngine().GetRenderer()->GetSSAOManager()->BindSSAOTexture(command.material);
+                m_Scene->BindMaterialScene(command.material);
                 BindPassData(pass, command.material);
                 BindMaterial(command.material);
             }

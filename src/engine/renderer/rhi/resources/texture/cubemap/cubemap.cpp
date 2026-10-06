@@ -6,14 +6,14 @@
 
 #include <stb/stb_image.h>
 
-#include "engine/renderer/frontend/renderer.hpp"
+#include "engine/renderer/rhi/renderer_api.hpp"
 
 #include "engine/core/diagnostics/logger.hpp"
 
 namespace Shard::Engine::Rendering{
     std::shared_ptr<Cubemap> Cubemap::Create(const TextureSpecifications& specs, std::array<unsigned char*, 6> faces)
     {
-        switch(Core::GetEngine().GetRenderer()->GetRendererAPI()->GetAPI())
+        switch(RendererAPI::Current()->GetAPI())
         {
             case RendererAPI::API::OpenGL:
                 return std::make_shared<GLCubemap>(specs, faces);
@@ -77,7 +77,7 @@ namespace Shard::Engine::Rendering{
 
     std::shared_ptr<CubemapArray> CubemapArray::Create(const TextureSpecifications &specs, std::vector<std::array<unsigned char *, 6>> data)
     {
-        switch(Core::GetEngine().GetRenderer()->GetRendererAPI()->GetAPI())
+        switch(RendererAPI::Current()->GetAPI())
         {
             case RendererAPI::API::OpenGL:
                 return std::make_shared<GLCubemapArray>(specs, data);

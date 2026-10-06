@@ -5,11 +5,11 @@
 #include "engine/world/engine.hpp"
 #include "engine/assets/resources_manager.hpp"
 
-#include "engine/renderer/frontend/renderer.hpp"
-#include "engine/renderer/material/material.hpp"
+#include "engine/renderer/rhi/render_context.hpp"
+#include "engine/renderer/rhi/material/material.hpp"
 
 #include "engine/world/actor.hpp"
-#include "engine/renderer/frontend/render_world_data.hpp"
+#include "engine/renderer/components/render_world_data.hpp"
 
 #include "model_component.reflection.hpp"
 
@@ -293,7 +293,7 @@ namespace Shard::Engine::Objects::Components{
             // only World::ssaoEnabled gates whether lit.frag actually uses the result.
             passesName.push_back("SSAODepthNormalPass");
 
-            GetEngineContext()->GetRenderer()->AddOrUpdateCommands(cmds, passesName, true);
+            GetEngineContext()->GetRenderContext()->AddOrUpdateCommands(cmds, passesName, true);
         }
     }
 
@@ -311,7 +311,7 @@ namespace Shard::Engine::Objects::Components{
 
             std::vector<Rendering::DrawCommand> cmds = mesh->CreateDrawCommands(tr, parent->GetComponentIDInWorld(local_id), this->materials);
 
-            GetEngineContext()->GetRenderer()->AddOrUpdateCommands(cmds, {passName}, false);
+            GetEngineContext()->GetRenderContext()->AddOrUpdateCommands(cmds, {passName}, false);
         }
     }
 
@@ -326,7 +326,7 @@ namespace Shard::Engine::Objects::Components{
                 cmdsID.push_back(Rendering::MakeCommandID(mesh->GetAssetID().GetAsInt(), parent->GetComponentIDInWorld(local_id), i));
             }
 
-            GetEngineContext()->GetRenderer()->RemoveCommands(cmdsID, {passName}, false);
+            GetEngineContext()->GetRenderContext()->RemoveCommands(cmdsID, {passName}, false);
         }
     }
 
@@ -365,14 +365,14 @@ namespace Shard::Engine::Objects::Components{
             std::vector<std::string> passesName;
             passesName.push_back("ForwardPass");
             passesName.push_back("SSAODepthNormalPass");
-            GetEngineContext()->GetRenderer()->RemoveCommands(cmdsID, passesName, true);
+            GetEngineContext()->GetRenderContext()->RemoveCommands(cmdsID, passesName, true);
 
             // Also drop this (still-current, about-to-be-replaced-or-gone) mesh's commands from any
             // extra pass it was registered into (e.g. EditorOutlineMaskPass) - otherwise a mesh swap
             // on a selected actor leaves the old mesh's commands orphaned in that pass forever, since
             // a later RemoveFromPass() would compute IDs from the *new* mesh instead.
             if(!extraPasses.empty())
-                GetEngineContext()->GetRenderer()->RemoveCommands(cmdsID, extraPasses, false);
+                GetEngineContext()->GetRenderContext()->RemoveCommands(cmdsID, extraPasses, false);
         }
     }
 

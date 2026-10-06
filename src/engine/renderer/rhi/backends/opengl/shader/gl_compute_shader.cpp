@@ -1,12 +1,12 @@
 #include "gl_compute_shader.hpp"
 
 #include "engine/renderer/rhi/backends/opengl/gl_utils.hpp"
-#include "engine/renderer/material/glsl_preprocessor.hpp"
+#include "engine/renderer/rhi/shader/glsl_preprocessor.hpp"
 
 #include "engine/core/diagnostics/logger.hpp"
 
 #include "engine/world/engine.hpp"
-#include "engine/renderer/frontend/renderer.hpp"
+
 #include "engine/renderer/rhi/renderer_api.hpp"
 
 namespace Shard::Engine::Rendering{
@@ -237,7 +237,7 @@ namespace Shard::Engine::Rendering{
 
     void GLComputeShader::ValidateLocalSize()
     {
-        const ComputeLimits& limits = Core::GetEngine().GetRenderer()->GetRendererAPI()->GetComputeLimits();
+        const ComputeLimits& limits = RendererAPI::Current()->GetComputeLimits();
 
         for (int i = 0; i < 3; i++)
         {

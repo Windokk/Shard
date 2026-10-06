@@ -2,16 +2,16 @@
 
 #include "engine/world/engine.hpp"
 
-#include "engine/renderer/frontend/renderer.hpp"
+#include "engine/renderer/rhi/render_context.hpp"
 #include "engine/renderer/rhi/renderer_api.hpp"
 #include "engine/renderer/rhi/resources/buffer/storage_buffer.hpp"
-#include "engine/renderer/material/compute_shader.hpp"
+#include "engine/renderer/rhi/shader/compute_shader.hpp"
 #include "engine/renderer/rhi/pipelines/compute_pipeline.hpp"
 #include "engine/renderer/rhi/resources/framebuffer/framebuffer.hpp"
 #include "engine/renderer/features/lighting/light_manager.hpp"
 
 #include "engine/renderer/components/camera.hpp"
-#include "engine/renderer/frontend/camera_manager.hpp"
+#include "engine/renderer/components/camera_manager.hpp"
 
 #include "engine/core/diagnostics/logger.hpp"
 
@@ -22,7 +22,7 @@
 
 namespace Shard::Engine::Rendering {
 
-    void LightCullingManager::Init(Renderer* renderer)
+    void LightCullingManager::Init(IRenderContext* renderer)
     {
         Filesystem::Path resRoot = Core::GetEngine().GetFileManager()->GetEngineResRoot();
 
@@ -70,7 +70,7 @@ namespace Shard::Engine::Rendering {
         if (!m_BuildPipeline || !m_CullPipeline)
             return;
 
-        Renderer* renderer = Core::GetEngine().GetRenderer();
+        IRenderContext* renderer = Core::GetEngine().GetRenderContext();
 
         auto cam = Core::GetEngine().GetCameraManager()->GetActiveCamera();
         if (!cam)

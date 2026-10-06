@@ -1,7 +1,7 @@
 #pragma once
 
 #include "engine/assets/vfs/filesystem.hpp"
-#include "engine/renderer/material/shader.hpp"
+#include "engine/renderer/rhi/shader/shader.hpp"
 
 #include "apps/editor/gui/panels/asset_editor.hpp"
 

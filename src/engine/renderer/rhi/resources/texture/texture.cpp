@@ -6,7 +6,7 @@
 
 #include <stb/stb_image.h>
 
-#include "engine/renderer/frontend/renderer.hpp"
+#include "engine/renderer/rhi/renderer_api.hpp"
 
 #include "engine/core/diagnostics/logger.hpp"
 
@@ -54,7 +54,7 @@ namespace Shard::Engine::Rendering{
 
     std::shared_ptr<Texture2D> Texture2D::Create(TextureSpecifications &spec, const void *data)
     {
-        switch(Core::GetEngine().GetRenderer()->GetRendererAPI()->GetAPI())
+        switch(RendererAPI::Current()->GetAPI())
         {
             case RendererAPI::API::OpenGL:
                 return std::make_shared<GLTexture2D>(spec, data);

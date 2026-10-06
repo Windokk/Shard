@@ -12,21 +12,12 @@
 #endif
 
 #include <iostream>
+#include <string>
+#include <unordered_map>
 
-#include "engine/world/components/registry/component_registry.hpp"
+namespace Shard::Engine::Core::Platform {
 
-#include "engine/world/engine.hpp"
-
-using namespace Shard::Engine;
-using namespace Shard::Engine::Core;
-using namespace Shard::Engine::Debugging;
-
-namespace Shard::Game {
-
-    //GAME
-    using GameInitFn = void(*)(IEngineContext*, Objects::Components::ComponentRegistry*, Logger*);
-    using GameRegisterComponentsFn = void(*)();
-
+    /// @brief Loads shared libraries (the game's module) and finds their symbols
     class ModuleLoader {
     public:
         static ModuleLoader& GetInstance() {

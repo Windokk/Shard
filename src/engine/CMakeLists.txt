@@ -3,18 +3,28 @@
 #   ShardPlatform <- ShardCore
 #   ShardAssets   <- ShardPlatform, ShardCore
 #   ShardWorld    <- ShardAssets (and below)
-#   Engine        <- everything else (links the four above)
+#   ShardPhysics  <- ShardWorld (and below), Jolt
+#   ShardAudio    <- ShardWorld (and below), FMOD
+#   ShardRHI      <- ShardWorld (and below) : the graphics API, nothing of the renderer above it
+#   ShardRenderer <- ShardRHI, ShardWorld (and below) : features, components and the Renderer
+#   ShardEngine   <- every layer above : the composition root (EngineInstance, game module loading)
+#   Engine        <- INTERFACE target grouping all of the above, what the apps and the tests link
 file(GLOB_RECURSE CORE_SOURCES ${CMAKE_CURRENT_SOURCE_DIR}/core/*.cpp)
 file(GLOB_RECURSE PLATFORM_SOURCES ${CMAKE_CURRENT_SOURCE_DIR}/platform/*.cpp)
 file(GLOB_RECURSE ASSETS_SOURCES ${CMAKE_CURRENT_SOURCE_DIR}/assets/*.cpp)
 file(GLOB_RECURSE WORLD_SOURCES ${CMAKE_CURRENT_SOURCE_DIR}/world/*.cpp)
-file(GLOB_RECURSE ENGINE_SOURCES
-  ${CMAKE_CURRENT_SOURCE_DIR}/*.cpp
+file(GLOB_RECURSE PHYSICS_SOURCES ${CMAKE_CURRENT_SOURCE_DIR}/physics/*.cpp)
+file(GLOB_RECURSE AUDIO_SOURCES ${CMAKE_CURRENT_SOURCE_DIR}/audio/*.cpp)
+file(GLOB_RECURSE RHI_SOURCES
+  ${CMAKE_CURRENT_SOURCE_DIR}/renderer/rhi/*.cpp
   ${CMAKE_CURRENT_SOURCE_DIR}/renderer/rhi/backends/glad/src/gl.c
   ${CMAKE_CURRENT_SOURCE_DIR}/renderer/rhi/backends/glad/src/vulkan.c
   ${CMAKE_SOURCE_DIR}/submodules/ufbx/ufbx.c
 )
-list(FILTER ENGINE_SOURCES EXCLUDE REGEX "/engine/(core|platform|assets|world)/")
+file(GLOB_RECURSE RENDERER_SOURCES ${CMAKE_CURRENT_SOURCE_DIR}/renderer/*.cpp)
+list(FILTER RENDERER_SOURCES EXCLUDE REGEX "/renderer/rhi/")
+file(GLOB_RECURSE ENGINE_SOURCES ${CMAKE_CURRENT_SOURCE_DIR}/*.cpp)
+list(FILTER ENGINE_SOURCES EXCLUDE REGEX "/engine/(core|platform|assets|world|physics|audio|renderer)/")
 
 if(WIN32)
 set(THREADS_PREFER_PTHREAD_FLAG ON)
@@ -22,7 +32,7 @@ find_package(Threads REQUIRED)
 endif()
 
 add_library(ShardCore STATIC ${CORE_SOURCES})
-# BUILD_ENGINE selects the engine-side implementation in logger.hpp, like for Engine.
+# BUILD_ENGINE selects the engine-side implementation in logger.hpp, like for ShardEngine.
 target_compile_definitions(ShardCore PRIVATE BUILD_ENGINE)
 target_include_directories(ShardCore PUBLIC
     "${CMAKE_SOURCE_DIR}/src/"
@@ -54,8 +64,24 @@ target_include_directories(ShardWorld PUBLIC
 )
 target_link_libraries(ShardWorld PUBLIC ShardAssets ShardPlatform ShardCore)
 
-add_library(Engine STATIC ${ENGINE_SOURCES})
-target_link_libraries(Engine PUBLIC ShardWorld ShardAssets ShardPlatform ShardCore)
+add_library(ShardEngine STATIC ${ENGINE_SOURCES})
+add_library(ShardPhysics STATIC ${PHYSICS_SOURCES})
+target_compile_definitions(ShardPhysics PRIVATE BUILD_ENGINE)
+target_link_libraries(ShardPhysics PUBLIC ShardWorld ShardAssets ShardPlatform ShardCore)
+
+add_library(ShardAudio STATIC ${AUDIO_SOURCES})
+target_compile_definitions(ShardAudio PRIVATE BUILD_ENGINE)
+target_link_libraries(ShardAudio PUBLIC ShardWorld ShardAssets ShardPlatform ShardCore)
+
+add_library(ShardRHI STATIC ${RHI_SOURCES})
+target_compile_definitions(ShardRHI PRIVATE BUILD_ENGINE)
+target_link_libraries(ShardRHI PUBLIC ShardWorld ShardAssets ShardPlatform ShardCore)
+
+add_library(ShardRenderer STATIC ${RENDERER_SOURCES})
+target_compile_definitions(ShardRenderer PRIVATE BUILD_ENGINE)
+target_link_libraries(ShardRenderer PUBLIC ShardRHI ShardWorld ShardAssets ShardPlatform ShardCore)
+
+target_link_libraries(ShardEngine PUBLIC ShardRenderer ShardRHI ShardPhysics ShardAudio ShardWorld ShardAssets ShardPlatform ShardCore)
 
 set(FMOD_API_DIR "" CACHE PATH "Path to fmod api")
 
@@ -69,7 +95,7 @@ set(COMMON_INCLUDE_DIRS
 )
 
 # Set the include directories
-target_include_directories(Engine PUBLIC
+target_include_directories(ShardEngine PUBLIC
     ${COMMON_INCLUDE_DIRS}
     ${FMOD_API_DIR}/inc
 )
@@ -79,22 +105,27 @@ set(FREETYPE_LIB_DIR "${CMAKE_SOURCE_DIR}/build/submodules/freetype")
 
 if(WIN32)
   set(JOLT_LIB_DIR "${CMAKE_SOURCE_DIR}/build/submodules/jolt/Build")
-  target_link_directories(Engine PUBLIC
+  target_link_directories(ShardEngine PUBLIC
     ${FREETYPE_LIB_DIR}
     ${JOLT_LIB_DIR}
     ${FMOD_API_DIR}/lib/x64
   )
 elseif(UNIX)
   set(JOLT_LIB_DIR "${CMAKE_SOURCE_DIR}/build/submodules/jolt/Build/Linux_Debug")
-  target_link_directories(Engine PUBLIC
+  target_link_directories(ShardEngine PUBLIC
     ${FREETYPE_LIB_DIR}
     ${JOLT_LIB_DIR}
     ${FMOD_API_DIR}/lib/x86_64
   )
 endif()
 
+target_include_directories(ShardPhysics PUBLIC ${COMMON_INCLUDE_DIRS})
+target_include_directories(ShardRHI PUBLIC ${COMMON_INCLUDE_DIRS})
+target_include_directories(ShardRenderer PUBLIC ${COMMON_INCLUDE_DIRS})
+target_include_directories(ShardAudio PUBLIC ${COMMON_INCLUDE_DIRS} ${FMOD_API_DIR}/inc)
+
 # Define engine-specific compile definitions
-target_compile_definitions(Engine PRIVATE BUILD_ENGINE)
+target_compile_definitions(ShardEngine PRIVATE BUILD_ENGINE)
 
 # Jolt is PUBLIC, not PRIVATE: engine headers (physics_manager.hpp, physics_body.hpp, ...) expose
 # Jolt types, so anything including them has to be compiled with Jolt's own PUBLIC definitions
@@ -102,14 +133,35 @@ target_compile_definitions(Engine PRIVATE BUILD_ENGINE)
 # so a target that gets the headers without them disagrees with the compiled library about where
 # members live - which corrupts memory at runtime rather than failing to build.
 
+# The graphics API is linked here, the rest of the renderer only talks to it through the rhi
+if(WIN32)
+  target_link_libraries(ShardRHI PRIVATE opengl32 gdi32 user32 shell32 advapi32)
+endif()
+target_link_libraries(ShardRenderer PRIVATE freetype)
+target_link_directories(ShardRenderer PUBLIC ${FREETYPE_LIB_DIR})
+
+# Jolt is PUBLIC for the same reason on its own target, FMOD is only needed to link
+target_link_libraries(ShardPhysics PUBLIC Jolt)
+target_link_libraries(ShardAudio PRIVATE fmod)
+if(WIN32)
+  target_link_directories(ShardAudio PUBLIC ${FMOD_API_DIR}/lib/x64)
+  target_link_libraries(ShardPhysics PUBLIC Threads::Threads)
+elseif(UNIX)
+  target_link_directories(ShardAudio PUBLIC ${FMOD_API_DIR}/lib/x86_64)
+endif()
+
 # Link the necessary libraries based on the platform
 if(WIN32)
-  target_link_libraries(Engine PRIVATE freetype fmod -lz opengl32 gdi32 user32 shell32 advapi32)
-  target_link_libraries(Engine PUBLIC Jolt Threads::Threads)
+  target_link_libraries(ShardEngine PRIVATE freetype fmod -lz opengl32 gdi32 user32 shell32 advapi32)
+  target_link_libraries(ShardEngine PUBLIC Jolt Threads::Threads)
 elseif(UNIX)
-  target_link_libraries(Engine PRIVATE freetype fmod -lz)
-  target_link_libraries(Engine PUBLIC Jolt)
+  target_link_libraries(ShardEngine PRIVATE freetype fmod -lz)
+  target_link_libraries(ShardEngine PUBLIC Jolt)
 endif()
+
+# What an executable links to get the whole engine : the layers above, nothing of its own
+add_library(Engine INTERFACE)
+target_link_libraries(Engine INTERFACE ShardEngine)
 
 # Executables that link Engine need fmod.dll next to them (otherwise they exit with 0xc0000135 on
 # Windows, which also breaks gtest_discover_tests at build time). Call this after add_executable.

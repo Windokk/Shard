@@ -6,12 +6,12 @@
 #include "engine/world/world.hpp"
 
 #include "engine/world/actor.hpp"
-#include "engine/renderer/frontend/render_world_data.hpp"
+#include "engine/renderer/components/render_world_data.hpp"
 #include "engine/renderer/components/model_component.hpp"
 #include "engine/world/components/transform.hpp"
 
 #include "engine/renderer/rhi/resources/mesh/mesh.hpp"
-#include "engine/renderer/material/material.hpp"
+#include "engine/renderer/rhi/material/material.hpp"
 #include "engine/renderer/rhi/pipelines/pipeline.hpp"
 
 #include <algorithm>

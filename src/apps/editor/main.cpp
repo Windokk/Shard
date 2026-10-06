@@ -1,6 +1,6 @@
 #include "engine/world/engine.hpp"
 #include "engine/assets/resources_manager.hpp"
-#include "editor_module_loader.hpp"
+#include "engine/game_module.hpp"
 #include "apps/editor/commands/command_stack.hpp"
 #include "engine/platform/glfw/glfw_platform.hpp"
 #include "apps/editor/gui/main_window.hpp"
@@ -95,39 +95,15 @@ int main(int argc, char* argv[]) {
         early_crash();
     }
 
-    //Module loader init
-    auto& loader = Shard::Editor::ModuleLoader::GetInstance();
-    const std::string gameModuleName = "game";
-
-    //Game module loading
-    if (!loader.LoadModule(gameModuleName, gameModuleLib)) {
-        std::cerr << "Failed to load module: game" << std::endl;
-        early_crash();
-    }
-
     EngineInstance* engine = &EngineInstance::GetInstance();
 
     Core::SetEngine(engine);
 
     Debugging::SetLogger(&Debugging::Logger::GetInstance());
 
-    //Game module init
-    {
-        auto initGame = loader.GetSymbol<Shard::Editor::GameInitFn>("game", "InitializeSingletons");
-        if (!initGame){
-            std::cerr<<"Failed to find symbol: InitializeSingletons"<<std::endl;
-            early_crash();
-        }
-
-        initGame(&Core::GetEngine(),
-                 &Objects::Components::GetComponentRegistry());
-
-        auto registerGameComponents = loader.GetSymbol<Shard::Editor::GameRegisterComponentsFn>("game", "RegisterGameComponents");
-        if (!registerGameComponents){
-            std::cerr<<"Failed to find symbol: RegisterGameComponents"<<std::endl;
-            early_crash();
-        }
-        registerGameComponents();
+    //Game module loading and init
+    if (!LoadGameModule(gameModuleLib)) {
+        early_crash();
     }
 
     {

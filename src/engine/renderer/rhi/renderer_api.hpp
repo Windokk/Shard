@@ -104,6 +104,28 @@ namespace Shard::Engine::Rendering {
         bool wireframeRaster = false;
     };
 
+    class Shader;
+    struct RenderView;
+
+    class RendererAPI;
+
+    /// @brief What the backend asks of the frontend while it issues a draw : the scene-wide shader inputs (lights,
+    /// probes, environment, shadows...) are the frontend's business, the backend only knows when to ask for them.
+    class ISceneBinding{
+        public:
+            virtual ~ISceneBinding() = default;
+
+            /// Sets the per-object and scene-wide inputs of a lit draw. `applyPassGlobals` : the shader has not
+            /// received this frame's scene-wide inputs yet.
+            virtual void BindWorldState(RendererAPI& api, std::shared_ptr<Shader> shader, glm::mat4 modelMatrix, int objectID, bool applyPassGlobals) = 0;
+
+            /// What the scene needs bound on a material (shadow maps, SSAO...)
+            virtual void BindMaterialScene(std::shared_ptr<Material> material) = 0;
+
+            /// The view the draws are currently issued from. False when there is none.
+            virtual bool GetCurrentView(RenderView& out) = 0;
+    };
+
     class RendererAPI{
         public: 
             enum class API : uint32_t
@@ -133,6 +155,17 @@ namespace Shard::Engine::Rendering {
 
             static std::shared_ptr<RendererAPI> Create(API api);
 
+            /// Who provides the scene state while drawing (set once by the Renderer)
+            void SetSceneBinding(ISceneBinding* scene) { m_Scene = scene; }
+
+            /// Binds a texture (by its handle) to a texture unit of the current program
+            virtual void BindTextureUnit(uint32_t binding, uint32_t handle) = 0;
+
+            /// @brief The API the renderer runs on (null before Renderer::Init). The rhi factories pick their
+            /// backend from it, so the rhi does not have to reach up to the renderer for it.
+            static RendererAPI* Current();
+            static void SetCurrent(RendererAPI* api);
+
             const API GetAPI() const { return api; }
 
             virtual void SetViewport(uint32_t x, uint32_t y, uint32_t width, uint32_t height) = 0;
@@ -154,6 +187,7 @@ namespace Shard::Engine::Rendering {
 
         protected:
             API api;
+            ISceneBinding* m_Scene = nullptr;
             DebugViewState m_DebugView;
     };
 

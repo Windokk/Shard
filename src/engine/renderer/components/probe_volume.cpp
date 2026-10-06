@@ -1,6 +1,6 @@
 #include "probe_volume.hpp"
 
-#include "engine/renderer/frontend/renderer.hpp"
+#include "engine/renderer/rhi/render_context.hpp"
 #include "engine/renderer/features/lighting/probe_manager.hpp"
 #include "engine/renderer/rhi/resources/mesh/mesh.hpp"
 #include "engine/renderer/features/debug/debug_shapes.hpp"
@@ -95,7 +95,7 @@ namespace Shard::Engine::Objects::Components{
         cmd.boundsMin = m_ProbeDebugShape->m_Mesh->GetBoundsMin();
         cmd.indexCount = m_ProbeDebugShape->m_Mesh->GetIndexCount();
         cmd.indexOffset = 0;
-        cmd.material = GetEngineContext()->GetRenderer()->GetDebugMaterial();
+        cmd.material = GetEngineContext()->GetRenderContext()->GetDebugMaterial();
         cmd.mesh = m_ProbeDebugShape->m_Mesh;
         cmd.modelID = parent->GetComponentIDInWorld(local_id);
         cmd.modelMatrix = GetDebugModelMatrix();
@@ -105,7 +105,7 @@ namespace Shard::Engine::Objects::Components{
         // Its own pass (see Renderer::Init()), not "ForwardPass" like Volume's own box wireframe - lets
         // the editor hide just these markers (RenderPass::enabled) without touching ProbeVolume's
         // activation state, which must keep driving GI regardless of whether the markers are shown.
-        GetEngineContext()->GetRenderer()->AddOrUpdateCommands({cmd}, {"ProbeGizmoPass"}, false);
+        GetEngineContext()->GetRenderContext()->AddOrUpdateCommands({cmd}, {"ProbeGizmoPass"}, false);
     }
 
     void ProbeVolume::Activate()
@@ -115,7 +115,7 @@ namespace Shard::Engine::Objects::Components{
 
         if(parent && parent->world && parent->world->IsLoaded())
         {
-            auto probeManager = GetEngineContext()->GetRenderer()->GetProbeManager();
+            auto probeManager = GetEngineContext()->GetRenderContext()->GetProbeManager();
             auto* resources = GetEngineContext()->GetResourcesManager();
 
             // Normally the world's asset prefetcher already decoded the bake on a worker thread and it is
@@ -143,18 +143,18 @@ namespace Shard::Engine::Objects::Components{
         Volume::DeActivate();
 
         if(parent && parent->world && parent->world->IsLoaded())
-            GetEngineContext()->GetRenderer()->GetProbeManager()->RemoveActiveVolume(this);
+            GetEngineContext()->GetRenderContext()->GetProbeManager()->RemoveActiveVolume(this);
     }
 
     void ProbeVolume::Destroy()
     {
         if(parent && parent->world && parent->world->IsLoaded())
-            GetEngineContext()->GetRenderer()->GetProbeManager()->RemoveActiveVolume(this);
+            GetEngineContext()->GetRenderContext()->GetProbeManager()->RemoveActiveVolume(this);
 
         if (m_ProbeDebugShape && m_ProbeDebugShape->m_Mesh && parent)
         {
             uint64_t cmdID = Rendering::MakeCommandID(m_ProbeDebugShape->m_Mesh->GetAssetID().GetAsInt(), parent->GetComponentIDInWorld(local_id), 0);
-            GetEngineContext()->GetRenderer()->RemoveCommands({cmdID}, {"ProbeGizmoPass"}, false);
+            GetEngineContext()->GetRenderContext()->RemoveCommands({cmdID}, {"ProbeGizmoPass"}, false);
         }
         delete m_ProbeDebugShape;
         m_ProbeDebugShape = nullptr;
@@ -182,7 +182,7 @@ namespace Shard::Engine::Objects::Components{
         {
             if(parent && parent->world && parent->world->IsLoaded())
             {
-                auto probeManager = GetEngineContext()->GetRenderer()->GetProbeManager();
+                auto probeManager = GetEngineContext()->GetRenderContext()->GetProbeManager();
                 const bool wasBaked = probeManager->IsVolumeBaked(this);
 
                 // Any of these fields invalidates baked data - it was traced on the old grid - so the
@@ -323,7 +323,7 @@ namespace Shard::Engine::Objects::Components{
                 relative = stem + "_" + std::to_string(n) + Rendering::kProbeBakeExtension;
         }
 
-        return engine->GetRenderer()->GetProbeManager()->BeginBake(this, parent->world, resRoot / relative);
+        return engine->GetRenderContext()->GetProbeManager()->BeginBake(this, parent->world, resRoot / relative);
     }
 
     void ProbeVolume::OnBakeFinished(const Filesystem::Path& file)
@@ -391,7 +391,7 @@ namespace Shard::Engine::Objects::Components{
             // volume that was merely out of date is already live and already has its scene.)
             if (activated && parent->world->IsLoaded())
             {
-                auto probeManager = engine->GetRenderer()->GetProbeManager();
+                auto probeManager = engine->GetRenderContext()->GetProbeManager();
                 if (probeManager->IsVolumeBaked(this))
                 {
                     probeManager->RebuildGrid(this);

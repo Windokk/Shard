@@ -11,12 +11,12 @@
 #include "engine/renderer/components/camera.hpp"
 #include "engine/world/components/transform.hpp"
 
-#include "engine/renderer/frontend/renderer.hpp"
+#include "engine/renderer/rhi/render_context.hpp"
 #include "engine/renderer/rhi/renderer_api.hpp"
 #include "engine/renderer/rhi/resources/buffer/storage_buffer.hpp"
 #include "engine/renderer/rhi/resources/texture/texture.hpp"
 #include "engine/renderer/rhi/resources/texture/image_export.hpp"
-#include "engine/renderer/material/compute_shader.hpp"
+#include "engine/renderer/rhi/shader/compute_shader.hpp"
 #include "engine/renderer/rhi/pipelines/compute_pipeline.hpp"
 
 #include "engine/core/diagnostics/logger.hpp"
@@ -71,7 +71,7 @@ namespace Shard::Engine::Rendering::Raytracing {
             return;
         }
 
-        Renderer* renderer = Core::GetEngine().GetRenderer();
+        IRenderContext* renderer = Core::GetEngine().GetRenderContext();
 
         bvhBuffer = StorageBuffer::Create((uint32_t)(scene.bvhNodes.size() * sizeof(BVHNode)));
         bvhBuffer->SetData(scene.bvhNodes.data(), (uint32_t)(scene.bvhNodes.size() * sizeof(BVHNode)));
@@ -169,7 +169,7 @@ namespace Shard::Engine::Rendering::Raytracing {
         // here than a GPU-side query would be for diagnosing "why does this feel frozen".
         auto updateStart = std::chrono::steady_clock::now();
 
-        Renderer* renderer = Core::GetEngine().GetRenderer();
+        IRenderContext* renderer = Core::GetEngine().GetRenderContext();
 
         pipeline->Bind();
 

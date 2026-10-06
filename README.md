@@ -12,42 +12,6 @@
   Yet another game engine<br>
 </p>
 
-<!-- BIG-REFACTO:BEGIN - temporary section, delete it (up to BIG-REFACTO:END) when the branch is merged -->
-## [Temporary] `big-refacto` branch roadmap
-
-Goal: make the code follow the architecture board (layers depend downwards only, peers are decoupled).
-**No new feature in this branch** - only restructuring of what already exists.
-
-### Method: decouple, then lock
-A module becomes its own CMake target only once it has no dependency upwards. Each step is therefore:
-decouple, extract the target, then lock it with `scripts/check_deps.py` in CI (a baseline file that can only go down).
-
-Done when: the violation count goes down, the build and the tests pass, and the editor opens `example_project`.
-
-### Current state (frozen in `scripts/deps_baseline.json`, lowered after each step)
-Layers, bottom to top: `core` < `platform` < `assets` < `world` < {`renderer`, `physics`, `audio`, `input`} < `genres` < `apps`.
-Run `python scripts/check_deps.py --matrix` for the full picture. Current violations: 2 module pairs, 5 includes (started at 13 pairs, 66 includes).
-
-| Violation | Includes | Cause |
-|---|---|---|
-| `physics` -> renderer 3, `audio` -> renderer 2 (peers) | 5 | `physics_body` (`mesh.hpp`, `renderer.hpp`, `debug_shapes`), `audio_manager` (`renderer.hpp`, `camera_manager`) |
-| `gl*()` calls outside the backends | 1 file | `apps/editor/gui/main_window.cpp` (`glClearColor`, `glClear`) |
-
-Not measured yet: dependencies inside `renderer/` (60% of the engine code).
-
-### Steps
-- [x] **0 - Safeguards**: `scripts/check_deps.py` + baseline + CI job (`.github/workflows/deps.yml`); folder structure finished (reflection, `Object`/`engine.cpp`, `FileManager` -> `assets/vfs/`, projects, events, time, diagnostics, `keys.hpp` -> `platform/`); the duplicated GLFW code of editor/player is merged into `engine/platform/glfw/` (`GLFWInput`, `GLFWWindowBase`, `GLFWPlatform<WindowT>`). Side effect: the player now maps the Enter key (it was missing from its copy).
-- [x] **1 - Foundation & platform** (`ShardCore`, `ShardPlatform`): `core` no longer depends on anything and `platform` only on `core`. `COL_RGB` -> `core/color.hpp`; `logger.cpp` no longer includes the engine; the profiler knows no module: stats are filled by providers that each module registers (renderer, audio, engine) and the scoped samples use `Profiler::Active()`. Separate CMake targets `ShardCore` and `ShardPlatform` (linked by `Engine`). Checked: build, 61 tests, editor and player start on a scratch copy of `cornell.world`.
-- [x] **2 - Assets** (`ShardAssets`): `assets` depends on nothing above it. `ResourcesManager` is a generic cache: the module that owns a type registers it with `RegisterKind(AssetKind, AssetKindInfo)` (loader, AssetID setter, dependencies, eviction rules) and call sites use `Get<T>(AssetKind, path)`, `Has`, `Adopt`, `Unload`. The renderer registers mesh/texture/envmap/shader/compute/material/probe bake (`renderer/frontend/render_asset_kinds.cpp`), audio the sound, world the world. `material_serializer` -> `renderer/material/` (the JSON reader `PeekMaterialAssetRefs` stays in `assets/`, it has no renderer type). The managers `assets` needs (`AssetIDManager`, `FileManager`) are injected instead of fetched from the `Engine` singleton. Checked: build, 79 tests (18 new for the resources manager), editor and player start. The `Mesh` CPU/GPU split moved to step 4, it is what decouples `physics`.
-- [x] **3 - World** (`ShardWorld`): `world` depends on `assets` and below only. What a module adds to the world is declared by the module: `World` keeps no renderer/physics/audio type, each module hangs its own data on it through a world extension (`world.Ext<RenderWorldData>().lights`, `Ext<PhysicsWorldData>().bodies`, `Ext<AudioWorldData>().sources`) that is told when a component joins/leaves the world, on load, on play and when the world settings are (de)serialized (`world/world_extension.hpp`). `Actor` only knows `Component` and the registry: engine components ("model", "light", "camera", "probeVolume", "physics_body", "audio") are registered with `RegisterBuiltinComponent<T>(name, assetRefs)` by `RegisterRenderingModule()` / `RegisterPhysicsModule()` / `RegisterAudioModule()` (called by the engine), and `Actor::AddComponentByName` builds them. `Transform` no longer knows lights/models/volumes: it calls `Component::OnTransformChanged(flags)` on its actor's other components. `Skybox` and its world settings moved to the renderer (`renderer/frontend/skybox.*`, `RenderWorldData::SetSkybox`). The world asset prefetcher knows no asset type: `ResourcesManager::PlanPrefetch` walks the owners' dependencies and each kind says how to decode itself on a worker (`AssetKindInfo::prefetch`: mesh, texture, probe bake, sound). What a world file references is collected through the registered components/settings (`CollectWorldAssetRefs`), not hardcoded. Contact events moved to `physics/physics_events.hpp` and `PhysicsManager` calls the scripts directly. `engine.cpp` (the composition root: it creates every manager) left `world/` for `src/engine/`, its frame loop is split into named stages (`UpdateSimulation`, `UpdateWorlds`, `SyncPhysicsBodies`, `RenderFrame`, `PollInput`, `Present`). Checked: build, 79 tests, editor and player start on a scratch copy of `example_project` (sponza + baked probes). Deviations: no `RenderScene::Collect` (the renderer reads `RenderWorldData` directly, as it read `World` before), and `ProbeVolume` is activated with the other renderer data on load (before the scripts' `OnWorldLoaded`, it used to be after). The `physics` -> renderer edge went from 2 to 3 includes: `physics_body.cpp` always needed `renderer.hpp`, it only got it through `actor.hpp` before (step 4).
-- [ ] **4 - Peers** (`ShardPhysics`, `ShardAudio`): audio listener comes from a world component; `Mesh` split into CPU `MeshData` (assets) and GPU resource (rhi) so `physics_body` stops including `mesh.hpp`; `debug_shapes` becomes a core debug-draw interface implemented by `renderer/features/debug`.
-- [ ] **5 - Renderer** (`ShardRHI`, `ShardRenderer`): measure internal deps first (target order `rhi` < `material` < `features` < `frontend`); move the two `gl*` calls out of `main_window.cpp`.
-- [ ] **6 - Final lock**: `Engine` becomes an `INTERFACE` target grouping the others; merge `game_module_loader.hpp` and `editor_module_loader.hpp` into the engine; baseline at zero.
-
-### Out of scope (separate branches)
-ECS with archetypes and system graph, Extract snapshot + render thread, new backends (Vulkan, D3D12, Null/headless), render graph, bindless, job system, `apps/headless`.
-<!-- BIG-REFACTO:END -->
-
 ## Screenshots
 
 <div align="center">

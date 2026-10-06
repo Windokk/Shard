@@ -3,16 +3,16 @@
 #include "engine/world/engine.hpp"
 #include "engine/assets/resources_manager.hpp"
 
-#include "engine/renderer/frontend/renderer.hpp"
-#include "engine/renderer/material/shader.hpp"
-#include "engine/renderer/material/material.hpp"
+#include "engine/renderer/rhi/render_context.hpp"
+#include "engine/renderer/rhi/shader/shader.hpp"
+#include "engine/renderer/rhi/material/material.hpp"
 #include "engine/renderer/rhi/pipelines/pipeline.hpp"
 #include "engine/renderer/rhi/resources/framebuffer/framebuffer.hpp"
 #include "engine/renderer/rhi/resources/texture/texture.hpp"
 #include "engine/renderer/rhi/resources/mesh/mesh.hpp"
 
 #include "engine/renderer/components/camera.hpp"
-#include "engine/renderer/frontend/camera_manager.hpp"
+#include "engine/renderer/components/camera_manager.hpp"
 
 #include "engine/world/world.hpp"
 #include "engine/world/world_manager.hpp"
@@ -34,7 +34,7 @@ namespace Shard::Engine::Rendering {
 
     }
 
-    void SSAOManager::Init(Renderer* renderer, int width, int height)
+    void SSAOManager::Init(IRenderContext* renderer, int width, int height)
     {
         // ---- Framebuffers ----
 
@@ -139,7 +139,7 @@ namespace Shard::Engine::Rendering {
         BuildKernelAndNoise();
     }
 
-    void SSAOManager::SubmitFullscreenCommands(Renderer* renderer)
+    void SSAOManager::SubmitFullscreenCommands(IRenderContext* renderer)
     {
         DrawCommand ssaoCmd{};
         ssaoCmd.fullscreenTri = true;
@@ -188,13 +188,13 @@ namespace Shard::Engine::Rendering {
         noiseSpecs.generateMips = false;
         m_NoiseTexture = Texture2D::Create(noiseSpecs, noiseData.data());
 
-        auto renderer = Core::GetEngine().GetRenderer();
+        auto renderer = Core::GetEngine().GetRenderContext();
         renderer->GetRenderPass("SSAORawPass")->customSamplers["noiseTex"] = m_NoiseTexture->GetHandle();
     }
 
     void SSAOManager::Update()
     {
-        auto renderer = Core::GetEngine().GetRenderer();
+        auto renderer = Core::GetEngine().GetRenderContext();
 
         auto world = Core::GetEngine().GetWorldManager()->GetWorldAt(0);
         if (!world)

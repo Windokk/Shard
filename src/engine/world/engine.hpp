@@ -8,6 +8,7 @@ namespace Shard::Engine{
 
     namespace Rendering {
         class Renderer;
+        class IRenderContext;
         class CameraManager;
         struct RendererSettings;
     }
@@ -63,6 +64,7 @@ namespace Shard::Engine{
         }
 
         class ObjectIDManager;
+        class IDebugDraw;
 
         struct EngineCreationSettings{
             //PLATFORM
@@ -93,6 +95,7 @@ namespace Shard::Engine{
 
             Rendering::Renderer* renderer = nullptr;
             Rendering::CameraManager* cameraManager = nullptr;
+            IDebugDraw* debugDraw = nullptr;
 
             Resources::ResourcesManager* resourcesManager = nullptr;
             Filesystem::FileManager* fileManager = nullptr;
@@ -136,7 +139,10 @@ namespace Shard::Engine{
                 virtual Platform::IInput* GetInputManager() const = 0;
 
                 virtual Rendering::Renderer* GetRenderer() const = 0;
+                /// What the parts of the renderer that draw the world (components, features) use of the renderer
+                virtual Rendering::IRenderContext* GetRenderContext() const = 0;
                 virtual Rendering::CameraManager* GetCameraManager() const = 0;
+                virtual IDebugDraw* GetDebugDraw() const = 0;
                 virtual Resources::ResourcesManager* GetResourcesManager() const = 0;
                 virtual Filesystem::FileManager* GetFileManager() const = 0;
                 virtual Filesystem::AssetIDManager* GetAssetIDManager() const = 0;
@@ -183,7 +189,11 @@ namespace Shard::Engine{
 
                 Rendering::Renderer* GetRenderer() const override { return m_Context.renderer; }
 
+                Rendering::IRenderContext* GetRenderContext() const override;
+
                 Rendering::CameraManager* GetCameraManager() const override { return m_Context.cameraManager; }
+
+                IDebugDraw* GetDebugDraw() const override { return m_Context.debugDraw; }
 
                 Resources::ResourcesManager* GetResourcesManager() const override { return m_Context.resourcesManager; }
 

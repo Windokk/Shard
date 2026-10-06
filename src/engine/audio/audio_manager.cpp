@@ -7,14 +7,13 @@
 #include "engine/world/actor.hpp"
 #include "engine/world/world_manager.hpp"
 #include "engine/core/color.hpp"
-#include "engine/renderer/frontend/renderer.hpp"
-#include "engine/renderer/frontend/camera_manager.hpp"
 #include "engine/world/time_manager.hpp"
 #include "engine/world/engine.hpp"
 #include "engine/core/diagnostics/logger.hpp"
 #include "engine/core/diagnostics/profiler.hpp"
 
 #include "engine/audio/audio_source.hpp"
+#include "engine/audio/audio_listener.hpp"
 #include "engine/audio/audio_world_data.hpp"
 #include "engine/assets/resources_manager.hpp"
 #include "sound_asset.hpp"
@@ -23,7 +22,6 @@
 namespace Shard::Engine::Audio
 {
     using namespace Filesystem;
-    using namespace Rendering;
 
     FMOD_RESULT F_CALL OnSoundStopped(FMOD_CHANNELCONTROL* chanControl,
                                       FMOD_CHANNELCONTROL_TYPE controlType,
@@ -239,12 +237,22 @@ namespace Shard::Engine::Audio
                     source->Update();
                 }
 
-                std::shared_ptr<Objects::Components::Camera> cam = Core::GetEngine().GetCameraManager()->GetActiveCamera();
+                // The world is heard from its first active listener
+                std::shared_ptr<Objects::Components::AudioListener> listener;
+                for(auto& [id,candidate] : Core::GetEngine().GetWorldManager()->GetWorldAt(i)->Ext<AudioWorldData>().listeners){
+                    if(candidate->Active()){
+                        listener = candidate;
+                        break;
+                    }
+                }
 
-                if(cam == nullptr)
+                if(listener == nullptr)
                     return;
 
-                AudioManager::Update(cam->parent->transform->GetWorldPosition(), glm::normalize(glm::vec2(cam->parent->transform->GetWorldForward().x, cam->parent->transform->GetWorldForward().z)), 100.0f);
+                const glm::vec3 position = listener->parent->transform->GetWorldPosition();
+                const glm::vec3 forward = listener->parent->transform->GetWorldForward();
+
+                AudioManager::Update(position, glm::normalize(glm::vec2(forward.x, forward.z)), 100.0f);
                 
             }
             

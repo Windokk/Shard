@@ -1,6 +1,7 @@
 #include "audio_world_data.hpp"
 
 #include "engine/audio/audio_source.hpp"
+#include "engine/audio/audio_listener.hpp"
 #include "engine/world/components/registry/component_registry.hpp"
 
 namespace Shard::Engine::Audio{
@@ -15,12 +16,17 @@ namespace Shard::Engine::Audio{
             if(cloned)
                 source->Update();
         }
+        else if(auto listener = std::dynamic_pointer_cast<Objects::Components::AudioListener>(component)){
+            listeners.emplace(idInWorld, listener);
+        }
     }
 
     void AudioWorldData::OnComponentRemoved(Worlds::World&, int idInWorld, const std::shared_ptr<Objects::Components::Component>& component)
     {
         if(component->IsInstanceOf<AudioSource>())
             sources.erase(idInWorld);
+        else if(component->IsInstanceOf<Objects::Components::AudioListener>())
+            listeners.erase(idInWorld);
     }
 
     void AudioWorldData::OnPlay(Worlds::World&)
@@ -39,6 +45,7 @@ namespace Shard::Engine::Audio{
                 if (component.contains("sound") && component["sound"].is_string() && !component["sound"].get<std::string>().empty())
                     out.push_back({Core::Resources::AssetKind::Sound, component["sound"].get<std::string>()});
             });
+        Objects::Components::GetComponentRegistry().RegisterBuiltinComponent<Objects::Components::AudioListener>("audio_listener");
         Worlds::RegisterWorldExtension<AudioWorldData>();
     }
 }

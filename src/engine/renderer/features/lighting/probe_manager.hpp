@@ -24,7 +24,7 @@ namespace Shard::Engine::Objects::Components {
 
 namespace Shard::Engine::Rendering {
 
-    class Renderer;
+    class IRenderContext;
     class StorageBuffer;
     class Texture2D;
     class Cubemap;
@@ -388,11 +388,11 @@ namespace Shard::Engine::Rendering {
 
             static bool IsSlotReady(const VolumeSlot& slot, bool sceneBuilt);
 
-            void UpdateVolume(VolumeSlot& slot, Renderer* renderer, const BakeStep* bake = nullptr);
+            void UpdateVolume(VolumeSlot& slot, IRenderContext* renderer, const BakeStep* bake = nullptr);
 
             // Advances the running bake by this frame's share of iterations, and finishes it once the
             // last one is done. Called from Update() once the scene is built.
-            void StepBake(Renderer* renderer);
+            void StepBake(IRenderContext* renderer);
             void FinishBake(VolumeSlot& slot);
             void EndBake(bool succeeded);
 

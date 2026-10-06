@@ -2,7 +2,7 @@
 
 #include "engine/renderer/rhi/backends/opengl/gl_utils.hpp"
 #include "engine/renderer/rhi/backends/opengl/pipeline/gl_pipeline.hpp"
-#include "engine/renderer/material/shader.hpp"
+#include "engine/renderer/rhi/shader/shader.hpp"
 #include "engine/renderer/rhi/backends/opengl/shader/gl_shader.hpp"
 #include "engine/renderer/rhi/backends/opengl/texture/gl_texture.hpp"
 
@@ -10,7 +10,7 @@
 #include "engine/world/engine.hpp"
 #include "engine/assets/resources_manager.hpp"
 #include "engine/assets/assetID.hpp"
-#include "engine/renderer/frontend/renderer.hpp"
+#include "engine/renderer/rhi/renderer_api.hpp"
 
 namespace Shard::Engine::Rendering{
 

@@ -5,7 +5,7 @@
 #include <string>
 #include <unordered_map>
 
-#include "engine/renderer/material/material.hpp"
+#include "engine/renderer/rhi/material/material.hpp"
 #include "engine/renderer/features/raytracing/raytrace_scene.hpp"
 
 using namespace Shard::Engine::Rendering;

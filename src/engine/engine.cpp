@@ -11,14 +11,15 @@
 #include "engine/core/diagnostics/profiler.hpp"
 #include "engine/platform/iplatform.hpp"
 #include "engine/world/time_manager.hpp"
-#include "engine/renderer/frontend/camera_manager.hpp"
+#include "engine/renderer/components/camera_manager.hpp"
 #include "engine/world/actor.hpp"
 #include "engine/audio/audio_manager.hpp"
+#include "engine/renderer/features/debug/debug_draw.hpp"
 #include "engine/physics/physics_manager.hpp"
 #include "engine/renderer/frontend/renderer.hpp"
 #include "engine/audio/audio_world_data.hpp"
 #include "engine/physics/physics_world_data.hpp"
-#include "engine/renderer/frontend/render_world_data.hpp"
+#include "engine/renderer/components/render_world_data.hpp"
 
 using namespace std::chrono;
 
@@ -121,6 +122,8 @@ namespace Shard::Engine{
             m_Context.fileManager = new Filesystem::FileManager(*m_Context.assetIDManager);
             m_Context.resourcesManager = new Resources::ResourcesManager(*m_Context.fileManager, *m_Context.assetIDManager);
 
+            m_Context.debugDraw = new Rendering::DebugDraw(*m_Context.renderer, *m_Context.assetIDManager);
+
             m_Context.objIDManager = new ObjectIDManager();
 
             m_Context.worldManager = new Worlds::WorldManager();
@@ -146,6 +149,11 @@ namespace Shard::Engine{
 
                 stats.actors = m_Context.worldManager->GetWorldAt(0)->transforms.size();
             });
+        }
+
+        Rendering::IRenderContext *EngineInstance::GetRenderContext() const
+        {
+            return m_Context.renderer;
         }
 
         Platform::IWindow *EngineInstance::GetWindow() const

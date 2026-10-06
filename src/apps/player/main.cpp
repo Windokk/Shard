@@ -1,6 +1,6 @@
 #include "engine/world/engine.hpp"
 #include "engine/assets/resources_manager.hpp"
-#include "game_module_loader.hpp"
+#include "engine/game_module.hpp"
 #include "engine/platform/glfw/glfw_platform.hpp"
 #include "apps/player/glfw_window.hpp"
 
@@ -102,33 +102,9 @@ int main(int argc, char* argv[]) {
     Engine::Core::SetEngine(engine);
     Engine::Debugging::SetLogger(&Engine::Debugging::Logger::GetInstance());
 
-    //Module loader init
-    auto& loader = ModuleLoader::GetInstance();
-    const std::string mainModuleName = "game";
-
-    //Game module loading
-    if (!loader.LoadModule(mainModuleName, mainModuleLib)) {
-        std::cerr << "Failed to load module: game" << std::endl;
+    //Game module loading and init
+    if (!LoadGameModule(mainModuleLib)) {
         early_crash();
-    }
-
-    //Game module init
-    {
-        auto initGame = loader.GetSymbol<GameInitFn>("game", "InitializeSingletons");
-        if (!initGame){
-            std::cerr<<"Failed to find symbol: InitializeSingletons"<<std::endl;
-            early_crash();
-        }
-
-        initGame(&Engine::Core::GetEngine(),
-                 &Objects::Components::GetComponentRegistry(), &Engine::Debugging::GetLogger());
-
-        auto registerGameComponents = loader.GetSymbol<GameRegisterComponentsFn>("game", "RegisterGameComponents");
-        if (!registerGameComponents){
-            std::cerr<<"Failed to find symbol: RegisterGameComponents"<<std::endl;
-            early_crash();
-        }
-        registerGameComponents();
     }
 
     // Platform creation
@@ -148,7 +124,7 @@ int main(int argc, char* argv[]) {
     //Cleaning
     Engine::Core::GetEngine().Destroy();
 
-    loader.UnloadModule("game");
+    UnloadGameModule();
 
     std::cout << "Shard Engine has finished. Press Enter to exit..." << std::endl;
     std::cin.ignore(std::numeric_limits<std::streamsize>::max(), '\n');

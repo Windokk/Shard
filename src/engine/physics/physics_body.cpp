@@ -2,8 +2,6 @@
 
 #include "engine/world/actor.hpp"
 #include "engine/world/engine.hpp"
-#include "engine/renderer/rhi/resources/mesh/mesh.hpp"
-#include "engine/renderer/frontend/renderer.hpp"
 
 #include "physics_body.reflection.hpp"
 
@@ -183,7 +181,7 @@ namespace Shard::Engine::Objects::Components{
         // its own local scale, otherwise a shape parented under a scaled actor is built at the wrong size.
         glm::vec3 scale = parent->transform->GetWorldScale();
 
-        Rendering::DebugShape* debugShape = nullptr;
+        Core::DebugShapeDesc debugShape;
         JPH::ShapeRefC result;
 
         switch (shape)
@@ -196,10 +194,11 @@ namespace Shard::Engine::Objects::Components{
                 float size = std::max({ scale.x, scale.y, scale.z });
 
                 JPH::SphereShapeSettings s(p->radius * size);
-                debugShape = new Rendering::DebugSphere(p->radius, COL_RGBA(0, 1, 1, 1));
+                debugShape.kind = Core::DebugShapeKind::Sphere;
+                debugShape.radius = p->radius;
 
                 auto r = s.Create();
-                if (r.HasError()) { delete debugShape; return nullptr; }
+                if (r.HasError()) { return nullptr; }
                 result = r.Get();
                 break;
             }
@@ -213,10 +212,11 @@ namespace Shard::Engine::Objects::Components{
                     JPH::Vec3(p->halfExtent.x * scale.x, p->halfExtent.y * scale.y, p->halfExtent.z * scale.z)
                 );
 
-                debugShape = new Rendering::DebugBox(p->halfExtent, COL_RGBA(0, 1, 1, 1));
+                debugShape.kind = Core::DebugShapeKind::Box;
+                debugShape.halfExtent = p->halfExtent;
 
                 auto r = s.Create();
-                if (r.HasError()) { delete debugShape; return nullptr; }
+                if (r.HasError()) { return nullptr; }
                 result = r.Get();
                 break;
             }
@@ -228,10 +228,12 @@ namespace Shard::Engine::Objects::Components{
 
                 JPH::CapsuleShapeSettings s(p->halfHeight * scale.y, p->radius * glm::max(scale.x, scale.z));
 
-                debugShape = new Rendering::DebugCapsule(p->radius, p->halfHeight, COL_RGBA(0, 1, 1, 1));
+                debugShape.kind = Core::DebugShapeKind::Capsule;
+                debugShape.radius = p->radius;
+                debugShape.halfHeight = p->halfHeight;
 
                 auto r = s.Create();
-                if (r.HasError()) { delete debugShape; return nullptr; }
+                if (r.HasError()) { return nullptr; }
                 result = r.Get();
                 break;
             }
@@ -243,10 +245,12 @@ namespace Shard::Engine::Objects::Components{
 
                 JPH::CylinderShapeSettings s(p->halfHeight * scale.y, p->radius * glm::max(scale.x, scale.z));
 
-                debugShape = new Rendering::DebugCylinder(p->radius, p->halfHeight, COL_RGBA(0, 1, 1, 1));
+                debugShape.kind = Core::DebugShapeKind::Cylinder;
+                debugShape.radius = p->radius;
+                debugShape.halfHeight = p->halfHeight;
 
                 auto r = s.Create();
-                if (r.HasError()) { delete debugShape; return nullptr; }
+                if (r.HasError()) { return nullptr; }
                 result = r.Get();
                 break;
             }
@@ -256,10 +260,11 @@ namespace Shard::Engine::Objects::Components{
         }
 
         if (index >= m_DebugShapes.size())
-            m_DebugShapes.resize(index + 1, nullptr);
+            m_DebugShapes.resize(index + 1, 0);
 
-        delete m_DebugShapes[index];
-        m_DebugShapes[index] = debugShape;
+        Core::IDebugDraw* debugDraw = GetEngineContext()->GetDebugDraw();
+        debugDraw->DestroyShape(m_DebugShapes[index]);
+        m_DebugShapes[index] = debugDraw->CreateShape(debugShape);
 
         return result;
     }
@@ -306,13 +311,6 @@ namespace Shard::Engine::Objects::Components{
 
     void PhysicsBody::CreateBody(EMotionType newMotionType)
     {
-        std::vector<Filesystem::AssetID> previousDebugMeshIDs(m_DebugShapes.size());
-        for (size_t i = 0; i < m_DebugShapes.size(); i++)
-        {
-            if (m_DebugShapes[i] && m_DebugShapes[i]->m_Mesh)
-                previousDebugMeshIDs[i] = m_DebugShapes[i]->m_Mesh->GetAssetID();
-        }
-
         RemoveBody();
 
         m_Shape = BuildShape();
@@ -349,17 +347,6 @@ namespace Shard::Engine::Objects::Components{
         }
 
         m_BodyID = GetEngineContext()->GetPhysicsManager()->CreateBody(settings, this);
-
-        for (size_t i = 0; i < m_DebugShapes.size(); i++)
-        {
-            if (!m_DebugShapes[i] || !m_DebugShapes[i]->m_Mesh)
-                continue;
-
-            if (i < previousDebugMeshIDs.size() && previousDebugMeshIDs[i].GetAsInt() != 0)
-                m_DebugShapes[i]->m_Mesh->SetAssetID(previousDebugMeshIDs[i]);
-            else
-                m_DebugShapes[i]->m_Mesh->SetAssetID(GetEngineContext()->GetAssetIDManager()->GenerateNewID());
-        }
     }
 
     void PhysicsBody::ApplyTransformToPhysics(float dt)
@@ -491,23 +478,17 @@ namespace Shard::Engine::Objects::Components{
         }
 
         if(shouldUpdateDrawCmd && !m_DebugShapes.empty()){
-            std::vector<Rendering::DrawCommand> cmds;
-            cmds.reserve(m_DebugShapes.size());
+            std::vector<Core::DebugDrawItem> items;
+            items.reserve(m_DebugShapes.size());
 
             for (size_t i = 0; i < m_DebugShapes.size(); i++)
             {
-                if (!m_DebugShapes[i] || !m_DebugShapes[i]->m_Mesh)
+                if (m_DebugShapes[i] == 0)
                     continue;
 
-                Rendering::DrawCommand cmd = {};
-
-                cmd.boundsMax = m_DebugShapes[i]->m_Mesh->GetBoundsMax();
-                cmd.boundsMin = m_DebugShapes[i]->m_Mesh->GetBoundsMin();
-                cmd.indexCount = m_DebugShapes[i]->m_Mesh->GetIndexCount();
-                cmd.indexOffset = 0;
-                cmd.material = GetEngineContext()->GetRenderer()->GetDebugMaterial();
-                cmd.mesh = m_DebugShapes[i]->m_Mesh;
-                cmd.modelID = parent->GetComponentIDInWorld(local_id);
+                Core::DebugDrawItem item;
+                item.shape = m_DebugShapes[i];
+                item.ownerID = parent->GetComponentIDInWorld(local_id);
 
                 // Each shape's debug mesh is generated in its own local space (unscaled, uncentered),
                 // so fold that shape's offset/rotation into the model matrix on top of the actor's
@@ -521,15 +502,14 @@ namespace Shard::Engine::Objects::Components{
                     localOffset = glm::translate(glm::mat4(1.0f), shapes[i].offset) * glm::mat4_cast(shapes[i].rotation);
                 }
 
-                cmd.modelMatrix = parent->transform->GetWorldMatrix() * localOffset;
-                cmd.objectID = parent->GetID().GetAsInt();
-                cmd.vertexCount = m_DebugShapes[i]->m_Mesh->GetVertexCount();
+                item.model = parent->transform->GetWorldMatrix() * localOffset;
+                item.objectID = parent->GetID().GetAsInt();
 
-                cmds.push_back(cmd);
+                items.push_back(item);
             }
 
-            if (!cmds.empty())
-                GetEngineContext()->GetRenderer()->AddOrUpdateCommands(cmds, {"PhysicsDebugPass"}, false);
+            if (!items.empty())
+                GetEngineContext()->GetDebugDraw()->Draw(Core::DebugDrawLayer::Physics, items);
         }
 
         parent->transform->ClearDirty(DirtyFlags::All);
@@ -613,19 +593,10 @@ namespace Shard::Engine::Objects::Components{
             m_BodyID = JPH::BodyID();
         }
 
-        for (size_t i = 0; i < m_DebugShapes.size(); i++)
+        for (Core::DebugShapeHandle shape : m_DebugShapes)
         {
-            Rendering::DebugShape* debugShape = m_DebugShapes[i];
-            if (!debugShape)
-                continue;
-
-            if (debugShape->m_Mesh)
-            {
-                uint64_t cmdID = Rendering::MakeCommandID(debugShape->m_Mesh->GetAssetID().GetAsInt(), parent->GetComponentIDInWorld(local_id), i);
-                GetEngineContext()->GetRenderer()->RemoveCommands({cmdID}, {"PhysicsDebugPass"}, false);
-            }
-
-            delete debugShape;
+            if (shape != 0)
+                GetEngineContext()->GetDebugDraw()->DestroyShape(shape);
         }
 
         m_DebugShapes.clear();

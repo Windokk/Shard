@@ -21,6 +21,8 @@ namespace Shard::Engine::Rendering{
 
             void ToggleMultisampling(const bool on) override;
 
+            void BindTextureUnit(uint32_t binding, uint32_t handle) override;
+
             void SetViewport(uint32_t x, uint32_t y,
                                         uint32_t width, uint32_t height) override;
 
@@ -51,8 +53,6 @@ namespace Shard::Engine::Rendering{
             void BindPassData(const std::shared_ptr<RenderPass> pass, std::shared_ptr<Pipeline> pipeline);
 
             void BindPassData(const std::shared_ptr<RenderPass> pass, std::shared_ptr<Material> material);
-
-            void BindWorldState(std::shared_ptr<Shader> shader, glm::mat4 modelMatrix, int objectID, bool applyPassGlobals);
 
             void DrawIndexed(const std::shared_ptr<Pipeline> pipeline, uint32_t indexCount, uint32_t indexOffset);
                 

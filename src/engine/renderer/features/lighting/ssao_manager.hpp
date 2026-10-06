@@ -7,7 +7,7 @@
 
 namespace Shard::Engine::Rendering {
 
-    class Renderer;
+    class IRenderContext;
     class Framebuffer;
     class Shader;
     class Pipeline;
@@ -32,14 +32,14 @@ namespace Shard::Engine::Rendering {
     class SSAOManager
     {
         public:
-            void Init(Renderer* renderer, int width, int height);
+            void Init(IRenderContext* renderer, int width, int height);
 
             // Submits the one permanent full-screen-triangle command each of the raw/blur passes draws.
             // These passes belong to the renderer, not to any world, but Renderer::ClearPassesContent()
             // (a world swap / play-mode reload) empties every pass's draw list - so it has to call this
             // again afterwards, otherwise both passes draw nothing, the AO target stays cleared to 0 and
             // lit.frag's SampleSSAO multiplies every ambient/indirect term (DDGI included) by 0.
-            void SubmitFullscreenCommands(Renderer* renderer);
+            void SubmitFullscreenCommands(IRenderContext* renderer);
 
             // Refreshes this frame's view/projection/radius/bias/noise-tiling and re-dispatches the 3
             // passes via the render graph (actual dispatch happens later, in Renderer::DrawFrame(), when

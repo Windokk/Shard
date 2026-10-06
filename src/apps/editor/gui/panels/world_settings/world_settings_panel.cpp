@@ -4,7 +4,7 @@
 #include "engine/assets/vfs/filesystem.hpp"
 #include "engine/world/world.hpp"
 #include "engine/world/world_manager.hpp"
-#include "engine/renderer/frontend/render_world_data.hpp"
+#include "engine/renderer/components/render_world_data.hpp"
 
 #include "apps/editor/gui/dragdrop/asset_drag_drop.hpp"
 #include "apps/editor/gui/IconsLucide.h"

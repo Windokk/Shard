@@ -18,6 +18,7 @@
 #include <string>
 
 #include "engine/audio/audio_source.hpp"
+#include "engine/audio/audio_listener.hpp"
 #include "engine/world/components/transform.hpp"
 #include "engine/renderer/components/camera.hpp"
 #include "engine/renderer/components/model_component.hpp"
@@ -574,6 +575,11 @@ namespace Shard::Editor::GUI{
 
         if (ImGui::MenuItem("Audio Source")) {
             actor->AddComponent<Engine::Objects::Components::AudioSource>();
+            MarkWorldDirty();
+        }
+
+        if (ImGui::MenuItem("Audio Listener")) {
+            actor->AddComponent<Engine::Objects::Components::AudioListener>();
             MarkWorldDirty();
         }
 

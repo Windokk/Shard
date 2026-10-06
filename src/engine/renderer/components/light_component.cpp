@@ -1,7 +1,7 @@
 #include "light_component.hpp"
 
-#include "engine/renderer/frontend/renderer.hpp"
-#include "engine/renderer/frontend/render_world_data.hpp"
+#include "engine/renderer/rhi/render_context.hpp"
+#include "engine/renderer/components/render_world_data.hpp"
 #include "engine/world/components/transform.hpp"
 #include "engine/world/actor.hpp"
 
@@ -50,7 +50,7 @@ namespace Shard::Engine::Objects::Components{
         lightData->type = (int)type;
 
         if(parent && parent->world && parent->world->IsLoaded())
-            GetEngineContext()->GetRenderer()->GetLightManager()->Update(lightIndex);
+            GetEngineContext()->GetRenderContext()->GetLightManager()->Update(lightIndex);
 
         UpdateExposedValues();
     }
@@ -65,7 +65,7 @@ namespace Shard::Engine::Objects::Components{
         lightData->intensity = intensity;
 
         if(parent && parent->world && parent->world->IsLoaded())
-            GetEngineContext()->GetRenderer()->GetLightManager()->Update(lightIndex);
+            GetEngineContext()->GetRenderContext()->GetLightManager()->Update(lightIndex);
         
         UpdateExposedValues();
     }
@@ -80,7 +80,7 @@ namespace Shard::Engine::Objects::Components{
         lightData->position = glm::vec4(postion, 0);
 
         if(parent && parent->world && parent->world->IsLoaded())
-            GetEngineContext()->GetRenderer()->GetLightManager()->Update(lightIndex);
+            GetEngineContext()->GetRenderContext()->GetLightManager()->Update(lightIndex);
     }
 
     /// @brief Set the light's direction (Only for spot and directionnal lights)
@@ -93,7 +93,7 @@ namespace Shard::Engine::Objects::Components{
         lightData->direction = glm::vec4(glm::normalize(direction), 0);
             
         if(parent && parent->world && parent->world->IsLoaded())
-            GetEngineContext()->GetRenderer()->GetLightManager()->Update(lightIndex);
+            GetEngineContext()->GetRenderContext()->GetLightManager()->Update(lightIndex);
     }
     
     /// @brief Set the radius of the light (Only for spot and point lights)
@@ -106,7 +106,7 @@ namespace Shard::Engine::Objects::Components{
         lightData->radius = radius;
         
         if(parent && parent->world && parent->world->IsLoaded())
-            GetEngineContext()->GetRenderer()->GetLightManager()->Update(lightIndex);
+            GetEngineContext()->GetRenderContext()->GetLightManager()->Update(lightIndex);
 
         UpdateExposedValues();
     }
@@ -121,7 +121,7 @@ namespace Shard::Engine::Objects::Components{
         lightData->color = glm::vec4((glm::vec3)color, 0);
         
         if(parent && parent->world && parent->world->IsLoaded())
-            GetEngineContext()->GetRenderer()->GetLightManager()->Update(lightIndex);
+            GetEngineContext()->GetRenderContext()->GetLightManager()->Update(lightIndex);
 
         UpdateExposedValues();
     }
@@ -136,7 +136,7 @@ namespace Shard::Engine::Objects::Components{
         lightData->outerCutoff = glm::cos(glm::radians(cutoff));
         
         if(parent && parent->world && parent->world->IsLoaded())
-            GetEngineContext()->GetRenderer()->GetLightManager()->Update(lightIndex);
+            GetEngineContext()->GetRenderContext()->GetLightManager()->Update(lightIndex);
 
         UpdateExposedValues();
     }
@@ -151,7 +151,7 @@ namespace Shard::Engine::Objects::Components{
         lightData->innerCutoff = glm::cos(glm::radians(cutoff));
         
         if(parent && parent->world && parent->world->IsLoaded())
-            GetEngineContext()->GetRenderer()->GetLightManager()->Update(lightIndex);
+            GetEngineContext()->GetRenderContext()->GetLightManager()->Update(lightIndex);
 
         UpdateExposedValues();
     }
@@ -164,8 +164,8 @@ namespace Shard::Engine::Objects::Components{
             return;
         
         if(parent && parent->world && parent->world->IsLoaded()){
-            GetEngineContext()->GetRenderer()->GetLightManager()->AddLight(index, lightData);
-            GetEngineContext()->GetRenderer()->GetLightManager()->Update(index);
+            GetEngineContext()->GetRenderContext()->GetLightManager()->AddLight(index, lightData);
+            GetEngineContext()->GetRenderContext()->GetLightManager()->Update(index);
             lightIndex = index;
         }
     }
@@ -180,7 +180,7 @@ namespace Shard::Engine::Objects::Components{
         lightData->castShadow = castShadows;
         
         if(parent && parent->world && parent->world->IsLoaded())
-            GetEngineContext()->GetRenderer()->GetLightManager()->Update(lightIndex);
+            GetEngineContext()->GetRenderContext()->GetLightManager()->Update(lightIndex);
             
         UpdateExposedValues();
     }
@@ -233,7 +233,7 @@ namespace Shard::Engine::Objects::Components{
         if(index < 0 || index >= (int)lights.size())
             return;
 
-        GetEngineContext()->GetRenderer()->GetLightManager()->RemoveLight(index);
+        GetEngineContext()->GetRenderContext()->GetLightManager()->RemoveLight(index);
 
         std::rotate(lights.begin() + index, lights.begin() + index + 1, lights.end());
         lights.pop_back();
@@ -393,7 +393,7 @@ namespace Shard::Engine::Objects::Components{
 
     void Light::Destroy()
     {
-        GetEngineContext()->GetRenderer()->GetLightManager()->RemoveLight(lightIndex);
+        GetEngineContext()->GetRenderContext()->GetLightManager()->RemoveLight(lightIndex);
     }
 
     std::shared_ptr<Component> Light::Clone() const

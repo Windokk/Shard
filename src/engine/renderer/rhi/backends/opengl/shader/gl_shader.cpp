@@ -1,7 +1,7 @@
 #include "gl_shader.hpp"
 
 #include "engine/renderer/rhi/backends/opengl/gl_utils.hpp"
-#include "engine/renderer/material/glsl_preprocessor.hpp"
+#include "engine/renderer/rhi/shader/glsl_preprocessor.hpp"
 
 #include "engine/core/diagnostics/logger.hpp"
 

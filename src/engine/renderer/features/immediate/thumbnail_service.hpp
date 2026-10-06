@@ -13,7 +13,7 @@
 
 namespace Shard::Engine::Rendering {
 
-    class Renderer;
+    class IRenderContext;
     class Mesh;
 
     enum class ThumbnailKind {
@@ -60,7 +60,7 @@ namespace Shard::Engine::Rendering {
             /// ... and on cache-file loads (a decode + an upload each).
             static constexpr uint32_t kMaxDiskLoadsPerFrame = 16;
 
-            void Init(Renderer* renderer);
+            void Init(IRenderContext* renderer);
             void Shutdown();
 
             void BeginFrame();
@@ -98,7 +98,7 @@ namespace Shard::Engine::Rendering {
 
             std::shared_ptr<Mesh> GetPreviewSphere();
 
-            Renderer* m_Renderer = nullptr;
+            IRenderContext* m_Renderer = nullptr;
 
             std::shared_ptr<Framebuffer> m_Atlas;
             std::vector<std::string> m_SlotKeys;   // owner key per slot, empty = free

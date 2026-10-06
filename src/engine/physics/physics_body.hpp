@@ -20,7 +20,7 @@
 #include "engine/assets/reflection/reflection_fields.hpp"
 #include "engine/assets/reflection/attributes.hpp"
 
-#include "engine/renderer/features/debug/debug_shapes.hpp"
+#include "engine/core/debug_draw.hpp"
 
 
 namespace Shard::Engine::Objects::Components
@@ -151,7 +151,6 @@ namespace Shard::Engine::Objects::Components
             /// to schedule a rebuild of the underlying Jolt shape on the next Tick().
             void MarkShapesDirty() { shouldUpdateShape = true; }
 
-            Rendering::DebugShape* GetDebugShape(size_t index = 0) { return index < m_DebugShapes.size() ? m_DebugShapes[index] : nullptr; }
             JPH::BodyID GetBodyID() const { return m_BodyID; }
             EMotionType GetMotionType() { return motionType; }
 
@@ -235,7 +234,7 @@ namespace Shard::Engine::Objects::Components
 
             JPH::BodyID m_BodyID = JPH::BodyID();
 
-            std::vector<Rendering::DebugShape*> m_DebugShapes;
+            std::vector<Core::DebugShapeHandle> m_DebugShapes;
 
             JPH::ShapeRefC m_Shape;
 

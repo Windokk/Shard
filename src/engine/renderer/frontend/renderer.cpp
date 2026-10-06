@@ -2,16 +2,16 @@
 
 #include "engine/world/engine.hpp"
 
-#include "engine/renderer/material/material.hpp"
+#include "engine/renderer/rhi/material/material.hpp"
 #include "engine/renderer/rhi/pipelines/pipeline.hpp"
 #include "engine/renderer/rhi/pipelines/compute_pipeline.hpp"
-#include "engine/renderer/material/shader.hpp"
+#include "engine/renderer/rhi/shader/shader.hpp"
 #include "engine/renderer/rhi/resources/mesh/mesh.hpp"
 #include "engine/renderer/features/lighting/shadow_manager.hpp"
 #include "engine/renderer/features/lighting/probe_manager.hpp"
 #include "engine/renderer/features/lighting/ssao_manager.hpp"
 #include "engine/renderer/features/lighting/light_culling_manager.hpp"
-#include "engine/renderer/frontend/camera_manager.hpp"
+#include "engine/renderer/components/camera_manager.hpp"
 #include "engine/assets/resources_manager.hpp"
 #include "engine/renderer/frontend/render_asset_kinds.hpp"
 #include "engine/world/actor.hpp"
@@ -30,6 +30,8 @@ namespace Shard::Engine::Rendering{
         RegisterAssetKinds(*Core::GetEngine().GetResourcesManager());
 
         m_RendererAPI = RendererAPI::Create(initialSettings->api);
+        RendererAPI::SetCurrent(m_RendererAPI.get());
+        m_RendererAPI->SetSceneBinding(this);
 
         if (Debugging::Profiler* profiler = Debugging::Profiler::Active())
         {

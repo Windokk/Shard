@@ -4,12 +4,12 @@
 #include "engine/assets/resources_manager.hpp"
 
 #include "engine/renderer/features/immediate/immediate_renderer.hpp"
-#include "engine/renderer/material/material.hpp"
+#include "engine/renderer/rhi/material/material.hpp"
 #include "engine/renderer/rhi/resources/mesh/mesh.hpp"
-#include "engine/renderer/frontend/renderer.hpp"
-#include "engine/renderer/material/shader.hpp"
+#include "engine/renderer/rhi/render_context.hpp"
+#include "engine/renderer/rhi/shader/shader.hpp"
 #include "engine/renderer/rhi/resources/texture/image_export.hpp"
-#include "engine/renderer/material/material_serializer.hpp"
+#include "engine/renderer/features/material/material_serializer.hpp"
 
 #include "engine/core/diagnostics/logger.hpp"
 
@@ -40,7 +40,7 @@ namespace Shard::Engine::Rendering {
         }
     }
 
-    void ThumbnailService::Init(Renderer* renderer)
+    void ThumbnailService::Init(IRenderContext* renderer)
     {
         m_Renderer = renderer;
     }

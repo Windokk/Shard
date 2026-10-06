@@ -4,7 +4,7 @@
 #include "engine/assets/reflection/reflection_fields.hpp"
 #include "engine/world/engine.hpp"
 
-#include "engine/renderer/frontend/renderer.hpp"
+#include "engine/renderer/rhi/render_context.hpp"
 #include "engine/renderer/rhi/resources/mesh/mesh.hpp"
 #include "engine/renderer/features/debug/debug_shapes.hpp"
 
@@ -57,14 +57,14 @@ namespace Shard::Engine::Objects::Components{
         cmd.boundsMin = m_DebugShape->m_Mesh->GetBoundsMin();
         cmd.indexCount = m_DebugShape->m_Mesh->GetIndexCount();
         cmd.indexOffset = 0;
-        cmd.material = GetEngineContext()->GetRenderer()->GetDebugMaterial();
+        cmd.material = GetEngineContext()->GetRenderContext()->GetDebugMaterial();
         cmd.mesh = m_DebugShape->m_Mesh;
         cmd.modelID = parent->GetComponentIDInWorld(local_id);
         cmd.modelMatrix = GetDebugModelMatrix();
         cmd.objectID = parent->GetID().GetAsInt();
         cmd.vertexCount = m_DebugShape->m_Mesh->GetVertexCount();
 
-        GetEngineContext()->GetRenderer()->AddOrUpdateCommands({cmd}, {"ForwardPass"}, false);
+        GetEngineContext()->GetRenderContext()->AddOrUpdateCommands({cmd}, {"ForwardPass"}, false);
     }
 
     void Volume::RemoveDebugShape()
@@ -72,7 +72,7 @@ namespace Shard::Engine::Objects::Components{
         if (m_DebugShape && m_DebugShape->m_Mesh && parent)
         {
             uint64_t cmdID = Rendering::MakeCommandID(m_DebugShape->m_Mesh->GetAssetID().GetAsInt(), parent->GetComponentIDInWorld(local_id), 0);
-            GetEngineContext()->GetRenderer()->RemoveCommands({cmdID}, {"ForwardPass"}, false);
+            GetEngineContext()->GetRenderContext()->RemoveCommands({cmdID}, {"ForwardPass"}, false);
         }
 
         delete m_DebugShape;

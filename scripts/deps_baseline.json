@@ -1,12 +1,7 @@
 {
-  "edges": {
-    "engine/audio -> engine/renderer": 2,
-    "engine/physics -> engine/renderer": 3
-  },
+  "edges": {},
   "patterns": {
-    "gl-call-outside-backend": [
-      "src/apps/editor/gui/main_window.cpp"
-    ],
+    "gl-call-outside-backend": [],
     "glfw-in-engine": []
   }
 }

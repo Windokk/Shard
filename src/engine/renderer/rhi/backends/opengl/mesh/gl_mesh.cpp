@@ -2,7 +2,7 @@
 
 #include "engine/renderer/rhi/backends/opengl/gl_utils.hpp"
 
-#include "engine/renderer/material/shader.hpp"
+#include "engine/renderer/rhi/shader/shader.hpp"
 
 #include <algorithm>
 

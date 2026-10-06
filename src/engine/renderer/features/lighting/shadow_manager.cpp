@@ -2,8 +2,8 @@
 
 #include "engine/renderer/components/camera.hpp"
 
-#include "engine/renderer/material/shader.hpp"
-#include "engine/renderer/material/material.hpp"
+#include "engine/renderer/rhi/shader/shader.hpp"
+#include "engine/renderer/rhi/material/material.hpp"
 #include "engine/renderer/rhi/resources/mesh/mesh.hpp"
 #include "engine/renderer/rhi/resources/texture/texture.hpp"
 #include "engine/renderer/rhi/resources/texture/cubemap/cubemap.hpp"
@@ -12,11 +12,11 @@
 
 #include "engine/world/engine.hpp"
 
-#include "engine/renderer/frontend/camera_manager.hpp"
+#include "engine/renderer/components/camera_manager.hpp"
 
 #include "engine/assets/resources_manager.hpp"
 
-#include "engine/renderer/frontend/renderer.hpp"
+#include "engine/renderer/rhi/render_context.hpp"
 
 #include "glm/gtx/string_cast.hpp"
 
@@ -63,7 +63,7 @@ namespace Shard::Engine::Rendering{
             {
                 for (int c = 0; c < CASCADES_PER_LIGHT; ++c)
                 {
-                    auto pass = Core::GetEngine().GetRenderer()->GetRenderPass(sm.second.passes[c]);
+                    auto pass = Core::GetEngine().GetRenderContext()->GetRenderPass(sm.second.passes[c]);
 
                     float splitNear = c == 0 ? cam->nearPlane : sm.second.cascadeSplits[c - 1];
                     float splitFar  = sm.second.cascadeSplits[c];
@@ -73,7 +73,7 @@ namespace Shard::Engine::Rendering{
                 }
             }
             else if(sm.second.light.type == static_cast<int>(LightType::Spot)){
-                auto pass = Core::GetEngine().GetRenderer()->GetRenderPass(sm.second.passes[0]);
+                auto pass = Core::GetEngine().GetRenderContext()->GetRenderPass(sm.second.passes[0]);
                 sm.second.lightMatrix[0] = sm.second.light.GetLightMatrix(cam->GetView(), -1, -1, -1, -1, -1, sm.second.light.outerCutoff);
                 pass->customUniforms["lightSpaceMatrix"] = sm.second.lightMatrix[0];
             }
@@ -90,7 +90,7 @@ namespace Shard::Engine::Rendering{
                 sm.second.shadowMatrices[4] = proj * glm::lookAt(pos, pos + glm::vec3( 0,  0,  1), glm::vec3(0,  -1,  0)); // +Z
                 sm.second.shadowMatrices[5] = proj * glm::lookAt(pos, pos + glm::vec3( 0,  0, -1), glm::vec3(0,  -1,  0)); // -Z
                 
-                auto pass = Core::GetEngine().GetRenderer()->GetRenderPass(sm.second.passes[0]);
+                auto pass = Core::GetEngine().GetRenderContext()->GetRenderPass(sm.second.passes[0]);
 
                 for(int i = 0; i < 6; i++)
                     pass->customUniforms["shadowMatrices[" + std::to_string(i) + "]"] = sm.second.shadowMatrices[i];
@@ -125,7 +125,7 @@ namespace Shard::Engine::Rendering{
             pointSpecs.topology = PrimitiveTopology::Triangles;
             pointSpecs.shader = m_PointShader;
             pointSpecs.vertexLayout = {{{"aPos", ShaderDataType::Vec3, 0}}, sizeof(glm::vec3)};
-            std::shared_ptr<Pipeline> pointShadowPassPipeline = Core::GetEngine().GetRenderer()->GetOrAddPipeline(pointSpecs);
+            std::shared_ptr<Pipeline> pointShadowPassPipeline = Core::GetEngine().GetRenderContext()->GetOrAddPipeline(pointSpecs);
             
             std::shared_ptr<RenderPass> pass = std::make_shared<RenderPass>();
             pass->target = sm->framebuffer[0];
@@ -161,7 +161,7 @@ namespace Shard::Engine::Rendering{
             spotSpecs.topology = PrimitiveTopology::Triangles;
             spotSpecs.shader = m_SpotShader;
             spotSpecs.vertexLayout = {{{"aPos", ShaderDataType::Vec3, 0}}, sizeof(glm::vec3)};
-            std::shared_ptr<Pipeline> spotShadowPassPipeline = Core::GetEngine().GetRenderer()->GetOrAddPipeline(spotSpecs);
+            std::shared_ptr<Pipeline> spotShadowPassPipeline = Core::GetEngine().GetRenderContext()->GetOrAddPipeline(spotSpecs);
 
             std::shared_ptr<RenderPass> pass = std::make_shared<RenderPass>();
             pass->target = sm->framebuffer[0];
@@ -188,7 +188,7 @@ namespace Shard::Engine::Rendering{
             dirSpecs.shader = m_DirShader;
             dirSpecs.vertexLayout = {{{"aPos", ShaderDataType::Vec3, 0}}, sizeof(glm::vec3)};
 
-            std::shared_ptr<Pipeline> dirShadowPassPipeline = Core::GetEngine().GetRenderer()->GetOrAddPipeline(dirSpecs);
+            std::shared_ptr<Pipeline> dirShadowPassPipeline = Core::GetEngine().GetRenderContext()->GetOrAddPipeline(dirSpecs);
 
             for (int c = 0; c < CASCADES_PER_LIGHT; ++c)
                 sm->cascadeSplits[c] = ComputeCascadeSplitDistance(c, cam->nearPlane, cam->farPlane, CASCADES_PER_LIGHT);
@@ -221,12 +221,12 @@ namespace Shard::Engine::Rendering{
         for(int i = 0; i < passes.size(); i++){
             std::string passName = "ShadowPass_" + std::to_string(lightIndex) + "_" + std::to_string(i);
 
-            passes[i]->externalDrawList = Core::GetEngine().GetRenderer()->GetShadowDrawList();
+            passes[i]->externalDrawList = Core::GetEngine().GetRenderContext()->GetShadowDrawList();
 
-            Core::GetEngine().GetRenderer()->AddRenderPass(passes[i], passName, {});
+            Core::GetEngine().GetRenderContext()->AddRenderPass(passes[i], passName, {});
             
             // Add dependency: ForwardPass depends on this shadow pass
-            Core::GetEngine().GetRenderer()->AddDependencyToPass("ForwardPass", passName);
+            Core::GetEngine().GetRenderContext()->AddDependencyToPass("ForwardPass", passName);
         }
     }
 
@@ -294,7 +294,7 @@ namespace Shard::Engine::Rendering{
             if (!sm.passes.empty()) {
 
                 for (const auto& passName : sm.passes)
-                    Core::GetEngine().GetRenderer()->RemoveRenderPass(passName);
+                    Core::GetEngine().GetRenderContext()->RemoveRenderPass(passName);
 
                 sm.passes.clear();
             }
@@ -567,7 +567,7 @@ namespace Shard::Engine::Rendering{
         }
 
         for(std::string passName : removedSM.passes){
-            Core::GetEngine().GetRenderer()->RemoveRenderPass(passName);
+            Core::GetEngine().GetRenderContext()->RemoveRenderPass(passName);
         }
 
         // No longer a registered shadow caster - clear its slot before it drops out of m_ShadowMaps.
@@ -671,7 +671,7 @@ namespace Shard::Engine::Rendering{
             ShadowMap& sm = entry.second;
 
             for (const auto& passName : sm.passes)
-                Core::GetEngine().GetRenderer()->RemoveRenderPass(passName);
+                Core::GetEngine().GetRenderContext()->RemoveRenderPass(passName);
 
             switch (sm.light.type)
             {

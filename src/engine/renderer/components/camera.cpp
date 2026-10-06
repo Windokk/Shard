@@ -5,7 +5,7 @@
 #include <string>
 
 #include "engine/world/actor.hpp"
-#include "engine/renderer/frontend/camera_manager.hpp"
+#include "engine/renderer/components/camera_manager.hpp"
 
 #include "camera.reflection.hpp"
 

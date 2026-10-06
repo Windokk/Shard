@@ -33,6 +33,7 @@ LAYERS = {
     "engine/physics": 4,
     "engine/audio": 4,
     "engine/input": 4,
+    "engine/root": 4.5,  # src/engine/*.cpp : the composition root (EngineInstance, game module), above every layer
     "apps/editor": 6,
     "apps/player": 6,
     "apps/game": 6,
@@ -40,6 +41,16 @@ LAYERS = {
     "apps/tools": 6,
 }
 GENRES_RANK = 5  # every src/genres/<name> is its own peer module
+
+# The renderer is one module for the others, but it has layers of its own (lower rank = lower layer) :
+#   rhi      - the graphics API (resources, shaders, materials, pipelines, backends)
+#   scene    - what draws or lights the world with the rhi (features/, components/)
+#   frontend - the Renderer that drives the frame
+RENDERER_LAYERS = {
+    "engine/renderer/rhi": 0,
+    "engine/renderer/scene": 1,
+    "engine/renderer/frontend": 2,
+}
 
 SOURCE_EXT = (".cpp", ".hpp", ".h", ".c", ".inl")
 COMMENT = re.compile(r"//[^\n]*|/\*.*?\*/", re.S)  # patterns are matched on code, not comments
@@ -66,6 +77,10 @@ def module_of(path):
     parts = path.split("/")
     if path.startswith("src/engine/renderer/rhi/backends/glad/"):
         return None  # vendored code
+    if path.startswith("src/engine/renderer/") and len(parts) > 4:
+        return "engine/renderer/" + {"rhi": "rhi", "features": "scene", "components": "scene"}.get(parts[3], "frontend")
+    if path.startswith("src/engine/") and len(parts) == 3:
+        return "engine/root"
     if path.startswith("src/engine/") and len(parts) > 3:
         return "engine/" + parts[2]
     if path.startswith("src/apps/") and len(parts) > 3:
@@ -75,10 +90,25 @@ def module_of(path):
     return None
 
 
+def group_of(module):
+    return "engine/renderer" if module in RENDERER_LAYERS else module
+
+
 def rank_of(module):
     if module.startswith("genres/"):
         return GENRES_RANK
+    if module in RENDERER_LAYERS:
+        return LAYERS["engine/renderer"]
     return LAYERS.get(module)
+
+
+def is_violation(a, b):
+    """True if module a may not include module b."""
+    if rank_of(b) > rank_of(a):
+        return True
+    if rank_of(b) < rank_of(a):
+        return False
+    return not (a in RENDERER_LAYERS and b in RENDERER_LAYERS and RENDERER_LAYERS[b] < RENDERER_LAYERS[a])
 
 
 def collect_files():
@@ -135,7 +165,7 @@ def analyse():
 def violations(edges):
     out = {}
     for (a, b), n in edges.items():
-        if rank_of(b) >= rank_of(a):
+        if is_violation(a, b):
             kind = "peer" if rank_of(b) == rank_of(a) else "upward"
             out[f"{a} -> {b}"] = (n, kind)
     return out
@@ -151,8 +181,8 @@ def main():
 
     if "--matrix" in args:
         for (a, b), n in sorted(edges.items()):
-            flag = "" if rank_of(b) < rank_of(a) else "   <-- violation"
-            print(f"{a:18} -> {b:18} {n:4}{flag}")
+            flag = "   <-- violation" if is_violation(a, b) else ""
+            print(f"{a:26} -> {b:26} {n:4}{flag}")
         return 0
 
     current = violations(edges)

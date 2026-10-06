@@ -7,18 +7,18 @@
 
 #include "engine/world/engine.hpp"
 
-#include "engine/renderer/frontend/renderer.hpp"
+#include "engine/renderer/rhi/render_context.hpp"
 #include "engine/renderer/rhi/renderer_api.hpp"
 #include "engine/renderer/rhi/resources/buffer/storage_buffer.hpp"
 #include "engine/renderer/rhi/resources/texture/texture.hpp"
 #include "engine/renderer/rhi/resources/texture/cubemap/cubemap.hpp"
 #include "engine/renderer/rhi/resources/texture/cubemap/envmap.hpp"
-#include "engine/renderer/material/compute_shader.hpp"
+#include "engine/renderer/rhi/shader/compute_shader.hpp"
 #include "engine/renderer/rhi/pipelines/compute_pipeline.hpp"
 
 #include "engine/world/world_manager.hpp"
-#include "engine/renderer/frontend/render_world_data.hpp"
-#include "engine/renderer/frontend/skybox.hpp"
+#include "engine/renderer/components/render_world_data.hpp"
+#include "engine/renderer/components/skybox.hpp"
 
 #include "engine/core/diagnostics/logger.hpp"
 
@@ -455,7 +455,7 @@ namespace Shard::Engine::Rendering {
         if (m_TracePipeline && m_ConvolvePipeline && m_BorderFixupPipeline && m_ClassifyPipeline && m_RelocatePipeline && m_TemporalBlendPipeline && m_DistanceTemporalBlendPipeline)
             return;
 
-        Renderer* renderer = Core::GetEngine().GetRenderer();
+        IRenderContext* renderer = Core::GetEngine().GetRenderContext();
         Filesystem::Path resRoot = Core::GetEngine().GetFileManager()->GetEngineResRoot();
 
         if (!m_TracePipeline)
@@ -564,7 +564,7 @@ namespace Shard::Engine::Rendering {
         }
     }
 
-    void ProbeManager::UpdateVolume(VolumeSlot& slot, Renderer* renderer, const BakeStep* bake)
+    void ProbeManager::UpdateVolume(VolumeSlot& slot, IRenderContext* renderer, const BakeStep* bake)
     {
         if (!slot.volume || !slot.rayAtlas || !slot.irradianceAtlas || !slot.publishedAtlas ||
             !slot.rayDistAtlas || !slot.distanceAtlas || !slot.publishedDistanceAtlas || slot.probeCount == 0)
@@ -869,7 +869,7 @@ namespace Shard::Engine::Rendering {
         if (!m_TracePipeline || !m_ConvolvePipeline || !m_BorderFixupPipeline || !m_ClassifyPipeline || !m_RelocatePipeline || !m_TemporalBlendPipeline || !m_DistanceTemporalBlendPipeline)
             return;
 
-        Renderer* renderer = Core::GetEngine().GetRenderer();
+        IRenderContext* renderer = Core::GetEngine().GetRenderContext();
 
         // Snapshot the live LightManager's lights every frame : cheap, and keeps this decoupled from the
         // live renderer buffer's lifecycle (same pattern as Raytracer::BuildScene()). Shared across every
@@ -921,7 +921,7 @@ namespace Shard::Engine::Rendering {
         }
     }
 
-    void ProbeManager::StepBake(Renderer* renderer)
+    void ProbeManager::StepBake(IRenderContext* renderer)
     {
         VolumeSlot* slot = FindSlot(m_Bake.volume);
         if (!slot || slot->baked)
@@ -969,7 +969,7 @@ namespace Shard::Engine::Rendering {
 
         // The last blend dispatch wrote the published atlases through image stores, and the state buffer
         // through an SSBO : both need their host-readback barrier before the blocking reads below.
-        Core::GetEngine().GetRenderer()->GetRendererAPI()->MemoryBarrier(MemoryBarrierBit::TextureUpdate | MemoryBarrierBit::BufferUpdate);
+        Core::GetEngine().GetRenderContext()->GetRendererAPI()->MemoryBarrier(MemoryBarrierBit::TextureUpdate | MemoryBarrierBit::BufferUpdate);
 
         ProbeBakeData data;
         data.probeCounts = glm::max(volume->probeCounts, glm::ivec3(1));

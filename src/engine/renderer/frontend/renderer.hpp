@@ -10,7 +10,9 @@
 
 #include "engine/renderer/rhi/resources/mesh/mesh.hpp"
 
-#include "engine/renderer/frontend/render_view.hpp"
+#include "engine/renderer/rhi/render_view.hpp"
+#include "engine/renderer/rhi/render_pass.hpp"
+#include "engine/renderer/rhi/render_context.hpp"
 #include "engine/renderer/features/immediate/immediate_renderer.hpp"
 #include "engine/renderer/features/immediate/thumbnail_service.hpp"
 
@@ -18,42 +20,6 @@
 #include <variant>
 
 namespace Shard::Engine::Rendering {
-
-    class LightManager;
-    class ShadowManager;
-    class ProbeManager;
-    class SSAOManager;
-    class LightCullingManager;
-    using NumericValue = std::variant<bool, float, int, glm::vec2, glm::vec3, glm::vec4, glm::mat4>;
-
-    class Renderer;
-
-    struct RenderPass{
-        std::shared_ptr<Framebuffer> target = nullptr;
-        bool clearColor = true;
-        bool clearDepth = true;
-        std::map<std::string, NumericValue> customUniforms;
-        std::map<std::string, uint64_t> customSamplers;
-        bool overridePipeline = false;
-        std::shared_ptr<Pipeline> customPipeline = nullptr;
-        bool allowResize = true;
-        bool allowCulling = true;
-        // Skipped entirely in Renderer::DrawFrame() when false - lets a pass stay registered (keeping
-        // its dependents, target, draw list, etc. intact) while producing nothing this frame, e.g. the
-        // editor hiding probe-marker gizmos (ProbeGizmoPass) without touching the ProbeVolume components
-        // that actually drive GI (which stay active either way).
-        bool enabled = true;
-        // Issued once, right after this pass finishes executing (Renderer::EndRenderPass) - needed only
-        // when something this pass wrote is later read in a way the driver can't track through normal
-        // bind-point synchronization (e.g. a bindless texture handle sampled by a later pass, mirroring
-        // why DispatchCompute takes the same MemoryBarrierBit for image-load-store writes read by a
-        // subsequent draw). None for every ordinary pass.
-        MemoryBarrierBit barrierAfter = MemoryBarrierBit::None;
-        std::vector<DrawCommand> drawList = {};
-        std::unordered_map<uint64_t, size_t> drawCommandsLookup;
-        std::vector<DrawCommand>* externalDrawList = nullptr;
-    };
-
 
     /// @todo move this in a "setting manager" system
     struct RendererSettings{
@@ -63,25 +29,25 @@ namespace Shard::Engine::Rendering {
         RendererAPI::API api;
     };
 
-    class Renderer{
+    class Renderer : public IRenderContext, public ISceneBinding{
         public:
             void Init(std::shared_ptr<RendererSettings> initialSettings);
             uint64_t GenerateSortKey(const DrawCommand &cmd, const uint32_t submeshID);
-            std::shared_ptr<Pipeline> GetOrAddPipeline(const PipelineSpecifications &specs);
-            std::shared_ptr<ComputePipeline> GetOrAddComputePipeline(const ComputePipelineSpecifications &specs);
-            void DispatchCompute(const std::shared_ptr<ComputePipeline> pipeline, uint32_t groupsX, uint32_t groupsY, uint32_t groupsZ, MemoryBarrierBit barriersAfter = MemoryBarrierBit::None);
+            std::shared_ptr<Pipeline> GetOrAddPipeline(const PipelineSpecifications &specs) override;
+            std::shared_ptr<ComputePipeline> GetOrAddComputePipeline(const ComputePipelineSpecifications &specs) override;
+            void DispatchCompute(const std::shared_ptr<ComputePipeline> pipeline, uint32_t groupsX, uint32_t groupsY, uint32_t groupsZ, MemoryBarrierBit barriersAfter = MemoryBarrierBit::None) override;
             void Render();
             void Shutdown();
             void ClearPassesContent();
-            void AddOrUpdateCommands(const std::vector<DrawCommand>& commands, const std::vector<std::string>& passes, bool addToShadowDrawList);
-            void RemoveCommands(const std::vector<uint64_t> commandsID, const std::vector<std::string>& passes, bool removeFromShadowDrawList);
+            void AddOrUpdateCommands(const std::vector<DrawCommand>& commands, const std::vector<std::string>& passes, bool addToShadowDrawList) override;
+            void RemoveCommands(const std::vector<uint64_t> commandsID, const std::vector<std::string>& passes, bool removeFromShadowDrawList) override;
 
-            void AddRenderPass(const std::shared_ptr<RenderPass> pass, const std::string& name, const std::vector<std::string>& dependencies);
-            void RemoveRenderPass(const std::string& name);
-            void AddDependencyToPass(const std::string& passName, const std::string& dependencyName);
-            void RemoveDependencyFromPass(const std::string &passName, const std::string &dependencyName);
+            void AddRenderPass(const std::shared_ptr<RenderPass> pass, const std::string& name, const std::vector<std::string>& dependencies) override;
+            void RemoveRenderPass(const std::string& name) override;
+            void AddDependencyToPass(const std::string& passName, const std::string& dependencyName) override;
+            void RemoveDependencyFromPass(const std::string &passName, const std::string &dependencyName) override;
 
-            std::shared_ptr<RenderPass> GetRenderPass(const std::string& name) const
+            std::shared_ptr<RenderPass> GetRenderPass(const std::string& name) const override
             {
                 auto it = m_RenderPasses.find(name);
 
@@ -91,37 +57,41 @@ namespace Shard::Engine::Rendering {
                 return nullptr;
             }
 
-            std::vector<DrawCommand>* GetShadowDrawList(){ return &shadowDrawList; }
+            std::vector<DrawCommand>* GetShadowDrawList() override { return &shadowDrawList; }
 
-            bool HasRenderPass(const std::string& name) const { return m_RenderPasses.find(name) != m_RenderPasses.end(); }
+            bool HasRenderPass(const std::string& name) const override { return m_RenderPasses.find(name) != m_RenderPasses.end(); }
 
             void RescaleFramebuffers(int newWidth, int newHeight);
 
             /// @brief Overrides the view every draw is issued from, until the matching PopView().
             /// Nests. While a view is pushed, frustum culling is skipped (the camera's frustum belongs
             /// to the active camera, not to the pushed view).
-            void PushView(const RenderView& view) { m_ViewStack.push_back(view); }
-            void PopView() { if (!m_ViewStack.empty()) m_ViewStack.pop_back(); }
-            bool HasViewOverride() const { return !m_ViewStack.empty(); }
+            void PushView(const RenderView& view) override { m_ViewStack.push_back(view); }
+            void PopView() override { if (!m_ViewStack.empty()) m_ViewStack.pop_back(); }
+            bool HasViewOverride() const override { return !m_ViewStack.empty(); }
 
             /// @brief The view draws are currently issued from : the top pushed view, else the active
             /// camera's. Returns false when there is neither.
-            bool GetCurrentView(RenderView& out);
+bool GetCurrentView(RenderView& out) override;
+
+            // ISceneBinding (frontend/scene_binding.cpp)
+            void BindWorldState(RendererAPI& api, std::shared_ptr<Shader> shader, glm::mat4 modelMatrix, int objectID, bool applyPassGlobals) override;
+            void BindMaterialScene(std::shared_ptr<Material> material) override;
 
             /// @brief Runs one pass right now from `view`, outside the retained pass graph (see
             /// ImmediateRenderer, which is the intended caller). The pass is not registered anywhere.
-            void RenderImmediate(const std::shared_ptr<RenderPass>& pass, const RenderView& view);
+            void RenderImmediate(const std::shared_ptr<RenderPass>& pass, const RenderView& view) override;
 
             /// @brief Editor viewport debug view for the main scene render (view mode, lighting/shadow toggles).
             void SetDebugView(const DebugViewState& state) { m_DebugView = state; }
             const DebugViewState& GetDebugView() const { return m_DebugView; }
 
-            ImmediateRenderer* GetImmediateRenderer() { return &m_ImmediateRenderer; }
-            ThumbnailService* GetThumbnailService() { return &m_ThumbnailService; }
+            ImmediateRenderer* GetImmediateRenderer() override { return &m_ImmediateRenderer; }
+            ThumbnailService* GetThumbnailService() override { return &m_ThumbnailService; }
 
             uint32_t GetViewportTextureHandle() const { return m_ViewportBuffer->GetResolveColorAttachment(); }
 
-            std::shared_ptr<Framebuffer> GetViewportFramebuffer() const { return m_ViewportBuffer; }
+            std::shared_ptr<Framebuffer> GetViewportFramebuffer() const override { return m_ViewportBuffer; }
 
             void PresentToScreen(int screenWidth, int screenHeight) { m_ViewportBuffer->BlitToScreen(screenWidth, screenHeight); }
 
@@ -135,21 +105,21 @@ namespace Shard::Engine::Rendering {
             const uint32_t GetPrimitivesCount() const { return m_PrimitivesCount; }
             const uint32_t GetVerticesCount() const { return m_VerticesCount; }
             
-            RendererAPI* GetRendererAPI() const 
+            RendererAPI* GetRendererAPI() const override
             {
                 if(m_RendererAPI) 
                     return m_RendererAPI.get();
                 else
                     return nullptr; 
             }
-            const std::shared_ptr<Mesh> GetUnitCube() { return m_UnitCube; }
-            const std::shared_ptr<Mesh> GetUnitQuad() { return m_UnitQuad; }
-            const std::shared_ptr<ShadowManager> GetShadowManager() { return m_ShadowManager; }
-            const std::shared_ptr<LightManager> GetLightManager() { return m_LightManager; }
-            const std::shared_ptr<ProbeManager> GetProbeManager() { return m_ProbeManager; }
-            const std::shared_ptr<SSAOManager> GetSSAOManager() { return m_SSAOManager; }
-            const std::shared_ptr<LightCullingManager> GetLightCullingManager() { return m_LightCullingManager; }
-            const std::shared_ptr<Material> GetDebugMaterial() { return m_DebugMat; }
+            const std::shared_ptr<Mesh> GetUnitCube() override { return m_UnitCube; }
+            const std::shared_ptr<Mesh> GetUnitQuad() override { return m_UnitQuad; }
+            const std::shared_ptr<ShadowManager> GetShadowManager() override { return m_ShadowManager; }
+            const std::shared_ptr<LightManager> GetLightManager() override { return m_LightManager; }
+            const std::shared_ptr<ProbeManager> GetProbeManager() override { return m_ProbeManager; }
+            const std::shared_ptr<SSAOManager> GetSSAOManager() override { return m_SSAOManager; }
+            const std::shared_ptr<LightCullingManager> GetLightCullingManager() override { return m_LightCullingManager; }
+            const std::shared_ptr<Material> GetDebugMaterial() override { return m_DebugMat; }
 
         private:
 

@@ -2,7 +2,7 @@
 
 #include "engine/platform/iwindow.hpp"
 #include "engine/renderer/frontend/renderer.hpp"
-#include "engine/renderer/material/material.hpp"
+#include "engine/renderer/rhi/material/material.hpp"
 #include "engine/core/diagnostics/logger.hpp"
 #include "engine/world/actor.hpp"
 

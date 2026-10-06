@@ -1,7 +1,8 @@
 #include "mesh.hpp"
 
 #include "engine/renderer/rhi/backends/opengl/mesh/gl_mesh.hpp"
-#include "engine/renderer/frontend/renderer.hpp"
+#include "engine/renderer/rhi/renderer_api.hpp"
+#include "engine/renderer/rhi/shader/shader.hpp"
 #include "engine/world/engine.hpp"
 
 #include "engine/world/actor.hpp"
@@ -309,7 +310,7 @@ namespace Shard::Engine::Rendering{
 
     std::shared_ptr<Mesh> Mesh::Create()
     {
-        switch(Core::GetEngine().GetRenderer()->GetRendererAPI()->GetAPI())
+        switch(RendererAPI::Current()->GetAPI())
         {
             case RendererAPI::API::OpenGL:
                 return std::make_shared<GLMesh>();

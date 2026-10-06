@@ -8,6 +8,20 @@
 
 namespace Shard::Engine::Rendering{
 
+    namespace {
+        RendererAPI* g_CurrentAPI = nullptr;
+    }
+
+    RendererAPI* RendererAPI::Current()
+    {
+        return g_CurrentAPI;
+    }
+
+    void RendererAPI::SetCurrent(RendererAPI* api)
+    {
+        g_CurrentAPI = api;
+    }
+
     std::shared_ptr<RendererAPI> RendererAPI::Create(API api)
     {
         switch(api)

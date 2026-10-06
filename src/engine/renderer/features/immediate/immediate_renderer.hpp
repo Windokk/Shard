@@ -1,6 +1,6 @@
 #pragma once
 
-#include "engine/renderer/frontend/render_view.hpp"
+#include "engine/renderer/rhi/render_view.hpp"
 #include "engine/renderer/rhi/resources/framebuffer/framebuffer.hpp"
 #include "engine/renderer/rhi/resources/mesh/mesh.hpp"
 
@@ -11,7 +11,7 @@
 
 namespace Shard::Engine::Rendering {
 
-    class Renderer;
+    class IRenderContext;
     class StorageBuffer;
     class Pipeline;
     class Material;
@@ -88,7 +88,7 @@ namespace Shard::Engine::Rendering {
     ///  - Commands need a material (Studio) and are never frustum culled.
     class ImmediateRenderer {
         public:
-            void Init(Renderer* renderer);
+            void Init(IRenderContext* renderer);
 
             /// @brief Frees every pooled target. Leases still alive must not be used afterwards.
             void Shutdown();
@@ -124,7 +124,7 @@ namespace Shard::Engine::Rendering {
             void EnsureUnlitMaterial();
             void EnsureNeutralEnvironment();
 
-            Renderer* m_Renderer = nullptr;
+            IRenderContext* m_Renderer = nullptr;
             bool m_Rendering = false;
 
             std::vector<PoolEntry> m_Pool;

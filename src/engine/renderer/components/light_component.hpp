@@ -2,7 +2,7 @@
 
 #include "engine/world/components/component.hpp"
 
-#include "engine/renderer/frontend/renderer.hpp"
+#include "engine/renderer/rhi/render_context.hpp"
 
 #include "engine/assets/reflection/attributes.hpp"
 
