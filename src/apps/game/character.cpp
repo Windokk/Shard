@@ -4,7 +4,7 @@
 
 #include "engine/world/engine.hpp"
 
-#include "engine/platform/iplatform.hpp"
+#include "engine/platform/windowing/iplatform.hpp"
 
 #include "engine/world/time_manager.hpp"
 

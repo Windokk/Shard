@@ -2,7 +2,7 @@
 
 #include <iostream>
 
-#include "engine/platform/module_loader.hpp"
+#include "engine/platform/lib_loader/module_loader.hpp"
 #include "engine/world/components/registry/component_registry.hpp"
 #include "engine/world/engine.hpp"
 #include "engine/core/diagnostics/logger.hpp"

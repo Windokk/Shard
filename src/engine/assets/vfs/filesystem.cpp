@@ -1,5 +1,7 @@
 #include "filesystem.hpp"
 
+#include "engine/platform/filesystem/paths.hpp"
+
 #include "engine/core/diagnostics/logger.hpp"
 
 namespace Shard::Engine::Filesystem{
@@ -127,13 +129,7 @@ namespace Shard::Engine::Filesystem{
             return "";
         }
 
-        std::string filepath = full;
-
-        #if defined(__WIN32__)
-
-        std::replace(filepath.begin(), filepath.end(), '/', '\\');
-
-        #endif
+        std::string filepath = Core::Platform::Paths::ToNative(full);
 
         std::ifstream file(filepath, std::ios::binary);
         if (!file) DEBUG_ERROR("Can't read file at path : " + filepath);
@@ -339,15 +335,7 @@ namespace Shard::Engine::Filesystem{
     std::string Path::GetNativePath() const
     {
         
-        std::string filepath = full;
-
-        #if defined(__WIN32__)
-
-        std::replace(filepath.begin(), filepath.end(), '/', '\\');
-
-        #endif
-
-        return filepath;
+        return Core::Platform::Paths::ToNative(full);
 
     }
 

@@ -1,6 +1,6 @@
 # Layers, bottom to top (the dependency rules are checked by scripts/check_deps.py):
 #   ShardCore     <- nothing
-#   ShardPlatform <- ShardCore
+#   ShardPlatform <- ShardCore, SDL3 : the PAL (windowing, events, devices, filesystem, threads, time, process, network, hardware...)
 #   ShardAssets   <- ShardPlatform, ShardCore
 #   ShardWorld    <- ShardAssets (and below)
 #   ShardPhysics  <- ShardWorld (and below), Jolt
@@ -26,10 +26,8 @@ list(FILTER RENDERER_SOURCES EXCLUDE REGEX "/renderer/rhi/")
 file(GLOB_RECURSE ENGINE_SOURCES ${CMAKE_CURRENT_SOURCE_DIR}/*.cpp)
 list(FILTER ENGINE_SOURCES EXCLUDE REGEX "/engine/(core|platform|assets|world|physics|audio|renderer)/")
 
-if(WIN32)
 set(THREADS_PREFER_PTHREAD_FLAG ON)
 find_package(Threads REQUIRED)
-endif()
 
 add_library(ShardCore STATIC ${CORE_SOURCES})
 # BUILD_ENGINE selects the engine-side implementation in logger.hpp, like for ShardEngine.
@@ -38,15 +36,33 @@ target_include_directories(ShardCore PUBLIC
     "${CMAKE_SOURCE_DIR}/src/"
     "${CMAKE_SOURCE_DIR}/submodules/glm/"
 )
-if(WIN32)
-  target_link_libraries(ShardCore PRIVATE pdh)  # GPU counters of the profiler
-endif()
 
 add_library(ShardPlatform STATIC ${PLATFORM_SOURCES})
 target_compile_definitions(ShardPlatform PRIVATE BUILD_ENGINE)
-# Only the platform layer sees the window system's headers (the apps add their own include path).
-target_include_directories(ShardPlatform PUBLIC "${CMAKE_SOURCE_DIR}/submodules/glfw/include/")
-target_link_libraries(ShardPlatform PUBLIC ShardCore)
+# SDL3 is PUBLIC : the apps that own a window (editor, player) need its headers, the engine layers only see the platform layer's own API
+target_link_libraries(ShardPlatform PUBLIC ShardCore SDL3::SDL3)
+if(WIN32)
+  # pdh/psapi : hardware counters, ws2_32 : sockets
+  target_link_libraries(ShardPlatform PRIVATE pdh psapi ws2_32)
+else()
+  target_link_libraries(ShardPlatform PRIVATE Threads::Threads ${CMAKE_DL_LIBS})
+  if(CMAKE_SYSTEM_NAME STREQUAL "Linux")
+    target_link_libraries(ShardPlatform PRIVATE rt)   # shm_open on older glibc
+
+    # io_uring backend of the async IO (platform/filesystem) : optional, the thread pool backend is used without it
+    # (and when the kernel refuses to create a ring at run time)
+    find_path(URING_INCLUDE_DIR liburing.h)
+    find_library(URING_LIBRARY uring)
+    if(URING_INCLUDE_DIR AND URING_LIBRARY)
+      message(STATUS "liburing found : async IO uses io_uring")
+      target_compile_definitions(ShardPlatform PRIVATE SHARD_HAS_IO_URING)
+      target_include_directories(ShardPlatform PRIVATE ${URING_INCLUDE_DIR})
+      target_link_libraries(ShardPlatform PRIVATE ${URING_LIBRARY})
+    else()
+      message(STATUS "liburing not found : async IO uses its thread pool backend (apt install liburing-dev)")
+    endif()
+  endif()
+endif()
 
 add_library(ShardAssets STATIC ${ASSETS_SOURCES})
 target_compile_definitions(ShardAssets PRIVATE BUILD_ENGINE)

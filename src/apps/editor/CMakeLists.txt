@@ -6,7 +6,7 @@ file(GLOB_RECURSE EDITOR_SOURCES
   ${CMAKE_SOURCE_DIR}/submodules/imgui/imgui_widgets.cpp
   ${CMAKE_SOURCE_DIR}/submodules/imgui/imgui_tables.cpp
   ${CMAKE_SOURCE_DIR}/submodules/imgui/imgui_draw.cpp
-  ${CMAKE_SOURCE_DIR}/submodules/imgui/backends/imgui_impl_glfw.cpp
+  ${CMAKE_SOURCE_DIR}/submodules/imgui/backends/imgui_impl_sdl3.cpp
   ${CMAKE_SOURCE_DIR}/submodules/imgui/backends/imgui_impl_opengl3.cpp
 )
 
@@ -19,7 +19,6 @@ target_include_directories(ShardEditor PRIVATE
   ${CMAKE_CURRENT_SOURCE_DIR}/third-party/include/
   ${CMAKE_SOURCE_DIR}/submodules/imgui/
   ${CMAKE_SOURCE_DIR}/submodules/imguizmo/
-  ${CMAKE_SOURCE_DIR}/submodules/glfw/include/
 )
 
 set_target_properties(ShardEditor PROPERTIES
@@ -28,9 +27,5 @@ set_target_properties(ShardEditor PROPERTIES
     RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}"
 )
 
-set(GLFW_LIB_DIR ${CMAKE_BINARY_DIR})
-
-target_link_directories(ShardEditor PUBLIC ${GLFW_LIB_DIR})
-
-target_link_libraries(ShardEditor PRIVATE Engine glfw3)
+target_link_libraries(ShardEditor PRIVATE Engine)
 shard_copy_fmod(ShardEditor)

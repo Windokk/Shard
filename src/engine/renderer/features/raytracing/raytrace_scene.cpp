@@ -2,6 +2,7 @@
 
 #include "engine/renderer/features/raytracing/bvh.hpp"
 #include "engine/renderer/features/raytracing/parallel_build_budget.hpp"
+#include "engine/platform/thread/thread.hpp"
 
 #include "engine/world/world.hpp"
 
@@ -57,7 +58,7 @@ namespace Shard::Engine::Rendering::Raytracing {
 
             std::vector<std::future<void>> workers;
             size_t grainCount = (count + grainSize - 1) / grainSize;
-            int maxExtraWorkers = std::max(0, std::min((int)grainCount - 1, (int)std::thread::hardware_concurrency() - 1));
+            int maxExtraWorkers = std::max(0, std::min((int)grainCount - 1, (int)Core::Platform::HardwareConcurrency() - 1));
             for (int i = 0; i < maxExtraWorkers; i++)
             {
                 if (!TryAcquireWorkerSlot())
@@ -512,7 +513,7 @@ namespace Shard::Engine::Rendering::Raytracing {
         // previous build). A failed spawn attempt just means this chunk list gets fewer helper threads,
         // not a propagated exception - worker() below always runs on the calling thread regardless.
         std::vector<std::future<void>> workers;
-        int maxExtraWorkers = std::max(0, std::min((int)chunks.size() - 1, (int)std::thread::hardware_concurrency() - 1));
+        int maxExtraWorkers = std::max(0, std::min((int)chunks.size() - 1, (int)Core::Platform::HardwareConcurrency() - 1));
         for (int i = 0; i < maxExtraWorkers; i++)
         {
             if (!TryAcquireWorkerSlot())

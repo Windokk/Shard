@@ -2,6 +2,7 @@
   "edges": {},
   "patterns": {
     "gl-call-outside-backend": [],
-    "glfw-in-engine": []
+    "os-header-in-engine": [],
+    "sdl-in-engine": []
   }
 }

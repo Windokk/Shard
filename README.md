@@ -50,7 +50,9 @@ Run build.bat or build.sh (depending on your OS)
 
 This will compile everything from root : submodules, the engine, the editor, and the game module (loaded with the game app)
 
-Drop fmod.dll and glfw3.dll inside the build folder
+Drop fmod.dll inside the build folder (SDL3.dll is built with the project and lands there too).
+
+On Linux, SDL3 is built from source and needs the development packages of your window system (X11 / Wayland, ALSA / PulseAudio, libudev ...) : see https://wiki.libsdl.org/SDL3/README-linux
 
 Copy the resources/engine_resources and resources/editor_resources folders inside the build directory
 
@@ -64,7 +66,7 @@ This runs the editor, loads the game module, opens the project at "project path"
 ## Credits/Dependencies
 
 - Libraries/Projects :
-  - [GLFW](https://github.com/glfw/glfw)
+  - [SDL3](https://github.com/libsdl-org/SDL)
   - [GLM](https://github.com/g-truc/glm)
   - [Jolt](https://github.com/jrouwe/JoltPhysics)
   - [IconFontCppHeaders](https://github.com/juliettef/IconFontCppHeaders)

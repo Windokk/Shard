@@ -40,7 +40,15 @@ include_directories(${CMAKE_BINARY_DIR})
 
 # Subdirs (Third party)
 add_subdirectory(submodules/freetype)
-add_subdirectory(submodules/glfw)
+
+# SDL3 : window system, input, clipboard, dialogs (only the platform layer sees it). Shared, so that SDL3.dll sits next to the executables.
+set(SDL_SHARED ON CACHE BOOL "" FORCE)
+set(SDL_STATIC OFF CACHE BOOL "" FORCE)
+set(SDL_TESTS OFF CACHE BOOL "" FORCE)
+set(SDL_TEST_LIBRARY OFF CACHE BOOL "" FORCE)
+set(SDL_EXAMPLES OFF CACHE BOOL "" FORCE)
+set(SDL_INSTALL OFF CACHE BOOL "" FORCE)
+add_subdirectory(submodules/SDL EXCLUDE_FROM_ALL)
 add_subdirectory(submodules/glm)
 add_subdirectory(submodules/jolt/Build)
 

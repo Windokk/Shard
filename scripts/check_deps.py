@@ -64,11 +64,17 @@ PATTERNS = {
         lambda p: p.startswith("src/"),
         lambda p: p.startswith("src/engine/renderer/rhi/backends/"),
     ),
-    "glfw-in-engine": (
-        # the library itself (types, constants, calls, include) - not the WindowHost::GLFW enum value
-        re.compile(r'\bGLFW[a-z]\w*|\bGLFW_\w+|\bglfw[A-Z]\w*|include\s*[<"]GLFW/'),
+    "sdl-in-engine": (
+        # the library itself (types, constants, calls, include) - not the WindowHost::SDL3 enum value
+        re.compile(r'\bSDL_\w+|\bSDL[A-Z]\w*\s*\(|include\s*[<"]SDL3?/'),
         lambda p: p.startswith("src/engine/"),
-        lambda p: p.startswith("src/engine/renderer/rhi/backends/") or p.startswith("src/engine/platform/glfw/"),
+        lambda p: p.startswith("src/engine/renderer/rhi/backends/") or p.startswith("src/engine/platform/"),
+    ),
+    "os-header-in-engine": (
+        # the OS headers belong to the platform layer (PAL) : everything else asks it through its own API
+        re.compile(r'include\s*[<"](windows\.h|winsock2\.h|ws2tcpip\.h|shellapi\.h|dlfcn\.h|unistd\.h|pthread\.h|sys/[a-z_]+\.h|pdh\.h|psapi\.h)[>"]'),
+        lambda p: p.startswith("src/engine/"),
+        lambda p: p.startswith("src/engine/renderer/rhi/backends/") or p.startswith("src/engine/platform/"),
     ),
 }
 

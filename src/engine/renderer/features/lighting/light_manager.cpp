@@ -6,7 +6,7 @@
 #include <glm/gtx/string_cast.hpp>
 
 #include "engine/world/engine.hpp"
-#include "engine/platform/iwindow.hpp"
+#include "engine/platform/windowing/iwindow.hpp"
 #include "engine/core/diagnostics/logger.hpp"
 
 #include "engine/renderer/rhi/render_context.hpp"

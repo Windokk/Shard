@@ -2,7 +2,7 @@
 #include "engine/assets/resources_manager.hpp"
 #include "engine/game_module.hpp"
 #include "apps/editor/commands/command_stack.hpp"
-#include "engine/platform/glfw/glfw_platform.hpp"
+#include "engine/platform/windowing/sdl/sdl_platform.hpp"
 #include "apps/editor/gui/main_window.hpp"
 
 using namespace Shard::Engine;
@@ -108,7 +108,7 @@ int main(int argc, char* argv[]) {
 
     {
         // Platform creation
-        engineSettings.platform = new Shard::Engine::Core::Platform::GLFWPlatform<Shard::Editor::Core::EditorMainWindow>();
+        engineSettings.platform = new Shard::Engine::Core::Platform::SDLPlatform<Shard::Editor::Core::EditorMainWindow>();
 
         // Engine startup
         Core::GetEngine().Init(engineSettings);

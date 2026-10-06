@@ -1,12 +1,5 @@
 #pragma once
 
-#ifdef __WIN32__
-
-    struct _PDH_FMT_COUNTERVALUE;
-    using PDH_FMT_COUNTERVALUE = _PDH_FMT_COUNTERVALUE;
-
-#endif
-
 #include <cstdint>
 #include <string>
 #include <vector>
@@ -203,7 +196,6 @@ namespace Shard::Engine::Debugging{
             using StatsProvider = std::function<void(MinimalStatistics&)>;
 
             Profiler();
-            float GetGPUMem();
             void AddStatsProvider(StatsProvider provider);
             MinimalStatistics GetStats();
             void Shutdown();
@@ -236,15 +228,6 @@ namespace Shard::Engine::Debugging{
             size_t GetProfileHistoryCount() const { return m_HistoryCount; }
 
         private:
-
-        #ifdef __WIN32__
-            void* hQuery = nullptr;
-            long pdhStatus;
-            std::string gpuCounterPathPattern;
-            std::vector<void*> gpuCounters;
-            bool gpuCountersBound = false;
-            PDH_FMT_COUNTERVALUE* fmtValue;
-        #endif
 
             using ProfileClock = std::chrono::steady_clock;
 

@@ -4,6 +4,8 @@
 #include <atomic>
 #include <thread>
 
+#include "engine/platform/thread/thread.hpp"
+
 // Process-wide cap on how many EXTRA worker threads scene-building code is allowed to spawn at once -
 // shared across every concurrent caller, not scoped to a single one. Both the triangle flatten pass and
 // the BVH build (raytrace_scene.cpp / bvh.cpp) draw from this same pool.
@@ -29,7 +31,7 @@ namespace Shard::Engine::Rendering::Raytracing {
 
     inline std::atomic<int>& GlobalWorkerBudget()
     {
-        static std::atomic<int> budget{ std::max(1, (int)std::thread::hardware_concurrency() - 1) };
+        static std::atomic<int> budget{ std::max(1, (int)Core::Platform::HardwareConcurrency() - 1) };
         return budget;
     }
 

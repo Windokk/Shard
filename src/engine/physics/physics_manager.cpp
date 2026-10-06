@@ -1,5 +1,7 @@
 #include "physics_manager.hpp"
 
+#include "engine/platform/thread/thread.hpp"
+
 #include "engine/world/world_manager.hpp"
 
 #include "engine/physics/physics_body.hpp"
@@ -39,7 +41,7 @@ namespace Shard::Engine::Physics {
 
         // Allocator & job system
         m_tempAllocator = new JPH::TempAllocatorImpl(cTempAllocatorSize);
-        m_jobSystem = new JPH::JobSystemThreadPool(JPH::cMaxPhysicsJobs, JPH::cMaxPhysicsBarriers, std::thread::hardware_concurrency() - 1);
+        m_jobSystem = new JPH::JobSystemThreadPool(JPH::cMaxPhysicsJobs, JPH::cMaxPhysicsBarriers, Core::Platform::HardwareConcurrency() - 1);
 
         // Initialize physics system
         m_physicsSystem.Init(

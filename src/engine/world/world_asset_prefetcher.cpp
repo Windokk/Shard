@@ -1,5 +1,7 @@
 #include "world_asset_prefetcher.hpp"
 
+#include "engine/platform/thread/thread.hpp"
+
 #include <unordered_set>
 #include <chrono>
 #include <thread>
@@ -19,7 +21,7 @@ namespace Shard::Engine::Worlds{
         }
 
         jobs.clear();
-        maxInFlight = std::max(2, (int)std::thread::hardware_concurrency() - 1);
+        maxInFlight = std::max(2, (int)Core::Platform::HardwareConcurrency() - 1);
         completedCount = 0;
         totalCount = 0;
 

@@ -3,7 +3,8 @@
 #include <string>
 #include <vector>
 
-#include "engine/platform/keys.hpp"
+#include "engine/platform/devices/gamepad.hpp"
+#include "engine/platform/devices/keys.hpp"
 
 namespace Shard::Engine::Core::Platform {
 
@@ -67,6 +68,24 @@ namespace Shard::Engine::Core::Platform {
         virtual void SetCursorVisibility(CursorVisibility visible) const = 0;
         virtual void GetCursorPos(double* x, double* y) const = 0;
         virtual void SetCursorPos(double x, double y) const = 0;
+
+        // Gamepads : the connected ones are numbered 0..GetGamepadCount()-1 in the order they were plugged in. A pad
+        // that is unplugged leaves its slot to the next ones. The defaults are for backends without gamepads.
+
+        virtual int GetGamepadCount() const { return 0; }
+        virtual std::string GetGamepadName(int pad) const { return ""; }
+
+        virtual bool IsGamepadButtonDown(int pad, Input::GamepadButton button) const { return false; }
+        /// @brief True only on the tick the button goes from released to pressed.
+        virtual bool WasGamepadButtonPressed(int pad, Input::GamepadButton button) const { return false; }
+        virtual bool WasGamepadButtonReleased(int pad, Input::GamepadButton button) const { return false; }
+
+        /// @brief Sticks -1..1, triggers 0..1. Values within the dead zone (a fraction of the range) read as 0 : sticks
+        /// never rest exactly at the centre.
+        virtual float GetGamepadAxis(int pad, Input::GamepadAxis axis, float deadZone = 0.1f) const { return 0.0f; }
+
+        /// @brief Vibrates the pad (motor strengths 0..1). False if the pad can't rumble.
+        virtual bool SetGamepadRumble(int pad, float lowFrequency, float highFrequency, int durationMs) { return false; }
     };
 
 }

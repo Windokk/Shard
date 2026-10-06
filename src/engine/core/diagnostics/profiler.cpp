@@ -1,24 +1,5 @@
 #include "profiler.hpp"
 
-#ifdef __WIN32__
-#define byte cs_byte
-#include <windows.h>
-#include <pdh.h>
-#include <pdhmsg.h>
-#include <iostream>
-#include <vector>
-#include <string>
-#include <cstring>
-
-#ifdef byte
-#undef byte
-#endif
-
-
-#elif defined(__unix__)
-
-#endif
-
 #include "engine/core/diagnostics/logger.hpp"
 
 namespace Shard::Engine::Debugging{
@@ -27,134 +8,6 @@ namespace Shard::Engine::Debugging{
 
         CalibrateOverhead();
 
-        #ifdef _WIN32
-            // Wildcarded on the "phys_N" suffix so we pick up every physical
-            // adapter (e.g. integrated + discrete) this process has memory on.
-            gpuCounterPathPattern = std::string("\\GPU Process Memory(pid_") +
-                                    std::to_string(getpid()) +
-                                    "_*)\\Dedicated Usage";
-
-            fmtValue = new PDH_FMT_COUNTERVALUE;
-
-            pdhStatus = PdhOpenQuery(NULL, 0, &hQuery);
-            if (pdhStatus != ERROR_SUCCESS)
-            {
-                DEBUG_ERROR("PdhOpenQuery failed with 0x", std::hex, pdhStatus);
-            }
-
-            // The "GPU Process Memory" instance for this pid is only created once
-            // this process has actually allocated GPU memory, which hasn't happened
-            // yet at engine startup. Resolving the counter is therefore deferred to
-            // GetGPUMem(), which retries PdhExpandWildCardPath until the instance
-            // shows up (a wildcard passed straight to PdhAddCounter only binds
-            // whatever instance exists at that exact call and is never re-resolved).
-        #endif
-    }
-
-    float Profiler::GetGPUMem()
-    {
-        #ifdef __WIN32__
-            // Windows (PDH)
-            if (!gpuCountersBound)
-            {
-                char expandedPaths[4096];
-                DWORD expandedSize = sizeof(expandedPaths);
-
-                PDH_STATUS expandStatus = PdhExpandWildCardPathA(
-                    NULL,
-                    gpuCounterPathPattern.c_str(),
-                    expandedPaths,
-                    &expandedSize,
-                    0);
-
-                if (expandStatus == ERROR_SUCCESS)
-                {
-                    for (const char* path = expandedPaths; *path != '\0'; path += strlen(path) + 1)
-                    {
-                        void* counter = nullptr;
-                        if (PdhAddEnglishCounterA(hQuery, path, 0, &counter) == ERROR_SUCCESS)
-                            gpuCounters.push_back(counter);
-                    }
-
-                    gpuCountersBound = !gpuCounters.empty();
-                }
-
-                // No matching instance yet (process hasn't allocated GPU memory):
-                // report 0 and retry expansion on the next call.
-                if (!gpuCountersBound)
-                    return 0.0f;
-            }
-
-            pdhStatus = PdhCollectQueryData(hQuery);
-            if (pdhStatus != ERROR_SUCCESS)
-            {
-                DEBUG_ERROR("PdhCollectQueryData failed with 0x", std::hex, pdhStatus);
-                return 0.0f;
-            }
-
-            double totalBytes = 0.0;
-            for (void* counter : gpuCounters)
-            {
-                pdhStatus = PdhGetFormattedCounterValue(counter, PDH_FMT_DOUBLE, NULL, fmtValue);
-                if (pdhStatus != ERROR_SUCCESS || fmtValue->CStatus != ERROR_SUCCESS)
-                {
-                    // The instance can disappear (e.g. the app drops all GPU
-                    // allocations); rebind from scratch on the next call.
-                    gpuCountersBound = false;
-                    gpuCounters.clear();
-                    continue;
-                }
-
-                totalBytes += fmtValue->doubleValue;
-            }
-
-            return static_cast<float>(totalBytes);
-
-        #elif defined(__unix__)
-
-            // detect GPU vendor via sysfs
-            std::string vendorPath = "/sys/class/drm/card0/device/vendor";
-            std::ifstream vendorFile(vendorPath);
-
-            if (vendorFile.good()) {
-                std::string vendorHex;
-                vendorFile >> vendorHex;
-
-                // 0x1002 = AMD
-                // 0x10de = NVIDIA
-                // 0x8086 = Intel
-                int vendor = std::stoi(vendorHex, nullptr, 16);
-
-                // AMD path
-                if (vendor == 0x1002) {
-                    long used = 0;
-
-                    std::ifstream file("/sys/class/drm/card0/device/mem_info_vram_used");
-                    if (file.good())
-                        file >> used;
-
-                    return used / 1024.0f / 1024.0f; // bytes → MB
-                }
-
-                // NVIDIA path (NVML)
-                if (vendor == 0x10de) {
-        #ifdef USE_NVML
-                    nvmlMemory_t mem;
-                    if (nvmlDeviceGetMemoryInfo(nvmlDevice, &mem) == NVML_SUCCESS)
-                        return mem.used / 1024.0f / 1024.0f;
-        #endif
-                    return 0.0f; // NVML not enabled
-                }
-
-                // Intel (no unified per-process VRAM usage)
-                if (vendor == 0x8086) {
-                    return 0.0f; // unsupported
-                }
-            }
-
-            return 0.0f; // fallback
-
-        #endif
     }
 
     void Profiler::AddStatsProvider(StatsProvider provider)
@@ -169,27 +22,11 @@ namespace Shard::Engine::Debugging{
         for (const StatsProvider& provider : m_StatsProviders)
             provider(ret);
 
-        #if defined(_WIN64) || defined(_WIN32)
-        {
-            ret.gpuMemoryMB = GetGPUMem() / (1024 * 1024);
-        }
-
-        #elif defined(__unix__)
-        {
-            /// @todo
-        }
-        #endif
-
         return ret;
     }
 
     void Profiler::Shutdown()
     {
-        // Close the query object
-        #ifdef __WIN32__
-            if (hQuery)
-                PdhCloseQuery (hQuery);
-        #endif
     }
 
     void Profiler::CalibrateOverhead()

@@ -1,6 +1,8 @@
 #pragma once
 
 #include <chrono>
+
+#include "engine/platform/time/clock.hpp"
 #include <mutex>
 #include <thread>
 #include <string>
@@ -134,29 +136,15 @@ namespace Shard::Engine::Time{
             float GetTimeSpeed() { return timeSpeed; }
 
             TimeStamp CurrentGlobalTime() {
-                using namespace std::chrono;
-
-                auto now = system_clock::now();
-                auto now_time_t = system_clock::to_time_t(now);
-
-                auto since_epoch = now.time_since_epoch();
-                auto ms = duration_cast<milliseconds>(since_epoch) % 1000;
-                auto ns = duration_cast<nanoseconds>(since_epoch) % 1'000'000;
-
-                std::tm local_tm;
-            #ifdef _WIN32
-                localtime_s(&local_tm, &now_time_t);
-            #else
-                localtime_r(&now_time_t, &local_tm);
-            #endif
+                const Core::Platform::LocalTime now = Core::Platform::GetLocalTime();
 
                 TimeStamp ts;
-                ts.days = local_tm.tm_yday;
-                ts.hours = local_tm.tm_hour;
-                ts.minutes = local_tm.tm_min;
-                ts.seconds = local_tm.tm_sec;
-                ts.milliseconds = static_cast<int>(ms.count());
-                ts.nanoseconds = static_cast<int>(ns.count());
+                ts.days = now.dayOfYear;
+                ts.hours = now.hour;
+                ts.minutes = now.minute;
+                ts.seconds = now.second;
+                ts.milliseconds = now.millisecond;
+                ts.nanoseconds = now.nanosecond;
 
                 return ts;
             }

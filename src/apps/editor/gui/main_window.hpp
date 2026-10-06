@@ -1,6 +1,6 @@
 #pragma once
 
-#include "engine/platform/iwindow.hpp"
+#include "engine/platform/windowing/iwindow.hpp"
 #include "engine/renderer/frontend/renderer.hpp"
 #include "engine/renderer/rhi/material/material.hpp"
 #include "engine/core/diagnostics/logger.hpp"
@@ -8,7 +8,7 @@
 
 #include "engine/renderer/rhi/backends/glad/include/glad/gl.h"
 #include "engine/renderer/rhi/backends/glad/include/glad/vulkan.h"
-#include "engine/platform/glfw/glfw_window_base.hpp"
+#include "engine/platform/windowing/sdl/sdl_window.hpp"
 #include "apps/editor/gui/panels/viewport/viewport_window.hpp"
 #include "apps/editor/gui/panels/properties/properties_panel.hpp"
 #include "apps/editor/gui/panels/asset_browser/asset_browser.hpp"
@@ -23,7 +23,7 @@
 
 #include "imgui/imgui.h"
 #include "imgui/imgui_internal.h"
-#include "imgui/backends/imgui_impl_glfw.h"
+#include "imgui/backends/imgui_impl_sdl3.h"
 #include "imgui/backends/imgui_impl_opengl3.h"
 #include "imgui/backends/imgui_impl_vulkan.h"
 
@@ -79,36 +79,24 @@ namespace Shard::Editor::Core {
         bool projectSettings = false;
     };
 
-    class EditorMainWindow : public Engine::Core::Platform::GLFWWindowBase {
+    class EditorMainWindow : public Engine::Core::Platform::SDLWindow {
     public:
         void Init(const std::string& title, const int& width, const int& height, 
                     const bool& fullscreen, const int& vsync, const uint32_t& api) override;
-
-        void SetTitle(const std::string& title) override;
-
-        void PollEvents() override;
 
         void SwapBuffers() override;
 
         void DrawLoadingFrame(float progress) override;
 
-        bool ShouldClose() const override;
-
         int GetFramebufferWidth() const override;
 
         int GetFramebufferHeight() const override;
 
-        void* GetNativeHandle() const override;
-
         void Destroy() const override;
   
-        void ToggleFullscreen() override;
-
         void RequestExit();
 
         void ProcessInputs() const override;
-
-        int GetBytesPerPixel() const override;
 
         void SetSelectedActor(std::shared_ptr<Engine::Objects::Actor> newPtr);
 
@@ -124,6 +112,10 @@ namespace Shard::Editor::Core {
         EditorSettings settings;
         PanelVisibility panelVisibility;
 
+    protected:
+        // ImGui reads the SDL events itself
+        void OnNativeEvent(const SDL_Event& event) override;
+
     private:
         void EnsureImGuiInitialized();
         void DrawLoadingOverlay(float progress);
@@ -134,13 +126,6 @@ namespace Shard::Editor::Core {
 
         bool imguiInitialized = false;
         bool renderPassesInitialized = false;
-
-        GLFWwindow* window = nullptr;
-
-        int windowPosX = 0;
-        int windowPosY = 0;
-        int windowWidth = 0;
-        int windowHeight = 0;
 
         // Panels
         GUI::AssetBrowser* assetBrowser = nullptr;

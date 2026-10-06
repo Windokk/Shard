@@ -9,7 +9,8 @@
 #include "engine/assets/serialization/project/project_serializer.hpp"
 #include "engine/world/world_manager.hpp"
 #include "engine/core/diagnostics/profiler.hpp"
-#include "engine/platform/iplatform.hpp"
+#include "engine/platform/windowing/iplatform.hpp"
+#include "engine/platform/hardware/system_info.hpp"
 #include "engine/world/time_manager.hpp"
 #include "engine/renderer/components/camera_manager.hpp"
 #include "engine/world/actor.hpp"
@@ -84,7 +85,9 @@ namespace Shard::Engine{
             DEBUG_INFO("GPU Vendor : " + infos.gpu_vendor);
             DEBUG_INFO("GPU Renderer : " + infos.gpu_renderer);
             DEBUG_INFO("OpenGL Version : " + infos.gl_version);
-            DEBUG_INFO("Using Host : " + std::string(infos.windowHost == Platform::WindowHost::QT ? "QT" : "GLFW") + " with version : " + infos.windowHostVersion);
+            DEBUG_INFO("Using Host : " + std::string(infos.windowHost == Platform::WindowHost::QT ? "QT" : "SDL3") + " with version : " + infos.windowHostVersion);
+            DEBUG_INFO("CPU : " + infos.cpuBrand + " (" + std::to_string(infos.cpuLogicalCores) + " threads)");
+            DEBUG_INFO("RAM : " + std::to_string(infos.totalRamMB) + " MB");
 
             DEBUG_INFO("Monitors : ");
             for(int i = 0; i < infos.connectedMonitorsCount; i++){
@@ -148,6 +151,11 @@ namespace Shard::Engine{
                 stats.fps = 1000 / stats.frameTimeMs;
 
                 stats.actors = m_Context.worldManager->GetWorldAt(0)->transforms.size();
+            });
+
+            m_Context.profiler->AddStatsProvider([](Debugging::MinimalStatistics& stats)
+            {
+                stats.gpuMemoryMB = Platform::ProcessGpuMemoryUsage() / (1024.0f * 1024.0f);
             });
         }
 

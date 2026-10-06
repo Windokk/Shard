@@ -1,7 +1,7 @@
 #pragma once
 
 #include "iwindow.hpp"
-#include "iinput.hpp"
+#include "engine/platform/devices/iinput.hpp"
 
 #ifdef CreateWindow
 #undef CreateWindow
@@ -21,7 +21,7 @@ namespace Shard::Engine::Core::Platform {
                             const bool& fullscreen, const int& vsync, const uint32_t& api) = 0;
             virtual void CreateInput() = 0;
 
-            // Utility
+            // Utility (see platform/clipboard)
             virtual void SetClipboardText(const std::string& text) = 0;
             virtual std::string GetClipboardText() = 0;
     };

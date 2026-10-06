@@ -1,7 +1,7 @@
 #include "viewport_window.hpp"
 
 #include "engine/world/engine.hpp"
-#include "engine/platform/iplatform.hpp"
+#include "engine/platform/windowing/iplatform.hpp"
 #include "engine/world/world_manager.hpp"
 #include "engine/world/components/transform.reflection.hpp"
 

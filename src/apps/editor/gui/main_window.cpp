@@ -232,48 +232,20 @@ namespace Shard::Editor::Core{
 
     void EditorMainWindow::Init(const std::string &title, const int &width, const int &height, const bool &fullscreen, const int &vsync, const uint32_t& api)
     {
-        //Init glfw and gl context
-        glfwInit();
-        glfwWindowHint(GLFW_CONTEXT_VERSION_MAJOR, 4);
-        glfwWindowHint(GLFW_CONTEXT_VERSION_MINOR, 3);
-        glfwWindowHint(GLFW_SAMPLES, 4);
-        glfwWindowHint(GLFW_OPENGL_PROFILE, GLFW_OPENGL_CORE_PROFILE);
-
-        if(fullscreen){
-            GLFWmonitor* primary = glfwGetPrimaryMonitor();
-            const GLFWvidmode* mode = glfwGetVideoMode(primary);
-            window = glfwCreateWindow(mode->width, mode->height, title.c_str(), primary, nullptr);
-        }
-        else{
-            window = glfwCreateWindow(width, height, title.c_str(), NULL, NULL);
-        }
-        
-        if (window == NULL)
-        {
-            glfwTerminate();
-            DEBUG_FATAL("Failed to create GLFW window");
-        }
-
-        glfwMakeContextCurrent(window);
-        glfwSetWindowUserPointer(window, static_cast<Engine::Core::Platform::GLFWWindowBase*>(this));
-        glfwSwapInterval(vsync);
+        SDLWindow::Init(title, width, height, fullscreen, vsync, api);
 
         if(api == (uint32_t)Engine::Rendering::RendererAPI::API::OpenGL)
-            gladLoadGL((GLADloadfunc)glfwGetProcAddress);
+            gladLoadGL((GLADloadfunc)SDLWindow::GLProcLoader);
         else if(api == (uint32_t)Engine::Rendering::RendererAPI::API::Vulkan)
-        {    
-            //gladLoadVulkan(Engine::Core::GetEngine().GetRenderer()->GetDevicePointer?,(GLADloadfunc)glfwGetProcAddress);
+        {
+            //gladLoadVulkan(Engine::Core::GetEngine().GetRenderer()->GetDevicePointer?,(GLADloadfunc)SDLWindow::GLProcLoader);
         }
     }
 
-    void EditorMainWindow::SetTitle(const std::string &title)
+    void EditorMainWindow::OnNativeEvent(const SDL_Event& event)
     {
-        glfwSetWindowTitle(window, title.c_str());
-    }
-
-    void EditorMainWindow::PollEvents()
-    {
-        glfwPollEvents();
+        if(imguiInitialized)
+            ImGui_ImplSDL3_ProcessEvent(&event);
     }
 
     void EditorMainWindow::EnsureImGuiInitialized()
@@ -291,7 +263,7 @@ namespace Shard::Editor::Core{
         io.ConfigFlags |= ImGuiConfigFlags_DpiEnableScaleViewports;
 
         // Setup Platform/Renderer backends
-        ImGui_ImplGlfw_InitForOpenGL(window, true);
+        ImGui_ImplSDL3_InitForOpenGL(GetSDLWindow(), GetGLContext());
         ImGui_ImplOpenGL3_Init();
 
         SetupImGuiStyle();
@@ -396,7 +368,7 @@ namespace Shard::Editor::Core{
         api->Clear(Rendering::ClearBit::Color | Rendering::ClearBit::Depth);
 
         ImGui_ImplOpenGL3_NewFrame();
-        ImGui_ImplGlfw_NewFrame();
+        ImGui_ImplSDL3_NewFrame();
         ImGui::NewFrame();
 
         DrawLoadingOverlay(progress);
@@ -406,7 +378,7 @@ namespace Shard::Editor::Core{
 
         ImGui::Render();
         ImGui_ImplOpenGL3_RenderDrawData(ImGui::GetDrawData());
-        glfwSwapBuffers(window);
+        SDLWindow::SwapBuffers();
     }
 
     void EditorMainWindow::SwapBuffers()
@@ -702,7 +674,7 @@ namespace Shard::Editor::Core{
         }
 
         ImGui_ImplOpenGL3_NewFrame();
-        ImGui_ImplGlfw_NewFrame();
+        ImGui_ImplSDL3_NewFrame();
         ImGui::NewFrame();
 
 
@@ -740,7 +712,7 @@ namespace Shard::Editor::Core{
 
         ImGui::Render();
         ImGui_ImplOpenGL3_RenderDrawData(ImGui::GetDrawData());
-        glfwSwapBuffers(window);
+        SDLWindow::SwapBuffers();
     }
 
     void EditorMainWindow::UpdateProbeBuildNotification()
@@ -801,11 +773,6 @@ namespace Shard::Editor::Core{
         }
     }
 
-    bool EditorMainWindow::ShouldClose() const
-    {
-        return glfwWindowShouldClose(window);
-    }
-
     int EditorMainWindow::GetFramebufferWidth() const
     {
         if(viewport)
@@ -820,44 +787,18 @@ namespace Shard::Editor::Core{
         return 50;
     }
 
-    void *EditorMainWindow::GetNativeHandle() const
-    {
-        return static_cast<void*>(window);
-    }
-
     void EditorMainWindow::Destroy() const
     {
         ImGui_ImplOpenGL3_Shutdown();
-        ImGui_ImplGlfw_Shutdown();
+        ImGui_ImplSDL3_Shutdown();
         ImGui::DestroyContext();
 
-        glfwDestroyWindow(window);
-        glfwTerminate();
-    }
-
-    void EditorMainWindow::ToggleFullscreen()
-    {
-        const bool fullscreen = glfwGetWindowMonitor(window) != nullptr;
-        if(fullscreen) {
-            // Restore the window position and size.
-            glfwSetWindowMonitor(window, nullptr, windowPosX, windowPosY, windowWidth, windowHeight, 0);
-            // Check the window position and size (if we are on a screen smaller than the initial size).
-            glfwGetWindowPos(window, &windowPosX, &windowPosY);
-            glfwGetWindowSize(window, &windowWidth, &windowHeight);
-        } else {
-            // Backup the window current frame.
-            glfwGetWindowPos(window, &windowPosX, &windowPosY);
-            glfwGetWindowSize(window, &windowWidth, &windowHeight);
-            // Move to fullscreen on the primary monitor.
-            GLFWmonitor * monitor	= glfwGetPrimaryMonitor();
-            const GLFWvidmode * mode = glfwGetVideoMode(monitor);
-            glfwSetWindowMonitor(window, monitor, 0, 0, mode->width, mode->height, mode->refreshRate);
-        }
+        SDLWindow::Destroy();
     }
 
     void EditorMainWindow::RequestExit()
     {
-        glfwSetWindowShouldClose(window, true);
+        RequestClose();
     }
 
     void EditorMainWindow::ProcessInputs() const
@@ -888,40 +829,13 @@ namespace Shard::Editor::Core{
         viewport->ProcessInputs();
     }
 
-    int EditorMainWindow::GetBytesPerPixel() const
-    {
-        int redBits = glfwGetWindowAttrib(window, GLFW_RED_BITS);
-        int greenBits = glfwGetWindowAttrib(window, GLFW_GREEN_BITS);
-        int blueBits = glfwGetWindowAttrib(window, GLFW_BLUE_BITS);
-        int alphaBits = glfwGetWindowAttrib(window, GLFW_ALPHA_BITS);
-
-        return (redBits + greenBits + blueBits + alphaBits) / 8;
-    }
-
     Shard::Engine::Core::Platform::SystemInfos EditorMainWindow::GetSystemInfos() const
     {
-        Engine::Core::Platform::SystemInfos ret{};
+        Engine::Core::Platform::SystemInfos ret = SDLWindow::GetSystemInfos();
 
         ret.gpu_vendor   = Engine::Core::GetEngine().GetRenderer()->GetDeviceVendor();
         ret.gpu_renderer = Engine::Core::GetEngine().GetRenderer()->GetRendererName();
-        ret.gl_version   =  Engine::Core::GetEngine().GetRenderer()->GetDriverVersion();
-
-        // GLFW context version
-        int major, minor, rev;
-        glfwGetVersion(&major, &minor, &rev);
-        ret.windowHostVersion = std::to_string(major) + "." + std::to_string(minor) + "." + std::to_string(rev);
-
-        // Monitor and resolution
-        int count = 0;
-        GLFWmonitor** monitors = glfwGetMonitors(&count);
-        ret.connectedMonitorsCount = count;
-
-        for (int i = 0; i < count; ++i) {
-            const GLFWvidmode* mode = glfwGetVideoMode(monitors[i]);
-            ret.monitors.push_back({mode->width, mode->height, mode->refreshRate});
-        }
-        
-        ret.windowHost = Engine::Core::Platform::GLFW;
+        ret.gl_version   = Engine::Core::GetEngine().GetRenderer()->GetDriverVersion();
 
         return ret;
     }
