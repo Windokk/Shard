@@ -2,7 +2,7 @@
 
 #include <cassert>
 
-#include <fmod_errors.h>
+#include <miniaudio/miniaudio.h>
 
 #include "engine/world/actor.hpp"
 #include "engine/world/world_manager.hpp"
@@ -22,31 +22,6 @@
 namespace Shard::Engine::Audio
 {
     using namespace Filesystem;
-
-    FMOD_RESULT F_CALL OnSoundStopped(FMOD_CHANNELCONTROL* chanControl,
-                                      FMOD_CHANNELCONTROL_TYPE controlType,
-                                      FMOD_CHANNELCONTROL_CALLBACK_TYPE callbackType,
-                                      void* commandData1,
-                                      void* commandData2)
-    {
-        if (callbackType == FMOD_CHANNELCONTROL_CALLBACK_END) {
-            void* userData = nullptr;
-            FMOD_Channel_GetUserData((FMOD_CHANNEL*)chanControl, &userData);
-
-            if (userData) {
-                AudioID* id = static_cast<AudioID*>(userData);
-
-                auto* sound = Core::GetEngine().GetAudioIDManager()->GetSoundFromID(*id);
-                if (sound) {
-                    sound->isPlaying = false;
-                }
-
-                delete id;
-            }
-        }
-
-        return FMOD_OK;
-    }
 
     void AudioManager::Init(float masterVolume)
     {
@@ -91,40 +66,52 @@ namespace Shard::Engine::Audio
             });
         }
 
-        // Initialize FMOD system
-        FMOD_RESULT result = FMOD_System_Create(&system, FMOD_VERSION);
-        if (result != FMOD_OK) {
-            DEBUG_ERROR(std::string("FMOD_System_Create failed: ") + FMOD_ErrorString(result));
-            return;
-        }
-
-        result = FMOD_System_Init(system, 512, FMOD_INIT_NORMAL, 0);
-        if (result != FMOD_OK) {
-            DEBUG_ERROR(std::string("FMOD_System_Init failed: ") + FMOD_ErrorString(result));
+        engine = new ma_engine();
+        ma_result result = ma_engine_init(nullptr, engine);
+        if (result != MA_SUCCESS) {
+            DEBUG_ERROR(std::string("ma_engine_init failed: ") + ma_result_description(result));
+            delete engine;
+            engine = nullptr;
         }
     }
 
     void AudioManager::CreateSound(AudioID id, const std::string& pathInProject, glm::vec3 pos, bool spatialize)
     {
+        if (!engine) {
+            return;
+        }
+
         std::shared_ptr<SoundAsset> soundAsset = Core::GetEngine().GetResourcesManager()->Get<Audio::SoundAsset>(Core::Resources::AssetKind::Sound, pathInProject);
         if (!soundAsset) {
             return;
         }
 
-        auto sound = new Sound();
-        FMOD_CHANNEL* channel = nullptr;
-
         const std::string& file = soundAsset->GetBuffer();
-        const char* buffer = file.data();
-        size_t buffer_size = file.size();
 
-        FMOD_CREATESOUNDEXINFO exinfo{};
-        exinfo.cbsize = sizeof(FMOD_CREATESOUNDEXINFO);
-        exinfo.length = buffer_size;
+        auto sound = new Sound();
+        sound->asset = soundAsset;
+        sound->decoder = new ma_decoder();
+        sound->sound = new ma_sound();
 
-        FMOD_RESULT result = FMOD_System_CreateSound(system, buffer, FMOD_2D | FMOD_OPENMEMORY, &exinfo, &sound->fmod_sound);
-        if (result != FMOD_OK) {
-            DEBUG_ERROR("FMOD error creating sound '" + pathInProject + "' (" + std::to_string(buffer_size) + " bytes): " + FMOD_ErrorString(result));
+        // The engine mixes in f32 : decode to it and keep the file's own channel count / sample rate,
+        // the engine node converts both.
+        ma_decoder_config decoderConfig = ma_decoder_config_init(ma_format_f32, 0, 0);
+        ma_result result = ma_decoder_init_memory(file.data(), file.size(), &decoderConfig, sound->decoder);
+        if (result != MA_SUCCESS) {
+            DEBUG_ERROR("miniaudio error decoding sound '" + pathInProject + "' (" + std::to_string(file.size()) + " bytes): " + ma_result_description(result));
+            delete sound->decoder;
+            delete sound->sound;
+            delete sound;
+            return;
+        }
+
+        // Positioning is done by Update() (pan + linear attenuation), so miniaudio's own 3D is off
+        result = ma_sound_init_from_data_source(engine, sound->decoder, MA_SOUND_FLAG_NO_SPATIALIZATION, nullptr, sound->sound);
+        if (result != MA_SUCCESS) {
+            DEBUG_ERROR("miniaudio error creating sound '" + pathInProject + "': " + ma_result_description(result));
+            ma_decoder_uninit(sound->decoder);
+            delete sound->decoder;
+            delete sound->sound;
             delete sound;
             return;
         }
@@ -133,43 +120,57 @@ namespace Shard::Engine::Audio
         sound->spatialize = spatialize;
 
         Core::GetEngine().GetAudioIDManager()->AssignID(id, sound);
-        channels.emplace(id.GetAsString() + "_channel", channel);
+        soundCount++;
+    }
+
+    static void DestroySound(Sound* sound)
+    {
+        ma_sound_uninit(sound->sound);
+        ma_decoder_uninit(sound->decoder);
+        delete sound->sound;
+        delete sound->decoder;
+        delete sound;
     }
 
     void AudioManager::RemoveSound(AudioID id)
     {
         Sound* sound = Core::GetEngine().GetAudioIDManager()->GetSoundFromID(id);
-        FMOD_Sound_Release(sound->fmod_sound);
-        delete sound;
+        if (!sound)
+            return;
+
+        DestroySound(sound);
         Core::GetEngine().GetAudioIDManager()->DestroyID(id);
-        channels.erase(id.GetAsString()+"_channel");
+        soundCount--;
     }
 
     void AudioManager::PlaySound(AudioID id, float volume)
     {
-        if(!Core::GetEngine().GetAudioIDManager()->GetSoundFromID(id)->isPlaying){
-            FMOD_System_PlaySound(system, Core::GetEngine().GetAudioIDManager()->GetSoundFromID(id)->fmod_sound, nullptr, true, &channels.at(id.GetAsString()+"_channel"));
-            AudioID* idCopy = new AudioID(id);
-            FMOD_Channel_SetUserData(channels.at(id.GetAsString()+"_channel"), idCopy);
-            FMOD_Channel_SetCallback(channels.at(id.GetAsString()+"_channel"), OnSoundStopped);
-            FMOD_Channel_SetPaused(channels.at(id.GetAsString()+"_channel"), false);
-            Core::GetEngine().GetAudioIDManager()->GetSoundFromID(id)->isPlaying = true;
-            Core::GetEngine().GetAudioIDManager()->GetSoundFromID(id)->initialVolume = volume/100.0f;
+        Sound* sound = Core::GetEngine().GetAudioIDManager()->GetSoundFromID(id);
+        if(sound && !sound->isPlaying){
+            ma_sound_seek_to_pcm_frame(sound->sound, 0);
+            ma_sound_start(sound->sound);
+            sound->isPlaying = true;
+            sound->initialVolume = volume/100.0f;
         }
     }
 
     void AudioManager::PauseSound(AudioID id)
     {
-        if(Core::GetEngine().GetAudioIDManager()->GetSoundFromID(id)->isPlaying){
-            FMOD_Channel_SetPaused(channels.at(id.GetAsString()+"_channel"), true);
-            Core::GetEngine().GetAudioIDManager()->GetSoundFromID(id)->isPlaying = false;
+        Sound* sound = Core::GetEngine().GetAudioIDManager()->GetSoundFromID(id);
+        if(sound && sound->isPlaying){
+            ma_sound_stop(sound->sound);
+            sound->isPlaying = false;
         }
     }
 
     void AudioManager::UpdateSound(AudioID id, glm::vec3 pos, float volume)
     {
-        Core::GetEngine().GetAudioIDManager()->GetSoundFromID(id)->pos = pos;
-        Core::GetEngine().GetAudioIDManager()->GetSoundFromID(id)->initialVolume = volume;
+        Sound* sound = Core::GetEngine().GetAudioIDManager()->GetSoundFromID(id);
+        if(!sound)
+            return;
+
+        sound->pos = pos;
+        sound->initialVolume = volume;
     }
 
     void AudioManager::SetSpatialize(AudioID id, bool spatialize)
@@ -189,7 +190,11 @@ namespace Shard::Engine::Audio
             if(!pair.second->isPlaying)
                 continue;
 
-            const std::string& channelKey = pair.first.GetAsString()+"_channel";
+            // Reached the end on its own (the audio thread never touches our state, it is polled here)
+            if(ma_sound_at_end(pair.second->sound)){
+                pair.second->isPlaying = false;
+                continue;
+            }
 
             if(pair.second->spatialize){
                 float pan = glm::sin(glm::orientedAngle(glm::normalize(glm::vec2(pair.second->pos.x - listenerPos.x, pair.second->pos.z - listenerPos.z)), listenerFacingNormalized));
@@ -202,8 +207,8 @@ namespace Shard::Engine::Audio
 
                 volume *= pair.second->initialVolume;
 
-                FMOD_Channel_SetPan(channels.at(channelKey), -1 * pan);
-                FMOD_Channel_SetVolume(channels.at(channelKey), volume);
+                ma_sound_set_pan(pair.second->sound, -1 * pan);
+                ma_sound_set_volume(pair.second->sound, volume);
             }
             else{
                 // Ambient/music sources skip positional pan+attenuation entirely - flat volume,
@@ -212,21 +217,24 @@ namespace Shard::Engine::Audio
                 if (volume < 0.0f) volume = 0.0f;
                 if (volume > 1.0f) volume = 1.0f;
 
-                FMOD_Channel_SetVolume(channels.at(channelKey), volume);
+                ma_sound_set_volume(pair.second->sound, volume);
             }
         }
-
-        FMOD_System_Update(system);
     }
 
     void AudioManager::Shutdown()
     {
         for (const auto& pair : Core::GetEngine().GetAudioIDManager()->GetAudioMap()) {
-            Core::GetEngine().GetAudioIDManager()->DestroyID(pair.first); 
+            DestroySound(pair.second);
+            Core::GetEngine().GetAudioIDManager()->DestroyID(pair.first);
         }
+        soundCount = 0;
 
-        FMOD_System_Close(system);
-        FMOD_System_Release(system);
+        if (engine) {
+            ma_engine_uninit(engine);
+            delete engine;
+            engine = nullptr;
+        }
     }
 
     void AudioManager::Tick()

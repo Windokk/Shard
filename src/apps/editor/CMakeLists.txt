@@ -28,4 +28,3 @@ set_target_properties(ShardEditor PROPERTIES
 )
 
 target_link_libraries(ShardEditor PRIVATE Engine)
-shard_copy_fmod(ShardEditor)

@@ -15,10 +15,10 @@ static EnumDescriptor LightType_descriptor = {
     sizeof(Rendering::LightType)
 };
 
-inline FieldInfo Light_type_info = {
-    "type",
+inline FieldInfo Light_lightType_info = {
+    "lightType",
     TypeID::Enum,
-    offsetof(Shard::Engine::Objects::Components::Light, type),
+    offsetof(Shard::Engine::Objects::Components::Light, lightType),
     Editable,
     0, 0,
     nullptr,
@@ -116,7 +116,7 @@ inline FieldInfo Light_castShadows_info = {
 inline ClassDescriptor Shard::Engine::Objects::Components::Light::descriptor = {
     "Light",
     {
-        &Light_type_info,
+        &Light_lightType_info,
         &Light_intensity_info,
         &Light_radius_info,
         &Light_color_info,

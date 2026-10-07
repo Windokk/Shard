@@ -3,18 +3,29 @@
 #include <unordered_map>
 #include <string>
 #include <iostream>
+#include <memory>
 
 
 #include <glm/glm.hpp>
-#include <fmod.hpp>
 
 #include "engine/assets/vfs/filesystem.hpp"
 #include "audioID.hpp"
 
+// miniaudio types stay opaque here so its (huge) header is only pulled into audio_manager.cpp
+struct ma_engine;
+struct ma_sound;
+struct ma_decoder;
+
 namespace Shard::Engine::Audio
 {
+    class SoundAsset;
+
     struct Sound{
-        FMOD_SOUND* fmod_sound;
+        // Heap-allocated because miniaudio objects must not move once initialised. The decoder reads
+        // straight from the asset's byte buffer, so the asset is kept alive for as long as the sound.
+        ma_decoder* decoder = nullptr;
+        ma_sound* sound = nullptr;
+        std::shared_ptr<SoundAsset> asset;
         glm::vec3 pos;
         bool isPlaying = false;
         float initialVolume;
@@ -37,13 +48,12 @@ namespace Shard::Engine::Audio
             void UpdateSound(AudioID id, glm::vec3 pos, float volume);
             void SetSpatialize(AudioID id, bool spatialize);
             void Update(glm::vec3 listenerPos, glm::vec2 listenerFacingNormalized, float maxDistance);
-            int GetSoundsCount() { return channels.size(); }
+            int GetSoundsCount() { return soundCount; }
 
         private:
 
-            FMOD_SYSTEM *system;
-            std::unordered_map<std::string, FMOD_CHANNEL*> channels;
-            FMOD_CREATESOUNDEXINFO exinfo;
+            ma_engine* engine = nullptr;
+            int soundCount = 0;
             float masterVolume = 100.0f;
     };
 

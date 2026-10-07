@@ -1,5 +1,9 @@
 #include "physics_body.hpp"
 
+#include <cctype>
+
+#include "engine/assets/serialization/reflection/reflection_serializer.hpp"
+
 #include "engine/world/actor.hpp"
 #include "engine/world/engine.hpp"
 
@@ -51,120 +55,30 @@ namespace Shard::Engine::Objects::Components{
             return "box";
         }
 
+        /// The params of a shape are a reflected struct (BoxParams, SphereParams...) : they go through its fields
         bool ParseShapeParams(const json& p, Physics::PhysicsShape shape, InstancedStruct& outParams, const std::string& parentName)
         {
-            auto requireFloat = [&](const char* key, std::optional<float>& out) -> bool
+            InitShapeParams(outParams, shape);
+            if (!outParams.descriptor)
             {
-                if (!p.contains(key) || !p[key].is_number())
-                    return false;
-                out = p[key].get<float>();
-                return true;
-            };
-
-            switch (shape)
-            {
-                case Physics::PhysicsShape::BOX:
-                {
-                    std::optional<float> x, y, z;
-                    if (!requireFloat("x", x) || !requireFloat("y", y) || !requireFloat("z", z))
-                    {
-                        DEBUG_ERROR("Invalid BOX params for actor: " + parentName);
-                        return false;
-                    }
-
-                    outParams.Initialize(&BoxParams_descriptor);
-                    auto& vec = *reinterpret_cast<glm::vec3*>(outParams.data);
-                    vec = glm::vec3(*x, *y, *z);
-                    return true;
-                }
-
-                case Physics::PhysicsShape::SPHERE:
-                {
-                    std::optional<float> radius;
-                    if (!requireFloat("radius", radius))
-                    {
-                        DEBUG_ERROR("Invalid SPHERE params for actor: " + parentName);
-                        return false;
-                    }
-
-                    outParams.Initialize(&SphereParams_descriptor);
-                    *reinterpret_cast<float*>(outParams.data) = *radius;
-                    return true;
-                }
-
-                case Physics::PhysicsShape::CAPSULE:
-                {
-                    std::optional<float> radius, halfHeight;
-                    if (!requireFloat("radius", radius) || !requireFloat("halfHeight", halfHeight))
-                    {
-                        DEBUG_ERROR("Invalid CAPSULE params for actor: " + parentName);
-                        return false;
-                    }
-
-                    outParams.Initialize(&CapsuleParams_descriptor);
-                    auto* dataPtr = reinterpret_cast<CapsuleParams*>(outParams.data);
-                    dataPtr->radius = *radius;
-                    dataPtr->halfHeight = *halfHeight;
-                    return true;
-                }
-
-                case Physics::PhysicsShape::CYLINDER:
-                {
-                    std::optional<float> radius, halfHeight;
-                    if (!requireFloat("radius", radius) || !requireFloat("halfHeight", halfHeight))
-                    {
-                        DEBUG_ERROR("Invalid CYLINDER params for actor: " + parentName);
-                        return false;
-                    }
-
-                    outParams.Initialize(&CylinderParams_descriptor);
-                    auto* dataPtr = reinterpret_cast<CylinderParams*>(outParams.data);
-                    dataPtr->radius = *radius;
-                    dataPtr->halfHeight = *halfHeight;
-                    return true;
-                }
+                DEBUG_ERROR("Unhandled physics shape for actor: " + parentName);
+                return false;
             }
 
-            DEBUG_ERROR("Unhandled physics shape for actor: " + parentName);
-            return false;
+            json fields = p;
+
+            // Levels saved before the params went through the reflection wrote a box's half extent flat ({"x","y","z"})
+            if (shape == Physics::PhysicsShape::BOX && p.contains("x") && !p.contains("halfExtent"))
+                fields = json{ { "halfExtent", p } };
+
+            Serialization::ReadFields(outParams.descriptor->fields, outParams.data, fields, Serialization::ReflectionContext{});
+            return true;
         }
 
-        void SerializeShapeParams(ordered_json& out, Physics::PhysicsShape shape, const InstancedStruct& params)
+        void SerializeShapeParams(ordered_json& out, const InstancedStruct& params)
         {
-            switch (shape)
-            {
-                case Physics::BOX:
-                {
-                    auto p = reinterpret_cast<const BoxParams*>(params.data);
-                    out["x"] = p->halfExtent.x;
-                    out["y"] = p->halfExtent.y;
-                    out["z"] = p->halfExtent.z;
-                    break;
-                }
-
-                case Physics::SPHERE:
-                {
-                    auto p = reinterpret_cast<const SphereParams*>(params.data);
-                    out["radius"] = p->radius;
-                    break;
-                }
-
-                case Physics::CAPSULE:
-                {
-                    auto p = reinterpret_cast<const CapsuleParams*>(params.data);
-                    out["radius"] = p->radius;
-                    out["halfHeight"] = p->halfHeight;
-                    break;
-                }
-
-                case Physics::CYLINDER:
-                {
-                    auto p = reinterpret_cast<const CylinderParams*>(params.data);
-                    out["radius"] = p->radius;
-                    out["halfHeight"] = p->halfHeight;
-                    break;
-                }
-            }
+            if (params.descriptor)
+                Serialization::WriteFields(params.descriptor->fields, params.data, out, Serialization::ReflectionContext{});
         }
     }
 
@@ -604,56 +518,40 @@ namespace Shard::Engine::Objects::Components{
 
     void PhysicsBody::Deserialize(const json componentData)
     {
-        auto getString = [&](const char* key) -> std::optional<std::string>
-        {
-            if (!componentData.contains(key) || !componentData[key].is_string())
-                return std::nullopt;
-            return componentData[key].get<std::string>();
-        };
-
-        auto getBool = [&](const char* key, bool defaultValue = false) -> bool
-        {
-            if (!componentData.contains(key) || !componentData[key].is_boolean())
-                return defaultValue;
-            return componentData[key].get<bool>();
-        };
-
-        auto getFloat = [&](const char* key, float defaultValue) -> float
-        {
-            if (!componentData.contains(key) || !componentData[key].is_number())
-                return defaultValue;
-            return componentData[key].get<float>();
-        };
-
         const auto& parentName = parent ? parent->GetName() : "UNKNOWN";
 
-        // ---------------- MOTION ----------------
-        auto motionStr = getString("motion_type");
-        if (!motionStr)
+        json data = componentData;
+
+        // Levels saved before the serialization went through the reflection : snake_case keys, and the motion
+        // type as a lowercase string
+        if (data.is_object())
         {
-            DEBUG_ERROR("Missing motion type for actor: " + (std::string)parentName);
-            return;
+            static const std::pair<const char*, const char*> legacyKeys[] = {
+                { "motion_type", "motionType" },
+                { "override_mass", "overrideMass" },
+                { "linear_damping", "linearDamping" },
+                { "angular_damping", "angularDamping" },
+                { "gravity_factor", "gravityFactor" },
+            };
+
+            for (const auto& [legacy, key] : legacyKeys)
+            {
+                if (!data.contains(key) && data.contains(legacy))
+                    data[key] = data[legacy];
+            }
+
+            if (data.contains("motionType") && data["motionType"].is_string())
+            {
+                std::string motion = data["motionType"].get<std::string>();
+                if (!motion.empty())
+                    motion[0] = static_cast<char>(std::toupper(static_cast<unsigned char>(motion[0])));
+                data["motionType"] = motion;
+            }
         }
 
-        JPH::EMotionType motion;
-
-        if (*motionStr == "dynamic") motion = JPH::EMotionType::Dynamic;
-        else if (*motionStr == "kinematic") motion = JPH::EMotionType::Kinematic;
-        else if (*motionStr == "static") motion = JPH::EMotionType::Static;
-        else
-        {
-            DEBUG_ERROR("Unknown motion type: " + *motionStr);
-            return;
-        }
-
-        // ---------------- ATTRIBUTES ----------------
-        overrideMass = getBool("override_mass", false);
-        mass = getFloat("mass", 1.0f);
-        linearDamping = getFloat("linear_damping", 0.05f);
-        angularDamping = getFloat("angular_damping", 0.05f);
-        gravityFactor = getFloat("gravity_factor", 1.0f);
-        friction = getFloat("friction", 0.2f);
-        restitution = getFloat("restitution", 0.0f);
+        // ---------------- MOTION & ATTRIBUTES ----------------
+        // Only loaded : the body is built from them below, there is nothing to update yet
+        DeserializeReflectedFields(data, false);
 
         // ---------------- SHAPES ----------------
         std::vector<PhysicsShapeEntry> newShapes;
@@ -673,9 +571,9 @@ namespace Shard::Engine::Objects::Components{
             }
         };
 
-        if (componentData.contains("shapes") && componentData["shapes"].is_array())
+        if (data.contains("shapes") && data["shapes"].is_array())
         {
-            for (const auto& entryJson : componentData["shapes"])
+            for (const auto& entryJson : data["shapes"])
             {
                 if (!entryJson.contains("shape") || !entryJson["shape"].is_string())
                 {
@@ -709,21 +607,22 @@ namespace Shard::Engine::Objects::Components{
         else
         {
             // Back-compat: pre-multi-shape format ("shape"/"params" directly on the component)
-            auto shapeStr = getString("shape");
-            if (!shapeStr)
+            if (!data.contains("shape") || !data["shape"].is_string())
             {
                 DEBUG_ERROR("Missing physics shape for actor: " + (std::string)parentName);
                 return;
             }
 
+            const std::string shapeStr = data["shape"].get<std::string>();
+
             Physics::PhysicsShape shape;
-            if (!ParseShapeTypeString(*shapeStr, shape))
+            if (!ParseShapeTypeString(shapeStr, shape))
             {
-                DEBUG_ERROR("Unknown physics shape: " + *shapeStr);
+                DEBUG_ERROR("Unknown physics shape: " + shapeStr);
                 return;
             }
 
-            if (!componentData.contains("params") || !componentData["params"].is_object())
+            if (!data.contains("params") || !data["params"].is_object())
             {
                 DEBUG_ERROR("Missing physics params for actor: " + (std::string)parentName);
                 return;
@@ -731,7 +630,7 @@ namespace Shard::Engine::Objects::Components{
 
             PhysicsShapeEntry entry;
             entry.shapeType = shape;
-            if (!ParseShapeParams(componentData["params"], shape, entry.params, parentName))
+            if (!ParseShapeParams(data["params"], shape, entry.params, parentName))
                 return;
 
             newShapes.push_back(std::move(entry));
@@ -746,47 +645,18 @@ namespace Shard::Engine::Objects::Components{
         shapes = std::move(newShapes);
 
         // ---------------- CREATE BODY ----------------
-        CreateBody(motion);
+        CreateBody(motionType);
 
         // ---------------- ACTIVE STATE ----------------
+        // A body is active unless the file says otherwise
         Activate();
-        if (componentData.contains("active") && componentData["active"].is_boolean())
-        {
-            if (!componentData["active"].get<bool>())
-                DeActivate();
-        }
+        DeserializeActive(data, true);
     }
 
     ordered_json PhysicsBody::Serialize()
     {
-        ordered_json comp;
-
-        comp["type"] = "physics_body";
-
-        comp["active"] = activated;
-
-        switch(motionType){
-            case JPH::EMotionType::Dynamic:{
-                comp["motion_type"] = "dynamic";
-                break;
-            }
-            case JPH::EMotionType::Static:{
-                comp["motion_type"] = "static";
-                break;
-            }
-            case JPH::EMotionType::Kinematic:{
-                comp["motion_type"] = "kinematic";
-                break;
-            }
-        }
-
-        comp["override_mass"] = overrideMass;
-        comp["mass"] = mass;
-        comp["linear_damping"] = linearDamping;
-        comp["angular_damping"] = angularDamping;
-        comp["gravity_factor"] = gravityFactor;
-        comp["friction"] = friction;
-        comp["restitution"] = restitution;
+        // The attributes are fields, the shape list is the part the reflection doesn't describe
+        ordered_json comp = SerializeReflected("physics_body");
 
         comp["shapes"] = ordered_json::array();
 
@@ -795,8 +665,8 @@ namespace Shard::Engine::Objects::Components{
             ordered_json shapeJson;
             shapeJson["shape"] = ShapeTypeToString(entry.shapeType);
 
-            ordered_json paramsJson;
-            SerializeShapeParams(paramsJson, entry.shapeType, entry.params);
+            ordered_json paramsJson = ordered_json::object();
+            SerializeShapeParams(paramsJson, entry.params);
             shapeJson["params"] = paramsJson;
 
             shapeJson["offset"]["x"] = entry.offset.x;

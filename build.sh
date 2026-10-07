@@ -11,8 +11,8 @@ cd build
 # Build reflection
 cd tools
 
-# ShardReflect --clang C:/msys64/mingw64/lib/clang/21 --cpp C:/msys64/mingw64/include/c++/15.2.0 --dir ../../src/engine/world/components --dir ../../src/engine/renderer/components --dir ../../src/engine/physics --dir ../../src/engine/audio -I "../../src;../../submodules/;../../submodules/json/single_include;../../submodules/jolt;../../submodules/glm;../../submodules/freetype/include;C:\Program Files (x86)\FMOD SoundSystem\FMOD Studio API Windows\api\core\inc"
-# ShardReflect --clang C:/msys64/mingw64/lib/clang/21 --cpp C:/msys64/mingw64/include/c++/15.2.0 -f ../../src/apps/game/character.hpp -I "../../src;../../submodules/;../../submodules/json/single_include;../../submodules/jolt;../../submodules/glm;../../submodules/freetype/include;C:\Program Files (x86)\FMOD SoundSystem\FMOD Studio API Windows\api\core\inc"
+# ShardReflect --clang C:/msys64/mingw64/lib/clang/21 --cpp C:/msys64/mingw64/include/c++/15.2.0 --dir ../../src/engine/world/components --dir ../../src/engine/renderer/components --dir ../../src/engine/physics --dir ../../src/engine/audio -I "../../src;../../submodules/;../../submodules/json/single_include;../../submodules/jolt;../../submodules/glm;../../submodules/freetype/include"
+# ShardReflect --clang C:/msys64/mingw64/lib/clang/21 --cpp C:/msys64/mingw64/include/c++/15.2.0 -f ../../src/apps/game/character.hpp -I "../../src;../../submodules/;../../submodules/json/single_include;../../submodules/jolt;../../submodules/glm;../../submodules/freetype/include"
 cd ..
 
 # Build the project

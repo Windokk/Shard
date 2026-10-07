@@ -4,19 +4,19 @@
 
 Each module has a public header without any OS type, and one implementation file per OS (`*_win32.cpp` / `*_posix.cpp`, selected by `#if`).
 
-| Folder | What it gives |
-|---|---|
-| `windowing/` | `IWindow`, `IPlatform`; SDL3 backend (`SDLWindow`, `SDLPlatform<T>`): GL context, monitors, DPI, HDR, fullscreen |
-| `events/` | `OSEvent`: typed window system events, several listeners per window |
-| `devices/` | `IInput` (keyboard, mouse, gamepads), `Key`, `GamepadButton`, `GamepadAxis`; SDL3 backend |
-| `clipboard/` | Clipboard text, file / folder / message dialogs |
-| `filesystem/` | `Paths` (user directories), `FileWatcher` (ReadDirectoryChangesW / inotify), `AsyncIO` (IOCP / io_uring / thread pool) |
-| `lib_loader/` | `DynLib`, `ModuleLoader` |
-| `thread/`, `atomic/`, `time/` | Named / prioritised / pinned threads, `HardwareConcurrency()`, `SpinLock`, `NowNanoseconds()`, `PreciseSleep()` |
-| `process/` | Environment, executable path, `Process::Launch`, reveal in file manager |
-| `crash/` | Crash report + minidump, crash hooks, Ctrl+C / SIGTERM handler |
-| `network/` | `Socket` (UDP / TCP), `NamedPipe`, `SharedMemory` |
-| `hardware/` | CPU features, RAM, OS, per-process memory (CPU and GPU) |
+| Folder                        | Features                                                                                                               |
+|-------------------------------|------------------------------------------------------------------------------------------------------------------------|
+| `windowing/`                  | `IWindow`, `IPlatform`; SDL3 backend (`SDLWindow`, `SDLPlatform<T>`): GL context, monitors, DPI, HDR, fullscreen       |
+| `events/`                     | `OSEvent`: typed window system events, several listeners per window                                                    |
+| `devices/`                    | `IInput` (keyboard, mouse, gamepads), `Key`, `GamepadButton`, `GamepadAxis`; SDL3 backend                              |
+| `clipboard/`                  | Clipboard text, file / folder / message dialogs                                                                        |
+| `filesystem/`                 | `Paths` (user directories), `FileWatcher` (ReadDirectoryChangesW / inotify), `AsyncIO` (IOCP / io_uring / thread pool) |
+| `lib_loader/`                 | `DynLib`, `ModuleLoader`                                                                                               |
+| `thread/`, `atomic/`, `time/` | Named / prioritised / pinned threads, `HardwareConcurrency()`, `SpinLock`, `NowNanoseconds()`, `PreciseSleep()`        |
+| `process/`                    | Environment, executable path, `Process::Launch`, reveal in file manager                                                |
+| `crash/`                      | Crash report + minidump, crash hooks, Ctrl+C / SIGTERM handler                                                         |
+| `network/`                    | `Socket` (UDP / TCP), `NamedPipe`, `SharedMemory`                                                                      |
+| `hardware/`                   | CPU features, RAM, OS, per-process memory (CPU and GPU)                                                                |
 
 ## Building on Linux
 

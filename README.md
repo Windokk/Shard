@@ -32,9 +32,6 @@
 - CMake 3.28.2 or later
 - C++ 17 Compiler (GCC MinGW recommended)
 
-### Proprietary Dependencies :
-- FMOD Core API 2.03.14
-
 ### Editor Fonts : (Place both in resources/editor_resources/fonts/)
 - [OpenSans-Regular.ttf](https://github.com/googlefonts/opensans)
 - [lucide.ttf](https://unpkg.com/lucide-static@latest/font/lucide.ttf)
@@ -50,13 +47,13 @@ Run build.bat or build.sh (depending on your OS)
 
 This will compile everything from root : submodules, the engine, the editor, and the game module (loaded with the game app)
 
-Drop fmod.dll inside the build folder (SDL3.dll is built with the project and lands there too).
+SDL3.dll is built with the project and lands in the build folder.
 
 On Linux, SDL3 is built from source and needs the development packages of your window system (X11 / Wayland, ALSA / PulseAudio, libudev ...) : see https://wiki.libsdl.org/SDL3/README-linux
 
 Copy the resources/engine_resources and resources/editor_resources folders inside the build directory
 
-Drop ShardReflect executable inside build/tools/
+ShardReflect (the reflection generator, in src/apps/tools/reflect) is built with the project into build/tools/ when LLVM, Clang and zlib are found (otherwise it is skipped : the generated *.reflection.hpp files are committed). See src/apps/tools/reflect/README.md
 
 This runs the editor, loads the game module, opens the project at "project path" and uses open gl core as the rendering api
 ```bash
@@ -76,7 +73,7 @@ This runs the editor, loads the game module, opens the project at "project path"
   - [glad](https://github.com/Dav1dde/glad)
   - [ufbx](https://github.com/ufbx/ufbx)
   - [json for c++](https://github.com/nlohmann/json)
-  - [fmod](https://www.fmod.com/)
+  - [miniaudio](https://github.com/mackron/miniaudio)
   - [ImOGuizmo](https://github.com/fknfilewalker/imoguizmo)
   - [ImGuiNotify](https://github.com/TyomaVader/ImGuiNotify/tree/Dev)
 

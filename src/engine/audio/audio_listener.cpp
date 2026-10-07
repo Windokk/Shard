@@ -10,23 +10,9 @@ namespace Shard::Engine::Objects::Components
     {
     }
 
-    void AudioListener::Deserialize(const json componentData)
-    {
-        if (componentData.contains("active") && componentData["active"].is_boolean() && !componentData["active"].get<bool>())
-            DeActivate();
-        else
-            Activate();
-    }
-
     ordered_json AudioListener::Serialize()
     {
-        ordered_json comp;
-
-        comp["type"] = "audio_listener";
-
-        comp["active"] = activated;
-
-        return comp;
+        return SerializeReflected("audio_listener");
     }
 
     std::shared_ptr<Component> AudioListener::Clone() const

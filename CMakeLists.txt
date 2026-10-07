@@ -32,8 +32,6 @@ foreach(OUTPUTCONFIG Debug Release RelWithDebInfo MinSizeRel)
     set(CMAKE_ARCHIVE_OUTPUT_DIRECTORY_${OUTPUTCONFIG} "${OUTPUT_DIR}")
 endforeach()
 
-set(FMOD_API_DIR "" CACHE PATH "Path to fmod api")
-
 configure_file(${CMAKE_SOURCE_DIR}/src/config.h.in config.h)
 
 include_directories(${CMAKE_BINARY_DIR})
@@ -51,6 +49,9 @@ set(SDL_INSTALL OFF CACHE BOOL "" FORCE)
 add_subdirectory(submodules/SDL EXCLUDE_FROM_ALL)
 add_subdirectory(submodules/glm)
 add_subdirectory(submodules/jolt/Build)
+
+# Tools (ShardReflect, the reflection generator)
+add_subdirectory(src/apps/tools/reflect)
 
 # Subdirs (Shard)
 add_subdirectory(src/engine)

@@ -182,10 +182,22 @@ namespace Shard::Engine::Rendering{
 
         registry.RegisterBuiltinComponent<Model>("model",
             [](const nlohmann::json& component, std::vector<ResourceKey>& out){
-                if (component.contains("mesh") && component["mesh"].is_string())
-                    out.push_back({AssetKind::Mesh, component["mesh"].get<std::string>()});
+                // The fields name their assets ("meshID", "materialsID") ; levels saved before the serialization went
+                // through the reflection used "mesh" and "materials" (an object by slot)
+                for (const char* key : { "meshID", "mesh" }) {
+                    if (component.contains(key) && component[key].is_string() && !component[key].get<std::string>().empty()) {
+                        out.push_back({AssetKind::Mesh, component[key].get<std::string>()});
+                        break;
+                    }
+                }
 
-                if (component.contains("materials") && component["materials"].is_object()) {
+                if (component.contains("materialsID") && component["materialsID"].is_array()) {
+                    for (const auto& material : component["materialsID"]) {
+                        if (material.is_string() && !material.get<std::string>().empty())
+                            out.push_back({AssetKind::Material, material.get<std::string>()});
+                    }
+                }
+                else if (component.contains("materials") && component["materials"].is_object()) {
                     for (auto it = component["materials"].begin(); it != component["materials"].end(); ++it) {
                         if (it.value().is_string())
                             out.push_back({AssetKind::Material, it.value().get<std::string>()});

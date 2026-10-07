@@ -10,9 +10,6 @@ class CLASS() Character : public Shard::Engine::Objects::Components::Script{
     public:
         Character(std::shared_ptr<Actor> parent, uint32_t local_id) : Script(parent, local_id){};
 
-        void Deserialize(const json componentData) override;
-        ordered_json Serialize() override;
-
         void OnPlay() override;
         void OnTick() override;
         void OnStop() override;

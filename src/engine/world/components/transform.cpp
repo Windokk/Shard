@@ -33,57 +33,9 @@ namespace Shard::Engine::Objects::Components{
         this->scale = glm::vec3(1,1,1);
     }
 
-    void Transform::Deserialize(const json componentData)
-    {
-		auto safeGetVec3 = [&](const char* key) -> glm::vec3
-		{
-			glm::vec3 result(0.0f);
-
-			if (!componentData.contains(key) || !componentData[key].is_object())
-				return result;
-
-			const auto& obj = componentData[key];
-
-			auto getFloat = [&](const char* axis) -> float
-			{
-				if (obj.contains(axis) && obj[axis].is_number())
-					return obj[axis].get<float>();
-				return 0.0f;
-			};
-
-			return glm::vec3(
-				getFloat("x"),
-				getFloat("y"),
-				getFloat("z")
-			);
-		};
-
-		SetPosition(safeGetVec3("position"));
-		SetRotation(safeGetVec3("rotation"));
-		SetScale(safeGetVec3("scale"));
-	}
-
     ordered_json Transform::Serialize()
     {
-        ordered_json comp;
-
-        comp["type"] = "transform";
-
-        comp["active"] = activated;
-
-		comp["position"]["x"] = position.x;
-		comp["position"]["y"] = position.y;
-		comp["position"]["z"] = position.z;
-
-		comp["rotation"]["x"] = GetRotation().x;
-		comp["rotation"]["y"] = GetRotation().y;
-		comp["rotation"]["z"] = GetRotation().z;
-		
-		comp["scale"]["x"] = scale.x;
-		comp["scale"]["y"] = scale.y;
-		comp["scale"]["z"] = scale.z;
-
-		return comp;
+        return SerializeReflected("transform");
     }
 
     void Transform::SetPosition(glm::vec3 position, bool updateDirty)

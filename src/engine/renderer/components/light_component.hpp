@@ -59,7 +59,7 @@ namespace Shard::Engine::Objects::Components
             void UpdateExposedValues();
 
             FIELD(Editable)
-            Rendering::LightType type;
+            Rendering::LightType lightType;
 
             FIELD(Editable)
             float intensity;

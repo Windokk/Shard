@@ -199,76 +199,27 @@ namespace Shard::Engine::Objects::Components{
 
     void ProbeVolume::Deserialize(const json componentData)
     {
-        auto getFloat = [&](const json& obj, const char* key, float fallback) -> float
-        {
-            if (!obj.contains(key) || !obj[key].is_number())
-                return fallback;
-            return obj[key].get<float>();
-        };
-
-        auto getInt = [&](const json& obj, const char* key, int fallback) -> int
-        {
-            if (!obj.contains(key) || !obj[key].is_number_integer())
-                return fallback;
-            return obj[key].get<int>();
-        };
-
-        if (componentData.contains("halfExtent") && componentData["halfExtent"].is_object())
-        {
-            const auto& e = componentData["halfExtent"];
-            halfExtent = glm::vec3(getFloat(e, "x", 5.0f), getFloat(e, "y", 3.0f), getFloat(e, "z", 5.0f));
-        }
-
-        if (componentData.contains("probeCounts") && componentData["probeCounts"].is_object())
-        {
-            const auto& c = componentData["probeCounts"];
-            probeCounts = glm::ivec3(getInt(c, "x", 8), getInt(c, "y", 4), getInt(c, "z", 8));
-        }
-
-        raysPerProbe = getInt(componentData, "raysPerProbe", 64);
-        probeUpdateStride = getInt(componentData, "probeUpdateStride", 1);
-        indirectIntensity = getFloat(componentData, "indirectIntensity", 1.0f);
-
         // "maxBounces" is deliberately not read any more : bounce depth stopped being a setting when
         // multi-bounce moved to a cross-frame feedback loop (see ProbeManager's class comment), and a
         // world authored before that change would otherwise keep asking for N times the ray cost to get
-        // FEWER bounces than it now gets for free. Ignoring the old key silently is the right migration
-        // - it simply stops being written on the next save.
+        // FEWER bounces than it now gets for free. It is not a field, so it is simply ignored (and it
+        // stops being written on the next save).
 
-        if (componentData.contains("enableRelocation") && componentData["enableRelocation"].is_boolean())
-            enableRelocation = componentData["enableRelocation"].get<bool>();
+        // The fields are only loaded, not applied : the grid is built when the volume is activated below
+        DeserializeReflectedFields(componentData, false);
 
-        // Set before Activate() below, which is what consumes it.
+        // Set before Activate() below, which is what consumes it. Not a field : the editor doesn't show it
         if (componentData.contains("bakedData") && componentData["bakedData"].is_string())
             bakedData = componentData["bakedData"].get<std::string>();
         else
             bakedData.clear();
 
-        if (componentData.contains("active") && componentData["active"].is_boolean() && componentData["active"].get<bool>())
-            Activate();
-        else
-            DeActivate();
+        DeserializeActive(componentData, false);
     }
 
     ordered_json ProbeVolume::Serialize()
     {
-        ordered_json comp;
-
-        comp["type"] = "probeVolume";
-        comp["active"] = activated;
-
-        comp["halfExtent"]["x"] = halfExtent.x;
-        comp["halfExtent"]["y"] = halfExtent.y;
-        comp["halfExtent"]["z"] = halfExtent.z;
-
-        comp["probeCounts"]["x"] = probeCounts.x;
-        comp["probeCounts"]["y"] = probeCounts.y;
-        comp["probeCounts"]["z"] = probeCounts.z;
-
-        comp["raysPerProbe"] = raysPerProbe;
-        comp["probeUpdateStride"] = probeUpdateStride;
-        comp["indirectIntensity"] = indirectIntensity;
-        comp["enableRelocation"] = enableRelocation;
+        ordered_json comp = SerializeReflected("probeVolume");
 
         if (!bakedData.empty())
             comp["bakedData"] = bakedData;

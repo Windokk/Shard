@@ -47,8 +47,6 @@ namespace Shard::Engine::Objects::Components
         public:
             Transform(std::shared_ptr<Actor> parent, uint32_t local_id);
 
-            void Deserialize(const json componentData) override;
-
             ordered_json Serialize() override;
 
             const glm::vec3& GetPosition() const { return position; }

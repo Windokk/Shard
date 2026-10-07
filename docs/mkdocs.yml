@@ -20,7 +20,7 @@ theme:
     - navigation.expand
     - navigation.tabs
   name: material
-  logo: images/ShardLogoDarkMode.png
+  logo: images/ShardLogoBlack.png
   icon:
     repo: fontawesome/brands/github
     

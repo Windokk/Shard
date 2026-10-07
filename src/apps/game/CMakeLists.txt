@@ -13,7 +13,6 @@ target_include_directories(GameModule PRIVATE
   ${CMAKE_SOURCE_DIR}/submodules/
   ${CMAKE_SOURCE_DIR}/submodules/glm
   ${CMAKE_SOURCE_DIR}/submodules/freetype/include/
-  ${FMOD_API_DIR}/inc
 )
 
 target_link_libraries(GameModule PRIVATE Engine)

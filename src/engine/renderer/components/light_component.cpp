@@ -13,13 +13,14 @@
 #include "glm/ext.hpp"
 
 #include <algorithm>
+#include <cctype>
 
 using namespace Shard::Engine::Core;
 
 namespace Shard::Engine::Objects::Components{
 
     void Light::UpdateExposedValues(){
-        type = (Rendering::LightType)lightData->type;
+        lightType = (Rendering::LightType)lightData->type;
         radius = lightData->radius;
         intensity = lightData->intensity;
         outerCutoff = glm::degrees(glm::acos(lightData->outerCutoff));
@@ -247,48 +248,25 @@ namespace Shard::Engine::Objects::Components{
 
     void Light::Deserialize(const json componentData)
     {
-        auto getString = [&](const char* key) -> std::optional<std::string>
-        {
-            if (!componentData.contains(key) || !componentData[key].is_string())
-                return std::nullopt;
-            return componentData[key].get<std::string>();
-        };
+        json data = componentData;
 
-        auto getFloat = [&](const char* key, float fallback = 0.0f) -> float
+        // Levels saved before the serialization went through the reflection : the light's type was a lowercase
+        // string called "light_type", and the shadow flag "castShadow"
+        if (data.is_object())
         {
-            if (!componentData.contains(key) || !componentData[key].is_number())
-                return fallback;
-            return componentData[key].get<float>();
-        };
+            if (!data.contains("lightType") && data.contains("light_type") && data["light_type"].is_string())
+            {
+                std::string legacyType = data["light_type"].get<std::string>();
+                if (!legacyType.empty())
+                    legacyType[0] = static_cast<char>(std::toupper(static_cast<unsigned char>(legacyType[0])));
+                data["lightType"] = legacyType;
+            }
 
-        auto getBool = [&](const char* key, bool fallback = false) -> bool
-        {
-            if (!componentData.contains(key) || !componentData[key].is_boolean())
-                return fallback;
-            return componentData[key].get<bool>();
-        };
-
-        auto lightTypeOpt = getString("light_type");
-        if (!lightTypeOpt)
-        {
-            DEBUG_ERROR("Light missing 'light_type'");
-            return;
+            if (!data.contains("castShadows") && data.contains("castShadow"))
+                data["castShadows"] = data["castShadow"];
         }
 
-        // ---------------- TYPE ----------------
-        if (*lightTypeOpt == "directional")
-            SetType(Rendering::LightType::Directional);
-        else if (*lightTypeOpt == "point")
-            SetType(Rendering::LightType::Point);
-        else if (*lightTypeOpt == "spot")
-            SetType(Rendering::LightType::Spot);
-        else
-        {
-            DEBUG_ERROR("Unknown light type: " + *lightTypeOpt);
-            return;
-        }
-
-        // ---------------- TRANSFORM SAFETY ----------------
+        // A light follows its actor : its position and direction are not fields, they come from the transform
         glm::vec3 pos(0.0f);
         glm::vec3 dir(0.0f, -1.0f, 0.0f);
 
@@ -301,87 +279,16 @@ namespace Shard::Engine::Objects::Components{
         SetPosition(pos);
         SetDirection(dir);
 
-        // ---------------- REQUIRED VALUES ----------------
-        float intensity = getFloat("intensity", 1.0f);
-        float radius    = getFloat("radius", 10.0f);
-
-        SetIntensity(intensity);
-        SetRadius(radius);
-
-        // ---------------- COLOR ----------------
-        glm::vec3 color(1.0f);
-
-        if (componentData.contains("color") && componentData["color"].is_object())
-        {
-            const auto& c = componentData["color"];
-
-            auto safe = [&](const char* k) -> float
-            {
-                if (c.contains(k) && c[k].is_number())
-                    return c[k].get<float>();
-                return 1.0f;
-            };
-
-            color = glm::vec3(
-                safe("r"),
-                safe("g"),
-                safe("b")
-            );
-        }
-        else
-        {
-            DEBUG_ERROR("Light missing or invalid 'color', defaulting to white");
-        }
-
-        SetColor(COL_RGB(color.r, color.g, color.b));
-
-        // ---------------- SPOTLIGHT PARAMS ----------------
-        SetInnerCuttoff(getFloat("innerCutoff", 0.0f));
-        SetOuterCutoff(getFloat("outerCutoff", 0.0f));
-
-        // ---------------- SHADOW ----------------
-        SetCastShadow(getBool("castShadow", false));
-
-        // ---------------- ACTIVE ----------------
-        if (getBool("active", false))
-            Activate();
-        else
-            DeActivate();
+        // The fields are applied through their setters (OnFieldChanged), which feed the renderer's light data
+        DeserializeReflected(data, false);
     }
 
     ordered_json Light::Serialize()
     {
-        ordered_json comp;
+        // The fields mirror the light data, which is what the setters wrote to
+        UpdateExposedValues();
 
-        comp["type"] = "light";
-
-        comp["active"] = activated;
-
-        switch(lightData->type){
-            case (int)Rendering::LightType::Directional:{
-                comp["light_type"] = "directional";
-                break;
-            }
-            case (int)Rendering::LightType::Spot:{
-                comp["light_type"] = "spot";
-                break;
-            }
-            case (int)Rendering::LightType::Point:{
-                comp["light_type"] = "point";
-                break;
-            }
-        }
-
-        comp["intensity"] = lightData->intensity;
-        comp["radius"] = lightData->radius;
-        comp["color"]["r"] = lightData->color.r;
-        comp["color"]["g"] = lightData->color.g;
-        comp["color"]["b"] = lightData->color.b;
-        comp["innerCutoff"] = glm::degrees(glm::acos(lightData->innerCutoff));
-        comp["outerCutoff"] = glm::degrees(glm::acos(lightData->outerCutoff));
-        comp["castShadow"] = static_cast<bool>(lightData->castShadow);
-
-        return comp;
+        return SerializeReflected("light");
     }
 
     /// @brief Getter for this light component's data
@@ -408,9 +315,9 @@ namespace Shard::Engine::Objects::Components{
 
     void Light::OnFieldChanged(const FieldChangedEvent &event)
     {
-        if(event.field->name == "type")
+        if(event.field->name == "lightType")
         {
-            SetType(type);
+            SetType(lightType);
         }
         if(event.field->name == "intensity"){
             SetIntensity(intensity);

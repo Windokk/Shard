@@ -147,74 +147,33 @@ namespace Shard::Engine::Objects::Components {
 
     void Camera::Deserialize(const json componentData)
     {
-        auto getFloat = [&](const char* key, std::optional<float> fallback = std::nullopt) -> std::optional<float>
+        json data = componentData;
+
+        // Levels saved before the serialization went through the reflection call the planes "near" and "far"
+        if (data.is_object())
         {
-            if (!componentData.contains(key) || !componentData[key].is_number())
-                return fallback;
-            return componentData[key].get<float>();
-        };
+            if (!data.contains("nearPlane") && data.contains("near"))
+                data["nearPlane"] = data["near"];
 
-        auto getBool = [&](const char* key, bool fallback = false) -> bool
-        {
-            if (!componentData.contains(key) || !componentData[key].is_boolean())
-                return fallback;
-            return componentData[key].get<bool>();
-        };
-
-        int width  = GetEngineContext()->GetWindow()->GetFramebufferWidth();
-        int height = GetEngineContext()->GetWindow()->GetFramebufferHeight();
-
-        // Required fields validation
-        auto nearOpt = getFloat("near");
-        auto farOpt  = getFloat("far");
-        auto fovOpt  = getFloat("fov");
-
-        if (!nearOpt || !farOpt || !fovOpt)
-        {
-            DEBUG_ERROR("Camera missing required projection parameters");
-            return;
+            if (!data.contains("farPlane") && data.contains("far"))
+                data["farPlane"] = data["far"];
         }
 
-        // Optional fields (safe defaults)
-        bool isOrtho = getBool("orthographic", false);
+        DeserializeReflectedFields(data);
 
-        float orthoSize = 1.0f;
-        if (componentData.contains("orthoSize") && componentData["orthoSize"].is_number())
-            orthoSize = componentData["orthoSize"].get<float>();
+        if (!orthographic && nearPlane < MIN_NEAR_PLANE)
+            DEBUG_WARNING("Camera near plane " + std::to_string(nearPlane) + " is too small for a perspective camera, using " + std::to_string(MIN_NEAR_PLANE));
 
-        if (!isOrtho && *nearOpt < MIN_NEAR_PLANE)
-            DEBUG_WARNING("Camera near plane " + std::to_string(*nearOpt) + " is too small for a perspective camera, using " + std::to_string(MIN_NEAR_PLANE));
+        // The fields are in, the camera has to size its projection from the window and sanitize the planes
+        Init(GetEngineContext()->GetWindow()->GetFramebufferWidth(), GetEngineContext()->GetWindow()->GetFramebufferHeight(),
+             nearPlane, farPlane, fov, orthographic, orthoSize);
 
-        Init(width, height, *nearOpt, *farOpt, *fovOpt, isOrtho, orthoSize);
-
-        // Active state
-        bool active = getBool("active", false);
-
-        if (active)
-            Activate();
-        else
-            DeActivate();
+        DeserializeActive(data, false);
     }
 
     ordered_json Camera::Serialize()
     {
-        ordered_json comp;
-
-        comp["type"] = "camera";
-
-        comp["orthographic"] = orthographic;
-
-        comp["active"] = activated;
-
-        comp["near"] = nearPlane;
-
-        comp["far"] = farPlane;
-
-        comp["fov"] = fov;
-
-        comp["orthoSize"] = orthoSize;
-
-        return comp;
+        return SerializeReflected("camera");
     }
 
     std::shared_ptr<Component> Camera::Clone() const

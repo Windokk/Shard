@@ -13,7 +13,6 @@ namespace Shard::Engine::Objects::Components
         public:
             AudioListener(std::shared_ptr<Actor> parent, uint32_t local_id);
 
-            void Deserialize(const json componentData) override;
 
             ordered_json Serialize() override;
 

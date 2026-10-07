@@ -29,6 +29,7 @@ struct Container{
     // SEQUENTIAL containers (vector)
     void* (*GetByIndex)(void* container, size_t index);
     void  (*InsertAt)(void* container, size_t index, const void* element);
+    void  (*Clear)(void* container);
 
     // ASSOCIATIVE containers (map)
     void* (*FindByKey)(void* container, const void* key);
@@ -260,6 +261,10 @@ Container MakeVectorContainer() {
         vec.insert(vec.begin() + i, *static_cast<const StorageT*>(v));
     };
 
+    c.Clear = [](void* c) {
+        static_cast<std::vector<StorageT>*>(c)->clear();
+    };
+
     c.FindByKey = nullptr;
     c.InsertByKey = nullptr;
 
@@ -281,6 +286,9 @@ Container MakeMapContainer() {
 
     c.GetByIndex = nullptr;
     c.InsertAt = nullptr;
+    c.Clear = [](void* c) {
+        static_cast<std::map<K, V>*>(c)->clear();
+    };
 
     // associative ops
     c.FindByKey = [](void* c, const void* key) -> void* {

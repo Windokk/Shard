@@ -27,133 +27,128 @@ namespace Shard::Engine::Objects::Components{
         if (!parent)
             return;
 
-        auto getBool = [&](const char* key, bool fallback = false) -> bool
-        {
-            if (!componentData.contains(key) || !componentData[key].is_boolean())
-                return fallback;
-            return componentData[key].get<bool>();
-        };
+        json data = componentData;
 
-        auto getString = [&](const char* key) -> std::optional<std::string>
+        // Levels saved before the serialization went through the reflection : "mesh" was the mesh's name and
+        // "materials" an object of material names by slot ({"0": "...", "2": "..."}), where the fields are
+        // "meshID" and "materialsID" (an array, in slot order)
+        if (data.is_object())
         {
-            if (!componentData.contains(key) || !componentData[key].is_string())
-                return std::nullopt;
-            return componentData[key].get<std::string>();
+            if (!data.contains("meshID") && data.contains("mesh"))
+                data["meshID"] = data["mesh"];
+
+            if (!data.contains("materialsID") && data.contains("materials"))
+            {
+                if (!data["materials"].is_object())
+                {
+                    DEBUG_ERROR("Model has an invalid 'materials' block (not an object)");
+                }
+                else
+                {
+                    std::map<int, json> bySlot;
+                    for (auto it = data["materials"].begin(); it != data["materials"].end(); ++it)
+                    {
+                        int slot = 0;
+                        try
+                        {
+                            slot = std::stoi(it.key());
+                        }
+                        catch (...)
+                        {
+                            DEBUG_ERROR("Invalid material slot key (not integer): " + it.key());
+                            continue;
+                        }
+
+                        if (slot < 0)
+                        {
+                            DEBUG_ERROR("Negative material slot ignored: " + it.key());
+                            continue;
+                        }
+
+                        if (!it.value().is_string())
+                        {
+                            DEBUG_ERROR("Material path is not a string at slot: " + it.key());
+                            continue;
+                        }
+
+                        bySlot[slot] = it.value();
+                    }
+
+                    json ids = json::array();
+                    if (!bySlot.empty())
+                    {
+                        // A slot the file doesn't fill stays empty ("" is no asset)
+                        for (int slot = 0; slot <= bySlot.rbegin()->first; ++slot)
+                            ids.push_back(bySlot.count(slot) ? bySlot[slot] : json(""));
+                    }
+                    data["materialsID"] = std::move(ids);
+                }
+            }
+        }
+
+        // The fields only name the assets : loading them (and drawing) is up to the model, in this order
+        DeserializeReflectedFields(data, false);
+
+        Filesystem::AssetIDManager* assetIDs = GetEngineContext()->GetAssetIDManager();
+
+        auto nameOf = [&](Filesystem::AssetID id) -> std::string
+        {
+            std::shared_ptr<Filesystem::AssetInfos> infos = assetIDs->GetAssetFromID(id);
+            return infos ? infos->baseInfos.nameInProject : "";
         };
 
         // ---------------- MESH ----------------
-        if (auto mesh = getString("mesh"))
-        {
-            SetMesh(*mesh);
-        }
+        // Taken before SetMesh/SetMaterials rewrite the ID fields
+        const std::vector<Filesystem::AssetID> savedMaterials = materialsID;
+
+        const std::string meshName = nameOf(meshID);
+        if (!meshName.empty())
+            SetMesh(meshName);
 
         // ---------------- MATERIALS ----------------
-        std::vector<std::shared_ptr<Rendering::Material>> materials;
+        std::vector<std::shared_ptr<Rendering::Material>> loadedMaterials(savedMaterials.size(), nullptr);
 
-        if (componentData.contains("materials") && !componentData["materials"].is_object())
+        for (size_t slot = 0; slot < savedMaterials.size(); ++slot)
         {
-            // A missing key is a legitimate "no materials yet" model (see the comment in Serialize()) -
-            // only a present-but-wrong-typed block indicates actual corruption worth flagging.
-            DEBUG_ERROR("Model has an invalid 'materials' block (not an object)");
-        }
-        else if (componentData.contains("materials"))
-        {
-            const auto& localMaterials = componentData["materials"];
+            const std::string path = nameOf(savedMaterials[slot]);
+            if (path.empty())
+                continue;
 
-            int maxSlot = -1;
-            std::vector<std::pair<int, std::string>> parsed;
+            auto material = GetEngineContext()->GetResourcesManager()->Get<Rendering::Material>(Core::Resources::AssetKind::Material, path);
 
-            // First pass: validate + collect safely
-            for (auto it = localMaterials.begin(); it != localMaterials.end(); ++it)
+            if (!material)
             {
-                int slot = 0;
+                DEBUG_ERROR("Failed to load material: " + path + ", using fallback");
 
-                try
-                {
-                    slot = std::stoi(it.key());
-                }
-                catch (...)
-                {
-                    DEBUG_ERROR("Invalid material slot key (not integer): " + it.key());
-                    continue;
-                }
-
-                if (slot < 0)
-                {
-                    DEBUG_ERROR("Negative material slot ignored: " + it.key());
-                    continue;
-                }
-
-                if (!it.value().is_string())
-                {
-                    DEBUG_ERROR("Material path is not a string at slot: " + it.key());
-                    continue;
-                }
-
-                std::string path = it.value().get<std::string>();
-
-                parsed.emplace_back(slot, std::move(path));
-                if (slot > maxSlot)
-                    maxSlot = slot;
-            }
-
-            if (maxSlot >= 0)
-                materials.resize(maxSlot + 1, nullptr);
-
-            // Second pass: load materials
-            for (auto& [slot, path] : parsed)
-            {
-                auto material =
-                    GetEngineContext()->GetResourcesManager()->Get<Rendering::Material>(Core::Resources::AssetKind::Material, path);
+                material = GetEngineContext()->GetResourcesManager()->Get<Rendering::Material>(Core::Resources::AssetKind::Material, "materials/default.mat");
 
                 if (!material)
                 {
-                    DEBUG_ERROR("Failed to load material: " + path + ", using fallback");
-
-                    material =
-                        GetEngineContext()->GetResourcesManager()->Get<Rendering::Material>(Core::Resources::AssetKind::Material, "materials/default.mat");
-
-                    if (!material)
-                    {
-                        DEBUG_ERROR("Critical: fallback material missing (materials/default.mat)");
-                        continue;
-                    }
+                    DEBUG_ERROR("Critical: fallback material missing (materials/default.mat)");
+                    continue;
                 }
-
-                materials[slot] = material;
             }
+
+            loadedMaterials[slot] = material;
         }
 
-        SetMaterials(std::move(materials));
+        SetMaterials(std::move(loadedMaterials));
 
         // ---------------- ACTIVE ----------------
-        if (getBool("active", false))
-            Activate();
-        else
-            DeActivate();
+        DeserializeActive(data, false);
     }
 
     ordered_json Model::Serialize()
     {
-        ordered_json comp;
+        // The model's state is its mesh and materials, the ID fields follow them
+        if (mesh)
+            meshID = mesh->GetAssetID();
 
-        comp["type"] = "model";
+        materialsID.clear();
+        for (const auto& material : materials)
+            materialsID.push_back(material ? material->GetAssetID() : Filesystem::AssetID());
 
-        comp["active"] = activated;
-
-        comp["mesh"] = GetEngineContext()->GetAssetIDManager()->GetAssetFromID(mesh->GetAssetID())->baseInfos.nameInProject;
-
-        // Always emit the key, even with zero materials - nlohmann::json only creates "materials" the
-        // first time comp["materials"][...] is assigned, so a model with no materials yet (e.g. right
-        // after AddComponent<Model>(), before a mesh/material is picked) would otherwise round-trip
-        // through save/load with the key missing entirely, which Deserialize below logs as corruption.
-        comp["materials"] = ordered_json::object();
-        for(int i = 0; i < materials.size(); i++){
-            std::string matNameInProject = GetEngineContext()->GetAssetIDManager()->GetAssetFromID(materials[i]->GetAssetID())->baseInfos.nameInProject;
-            comp["materials"][std::to_string(i)] = matNameInProject;
-        }
-
-        return comp;
+        return SerializeReflected("model");
     }
 
     void Model::SetMesh(std::string meshPath)

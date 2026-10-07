@@ -15,27 +15,6 @@
 
 using namespace Shard::Engine;
 
-void Character::Deserialize(const json componentData) {
-    // Deserialize fields
-    if(componentData.contains("active") && componentData["active"].is_boolean() && componentData["active"]){
-        Activate();
-    }
-    else{
-        DeActivate();
-    }
-}
-
-ordered_json Character::Serialize() {
-    
-    ordered_json comp;
-
-    comp["type"] = "Character";
-
-    comp["active"] = activated;
-
-    return comp;
-}
-
 void Character::OnPlay() {
     glm::vec3 forward = parent->transform->GetForward();
     pitch = glm::degrees(asinf(glm::clamp(forward.y, -1.0f, 1.0f)));
