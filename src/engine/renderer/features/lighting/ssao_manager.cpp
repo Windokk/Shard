@@ -200,6 +200,14 @@ namespace Shard::Engine::Rendering {
         if (!world)
             return;
 
+        // lit.frag never samples the AO texture while SSAO is off (ssaoEnabled gate), so the whole chain -
+        // the depth+normal prepass re-draws every mesh - is pure waste then : skip all three passes.
+        for (const char* passName : { "SSAODepthNormalPass", "SSAORawPass", "SSAOBlurPass" })
+        {
+            if (auto pass = renderer->GetRenderPass(passName))
+                pass->enabled = world->ssaoEnabled;
+        }
+
         auto cam = Core::GetEngine().GetCameraManager()->GetActiveCamera();
         if (!cam)
             return;

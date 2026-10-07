@@ -1,6 +1,6 @@
 #!/bin/bash
-# Configure the build
-cmake -S . -B build -G "Unix Makefiles"
+# Configure the build (usage: ./build.sh [Debug|Release|RelWithDebInfo] - omit to keep the build folder's current type)
+cmake -S . -B build -G "Unix Makefiles" ${1:+-DCMAKE_BUILD_TYPE=$1}
 if [ $? -ne 0 ]; then
     echo "[ERROR] CMake configuration failed."
     exit $?

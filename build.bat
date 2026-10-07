@@ -1,6 +1,8 @@
 @echo off
-REM Configure the build
-cmake -S . -B build -G "MinGW Makefiles"
+REM Configure the build (usage: build.bat [Debug|Release|RelWithDebInfo] - omit to keep the build folder's current type)
+set BUILD_TYPE_ARG=
+if not "%~1"=="" set BUILD_TYPE_ARG=-DCMAKE_BUILD_TYPE=%~1
+cmake -S . -B build -G "MinGW Makefiles" %BUILD_TYPE_ARG%
 IF %ERRORLEVEL% NEQ 0 (
     echo [ERROR] CMake configuration failed.
     exit /b %ERRORLEVEL%

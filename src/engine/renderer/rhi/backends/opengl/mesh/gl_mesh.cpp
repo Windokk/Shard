@@ -67,6 +67,10 @@ namespace Shard::Engine::Rendering{
             }
         }
 
+        // The single submesh spans the whole mesh
+        m_Submeshes[0].boundsMin = m_BoundsMin;
+        m_Submeshes[0].boundsMax = m_BoundsMax;
+
         GenerateGLBuffers();
     }
 

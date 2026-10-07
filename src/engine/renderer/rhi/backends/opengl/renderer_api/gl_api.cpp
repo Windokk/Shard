@@ -59,6 +59,7 @@ namespace Shard::Engine::Rendering{
     void GLRendererAPI::Clear(ClearBit clearBits)
     {
         GLStateCache::Reset();
+        m_LastDraw = LastDraw{};
 
         GLbitfield bits = 0;
 
@@ -84,6 +85,7 @@ namespace Shard::Engine::Rendering{
     void GLRendererAPI::InvalidateStateCache()
     {
         GLStateCache::Reset();
+        m_LastDraw = LastDraw{};
     }
 
     void GLRendererAPI::SetDebugView(const DebugViewState& state)
@@ -229,9 +231,39 @@ namespace Shard::Engine::Rendering{
             std::shared_ptr<GLShader> glShader = std::static_pointer_cast<GLShader>(pipeline->GetSpecifications().shader);
             GLuint program = glShader->GetProgram();
 
+            const Material* drawMaterial = pass->overridePipeline ? nullptr : command.material.get();
+            const bool sameAsLastDraw = !command.fullscreenTri
+                && m_LastDraw.pass == pass.get()
+                && m_LastDraw.pipeline == pipeline.get()
+                && m_LastDraw.material == drawMaterial;
+
             if(!command.fullscreenTri)
-                m_Scene->BindWorldState(*this, pipeline->GetSpecifications().shader, command.modelMatrix, command.objectID,
-                    GLStateCache::NeedsPassGlobalsUpdate(program, GLStateCache::PassGlobalsKind::World));
+            {
+                if(sameAsLastDraw)
+                {
+                    // Nothing scene-wide or material-specific can have changed since the previous draw : only
+                    // what is genuinely per-object needs re-uploading.
+                    if(command.modelMatrix != m_LastDraw.modelMatrix)
+                        pipeline->GetSpecifications().shader->SetMat4("model", command.modelMatrix);
+                    if(command.objectID != m_LastDraw.objectID)
+                        pipeline->GetSpecifications().shader->SetInt("objID", command.objectID);
+                }
+                else
+                {
+                    m_Scene->BindWorldState(*this, pipeline->GetSpecifications().shader, command.modelMatrix, command.objectID,
+                        GLStateCache::NeedsPassGlobalsUpdate(program, GLStateCache::PassGlobalsKind::World));
+                }
+
+                m_LastDraw.pass = pass.get();
+                m_LastDraw.pipeline = pipeline.get();
+                m_LastDraw.material = drawMaterial;
+                m_LastDraw.modelMatrix = command.modelMatrix;
+                m_LastDraw.objectID = command.objectID;
+            }
+            else
+            {
+                m_LastDraw = LastDraw{};
+            }
 
             if(command.bindCameraState && GLStateCache::NeedsPassGlobalsUpdate(program, GLStateCache::PassGlobalsKind::Camera)){
                 RenderView currentView;
@@ -242,7 +274,10 @@ namespace Shard::Engine::Rendering{
                 }
             }
 
-            if(pass->overridePipeline){
+            if(sameAsLastDraw){
+                // Same pass, pipeline and material as the draw before : its uniforms and texture units are still bound
+            }
+            else if(pass->overridePipeline){
                 BindPassData(pass, pipeline);
             }
             else{

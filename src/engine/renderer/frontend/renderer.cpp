@@ -16,11 +16,73 @@
 #include "engine/renderer/frontend/render_asset_kinds.hpp"
 #include "engine/world/actor.hpp"
 #include "engine/core/diagnostics/profiler.hpp"
+#include "engine/renderer/rhi/frustum.hpp"
 #include <queue>
 #include <algorithm>
 #include <glm/gtx/string_cast.hpp>
 
 namespace Shard::Engine::Rendering{
+
+    namespace {
+
+        // FNV-1a over raw bytes, chained through `h`. Only used to detect "did anything this pass depends on
+        // change since it last ran" (RenderPass::cacheOutput), so a collision merely costs a stale frame and
+        // -0.0f vs 0.0f merely costs a redundant redraw.
+        uint64_t HashBytes(uint64_t h, const void* data, size_t size)
+        {
+            const uint8_t* bytes = static_cast<const uint8_t*>(data);
+            for (size_t i = 0; i < size; i++)
+            {
+                h ^= bytes[i];
+                h *= 1099511628211ULL;
+            }
+            return h;
+        }
+
+        template<typename T>
+        uint64_t HashValue(uint64_t h, const T& value)
+        {
+            return HashBytes(h, &value, sizeof(T));
+        }
+
+        uint64_t HashDrawList(const std::vector<DrawCommand>& list)
+        {
+            uint64_t h = 1469598103934665603ULL;
+            h = HashValue(h, list.size());
+
+            for (const DrawCommand& cmd : list)
+            {
+                h = HashValue(h, cmd.commandID);
+                h = HashValue(h, cmd.indexOffset);
+                h = HashValue(h, cmd.indexCount);
+                h = HashValue(h, cmd.mesh.get());
+                h = HashValue(h, cmd.material.get());
+                h = HashValue(h, cmd.modelMatrix);
+            }
+
+            return h;
+        }
+
+        uint64_t HashPassState(const RenderPass& pass, uint64_t drawListHash)
+        {
+            uint64_t h = drawListHash;
+
+            h = HashValue(h, pass.target.get());
+            if (pass.target)
+                h = HashValue(h, pass.target->GetDepthAttachment());
+            h = HashValue(h, pass.customPipeline.get());
+
+            for (const auto& [name, value] : pass.customUniforms)
+            {
+                h = HashBytes(h, name.data(), name.size());
+                h = HashValue(h, value.index());
+                std::visit([&h](const auto& v) { h = HashValue(h, v); }, value);
+            }
+
+            return h;
+        }
+
+    }
 
     void Renderer::Init(std::shared_ptr<RendererSettings> initialSettings)
     {
@@ -693,11 +755,40 @@ namespace Shard::Engine::Rendering{
 
     void Renderer::DrawFrame()
     {
+        // Hash of each external draw list (the shadow list is shared by every shadow pass), computed at most
+        // once per frame and only if a cacheable pass actually asks for it.
+        std::unordered_map<const std::vector<DrawCommand>*, uint64_t> drawListHashes;
+
         for (const auto& passName : m_ExecutionOrder)
         {
             auto pass = m_RenderPasses[passName];
             if (!pass->enabled)
                 continue;
+
+            // Without a camera (or a pushed view) ExecuteRenderPass() draws nothing, so there is no result worth
+            // remembering : keep rendering (just the clear) and forget any cached state until one exists.
+            const bool canCache = !m_ViewStack.empty() || Core::GetEngine().GetCameraManager()->GetActiveCamera() != nullptr;
+
+            if (pass->cacheOutput && !canCache)
+                pass->hasCachedState = false;
+
+            if (pass->cacheOutput && canCache)
+            {
+                const std::vector<DrawCommand>* list = pass->externalDrawList ? pass->externalDrawList : &pass->drawList;
+
+                auto hashIt = drawListHashes.find(list);
+                if (hashIt == drawListHashes.end())
+                    hashIt = drawListHashes.emplace(list, HashDrawList(*list)).first;
+
+                const uint64_t stateHash = HashPassState(*pass, hashIt->second);
+
+                if (pass->hasCachedState && pass->cachedStateHash == stateHash)
+                    continue; // nothing this pass depends on changed : its target still holds last frame's result
+
+                pass->cachedStateHash = stateHash;
+                pass->hasCachedState = true;
+            }
+
             BeginRenderPass(pass);
 
             if (passName == "ForwardPass")
@@ -836,7 +927,28 @@ namespace Shard::Engine::Rendering{
         }
 
         // The camera's frustum only describes the active camera's view, so a pushed view is never culled.
-        bool cullingActive = camera && camera->frustumCulling && m_CurrentPass->allowCulling;
+        // A pass that can't use it (a shadow pass : the light's view volume is what matters) may name its own
+        // view-projection uniform instead - see RenderPass::cullMatrixUniform.
+        bool cullingActive = false;
+        FrustumPlanes frustumPlanes;
+
+        if (camera && camera->frustumCulling && m_CurrentPass->allowCulling)
+        {
+            cullingActive = true;
+            frustumPlanes = ExtractFrustumPlanes(camera->GetMatrix());
+        }
+        else if (!m_CurrentPass->allowCulling && !m_CurrentPass->cullMatrixUniform.empty())
+        {
+            auto it = m_CurrentPass->customUniforms.find(m_CurrentPass->cullMatrixUniform);
+            if (it != m_CurrentPass->customUniforms.end())
+            {
+                if (const glm::mat4* matrix = std::get_if<glm::mat4>(&it->second))
+                {
+                    cullingActive = true;
+                    frustumPlanes = ExtractFrustumPlanes(*matrix);
+                }
+            }
+        }
 
         for(auto& drawCmd : (m_CurrentPass->externalDrawList ? *m_CurrentPass->externalDrawList : m_CurrentPass->drawList)){
 
@@ -875,7 +987,7 @@ namespace Shard::Engine::Rendering{
                     glm::vec3 worldMin = worldCenter - worldExtents;
                     glm::vec3 worldMax = worldCenter + worldExtents;
 
-                    if (worldMin != worldMax && !camera->IsInFrustum(worldMin, worldMax))
+                    if (worldMin != worldMax && !AABBInFrustum(frustumPlanes, worldMin, worldMax))
                         skip = true;
                 }
             }

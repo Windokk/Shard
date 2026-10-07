@@ -11,7 +11,11 @@ if(UNIX)
     set(QT_NO_PRIVATE_MODULE_WARNING ON)
 endif()
 
-set(CMAKE_BUILD_TYPE Debug)
+# Debug unless the caller picks one (cmake -DCMAKE_BUILD_TYPE=Release ..., or `build.bat Release`) : Debug is -O0, which
+# is far slower than Release for the engine and Jolt alike.
+if(NOT CMAKE_BUILD_TYPE)
+    set(CMAKE_BUILD_TYPE Debug)
+endif()
 
 # --- Unified build output directory ---
 set(OUTPUT_DIR "${CMAKE_SOURCE_DIR}/build")

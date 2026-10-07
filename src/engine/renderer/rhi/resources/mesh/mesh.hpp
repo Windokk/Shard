@@ -3,6 +3,7 @@
 #include <vector>
 #include <memory>
 #include <limits>
+#include <algorithm>
 
 #include "engine/core/color.hpp"
 
@@ -23,7 +24,17 @@ namespace Shard::Engine::Rendering {
         // Index of the source material slot this submesh belongs to (matches the
         // mesh's FBX material order, which is what world files address by slot).
         uint32_t materialIndex = 0;
+        // Mesh-space bounds of just this submesh's triangles, used to frustum-cull it on its own. Left at
+        // zero (min == max) a submesh is never culled - see Renderer::ExecuteRenderPass.
+        glm::vec3 boundsMin = glm::vec3(0);
+        glm::vec3 boundsMax = glm::vec3(0);
     };
+
+    // A material slot's triangles are split into spatially compact submeshes (a kd-tree on the triangle
+    // centroids) of at most this many triangles, so frustum culling - per submesh - can discard the parts of
+    // a large mesh that are out of view instead of drawing all of it whenever any of it is visible. Meshes
+    // whose slots are all smaller than this keep one submesh per slot.
+    inline constexpr size_t kMaxSubMeshTriangles = 32768;
 
     class Material;
     class CommandBuffer;
@@ -118,6 +129,16 @@ namespace Shard::Engine::Rendering {
 
             const int SubMeshesCount() const { return m_Submeshes.size(); }
             const std::vector<SubMesh>& GetSubMeshes() const { return m_Submeshes; }
+
+            /// How many material slots the mesh addresses (what a Model's material list has to match). Not the
+            /// same as SubMeshesCount() : one slot can be split into several spatial submeshes.
+            size_t GetMaterialSlotCount() const
+            {
+                size_t slots = 1;
+                for (const SubMesh& submesh : m_Submeshes)
+                    slots = std::max<size_t>(slots, (size_t)submesh.materialIndex + 1);
+                return slots;
+            }
 
             const size_t GetIndexCount() const { return m_Indices.size(); }
             const std::vector<uint32_t>& GetIndices() const { return m_Indices; }

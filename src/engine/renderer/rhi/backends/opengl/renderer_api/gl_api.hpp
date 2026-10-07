@@ -44,6 +44,18 @@ namespace Shard::Engine::Rendering{
             ComputeLimits m_ComputeLimits;
             bool m_ComputeLimitsQueried = false;
 
+            // What the previous ExecuteDrawCommand left bound. A mesh split into spatial chunks issues many
+            // consecutive draws with the same pass, pipeline and material; for those only the per-object
+            // uniforms can differ, so the (string-keyed, hence slow) material / scene / pass uniform uploads
+            // are skipped. Forgotten whenever the GL state cache is (a pass start, a view-mode sweep).
+            struct LastDraw {
+                const RenderPass* pass = nullptr;
+                const Pipeline* pipeline = nullptr;
+                const Material* material = nullptr; // null for a pass that overrides the pipeline
+                glm::mat4 modelMatrix = glm::mat4(1.0f);
+                uint32_t objectID = 0;
+            } m_LastDraw;
+
             void BindMesh(std::shared_ptr<Mesh> mesh);
 
             void BindPipeline(std::shared_ptr<Pipeline> pipeline);

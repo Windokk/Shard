@@ -6,6 +6,7 @@
 
 #include "engine/world/actor.hpp"
 #include "engine/renderer/components/camera_manager.hpp"
+#include "engine/renderer/rhi/frustum.hpp"
 
 #include "camera.reflection.hpp"
 
@@ -188,85 +189,7 @@ namespace Shard::Engine::Objects::Components {
         if (!frustumCulling)
             return true;
 
-        glm::mat4 m = cameraMatrix;
-
-        Frustum frustum;
-
-        // Right plane
-        frustum.rightFace.normal.x = m[0][3] - m[0][0];
-        frustum.rightFace.normal.y = m[1][3] - m[1][0];
-        frustum.rightFace.normal.z = m[2][3] - m[2][0];
-        frustum.rightFace.d        = m[3][3] - m[3][0];
-
-        // Left plane
-        frustum.leftFace.normal.x = m[0][3] + m[0][0];
-        frustum.leftFace.normal.y = m[1][3] + m[1][0];
-        frustum.leftFace.normal.z = m[2][3] + m[2][0];
-        frustum.leftFace.d        = m[3][3] + m[3][0];
-
-        // Bottom plane
-        frustum.bottomFace.normal.x = m[0][3] + m[0][1];
-        frustum.bottomFace.normal.y = m[1][3] + m[1][1];
-        frustum.bottomFace.normal.z = m[2][3] + m[2][1];
-        frustum.bottomFace.d        = m[3][3] + m[3][1];
-
-        // Top plane
-        frustum.topFace.normal.x = m[0][3] - m[0][1];
-        frustum.topFace.normal.y = m[1][3] - m[1][1];
-        frustum.topFace.normal.z = m[2][3] - m[2][1];
-        frustum.topFace.d        = m[3][3] - m[3][1];
-
-        // Far plane
-        frustum.farFace.normal.x = m[0][3] - m[0][2];
-        frustum.farFace.normal.y = m[1][3] - m[1][2];
-        frustum.farFace.normal.z = m[2][3] - m[2][2];
-        frustum.farFace.d        = m[3][3] - m[3][2];
-
-        // Near plane
-        frustum.nearFace.normal.x = m[0][3] + m[0][2];
-        frustum.nearFace.normal.y = m[1][3] + m[1][2];
-        frustum.nearFace.normal.z = m[2][3] + m[2][2];
-        frustum.nearFace.d        = m[3][3] + m[3][2];
-
-        // Normalize planes
-        auto normalizePlane = [](Plane &p) {
-            float len = glm::length(p.normal);
-            p.normal /= len;
-            p.d /= len;
-        };
-
-        normalizePlane(frustum.rightFace);
-        normalizePlane(frustum.leftFace);
-        normalizePlane(frustum.topFace);
-        normalizePlane(frustum.bottomFace);
-        normalizePlane(frustum.nearFace);
-        normalizePlane(frustum.farFace);
-
-        Plane planes[6] = {
-            frustum.rightFace, frustum.leftFace, frustum.topFace,
-            frustum.bottomFace, frustum.nearFace, frustum.farFace
-        };
-
-        for (int i = 0; i < 6; ++i)
-        {
-            Plane &plane = planes[i];
-
-            // Compute the positive vertex
-            glm::vec3 pVertex = boundsMin;
-
-            if (plane.normal.x >= 0) pVertex.x = boundsMax.x;
-            if (plane.normal.y >= 0) pVertex.y = boundsMax.y;
-            if (plane.normal.z >= 0) pVertex.z = boundsMax.z;
-
-            // If the positive vertex is outside the plane, the AABB is outside
-            if (glm::dot(plane.normal, pVertex) + plane.d < 0)
-            {
-                return false;
-            }
-        }
-
-        // Otherwise, it's at least partially inside
-        return true;
+        return Rendering::AABBInFrustum(Rendering::ExtractFrustumPlanes(cameraMatrix), boundsMin, boundsMax);
     }
 
     void Camera::OnFieldChanged(const FieldChangedEvent &event)

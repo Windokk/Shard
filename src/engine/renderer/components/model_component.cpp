@@ -164,7 +164,7 @@ namespace Shard::Engine::Objects::Components{
             this->mesh = newMesh;
             this->meshID = mesh->GetAssetID();
 
-            size_t submeshCount = mesh->GetSubMeshes().size();
+            size_t submeshCount = mesh->GetMaterialSlotCount();
             if(materials.size() != submeshCount)
             {
                 std::vector<std::shared_ptr<Rendering::Material>> resized(submeshCount, nullptr);
@@ -211,7 +211,7 @@ namespace Shard::Engine::Objects::Components{
             this->mesh = GetEngineContext()->GetResourcesManager()->Get<Rendering::Mesh>(Core::Resources::AssetKind::Mesh, name);
             this->meshID = mesh->GetAssetID();
 
-            size_t submeshCount = mesh->GetSubMeshes().size();
+            size_t submeshCount = mesh->GetMaterialSlotCount();
             if(materials.size() != submeshCount)
             {
                 std::vector<std::shared_ptr<Rendering::Material>> resized(submeshCount, nullptr);

@@ -28,11 +28,25 @@ namespace Shard::Engine::Rendering {
         std::shared_ptr<Pipeline> customPipeline = nullptr;
         bool allowResize = true;
         bool allowCulling = true;
+        // Name of a mat4 in customUniforms to frustum-cull against instead of the active camera - a shadow pass
+        // sets "lightSpaceMatrix", so casters outside the light's view volume are never submitted. Only used
+        // when allowCulling is false (the camera's frustum would be the wrong volume for such a pass). The
+        // result matches what the GPU would clip anyway, it just spares the vertex work. Empty = no culling.
+        std::string cullMatrixUniform;
         // Skipped entirely in Renderer::DrawFrame() when false - lets a pass stay registered (keeping
         // its dependents, target, draw list, etc. intact) while producing nothing this frame, e.g. the
         // editor hiding its probe-marker gizmos without touching the ProbeVolume components that
         // actually drive GI (which stay active either way).
         bool enabled = true;
+        // Opt-in output caching (shadow maps) : Renderer::DrawFrame() hashes everything this pass's output
+        // depends on (target, pipeline, customUniforms, and the contents of its draw list) and skips the
+        // whole pass - clear included - when that hash is identical to the one from the last frame it
+        // actually ran, leaving the target's previous contents in place. Only valid for a pass whose output
+        // is a pure function of those inputs : with allowCulling on, the active camera's frustum would also
+        // decide what gets drawn, and the hash doesn't see it. Leave false for anything else.
+        bool cacheOutput = false;
+        uint64_t cachedStateHash = 0;
+        bool hasCachedState = false;
         // Issued once, right after this pass finishes executing (Renderer::EndRenderPass) - needed only
         // when something this pass wrote is later read in a way the driver can't track through normal
         // bind-point synchronization (e.g. a bindless texture handle sampled by a later pass, mirroring

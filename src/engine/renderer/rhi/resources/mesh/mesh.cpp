@@ -9,6 +9,7 @@
 
 #include <unordered_map>
 #include <cstring>
+#include <algorithm>
 #include <glm/gtc/epsilon.hpp>
 
 namespace {
@@ -125,6 +126,135 @@ namespace Shard::Engine::Rendering{
         }
     }
 
+    namespace {
+
+        // One run of a slot's triangles, after SplitIntoChunks has made it spatially compact.
+        struct ChunkRange {
+            size_t firstIndex = 0;
+            size_t indexCount = 0;
+            size_t vertexCount = 0; // distinct vertices the chunk's triangles reference
+            glm::vec3 boundsMin = glm::vec3(0);
+            glm::vec3 boundsMax = glm::vec3(0);
+        };
+
+        // Splits one material slot's triangles into chunks of at most `maxTriangles`, by recursively cutting at
+        // the median triangle centroid along the longest axis (a kd-tree) - so every chunk covers a compact region
+        // and can be frustum-culled on its own. When the slot is larger than one chunk, `verts` and `indices`
+        // are rewritten so each chunk's indices are contiguous and the vertices are in first-use order (a
+        // chunk then reads a compact range of the vertex buffer instead of strided-over-the-whole-slot).
+        // Vertices are shared between chunks, never duplicated.
+        std::vector<ChunkRange> SplitIntoChunks(std::vector<Vertex>& verts, std::vector<unsigned int>& indices, size_t maxTriangles)
+        {
+            const size_t triangleCount = indices.size() / 3;
+            std::vector<ChunkRange> chunks;
+
+            if (triangleCount <= maxTriangles) {
+                ChunkRange only;
+                only.firstIndex = 0;
+                only.indexCount = indices.size();
+                only.vertexCount = verts.size();
+                if (triangleCount > 0) {
+                    only.boundsMin = glm::vec3(std::numeric_limits<float>::max());
+                    only.boundsMax = glm::vec3(std::numeric_limits<float>::lowest());
+                    for (unsigned int index : indices) {
+                        only.boundsMin = glm::min(only.boundsMin, verts[index].position);
+                        only.boundsMax = glm::max(only.boundsMax, verts[index].position);
+                    }
+                }
+                chunks.push_back(only);
+                return chunks;
+            }
+
+            std::vector<glm::vec3> centroids(triangleCount);
+            for (size_t t = 0; t < triangleCount; t++)
+                centroids[t] = (verts[indices[t * 3]].position + verts[indices[t * 3 + 1]].position + verts[indices[t * 3 + 2]].position) / 3.0f;
+
+            std::vector<uint32_t> order(triangleCount);
+            for (size_t t = 0; t < triangleCount; t++)
+                order[t] = static_cast<uint32_t>(t);
+
+            // Depth-first with the left half popped first, so the leaves come out in a spatially coherent order.
+            std::vector<std::pair<size_t, size_t>> leaves;
+            std::vector<std::pair<size_t, size_t>> stack = { { 0, triangleCount } };
+
+            while (!stack.empty()) {
+                auto [begin, end] = stack.back();
+                stack.pop_back();
+
+                if (end - begin <= maxTriangles) {
+                    leaves.emplace_back(begin, end);
+                    continue;
+                }
+
+                glm::vec3 cMin(std::numeric_limits<float>::max());
+                glm::vec3 cMax(std::numeric_limits<float>::lowest());
+                for (size_t i = begin; i < end; i++) {
+                    cMin = glm::min(cMin, centroids[order[i]]);
+                    cMax = glm::max(cMax, centroids[order[i]]);
+                }
+
+                glm::vec3 extent = cMax - cMin;
+                int axis = (extent.y > extent.x) ? 1 : 0;
+                if (extent.z > extent[axis])
+                    axis = 2;
+
+                size_t mid = begin + (end - begin) / 2;
+                std::nth_element(order.begin() + begin, order.begin() + mid, order.begin() + end,
+                    [&](uint32_t a, uint32_t b) { return centroids[a][axis] < centroids[b][axis]; });
+
+                stack.emplace_back(mid, end);
+                stack.emplace_back(begin, mid);
+            }
+
+            std::vector<Vertex> newVerts;
+            newVerts.reserve(verts.size());
+            std::vector<unsigned int> newIndices;
+            newIndices.reserve(indices.size());
+
+            constexpr unsigned int unmapped = std::numeric_limits<unsigned int>::max();
+            std::vector<unsigned int> remap(verts.size(), unmapped);
+            std::vector<unsigned int> lastChunkSeen(verts.size(), unmapped);
+
+            for (size_t chunkIndex = 0; chunkIndex < leaves.size(); chunkIndex++) {
+                auto [begin, end] = leaves[chunkIndex];
+
+                // Source order inside a chunk keeps whatever locality the file already had
+                std::sort(order.begin() + begin, order.begin() + end);
+
+                ChunkRange chunk;
+                chunk.firstIndex = newIndices.size();
+                chunk.indexCount = (end - begin) * 3;
+                chunk.boundsMin = glm::vec3(std::numeric_limits<float>::max());
+                chunk.boundsMax = glm::vec3(std::numeric_limits<float>::lowest());
+
+                for (size_t i = begin; i < end; i++) {
+                    for (size_t k = 0; k < 3; k++) {
+                        unsigned int oldIndex = indices[order[i] * 3 + k];
+
+                        if (remap[oldIndex] == unmapped) {
+                            remap[oldIndex] = static_cast<unsigned int>(newVerts.size());
+                            newVerts.push_back(verts[oldIndex]);
+                        }
+                        if (lastChunkSeen[oldIndex] != chunkIndex) {
+                            lastChunkSeen[oldIndex] = static_cast<unsigned int>(chunkIndex);
+                            chunk.vertexCount++;
+                        }
+
+                        newIndices.push_back(remap[oldIndex]);
+                        chunk.boundsMin = glm::min(chunk.boundsMin, verts[oldIndex].position);
+                        chunk.boundsMax = glm::max(chunk.boundsMax, verts[oldIndex].position);
+                    }
+                }
+
+                chunks.push_back(chunk);
+            }
+
+            verts = std::move(newVerts);
+            indices = std::move(newIndices);
+            return chunks;
+        }
+    }
+
     MeshCPUData BuildMeshCPUDataFromFBX(const ufbx_mesh *ufbx_mesh, double scene_unit_meters,
         ufbx_material_list &ufbx_mats, ufbx_node *mesh_node, COL_RGBA vertexColor)
     {
@@ -225,8 +355,9 @@ namespace Shard::Engine::Rendering{
 
             ComputeTangents(group.verts, group.localIndices);
 
-            size_t indexOffset = result.indices.size();
-            size_t indexCount = group.localIndices.size();
+            // One submesh per spatial chunk of this slot, all pointing at the same material slot. An unused slot
+            // still yields one (empty) submesh so the slot numbering stays aligned.
+            std::vector<ChunkRange> chunks = SplitIntoChunks(group.verts, group.localIndices, kMaxSubMeshTriangles);
 
             size_t vertexOffset = totalVertexCount;
             totalVertexCount += group.verts.size();
@@ -244,15 +375,21 @@ namespace Shard::Engine::Rendering{
                 );
             }
 
+            size_t slotIndexOffset = result.indices.size();
+
             for (auto idx : group.localIndices)
                 result.indices.push_back(static_cast<uint32_t>(vertexOffset + idx));
 
-            result.submeshes.push_back(SubMesh{
-                .indexOffset = indexOffset,
-                .indexCount = indexCount,
-                .vertexCount = group.verts.size(),
-                .materialIndex = slot
-            });
+            for (const ChunkRange& chunk : chunks) {
+                result.submeshes.push_back(SubMesh{
+                    .indexOffset = slotIndexOffset + chunk.firstIndex,
+                    .indexCount = chunk.indexCount,
+                    .vertexCount = chunk.vertexCount,
+                    .materialIndex = slot,
+                    .boundsMin = chunk.boundsMin,
+                    .boundsMax = chunk.boundsMax
+                });
+            }
         }
 
         result.layout = {
@@ -336,8 +473,9 @@ namespace Shard::Engine::Rendering{
             return {};
         }
 
-        if(mats.size() != m_Submeshes.size() && m_Submeshes.size() != 1){
-            DEBUG_WARNING("Mesh submesh count and supplied material count differ; clamping material slots");
+        // Compared against material slots, not submeshes : one slot may be split into several spatial submeshes
+        if(mats.size() != GetMaterialSlotCount() && GetMaterialSlotCount() != 1){
+            DEBUG_WARNING("Mesh material slot count and supplied material count differ; clamping material slots");
         }
 
         std::vector<DrawCommand> cmds;
@@ -362,9 +500,9 @@ namespace Shard::Engine::Rendering{
             cmd.objectID    = tr->parent->GetID().GetAsInt();
             cmd.modelID     = modelID;
 
-            /// @todo Per draw cmd bounds
-            cmd.boundsMax = m_BoundsMax;
-            cmd.boundsMin = m_BoundsMin;
+            // Per-submesh bounds, so frustum culling can drop the parts of a big mesh that are out of view
+            cmd.boundsMax = m_Submeshes[i].boundsMax;
+            cmd.boundsMin = m_Submeshes[i].boundsMin;
 
             cmds.push_back(cmd);
         }

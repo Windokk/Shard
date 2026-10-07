@@ -176,6 +176,9 @@ namespace Shard::Engine::Rendering{
             pass->customUniforms.emplace("lightSpaceMatrix", sm->lightMatrix[0]);
             pass->allowResize = false;
             pass->allowCulling = false;
+            pass->cullMatrixUniform = "lightSpaceMatrix";
+            // Skipped while the light and every caster hold still (see RenderPass::cacheOutput).
+            pass->cacheOutput = true;
             
             std::string passName = "ShadowPass_" + std::to_string(lightIndex) + "_0";
             sm->passes.push_back(passName);
@@ -225,6 +228,9 @@ namespace Shard::Engine::Rendering{
 
                 pass->allowResize = false;
                 pass->allowCulling = false;
+                pass->cullMatrixUniform = "lightSpaceMatrix";
+                // Skipped while the light, the camera fit and every caster hold still (see RenderPass::cacheOutput).
+                pass->cacheOutput = true;
 
                 std::string passName = "ShadowPass_" + std::to_string(lightIndex) + "_" + std::to_string(passes.size());
                 sm->passes.push_back(passName); 
