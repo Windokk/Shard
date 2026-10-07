@@ -24,4 +24,4 @@ IF %ERRORLEVEL% NEQ 0 (
 
 REM Run the editor only if build succeeded
 echo [INFO] Build succeeded. Starting editor...
-start "" ./ShardEditor.exe --game libGameModule.dll --project ..\\example_project\\example_project.json --api opengl
+start "" ./ShardGame.exe --game libGameModule.dll --project ..\\example_project\\example_project.json --api opengl

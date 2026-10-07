@@ -88,14 +88,13 @@ namespace Shard::Engine::Objects::Components{
         shapes[0].params.Initialize(&BoxParams_descriptor);
     }
 
-    JPH::ShapeRefC PhysicsBody::CreateJoltShape(Physics::PhysicsShape shape, const InstancedStruct& params, size_t index)
+    JPH::ShapeRefC PhysicsBody::CreateJoltShape(Physics::PhysicsShape shape, const InstancedStruct& params)
     {
         // Jolt shapes have no scale of their own - their dimensions must be baked in at creation time
         // from the actor's composed world scale (like Unity sizing colliders from lossyScale), not just
         // its own local scale, otherwise a shape parented under a scaled actor is built at the wrong size.
         glm::vec3 scale = parent->transform->GetWorldScale();
 
-        Core::DebugShapeDesc debugShape;
         JPH::ShapeRefC result;
 
         switch (shape)
@@ -108,8 +107,6 @@ namespace Shard::Engine::Objects::Components{
                 float size = std::max({ scale.x, scale.y, scale.z });
 
                 JPH::SphereShapeSettings s(p->radius * size);
-                debugShape.kind = Core::DebugShapeKind::Sphere;
-                debugShape.radius = p->radius;
 
                 auto r = s.Create();
                 if (r.HasError()) { return nullptr; }
@@ -126,9 +123,6 @@ namespace Shard::Engine::Objects::Components{
                     JPH::Vec3(p->halfExtent.x * scale.x, p->halfExtent.y * scale.y, p->halfExtent.z * scale.z)
                 );
 
-                debugShape.kind = Core::DebugShapeKind::Box;
-                debugShape.halfExtent = p->halfExtent;
-
                 auto r = s.Create();
                 if (r.HasError()) { return nullptr; }
                 result = r.Get();
@@ -141,10 +135,6 @@ namespace Shard::Engine::Objects::Components{
                 if (!p) return nullptr;
 
                 JPH::CapsuleShapeSettings s(p->halfHeight * scale.y, p->radius * glm::max(scale.x, scale.z));
-
-                debugShape.kind = Core::DebugShapeKind::Capsule;
-                debugShape.radius = p->radius;
-                debugShape.halfHeight = p->halfHeight;
 
                 auto r = s.Create();
                 if (r.HasError()) { return nullptr; }
@@ -159,10 +149,6 @@ namespace Shard::Engine::Objects::Components{
 
                 JPH::CylinderShapeSettings s(p->halfHeight * scale.y, p->radius * glm::max(scale.x, scale.z));
 
-                debugShape.kind = Core::DebugShapeKind::Cylinder;
-                debugShape.radius = p->radius;
-                debugShape.halfHeight = p->halfHeight;
-
                 auto r = s.Create();
                 if (r.HasError()) { return nullptr; }
                 result = r.Get();
@@ -172,13 +158,6 @@ namespace Shard::Engine::Objects::Components{
             default:
                 return nullptr;
         }
-
-        if (index >= m_DebugShapes.size())
-            m_DebugShapes.resize(index + 1, 0);
-
-        Core::IDebugDraw* debugDraw = GetEngineContext()->GetDebugDraw();
-        debugDraw->DestroyShape(m_DebugShapes[index]);
-        m_DebugShapes[index] = debugDraw->CreateShape(debugShape);
 
         return result;
     }
@@ -191,7 +170,7 @@ namespace Shard::Engine::Objects::Components{
         std::vector<JPH::ShapeRefC> subShapes(shapes.size());
         for (size_t i = 0; i < shapes.size(); i++)
         {
-            subShapes[i] = CreateJoltShape(shapes[i].shapeType, shapes[i].params, i);
+            subShapes[i] = CreateJoltShape(shapes[i].shapeType, shapes[i].params);
             if (!subShapes[i])
                 return nullptr;
         }
@@ -343,13 +322,10 @@ namespace Shard::Engine::Objects::Components{
         const bool rotDirty   = parent->transform->IsDirty(DirtyFlags::Rotation);
         const bool scaleDirty = parent->transform->IsDirty(DirtyFlags::Scale);
 
-        bool shouldUpdateDrawCmd = false;
-
         if(shouldUpdateShape)
         {
             CreateBody(motionType);
             shouldUpdateShape = false;
-            shouldUpdateDrawCmd = true;
         }
 
         if (!playing)
@@ -359,13 +335,11 @@ namespace Shard::Engine::Objects::Components{
             if (scaleDirty)
             {
                 CreateBody(motionType);
-                shouldUpdateDrawCmd = true;
             }
 
             if (posDirty || rotDirty)
             {
                 ApplyTransformToPhysics(dt);
-                shouldUpdateDrawCmd = true;
             }
         }
         else
@@ -374,7 +348,6 @@ namespace Shard::Engine::Objects::Components{
             if (motionType == EMotionType::Dynamic)
             {
                 SyncTransformFromPhysics();
-                shouldUpdateDrawCmd = true;
             }
             else if (motionType == EMotionType::Kinematic)
             {
@@ -386,44 +359,8 @@ namespace Shard::Engine::Objects::Components{
                 if (posDirty || rotDirty || hasParent)
                 {
                     ApplyTransformToPhysics(dt);
-                    shouldUpdateDrawCmd = true;
                 }
             }
-        }
-
-        if(shouldUpdateDrawCmd && !m_DebugShapes.empty()){
-            std::vector<Core::DebugDrawItem> items;
-            items.reserve(m_DebugShapes.size());
-
-            for (size_t i = 0; i < m_DebugShapes.size(); i++)
-            {
-                if (m_DebugShapes[i] == 0)
-                    continue;
-
-                Core::DebugDrawItem item;
-                item.shape = m_DebugShapes[i];
-                item.ownerID = parent->GetComponentIDInWorld(local_id);
-
-                // Each shape's debug mesh is generated in its own local space (unscaled, uncentered),
-                // so fold that shape's offset/rotation into the model matrix on top of the actor's
-                // transform - this has to match how BuildShape() places the same shape in Jolt (there,
-                // the offset is pre-scaled and handed to Jolt's compound/rotated-translated shape; here,
-                // the actor's transform matrix already carries that same scale, so composing with the
-                // raw offset lands in the same place).
-                glm::mat4 localOffset(1.0f);
-                if (i < shapes.size())
-                {
-                    localOffset = glm::translate(glm::mat4(1.0f), shapes[i].offset) * glm::mat4_cast(shapes[i].rotation);
-                }
-
-                item.model = parent->transform->GetWorldMatrix() * localOffset;
-                item.objectID = parent->GetID().GetAsInt();
-
-                items.push_back(item);
-            }
-
-            if (!items.empty())
-                GetEngineContext()->GetDebugDraw()->Draw(Core::DebugDrawLayer::Physics, items);
         }
 
         parent->transform->ClearDirty(DirtyFlags::All);
@@ -506,14 +443,6 @@ namespace Shard::Engine::Objects::Components{
             GetEngineContext()->GetPhysicsManager()->RemoveBody(m_BodyID);
             m_BodyID = JPH::BodyID();
         }
-
-        for (Core::DebugShapeHandle shape : m_DebugShapes)
-        {
-            if (shape != 0)
-                GetEngineContext()->GetDebugDraw()->DestroyShape(shape);
-        }
-
-        m_DebugShapes.clear();
     }
 
     void PhysicsBody::Deserialize(const json componentData)
@@ -688,11 +617,6 @@ namespace Shard::Engine::Objects::Components{
     {
         auto cloned = Object::Create<PhysicsBody>(*this);
         cloned->m_BodyID = JPH::BodyID();
-
-        // The copy above shallow-copied our debug shape pointers - they still belong to `this`.
-        // Clear the clone's list (without deleting) so CreateBody() below builds its own instead
-        // of both objects pointing at (and eventually double-deleting) the same debug shapes.
-        cloned->m_DebugShapes.clear();
 
         cloned->CreateBody(motionType);
         return cloned;

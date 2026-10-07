@@ -20,8 +20,6 @@
 #include "engine/assets/reflection/reflection_fields.hpp"
 #include "engine/assets/reflection/attributes.hpp"
 
-#include "engine/core/debug_draw.hpp"
-
 
 namespace Shard::Engine::Objects::Components
 {
@@ -223,7 +221,7 @@ namespace Shard::Engine::Objects::Components
 
             JPH::ShapeRefC BuildShape();
 
-            JPH::ShapeRefC CreateJoltShape(Physics::PhysicsShape shape, const InstancedStruct& params, size_t index);
+            JPH::ShapeRefC CreateJoltShape(Physics::PhysicsShape shape, const InstancedStruct& params);
 
             /// @brief Pushes the current overrideMass/mass fields to the live body (or resets to the
             /// shape's auto-calculated mass when overrideMass is false). Used by both SetMass() and
@@ -233,8 +231,6 @@ namespace Shard::Engine::Objects::Components
             std::vector<PhysicsShapeEntry> shapes;
 
             JPH::BodyID m_BodyID = JPH::BodyID();
-
-            std::vector<Core::DebugShapeHandle> m_DebugShapes;
 
             JPH::ShapeRefC m_Shape;
 

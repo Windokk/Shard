@@ -390,7 +390,10 @@ namespace Shard::Editor::Core{
         // Wait for viewport size to be initialized
         if(!renderPassesInitialized && viewport->GetViewportSize() != glm::vec2(50,50)
             && viewport->GetViewportSize().x > 0 && viewport->GetViewportSize().y > 0){
-        
+
+            // The colliders, the volumes and the probes : drawn by the editor, the engine knows none of them
+            debugDraw.Init();
+
             /// Outline mask pass
 
             Rendering::FramebufferSpecifications fbOutlineMaskSpecs;
@@ -560,7 +563,11 @@ namespace Shard::Editor::Core{
             outlinePass->customSamplers["maskTex"] = fbOutlineMask->GetColorAttachment();
             outlinePass->customSamplers["seedTex"] = fbJFAFinal->GetColorAttachment();
 
-            renderer->AddRenderPass(outlinePass, "EditorOutlinePass", {prevPassName, "ProbeGizmoPass"});
+            // After everything the editor draws over the scene, so the outline lands on top of it
+            renderer->AddRenderPass(outlinePass, "EditorOutlinePass", {prevPassName,
+                Debug::EditorDebugDraw::PassOf(Debug::DebugLayer::Volumes),
+                Debug::EditorDebugDraw::PassOf(Debug::DebugLayer::Probes),
+                Debug::EditorDebugDraw::PassOf(Debug::DebugLayer::Physics)});
 
             Rendering::DrawCommand cmd{};
             cmd.fullscreenTri = true;
@@ -625,6 +632,11 @@ namespace Shard::Editor::Core{
             debugView.showLighting = settings.showLighting;
             debugView.showShadows = settings.showShadows;
             renderer->SetDebugView(debugView);
+
+            debugDraw.SetLayerVisible(Debug::DebugLayer::Volumes, settings.showGizmos);
+            debugDraw.SetLayerVisible(Debug::DebugLayer::Probes, settings.showDDGIGizmos);
+            debugDraw.SetLayerVisible(Debug::DebugLayer::Physics, settings.showPhysicsShapes);
+            debugDraw.Update();
 
             // Re-submit the selected actor's model(s) every frame rather than only on selection change -
             // AddToPass captures the transform's current matrix at call time (see

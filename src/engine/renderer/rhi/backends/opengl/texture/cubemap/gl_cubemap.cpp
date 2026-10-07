@@ -14,6 +14,9 @@ namespace Shard::Engine::Rendering{
 
         GLTextureSpec glSpecs = GLTextureSpec::FromTextureSpecifications(specs);
 
+        // Tightly packed rows, see GLTexture2D
+        glPixelStorei(GL_UNPACK_ALIGNMENT, 1);
+
         for(int i = 0; i < 6; i++){
             glTexImage2D(GL_TEXTURE_CUBE_MAP_POSITIVE_X + i, 0, glSpecs.internalFormat, specs.width, specs.height, 0, glSpecs.format, glSpecs.type, faces[i]);
         }
@@ -72,6 +75,9 @@ namespace Shard::Engine::Rendering{
             specs.height,
             m_CubemapCount * 6
         );
+
+        // Tightly packed rows, see GLTexture2D
+        glPixelStorei(GL_UNPACK_ALIGNMENT, 1);
 
         // Upload each cubemap face
         for (int cube = 0; cube < m_CubemapCount; cube++)

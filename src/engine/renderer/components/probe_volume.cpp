@@ -3,7 +3,6 @@
 #include "engine/renderer/rhi/render_context.hpp"
 #include "engine/renderer/features/lighting/probe_manager.hpp"
 #include "engine/renderer/rhi/resources/mesh/mesh.hpp"
-#include "engine/renderer/features/debug/debug_shapes.hpp"
 #include "engine/world/components/transform.hpp"
 #include "engine/world/actor.hpp"
 
@@ -46,71 +45,8 @@ namespace Shard::Engine::Objects::Components{
         return (halfExtent * 2.0f) / glm::vec3(divisions);
     }
 
-    void ProbeVolume::RebuildProbeVisualization()
-    {
-        if (!activated || !parent)
-            return;
-
-        glm::ivec3 counts = glm::max(probeCounts, glm::ivec3(1));
-        glm::vec3 spacing = GetGridSpacing();
-        glm::vec3 localOrigin = -halfExtent + spacing * 0.5f; // relative to the actor's position - see GetGridOrigin()
-
-        std::vector<glm::vec3> centers;
-        centers.reserve((size_t)counts.x * (size_t)counts.y * (size_t)counts.z);
-        for (int z = 0; z < counts.z; z++)
-            for (int y = 0; y < counts.y; y++)
-                for (int x = 0; x < counts.x; x++)
-                    centers.push_back(localOrigin + spacing * glm::vec3((float)x, (float)y, (float)z));
-
-        Filesystem::AssetID previousDebugMeshID;
-        if (m_ProbeDebugShape && m_ProbeDebugShape->m_Mesh)
-            previousDebugMeshID = m_ProbeDebugShape->m_Mesh->GetAssetID();
-
-        delete m_ProbeDebugShape;
-        m_ProbeDebugShape = new Rendering::DebugMultiSphere(centers, 0.08f, COL_RGBA(1.0f, 1.0f, 1.0f, 1.0f));
-
-        if (previousDebugMeshID.GetAsInt() != 0)
-            m_ProbeDebugShape->m_Mesh->SetAssetID(previousDebugMeshID);
-        else
-            m_ProbeDebugShape->m_Mesh->SetAssetID(GetEngineContext()->GetAssetIDManager()->GenerateNewID());
-
-        RefreshDebugDrawCommands();
-    }
-
-    glm::mat4 ProbeVolume::GetDebugModelMatrix() const
-    {
-        return glm::translate(glm::mat4(1.0f), parent->transform->GetWorldPosition());
-    }
-
-    void ProbeVolume::RefreshDebugDrawCommands()
-    {
-        Volume::RefreshDebugDrawCommands();
-
-        if (!m_ProbeDebugShape || !m_ProbeDebugShape->m_Mesh || !parent || !parent->world || !parent->world->IsLoaded())
-            return;
-
-        Rendering::DrawCommand cmd = {};
-
-        cmd.boundsMax = m_ProbeDebugShape->m_Mesh->GetBoundsMax();
-        cmd.boundsMin = m_ProbeDebugShape->m_Mesh->GetBoundsMin();
-        cmd.indexCount = m_ProbeDebugShape->m_Mesh->GetIndexCount();
-        cmd.indexOffset = 0;
-        cmd.material = GetEngineContext()->GetRenderContext()->GetDebugMaterial();
-        cmd.mesh = m_ProbeDebugShape->m_Mesh;
-        cmd.modelID = parent->GetComponentIDInWorld(local_id);
-        cmd.modelMatrix = GetDebugModelMatrix();
-        cmd.objectID = parent->GetID().GetAsInt();
-        cmd.vertexCount = m_ProbeDebugShape->m_Mesh->GetVertexCount();
-
-        // Its own pass (see Renderer::Init()), not "ForwardPass" like Volume's own box wireframe - lets
-        // the editor hide just these markers (RenderPass::enabled) without touching ProbeVolume's
-        // activation state, which must keep driving GI regardless of whether the markers are shown.
-        GetEngineContext()->GetRenderContext()->AddOrUpdateCommands({cmd}, {"ProbeGizmoPass"}, false);
-    }
-
     void ProbeVolume::Activate()
     {
-        RebuildProbeVisualization();
         Volume::Activate();
 
         if(parent && parent->world && parent->world->IsLoaded())
@@ -150,31 +86,11 @@ namespace Shard::Engine::Objects::Components{
     {
         if(parent && parent->world && parent->world->IsLoaded())
             GetEngineContext()->GetRenderContext()->GetProbeManager()->RemoveActiveVolume(this);
-
-        if (m_ProbeDebugShape && m_ProbeDebugShape->m_Mesh && parent)
-        {
-            uint64_t cmdID = Rendering::MakeCommandID(m_ProbeDebugShape->m_Mesh->GetAssetID().GetAsInt(), parent->GetComponentIDInWorld(local_id), 0);
-            GetEngineContext()->GetRenderContext()->RemoveCommands({cmdID}, {"ProbeGizmoPass"}, false);
-        }
-        delete m_ProbeDebugShape;
-        m_ProbeDebugShape = nullptr;
-
-        Volume::Destroy();
     }
 
     void ProbeVolume::OnFieldChanged(const FieldChangedEvent &event)
     {
         std::string name = event.field->name;
-
-        if (name == "halfExtent")
-        {
-            Volume::OnFieldChanged(event); // rebuilds the box wireframe
-            RebuildProbeVisualization();   // halfExtent also changes probe spacing - regenerate the markers
-        }
-        else if (name == "probeCounts")
-        {
-            RebuildProbeVisualization();
-        }
 
         // enableRelocation only needs the grid rebuilt so accumulated relocation offsets are zeroed
         // (RebuildGrid re-inits probeStateBuffer) - the per-frame dispatch is already gated on the flag.

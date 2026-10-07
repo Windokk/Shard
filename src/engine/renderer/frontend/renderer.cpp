@@ -152,20 +152,6 @@ namespace Shard::Engine::Rendering{
         AddRenderPass(forwardPass, "ForwardPass", {});
         m_RendererAPI->SetClearColor(0,0,0,1);
 
-        std::shared_ptr<RenderPass> probeGizmoPass = std::make_shared<RenderPass>();
-        probeGizmoPass->target = m_ViewportBuffer;
-        probeGizmoPass->clearColor = false;
-        probeGizmoPass->clearDepth = false;
-        probeGizmoPass->overridePipeline = false;
-        AddRenderPass(probeGizmoPass, "ProbeGizmoPass", {"ForwardPass"});
-
-        std::shared_ptr<RenderPass> physicsDebugPass = std::make_shared<RenderPass>();
-        physicsDebugPass->target = m_ViewportBuffer;
-        physicsDebugPass->clearColor = false;
-        physicsDebugPass->clearDepth = false;
-        physicsDebugPass->overridePipeline = false;
-        AddRenderPass(physicsDebugPass, "PhysicsDebugPass", {"ForwardPass"});
-
         m_SSAOManager = std::make_shared<SSAOManager>();
         m_SSAOManager->Init(this, m_Settings->viewportWidth, m_Settings->viewportHeight);
 
@@ -175,32 +161,6 @@ namespace Shard::Engine::Rendering{
 
         m_ImmediateRenderer.Init(this);
         m_ThumbnailService.Init(this);
-
-        struct Vertex {
-            glm::vec3 position;
-            glm::vec2 texCoord;
-            glm::vec3 normal;
-            glm::vec4 color;
-        };
-
-        // Init debug shapes pipeline
-        Rendering::VertexLayout vertexLayout = {{{"aPos", Rendering::ShaderDataType::Vec3, 0, offsetof(Vertex, position)},{"aTexCoord", Rendering::ShaderDataType::Vec2, 1, offsetof(Vertex, texCoord)},
-                                                {"aNormal", Rendering::ShaderDataType::Vec3, 2, offsetof(Vertex, normal)}, {"aColor", Rendering::ShaderDataType::Vec4, 3, offsetof(Vertex, color)}}, 
-                                                    sizeof(Vertex)};
-
-        Rendering::PipelineSpecifications pipelineSpecs;
-        pipelineSpecs.blending = false;
-        pipelineSpecs.cullMode = Rendering::CullMode::None;
-        pipelineSpecs.debugName = "PhysicsDebug";
-        pipelineSpecs.polygonMode = Rendering::PolygonMode::Line;
-        pipelineSpecs.topology = Rendering::PrimitiveTopology::Lines;
-        pipelineSpecs.shader = Core::GetEngine().GetResourcesManager()->Get<Rendering::Shader>(Core::Resources::AssetKind::Shader, "shaders/mesh/unlit");
-        pipelineSpecs.vertexLayout = vertexLayout;
-
-        std::shared_ptr<Rendering::Pipeline> pipeline = Core::GetEngine().GetRenderer()->GetOrAddPipeline(pipelineSpecs);
-
-        m_DebugMat = Rendering::Material::Create(Core::GetEngine().GetResourcesManager()->Get<Rendering::Shader>(Core::Resources::AssetKind::Shader, "shaders/mesh/unlit"), pipeline, false, Rendering::Opacity::Opaque);
-        m_DebugMat->SetScalarParameter("useTexture", false);
     }
 
     void Renderer::BuildExecutionOrder()

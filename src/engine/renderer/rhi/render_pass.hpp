@@ -30,8 +30,8 @@ namespace Shard::Engine::Rendering {
         bool allowCulling = true;
         // Skipped entirely in Renderer::DrawFrame() when false - lets a pass stay registered (keeping
         // its dependents, target, draw list, etc. intact) while producing nothing this frame, e.g. the
-        // editor hiding probe-marker gizmos (ProbeGizmoPass) without touching the ProbeVolume components
-        // that actually drive GI (which stay active either way).
+        // editor hiding its probe-marker gizmos without touching the ProbeVolume components that
+        // actually drive GI (which stay active either way).
         bool enabled = true;
         // Issued once, right after this pass finishes executing (Renderer::EndRenderPass) - needed only
         // when something this pass wrote is later read in a way the driver can't track through normal

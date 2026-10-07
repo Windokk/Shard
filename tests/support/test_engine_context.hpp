@@ -42,7 +42,6 @@ namespace Shard::Tests {
             Shard::Engine::Rendering::Renderer* GetRenderer() const override { Unsupported("GetRenderer"); return nullptr; }
             Shard::Engine::Rendering::IRenderContext* GetRenderContext() const override { Unsupported("GetRenderContext"); return nullptr; }
             Shard::Engine::Rendering::CameraManager* GetCameraManager() const override { Unsupported("GetCameraManager"); return nullptr; }
-            Shard::Engine::Core::IDebugDraw* GetDebugDraw() const override { Unsupported("GetDebugDraw"); return nullptr; }
             Shard::Engine::Core::Resources::ResourcesManager* GetResourcesManager() const override { Unsupported("GetResourcesManager"); return nullptr; }
             Shard::Engine::Filesystem::FileManager* GetFileManager() const override { Unsupported("GetFileManager"); return nullptr; }
             Shard::Engine::Filesystem::AssetIDManager* GetAssetIDManager() const override { Unsupported("GetAssetIDManager"); return nullptr; }

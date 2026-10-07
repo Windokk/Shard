@@ -10,8 +10,7 @@
 namespace Shard::Engine::Objects::Components
 {
     // Places a real-time diffuse GI probe grid in the world (see ProbeManager). Bounding box (halfExtent)
-    // and its wireframe gizmo come from Volume - this adds the probe grid resolution/ray count and a
-    // second gizmo (small white spheres, one per probe - see RebuildProbeVisualization()). Up to
+    // comes from Volume - this adds the probe grid resolution/ray count. Up to
     // ProbeManager::kMaxProbeVolumes volumes can be simultaneously active (see
     // ProbeManager::AddActiveVolume) - a shading point picks the SMALLEST active volume whose grid
     // actually contains it (see DDGI_PickVolume in lit.frag), so a small, densely-packed local volume
@@ -109,20 +108,5 @@ namespace Shard::Engine::Objects::Components
             bool enableRelocation = true;
 
             DECLARE_DESCRIPTOR(ProbeVolume)
-
-        protected:
-            void RefreshDebugDrawCommands() override;
-
-            // The grid is translation-only (see class comment) - override so the box wireframe (from
-            // Volume) and the probe-marker gizmo below both preview that instead of the actor's full
-            // transform, which would show rotation/scale the actual grid doesn't have.
-            glm::mat4 GetDebugModelMatrix() const override;
-
-        private:
-            // (Re)builds the probe-marker gizmo (small white spheres, one per probe position) - called
-            // whenever halfExtent or probeCounts changes, since both affect probe layout.
-            void RebuildProbeVisualization();
-
-            Rendering::DebugShape* m_ProbeDebugShape = nullptr;
     };
 }

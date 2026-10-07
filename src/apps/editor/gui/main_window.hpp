@@ -20,6 +20,7 @@
 #include "apps/editor/gui/panels/console/console.hpp"
 #include "apps/editor/gui/panels/profiler/profiler_panel.hpp"
 #include "apps/editor/gui/panels/menu_bar/menu_bar.hpp"
+#include "apps/editor/debug/editor_debug_draw.hpp"
 
 #include "imgui/imgui.h"
 #include "imgui/imgui_internal.h"
@@ -138,6 +139,9 @@ namespace Shard::Editor::Core {
         GUI::ProfilerPanel* profilerPanel = nullptr;
         GUI::MenuBar* menuBar = nullptr;
         
+        // What the editor draws over the scene for the components (colliders, volumes, probes)
+        Debug::EditorDebugDraw debugDraw;
+
         // User data
         std::shared_ptr<Engine::Objects::Actor> selectedActor = nullptr;
 

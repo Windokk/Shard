@@ -629,10 +629,6 @@ namespace Shard::Editor::GUI {
 
         ImGui::Checkbox("Show DDGI Gizmos ?", &parent->settings.showDDGIGizmos);
 
-        auto probeGizmoPass = Engine::Core::GetEngine().GetRenderer()->GetRenderPass("ProbeGizmoPass");
-        if (probeGizmoPass)
-            probeGizmoPass->enabled = parent->settings.showDDGIGizmos;
-
         ImGui::Checkbox("Show Physics Shapes ?", &parent->settings.showPhysicsShapes);
 
         ImGui::Separator();
@@ -683,10 +679,6 @@ namespace Shard::Editor::GUI {
             }
             ImGui::EndCombo();
         }
-
-        auto physicsDebugPass = Engine::Core::GetEngine().GetRenderer()->GetRenderPass("PhysicsDebugPass");
-        if (physicsDebugPass)
-            physicsDebugPass->enabled = parent->settings.showPhysicsShapes;
 
         ImGui::End();
     }

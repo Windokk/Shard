@@ -56,7 +56,6 @@ namespace Shard::Engine::Rendering {
 
             virtual const std::shared_ptr<Mesh> GetUnitCube() = 0;
             virtual const std::shared_ptr<Mesh> GetUnitQuad() = 0;
-            virtual const std::shared_ptr<Material> GetDebugMaterial() = 0;
 
             virtual const std::shared_ptr<ShadowManager> GetShadowManager() = 0;
             virtual const std::shared_ptr<LightManager> GetLightManager() = 0;

@@ -119,7 +119,6 @@ bool GetCurrentView(RenderView& out) override;
             const std::shared_ptr<ProbeManager> GetProbeManager() override { return m_ProbeManager; }
             const std::shared_ptr<SSAOManager> GetSSAOManager() override { return m_SSAOManager; }
             const std::shared_ptr<LightCullingManager> GetLightCullingManager() override { return m_LightCullingManager; }
-            const std::shared_ptr<Material> GetDebugMaterial() override { return m_DebugMat; }
 
         private:
 
@@ -176,7 +175,5 @@ bool GetCurrentView(RenderView& out) override;
             uint32_t m_PrimitivesCount = 0;
             uint32_t m_VerticesCount = 0;
             std::unordered_map<uint64_t, uint32_t> m_CommandRefCount;
-
-            std::shared_ptr<Material> m_DebugMat = nullptr;
     };
 }

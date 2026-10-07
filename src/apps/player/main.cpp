@@ -14,9 +14,39 @@ using namespace Shard::Engine::Objects;
 using namespace Shard::Game;
 
 #include <iostream>
+#include <optional>
 
 Debugging::Level minDebugLevel = Debugging::Level::Log;
 std::string mainModuleLib = "";
+
+// --view-mode : a debug view of the scene (what the editor's viewport "View Mode" shows), for tracking a rendering
+// problem down in the player itself. None : the normal render.
+std::optional<ViewMode> debugViewMode;
+
+bool ParseViewMode(const std::string& name, ViewMode& out)
+{
+    static const struct { const char* name; ViewMode mode; } modes[] = {
+        { "lit", ViewMode::Lit },
+        { "unlit", ViewMode::Unlit },
+        { "wireframe", ViewMode::Wireframe },
+        { "shaded-wireframe", ViewMode::ShadedWireframe },
+        { "normals", ViewMode::Normals },
+        { "depth", ViewMode::Depth },
+        { "uvs", ViewMode::UVs },
+        { "gi", ViewMode::GlobalIllumination },
+        { "ssao", ViewMode::SSAO },
+    };
+
+    for (const auto& m : modes)
+    {
+        if (name == m.name)
+        {
+            out = m.mode;
+            return true;
+        }
+    }
+    return false;
+}
 
 EngineCreationSettings ComputeEngineSettings(int argc, char* argv[]) {
     Engine::Core::EngineCreationSettings settings;
@@ -59,6 +89,14 @@ EngineCreationSettings ComputeEngineSettings(int argc, char* argv[]) {
             } else {
                 std::cerr << "Unknown debug level: " << level << ". Using default (Log).\n";
             }
+        }
+        else if (strcmp(argv[i], "--view-mode") == 0 && i + 1 < argc) {
+            std::string name = argv[++i];
+            ViewMode mode;
+            if (ParseViewMode(name, mode))
+                debugViewMode = mode;
+            else
+                std::cerr << "Unknown view mode: " << name << ". Use lit, unlit, wireframe, shaded-wireframe, normals, depth, uvs, gi or ssao." << std::endl;
         }
         else if(strcmp(argv[i], "--game") == 0 && i + 1 < argc){
             mainModuleLib = argv[++i];
@@ -114,6 +152,13 @@ int main(int argc, char* argv[]) {
     Engine::Core::GetEngine().Init(engineSettings);
 
     
+    if (debugViewMode)
+    {
+        DebugViewState debugView;
+        debugView.mode = *debugViewMode;
+        Engine::Core::GetEngine().GetRenderer()->SetDebugView(debugView);
+    }
+
     Engine::Core::GetEngine().SetPlayMode(true);
 
     //Main Loop

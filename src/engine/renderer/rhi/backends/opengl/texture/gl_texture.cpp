@@ -78,6 +78,11 @@ namespace Shard::Engine::Rendering{
             glTexParameterfv(GL_TEXTURE_2D, GL_TEXTURE_BORDER_COLOR, borderColor);
         }
 
+        // The pixels are tightly packed (a row is width * channels bytes, whatever the width) : without this GL reads
+        // each row from the next multiple of 4, so a texture whose rows aren't one (an RGB or single-channel image
+        // with a width that isn't a multiple of 4) comes out skewed, row after row.
+        glPixelStorei(GL_UNPACK_ALIGNMENT, 1);
+
         if (specs.immutableStorage)
         {
             int mipLevels = specs.generateMips

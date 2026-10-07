@@ -6,9 +6,13 @@
 #include <vector>
 
 namespace Shard::Engine::Rendering {
-
     class Mesh;
+}
 
+namespace Shard::Editor::Debug {
+
+    /// A wireframe mesh the editor draws over the scene (the colliders, the volumes...). Editor only : none of
+    /// it exists in a game.
     class DebugShape
     {
         public:
@@ -16,7 +20,7 @@ namespace Shard::Engine::Rendering {
             DebugShape() = default;
             virtual ~DebugShape();
 
-            std::shared_ptr<Mesh> m_Mesh;
+            std::shared_ptr<Engine::Rendering::Mesh> m_Mesh;
     };
 
     class DebugBox : public DebugShape

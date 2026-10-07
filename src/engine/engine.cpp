@@ -15,7 +15,6 @@
 #include "engine/renderer/components/camera_manager.hpp"
 #include "engine/world/actor.hpp"
 #include "engine/audio/audio_manager.hpp"
-#include "engine/renderer/features/debug/debug_draw.hpp"
 #include "engine/physics/physics_manager.hpp"
 #include "engine/renderer/frontend/renderer.hpp"
 #include "engine/audio/audio_world_data.hpp"
@@ -124,8 +123,6 @@ namespace Shard::Engine{
             m_Context.assetIDManager = new Filesystem::AssetIDManager();
             m_Context.fileManager = new Filesystem::FileManager(*m_Context.assetIDManager);
             m_Context.resourcesManager = new Resources::ResourcesManager(*m_Context.fileManager, *m_Context.assetIDManager);
-
-            m_Context.debugDraw = new Rendering::DebugDraw(*m_Context.renderer, *m_Context.assetIDManager);
 
             m_Context.objIDManager = new ObjectIDManager();
 

@@ -1,11 +1,14 @@
-#include "debug_shapes.hpp"
+#include "apps/editor/debug/debug_shapes.hpp"
 
 #include <glm/gtc/constants.hpp>
 
 #include "engine/renderer/rhi/resources/mesh/mesh.hpp"
 #include "engine/renderer/rhi/shader/shader.hpp"
 
-namespace Shard::Engine::Rendering {
+namespace Shard::Editor::Debug {
+
+    using Engine::Rendering::Mesh;
+    using Engine::Rendering::ShaderDataType;
 
     struct Vertex {
         glm::vec3 position;

@@ -2,6 +2,12 @@
 # and writes the *.reflection.hpp files next to them. Needs LLVM + Clang + zlib : when they are missing the tool is
 # skipped (the generated files are committed, only a change of a reflected class needs the tool).
 
+option(SHARD_BUILD_REFLECT "Build ShardReflect (needs a complete LLVM + Clang install)" ON)
+if(NOT SHARD_BUILD_REFLECT)
+    message(STATUS "ShardReflect skipped : SHARD_BUILD_REFLECT is OFF")
+    return()
+endif()
+
 find_package(ZLIB QUIET)
 find_package(LLVM QUIET CONFIG)
 find_package(Clang QUIET CONFIG)
@@ -22,7 +28,9 @@ endif()
 add_executable(ShardReflect src/main.cpp)
 
 target_include_directories(ShardReflect SYSTEM PRIVATE ${LLVM_INCLUDE_DIRS})
-target_compile_definitions(ShardReflect PRIVATE ${LLVM_DEFINITIONS})
+# LLVM_DEFINITIONS is one string of "-D..." flags, not a CMake list : split it, or it ends up as a single broken definition
+separate_arguments(SHARD_REFLECT_LLVM_DEFINITIONS NATIVE_COMMAND "${LLVM_DEFINITIONS}")
+target_compile_options(ShardReflect PRIVATE ${SHARD_REFLECT_LLVM_DEFINITIONS})
 
 target_link_libraries(ShardReflect PRIVATE
     clangTooling
