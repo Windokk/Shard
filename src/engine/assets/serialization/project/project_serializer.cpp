@@ -121,11 +121,24 @@ namespace Shard::Engine::Serialization{
                 DEBUG_INFO("No physics settings for project: "+path.full+", using the defaults");
             }
 
+            Projects::RenderingSettings renderingSettings;
+
+            if(data.contains("rendering") && data["rendering"].is_object()){
+                const json& rendering = data["rendering"];
+
+                if(rendering.contains("occlusionCulling") && rendering["occlusionCulling"].is_boolean())
+                    renderingSettings.occlusionCulling = rendering["occlusionCulling"];
+            }
+            else{
+                DEBUG_INFO("No rendering settings for project: "+path.full+", using the defaults");
+            }
+
             Projects::EditorPreferences editorPrefs = {};
 
             project = std::make_shared<Projects::Project>(path.GetFilename(false), projectRoot, projectResPath, pluginsPath, buildSettings, editorPrefs, assetDatabasePath);
 
             *project->GetPhysicsSettings() = physicsSettings;
+            *project->GetRenderingSettings() = renderingSettings;
 
             project->versionMajor = projectMajorVersion;
             project->versionMinor = projectMinorVersion;
@@ -162,6 +175,8 @@ namespace Shard::Engine::Serialization{
         data["physics"]["gravity"]["z"] = physics->gravity.z;
         data["physics"]["fixedTimeStep"] = physics->fixedTimeStep;
         data["physics"]["maxAccumulatedTime"] = physics->maxAccumulatedTime;
+
+        data["rendering"]["occlusionCulling"] = pro->GetRenderingSettings()->occlusionCulling;
 
         //TODO data["editorPreferences"] = pro->GetEditorPrefs();
 

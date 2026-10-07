@@ -51,6 +51,7 @@ namespace Shard::Engine::Rendering {
         TextureFetch     = 1 << 2, // subsequent sampling of a written image/texture from another shader (GL_TEXTURE_FETCH_BARRIER_BIT)
         BufferUpdate     = 1 << 3, // glBufferData/glBufferSubData/glGetBufferSubData (StorageBuffer::GetData) after a compute write (GL_BUFFER_UPDATE_BARRIER_BIT)
         VertexAttribArray = 1 << 4, // vertex/index buffers written by compute, read by a draw (GL_VERTEX_ATTRIB_ARRAY_BARRIER_BIT)
+        Command          = 1 << 6, // indirect draw/dispatch arguments written by compute, consumed by a draw (GL_COMMAND_BARRIER_BIT)
         TextureUpdate    = 1 << 5, // glGetTexImage (Texture2D::ReadPixels) / glTexSubImage* after an image-load-store write (GL_TEXTURE_UPDATE_BARRIER_BIT) - distinct from TextureFetch, which is for shader sampling, not host readback
         All              = 0xFFFFFFFF
     };
@@ -176,6 +177,12 @@ namespace Shard::Engine::Rendering {
             virtual glm::vec4 GetClearColor() = 0;
 
             virtual void Clear(ClearBit clearBits) = 0;
+
+            /// @brief While non-zero (a buffer handle, see StorageBuffer::GetHandle), a DrawCommand whose cullSlot is
+            /// >= 0 is issued as an indirect indexed draw reading its arguments from that buffer at
+            /// cullSlot * 20 bytes (count, instanceCount, firstIndex, baseVertex, baseInstance) - so a compute
+            /// shader decides, on the GPU, whether the draw produces anything. 0 = every draw is a plain direct draw.
+            virtual void SetIndirectDrawBuffer(uint32_t bufferHandle) = 0;
 
             /// @brief Forget every piece of API state the backend caches to skip redundant calls. Call after
             /// touching the API outside the normal draw path (immediate renders, raw calls, ...).

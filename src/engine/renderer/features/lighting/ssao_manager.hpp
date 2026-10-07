@@ -74,6 +74,6 @@ namespace Shard::Engine::Rendering {
             static constexpr int kKernelSize = 32;
             static constexpr int kNoiseTileSize = 4; // 4x4 tiled rotation texture
 
-            std::mt19937 m_RNG{ std::random_device{}() };
+            std::mt19937 m_RNG{ 1234 }; // TEMP-SEED
     };
 }

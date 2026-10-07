@@ -19,6 +19,8 @@ namespace Shard::Engine::Rendering{
 
             uint32_t GetSize() const override { return m_Size; }
 
+            uint32_t GetHandle() const override { return m_Buffer; }
+
         private:
             uint32_t m_Buffer;
             uint32_t m_Size;

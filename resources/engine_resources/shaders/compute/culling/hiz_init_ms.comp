@@ -1,0 +1,27 @@
+#version 430 core
+
+// Level 0 of the Hi-Z pyramid (see OcclusionCullingManager) from a MULTISAMPLED depth texture : the farthest of the
+// pixel's samples. Taking the farthest (not the average, not sample 0) is what keeps the occlusion test
+// conservative - a pixel whose samples straddle a silhouette edge only counts as covered up to its farthest sample.
+
+layout(local_size_x = 8, local_size_y = 8) in;
+
+layout(binding = 47) uniform sampler2DMS uDepth;
+layout(r32f, binding = 0) writeonly uniform image2D uHiZ0;
+
+uniform int sizeX;
+uniform int sizeY;
+uniform int sampleCount;
+
+void main()
+{
+    ivec2 p = ivec2(gl_GlobalInvocationID.xy);
+    if (p.x >= sizeX || p.y >= sizeY)
+        return;
+
+    float farthest = 0.0;
+    for (int s = 0; s < sampleCount; s++)
+        farthest = max(farthest, texelFetch(uDepth, p, s).r);
+
+    imageStore(uHiZ0, p, vec4(farthest));
+}

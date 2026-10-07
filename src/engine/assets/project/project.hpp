@@ -83,6 +83,13 @@ namespace Shard::Engine::Projects{
         float maxAccumulatedTime = 0.25f;
     };
 
+    struct RenderingSettings{
+        /// Lets the GPU skip the draws of geometry that is hidden behind other geometry (Hi-Z occlusion culling,
+        /// see OcclusionCullingManager). It never changes the image, only how much is drawn to produce it, so the
+        /// only reason to turn it off is to compare, or to rule it out when chasing a rendering problem.
+        bool occlusionCulling = true;
+    };
+
     class Project{
         public:
 
@@ -109,6 +116,8 @@ namespace Shard::Engine::Projects{
 
             PhysicsSettings* GetPhysicsSettings() { return &physicsSettings; }
 
+            RenderingSettings* GetRenderingSettings() { return &renderingSettings; }
+
             EditorPreferences GetEditorPrefs() { return editorPreferences; }
 
         private:
@@ -118,6 +127,7 @@ namespace Shard::Engine::Projects{
             Filesystem::Path assetDatabasePath = Filesystem::Path("");
             BuildSettings buildSettings;
             PhysicsSettings physicsSettings;
+            RenderingSettings renderingSettings;
             EditorPreferences editorPreferences;
     };
 

@@ -46,7 +46,8 @@ namespace Shard::Engine::Rendering {
         Depth16,
         Depth24,
         Depth32,
-        Depth32F
+        Depth32F,
+        R32F
     };
 
     enum class TextureFormat

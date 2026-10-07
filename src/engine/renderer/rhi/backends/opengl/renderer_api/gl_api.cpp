@@ -207,6 +207,25 @@ namespace Shard::Engine::Rendering{
         );
     }
 
+    void GLRendererAPI::SetIndirectDrawBuffer(uint32_t bufferHandle)
+    {
+        m_IndirectBuffer = bufferHandle;
+        // The binding point is only ever used for these draws, so it is bound once here rather than per draw
+        glBindBuffer(GL_DRAW_INDIRECT_BUFFER, bufferHandle);
+    }
+
+    void GLRendererAPI::DrawIndexedIndirect(const std::shared_ptr<Pipeline> pipeline, uint32_t slot)
+    {
+        SHARD_PROFILE_RENDER_SUB_SCOPE(Debugging::RenderSubSample::DrawElements);
+
+        // One DrawElementsIndirectCommand (5 x 32-bit) per slot, written by the occlusion-culling compute pass
+        glDrawElementsIndirect(
+            PrimitiveTopologyToGL(pipeline->GetSpecifications().topology),
+            GL_UNSIGNED_INT,
+            (const void*)(uintptr_t)((size_t)slot * 5 * sizeof(uint32_t))
+        );
+    }
+
     void GLRendererAPI::DrawFullScreenTriangle()
     {
         glDrawArrays(GL_TRIANGLES, 0, 3);
@@ -292,7 +311,11 @@ namespace Shard::Engine::Rendering{
         }
         else{
             if (command.indexCount == 0) return;
-            DrawIndexed(pipeline, command.indexCount, command.indexOffset);
+
+            if (m_IndirectBuffer != 0 && command.cullSlot >= 0)
+                DrawIndexedIndirect(pipeline, (uint32_t)command.cullSlot);
+            else
+                DrawIndexed(pipeline, command.indexCount, command.indexOffset);
         }
     }
 
@@ -377,6 +400,9 @@ namespace Shard::Engine::Rendering{
 
             if ((uint32_t)barriers & (uint32_t)MemoryBarrierBit::TextureUpdate)
                 bits |= GL_TEXTURE_UPDATE_BARRIER_BIT;
+
+            if ((uint32_t)barriers & (uint32_t)MemoryBarrierBit::Command)
+                bits |= GL_COMMAND_BARRIER_BIT;
         }
 
         if (bits != 0)

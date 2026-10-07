@@ -23,6 +23,7 @@ namespace Shard::Engine::Rendering{
         {
             case TextureInternalFormat::RED:              return 1;
             case TextureInternalFormat::R16F:              return 2;
+            case TextureInternalFormat::R32F:              return 4;
             case TextureInternalFormat::RG:                return 2;
             case TextureInternalFormat::RG16F:             return 4;
             case TextureInternalFormat::RGB:

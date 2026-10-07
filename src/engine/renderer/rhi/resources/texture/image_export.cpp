@@ -17,6 +17,7 @@ namespace Shard::Engine::Rendering::ImageExport{
         {
             case TextureInternalFormat::RED:
             case TextureInternalFormat::R16F:
+            case TextureInternalFormat::R32F:
                 return 1;
 
             case TextureInternalFormat::RG:
@@ -47,6 +48,7 @@ namespace Shard::Engine::Rendering::ImageExport{
         switch (format)
         {
             case TextureInternalFormat::R16F:
+            case TextureInternalFormat::R32F:
             case TextureInternalFormat::RG16F:
             case TextureInternalFormat::RGB16F:
             case TextureInternalFormat::RGB32F:

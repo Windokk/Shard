@@ -15,6 +15,7 @@
 #include "engine/renderer/rhi/render_context.hpp"
 #include "engine/renderer/features/immediate/immediate_renderer.hpp"
 #include "engine/renderer/features/immediate/thumbnail_service.hpp"
+#include "engine/renderer/features/culling/occlusion_culling_manager.hpp"
 
 #include <map>
 #include <variant>
@@ -97,6 +98,12 @@ bool GetCurrentView(RenderView& out) override;
 
             void ToggleMultisampling(const bool on);
 
+            /// @brief GPU occlusion culling of the main camera's geometry passes (see OcclusionCullingManager).
+            /// On by default; it only ever skips geometry that is hidden, so toggling it never changes the image.
+            void SetOcclusionCullingEnabled(bool enabled) { m_OcclusionCullingEnabled = enabled; }
+            bool IsOcclusionCullingEnabled() const { return m_OcclusionCullingEnabled; }
+            OcclusionCullingManager* GetOcclusionCulling() const { return m_OcclusionCulling.get(); }
+
             std::string GetDeviceVendor();
             std::string GetRendererName();
             std::string GetDriverVersion();
@@ -133,6 +140,13 @@ bool GetCurrentView(RenderView& out) override;
             void ExecuteRenderPass();
             void EndRenderPass();
 
+            // GPU occlusion culling. Prepare... runs before the pass starts (it records phase 1 on the GPU) and says
+            // whether this pass is culled this frame; ExecuteOcclusionCulledPass then replaces ExecuteRenderPass()
+            // with the two-phase draw (see OcclusionCullingManager).
+            bool PrepareOcclusionCulling(const std::string& passName, const std::shared_ptr<RenderPass>& pass);
+            void ExecuteOcclusionCulledPass(const std::string& passName, const std::shared_ptr<RenderPass>& pass);
+            OcclusionCullingManager::Target MakeOcclusionTarget(const std::shared_ptr<RenderPass>& pass) const;
+
             std::shared_ptr<RendererAPI> m_RendererAPI;
 
             std::unordered_map<std::string, std::shared_ptr<RenderPass>> m_RenderPasses;
@@ -158,6 +172,10 @@ bool GetCurrentView(RenderView& out) override;
             std::shared_ptr<ProbeManager> m_ProbeManager;
             std::shared_ptr<SSAOManager> m_SSAOManager;
             std::shared_ptr<LightCullingManager> m_LightCullingManager;
+            std::shared_ptr<OcclusionCullingManager> m_OcclusionCulling;
+            bool m_OcclusionCullingEnabled = true;
+            // 0 = not occlusion culling, 1/2 = which phase ExecuteRenderPass is currently issuing draws for
+            int m_OcclusionPhase = 0;
 
             std::unordered_map<PipelineSpecifications,std::shared_ptr<Pipeline>,PipelineSpecsHash> m_Pipelines;
             std::unordered_map<ComputePipelineSpecifications,std::shared_ptr<ComputePipeline>,ComputePipelineSpecsHash> m_ComputePipelines;

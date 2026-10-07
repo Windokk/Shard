@@ -74,6 +74,7 @@ namespace Shard::Engine{
             m_RendererSettings->viewportHeight = m_Context.platform->GetWindow()->GetFramebufferHeight();
             m_RendererSettings->api = (RendererAPI::API)settings.api;
             m_Context.renderer->Init(m_RendererSettings);
+            m_Context.renderer->SetOcclusionCullingEnabled(m_Context.currentProject->GetRenderingSettings()->occlusionCulling);
             m_Context.platform->CreateInput();
 
             m_Context.timeManager->Init(physicsSettings->fixedTimeStep, physicsSettings->maxAccumulatedTime);

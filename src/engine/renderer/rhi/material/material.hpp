@@ -63,6 +63,8 @@ namespace Shard::Engine::Rendering {
 
             bool GetRecieveShadows() const { return m_ReceivesShadows; }
 
+            Opacity GetOpacity() const { return m_Opacity; }
+
             void SetPipeline(std::shared_ptr<Pipeline> pipeline){
                 m_Pipeline = pipeline;
             }

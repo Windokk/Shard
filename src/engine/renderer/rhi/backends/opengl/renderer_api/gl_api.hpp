@@ -32,6 +32,8 @@ namespace Shard::Engine::Rendering{
 
             void Clear(ClearBit clearBits) override;
 
+            void SetIndirectDrawBuffer(uint32_t bufferHandle) override;
+
             void InvalidateStateCache() override;
             void SetDebugView(const DebugViewState& state) override;
 
@@ -67,6 +69,10 @@ namespace Shard::Engine::Rendering{
             void BindPassData(const std::shared_ptr<RenderPass> pass, std::shared_ptr<Material> material);
 
             void DrawIndexed(const std::shared_ptr<Pipeline> pipeline, uint32_t indexCount, uint32_t indexOffset);
+
+            void DrawIndexedIndirect(const std::shared_ptr<Pipeline> pipeline, uint32_t slot);
+
+            uint32_t m_IndirectBuffer = 0;
                 
             void DrawFullScreenTriangle();
     };

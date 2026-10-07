@@ -10,11 +10,12 @@ namespace Shard::Editor::GUI{
             void Draw(bool* open);
 
         private:
-            enum class Category { General, Build, Physics };
+            enum class Category { General, Build, Physics, Rendering };
 
             void DrawGeneralCategory();
             void DrawBuildCategory();
             void DrawPhysicsCategory();
+            void DrawRenderingCategory();
 
             /// True when `label` passes the search box (always true when it's empty).
             bool Matches(const char* label) const;

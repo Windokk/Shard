@@ -63,6 +63,10 @@ namespace Shard::Engine::Rendering {
         bool fullscreenTri = false;
 
         bool bindCameraState = true;
+
+        /// Slot in the pass's GPU occlusion-culling buffers (see OcclusionCullingManager), or -1 when this
+        /// command isn't GPU-culled. @note Automatically filled by the renderer every frame.
+        int32_t cullSlot = -1;
         
         /// @note Automatically filled by the renderer. Any content will be overriden.
         uint64_t sortKey = 0;

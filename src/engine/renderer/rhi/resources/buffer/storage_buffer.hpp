@@ -22,6 +22,10 @@ namespace Shard::Engine::Rendering{
 
             virtual uint32_t GetSize() const = 0;
 
+            // The API's own name for the buffer (GL buffer object name), for the few places that need to
+            // use it outside the SSBO path - e.g. as the source of indirect draws (RendererAPI::SetIndirectDrawBuffer).
+            virtual uint32_t GetHandle() const = 0;
+
             static std::shared_ptr<StorageBuffer> Create(uint32_t size);
     };
 

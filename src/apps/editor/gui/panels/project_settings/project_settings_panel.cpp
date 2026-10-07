@@ -4,6 +4,7 @@
 #include "engine/world/world.hpp"
 #include "engine/world/world_manager.hpp"
 #include "engine/physics/physics_manager.hpp"
+#include "engine/renderer/frontend/renderer.hpp"
 #include "engine/assets/project/project.hpp"
 #include "engine/assets/serialization/project/project_serializer.hpp"
 #include "engine/world/time_manager.hpp"
@@ -90,6 +91,7 @@ namespace Shard::Editor::GUI{
             { "General", Category::General },
             { "Build", Category::Build },
             { "Physics", Category::Physics },
+            { "Rendering", Category::Rendering },
         };
         for (const Entry& e : entries)
             if (ImGui::Selectable(e.label, m_Category == e.category))
@@ -105,6 +107,7 @@ namespace Shard::Editor::GUI{
             case Category::General: DrawGeneralCategory(); break;
             case Category::Build:   DrawBuildCategory();   break;
             case Category::Physics: DrawPhysicsCategory(); break;
+            case Category::Rendering: DrawRenderingCategory(); break;
         }
         ImGui::EndChild();
 
@@ -216,6 +219,30 @@ namespace Shard::Editor::GUI{
                 build->AddToBuildSettings(world->GetPath());
                 m_Dirty |= build->buildIndex.size() != before;
             }
+        }
+    }
+
+    void ProjectSettingsPanel::DrawRenderingCategory()
+    {
+        auto* rendering = GetEngine().GetCurrentProject()->GetRenderingSettings();
+
+        ImGui::SeparatorText("Culling");
+
+        if (BeginRow("Occlusion Culling", "The GPU skips drawing geometry that is hidden behind other geometry (Hi-Z occlusion culling, computed every frame in a compute shader). It never changes the image - only how much has to be drawn to produce it. Turn it off to compare, or to rule it out when chasing a rendering problem."))
+        {
+            if (ImGui::Checkbox("##OcclusionCulling", &rendering->occlusionCulling))
+            {
+                GetEngine().GetRenderer()->SetOcclusionCullingEnabled(rendering->occlusionCulling);
+                m_Dirty = true;
+            }
+        }
+
+        ImGui::Spacing();
+        if (ImGui::Button("Reset to Defaults"))
+        {
+            *rendering = Projects::RenderingSettings{};
+            GetEngine().GetRenderer()->SetOcclusionCullingEnabled(rendering->occlusionCulling);
+            m_Dirty = true;
         }
     }
 

@@ -1,0 +1,23 @@
+#version 430 core
+
+// Level 0 of the Hi-Z pyramid (see OcclusionCullingManager) from a plain (single-sampled) depth texture : a copy.
+// Depth is stored as-is, larger = farther, and every following level keeps the MAX of its source texels, so a texel
+// always holds the farthest surface visible anywhere in the region it covers - the conservative bound an
+// occlusion test needs.
+
+layout(local_size_x = 8, local_size_y = 8) in;
+
+layout(binding = 47) uniform sampler2D uDepth;
+layout(r32f, binding = 0) writeonly uniform image2D uHiZ0;
+
+uniform int sizeX;
+uniform int sizeY;
+
+void main()
+{
+    ivec2 p = ivec2(gl_GlobalInvocationID.xy);
+    if (p.x >= sizeX || p.y >= sizeY)
+        return;
+
+    imageStore(uHiZ0, p, vec4(texelFetch(uDepth, p, 0).r));
+}

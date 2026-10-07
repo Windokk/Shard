@@ -9,7 +9,7 @@
 </p>
 
 <p align="center">
-  Yet another game engine<br>
+  A modular, data-oriented game engine built to be bent, not worked around<br>
 </p>
 
 ## Screenshots
@@ -92,3 +92,22 @@ This runs the editor, loads the game module, opens the project at "project path"
 
 - Textures :
   - [Qwantani Afternoon (Pure Sky)](https://polyhaven.com/a/qwantani_afternoon_puresky)
+
+## Philosophy
+
+The engine is a small, strict core meant to be extended. The engine, genre modules (voxel, space, racing...) and game all plug in through the **same public API**. Keep the pieces independent so any of them can be replaced without touching the rest.
+
+> This is the target architecture. The renderer currently uses OpenGL ; Vulkan is the planned primary backend.
+
+## Guidelines
+
+1. **Dependencies point down** : a layer only depends on the layers below it.
+2. **Peers are decoupled** : Renderer, Physics, Audio, Input never include each other (use ECS components, events or lower-level interfaces).
+3. **Everything is a module** : engine, genres and game share one registration API.
+4. **Simulation ≠ rendering** : the renderer only consumes an immutable snapshot extracted from the ECS.
+5. **Data-oriented + jobs** : archetype ECS, systems with declared read/write access, no ad-hoc threads.
+6. **Reflection everywhere** : ShardReflect drives serialization, inspector, replication, undo.
+7. **Backends behind interfaces** : RHI, Jolt, miniaudio and SDL3 are replaceable.
+8. **Large world by default** : 64-bit coordinates, reference frames, gravity as world data.
+9. **Optional determinism** : fixed timestep, seeded RNG, stable system order.
+10. **Headless & multi-view** : runs without window/GPU/audio ; N views per frame.

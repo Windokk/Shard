@@ -1,0 +1,170 @@
+#version 430 core
+
+// GPU frustum + Hi-Z occlusion culling of a pass's draw commands, in two phases (see OcclusionCullingManager for the
+// frame structure and why it's two-phase). One invocation per draw command ("instance"); the result is its indirect
+// draw command's instanceCount : 1 draws it, 0 makes the draw a no-op.
+//
+//   phase 1 : draw what was visible last frame (and is inside this frame's frustum). No depth information is needed
+//             yet - the point is only to lay down a good depth buffer for the Hi-Z pyramid to be built from.
+//   phase 2 : after that pyramid exists, test EVERY command against it. Draw those that pass and weren't drawn in
+//             phase 1, and remember who passed for next frame's phase 1. Because the whole set is re-tested against
+//             depth from this very frame, nothing that should be visible is ever skipped (no popping) - the image
+//             is the one a plain draw-everything would produce, just without the hidden geometry.
+
+layout(local_size_x = 64) in;
+
+struct Instance
+{
+    mat4 model;
+    vec4 boundsMin; // xyz = mesh-space min, w = 1 for a live slot, 0 for a free one
+    vec4 boundsMax;
+    uvec4 draw;     // x = index count, y = first index
+};
+
+struct DrawCommand
+{
+    uint count;
+    uint instanceCount;
+    uint firstIndex;
+    int baseVertex;
+    uint baseInstance;
+};
+
+layout(std430, binding = 20) readonly buffer Instances { Instance instances[]; };
+layout(std430, binding = 21) buffer State { uint state[]; };
+layout(std430, binding = 22) writeonly buffer Commands { DrawCommand commands[]; };
+
+layout(binding = 48) uniform sampler2D uHiZ;
+
+uniform mat4 viewProj;
+uniform int instanceCount;
+uniform int phase;
+uniform int hizLevels;
+uniform int hizSizeX;
+uniform int hizSizeY;
+
+const uint VISIBLE_LAST = 1u; // survived the previous frame
+const uint DRAWN_PHASE1 = 2u; // already drawn by this frame's phase 1
+
+// Added to the nearest depth of the box before comparing with the pyramid : the box is conservative already, this
+// covers the rounding difference between this transform and the rasterizer's, so a box sitting exactly on an
+// occluder's surface still counts as visible.
+const float DEPTH_EPSILON = 2e-5;
+
+void main()
+{
+    uint i = gl_GlobalInvocationID.x;
+    if (i >= uint(instanceCount))
+        return;
+
+    Instance inst = instances[i];
+    bool live = inst.boundsMin.w > 0.5;
+
+    bool inFrustum = false;
+    bool occluded = false;
+
+    if (live)
+    {
+        vec3 bmin = inst.boundsMin.xyz;
+        vec3 bmax = inst.boundsMax.xyz;
+
+        // A zero-size box means "bounds unknown" : the CPU path never culls those either
+        if (bmin == bmax)
+        {
+            inFrustum = true;
+        }
+        else
+        {
+            mat4 mvp = viewProj * inst.model;
+
+            vec4 clip[8];
+            int outLeft = 0, outRight = 0, outBottom = 0, outTop = 0, outNear = 0, outFar = 0;
+            bool crossesCameraPlane = false;
+
+            for (int c = 0; c < 8; c++)
+            {
+                vec3 corner = vec3((c & 1) != 0 ? bmax.x : bmin.x,
+                                   (c & 2) != 0 ? bmax.y : bmin.y,
+                                   (c & 4) != 0 ? bmax.z : bmin.z);
+                vec4 p = mvp * vec4(corner, 1.0);
+                clip[c] = p;
+
+                outLeft   += (p.x < -p.w) ? 1 : 0;
+                outRight  += (p.x >  p.w) ? 1 : 0;
+                outBottom += (p.y < -p.w) ? 1 : 0;
+                outTop    += (p.y >  p.w) ? 1 : 0;
+                outNear   += (p.z < -p.w) ? 1 : 0;
+                outFar    += (p.z >  p.w) ? 1 : 0;
+
+                if (p.w <= 1e-4)
+                    crossesCameraPlane = true;
+            }
+
+            inFrustum = !(outLeft == 8 || outRight == 8 || outBottom == 8 || outTop == 8 || outNear == 8 || outFar == 8);
+
+            // Only phase 2 has a pyramid to test against, and a box that reaches the camera plane can't be
+            // projected to a screen rectangle at all - it stays "not occluded".
+            if (phase == 2 && inFrustum && !crossesCameraPlane)
+            {
+                vec2 minUV = vec2(1e30);
+                vec2 maxUV = vec2(-1e30);
+                float nearestDepth = 1e30;
+
+                for (int c = 0; c < 8; c++)
+                {
+                    vec3 ndc = clip[c].xyz / clip[c].w;
+                    vec2 uv = ndc.xy * 0.5 + 0.5;
+                    minUV = min(minUV, uv);
+                    maxUV = max(maxUV, uv);
+                    nearestDepth = min(nearestDepth, ndc.z * 0.5 + 0.5);
+                }
+
+                minUV = clamp(minUV, vec2(0.0), vec2(1.0));
+                maxUV = clamp(maxUV, vec2(0.0), vec2(1.0));
+
+                vec2 hizSize = vec2(hizSizeX, hizSizeY);
+                vec2 minPx = minUV * hizSize;
+                vec2 maxPx = maxUV * hizSize;
+
+                // The mip level at which the rectangle is at most one texel wide/tall, i.e. touches at most 2x2 texels
+                float extent = max(max(maxPx.x - minPx.x, maxPx.y - minPx.y), 1.0);
+                int level = clamp(int(ceil(log2(extent))), 0, hizLevels - 1);
+
+                ivec2 levelSize = max(ivec2(hizSizeX, hizSizeY) >> level, ivec2(1));
+                ivec2 lo = clamp(ivec2(floor(minPx)) >> level, ivec2(0), levelSize - 1);
+                ivec2 hi = clamp(ivec2(floor(maxPx)) >> level, ivec2(0), levelSize - 1);
+
+                float farthestOccluder = max(
+                    max(texelFetch(uHiZ, ivec2(lo.x, lo.y), level).r, texelFetch(uHiZ, ivec2(hi.x, lo.y), level).r),
+                    max(texelFetch(uHiZ, ivec2(lo.x, hi.y), level).r, texelFetch(uHiZ, ivec2(hi.x, hi.y), level).r));
+
+                // Even the box's nearest point is behind the farthest thing drawn over its whole footprint
+                occluded = nearestDepth > farthestOccluder + DEPTH_EPSILON;
+            }
+        }
+    }
+
+    uint s = state[i];
+    uint toDraw = 0u;
+
+    if (phase == 1)
+    {
+        bool draw = live && inFrustum && (s & VISIBLE_LAST) != 0u;
+        toDraw = draw ? 1u : 0u;
+        // New frame : forget last frame's "drawn in phase 1", keep the visibility history
+        state[i] = (s & VISIBLE_LAST) | (draw ? DRAWN_PHASE1 : 0u);
+    }
+    else
+    {
+        bool visible = live && inFrustum && !occluded;
+        bool alreadyDrawn = (s & DRAWN_PHASE1) != 0u;
+        toDraw = (visible && !alreadyDrawn) ? 1u : 0u;
+        state[i] = visible ? VISIBLE_LAST : 0u;
+    }
+
+    commands[i].count = inst.draw.x;
+    commands[i].instanceCount = toDraw;
+    commands[i].firstIndex = inst.draw.y;
+    commands[i].baseVertex = 0;
+    commands[i].baseInstance = 0u;
+}

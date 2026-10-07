@@ -1,0 +1,39 @@
+#version 430 core
+
+// One step down the Hi-Z pyramid : each texel of level L is the MAX (farthest) of the level L-1 texels it covers.
+// A level with an odd size can't be split into exact 2x2 blocks, so the last texel of an odd dimension also takes
+// the one extra source row/column left over - otherwise that sliver of the screen would drop out of the pyramid and
+// an object over it could be tested against a depth that doesn't include it.
+
+layout(local_size_x = 8, local_size_y = 8) in;
+
+layout(r32f, binding = 0) readonly uniform image2D uSrc;
+layout(r32f, binding = 1) writeonly uniform image2D uDst;
+
+uniform int srcSizeX;
+uniform int srcSizeY;
+uniform int dstSizeX;
+uniform int dstSizeY;
+
+void main()
+{
+    ivec2 p = ivec2(gl_GlobalInvocationID.xy);
+    if (p.x >= dstSizeX || p.y >= dstSizeY)
+        return;
+
+    ivec2 base = p * 2;
+    int spanX = (p.x == dstSizeX - 1 && (srcSizeX & 1) == 1) ? 3 : 2;
+    int spanY = (p.y == dstSizeY - 1 && (srcSizeY & 1) == 1) ? 3 : 2;
+
+    float farthest = 0.0;
+    for (int y = 0; y < spanY; y++)
+    {
+        for (int x = 0; x < spanX; x++)
+        {
+            ivec2 q = min(base + ivec2(x, y), ivec2(srcSizeX - 1, srcSizeY - 1));
+            farthest = max(farthest, imageLoad(uSrc, q).r);
+        }
+    }
+
+    imageStore(uDst, p, vec4(farthest));
+}

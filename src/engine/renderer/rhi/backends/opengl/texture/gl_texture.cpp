@@ -239,6 +239,12 @@ namespace Shard::Engine::Rendering{
                 glSpecs.type = spec.halfFloatPixelData ? GL_HALF_FLOAT : GL_FLOAT;
                 break;
 
+            case TextureInternalFormat::R32F:
+                glSpecs.internalFormat = GL_R32F;
+                glSpecs.format = GL_RED;
+                glSpecs.type = GL_FLOAT;
+                break;
+
             // RG
             case TextureInternalFormat::RG:
                 glSpecs.internalFormat = GL_RG8;
