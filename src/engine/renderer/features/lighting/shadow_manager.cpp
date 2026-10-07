@@ -54,6 +54,10 @@ namespace Shard::Engine::Rendering{
     {
         std::shared_ptr<Objects::Components::Camera> cam = Core::GetEngine().GetCameraManager()->GetActiveCamera();
 
+        // No camera yet (e.g. the player booting a world that has none): nothing to fit the cascades to.
+        if(!cam)
+            return;
+
         for(auto& sm : m_ShadowMaps){
 
             if(sm.second.passes.empty())
@@ -190,8 +194,14 @@ namespace Shard::Engine::Rendering{
 
             std::shared_ptr<Pipeline> dirShadowPassPipeline = Core::GetEngine().GetRenderContext()->GetOrAddPipeline(dirSpecs);
 
+            // The world can load before any camera is active (the player has none until play mode starts,
+            // the editor builds its viewport camera after boot): fall back to Camera's default planes,
+            // and leave the light matrices to UpdatePassUniforms() once a camera exists.
+            const float camNear = cam ? cam->nearPlane : 0.1f;
+            const float camFar  = cam ? cam->farPlane  : 100.0f;
+
             for (int c = 0; c < CASCADES_PER_LIGHT; ++c)
-                sm->cascadeSplits[c] = ComputeCascadeSplitDistance(c, cam->nearPlane, cam->farPlane, CASCADES_PER_LIGHT);
+                sm->cascadeSplits[c] = ComputeCascadeSplitDistance(c, camNear, camFar, CASCADES_PER_LIGHT);
 
             for (int c = 0; c < CASCADES_PER_LIGHT; ++c)
             {
@@ -202,9 +212,14 @@ namespace Shard::Engine::Rendering{
                 pass->customPipeline = dirShadowPassPipeline;
                 pass->overridePipeline = true;
 
-                float splitNear = c == 0 ? cam->nearPlane : sm->cascadeSplits[c - 1];
-                float splitFar  = sm->cascadeSplits[c];
-                sm->lightMatrix[c] = light.GetLightMatrix(cam->GetView(), *cam->GetFOV(), cam->GetSize().x/cam->GetSize().y, splitNear, splitFar, m_DirShadowsResolution);
+                if(cam){
+                    float splitNear = c == 0 ? cam->nearPlane : sm->cascadeSplits[c - 1];
+                    float splitFar  = sm->cascadeSplits[c];
+                    sm->lightMatrix[c] = light.GetLightMatrix(cam->GetView(), *cam->GetFOV(), cam->GetSize().x/cam->GetSize().y, splitNear, splitFar, m_DirShadowsResolution);
+                }
+                else{
+                    sm->lightMatrix[c] = glm::mat4(1.0f);
+                }
 
                 pass->customUniforms.emplace("lightSpaceMatrix", sm->lightMatrix[c]);
 
