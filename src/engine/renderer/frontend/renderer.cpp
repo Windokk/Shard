@@ -18,14 +18,7 @@
 #include "engine/core/diagnostics/profiler.hpp"
 #include "engine/renderer/rhi/frustum.hpp"
 #include <queue>
-// TEMP-HARNESS-BEGIN
-#include <cstdlib>
-#include <cstdio>
-#include <sstream>
-#include <chrono>
-#include "engine/renderer/rhi/resources/texture/image_export.hpp"
 #include "engine/renderer/features/culling/occlusion_culling_manager.hpp"
-// TEMP-HARNESS-END
 #include <algorithm>
 #include <glm/gtx/string_cast.hpp>
 
@@ -98,35 +91,6 @@ namespace Shard::Engine::Rendering{
 
 
 
-    // TEMP-HARNESS-BEGIN
-    namespace {
-        struct Harness {
-            bool active = false;
-            std::string path;
-            int frames = 60;
-            float v[10] = {0};
-            bool occ = true;
-            int frame = 0;
-            std::chrono::steady_clock::time_point t0;
-            Harness() {
-                const char* e = std::getenv("SHARD_TEST_CAPTURE");
-                if (!e) return;
-                std::string str(e);
-                std::vector<std::string> parts;
-                std::stringstream ss(str);
-                std::string item;
-                while (std::getline(ss, item, ';')) parts.push_back(item);
-                if (parts.size() < 13) return;
-                path = parts[0];
-                frames = std::stoi(parts[1]);
-                for (int i = 0; i < 10; i++) v[i] = std::stof(parts[2 + i]);
-                occ = parts[12] == "1";
-                active = true;
-            }
-        };
-        Harness& GetHarness() { static Harness h; return h; }
-    }
-    // TEMP-HARNESS-END
 
     void Renderer::Init(std::shared_ptr<RendererSettings> initialSettings)
     {
@@ -767,25 +731,6 @@ namespace Shard::Engine::Rendering{
 
     void Renderer::BeginFrame()
     {
-        // TEMP-HARNESS-BEGIN
-        {
-            Harness& h = GetHarness();
-            if (h.active)
-            {
-                auto cam = Core::GetEngine().GetCameraManager()->GetActiveCamera();
-                if (cam)
-                {
-                    float t = std::min(1.0f, (float)h.frame / (float)std::max(1, h.frames - 1));
-                    auto lerp = [&](int i) { return h.v[i] + (h.v[5 + i] - h.v[i]) * t; };
-                    cam->parent->transform->SetPosition(glm::vec3(lerp(0), lerp(1), lerp(2)));
-                    cam->parent->transform->SetRotation(glm::vec3(lerp(3), lerp(4), 0.0f));
-                }
-                m_OcclusionCullingEnabled = h.occ;
-                if (m_OcclusionCulling)
-                    m_OcclusionCulling->SetCollectStats(h.occ && std::getenv("SHARD_TEST_STATS") != nullptr);
-            }
-        }
-        // TEMP-HARNESS-END
         {
             SHARD_PROFILE_RENDER_SUB_SCOPE(Debugging::RenderSubSample::CameraUpdate);
             Core::GetEngine().GetCameraManager()->Tick();
@@ -935,36 +880,6 @@ namespace Shard::Engine::Rendering{
     {
         SHARD_PROFILE_RENDER_SUB_SCOPE(Debugging::RenderSubSample::MultisampleResolve);
         m_ViewportBuffer->ResolveMultisampled();
-        // TEMP-HARNESS-BEGIN
-        {
-            Harness& h = GetHarness();
-            if (h.active)
-            {
-                h.frame++;
-                if (h.frame == 40) h.t0 = std::chrono::steady_clock::now();
-                if (m_OcclusionCulling && h.occ)
-                {
-                    for (const char* name : { "SSAODepthNormalPass", "ForwardPass" })
-                    {
-                        if (auto* st = m_OcclusionCulling->GetStats(name))
-                            std::printf("[harness] frame %d %s : cullable %u, phase1 %u, phase2 %u, tris cullable %llu drawn %llu\n", h.frame, name,
-                                st->cullableCommands, st->drawnInPhase1, st->drawnInPhase2, (unsigned long long)st->trianglesCullable, (unsigned long long)st->trianglesDrawn);
-                    }
-                }
-                if (h.frame >= h.frames)
-                {
-                    std::vector<uint8_t> pixels;
-                    if (m_ViewportBuffer->ReadPixelsRGBA8(pixels))
-                        ImageExport::WritePNG(Filesystem::Path(h.path), m_ViewportBuffer->GetWidth(), m_ViewportBuffer->GetHeight(), 4, pixels.data());
-                    double ms = std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - h.t0).count() / (double)std::max(1, h.frames - 40);
-                    std::printf("[harness] avg frame time (frames 40..%d) : %.2f ms\n", h.frames, ms);
-                    std::printf("[harness] wrote %s\n", h.path.c_str());
-                    std::fflush(stdout);
-                    std::_Exit(0);
-                }
-            }
-        }
-        // TEMP-HARNESS-END
     }
 
     void Renderer::BeginRenderPass(const std::shared_ptr<RenderPass>& pass)

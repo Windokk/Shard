@@ -53,7 +53,11 @@ namespace Shard::Engine::Rendering {
         m_HiZReduceShader = ComputeShader::Create(resRoot / "shaders/compute/culling/hiz_reduce.comp");
         m_CullShader = ComputeShader::Create(resRoot / "shaders/compute/culling/occlusion_cull.comp");
 
-        if (!m_HiZInitShader || !m_HiZInitMSShader || !m_HiZReduceShader || !m_CullShader)
+        // ComputeShader::Create hands back an object even when the file is missing (it then has no name and no program),
+        // and dispatching that is a silent no-op - every indirect command would stay zero and nothing would be drawn.
+        const auto loaded = [](const std::shared_ptr<ComputeShader>& shader) { return shader && !shader->GetShaderName().empty(); };
+
+        if (!loaded(m_HiZInitShader) || !loaded(m_HiZInitMSShader) || !loaded(m_HiZReduceShader) || !loaded(m_CullShader))
         {
             DEBUG_ERROR("OcclusionCullingManager : failed to load the shaders in shaders/compute/culling - GPU occlusion culling is disabled "
                 "(is engine_resources up to date next to the executable?)");
