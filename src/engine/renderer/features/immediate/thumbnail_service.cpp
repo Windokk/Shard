@@ -17,6 +17,7 @@
 
 #include <glm/gtc/constants.hpp>
 
+#include <chrono>
 #include <cmath>
 #include <cstdio>
 #include <filesystem>
@@ -84,6 +85,9 @@ namespace Shard::Engine::Rendering {
         std::string identity = std::to_string(kRenderVersion) + "|" + std::to_string(kCellSize) + "|"
             + MakeKey(request.kind, request.nameInProject) + "|" + std::to_string(size) + "|"
             + std::to_string(stamp.time_since_epoch().count());
+        // Only when set, so the thumbnails the renderer draws keep the key (and the cache files) they had
+        if (request.generatorVersion != 0)
+            identity += "|g" + std::to_string(request.generatorVersion);
 
         char name[32];
         snprintf(name, sizeof(name), "%016llx.png", static_cast<unsigned long long>(Fnv1a64(identity)));
@@ -181,6 +185,9 @@ namespace Shard::Engine::Rendering {
         auto it = m_Entries.find(key);
         if (it != m_Entries.end())
         {
+            if (it->second.pending.valid())
+                return FinishGenerated(key, it->second, out);
+
             if (!it->second.ready)
                 return false;
 
@@ -191,6 +198,13 @@ namespace Shard::Engine::Rendering {
 
         std::string cacheFile = CacheFilePath(request);
         bool cached = !cacheFile.empty() && std::filesystem::exists(cacheFile);
+
+        // A sound that isn't cached yet is drawn by a worker thread : not by this frame
+        if (!cached && request.kind == ThumbnailKind::Sound)
+        {
+            StartGenerated(key, request, cacheFile);
+            return false;
+        }
 
         if (cached ? m_DiskLoadsThisFrame >= kMaxDiskLoadsPerFrame : m_RendersThisFrame >= kMaxRendersPerFrame)
             return false;
@@ -205,6 +219,14 @@ namespace Shard::Engine::Rendering {
         {
             ++m_DiskLoadsThisFrame;
             ok = TryLoadFromDisk(cacheFile, slot);
+        }
+
+        if (!ok && request.kind == ThumbnailKind::Sound)
+        {
+            // The cache file is unreadable : draw it again
+            FreeSlot(slot);
+            StartGenerated(key, request, cacheFile);
+            return false;
         }
 
         if (!ok)
@@ -232,10 +254,91 @@ namespace Shard::Engine::Rendering {
         entry.slot = slot;
         entry.lastUsedFrame = m_Frame;
         entry.cacheFile = cacheFile;
-        m_Entries[key] = entry;
+        m_Entries[key] = std::move(entry);
 
         out = RegionOf(slot);
         return true;
+    }
+
+    void ThumbnailService::StartGenerated(const std::string& key, const ThumbnailRequest& request, const std::string& cacheFile)
+    {
+        if (!request.generate)
+        {
+            // Nothing can draw it : don't ask again
+            m_Entries[key] = Entry{};
+            return;
+        }
+
+        // Ask again next frame
+        if (m_ActiveGenerators.load() >= kMaxGeneratorJobs)
+            return;
+
+        ++m_ActiveGenerators;
+
+        Entry entry;
+        entry.cacheFile = cacheFile;
+        entry.pending = std::async(std::launch::async, [this, generate = request.generate, file = request.filePath]()
+        {
+            std::vector<uint8_t> rgba(size_t(kCellSize) * kCellSize * 4);
+
+            bool ok = false;
+            try
+            {
+                ok = generate(file, rgba);
+            }
+            catch (...)
+            {
+                // A generator that throws (out of memory on a huge file...) is a failed thumbnail, not a crash
+            }
+
+            --m_ActiveGenerators;
+
+            if (!ok)
+                rgba.clear();
+            return rgba;
+        });
+
+        m_Entries[key] = std::move(entry);
+    }
+
+    bool ThumbnailService::FinishGenerated(const std::string& key, Entry& entry, ThumbnailRegion& out)
+    {
+        if (entry.pending.wait_for(std::chrono::seconds(0)) != std::future_status::ready)
+            return false;
+
+        // Nothing evictable this frame : the pixels stay in the future until there is room
+        int slot = AllocateSlot(key);
+        if (slot < 0)
+            return false;
+
+        std::vector<uint8_t> rgba = entry.pending.get();
+        if (rgba.size() != size_t(kCellSize) * kCellSize * 4)
+        {
+            // Couldn't be drawn : the entry stays not ready, so it isn't decoded again every frame
+            FreeSlot(slot);
+            return false;
+        }
+
+        StoreInAtlas(slot, rgba.data());
+
+        if (!entry.cacheFile.empty())
+        {
+            std::error_code ec;
+            std::filesystem::create_directories(std::filesystem::path(entry.cacheFile).parent_path(), ec);
+            ImageExport::WritePNG(Filesystem::Path(entry.cacheFile), kCellSize, kCellSize, 4, rgba.data());
+        }
+
+        entry.ready = true;
+        entry.slot = slot;
+        entry.lastUsedFrame = m_Frame;
+
+        out = RegionOf(slot);
+        return true;
+    }
+
+    void ThumbnailService::StoreInAtlas(uint32_t slot, const uint8_t* rgba)
+    {
+        m_Atlas->UploadColorRegion((slot % kGridDim) * kCellSize, (slot / kGridDim) * kCellSize, kCellSize, kCellSize, rgba);
     }
 
     void ThumbnailService::Invalidate(const ThumbnailRequest& request)
@@ -251,6 +354,7 @@ namespace Shard::Engine::Rendering {
                 FreeSlot(it->second.slot);
             if (!it->second.cacheFile.empty())
                 std::filesystem::remove(it->second.cacheFile, ec);
+            // A generator still running on a worker thread is waited for here (its future's destructor)
             m_Entries.erase(it);
         }
 
@@ -275,7 +379,7 @@ namespace Shard::Engine::Rendering {
 
         bool ok = width == static_cast<int>(kCellSize) && height == static_cast<int>(kCellSize);
         if (ok)
-            m_Atlas->UploadColorRegion((slot % kGridDim) * kCellSize, (slot / kGridDim) * kCellSize, kCellSize, kCellSize, pixels);
+            StoreInAtlas(slot, pixels);
 
         stbi_image_free(pixels);
         return ok;
@@ -348,6 +452,10 @@ namespace Shard::Engine::Rendering {
 
     bool ThumbnailService::Render(const ThumbnailRequest& request, uint32_t slot, const std::string& cacheFile)
     {
+        // Sounds are never rendered : see StartGenerated()
+        if (request.kind == ThumbnailKind::Sound)
+            return false;
+
         auto* resources = Core::GetEngine().GetResourcesManager();
 
         std::vector<DrawCommand> commands;

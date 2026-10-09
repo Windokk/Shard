@@ -15,6 +15,7 @@
 #include "apps/editor/gui/popups.hpp"
 #include "apps/editor/gui/notifications.hpp"
 #include "apps/editor/gui/panels/asset_browser/asset_operations.hpp"
+#include "apps/editor/gui/panels/asset_browser/sound_thumbnail.hpp"
 
 #include <cstdio>
 #include <functional>
@@ -35,6 +36,7 @@ namespace Shard::Editor::GUI{
         {
             case Engine::Filesystem::Type::T_MODEL:          return IM_COL32(230, 126, 34, 255);  // orange
             case Engine::Filesystem::Type::T_MATERIAL:       return IM_COL32(46, 204, 113, 255);  // green
+            case Engine::Filesystem::Type::T_PROBES:         return IM_COL32(236, 96, 160, 255);  // pink
             case Engine::Filesystem::Type::T_IMAGE:          return IM_COL32(175, 110, 220, 255); // purple/pink
             case Engine::Filesystem::Type::T_SOUND:          return IM_COL32(26, 188, 156, 255);  // teal
             case Engine::Filesystem::Type::T_SCRIPT:         return IM_COL32(241, 196, 15, 255);  // yellow
@@ -57,6 +59,7 @@ namespace Shard::Editor::GUI{
         {
             case Engine::Filesystem::Type::T_MODEL:          return "Static Mesh";
             case Engine::Filesystem::Type::T_MATERIAL:       return "Material";
+            case Engine::Filesystem::Type::T_PROBES:         return "Probe Bake";
             case Engine::Filesystem::Type::T_IMAGE:          return "Texture";
             case Engine::Filesystem::Type::T_SOUND:          return "Sound";
             case Engine::Filesystem::Type::T_SCRIPT:         return "Script";
@@ -68,6 +71,36 @@ namespace Shard::Editor::GUI{
             case Engine::Filesystem::Type::T_TEXT:           return "Text File";
             default:                                         return "Asset";
         }
+    }
+
+    // Fills the request for the thumbnail the ThumbnailService makes of this asset : meshes and materials are
+    // rendered, sounds get their waveform drawn. False for the rest (images sample their own texture
+    // directly, every other type shows its icon).
+    static bool MakeThumbnailRequest(const Asset& item, Engine::Rendering::ThumbnailRequest& request)
+    {
+        if (item.isDirectory)
+            return false;
+
+        switch (item.type)
+        {
+            case Engine::Filesystem::Type::T_MODEL:
+                request.kind = Engine::Rendering::ThumbnailKind::Mesh;
+                break;
+            case Engine::Filesystem::Type::T_MATERIAL:
+                request.kind = Engine::Rendering::ThumbnailKind::Material;
+                break;
+            case Engine::Filesystem::Type::T_SOUND:
+                request.kind = Engine::Rendering::ThumbnailKind::Sound;
+                request.generate = &DrawSoundThumbnail;
+                request.generatorVersion = kSoundThumbnailVersion;
+                break;
+            default:
+                return false;
+        }
+
+        request.nameInProject = item.nameInProject;
+        request.filePath = item.path;
+        return true;
     }
 
     // Wraps a filename into at most two centered lines that fit within maxWidth, truncating
@@ -518,25 +551,21 @@ namespace Shard::Editor::GUI{
                                 icon_min.y + ThumbnailSize.y
                             );
 
-                            // Real preview for images, meshes and materials; every other type falls
-                            // back to its atlas icon. Images sample their own already-loaded
+                            // Real preview for images, meshes, materials and sounds; every other type
+                            // falls back to its atlas icon. Images sample their own already-loaded
                             // texture directly; meshes and materials are rendered lit into the
-                            // thumbnail atlas the first time they're seen (see ThumbnailService).
+                            // thumbnail atlas the first time they're seen, and sounds get their
+                            // waveform drawn there (see ThumbnailService) - the icon shows until then.
                             std::shared_ptr<Engine::Rendering::Texture2D> imageThumbnail;
                             Engine::Rendering::ThumbnailRegion assetThumbnail;
                             bool hasAssetThumbnail = false;
                             auto* thumbnails = Engine::Core::GetEngine().GetRenderer()->GetThumbnailService();
 
+                            Engine::Rendering::ThumbnailRequest request;
                             if (!item_data->isDirectory && item_data->type == Engine::Filesystem::Type::T_IMAGE)
                                 imageThumbnail = Engine::Core::GetEngine().GetResourcesManager()->Get<Engine::Rendering::Texture2D>(Engine::Core::Resources::AssetKind::Texture, item_data->nameInProject);
-                            else if (!item_data->isDirectory && (item_data->type == Engine::Filesystem::Type::T_MODEL || item_data->type == Engine::Filesystem::Type::T_MATERIAL))
-                            {
-                                Engine::Rendering::ThumbnailRequest request;
-                                request.kind = item_data->type == Engine::Filesystem::Type::T_MODEL ? Engine::Rendering::ThumbnailKind::Mesh : Engine::Rendering::ThumbnailKind::Material;
-                                request.nameInProject = item_data->nameInProject;
-                                request.filePath = item_data->path;
+                            else if (MakeThumbnailRequest(*item_data, request))
                                 hasAssetThumbnail = thumbnails->Get(request, assetThumbnail);
-                            }
 
                             if (imageThumbnail && imageThumbnail->IsValid())
                             {
@@ -807,8 +836,9 @@ namespace Shard::Editor::GUI{
                 pendingAction = Action::CopyPath;
 
             bool hasThumbnail = false;
+            Engine::Rendering::ThumbnailRequest probe;
             for (const Asset* item : GetSelectedItems())
-                hasThumbnail |= !item->isDirectory && (item->type == Engine::Filesystem::Type::T_MODEL || item->type == Engine::Filesystem::Type::T_MATERIAL);
+                hasThumbnail |= MakeThumbnailRequest(*item, probe);
             if (hasThumbnail && ImGui::MenuItem("Refresh Thumbnail"))
                 pendingAction = Action::RefreshThumbnail;
         }
@@ -960,20 +990,9 @@ namespace Shard::Editor::GUI{
             case Action::RefreshThumbnail:
                 for (const Asset* item : selected)
                 {
-                    if (item->isDirectory)
-                        continue;
-
                     Engine::Rendering::ThumbnailRequest request;
-                    if (item->type == Engine::Filesystem::Type::T_MODEL)
-                        request.kind = Engine::Rendering::ThumbnailKind::Mesh;
-                    else if (item->type == Engine::Filesystem::Type::T_MATERIAL)
-                        request.kind = Engine::Rendering::ThumbnailKind::Material;
-                    else
-                        continue;
-
-                    request.nameInProject = item->nameInProject;
-                    request.filePath = item->path;
-                    Engine::Core::GetEngine().GetRenderer()->GetThumbnailService()->Invalidate(request);
+                    if (MakeThumbnailRequest(*item, request))
+                        Engine::Core::GetEngine().GetRenderer()->GetThumbnailService()->Invalidate(request);
                 }
                 break;
 

@@ -33,6 +33,7 @@ namespace Shard::Editor::GUI {
                         "editor_resources/icons/world.png",
                         "editor_resources/icons/model.png",
                         "editor_resources/icons/material.png",
+                        "editor_resources/icons/probes.png",
                         "editor_resources/icons/config.png",
                         "editor_resources/icons/folder.png"
                     };

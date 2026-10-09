@@ -193,6 +193,8 @@ namespace Shard::Engine::Filesystem{
             {".fbx", Type::T_MODEL},
             // Material formats
             {".mat", Type::T_MATERIAL}, {".material", Type::T_MATERIAL},
+            // Baked probe data of a probe volume (Rendering::kProbeBakeExtension)
+            {".probes", Type::T_PROBES},
             // World formats
             {".world", Type::T_WORLD},
             // Config formats

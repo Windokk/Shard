@@ -24,6 +24,7 @@ namespace Shard::Editor::GUI {
             Engine::Filesystem::Type::T_WORLD,
             Engine::Filesystem::Type::T_MODEL,
             Engine::Filesystem::Type::T_MATERIAL,
+            Engine::Filesystem::Type::T_PROBES,
             Engine::Filesystem::Type::T_CONFIG,
             Engine::Filesystem::Type::T_DIRECTORY
         };

@@ -27,6 +27,7 @@ namespace Shard::Engine::Filesystem{
         T_WORLD,
         T_MODEL,
         T_MATERIAL,
+        T_PROBES,
         T_CONFIG,
         T_DIRECTORY
     };
