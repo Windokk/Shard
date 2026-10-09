@@ -42,7 +42,7 @@ jobs:
       - name: Build the job system tests with -fsanitize=thread
         run: |
           GT=submodules/googletest/googletest
-          g++ -std=c++17 -O1 -g -fsanitize=thread -fno-omit-frame-pointer -I src \
+          g++ -std=c++17 -O1 -g -fsanitize=thread -Wno-tsan -fno-omit-frame-pointer -I src \
             src/engine/core/jobs/job_system.cpp \
             src/engine/core/jobs/task_graph.cpp \
             tests/core/job_system_tests.cpp \

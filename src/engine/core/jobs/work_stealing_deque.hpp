@@ -35,8 +35,10 @@ namespace Shard::Engine::Core {
             const int64_t t = m_Top.load(std::memory_order_acquire);
             if (b - t > m_Mask) return false;                                   // b - t == capacity
             m_Buffer[b & m_Mask].store(item, std::memory_order_relaxed);
-            std::atomic_thread_fence(std::memory_order_release);                // slot write visible before the new bottom
-            m_Bottom.store(b + 1, std::memory_order_relaxed);
+            // Release store (the paper uses release fence + relaxed store, which is equivalent): everything written
+            // before, the slot AND the job it points to, is visible to a thief that reads this bottom with acquire.
+            // Expressed on the atomic itself because ThreadSanitizer does not model standalone fences.
+            m_Bottom.store(b + 1, std::memory_order_release);
             return true;
         }
 

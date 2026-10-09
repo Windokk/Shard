@@ -21,7 +21,7 @@ jobs:
   build:
     name: ${{ matrix.name }}
     runs-on: ${{ matrix.runner }}
-    timeout-minutes: 90
+    timeout-minutes: 40
 
     # The "matrix" : the job below is run once per entry, in parallel, each on its own fresh machine
     strategy:
