@@ -1,7 +1,8 @@
 name: build
 
-# Builds the whole engine (layers, editor, player, game module, tests) on Windows AND Linux, then runs the tests.
-# A red run means a change broke one of the two platforms (or a test).
+# Builds the whole engine (layers, editor, player, game module, tests) on Windows AND Linux, then runs the tests, and on
+# Linux boots the player on example_project (smoke test).
+# A red run means a change broke one of the two platforms (or a test, or the engine's boot).
 
 on:
   push:
@@ -27,10 +28,11 @@ jobs:
       fail-fast: false # a failure on one platform does not cancel the other : we want to see both results
       matrix:
         include:
-          - name: Windows (MinGW-w64 + Ninja)
+          # The names are matched exactly by the README badges (nameFilter), keep them in sync
+          - name: Windows # MinGW-w64 GCC + Ninja
             runner: windows-latest
             shell: 'msys2 {0}'
-          - name: Linux (GCC + Ninja)
+          - name: Linux # GCC + Ninja
             runner: ubuntu-24.04 # pinned : "ubuntu-latest" moves to Ubuntu 26 on 2026-10-19, with other compiler / package versions
             shell: bash
 
@@ -72,7 +74,7 @@ jobs:
 
       # The CMake files expect the build folder to be named "build" (like build.sh / build.bat).
       # Release : Debug (the default) is -O0, far slower for Jolt and the engine. ShardReflect is skipped (the generated
-      # *.reflection.hpp files are committed).
+      # *.reflection.hpp files are committed, reflection.yml checks that they are up to date).
       - name: Configure
         run: cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release -DSHARD_BUILD_REFLECT=OFF
 
@@ -81,3 +83,15 @@ jobs:
 
       - name: Test
         run: ctest --test-dir build --output-on-failure --timeout 300
+
+      # The smoke test starts the player on example_project (scripts/smoke_test.sh). The runner has no GPU : on a virtual
+      # display (Xvfb) OpenGL comes from Mesa's software renderer. Linux only : a Windows runner offers no OpenGL 4.3 at all.
+      - name: Install the virtual display and the software OpenGL
+        if: runner.os == 'Linux'
+        run: sudo apt-get install -y --no-install-recommends xvfb libgl1-mesa-dri libglx-mesa0
+
+      - name: Smoke test (boot the engine, load example_project)
+        if: runner.os == 'Linux'
+        env:
+          LIBGL_ALWAYS_SOFTWARE: '1'
+        run: bash scripts/smoke_test.sh

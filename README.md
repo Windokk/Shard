@@ -12,6 +12,11 @@
   A modular, data-oriented game engine<br>
 </p>
 
+<p align="center">
+  <a href="https://github.com/Windokk/Shard/actions/workflows/build.yml"><img alt="Linux : build and tests" src="https://img.shields.io/github/check-runs/Windokk/Shard/main?nameFilter=Linux&label=Linux%20build%20%2B%20tests"></a>
+  <a href="https://github.com/Windokk/Shard/actions/workflows/build.yml"><img alt="Windows : build and tests" src="https://img.shields.io/github/check-runs/Windokk/Shard/main?nameFilter=Windows&label=Windows%20build%20%2B%20tests"></a>
+</p>
+
 ## Screenshots
 
 <div align="center">
@@ -44,6 +49,8 @@ Run `./build.sh` (add `Release` for an optimized build). It makes imgui use our 
 
 The tests are built with the project : `ctest --test-dir build --output-on-failure`
 
+The smoke test (`bash scripts/smoke_test.sh`, after a build) starts the player on example_project, loads its Cornell box world, renders a few frames and shuts down : it fails on a crash, a hang or an error in the log. The CI runs it on Linux, on a virtual display with Mesa's software OpenGL (`sudo apt install xvfb` to do the same without a desktop). It uses the player's `--world <world in the project>` and `--frames <count>` options : with `--frames` the player renders that many frames, writes nothing to the project, then exits with a code that says whether it went well.
+
 ## How to use (Windows)
 
 ### Build tools :
@@ -71,7 +78,7 @@ On Linux, SDL3 is built from source and needs the development packages of your w
 
 Copy the resources/engine_resources and resources/editor_resources folders inside the build directory
 
-ShardReflect (the reflection generator, in src/apps/tools/reflect) is built with the project into build/tools/ when LLVM, Clang and zlib are found (otherwise it is skipped : the generated *.reflection.hpp files are committed). See src/apps/tools/reflect/README.md
+ShardReflect (the reflection generator, in src/apps/tools/reflect) is built with the project into build/tools/ when LLVM, Clang and zlib are found (otherwise it is skipped : the generated *.reflection.hpp files are committed). After changing a reflected class, run `bash scripts/regen_reflection.sh` and commit the result : the CI (reflection.yml) regenerates them and fails when the committed ones are stale. See src/apps/tools/reflect/README.md
 
 This runs the editor, loads the game module, opens the project at "project path" and uses open gl core as the rendering api
 ```bash

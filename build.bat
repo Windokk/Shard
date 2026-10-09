@@ -13,8 +13,7 @@ cd build
 REM Build reflection
 cd tools
 
-REM ShardReflect --clang C:/msys64/mingw64/lib/clang/21 --cpp C:/msys64/mingw64/include/c++/15.2.0 --dir ..\..\src\engine\world\components --dir ..\..\src\engine\renderer\components --dir ..\..\src\engine\physics --dir ..\..\src\engine\audio -I "..\..\src;..\..\submodules\;..\..\submodules\json\single_include;..\..\submodules\jolt;..\..\submodules\glm;..\..\submodules\freetype\include"
-REM ShardReflect --clang C:/msys64/mingw64/lib/clang/21 --cpp C:/msys64/mingw64/include/c++/15.2.0 -f ..\..\src\apps\game\character.hpp -I "..\..\src;..\..\submodules\;..\..\submodules\json\single_include;..\..\submodules\jolt;..\..\submodules\glm;..\..\submodules\freetype\include"
+REM The reflection files are committed : after changing a reflected class run  bash scripts/regen_reflection.sh  (CI checks they are up to date)
 cd ..
 
 REM Build the project

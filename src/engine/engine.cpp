@@ -94,15 +94,18 @@ namespace Shard::Engine{
                 DEBUG_INFO("    Monitor : "+ std::to_string(i) + " : width = " + std::to_string(infos.monitors[i].width) + " px, height = "+ std::to_string(infos.monitors[i].height) + " px, refreshRate = "+std::to_string(infos.monitors[i].refreshRate)+" hz");
             }
 
-            if(m_Context.currentProject->GetBuildSettings()->buildIndex.size() > 0){
-                Filesystem::Path defaultWorldPath = m_Context.currentProject->GetBuildSettings()->buildIndex[0];
-                DEBUG_LOG("Loading default world : "+defaultWorldPath.full);
+            std::string startWorld = settings.startWorld;
+            if(startWorld.empty() && m_Context.currentProject->GetBuildSettings()->buildIndex.size() > 0)
+                startWorld = m_Context.currentProject->GetBuildSettings()->buildIndex[0].full;
+
+            if(!startWorld.empty()){
+                DEBUG_LOG("Loading default world : "+startWorld);
 
                 // Parallelizes texture/mesh decode across worker threads and keeps pumping window
                 // events (+ drawing a splash frame, on platforms that support one) while it waits, so
                 // a heavy default world doesn't leave the window looking frozen at boot.
                 Platform::IWindow* window = GetWindow();
-                GetWorldManager()->LoadWorldBlocking(defaultWorldPath.full, [window](float progress){
+                GetWorldManager()->LoadWorldBlocking(startWorld, [window](float progress){
                     window->PollEvents();
                     window->DrawLoadingFrame(progress);
                 });
@@ -183,7 +186,8 @@ namespace Shard::Engine{
 
             if(m_PlayMode){
 
-                m_Context.worldManager->GetWorldAt(0)->Serialize(m_Context.worldManager->GetWorldAt(0)->GetPath());
+                if(!m_EngineSettings.readOnly)
+                    m_Context.worldManager->GetWorldAt(0)->Serialize(m_Context.worldManager->GetWorldAt(0)->GetPath());
 
                 for(int i = 0; i < m_Context.worldManager->GetLoadedWorldCount(); i++){
                     m_Context.worldManager->GetWorldAt(i)->Play();
@@ -227,7 +231,8 @@ namespace Shard::Engine{
 
         void EngineInstance::Destroy()
         {
-            m_Context.currentProject->Shutdown(m_EngineSettings.project, *m_Context.assetIDManager);
+            if(!m_EngineSettings.readOnly)
+                m_Context.currentProject->Shutdown(m_EngineSettings.project, *m_Context.assetIDManager);
             m_Context.profiler->Shutdown();
             Debugging::Profiler::SetActive(nullptr);
             m_Context.platform->GetInput()->Shutdown();

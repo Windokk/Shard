@@ -170,11 +170,6 @@ inline StructDescriptor CylinderParams_descriptor = {
 };
 
 // Reflection for class PhysicsBody
-//
-// Note: the shape list (PhysicsBody::shapes) is intentionally not reflected here - it's a
-// vector of structs (each with its own nested InstancedStruct params), which the generic
-// reflected-field editor UI (PropertiesPanel::DrawField) has no support for drawing. The editor
-// instead draws it with a dedicated custom UI block; see properties_panel.cpp.
 
 static EnumDescriptor EMotionType_descriptor = {
     "EMotionType",

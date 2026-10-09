@@ -10,3 +10,4 @@ inline ClassDescriptor Shard::Engine::Objects::Components::AudioListener::descri
     {
     }
 };
+

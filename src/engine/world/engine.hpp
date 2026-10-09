@@ -72,6 +72,10 @@ namespace Shard::Engine{
             //PROJECT
             std::string project = "";
 
+            /// Command line override for the world loaded at startup (a path in the project, such as "cornell.world");
+            /// the first world of the project's build settings is loaded unless it is set.
+            std::string startWorld = "";
+
             //WINDOW (Editor preferences)
             int windowWidth = 1280;
             int windowHeight = 720;
@@ -86,6 +90,11 @@ namespace Shard::Engine{
 
             //PLAY MODE
             bool startInPlayMode = false;
+
+            /// Nothing is written back to the project : neither the world saved when play mode starts, nor the
+            /// project file and the asset database saved at shutdown. For runs that must leave the project as they
+            /// found it (the CI's smoke test).
+            bool readOnly = false;
 
             uint32_t api;
         };

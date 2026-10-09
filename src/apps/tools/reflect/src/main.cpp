@@ -146,6 +146,10 @@ int main(int argc, const char **argv) {
     };
 #endif
 
+    // The headers are parsed the way the engine itself sees them : without it logger.hpp declares no GetLogger()
+    // (it needs BUILD_ENGINE or BUILD_GAME), and every header that logs, such as the game's, ends in a parse error.
+    defaultFlags.push_back("-DBUILD_ENGINE");
+
     for (const auto &include : IncludeDirs) {
         for (const auto& dir : ParseIncludeDirs(include)) {
             defaultFlags.push_back("-I");  // Add -I as a separate argument

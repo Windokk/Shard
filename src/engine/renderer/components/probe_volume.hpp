@@ -64,7 +64,7 @@ namespace Shard::Engine::Objects::Components
             // having unsaved changes - the world file has to be saved for the reference to persist.
             void OnBakeFinished(const Filesystem::Path& file);
 
-            FIELD(Editable)
+            FIELD(Editable, range=1|0)
             glm::ivec3 probeCounts = glm::ivec3(8, 4, 8);
 
             // Traced per probe per update - must be a perfect square (8x8=64, 16x16=256) since each ray
@@ -73,7 +73,7 @@ namespace Shard::Engine::Objects::Components
             // nearest one when the grid is (re)built, and the whole thing is capped at
             // ProbeManager::kMaxRaysPerProbe. Cost is linear in this while noise only falls with its
             // square root, so it's rarely the right knob to turn first - see probeUpdateStride.
-            FIELD(Editable)
+            FIELD(Editable, range=1|256)
             int raysPerProbe = 64;
 
             // Round-robin probe update (RTXGI's, see ProbeManager) : a stride of N traces only 1/N of
@@ -84,8 +84,7 @@ namespace Shard::Engine::Objects::Components
             // around a moving object wants 1. Clamped to ProbeManager::kMaxProbeUpdateStride. The
             // temporal blend compensates automatically (see kBaseTemporalHysteresis), so raising this
             // costs responsiveness to a lighting change only through a slightly grainier result, not
-            // through a longer settling time.
-            FIELD(Editable)
+            FIELD(Editable, range=1|8)
             int probeUpdateStride = 1;
 
             // Multiplier on the bounce (indirect) term the probes feed back into themselves - RTXGI's
@@ -96,7 +95,7 @@ namespace Shard::Engine::Objects::Components
             // exaggerates colour bleed, which can be worth it because an octahedral tile loses a little
             // energy at every hop; lowering it tames a scene whose albedos are high enough that the
             // bounce series takes an uncomfortably long time to settle.
-            FIELD(Editable)
+            FIELD(Editable, range=0.0f|4.0f)
             float indirectIntensity = 1.0f;
 
             // RTXGI "Probe Relocation" : each frame, every probe is nudged by a small bounded offset

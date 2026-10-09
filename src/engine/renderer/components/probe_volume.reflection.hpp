@@ -38,9 +38,6 @@ inline FieldInfo ProbeVolume_raysPerProbe_info = {
     TypeID::Int32,
     offsetof(Shard::Engine::Objects::Components::ProbeVolume, raysPerProbe),
     Editable,
-    // Upper bound is ProbeManager::kMaxRaysPerProbe (the convolve pass stages a whole tile in shared
-    // memory) - the grid rebuild clamps to it anyway, this just stops the widget offering values that
-    // silently do nothing.
     1, 256,
     nullptr,
     nullptr,
@@ -55,7 +52,7 @@ inline FieldInfo ProbeVolume_probeUpdateStride_info = {
     TypeID::Int32,
     offsetof(Shard::Engine::Objects::Components::ProbeVolume, probeUpdateStride),
     Editable,
-    1, 8, // ProbeManager::kMaxProbeUpdateStride
+    1, 8,
     nullptr,
     nullptr,
     &CopyConstruct<int>,
@@ -103,3 +100,4 @@ inline ClassDescriptor Shard::Engine::Objects::Components::ProbeVolume::descript
         &ProbeVolume_enableRelocation_info,
     }
 };
+

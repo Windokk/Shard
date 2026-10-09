@@ -148,24 +148,28 @@ public:
             return;
         }
 
-        std::string filename = SM.getFilename(Definition->getLocation()).str();
+        // Only what the header being processed defines : the annotated classes of the headers it includes have their
+        // own reflection file, written when that header is processed (here they would be written a second time, and
+        // by a pass that does not own them).
+        if (!SM.isWrittenInMainFile(Definition->getLocation()))
+            return;
 
-        // Initialize storage for this file if not already
-        auto& fileEntries = perFileGenerated[filename];
+        std::string filename = SM.getFilename(Definition->getLocation()).str();
 
         // Check all annotations
         for (auto* Attr : Decl->specific_attrs<AnnotateAttr>()) {
             std::string annotation = Attr->getAnnotation().str();
 
+            // A file is only created for a header that has something to write : an empty one would be noise
             if (annotation == "class") {
                 std::string code = handleClass(Decl, SM);
                 if (!code.empty())
-                    fileEntries.push_back(code);
+                    perFileGenerated[filename].push_back(code);
             }
             else if (annotation == "struct") {
                 std::string code = handleStruct(Decl, SM);
                 if (!code.empty())
-                    fileEntries.push_back(code);
+                    perFileGenerated[filename].push_back(code);
             }
         }
     }
@@ -183,7 +187,7 @@ public:
 
             out << "#pragma once\n\n";
             out << "#include \"" << p.filename().string() << "\"\n";
-            out << "#include \"engine/core/reflection_fields.hpp\"\n\n";
+            out << "#include \"engine/assets/reflection/reflection_fields.hpp\"\n\n";
 
             for (auto& code : codeList)
                 out << code << "\n";
@@ -197,8 +201,40 @@ public:
 private:
     std::map<std::string, std::vector<std::string>> perFileGenerated;
     
+    /// Whether the class declares the static `descriptor` that DECLARE_DESCRIPTOR() adds. An annotated class without
+    /// it (the abstract Volume : its GetDescriptor() stays pure virtual) has no descriptor to define, its fields are
+    /// reflected by the classes derived from it.
+    static bool declaresDescriptor(const CXXRecordDecl* C) {
+        for (const Decl* D : C->decls()) {
+            if (const auto* V = dyn_cast<VarDecl>(D)) {
+                if (V->isStaticDataMember() && V->getName() == "descriptor")
+                    return true;
+            }
+        }
+        return false;
+    }
+
+    /// The annotated classes C derives from, the most distant ancestor first : their fields are part of C's descriptor.
+    static void collectAnnotatedBases(const CXXRecordDecl* C, std::vector<const CXXRecordDecl*>& out) {
+        for (const CXXBaseSpecifier& base : C->bases()) {
+            const CXXRecordDecl* B = base.getType()->getAsCXXRecordDecl();
+            if (!B || !B->hasDefinition())
+                continue;
+            B = B->getDefinition();
+
+            if (!B->hasAttr<AnnotateAttr>())
+                continue;
+
+            collectAnnotatedBases(B, out);
+            out.push_back(B);
+        }
+    }
+
     std::string handleClass(const CXXRecordDecl* C,const SourceManager& SM) {
         if (!C || !C->isThisDeclarationADefinition())
+            return {};
+
+        if (!declaresDescriptor(C))
             return {};
 
         std::ostringstream out;
@@ -207,15 +243,23 @@ private:
 
         std::vector<std::string> fieldInfos;
 
-        for (const FieldDecl* F : C->fields()) {
-            for (auto *attr : F->attrs()) {
-                if (const auto *aa = dyn_cast<AnnotateAttr>(attr)) {
-                    std::string annotation = aa->getAnnotation().str();
-                    if (annotation.find("field") == 0) {
-                        std::string fieldCode = handleField(F, SM);
-                        if (!fieldCode.empty()) {
-                            fieldInfos.push_back(C->getNameAsString() + "_" + F->getNameAsString() + "_info");
-                            out << fieldCode;
+        // What a class inherits from an annotated base (a ProbeVolume's halfExtent comes from Volume) is edited and
+        // saved through the derived class's descriptor : the base's fields come first, as they do in memory.
+        std::vector<const CXXRecordDecl*> owners;
+        collectAnnotatedBases(C, owners);
+        owners.push_back(C);
+
+        for (const CXXRecordDecl* Owner : owners) {
+            for (const FieldDecl* F : Owner->fields()) {
+                for (auto *attr : F->attrs()) {
+                    if (const auto *aa = dyn_cast<AnnotateAttr>(attr)) {
+                        std::string annotation = aa->getAnnotation().str();
+                        if (annotation.find("field") == 0) {
+                            std::string fieldCode = handleField(F, C, SM);
+                            if (!fieldCode.empty()) {
+                                fieldInfos.push_back(C->getNameAsString() + "_" + F->getNameAsString() + "_info");
+                                out << fieldCode;
+                            }
                         }
                     }
                 }
@@ -249,7 +293,7 @@ private:
                 if (const auto *aa = dyn_cast<AnnotateAttr>(attr)) {
                     std::string annotation = aa->getAnnotation().str();
                     if (annotation.find("field") == 0) {
-                        std::string fieldCode = handleField(F, SM);
+                        std::string fieldCode = handleField(F, S, SM);
                         if (!fieldCode.empty()) {
                             fieldInfos.push_back(S->getNameAsString() + "_" + F->getNameAsString() + "_info");
                             out << fieldCode;
@@ -288,16 +332,13 @@ private:
         return out.str();
     }
 
-    std::string handleField(const FieldDecl* F, const clang::SourceManager &SM){
-        
-        if (!F || !SM.isWrittenInMainFile(F->getLocation()))
+    /// @param Parent the class whose descriptor the field goes in : the one that declares it, or one derived from it
+    std::string handleField(const FieldDecl* F, const CXXRecordDecl* Parent, const clang::SourceManager &SM){
+
+        if (!F || !Parent)
             return {};
 
         std::ostringstream out;
-
-        const auto* Parent = dyn_cast<CXXRecordDecl>(F->getParent());
-        if (!Parent)
-            return {};
 
         // ---------- parse annotations ----------
         bool isEditable = false;

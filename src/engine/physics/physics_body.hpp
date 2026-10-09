@@ -197,22 +197,22 @@ namespace Shard::Engine::Objects::Components
             FIELD(Editable)
             bool overrideMass = false;
 
-            FIELD(Editable)
+            FIELD(Editable, range=0.001f|100000.0f)
             float mass = 1.0f;
 
-            FIELD(Editable)
+            FIELD(Editable, range=0.0f|1.0f)
             float linearDamping = 0.05f;
 
-            FIELD(Editable)
+            FIELD(Editable, range=0.0f|1.0f)
             float angularDamping = 0.05f;
 
-            FIELD(Editable)
+            FIELD(Editable, range=-10.0f|10.0f)
             float gravityFactor = 1.0f;
 
-            FIELD(Editable)
+            FIELD(Editable, range=0.0f|1.0f)
             float friction = 0.2f;
 
-            FIELD(Editable)
+            FIELD(Editable, range=0.0f|1.0f)
             float restitution = 0.0f;
 
         private:

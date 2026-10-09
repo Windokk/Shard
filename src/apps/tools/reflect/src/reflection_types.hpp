@@ -112,6 +112,9 @@ static TypeID GetTypeIDFromString(std::string typeName) {
         {"uint32_t", TypeID::UInt32},
         {"uint64_t", TypeID::UInt64},
 
+        {"int", TypeID::Int32},
+        {"unsignedint", TypeID::UInt32},
+
         // Floating point
         {"float", TypeID::Float},
         {"double", TypeID::Double},

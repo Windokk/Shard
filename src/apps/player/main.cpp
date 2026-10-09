@@ -1,4 +1,5 @@
 #include "engine/world/engine.hpp"
+#include "engine/world/world_manager.hpp"
 #include "engine/assets/resources_manager.hpp"
 #include "engine/game_module.hpp"
 #include "engine/platform/windowing/sdl/sdl_platform.hpp"
@@ -13,6 +14,7 @@ using namespace Shard::Engine::Objects::Components;
 using namespace Shard::Engine::Objects;
 using namespace Shard::Game;
 
+#include <cstdlib>
 #include <iostream>
 #include <optional>
 
@@ -22,6 +24,11 @@ std::string mainModuleLib = "";
 // --view-mode : a debug view of the scene (what the editor's viewport "View Mode" shows), for tracking a rendering
 // problem down in the player itself. None : the normal render.
 std::optional<ViewMode> debugViewMode;
+
+// --frames : render that many frames, then shut down. It is a non-interactive run (what the CI's smoke test does, see
+// scripts/smoke_test.sh) : nothing waits for Enter, the exit code says whether it went well, and the project is not
+// written to (EngineCreationSettings::readOnly). -1 : a normal run.
+int maxFrames = -1;
 
 bool ParseViewMode(const std::string& name, ViewMode& out)
 {
@@ -66,6 +73,12 @@ EngineCreationSettings ComputeEngineSettings(int argc, char* argv[]) {
         }
         else if (strcmp(argv[i], "--project") == 0 && i + 1 < argc) {
             settings.project = argv[++i];
+        }
+        else if (strcmp(argv[i], "--world") == 0 && i + 1 < argc) {
+            settings.startWorld = argv[++i];
+        }
+        else if (strcmp(argv[i], "--frames") == 0 && i + 1 < argc) {
+            maxFrames = std::stoi(argv[++i]);
         }
         else if (strcmp(argv[i], "--gravity") == 0 && i + 3 < argc) {
             float x = std::stof(argv[++i]);
@@ -118,6 +131,11 @@ EngineCreationSettings ComputeEngineSettings(int argc, char* argv[]) {
 }
 
 void early_crash(){
+    if (maxFrames >= 0) {
+        std::cout << "Shard Engine has crashed." << std::endl;
+        std::exit(1);
+    }
+
     std::cout << "Shard Engine has crashed. Press Enter to exit..." << std::endl;
     std::cin.ignore(std::numeric_limits<std::streamsize>::max(), '\n');
     std::cin.get();
@@ -128,6 +146,7 @@ int main(int argc, char* argv[]) {
 
     // Engine init parameters
     EngineCreationSettings engineSettings = ComputeEngineSettings(argc, argv);
+    engineSettings.readOnly = maxFrames >= 0;
 
     if(engineSettings.project == ""){
         std::cerr<<"No project specified, aborting..."<<std::endl;
@@ -151,7 +170,12 @@ int main(int argc, char* argv[]) {
     // Engine startup
     Engine::Core::GetEngine().Init(engineSettings);
 
-    
+    // Playing needs a world : a project that loaded, but whose world did not (a bad path, a broken file), stops here
+    if (Engine::Core::GetEngine().GetWorldManager()->GetLoadedWorldCount() == 0) {
+        std::cerr << "No world was loaded, aborting..." << std::endl;
+        early_crash();
+    }
+
     if (debugViewMode)
     {
         DebugViewState debugView;
@@ -162,14 +186,22 @@ int main(int argc, char* argv[]) {
     Engine::Core::GetEngine().SetPlayMode(true);
 
     //Main Loop
+    int frames = 0;
     while (!Engine::Core::GetEngine().ShouldEnd()) {
+        if (maxFrames >= 0 && frames >= maxFrames) break;
         if (!Engine::Core::GetEngine().Run()) break;
+        frames++;
     }
 
     //Cleaning
     Engine::Core::GetEngine().Destroy();
 
     UnloadGameModule();
+
+    if (maxFrames >= 0) {
+        std::cout << "Rendered " << frames << " frames, shut down cleanly." << std::endl;
+        return 0;
+    }
 
     std::cout << "Shard Engine has finished. Press Enter to exit..." << std::endl;
     std::cin.ignore(std::numeric_limits<std::streamsize>::max(), '\n');
