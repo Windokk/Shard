@@ -1,0 +1,56 @@
+name: tsan
+
+# Runs the job system tests (src/engine/core/jobs) under ThreadSanitizer, which detects data races and memory-ordering
+# mistakes that a plain test run can miss for months. TSan does not exist on Windows / MinGW, hence a Linux-only job.
+# Only the job system and googletest are compiled (the job system depends on nothing but the standard library), so this
+# takes about a minute instead of a full engine build.
+
+on:
+  push:
+    paths:
+      - 'src/engine/core/jobs/**'
+      - 'tests/core/job_system_tests.cpp'
+      - '.github/workflows/tsan.yml'
+  pull_request:
+    paths:
+      - 'src/engine/core/jobs/**'
+      - 'tests/core/job_system_tests.cpp'
+      - '.github/workflows/tsan.yml'
+  workflow_dispatch:
+
+concurrency:
+  group: tsan-${{ github.head_ref || github.ref_name }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  tsan:
+    name: ThreadSanitizer (job system)
+    runs-on: ubuntu-24.04 # pinned, like build.yml
+    timeout-minutes: 20
+
+    steps:
+      - uses: actions/checkout@v4
+
+      # Only googletest is needed, not the 2 GB of other submodules
+      - name: Fetch googletest
+        run: git submodule update --init --depth 1 submodules/googletest
+
+      # -O1 : keeps TSan reports readable (higher levels inline and reorder too much). -g : file / line in the reports.
+      - name: Build the job system tests with -fsanitize=thread
+        run: |
+          GT=submodules/googletest/googletest
+          g++ -std=c++17 -O1 -g -fsanitize=thread -fno-omit-frame-pointer -I src \
+            src/engine/core/jobs/job_system.cpp \
+            src/engine/core/jobs/task_graph.cpp \
+            tests/core/job_system_tests.cpp \
+            -I $GT/include -I $GT $GT/src/gtest-all.cc $GT/src/gtest_main.cc \
+            -lpthread -o jobs_tsan
+
+      # halt_on_error : the first race fails the run. Repeated, because a race only shows on some interleavings.
+      - name: Run
+        env:
+          TSAN_OPTIONS: halt_on_error=1 second_deadlock_stack=1
+        run: ./jobs_tsan --gtest_repeat=30 --gtest_brief=1
