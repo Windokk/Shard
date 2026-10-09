@@ -24,7 +24,25 @@
 
 ## How to use (Linux)
 
-// WIP
+### Build tools :
+- CMake 3.28.2 or later
+- A C++17 compiler (GCC or Clang), `make` or `ninja`, git
+
+### Dependencies (Debian / Ubuntu) :
+```bash
+bash scripts/install_linux_deps.sh
+```
+This installs what SDL3 needs to build its X11 / Wayland / audio / input backends, plus zlib and liburing (optional, faster async IO). On another distribution install the equivalent packages : see https://wiki.libsdl.org/SDL3/README-linux
+
+### How to build & run :
+
+Clone with the submodules (`git clone --recurse-submodules`, or `git submodule update --init --recursive` afterwards).
+
+Place the fonts (.ttf) inside their folder (resources/editor_resources/fonts/), like on Windows (see below).
+
+Run `./build.sh` (add `Release` for an optimized build). It makes imgui use our vulkan.h, configures, builds everything and starts the editor ; `SHARD_NO_RUN=1 ./build.sh` only builds.
+
+The tests are built with the project : `ctest --test-dir build --output-on-failure`
 
 ## How to use (Windows)
 
@@ -39,7 +57,7 @@
 
 ### How to build & run :
 
-Modify imgui submodule to use our vulkan.h (src/engine/renderer/rhi/backends/glad/include/glad/vulkan.h)
+Make the imgui submodule use our vulkan.h (src/engine/renderer/rhi/backends/glad/include/glad/vulkan.h) : run `bash scripts/patch_imgui.sh` (from Git Bash / MSYS2)
 
 Place the fonts (.ttf) inside their folder (resources/editor_resources/fonts/)
 

@@ -31,7 +31,7 @@ jobs:
             runner: windows-latest
             shell: 'msys2 {0}'
           - name: Linux (GCC + Ninja)
-            runner: ubuntu-latest
+            runner: ubuntu-24.04 # pinned : "ubuntu-latest" moves to Ubuntu 26 on 2026-10-19, with other compiler / package versions
             shell: bash
 
     defaults:
@@ -49,18 +49,10 @@ jobs:
         with:
           submodules: recursive
 
+      # Same script as for a developer on Debian / Ubuntu : ninja, zlib, and what SDL3 needs for its X11 / Wayland / audio / input backends
       - name: Install the Linux dependencies
         if: runner.os == 'Linux'
-        run: |
-          sudo apt-get update
-          # ninja : the build tool, zlib : linked by the engine, the rest : what SDL3 needs to build its X11 / Wayland / audio / input
-          # backends (see https://wiki.libsdl.org/SDL3/README-linux), liburing : optional async IO backend of the platform layer
-          sudo apt-get install -y --no-install-recommends \
-            ninja-build pkg-config zlib1g-dev liburing-dev \
-            libasound2-dev libpulse-dev libudev-dev libdbus-1-dev \
-            libx11-dev libxext-dev libxrandr-dev libxcursor-dev libxfixes-dev libxi-dev libxss-dev libxtst-dev \
-            libxkbcommon-dev libwayland-dev libdecor-0-dev \
-            libdrm-dev libgbm-dev libgl1-mesa-dev libegl1-mesa-dev
+        run: bash scripts/install_linux_deps.sh
 
       - name: Install the MinGW-w64 toolchain
         if: runner.os == 'Windows'
@@ -76,9 +68,7 @@ jobs:
 
       # Same manual step as in the README ("Modify imgui submodule to use our vulkan.h") : without it the editor does not compile
       - name: Patch imgui to use the engine's vulkan.h
-        run: |
-          sed -i 's|#include <vulkan/vulkan.h>|#include "engine/renderer/rhi/backends/glad/include/glad/vulkan.h"|' submodules/imgui/backends/imgui_impl_vulkan.h
-          grep -q 'glad/vulkan.h' submodules/imgui/backends/imgui_impl_vulkan.h || { echo "imgui patch not applied : imgui_impl_vulkan.h changed upstream"; exit 1; }
+        run: bash scripts/patch_imgui.sh
 
       # The CMake files expect the build folder to be named "build" (like build.sh / build.bat).
       # Release : Debug (the default) is -O0, far slower for Jolt and the engine. ShardReflect is skipped (the generated
