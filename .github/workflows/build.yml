@@ -1,0 +1,93 @@
+name: build
+
+# Builds the whole engine (layers, editor, player, game module, tests) on Windows AND Linux, then runs the tests.
+# A red run means a change broke one of the two platforms (or a test).
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+# A push and its pull request share one group, and a newer commit cancels the run of an older one
+concurrency:
+  group: build-${{ github.head_ref || github.ref_name }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    name: ${{ matrix.name }}
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 90
+
+    # The "matrix" : the job below is run once per entry, in parallel, each on its own fresh machine
+    strategy:
+      fail-fast: false # a failure on one platform does not cancel the other : we want to see both results
+      matrix:
+        include:
+          - name: Windows (MinGW-w64 + Ninja)
+            runner: windows-latest
+            shell: 'msys2 {0}'
+          - name: Linux (GCC + Ninja)
+            runner: ubuntu-latest
+            shell: bash
+
+    defaults:
+      run:
+        shell: ${{ matrix.shell }}
+
+    env:
+      # GCC on both platforms (the CMake files link with GNU-style flags such as -lz, which MSVC does not understand)
+      CC: gcc
+      CXX: g++
+
+    steps:
+      # The third-party libraries (SDL3, Jolt, glm, imgui...) are git submodules : they are not part of the repository itself
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Install the Linux dependencies
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          # ninja : the build tool, zlib : linked by the engine, the rest : what SDL3 needs to build its X11 / Wayland / audio / input
+          # backends (see https://wiki.libsdl.org/SDL3/README-linux), liburing : optional async IO backend of the platform layer
+          sudo apt-get install -y --no-install-recommends \
+            ninja-build pkg-config zlib1g-dev liburing-dev \
+            libasound2-dev libpulse-dev libudev-dev libdbus-1-dev \
+            libx11-dev libxext-dev libxrandr-dev libxcursor-dev libxfixes-dev libxi-dev libxss-dev libxtst-dev \
+            libxkbcommon-dev libwayland-dev libdecor-0-dev \
+            libdrm-dev libgbm-dev libgl1-mesa-dev libegl1-mesa-dev
+
+      - name: Install the MinGW-w64 toolchain
+        if: runner.os == 'Windows'
+        uses: msys2/setup-msys2@v2
+        with:
+          msystem: MINGW64
+          update: false
+          install: >-
+            mingw-w64-x86_64-toolchain
+            mingw-w64-x86_64-cmake
+            mingw-w64-x86_64-ninja
+            mingw-w64-x86_64-zlib
+
+      # Same manual step as in the README ("Modify imgui submodule to use our vulkan.h") : without it the editor does not compile
+      - name: Patch imgui to use the engine's vulkan.h
+        run: |
+          sed -i 's|#include <vulkan/vulkan.h>|#include "engine/renderer/rhi/backends/glad/include/glad/vulkan.h"|' submodules/imgui/backends/imgui_impl_vulkan.h
+          grep -q 'glad/vulkan.h' submodules/imgui/backends/imgui_impl_vulkan.h || { echo "imgui patch not applied : imgui_impl_vulkan.h changed upstream"; exit 1; }
+
+      # The CMake files expect the build folder to be named "build" (like build.sh / build.bat).
+      # Release : Debug (the default) is -O0, far slower for Jolt and the engine. ShardReflect is skipped (the generated
+      # *.reflection.hpp files are committed).
+      - name: Configure
+        run: cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release -DSHARD_BUILD_REFLECT=OFF
+
+      - name: Build
+        run: cmake --build build --parallel
+
+      - name: Test
+        run: ctest --test-dir build --output-on-failure --timeout 300
