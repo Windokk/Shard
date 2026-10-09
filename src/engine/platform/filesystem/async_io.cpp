@@ -76,6 +76,8 @@ namespace Shard::Engine::Core::Platform::AsyncIO {
                     else
                     {
                         file.write(reinterpret_cast<const char*>(data.data()), static_cast<std::streamsize>(data.size()));
+                        // Flush and close BEFORE the promise is set : the caller may read the file back right away
+                        file.close();
                         result.ok = static_cast<bool>(file);
                         if (!result.ok)
                             result.error = "can't write " + path;
