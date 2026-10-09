@@ -837,6 +837,12 @@ namespace Shard::Editor::Core{
                 return;
             }
         }
+        else if(!ImGui::GetIO().WantTextInput){
+            if(input->WasKeyPressed(Engine::Input::Key::F))
+                viewport->FocusSelected();
+            else if(input->WasKeyPressed(Engine::Input::Key::End))
+                viewport->SnapSelectedToFloor();
+        }
 
         viewport->ProcessInputs();
     }

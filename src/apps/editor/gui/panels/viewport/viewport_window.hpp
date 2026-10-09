@@ -35,6 +35,11 @@ namespace Shard::Editor::GUI {
             void SetGizmoOperation(ImGuizmo::OPERATION op) { currentGizmoOp = op; }
             ImGuizmo::OPERATION GetGizmoOperation() const { return currentGizmoOp; }
 
+            /// @brief Moves the editor camera so the selected actor (and its children) fills the view (F)
+            void FocusSelected();
+            /// @brief Drops the selected actor straight down onto whatever lies below it (End)
+            void SnapSelectedToFloor();
+
             // Store previous size
             static ImVec2 prev_size;
             
@@ -85,6 +90,10 @@ namespace Shard::Editor::GUI {
             std::string raytraceStatusMessage;
 
             float firstClickTime = 0;
+
+            // Camera focus animation (see FocusSelected)
+            bool focusAnimating = false;
+            glm::vec3 focusTarget = glm::vec3(0);
 
             // Gizmos
             ImGuizmo::OPERATION currentGizmoOp = ImGuizmo::TRANSLATE;

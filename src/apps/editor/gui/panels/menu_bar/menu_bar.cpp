@@ -286,6 +286,16 @@ namespace Shard::Editor::GUI{
 
         ImGui::Separator();
 
+        bool hasSelection = parent->GetSelectedActor() != nullptr;
+
+        if (ImGui::MenuItem("Focus Selected", "F", false, hasSelection))
+            parent->viewport->FocusSelected();
+
+        if (ImGui::MenuItem("Snap To Floor", "End", false, hasSelection))
+            parent->viewport->SnapSelectedToFloor();
+
+        ImGui::Separator();
+
         if (ImGui::MenuItem("Toggle Gizmos", nullptr, parent->settings.showGizmos))
             parent->settings.showGizmos = !parent->settings.showGizmos;
 

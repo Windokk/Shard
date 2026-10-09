@@ -25,6 +25,9 @@
 #include <cstdio>
 
 #include <Jolt/Physics/Collision/CollisionCollectorImpl.h>
+#include <Jolt/Physics/Body/BodyFilter.h>
+
+#include <unordered_set>
 
 #include "engine/core/diagnostics/profiler.hpp"
 #include "engine/world/time_manager.hpp"
@@ -82,6 +85,46 @@ namespace {
         }
     }
 
+    // The actor's ID plus every descendant's - focus and floor-snap treat a hierarchy as one object.
+    std::unordered_set<uint32_t> CollectHierarchyIDs(const std::shared_ptr<Shard::Engine::Objects::Actor>& actor)
+    {
+        std::unordered_set<uint32_t> ids;
+        ids.insert(actor->GetID().GetAsInt());
+        for (const auto& childID : actor->GetChildrenID(true))
+            ids.insert(childID.GetAsInt());
+        return ids;
+    }
+
+    // Merged world AABB of every model in the hierarchy. Returns false when none of them has a mesh
+    // (empty actor, light, ...), in which case callers fall back to the actor's world position.
+    bool ComputeHierarchyBounds(Shard::Engine::Worlds::World* world, const std::unordered_set<uint32_t>& ids,
+                                glm::vec3& outMin, glm::vec3& outMax)
+    {
+        outMin = glm::vec3(FLT_MAX);
+        outMax = glm::vec3(-FLT_MAX);
+        bool found = false;
+
+        for (auto& modelEntry : world->Ext<Shard::Engine::Rendering::RenderWorldData>().models)
+        {
+            auto& modelComp = modelEntry.second;
+            if (!modelComp || !modelComp->parent || !ids.count(modelComp->parent->GetID().GetAsInt()))
+                continue;
+
+            auto mesh = modelComp->GetMesh();
+            if (!mesh || mesh->GetBoundsMin().x > mesh->GetBoundsMax().x)
+                continue;
+
+            glm::vec3 worldMin, worldMax;
+            ComputeWorldBounds(mesh->GetBoundsMin(), mesh->GetBoundsMax(),
+                               modelComp->parent->transform->GetWorldMatrix(), worldMin, worldMax);
+            outMin = glm::min(outMin, worldMin);
+            outMax = glm::max(outMax, worldMax);
+            found = true;
+        }
+
+        return found;
+    }
+
 }
 
 namespace Shard::Editor::GUI {
@@ -112,6 +155,21 @@ namespace Shard::Editor::GUI {
         // render keeps progressing in the background even if the user closes that panel.
         if (raytracer && raytracer->IsActive())
             raytracer->Update();
+
+        // Glide towards the point picked by FocusSelected() - frame-rate independent exponential ease
+        if (focusAnimating && cameraActor && !Engine::Core::GetEngine().IsInPlayMode())
+        {
+            float dt = Engine::Core::GetEngine().GetTimeManager()->GetDeltaTime();
+            glm::vec3 pos = cameraActor->transform->GetPosition();
+            pos = glm::mix(pos, focusTarget, 1.0f - std::exp(-15.0f * dt));
+
+            if (glm::distance(pos, focusTarget) < 0.001f)
+            {
+                pos = focusTarget;
+                focusAnimating = false;
+            }
+            cameraActor->transform->SetPosition(pos);
+        }
 
         ImGui::Begin("Viewport");
 
@@ -486,6 +544,131 @@ namespace Shard::Editor::GUI {
             if (auto* world = Engine::Core::GetEngine().GetWorldManager()->GetWorldAt(0))
                 world->SetDirty(true);
         }
+    }
+
+    void ViewportWindow::FocusSelected()
+    {
+        auto selected = parent ? parent->GetSelectedActor() : nullptr;
+        auto* world = Engine::Core::GetEngine().GetWorldManager()->GetWorldAt(0);
+        if (!selected || !world || !cameraActor)
+            return;
+
+        glm::vec3 boundsMin, boundsMax;
+        glm::vec3 center = selected->transform->GetWorldPosition();
+        float radius = 1.0f;
+
+        if (ComputeHierarchyBounds(world, CollectHierarchyIDs(selected), boundsMin, boundsMax))
+        {
+            center = (boundsMin + boundsMax) * 0.5f;
+            radius = std::max(glm::length(boundsMax - boundsMin) * 0.5f, 0.1f);
+        }
+
+        // Back off along the current view direction (rotation is kept) until the bounding sphere fits
+        // the narrowest of the two FOVs, plus a small margin.
+        float distance;
+        if (camera->IsOrthographic())
+        {
+            *camera->GetOrthoSize() = radius * 1.1f;
+            distance = radius * 2.0f;
+        }
+        else
+        {
+            float aspect = viewportSize.y > 0.0f ? viewportSize.x / viewportSize.y : 1.0f;
+            float halfV = glm::radians(*camera->GetFOV()) * 0.5f;
+            float halfH = std::atan(std::tan(halfV) * aspect);
+            distance = radius / std::sin(std::min(halfV, halfH)) * 1.1f;
+        }
+
+        focusTarget = center - cameraActor->transform->GetForward() * distance;
+        focusAnimating = true;
+    }
+
+    void ViewportWindow::SnapSelectedToFloor()
+    {
+        auto selected = parent ? parent->GetSelectedActor() : nullptr;
+        auto* world = Engine::Core::GetEngine().GetWorldManager()->GetWorldAt(0);
+        if (!selected || !world)
+            return;
+
+        auto ids = CollectHierarchyIDs(selected);
+
+        glm::vec3 boundsMin, boundsMax;
+        glm::vec3 origin = selected->transform->GetWorldPosition();
+        if (ComputeHierarchyBounds(world, ids, boundsMin, boundsMax))
+            origin = glm::vec3((boundsMin.x + boundsMax.x) * 0.5f, boundsMin.y, (boundsMin.z + boundsMax.z) * 0.5f);
+
+        // Start a hair above the bottom so an object already resting on the floor still finds it
+        const float startOffset = 0.01f;
+        const float maxDistance = 10000.0f;
+        origin.y += startOffset;
+
+        // The hierarchy's own colliders must not count as "the floor"
+        JPH::IgnoreMultipleBodiesFilter ignoreSelf;
+        auto* idManager = Engine::Core::GetEngine().GetObjectIDManager();
+        for (uint32_t id : ids)
+        {
+            auto actor = std::dynamic_pointer_cast<Engine::Objects::Actor>(idManager->GetObjectFromID(Engine::Core::ObjectID(id)));
+            if (!actor)
+                continue;
+            for (auto& body : actor->GetComponents<Engine::Objects::Components::PhysicsBody>())
+                if (!body->GetBodyID().IsInvalid())
+                    ignoreSelf.IgnoreBody(body->GetBodyID());
+        }
+
+        Engine::Physics::RaycastRequest request{origin, glm::vec3(0, -1, 0), maxDistance};
+        request.bodyFilter = &ignoreSelf;
+        Engine::Physics::RaycastResult hit = Engine::Core::GetEngine().GetPhysicsManager()->RayCast(request);
+        float floorDistance = hit.hit ? hit.hitDistance : FLT_MAX;
+
+        // Same fallback as picking : physics-less models are only known by their mesh bounds,
+        // so the ray "lands" on the top face of any AABB lying straight underneath.
+        for (auto& modelEntry : world->Ext<Engine::Rendering::RenderWorldData>().models)
+        {
+            auto& modelComp = modelEntry.second;
+            if (!modelComp || !modelComp->parent || ids.count(modelComp->parent->GetID().GetAsInt()))
+                continue;
+            if (modelComp->parent->HasComponent<Engine::Objects::Components::PhysicsBody>())
+                continue;
+
+            auto mesh = modelComp->GetMesh();
+            if (!mesh || mesh->GetBoundsMin().x > mesh->GetBoundsMax().x)
+                continue;
+
+            glm::vec3 worldMin, worldMax;
+            ComputeWorldBounds(mesh->GetBoundsMin(), mesh->GetBoundsMax(),
+                               modelComp->parent->transform->GetWorldMatrix(), worldMin, worldMax);
+
+            bool underneath = origin.x >= worldMin.x && origin.x <= worldMax.x &&
+                              origin.z >= worldMin.z && origin.z <= worldMax.z &&
+                              worldMax.y <= origin.y;
+            if (underneath)
+                floorDistance = std::min(floorDistance, origin.y - worldMax.y);
+        }
+
+        if (floorDistance > maxDistance)
+            return;
+
+        float drop = floorDistance - startOffset;
+        if (std::abs(drop) < 1e-5f)
+            return;
+
+        auto& stack = Commands::CommandStack::Get();
+        stack.Begin("Snap To Floor");
+
+        auto resolver = [](uint32_t id) -> void*
+        {
+            return Engine::Core::GetEngine().GetObjectIDManager()->GetObjectFromID(Engine::Core::ObjectID(id)).get();
+        };
+        stack.Add(std::make_unique<Commands::ModifyFieldCommand>(
+            selected->transform->GetID().GetAsInt(), resolver,
+            selected->transform->GetDescriptor()->fields[0], selected->transform));
+
+        glm::mat4 worldMatrix = selected->transform->GetWorldMatrix();
+        worldMatrix[3].y -= drop;
+        selected->transform->SetFromWorldMatrix(worldMatrix);
+
+        stack.End();
+        world->SetDirty(true);
     }
 
     void ViewportWindow::HandleAssetDrop()
@@ -875,6 +1058,12 @@ namespace Shard::Editor::GUI {
             return;
 
         Engine::Time::TimeManager* time = Engine::Core::GetEngine().GetTimeManager();
+
+        // Any manual camera move takes over from a running focus glide
+        if (input->IsKeyDown(Engine::Input::Key::W) || input->IsKeyDown(Engine::Input::Key::A) ||
+            input->IsKeyDown(Engine::Input::Key::S) || input->IsKeyDown(Engine::Input::Key::D) ||
+            input->IsMouseDown(Engine::Input::MouseButton::Left))
+            focusAnimating = false;
 
         if(input->IsKeyDown(Engine::Input::Key::W)){
             cameraActor->transform->Translate(cameraActor->transform->GetForward() * speed * time->GetDeltaTime());
