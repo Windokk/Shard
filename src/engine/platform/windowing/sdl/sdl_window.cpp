@@ -27,6 +27,14 @@ namespace Shard::Engine::Core::Platform {
         m_Window = SDL_CreateWindow(title.c_str(), width, height, flags);
         if (!m_Window)
         {
+            // Some displays (a virtual X server, a software renderer) offer no multisampled visual : retry without MSAA.
+            DEBUG_WARNING("Failed to create the SDL window with MSAA (", SDL_GetError(), "), retrying without.");
+            SDL_GL_SetAttribute(SDL_GL_MULTISAMPLEBUFFERS, 0);
+            SDL_GL_SetAttribute(SDL_GL_MULTISAMPLESAMPLES, 0);
+            m_Window = SDL_CreateWindow(title.c_str(), width, height, flags);
+        }
+        if (!m_Window)
+        {
             const std::string error = SDL_GetError();
             SDL_QuitSubSystem(SDL_INIT_VIDEO | SDL_INIT_EVENTS | SDL_INIT_GAMEPAD);
             DEBUG_FATAL("Failed to create SDL window : ", error);

@@ -50,6 +50,7 @@ jobs:
             mingw-w64-x86_64-ninja
             mingw-w64-x86_64-zlib
             mingw-w64-x86_64-clang
+            mingw-w64-x86_64-clang-tools-extra
             mingw-w64-x86_64-llvm
 
       # The CMake files expect the build folder to be named "build" (like build.sh / build.bat)

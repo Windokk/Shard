@@ -24,6 +24,13 @@ ignored_errors='ma_engine_init failed'
 
 cd "$root/build" || { echo "[ERROR] no build/ folder : build the project first." >&2; exit 1; }
 
+# The engine resources are copied next to the executable by hand (README) : a fresh CI build does not have them
+for dir in engine_resources editor_resources; do
+    if [ ! -d "$dir" ]; then
+        cp -r "../resources/$dir" "$dir" || { echo "[ERROR] cannot copy resources/$dir to build/." >&2; exit 1; }
+    fi
+done
+
 player=./ShardGame
 module=libGameModule.so
 if [ -x ./ShardGame.exe ]; then
