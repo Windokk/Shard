@@ -9,7 +9,7 @@
 </p>
 
 <p align="center">
-  A modular, data-oriented game engine built to be bent, not worked around<br>
+  A modular, data-oriented game engine<br>
 </p>
 
 ## Screenshots
