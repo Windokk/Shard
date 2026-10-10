@@ -2,12 +2,19 @@
 
 #include <algorithm>
 
+#include "engine/core/config/cvar.hpp"
+
 namespace Shard::Engine::Core {
 
     using Detail::Job;
     using Detail::Worker;
 
     namespace {
+        // How many times an idle worker looks for work again (yielding in between) before it goes to sleep : more spins
+        // react faster to new work, fewer spare the CPU. Tunable from the console / config files without recompiling.
+        CVar<int> cvIdleSpins("jobs.idle_spins", 64, "Times an idle job-system worker retries before sleeping",
+                              CVarFlags::Archive, 0, 100000);
+
         // Which JobSystem / Worker the calling thread belongs to (null for threads that never joined one).
         thread_local JobSystem* tl_system = nullptr;
         thread_local Worker* tl_worker = nullptr;
@@ -160,7 +167,7 @@ namespace Shard::Engine::Core {
         unsigned idleSpins = 0;
         while (!m_Stop.load(std::memory_order_acquire)) {
             if (TryRunOne(self)) { idleSpins = 0; continue; }
-            if (++idleSpins < 64) { std::this_thread::yield(); continue; }   // short spin: work often arrives within µs
+            if (++idleSpins < static_cast<unsigned>(cvIdleSpins.Get())) { std::this_thread::yield(); continue; }   // short spin: work often arrives within µs
 
             std::unique_lock<std::mutex> lock(m_SleepMutex);
             m_Sleepers.fetch_add(1, std::memory_order_seq_cst);

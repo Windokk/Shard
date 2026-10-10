@@ -8,6 +8,9 @@
 #include "engine/core/diagnostics/logger.hpp"
 #include "engine/core/jobs/job_system.hpp"
 #include "engine/core/jobs/thread_pool.hpp"
+#include "engine/core/config/cvar.hpp"
+#include "engine/core/memory/frame_allocator.hpp"
+#include "engine/core/memory/memory_tracker.hpp"
 #include "engine/platform/thread/thread.hpp"
 #include "engine/assets/serialization/project/project_serializer.hpp"
 #include "engine/world/world_manager.hpp"
@@ -34,6 +37,32 @@ namespace Shard::Engine{
 
     namespace Core{
         
+        namespace {
+            // Published by the engine for the console (`list jobs`) : what the job system actually got
+            CVar<int> cvJobThreads("jobs.threads", 0, "Threads that run jobs, the main thread included", CVarFlags::ReadOnly);
+
+            // Per-frame scratch memory budget, read when the engine starts (a change applies at the next start)
+            CVar<int> cvFrameKB("memory.frame_kb", 4096, "Per-frame scratch memory, in KB, per buffered frame (applies at startup)",
+                                CVarFlags::Archive, 64, 1048576);
+
+            std::string ConfigPath(const Filesystem::Path& directory, const char* fileName)
+            {
+                return (directory / std::string(fileName)).GetNativePath();
+            }
+
+            void LoadConfigLayer(ConfigLayer layer, const std::string& path)
+            {
+                if(!Filesystem::Path(path).Exists())
+                    return;
+                std::vector<std::string> warnings;
+                auto result = CVarRegistry::Global().LoadFile(layer, path, &warnings);
+                if(!result)
+                    DEBUG_WARNING("Config : " + result.GetError().message);
+                for(const std::string& w : warnings)
+                    DEBUG_WARNING("Config " + path + " : " + w);
+            }
+        }
+
         using namespace Worlds;
         using namespace Engine::Rendering;
         using namespace Physics;
@@ -57,6 +86,7 @@ namespace Shard::Engine{
             }
             else{
                 m_Context.currentProject = project;
+                LoadConfigLayer(ConfigLayer::Project, ConfigPath(project->GetProjectRoot(), "project.cfg"));
             }
 
             m_Context.fileManager->Init(m_Context.currentProject->GetProjectResourcesPath(), m_Context.fileManager->GetCurrentExecutablePath() / "engine_resources", m_Context.currentProject->GetProjectRoot());
@@ -140,12 +170,20 @@ namespace Shard::Engine{
             });
             DEBUG_INFO("Job system : " + std::to_string(m_Context.jobSystem->ThreadCount()) + " threads");
 
+            m_Context.frameAllocator = new FrameAllocator(size_t(cvFrameKB.Get()) * 1024, 2, "FrameAllocator");
+            cvJobThreads.ForceSet(static_cast<int>(m_Context.jobSystem->ThreadCount()));
+
             m_Context.renderer = new Rendering::Renderer();
             m_Context.cameraManager = new Rendering::CameraManager();
 
             m_Context.assetIDManager = new Filesystem::AssetIDManager();
             m_Context.fileManager = new Filesystem::FileManager(*m_Context.assetIDManager);
             m_Context.resourcesManager = new Resources::ResourcesManager(*m_Context.fileManager, *m_Context.assetIDManager);
+
+            // Settings files next to the executable : engine.cfg (defaults shipped with the engine) and user.cfg
+            // (what the user changed and saved). The project's own project.cfg is read once the project is known.
+            LoadConfigLayer(ConfigLayer::Engine, ConfigPath(m_Context.fileManager->GetCurrentExecutablePath(), "engine.cfg"));
+            LoadConfigLayer(ConfigLayer::User, ConfigPath(m_Context.fileManager->GetCurrentExecutablePath(), "user.cfg"));
 
             m_Context.objIDManager = new ObjectIDManager();
 
@@ -267,6 +305,24 @@ namespace Shard::Engine{
             m_Context.threadPools = nullptr;
             delete m_Context.jobSystem;
             m_Context.jobSystem = nullptr;
+            delete m_Context.frameAllocator;
+            m_Context.frameAllocator = nullptr;
+
+            // The settings the user changed (Archive variables that differ from their default) for the next run
+            if(!m_EngineSettings.readOnly && m_Context.fileManager)
+            {
+                const std::string userConfig = ConfigPath(m_Context.fileManager->GetCurrentExecutablePath(), "user.cfg");
+                CVarRegistry& registry = CVarRegistry::Global();
+                const std::string archive = registry.ArchiveText();
+                const bool hasSomethingToSave = archive.find('\n') + 1 < archive.size();   // more than the header line
+                if(hasSomethingToSave || Filesystem::Path(userConfig).Exists())
+                    registry.SaveArchive(userConfig);
+            }
+
+            // Anything an engine allocator allocated and did not give back
+            const std::string leaks = MemoryTracker::Get().Report();
+            if(!leaks.empty())
+                DEBUG_WARNING("Memory not released at shutdown : " + leaks);
         }
 
         bool EngineInstance::Run() {
@@ -274,6 +330,9 @@ namespace Shard::Engine{
             // Measured first thing in the frame so every system below works off the same delta, and so
             // the time the previous frame actually took is what decides how much simulation is owed.
             m_Context.timeManager->Tick();
+
+            // New frame of scratch memory : what was allocated two frames ago is gone, last frame's is still readable
+            m_Context.frameAllocator->NextFrame();
 
             const float fixedDeltaTime = m_Context.timeManager->GetFixedDeltaTime();
 

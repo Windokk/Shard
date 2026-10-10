@@ -1,3 +1,4 @@
+#include "engine/core/config/cvar.hpp"
 #include "engine/world/engine.hpp"
 #include "engine/world/world_manager.hpp"
 #include "engine/assets/resources_manager.hpp"
@@ -56,6 +57,12 @@ bool ParseViewMode(const std::string& name, ViewMode& out)
 }
 
 EngineCreationSettings ComputeEngineSettings(int argc, char* argv[]) {
+    // "+name=value" or "+name value" : sets a console variable (see engine/core/config/cvar.hpp) before the engine starts
+    {
+        std::vector<std::string> cvarWarnings;
+        Shard::Engine::Core::CVarRegistry::Global().ParseCommandLine(argc, argv, &cvarWarnings);
+        for (const std::string& w : cvarWarnings) std::cerr << "[WARNING] " << w << std::endl;
+    }
     Engine::Core::EngineCreationSettings settings;
 
     for (int i = 1; i < argc; i++) {

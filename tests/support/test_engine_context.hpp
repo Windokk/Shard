@@ -55,6 +55,7 @@ namespace Shard::Tests {
             Shard::Engine::Debugging::Profiler* GetProfiler() const override { Unsupported("GetProfiler"); return nullptr; }
             Shard::Engine::Core::JobSystem* GetJobSystem() const override { return jobSystem; }
             Shard::Engine::Core::ThreadPool* GetThreadPool(Shard::Engine::Core::PoolKind) const override { return nullptr; }
+            Shard::Engine::Core::FrameAllocator* GetFrameAllocator() const override { return nullptr; }
 
             bool IsInPlayMode() const override { return false; }
             void SetPlayMode(bool) override { Unsupported("SetPlayMode"); }

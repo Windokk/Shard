@@ -67,6 +67,7 @@ namespace Shard::Engine{
         class ObjectIDManager;
         class JobSystem;
         class ThreadPool;
+        class FrameAllocator;
         class ThreadPools;
         enum class PoolKind : uint8_t;
 
@@ -135,6 +136,7 @@ namespace Shard::Engine{
 
             JobSystem* jobSystem = nullptr;
             ThreadPools* threadPools = nullptr;
+            FrameAllocator* frameAllocator = nullptr;
         };
 
         class IEngineContext {
@@ -175,6 +177,8 @@ namespace Shard::Engine{
                 /// A dedicated pool (IO : blocking work, Render / Audio : one thread, tasks in order), created on first
                 /// use. Null when the context has none.
                 virtual ThreadPool* GetThreadPool(PoolKind kind) const = 0;
+                /// Per-frame scratch memory any thread can allocate from ; valid for the current and the previous frame.
+                virtual FrameAllocator* GetFrameAllocator() const = 0;
 
                 virtual bool IsInPlayMode() const = 0;
                 virtual void SetPlayMode(bool on) = 0;
@@ -241,6 +245,8 @@ namespace Shard::Engine{
                 JobSystem* GetJobSystem() const override { return m_Context.jobSystem; }
 
                 ThreadPool* GetThreadPool(PoolKind kind) const override;
+
+                FrameAllocator* GetFrameAllocator() const override { return m_Context.frameAllocator; }
 
                 bool IsInPlayMode() const override { return m_PlayMode; }
 
