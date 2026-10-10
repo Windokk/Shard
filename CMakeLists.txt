@@ -52,6 +52,10 @@ set(SDL_EXAMPLES OFF CACHE BOOL "" FORCE)
 set(SDL_INSTALL OFF CACHE BOOL "" FORCE)
 add_subdirectory(submodules/SDL EXCLUDE_FROM_ALL)
 add_subdirectory(submodules/glm)
+# Jolt with RTTI, like the rest of the engine. Without it libJolt has no typeinfo for the Jolt classes that define a
+# virtual function out of line (JobSystemWithBarrier...), and a class of ours deriving from one (JoltJobSystem) fails to
+# link on Linux ("undefined reference to typeinfo for JPH::JobSystemWithBarrier").
+set(CPP_RTTI_ENABLED ON CACHE BOOL "" FORCE)
 add_subdirectory(submodules/jolt/Build)
 
 # Tools (ShardReflect, the reflection generator)
