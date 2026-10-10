@@ -13,6 +13,20 @@ namespace {
     // Each test works on its own registry : the global one holds the engine's real variables.
     // CVar registers with Global(), so the tests that need isolation use unique names instead.
     CVarRegistry& Registry() { return CVarRegistry::Global(); }
+
+    // A value set on a layer waits in the registry for a variable of that name (that is how a config file can be read before
+    // the variable exists), and outlives the variable. A test that runs again (--gtest_repeat) would then find the previous
+    // run's values : every test starts from empty layers.
+    class CleanLayers : public ::testing::EmptyTestEventListener {
+        void OnTestStart(const ::testing::TestInfo&) override {
+            for (ConfigLayer layer : {ConfigLayer::Engine, ConfigLayer::Project, ConfigLayer::User, ConfigLayer::CommandLine, ConfigLayer::Runtime})
+                CVarRegistry::Global().ClearLayer(layer);
+        }
+    };
+    const bool g_cleanLayersInstalled = [] {
+        ::testing::UnitTest::GetInstance()->listeners().Append(new CleanLayers);
+        return true;
+    }();
 }
 
 TEST(CVar, DefaultAndSet) {

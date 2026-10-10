@@ -2,6 +2,7 @@
 
 #include <gtest/gtest.h>
 
+#include "engine/core/ecs/registry.hpp"
 #include "engine/world/engine.hpp"
 #include "engine/world/objectID.hpp"
 #include "engine/world/event_system.hpp"
@@ -56,6 +57,8 @@ namespace Shard::Tests {
             Shard::Engine::Core::JobSystem* GetJobSystem() const override { return jobSystem; }
             Shard::Engine::Core::ThreadPool* GetThreadPool(Shard::Engine::Core::PoolKind) const override { return nullptr; }
             Shard::Engine::Core::FrameAllocator* GetFrameAllocator() const override { return nullptr; }
+            Shard::Engine::Core::Ecs::Registry* GetEcs() const override { return const_cast<Shard::Engine::Core::Ecs::Registry*>(&ecs); }
+            Shard::Engine::Core::Ecs::Scheduler* GetScheduler() const override { return nullptr; }
 
             bool IsInPlayMode() const override { return false; }
             void SetPlayMode(bool) override { Unsupported("SetPlayMode"); }
@@ -75,6 +78,7 @@ namespace Shard::Tests {
 
             mutable Shard::Engine::Core::ObjectIDManager objectIDManager;
             mutable Shard::Engine::Events::EventDispatcher eventDispatcher;
+            mutable Shard::Engine::Core::Ecs::Registry ecs;
     };
 
 }

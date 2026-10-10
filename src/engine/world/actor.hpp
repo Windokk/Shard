@@ -1,5 +1,6 @@
 #pragma once
 
+#include "engine/core/ecs/entity.hpp"
 #include "engine/world/world_object.hpp"
 
 #include "engine/world/engine.hpp"
@@ -23,10 +24,14 @@ namespace Shard::Engine::Objects{
         std::vector<std::shared_ptr<Component>> components;
         std::string name;
         Core::IEngineContext* engine = nullptr;
+        Core::Ecs::Entity entity;
         public:
             Actor(std::string name, Core::IEngineContext* engine);
 
             Core::IEngineContext* GetEngineContext() const { return engine; }
+
+            /// The entity that mirrors this actor in the engine's Ecs::Registry (null before Init, or without a registry)
+            Core::Ecs::Entity GetEntity() const { return entity; }
 
             void Init();
 

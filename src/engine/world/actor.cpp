@@ -5,11 +5,20 @@
 #include "engine/world/engine.hpp"
 
 #include "engine/assets/project/project.hpp"
+#include "engine/core/ecs/registry.hpp"
 #include "engine/world/components/registry/component_registry.hpp"
+#include "engine/world/ecs_components.hpp"
 
 namespace Shard::Engine::Objects{
-    
+
     using namespace Components;
+
+    namespace {
+        Core::Ecs::Registry* EcsOf(Core::IEngineContext* engine)
+        {
+            return engine ? engine->GetEcs() : nullptr;
+        }
+    }
 
     Actor::Actor(std::string name, Core::IEngineContext* engine) : engine(engine)
     {
@@ -17,6 +26,10 @@ namespace Shard::Engine::Objects{
     }
 
     void Actor::Init(){
+        // The entity that mirrors this actor : hierarchy now, data that systems work on as it moves out of the components
+        if(Core::Ecs::Registry* ecs = EcsOf(engine))
+            entity = ecs->Create(Worlds::ActorLink{id.GetAsInt()});
+
         this->transform = AddComponent<Transform>();
     }
 
@@ -128,12 +141,20 @@ namespace Shard::Engine::Objects{
         }
         
         WorldObject::Destroy();
+
+        // The children went first (each released its own entity) ; this takes whatever is left of the subtree with it
+        if(Core::Ecs::Registry* ecs = EcsOf(engine))
+            ecs->Destroy(entity);
+        entity = Core::Ecs::kNullEntity;
     }
 
     void Actor::AddChild(std::shared_ptr<WorldObject> o)
     {
         WorldObject::AddChild(o);
         if (std::shared_ptr<Actor> actorChild = std::dynamic_pointer_cast<Actor>(o)) {
+            if (Core::Ecs::Registry* ecs = EcsOf(engine))
+                ecs->SetParent(actorChild->entity, entity);
+
             actorChild->SetWorld(this->world);
 
             // The child's cached world matrix (if any) was computed against its old parent chain
@@ -180,6 +201,8 @@ namespace Shard::Engine::Objects{
         }
         else {
             WorldObject::SetParent(Core::ObjectID(-1));
+            if (Core::Ecs::Registry* ecs = EcsOf(engine))
+                ecs->SetParent(entity, Core::Ecs::kNullEntity);
             if (world)
                 world->AddActor(AsShared<Actor>());
         }

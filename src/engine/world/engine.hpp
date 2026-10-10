@@ -69,6 +69,10 @@ namespace Shard::Engine{
         class ThreadPool;
         class FrameAllocator;
         class ThreadPools;
+        namespace Ecs {
+            class Registry;
+            class Scheduler;
+        }
         enum class PoolKind : uint8_t;
 
         struct EngineCreationSettings{
@@ -137,6 +141,9 @@ namespace Shard::Engine{
             JobSystem* jobSystem = nullptr;
             ThreadPools* threadPools = nullptr;
             FrameAllocator* frameAllocator = nullptr;
+
+            Ecs::Registry* ecs = nullptr;
+            Ecs::Scheduler* scheduler = nullptr;
         };
 
         class IEngineContext {
@@ -179,6 +186,10 @@ namespace Shard::Engine{
                 virtual ThreadPool* GetThreadPool(PoolKind kind) const = 0;
                 /// Per-frame scratch memory any thread can allocate from ; valid for the current and the previous frame.
                 virtual FrameAllocator* GetFrameAllocator() const = 0;
+                /// The entities of every loaded world (an actor owns one) : see engine/core/ecs/
+                virtual Ecs::Registry* GetEcs() const = 0;
+                /// The systems run each frame, by phase (Input, PreSim, Fixed, PostPhysics, Update, Late, Extract)
+                virtual Ecs::Scheduler* GetScheduler() const = 0;
 
                 virtual bool IsInPlayMode() const = 0;
                 virtual void SetPlayMode(bool on) = 0;
@@ -248,6 +259,10 @@ namespace Shard::Engine{
 
                 FrameAllocator* GetFrameAllocator() const override { return m_Context.frameAllocator; }
 
+                Ecs::Registry* GetEcs() const override { return m_Context.ecs; }
+
+                Ecs::Scheduler* GetScheduler() const override { return m_Context.scheduler; }
+
                 bool IsInPlayMode() const override { return m_PlayMode; }
 
                 void SetPlayMode(bool on) override;
@@ -255,8 +270,11 @@ namespace Shard::Engine{
             private:
                 EngineInstance() = default;
 
-                // The stages of a frame, in the order Run() calls them
-                void UpdateSimulation(float fixedDeltaTime);
+                // The engine's own systems : what each phase of the frame does (see RegisterEngineSystems)
+                void RegisterEngineSystems();
+                void StepPhysics(int step, float fixedDeltaTime);
+                void TickAudio();
+                void TickScripts();
                 void UpdateWorlds();
                 void SyncPhysicsBodies(float fixedDeltaTime);
                 void RenderFrame();

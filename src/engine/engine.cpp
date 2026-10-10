@@ -6,6 +6,8 @@
 
 #include "engine/assets/resources_manager.hpp"
 #include "engine/core/diagnostics/logger.hpp"
+#include "engine/core/ecs/registry.hpp"
+#include "engine/core/ecs/scheduler.hpp"
 #include "engine/core/jobs/job_system.hpp"
 #include "engine/core/jobs/thread_pool.hpp"
 #include "engine/core/config/cvar.hpp"
@@ -187,6 +189,10 @@ namespace Shard::Engine{
 
             m_Context.objIDManager = new ObjectIDManager();
 
+            // The entities (created before the worlds : an actor owns one) and the systems that run on them each frame
+            m_Context.ecs = new Ecs::Registry();
+            m_Context.scheduler = new Ecs::Scheduler();
+
             m_Context.worldManager = new Worlds::WorldManager();
             m_Context.worldManager->onAllWorldsUnloaded = [this]{ m_Context.renderer->ClearPassesContent(); };
             Worlds::RegisterWorldAssetKind(*m_Context.resourcesManager);
@@ -215,6 +221,42 @@ namespace Shard::Engine{
             {
                 stats.gpuMemoryMB = Platform::ProcessGpuMemoryUsage() / (1024.0f * 1024.0f);
             });
+
+            RegisterEngineSystems();
+        }
+
+        void EngineInstance::RegisterEngineSystems()
+        {
+            using namespace Ecs;
+            Scheduler& scheduler = *m_Context.scheduler;
+
+            // What the engine's managers do each frame, expressed as systems of the phases. They touch the managers (not
+            // components), which the read / write declaration can't express, hence Exclusive : they run alone, in this order.
+            auto add = [&scheduler](const char* name, Phase phase, SystemFn fn)
+            {
+                SystemDesc desc;
+                desc.name = name;
+                desc.phase = phase;
+                desc.exclusive = true;
+                desc.run = std::move(fn);
+                scheduler.Add(std::move(desc));
+            };
+
+            add("Input.Poll", Phase::Input, [this](SystemContext&){ PollInput(); });
+
+            add("Worlds.Update", Phase::PreSim, [this](SystemContext&){ UpdateWorlds(); });
+
+            // Physics runs at a fixed rate, decoupled from the render rate : a frame runs as many steps as the elapsed real
+            // time paid for (0 when rendering outpaces the simulation, several when it lags behind).
+            add("Physics.Step", Phase::Fixed, [this](SystemContext& c){ if(m_PlayMode) StepPhysics(c.fixedStep, c.fixedDeltaTime); });
+
+            add("Audio.Tick", Phase::Update, [this](SystemContext&){ if(m_PlayMode) TickAudio(); });
+            add("Scripts.Tick", Phase::Update, [this](SystemContext&){ if(m_PlayMode) TickScripts(); });
+
+            // After the scripts moved things : kinematic targets go to Jolt, dynamic results come back to the transforms
+            add("Physics.Sync", Phase::Late, [this](SystemContext& c){ SyncPhysicsBodies(c.fixedDeltaTime); });
+
+            add("Render.Frame", Phase::Extract, [this](SystemContext&){ RenderFrame(); });
         }
 
         Rendering::IRenderContext *EngineInstance::GetRenderContext() const
@@ -301,6 +343,10 @@ namespace Shard::Engine{
 
             // Last : every system that submitted work is shut down, and every JobGroup has been waited on. The pools'
             // queued tasks are run to the end first (they may use the job system), then the job system goes.
+            delete m_Context.scheduler;
+            m_Context.scheduler = nullptr;
+            delete m_Context.ecs;
+            m_Context.ecs = nullptr;
             delete m_Context.threadPools;
             m_Context.threadPools = nullptr;
             delete m_Context.jobSystem;
@@ -334,13 +380,19 @@ namespace Shard::Engine{
             // New frame of scratch memory : what was allocated two frames ago is gone, last frame's is still readable
             m_Context.frameAllocator->NextFrame();
 
-            const float fixedDeltaTime = m_Context.timeManager->GetFixedDeltaTime();
+            Ecs::Scheduler::FrameTiming timing;
+            timing.deltaTime = m_Context.timeManager->GetDeltaTime();
+            timing.fixedDeltaTime = m_Context.timeManager->GetFixedDeltaTime();
+            if(m_PlayMode)
+                timing.fixedSteps = m_Context.timeManager->ConsumeFixedSteps();
+            else
+                // Nothing is simulating, so don't bank time that would be replayed as a burst of steps
+                // the moment play mode starts.
+                m_Context.timeManager->ResetAccumulator();
 
-            UpdateSimulation(fixedDeltaTime);
-            UpdateWorlds();
-            SyncPhysicsBodies(fixedDeltaTime);
-            RenderFrame();
-            PollInput();
+            // Input -> PreSim -> Fixed x N -> PostPhysics -> Update -> Late -> Extract (see RegisterEngineSystems)
+            m_Context.scheduler->RunFrame(*m_Context.ecs, m_Context.jobSystem, timing);
+
             Present();
 
             m_Context.profiler->EndFrameSampling(m_Context.timeManager->GetDeltaTime() * 1000.0f);
@@ -353,46 +405,33 @@ namespace Shard::Engine{
             return true;
         }
 
-        void EngineInstance::UpdateSimulation(float fixedDeltaTime)
+        void EngineInstance::StepPhysics(int step, float fixedDeltaTime)
         {
-            if(m_PlayMode){
-                {
-                    SHARD_PROFILE_SCOPE(Debugging::ProfileCategory::Physics);
+            SHARD_PROFILE_SCOPE(Debugging::ProfileCategory::Physics);
 
-                    // Physics runs at a fixed rate, decoupled from the render rate: a frame runs as many
-                    // steps as the elapsed real time paid for (0 when rendering outpaces the simulation,
-                    // several when it lags behind). Stepping once per frame instead would tie the speed
-                    // of the whole simulation to the framerate.
-                    const int steps = m_Context.timeManager->ConsumeFixedSteps();
+            // Intermediate steps need the bodies re-synced in between (kinematic targets pushed to Jolt,
+            // dynamic results read back); the last step's results are picked up by the Late phase's Physics.Sync,
+            // before rendering.
+            if(step > 0)
+                m_Context.physicsManager->TickBodies(fixedDeltaTime);
 
-                    for(int i = 0; i < steps; i++){
-                        // Intermediate steps need the bodies re-synced in between (kinematic targets
-                        // pushed to Jolt, dynamic results read back); the last step's results are
-                        // picked up by SyncPhysicsBodies(), before rendering.
-                        if(i > 0)
-                            m_Context.physicsManager->TickBodies(fixedDeltaTime);
+            m_Context.physicsManager->StepSimulation(fixedDeltaTime, m_ActivateAllPhysics);
 
-                        m_Context.physicsManager->StepSimulation(fixedDeltaTime, m_ActivateAllPhysics);
+            // Cleared here rather than once per frame: the first frames of play mode can
+            // run zero steps, and the wake-up has to survive until a step actually happens.
+            m_ActivateAllPhysics = false;
+        }
 
-                        // Cleared here rather than once per frame: the first frames of play mode can
-                        // run zero steps, and the wake-up has to survive until a step actually happens.
-                        m_ActivateAllPhysics = false;
-                    }
-                }
-                {
-                    SHARD_PROFILE_SCOPE(Debugging::ProfileCategory::Audio);
-                    m_Context.audioManager->Tick();
-                }
-                {
-                    SHARD_PROFILE_SCOPE(Debugging::ProfileCategory::Scripting);
-                    m_Context.worldManager->Tick();
-                }
-            }
-            else{
-                // Nothing is simulating, so don't bank time that would be replayed as a burst of steps
-                // the moment play mode starts.
-                m_Context.timeManager->ResetAccumulator();
-            }
+        void EngineInstance::TickAudio()
+        {
+            SHARD_PROFILE_SCOPE(Debugging::ProfileCategory::Audio);
+            m_Context.audioManager->Tick();
+        }
+
+        void EngineInstance::TickScripts()
+        {
+            SHARD_PROFILE_SCOPE(Debugging::ProfileCategory::Scripting);
+            m_Context.worldManager->Tick();
         }
 
         void EngineInstance::UpdateWorlds()
