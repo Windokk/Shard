@@ -327,6 +327,9 @@ namespace Shard::Engine::Rendering{
 
     void Renderer::Shutdown()
     {
+        // Scene builds run on the job system, which is destroyed right after the renderer shuts down
+        if(m_ProbeManager)
+            m_ProbeManager->WaitForSceneBuilds();
         m_ThumbnailService.Shutdown();
         m_ImmediateRenderer.Shutdown();
         m_ViewportBuffer->Destroy();

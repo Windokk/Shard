@@ -1,7 +1,8 @@
 #include "raytrace_scene.hpp"
 
 #include "engine/renderer/features/raytracing/bvh.hpp"
-#include "engine/renderer/features/raytracing/parallel_build_budget.hpp"
+#include "engine/core/jobs/parallel_for.hpp"
+#include "engine/world/engine.hpp"
 #include "engine/platform/thread/thread.hpp"
 
 #include "engine/world/world.hpp"
@@ -27,61 +28,25 @@ namespace Shard::Engine::Rendering::Raytracing {
 
     namespace {
 
-        // Spawns worker threads that each repeatedly pull the next unclaimed grain of work (a
-        // [begin, end) sub-range, at most `grainSize` elements) and run `fn` over it, until every grain
-        // of [0, count) has been claimed - a work-stealing parallel-for, so it needs no a-priori
-        // per-thread partitioning and load-balances fine even when far fewer threads actually get
-        // spawned than hoped (see below).
-        //
-        // How many threads actually get spawned is bounded by the process-wide budget in
-        // parallel_build_budget.hpp, shared with the flatten pass's own worker loop below and with
-        // bvh.cpp's BVH build - not just this call's own hardware_concurrency(). Multiple scene builds
-        // can be in flight at once (ProbeManager::RebuildScene() supersedes rather than cancels a
-        // still-running previous build - see its comment), and each independently trying to spawn up to
-        // hardware_concurrency() threads of its own is what used to let concurrent builds pile up more
-        // OS threads than the machine could hand out, which throws std::system_error - hence both the
-        // shared budget and the try/catch around the spawn itself, so a failed spawn just means this
-        // grain runs on the calling thread instead of propagating.
+        // Runs fn(begin, end) over disjoint chunks of [0, count), at most `grainSize` elements each, on the engine's
+        // job system (the same pool as everything else : no thread of its own, so overlapping scene builds
+        // - ProbeManager::RebuildScene() supersedes rather than cancels a still-running previous build - share
+        // the machine's cores instead of each assuming they own it). The calling thread executes chunks too
+        // while it waits. Without a job system (no engine) it just runs serially.
         template <typename F>
         void ParallelForRange(size_t count, size_t grainSize, F&& fn)
         {
             if (count == 0)
                 return;
 
-            std::atomic<size_t> nextBegin{ 0 };
-            auto pullAndRun = [&]()
+            Core::JobSystem* jobs = Core::GetEngine().GetJobSystem();
+            if (!jobs)
             {
-                size_t begin;
-                while ((begin = nextBegin.fetch_add(grainSize, std::memory_order_relaxed)) < count)
+                for (size_t begin = 0; begin < count; begin += grainSize)
                     fn(begin, std::min(count, begin + grainSize));
-            };
-
-            std::vector<std::future<void>> workers;
-            size_t grainCount = (count + grainSize - 1) / grainSize;
-            int maxExtraWorkers = std::max(0, std::min((int)grainCount - 1, (int)Core::Platform::HardwareConcurrency() - 1));
-            for (int i = 0; i < maxExtraWorkers; i++)
-            {
-                if (!TryAcquireWorkerSlot())
-                    break;
-
-                try
-                {
-                    workers.push_back(std::async(std::launch::async, [&pullAndRun]() {
-                        pullAndRun();
-                        ReleaseWorkerSlot();
-                    }));
-                }
-                catch (const std::system_error&)
-                {
-                    ReleaseWorkerSlot();
-                    break;
-                }
+                return;
             }
-
-            pullAndRun(); // the calling thread pulls grains too, instead of sitting idle until others finish
-
-            for (auto& w : workers)
-                w.wait();
+            Core::ParallelForRange(*jobs, 0, count, grainSize, fn);
         }
 
         bool FindElementOffset(const VertexLayout& layout, const std::string& name, uint32_t& outOffset)
@@ -481,21 +446,17 @@ namespace Shard::Engine::Rendering::Raytracing {
         report(kChunkLayoutEnd, "Baking scene info");
 
         // ---- Pass 2 : flatten every chunk's triangles. Each chunk owns a disjoint destination range
-        // (see FlattenChunkInto), so this is a plain work-stealing parallel-for : every worker thread
-        // (including the calling one, so a single-core machine or a tiny chunk list still just runs
-        // this inline) pulls the next unclaimed chunk index from a shared atomic counter until none are
-        // left. Load-balances even a single huge submesh across every thread, since it was already cut
-        // into kChunkTriangles-sized pieces above rather than handed out whole.
+        // (see FlattenChunkInto), so this is a plain parallel-for over the chunk list on the job system.
         std::vector<GPUTrianglePos> positions(totalTriangles);
         std::vector<GPUTriangleAttrib> attribs(totalTriangles);
 
-        std::atomic<size_t> nextChunk{ 0 };
         std::atomic<size_t> chunksDone{ 0 };
 
-        auto worker = [&]()
+        // One job per chunk (grain 1) : chunks are already cut to kChunkTriangles, and a single huge submesh is
+        // spread over every thread because of that.
+        ParallelForRange(chunks.size(), 1, [&](size_t begin, size_t end)
         {
-            size_t idx;
-            while ((idx = nextChunk.fetch_add(1, std::memory_order_relaxed)) < chunks.size())
+            for (size_t idx = begin; idx < end; idx++)
             {
                 const FlattenChunk& chunk = chunks[idx];
                 FlattenChunkInto(chunk, modelInfos[chunk.modelInfoIdx], positions, attribs);
@@ -504,37 +465,7 @@ namespace Shard::Engine::Rendering::Raytracing {
                 float frac = kChunkLayoutEnd + (kFlattenEnd - kChunkLayoutEnd) * (float)done / (float)chunks.size();
                 report(frac, "Baking scene info");
             }
-        };
-
-        // Threads spawned here draw from the same process-wide budget as bvh.cpp's BVH build and this
-        // function's own ParallelForRange() calls below - see parallel_build_budget.hpp for why a
-        // per-call hardware_concurrency()-sized budget isn't safe when more than one scene build can be
-        // in flight at once (ProbeManager::RebuildScene() supersedes rather than cancels a still-running
-        // previous build). A failed spawn attempt just means this chunk list gets fewer helper threads,
-        // not a propagated exception - worker() below always runs on the calling thread regardless.
-        std::vector<std::future<void>> workers;
-        int maxExtraWorkers = std::max(0, std::min((int)chunks.size() - 1, (int)Core::Platform::HardwareConcurrency() - 1));
-        for (int i = 0; i < maxExtraWorkers; i++)
-        {
-            if (!TryAcquireWorkerSlot())
-                break;
-
-            try
-            {
-                workers.push_back(std::async(std::launch::async, [&worker]() {
-                    worker();
-                    ReleaseWorkerSlot();
-                }));
-            }
-            catch (const std::system_error&)
-            {
-                ReleaseWorkerSlot();
-                break;
-            }
-        }
-        worker(); // the calling thread pulls chunks too, instead of sitting idle until the others finish
-        for (auto& w : workers)
-            w.wait();
+        });
 
         report(kFlattenEnd, "Building BVH");
 

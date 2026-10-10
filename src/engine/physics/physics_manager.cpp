@@ -11,6 +11,7 @@
 #include "engine/world/actor.hpp"
 
 #include "engine/world/engine.hpp"
+#include "engine/physics/jolt_job_system.hpp"
 
 namespace Shard::Engine::Physics {
 
@@ -41,7 +42,13 @@ namespace Shard::Engine::Physics {
 
         // Allocator & job system
         m_tempAllocator = new JPH::TempAllocatorImpl(cTempAllocatorSize);
-        m_jobSystem = new JPH::JobSystemThreadPool(JPH::cMaxPhysicsJobs, JPH::cMaxPhysicsBarriers, Core::Platform::HardwareConcurrency() - 1);
+        // Physics runs on the engine's job system when there is one (it then shares the cores with everything else) ;
+        // without an engine (unit tests) it gets a pool of its own
+        Core::JobSystem* engineJobs = Core::gSharedEnginePtr ? Core::gSharedEnginePtr->GetJobSystem() : nullptr;
+        if(engineJobs)
+            m_jobSystem = new JoltJobSystem(*engineJobs, JPH::cMaxPhysicsJobs, JPH::cMaxPhysicsBarriers);
+        else
+            m_jobSystem = new JPH::JobSystemThreadPool(JPH::cMaxPhysicsJobs, JPH::cMaxPhysicsBarriers, Core::Platform::HardwareConcurrency() - 1);
 
         // Initialize physics system
         m_physicsSystem.Init(

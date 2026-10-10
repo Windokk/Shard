@@ -1,5 +1,6 @@
 #include "bvh.hpp"
-#include "parallel_build_budget.hpp"
+#include "engine/core/jobs/job_system.hpp"
+#include "engine/world/engine.hpp"
 
 #include <algorithm>
 #include <atomic>
@@ -248,38 +249,20 @@ namespace Shard::Engine::Rendering::Raytracing {
             // ranges of `order` (left/right of the partition just performed), so running them on separate
             // threads needs no locking. Only the right side is ever offloaded - the calling thread always
             // continues on the left - so a small build (or a call already deep in the tree, below
-            // kMinTrianglesToParallelize) never touches std::async at all.
+            // kMinTrianglesToParallelize) never creates a job at all, which also bounds how deep Wait() can nest.
             //
-            // The slot comes from the process-wide budget in parallel_build_budget.hpp, not a per-Build()
-            // one : this Subdivide() call can be running as part of a build that superseded (but didn't
-            // cancel) another one still in flight - see ProbeManager::RebuildScene()'s comment - and each
-            // Build() call computing its own hardware_concurrency()-sized budget independently is exactly
-            // how two or three overlapping builds used to pile up more OS threads than the machine (or
-            // std::async's underlying implementation) could actually hand out.
-            if (rightCount >= kMinTrianglesToParallelize && TryAcquireWorkerSlot())
+            // The right subtree is a job on the engine's job system, so overlapping scene builds (see
+            // ProbeManager::RebuildScene()) share its fixed set of threads instead of each spawning their own. Wait()
+            // executes other jobs while it waits, so a thread never idles on its subtree.
+            if (rightCount >= kMinTrianglesToParallelize)
             {
-                try
+                if (Core::JobSystem* jobs = Core::GetEngine().GetJobSystem())
                 {
-                    std::future<void> rightTask = std::async(std::launch::async, [&]() {
-                        Subdivide(nodes, nodesUsed, rightIdx, prims, order, progress);
-                        ReleaseWorkerSlot();
-                    });
-
+                    Core::JobGroup group;
+                    jobs->Submit(group, [&] { Subdivide(nodes, nodesUsed, rightIdx, prims, order, progress); });
                     Subdivide(nodes, nodesUsed, leftIdx, prims, order, progress);
-                    rightTask.wait();
+                    jobs->Wait(group);
                     return;
-                }
-                catch (const std::system_error&)
-                {
-                    // std::async's constructor throws synchronously if it can't start a new thread (e.g.
-                    // the OS/CRT thread limit was hit) - the lambda above never ran in that case, so the
-                    // slot was never going to be released by it; give it back here and fall through to
-                    // the plain serial path below instead of losing the right subtree or propagating.
-                    // Letting this escape uncaught is what used to turn "couldn't spawn one more thread"
-                    // into an unhandled exception on the main thread the next time
-                    // ProbeManager::Update() called future::get() on some pending build - i.e. a crash
-                    // with no obvious connection to the actual cause.
-                    ReleaseWorkerSlot();
                 }
             }
 

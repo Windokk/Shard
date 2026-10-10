@@ -6,6 +6,9 @@
 
 #include "engine/assets/resources_manager.hpp"
 #include "engine/core/diagnostics/logger.hpp"
+#include "engine/core/jobs/job_system.hpp"
+#include "engine/core/jobs/thread_pool.hpp"
+#include "engine/platform/thread/thread.hpp"
 #include "engine/assets/serialization/project/project_serializer.hpp"
 #include "engine/world/world_manager.hpp"
 #include "engine/core/diagnostics/profiler.hpp"
@@ -113,6 +116,11 @@ namespace Shard::Engine{
             
         }
 
+        ThreadPool* EngineInstance::GetThreadPool(PoolKind kind) const
+        {
+            return m_Context.threadPools ? &m_Context.threadPools->Get(kind) : nullptr;
+        }
+
         void EngineInstance::InitSystems()
         {
             // What each module adds to the world (its components, what it keeps on a world) : the world itself
@@ -120,6 +128,17 @@ namespace Shard::Engine{
             Rendering::RegisterRenderingModule();
             Physics::RegisterPhysicsModule();
             Audio::RegisterAudioModule();
+
+            JobSystemDesc jobDesc;
+            jobDesc.workerCount = Platform::WorkerThreadCount();
+            jobDesc.onWorkerStart = [](unsigned index){ Platform::SetCurrentThreadName("Shard Job " + std::to_string(index)); };
+            m_Context.jobSystem = new JobSystem(jobDesc);
+            m_Context.threadPools = new ThreadPools([](PoolKind kind, const std::string& name, unsigned index){
+                Platform::SetCurrentThreadName("Shard " + name + " " + std::to_string(index));
+                if(kind == PoolKind::Audio)
+                    Platform::SetCurrentThreadPriority(Platform::ThreadPriority::High);   // a late audio buffer is heard
+            });
+            DEBUG_INFO("Job system : " + std::to_string(m_Context.jobSystem->ThreadCount()) + " threads");
 
             m_Context.renderer = new Rendering::Renderer();
             m_Context.cameraManager = new Rendering::CameraManager();
@@ -241,6 +260,13 @@ namespace Shard::Engine{
             m_Context.worldManager->UnloadAllWorlds();
             m_Context.renderer->Shutdown();
             m_Context.platform->GetWindow()->Destroy();
+
+            // Last : every system that submitted work is shut down, and every JobGroup has been waited on. The pools'
+            // queued tasks are run to the end first (they may use the job system), then the job system goes.
+            delete m_Context.threadPools;
+            m_Context.threadPools = nullptr;
+            delete m_Context.jobSystem;
+            m_Context.jobSystem = nullptr;
         }
 
         bool EngineInstance::Run() {

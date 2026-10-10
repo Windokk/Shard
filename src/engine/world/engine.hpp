@@ -1,5 +1,6 @@
 #pragma once
 
+#include <cstdint>
 #include <stdexcept>
 #include <memory>
 #include <glm/glm.hpp>
@@ -64,6 +65,10 @@ namespace Shard::Engine{
         }
 
         class ObjectIDManager;
+        class JobSystem;
+        class ThreadPool;
+        class ThreadPools;
+        enum class PoolKind : uint8_t;
 
         struct EngineCreationSettings{
             //PLATFORM
@@ -127,6 +132,9 @@ namespace Shard::Engine{
             std::shared_ptr<Projects::Project> currentProject = nullptr;
 
             Debugging::Profiler* profiler = nullptr;
+
+            JobSystem* jobSystem = nullptr;
+            ThreadPools* threadPools = nullptr;
         };
 
         class IEngineContext {
@@ -162,6 +170,11 @@ namespace Shard::Engine{
                 virtual Projects::BuildSettings* GetBuildSettings() const = 0;
                 virtual std::shared_ptr<Projects::Project> GetCurrentProject() const = 0;
                 virtual Debugging::Profiler* GetProfiler() const = 0;
+                /// The engine's worker pool (work-stealing jobs, task graphs, ParallelFor) : see engine/core/jobs/
+                virtual JobSystem* GetJobSystem() const = 0;
+                /// A dedicated pool (IO : blocking work, Render / Audio : one thread, tasks in order), created on first
+                /// use. Null when the context has none.
+                virtual ThreadPool* GetThreadPool(PoolKind kind) const = 0;
 
                 virtual bool IsInPlayMode() const = 0;
                 virtual void SetPlayMode(bool on) = 0;
@@ -224,6 +237,10 @@ namespace Shard::Engine{
                 std::shared_ptr<Projects::Project> GetCurrentProject() const override { return m_Context.currentProject; }
 
                 Debugging::Profiler* GetProfiler() const override { return m_Context.profiler; }
+
+                JobSystem* GetJobSystem() const override { return m_Context.jobSystem; }
+
+                ThreadPool* GetThreadPool(PoolKind kind) const override;
 
                 bool IsInPlayMode() const override { return m_PlayMode; }
 

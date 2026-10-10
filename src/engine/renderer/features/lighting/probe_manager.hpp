@@ -227,6 +227,11 @@ namespace Shard::Engine::Rendering {
             // lit.frag samples them.
             void Update();
 
+            /// @brief Blocks until every background scene build (the current one and the superseded ones) has
+            /// finished, discarding their results. They run on the engine's job system, so this has to happen before it
+            /// is destroyed.
+            void WaitForSceneBuilds();
+
             bool HasActiveVolume() const { return !m_Volumes.empty(); }
             int GetActiveVolumeCount() const { return (int)m_Volumes.size(); }
 

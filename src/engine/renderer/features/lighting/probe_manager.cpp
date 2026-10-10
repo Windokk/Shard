@@ -21,6 +21,7 @@
 #include "engine/renderer/components/skybox.hpp"
 
 #include "engine/core/diagnostics/logger.hpp"
+#include "engine/core/jobs/thread_pool.hpp"
 
 #include <algorithm>
 #include <cmath>
@@ -111,7 +112,11 @@ namespace Shard::Engine::Rendering {
     }
 
     ProbeManager::ProbeManager() : m_RayRNG(std::random_device{}()) {}
-    ProbeManager::~ProbeManager() = default;
+    ProbeManager::~ProbeManager()
+    {
+        // The builds point back into this object, and their futures (from the IO pool) do not block when they die
+        WaitForSceneBuilds();
+    }
 
     void ProbeManager::RebuildScene(Worlds::World* world)
     {
@@ -138,7 +143,7 @@ namespace Shard::Engine::Rendering {
         m_SceneBuildProgress.store(0.0f, std::memory_order_relaxed);
         m_SceneBuildPhase.store("Baking scene info", std::memory_order_relaxed);
 
-        m_PendingSceneBuild = std::async(std::launch::async,
+        auto buildJob =
             [this, generation, snapshot = std::move(snapshot)]()
             {
                 auto onProgress = [this, generation](float fraction, const char* phase)
@@ -151,7 +156,15 @@ namespace Shard::Engine::Rendering {
                     m_SceneBuildPhase.store(phase, std::memory_order_relaxed);
                 };
                 return Raytracing::SceneBuilder::BuildFromSnapshot(snapshot, onProgress);
-            });
+            };
+
+        // The build only coordinates : the heavy loops are jobs on the job system, which this thread helps to run
+        // while it waits for them. It is a long task that mostly waits, so it lives on the IO pool and not on a
+        // job system worker.
+        if (Core::ThreadPool* io = Core::GetEngine().GetThreadPool(Core::PoolKind::IO))
+            m_PendingSceneBuild = io->Submit(std::move(buildJob));
+        else
+            m_PendingSceneBuild = std::async(std::launch::async, std::move(buildJob));
 
         m_SceneBuilt = false;
     }
@@ -818,6 +831,17 @@ namespace Shard::Engine::Rendering {
         }
 
         slot.frameIndex++;
+    }
+
+    void ProbeManager::WaitForSceneBuilds()
+    {
+        for (std::future<Raytracing::RaytraceScene>& f : m_AbandonedSceneBuilds)
+            if (f.valid())
+                f.wait();
+        m_AbandonedSceneBuilds.clear();
+
+        if (m_PendingSceneBuild.valid())
+            m_PendingSceneBuild.wait();
     }
 
     void ProbeManager::Update()

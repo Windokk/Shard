@@ -13,6 +13,17 @@
 
 namespace Shard::Engine::Worlds{
 
+    AssetPrefetcher::~AssetPrefetcher()
+    {
+        WaitForDecodes();
+    }
+
+    void AssetPrefetcher::WaitForDecodes()
+    {
+        if(Core::JobSystem* jobSystem = Core::GetEngine().GetJobSystem())
+            jobSystem->Wait(decodeGroup);
+    }
+
     void AssetPrefetcher::BeginLoad(const std::string &pathInProject)
     {
         if(IsInProgress()){
@@ -20,8 +31,11 @@ namespace Shard::Engine::Worlds{
             return;
         }
 
+        WaitForDecodes();   // a previous load's decodes point into `jobs`
         jobs.clear();
-        maxInFlight = std::max(2, (int)Core::Platform::HardwareConcurrency() - 1);
+        // As many decodes at once as the job system has background threads (the main thread only polls here)
+        Core::JobSystem* jobSystem = Core::GetEngine().GetJobSystem();
+        maxInFlight = std::max(2, jobSystem ? (int)jobSystem->WorkerCount() : 2);
         completedCount = 0;
         totalCount = 0;
 
@@ -49,13 +63,25 @@ namespace Shard::Engine::Worlds{
 
     bool AssetPrefetcher::IsDecoded(DecodeJob& job)
     {
-        return job.future.wait_for(std::chrono::seconds(0)) == std::future_status::ready;
+        return job.result->done.load(std::memory_order_acquire);
     }
 
     void AssetPrefetcher::StartDecode(DecodeJob& job)
     {
-        job.future = std::async(std::launch::async, job.task.decode);
         job.started = true;
+        DecodeJob::Result* result = job.result.get();
+        auto decode = [result, fn = job.task.decode]
+        {
+            try { result->finish = fn(); }
+            catch(...) { result->error = std::current_exception(); }
+            result->done.store(true, std::memory_order_release);   // publishes finish / error to Pump()
+        };
+
+        Core::JobSystem* jobSystem = Core::GetEngine().GetJobSystem();
+        if(jobSystem)
+            jobSystem->Submit(decodeGroup, std::move(decode));
+        else
+            decode();   // no job system (no engine) : decode right here
     }
 
     bool AssetPrefetcher::Pump(float uploadBudgetMs)
@@ -119,7 +145,9 @@ namespace Shard::Engine::Worlds{
 
     void AssetPrefetcher::Apply(DecodeJob& job)
     {
-        std::function<void()> finish = job.future.get();
+        if(job.result->error)
+            std::rethrow_exception(job.result->error);   // as std::future::get() did
+        std::function<void()> finish = std::move(job.result->finish);
         if(finish)
             finish();
     }

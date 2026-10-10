@@ -53,9 +53,16 @@ namespace Shard::Tests {
             Shard::Engine::Projects::BuildSettings* GetBuildSettings() const override { Unsupported("GetBuildSettings"); return nullptr; }
             std::shared_ptr<Shard::Engine::Projects::Project> GetCurrentProject() const override { Unsupported("GetCurrentProject"); return nullptr; }
             Shard::Engine::Debugging::Profiler* GetProfiler() const override { Unsupported("GetProfiler"); return nullptr; }
+            Shard::Engine::Core::JobSystem* GetJobSystem() const override { return jobSystem; }
+            Shard::Engine::Core::ThreadPool* GetThreadPool(Shard::Engine::Core::PoolKind) const override { return nullptr; }
 
             bool IsInPlayMode() const override { return false; }
             void SetPlayMode(bool) override { Unsupported("SetPlayMode"); }
+
+        public:
+            /// Null by default (code that can run without a job system then runs serially) : a test that wants
+            /// parallel work sets it.
+            Shard::Engine::Core::JobSystem* jobSystem = nullptr;
 
         private:
             static void Unsupported(const char* method) {

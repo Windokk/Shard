@@ -2,17 +2,25 @@
 
 #include <string>
 #include <vector>
-#include <future>
+#include <exception>
+#include <memory>
 #include <atomic>
 #include <functional>
 
 #include "engine/assets/resources_manager.hpp"
+#include "engine/core/jobs/job_system.hpp"
 
 namespace Shard::Engine::Worlds{
 
     class AssetPrefetcher{
 
         public:
+
+            AssetPrefetcher() = default;
+            /// Waits for the decodes still running : they reference this object's jobs.
+            ~AssetPrefetcher();
+            AssetPrefetcher(const AssetPrefetcher&) = delete;
+            AssetPrefetcher& operator=(const AssetPrefetcher&) = delete;
 
             void BeginLoad(const std::string& pathInProject);
 
@@ -38,15 +46,29 @@ namespace Shard::Engine::Worlds{
             /// What to decode comes from the resources manager (the owner kinds know what they reference, the
             /// kinds that can be decoded ahead of time say how) : this class knows no asset type.
             struct DecodeJob {
+                /// What the worker thread writes and the main thread reads : heap allocated so its address stays
+                /// valid while the vector of jobs moves, and shared with the running job.
+                struct Result {
+                    std::function<void()> finish;
+                    std::exception_ptr error;       // a decoder that throws must not take a worker thread down
+                    std::atomic<bool> done{false};
+                };
+
                 Core::Resources::PrefetchTask task;
                 bool started = false;
                 bool applied = false;
-                std::future<std::function<void()>> future;
+                std::unique_ptr<Result> result = std::make_unique<Result>();
             };
 
             static bool IsDecoded(DecodeJob& job);
-            static void StartDecode(DecodeJob& job);
+            void StartDecode(DecodeJob& job);
             static void Apply(DecodeJob& job);
+
+            /// Blocks until every started decode is finished (the calling thread executes jobs meanwhile).
+            void WaitForDecodes();
+
+            /// Every decode of the current load, so one Wait covers them all.
+            Core::JobGroup decodeGroup;
 
             State state = State::Idle;
 

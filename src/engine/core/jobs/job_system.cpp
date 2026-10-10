@@ -42,6 +42,12 @@ namespace Shard::Engine::Core {
         }
         m_SleepCv.notify_all();
         for (std::thread& t : m_Threads) t.join();
+
+        // Jobs still queued are run here rather than dropped : their groups get released, and the objects their
+        // closures own are destroyed.
+        Worker* self = (tl_system == this) ? tl_worker : nullptr;
+        while (TryRunOne(self)) {}
+
         if (tl_system == this) { tl_system = nullptr; tl_worker = nullptr; }
     }
 

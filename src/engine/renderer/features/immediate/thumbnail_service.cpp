@@ -12,6 +12,7 @@
 #include "engine/renderer/features/material/material_serializer.hpp"
 
 #include "engine/core/diagnostics/logger.hpp"
+#include "engine/core/jobs/thread_pool.hpp"
 
 #include <stb/stb_image.h>
 
@@ -48,6 +49,10 @@ namespace Shard::Engine::Rendering {
 
     void ThumbnailService::Shutdown()
     {
+        // The generators run on the IO pool and point back into this service : its futures do not block when they die
+        for (auto& [key, entry] : m_Entries)
+            if (entry.pending.valid())
+                entry.pending.wait();
         if (m_Atlas)
             m_Atlas->Destroy();
         m_Atlas = nullptr;
@@ -277,7 +282,7 @@ namespace Shard::Engine::Rendering {
 
         Entry entry;
         entry.cacheFile = cacheFile;
-        entry.pending = std::async(std::launch::async, [this, generate = request.generate, file = request.filePath]()
+        auto generateJob = [this, generate = request.generate, file = request.filePath]()
         {
             std::vector<uint8_t> rgba(size_t(kCellSize) * kCellSize * 4);
 
@@ -296,7 +301,13 @@ namespace Shard::Engine::Rendering {
             if (!ok)
                 rgba.clear();
             return rgba;
-        });
+        };
+
+        // The IO pool : decoding a file mostly waits on the disk, and must not take a core from the job system
+        if (Core::ThreadPool* io = Core::GetEngine().GetThreadPool(Core::PoolKind::IO))
+            entry.pending = io->Submit(std::move(generateJob));
+        else
+            entry.pending = std::async(std::launch::async, std::move(generateJob));
 
         m_Entries[key] = std::move(entry);
     }
