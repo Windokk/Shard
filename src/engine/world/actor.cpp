@@ -31,6 +31,8 @@ namespace Shard::Engine::Objects{
             entity = ecs->Create(Worlds::ActorLink{id.GetAsInt()});
 
         this->transform = AddComponent<Transform>();
+        if(transform)
+            transform->SyncEntity();
     }
 
     std::shared_ptr<Component> Actor::AddComponentRaw(std::shared_ptr<Component> component) {
@@ -143,8 +145,9 @@ namespace Shard::Engine::Objects{
         WorldObject::Destroy();
 
         // The children went first (each released its own entity) ; this takes whatever is left of the subtree with it
+        // (or as soon as the iteration that is running is over : a system may destroy actors from inside a query)
         if(Core::Ecs::Registry* ecs = EcsOf(engine))
-            ecs->Destroy(entity);
+            ecs->DestroyDeferred(entity);
         entity = Core::Ecs::kNullEntity;
     }
 
@@ -233,6 +236,8 @@ namespace Shard::Engine::Objects{
     void Actor::Activate()
     {
         activated = true;
+        if(Core::Ecs::Registry* ecs = EcsOf(engine))
+            ecs->Remove<Worlds::Disabled>(entity);
         for(auto& component : components){
             component->Activate();
         }
@@ -248,6 +253,8 @@ namespace Shard::Engine::Objects{
     void Actor::DeActivate()
     {
         activated = false;
+        if(Core::Ecs::Registry* ecs = EcsOf(engine))
+            ecs->Add(entity, Worlds::Disabled{});
         for(auto& component : components){
             component->DeActivate();
         }

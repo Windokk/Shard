@@ -1,6 +1,9 @@
 #include "engine/core/ecs/scheduler.hpp"
 
 #include <algorithm>
+#include <chrono>
+#include <iomanip>
+#include <sstream>
 #include <unordered_map>
 
 namespace Shard::Engine::Core::Ecs {
@@ -169,7 +172,7 @@ namespace Shard::Engine::Core::Ecs {
 
     void Scheduler::Execute(Phase phase, Registry& registry, JobSystem* jobs, const FrameTiming& timing, int fixedStep) {
         PhaseGraph& graph = Compile(phase);
-        if (graph.order.empty()) return;
+        if (graph.order.empty()) { registry.FlushDeferred(); return; }
 
         m_RunRegistry = &registry;
         m_RunJobs = jobs;
@@ -182,7 +185,10 @@ namespace Shard::Engine::Core::Ecs {
                                   fixed ? m_RunTiming->fixedDeltaTime : m_RunTiming->deltaTime, m_RunTiming->fixedDeltaTime,
                                   m_RunFixedStep, m_RunTiming->fixedSteps, m_Frame};
             system->commands.Clear();
+            const auto start = std::chrono::steady_clock::now();
             system->desc.run(context);
+            system->lastMs = std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - start).count();
+            system->averageMs = system->averageMs == 0.0 ? system->lastMs : system->averageMs * 0.95 + system->lastMs * 0.05;
         };
 
         const bool parallel = jobs && jobs->ThreadCount() > 1 && graph.order.size() > 1;
@@ -206,6 +212,33 @@ namespace Shard::Engine::Core::Ecs {
         std::sort(byRegistration.begin(), byRegistration.end(), [](const System* a, const System* b) { return a->sequence < b->sequence; });
         for (System* system : byRegistration)
             if (!system->commands.Empty()) registry.Playback(system->commands);
+
+        // Entities whose destruction was asked while something was iterating
+        registry.FlushDeferred();
+    }
+
+    std::vector<Scheduler::SystemStats> Scheduler::Stats() {
+        std::vector<SystemStats> out;
+        for (size_t p = 0; p < static_cast<size_t>(Phase::Count); ++p) {
+            const Phase phase = static_cast<Phase>(p);
+            for (System* system : Compile(phase).order)
+                out.push_back(SystemStats{system->desc.name, phase, true, system->lastMs, system->averageMs});
+            for (auto& system : m_Systems)                                  // the disabled ones, after
+                if (!system->enabled && system->desc.phase == phase)
+                    out.push_back(SystemStats{system->desc.name, phase, false, system->lastMs, system->averageMs});
+        }
+        return out;
+    }
+
+    std::string Scheduler::Describe() {
+        std::ostringstream out;
+        Phase current = Phase::Count;
+        for (const SystemStats& s : Stats()) {
+            if (s.phase != current) { current = s.phase; out << PhaseName(current) << "\n"; }
+            out << "  " << std::left << std::setw(28) << s.name << (s.enabled ? "" : "(off) ") << std::fixed << std::setprecision(3)
+                << s.lastMs << " ms  (avg " << s.averageMs << ")\n";
+        }
+        return out.str();
     }
 
     void Scheduler::RunPhase(Phase phase, Registry& registry, JobSystem* jobs, const FrameTiming& timing, int fixedStep) {

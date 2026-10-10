@@ -165,3 +165,37 @@ TEST_F(ActorTest, DestroyingAnActorReleasesItsEntityAndItsChildrens) {
     EXPECT_FALSE(ecs->IsAlive(childEntity));
     EXPECT_EQ(ecs->Count(), before - 2);
 }
+
+TEST_F(ActorTest, TransformChangesAreMirroredOnTheEntity) {
+    auto actor = Object::CreateWithContext<Actor>(&context, std::string("Mover"), &context);
+    Ecs::Registry* ecs = context.GetEcs();
+
+    const auto* mirror = ecs->TryGet<Shard::Engine::Worlds::LocalTransform>(actor->GetEntity());
+    ASSERT_NE(mirror, nullptr);                                       // there from the start
+    EXPECT_EQ(mirror->scale, glm::vec3(1.0f));
+
+    actor->transform->SetPosition(glm::vec3(1, 2, 3));
+    actor->transform->SetScale(glm::vec3(2, 2, 2));
+    mirror = ecs->TryGet<Shard::Engine::Worlds::LocalTransform>(actor->GetEntity());
+    EXPECT_EQ(mirror->position, glm::vec3(1, 2, 3));
+    EXPECT_EQ(mirror->scale, glm::vec3(2, 2, 2));
+
+    // A system sees it through an ordinary query
+    int seen = 0;
+    ecs->Each<const Shard::Engine::Worlds::LocalTransform>([&](const Shard::Engine::Worlds::LocalTransform& t) {
+        if (t.position == glm::vec3(1, 2, 3)) ++seen;
+    });
+    EXPECT_EQ(seen, 1);
+}
+
+TEST_F(ActorTest, DestroyingAnActorFromInsideAQueryIsDeferred) {
+    auto actor = Object::CreateWithContext<Actor>(&context, std::string("Doomed"), &context);
+    Ecs::Registry* ecs = context.GetEcs();
+    const Ecs::Entity entity = actor->GetEntity();
+
+    ecs->Each<Shard::Engine::Worlds::ActorLink>([&](Shard::Engine::Worlds::ActorLink&) { actor->Destroy(); });
+    EXPECT_TRUE(ecs->IsAlive(entity));                                // the query was running
+    ecs->FlushDeferred();
+    EXPECT_FALSE(ecs->IsAlive(entity));
+}
+

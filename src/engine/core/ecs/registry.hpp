@@ -5,6 +5,8 @@
 #include <initializer_list>
 #include <map>
 #include <memory>
+#include <mutex>
+#include <string>
 #include <type_traits>
 #include <utility>
 #include <vector>
@@ -202,6 +204,23 @@ namespace Shard::Engine::Core::Ecs {
 
         bool IsIterating() const { return m_Iterating.load(std::memory_order_acquire) > 0; }
 
+        /// @brief Destroys the entity (and its descendants) now if no query is running, otherwise as soon as it is safe : the
+        /// scheduler calls FlushDeferred at the end of every phase. Callable from any thread, whatever is running.
+        void DestroyDeferred(Entity e);
+        /// Applies the pending DestroyDeferred. Returns how many entities were destroyed. Not while a query runs.
+        size_t FlushDeferred();
+
+        struct Stats {
+            size_t entities = 0;
+            size_t archetypes = 0;          // including the empty ones
+            size_t chunks = 0;
+            size_t chunkBytes = 0;          // memory held by the chunks
+            size_t pendingDestroys = 0;
+        };
+        Stats GetStats() const;
+        /// One line per archetype : its components, entity count and chunks (for the console / debugging)
+        std::string Describe() const;
+
     private:
         struct Record {
             uint32_t generation = 1;
@@ -275,5 +294,7 @@ namespace Shard::Engine::Core::Ecs {
         size_t m_AliveCount = 0;
         uint64_t m_StructuralVersion = 0;
         std::atomic<int> m_Iterating{0};
+        mutable std::mutex m_DeferredMutex;
+        std::vector<Entity> m_Deferred;
     };
 }

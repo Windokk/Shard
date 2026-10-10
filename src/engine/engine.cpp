@@ -257,6 +257,24 @@ namespace Shard::Engine{
             add("Physics.Sync", Phase::Late, [this](SystemContext& c){ SyncPhysicsBodies(c.fixedDeltaTime); });
 
             add("Render.Frame", Phase::Extract, [this](SystemContext&){ RenderFrame(); });
+
+            // Console : what runs each frame and how long it takes, what the registry holds
+            CVarRegistry::Global().RegisterCommand("ecs.systems", "ecs.systems : the systems of each phase, in start order, with their last run time",
+                [this](const std::vector<std::string>&) {
+                    return CommandResult{true, m_Context.scheduler ? m_Context.scheduler->Describe() : std::string("no scheduler")};
+                });
+            CVarRegistry::Global().RegisterCommand("ecs.stats", "ecs.stats : entities, archetypes and chunk memory ; with 'archetypes', one line per archetype",
+                [this](const std::vector<std::string>& args) {
+                    if(!m_Context.ecs)
+                        return CommandResult{false, "no registry"};
+                    const Ecs::Registry::Stats stats = m_Context.ecs->GetStats();
+                    std::string text = std::to_string(stats.entities) + " entities, " + std::to_string(stats.archetypes) + " archetypes, " +
+                                       std::to_string(stats.chunks) + " chunks (" + std::to_string(stats.chunkBytes / 1024) + " KB), " +
+                                       std::to_string(stats.pendingDestroys) + " destroys pending";
+                    if(!args.empty() && args[0] == "archetypes")
+                        text += "\n" + m_Context.ecs->Describe();
+                    return CommandResult{true, text};
+                });
         }
 
         Rendering::IRenderContext *EngineInstance::GetRenderContext() const
@@ -343,6 +361,8 @@ namespace Shard::Engine{
 
             // Last : every system that submitted work is shut down, and every JobGroup has been waited on. The pools'
             // queued tasks are run to the end first (they may use the job system), then the job system goes.
+            CVarRegistry::Global().UnregisterCommand("ecs.systems");
+            CVarRegistry::Global().UnregisterCommand("ecs.stats");
             delete m_Context.scheduler;
             m_Context.scheduler = nullptr;
             delete m_Context.ecs;

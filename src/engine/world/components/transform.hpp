@@ -113,6 +113,9 @@ namespace Shard::Engine::Objects::Components
             /// local field changes or an actor is reparented (see Actor::AddChild/SetParent).
             void MarkWorldMatrixDirty();
 
+            /// @brief Copies the local fields to the LocalTransform of the actor's entity (done by MarkWorldMatrixDirty)
+            void SyncEntity();
+
             bool operator !=(Transform const& b) const {
                 return position != b.position || rotation != b.rotation || scale != b.scale;
             }

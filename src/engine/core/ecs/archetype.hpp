@@ -33,6 +33,8 @@ namespace Shard::Engine::Core::Ecs {
 
         size_t Count() const { return m_Count; }
         size_t Capacity() const { return m_Capacity; }
+        /// Bytes of one chunk
+        size_t ChunkAllocSize() const { return m_ChunkAllocSize; }
         size_t ChunkCount() const { return m_Chunks.size(); }
         /// Entities in chunk `chunk` (all chunks are full except the last)
         size_t ChunkSize(size_t chunk) const { return m_Chunks[chunk].count; }

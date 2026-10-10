@@ -101,12 +101,26 @@ namespace Shard::Engine::Core::Ecs {
 
         uint64_t FrameCount() const { return m_Frame; }
 
+        struct SystemStats {
+            std::string name;
+            Phase phase;
+            bool enabled;
+            double lastMs;          // duration of its last run (the last fixed step for a Fixed system)
+            double averageMs;       // moving average over the recent runs
+        };
+        /// Every system, phase by phase, in the order they start
+        std::vector<SystemStats> Stats();
+        /// Text table of Stats() : for the console
+        std::string Describe();
+
     private:
         struct System {
             SystemDesc desc;
             bool enabled = true;
             uint32_t sequence = 0;                  // registration order, never reused
             CommandBuffer commands;
+            double lastMs = 0.0;
+            double averageMs = 0.0;
         };
 
         struct PhaseGraph {

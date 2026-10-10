@@ -6,6 +6,8 @@
 #include "engine/world/actor.hpp"
 
 #include "engine/world/engine.hpp"
+#include "engine/core/ecs/registry.hpp"
+#include "engine/world/ecs_components.hpp"
 
 #include "transform.reflection.hpp"
 
@@ -223,9 +225,27 @@ namespace Shard::Engine::Objects::Components{
         );
     }
 
+    void Transform::SyncEntity()
+    {
+        if (!parent)
+            return;
+        Core::IEngineContext* engine = parent->GetEngineContext();
+        Core::Ecs::Registry* ecs = engine ? engine->GetEcs() : nullptr;
+        if (!ecs)
+            return;
+
+        const Worlds::LocalTransform local{position, rotation, scale};
+        const Core::Ecs::Entity entity = parent->GetEntity();
+        if (Worlds::LocalTransform* mirror = ecs->TryGet<Worlds::LocalTransform>(entity))
+            *mirror = local;
+        else
+            ecs->Add(entity, local);
+    }
+
     void Transform::MarkWorldMatrixDirty()
     {
         worldMatrixDirty = true;
+        SyncEntity();
 
         if (!parent)
             return;

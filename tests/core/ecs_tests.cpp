@@ -506,3 +506,73 @@ TEST(EcsScheduler, ParallelSystemsCanUseParallelEach) {
     EXPECT_DOUBLE_EQ(x, 5000.0 * 4);
     EXPECT_DOUBLE_EQ(h, 5000.0 * 5);
 }
+
+// ------------------------------------------------------------------------------------------------ deferred destroy, stats
+
+TEST(EcsRegistry, DestroyDeferredWaitsForTheIterationToEnd) {
+    Registry registry;
+    std::vector<Entity> entities;
+    for (int i = 0; i < 10; ++i) entities.push_back(registry.Create(Health{i}));
+
+    registry.Each<Health>([&](Entity e, Health& h) { if (h.value % 2 == 0) registry.DestroyDeferred(e); });
+    EXPECT_EQ(registry.Count(), 10u);                                  // nothing destroyed under the iteration
+    EXPECT_EQ(registry.GetStats().pendingDestroys, 5u);
+
+    EXPECT_EQ(registry.FlushDeferred(), 5u);
+    EXPECT_EQ(registry.Count(), 5u);
+    EXPECT_EQ(registry.GetStats().pendingDestroys, 0u);
+
+    registry.DestroyDeferred(entities[1]);                             // nothing running : immediate
+    EXPECT_FALSE(registry.IsAlive(entities[1]));
+}
+
+TEST(EcsRegistry, DeferredDestroyOfAnAlreadyDeadDescendantIsHarmless) {
+    Registry registry;
+    const Entity parent = registry.Create(Health{1}), child = registry.Create(Health{2});
+    registry.SetParent(child, parent);
+    registry.Each<Health>([&](Entity e, Health&) { registry.DestroyDeferred(e); });     // both queued, parent first
+    EXPECT_EQ(registry.FlushDeferred(), 1u);                                            // the child went with its parent
+    EXPECT_EQ(registry.Count(), 0u);
+}
+
+TEST(EcsRegistry, StatsAndDescribe) {
+    Registry registry;
+    for (int i = 0; i < 3; ++i) registry.Create(Health{i});
+    registry.Create(Health{}, Position{});
+    const Registry::Stats stats = registry.GetStats();
+    EXPECT_EQ(stats.entities, 4u);
+    EXPECT_GE(stats.archetypes, 3u);                                   // empty, {Health}, {Health, Position}
+    EXPECT_EQ(stats.chunks, 2u);
+    EXPECT_GT(stats.chunkBytes, 0u);
+    const std::string text = registry.Describe();
+    EXPECT_NE(text.find("3 entities"), std::string::npos);
+    EXPECT_NE(text.find("1 entity"), std::string::npos);
+}
+
+TEST(EcsScheduler, ReportsTimingsAndAFlushAtTheEndOfEveryPhase) {
+    Registry registry;
+    Scheduler scheduler;
+    const Entity doomed = registry.Create(Health{1});
+
+    SystemDesc d; d.name = "sleepy"; d.phase = Phase::Update;
+    d.run = [doomed](SystemContext& c) {
+        c.registry.Each<Health>([&](Health&) { c.registry.DestroyDeferred(doomed); });
+        std::this_thread::sleep_for(std::chrono::milliseconds(3));
+    };
+    scheduler.Add(d);
+    SystemDesc off; off.name = "off"; off.phase = Phase::Late; off.run = [](SystemContext&) {};
+    scheduler.Add(off);
+    scheduler.SetEnabled("off", false);
+
+    scheduler.RunFrame(registry, nullptr, {});
+    EXPECT_FALSE(registry.IsAlive(doomed));                            // flushed when the phase ended
+
+    const auto stats = scheduler.Stats();
+    ASSERT_EQ(stats.size(), 2u);
+    EXPECT_EQ(stats[0].name, "sleepy");
+    EXPECT_TRUE(stats[0].enabled);
+    EXPECT_GE(stats[0].lastMs, 2.0);
+    EXPECT_EQ(stats[1].name, "off");
+    EXPECT_FALSE(stats[1].enabled);
+    EXPECT_NE(scheduler.Describe().find("sleepy"), std::string::npos);
+}

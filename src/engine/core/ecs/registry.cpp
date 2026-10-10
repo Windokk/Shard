@@ -2,6 +2,7 @@
 
 #include <algorithm>
 #include <cstring>
+#include <sstream>
 
 namespace Shard::Engine::Core::Ecs {
 
@@ -250,6 +251,53 @@ namespace Shard::Engine::Core::Ecs {
         const size_t first = stack.size();
         for (Entity c = FirstChild(parent); c; c = NextSibling(c)) stack.push_back(c);
         std::reverse(stack.begin() + static_cast<std::ptrdiff_t>(first), stack.end());           // so the first child is popped first
+    }
+
+    // ---------------------------------------------------------------------------------- deferred destruction, stats
+
+    void Registry::DestroyDeferred(Entity e) {
+        if (!IsIterating() && Destroy(e)) return;
+        std::lock_guard<std::mutex> lock(m_DeferredMutex);
+        m_Deferred.push_back(e);
+    }
+
+    size_t Registry::FlushDeferred() {
+        if (IsIterating()) return 0;
+        std::vector<Entity> pending;
+        {
+            std::lock_guard<std::mutex> lock(m_DeferredMutex);
+            pending.swap(m_Deferred);
+        }
+        size_t destroyed = 0;
+        for (Entity e : pending) if (Destroy(e)) ++destroyed;       // already gone (a parent went first) : skipped
+        return destroyed;
+    }
+
+    Registry::Stats Registry::GetStats() const {
+        Stats stats;
+        stats.entities = m_AliveCount;
+        stats.archetypes = m_ArchetypeList.size();
+        for (const Archetype* archetype : m_ArchetypeList) {
+            stats.chunks += archetype->ChunkCount();
+            stats.chunkBytes += archetype->ChunkCount() * archetype->ChunkAllocSize();
+        }
+        std::lock_guard<std::mutex> lock(m_DeferredMutex);
+        stats.pendingDestroys = m_Deferred.size();
+        return stats;
+    }
+
+    std::string Registry::Describe() const {
+        std::ostringstream out;
+        for (const Archetype* archetype : m_ArchetypeList) {
+            if (archetype->Count() == 0) continue;
+            out << archetype->Count() << " entit" << (archetype->Count() == 1 ? "y" : "ies") << ", " << archetype->ChunkCount()
+                << " chunk(s) [";
+            const ComponentSet& signature = archetype->Signature();
+            for (size_t i = 0; i < signature.size(); ++i)
+                out << (i ? ", " : "") << ComponentRegistry::Global().Info(signature[i]).name;
+            out << "]\n";
+        }
+        return out.str();
     }
 
     // ---------------------------------------------------------------------------------- command buffers
