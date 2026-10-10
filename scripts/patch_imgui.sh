@@ -1,7 +1,3 @@
-#!/bin/bash
-# The editor includes imgui's Vulkan backend header, which must use the engine's vulkan.h (glad) instead of the
-# system's <vulkan/vulkan.h>, so that imgui and the engine share one Vulkan header. This edits the imgui submodule
-# in place. Safe to run several times.
 set -euo pipefail
 
 file="$(dirname "$0")/../submodules/imgui/backends/imgui_impl_vulkan.h"

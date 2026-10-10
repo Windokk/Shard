@@ -2,7 +2,7 @@
 # Smoke test : starts the player (ShardGame) on example_project, loads a world, renders a few frames and shuts down.
 # It fails when the player crashes, hangs, does not get to the end, or logs an [ERROR] / [FATAL] line (a file that
 # cannot be read, a shader that does not compile...). It does not look at the picture : it is there to catch what
-# breaks the engine at boot. Nothing is written to the project (see --frames in src/apps/player/main.cpp).
+# breaks the engine at boot.
 #
 # Usage : bash scripts/smoke_test.sh     (after a build : it uses build/ShardGame and build/libGameModule)
 #

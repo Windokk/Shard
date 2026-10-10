@@ -78,9 +78,9 @@ On Linux, SDL3 is built from source and needs the development packages of your w
 
 Copy the resources/engine_resources and resources/editor_resources folders inside the build directory
 
-ShardReflect (the reflection generator, in src/apps/tools/reflect) is built with the project into build/tools/ when LLVM, Clang and zlib are found (otherwise it is skipped : the generated *.reflection.hpp files are committed). After changing a reflected class, run `bash scripts/regen_reflection.sh` and commit the result : the CI (reflection.yml) regenerates them and fails when the committed ones are stale. See src/apps/tools/reflect/README.md
+ShardReflect (the reflection generator, in src/apps/tools/reflect) is built with the project into build/tools/ when LLVM, Clang and zlib are found (otherwise it is skipped : the generated source *.reflection.hpp files are in the repo). After changing a reflected class, run `scripts/regen_reflection.sh` : the CI (reflection.yml) regenerates them and fails when the committed ones are stale. See src/apps/tools/reflect/README.md
 
-This runs the editor, loads the game module, opens the project at "project path" and uses open gl core as the rendering api
+This runs the editor, loads the game module, opens the example project and uses open gl core as the rendering api
 ```bash
 ./ShardEditor.exe --game libGameModule.dll --project ..\\example_project\\example_project.json --api opengl
 ```
@@ -120,7 +120,7 @@ This runs the editor, loads the game module, opens the project at "project path"
 
 ## Philosophy
 
-The engine is a small, strict core meant to be extended. The engine, genre modules (voxel, space, racing...) and game all plug in through the **same public API**. Keep the pieces independent so any of them can be replaced without touching the rest.
+The engine is a small, strict core meant to be extended. The engine, modules and apps all plug in through the **same public API**. Keep the pieces independent so any of them can be replaced without touching the rest.
 
 > This is the target architecture. The renderer currently uses OpenGL ; Vulkan is the planned primary backend.
 
