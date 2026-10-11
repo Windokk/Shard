@@ -50,6 +50,7 @@ namespace Shard::Engine::Core::Ecs {
         ComponentSet reads;
         ComponentSet writes;
         bool exclusive = false;                 // touches things the declaration cannot express : runs alone, in order
+        bool mainThread = false;                // needs the thread that calls RunFrame (the GL context, the window) : the phase then runs on it, in order
         std::vector<std::string> after;         // explicit ordering by name (systems of the same phase only)
         std::vector<std::string> before;
         SystemFn run;
@@ -57,6 +58,7 @@ namespace Shard::Engine::Core::Ecs {
         template <typename... Ts> SystemDesc& Reads()  { (reads.push_back(ComponentIdOf<Ts>()), ...); Normalize(reads); return *this; }
         template <typename... Ts> SystemDesc& Writes() { (writes.push_back(ComponentIdOf<Ts>()), ...); Normalize(writes); return *this; }
         SystemDesc& Exclusive() { exclusive = true; return *this; }
+        SystemDesc& MainThread() { mainThread = true; return *this; }
         SystemDesc& After(std::string other) { after.push_back(std::move(other)); return *this; }
         SystemDesc& Before(std::string other) { before.push_back(std::move(other)); return *this; }
     };

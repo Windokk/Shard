@@ -5,12 +5,6 @@
 
 #include "engine/world/engine.hpp"
 
-#include "engine/world/world.hpp"
-
-#include "engine/world/actor.hpp"
-#include "engine/renderer/components/camera.hpp"
-#include "engine/world/components/transform.hpp"
-
 #include "engine/renderer/rhi/render_context.hpp"
 #include "engine/renderer/rhi/renderer_api.hpp"
 #include "engine/renderer/rhi/resources/buffer/storage_buffer.hpp"
@@ -33,7 +27,7 @@ namespace Shard::Engine::Rendering::Raytracing {
         ReleaseGPUResources();
     }
 
-    bool Raytracer::Start(Worlds::World* world, const std::shared_ptr<Objects::Components::Camera>& camera,
+    bool Raytracer::Start(const RenderSnapshot& scene, const CameraProxy& camera,
         const RaytraceSettings& settingsIn, const Filesystem::Path& outputPathIn)
     {
         settings = settingsIn;
@@ -41,15 +35,16 @@ namespace Shard::Engine::Rendering::Raytracing {
         currentSample = 0;
         statusMessage.clear();
 
-        if (!world || !camera || !camera->parent)
+        if (!camera.valid)
         {
             statusMessage = "Missing world or camera.";
             status = RaytraceStatus::Failed;
             return false;
         }
 
-        pendingWorld = world;
+        pendingScene = scene;
         pendingCamera = camera;
+        hasPending = true;
 
         status = RaytraceStatus::Preparing;
         statusMessage = "Preparing render (building BVH)...";
@@ -58,12 +53,12 @@ namespace Shard::Engine::Rendering::Raytracing {
 
     void Raytracer::BuildScene()
     {
-        Worlds::World* world = pendingWorld;
-        std::shared_ptr<Objects::Components::Camera> camera = pendingCamera;
-        pendingWorld = nullptr;
-        pendingCamera.reset();
+        RenderSnapshot sceneSnapshot = std::move(pendingScene);
+        CameraProxy camera = pendingCamera;
+        pendingScene = RenderSnapshot();
+        hasPending = false;
 
-        RaytraceScene scene = SceneBuilder::Build(world);
+        RaytraceScene scene = SceneBuilder::Build(sceneSnapshot);
         if (scene.trianglePositions.empty())
         {
             statusMessage = "Scene has no triangles to render.";
@@ -125,14 +120,13 @@ namespace Shard::Engine::Rendering::Raytracing {
         pipeline = renderer->GetOrAddComputePipeline(pipelineSpecs);
 
         // ---- Camera basis (world-space, pre-scaled so primary rays only need forward + right*x + up*y) ----
-        auto camTransform = camera->parent->transform;
-        camPos = camTransform->GetWorldPosition();
-        camForward = camTransform->GetWorldForward();
-        camRight = camTransform->GetWorldRight();
-        camUp = camTransform->GetWorldUp();
+        camPos = camera.position;
+        camForward = camera.forward;
+        camRight = camera.right;
+        camUp = camera.up;
 
         float aspect = (float)settings.width / (float)settings.height;
-        float tanHalfFov = std::tan(glm::radians(*camera->GetFOV()) * 0.5f);
+        float tanHalfFov = std::tan(glm::radians(camera.fovDegrees) * 0.5f);
         camRight *= tanHalfFov * aspect;
         camUp *= tanHalfFov;
 
@@ -249,8 +243,9 @@ namespace Shard::Engine::Rendering::Raytracing {
 
         status = RaytraceStatus::Cancelled;
         statusMessage = "Cancelled after " + std::to_string(currentSample) + " / " + std::to_string(settings.samplesPerPixel) + " samples.";
-        pendingWorld = nullptr;
-        pendingCamera.reset();
+        pendingScene = RenderSnapshot();
+        pendingCamera = CameraProxy();
+        hasPending = false;
         ReleaseGPUResources();
     }
 

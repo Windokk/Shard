@@ -246,6 +246,25 @@ namespace Shard::Engine::Core {
         /// Names (variables and commands) starting with `prefix`, sorted : for console completion.
         std::vector<std::string> Complete(std::string_view prefix) const;
 
+        /// @brief One thing the console can offer while the user types : a command or a variable, with what is useful to pick it.
+        struct Suggestion {
+            enum class Kind : uint8_t { Command, Variable };
+            Kind kind = Kind::Command;
+            std::string name;
+            std::string help;           ///< a command's usage line, or a variable's description
+            std::string type;           ///< variables : bool / int / float / string
+            std::string value;          ///< variables : the current value
+            std::string defaultValue;   ///< variables : what it is without config files and console
+            bool readOnly = false;
+        };
+
+        /// @brief What matches `text`, best first : names that start with it, then names that contain it (a name's later words
+        /// count : "occ" finds "render.occlusion"). Hidden variables are left out. At most `max` entries.
+        std::vector<Suggestion> Suggest(std::string_view text, size_t max = 64, bool commands = true, bool variables = true) const;
+
+        /// @brief The command or variable called exactly `name` (case does not matter), or nothing.
+        std::optional<Suggestion> Describe(std::string_view name) const;
+
         // Used by CVar's constructor and destructor
         void Register(CVarBase* cvar);
         void Unregister(CVarBase* cvar);

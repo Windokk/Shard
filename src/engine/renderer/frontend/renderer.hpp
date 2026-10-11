@@ -17,6 +17,7 @@
 #include "engine/renderer/features/immediate/thumbnail_service.hpp"
 #include "engine/renderer/features/culling/occlusion_culling_manager.hpp"
 
+#include <functional>
 #include <map>
 #include <variant>
 
@@ -38,6 +39,13 @@ namespace Shard::Engine::Rendering {
             std::shared_ptr<ComputePipeline> GetOrAddComputePipeline(const ComputePipelineSpecifications &specs) override;
             void DispatchCompute(const std::shared_ptr<ComputePipeline> pipeline, uint32_t groupsX, uint32_t groupsY, uint32_t groupsZ, MemoryBarrierBit barriersAfter = MemoryBarrierBit::None) override;
             void Render();
+
+            RenderSnapshotBuffer& GetSnapshotBuffer() override { return m_SnapshotBuffer; }
+            const RenderSnapshot& GetSnapshot() const override { return m_FrameLease ? m_FrameLease.Get() : m_SnapshotBuffer.Latest(); }
+
+            /// Called when the viewport is resized, once the framebuffers follow : whoever owns the cameras resizes them
+            /// (the renderer itself knows no camera).
+            std::function<void(int, int)> onViewportResized;
             void Shutdown();
             void ClearPassesContent();
             void AddOrUpdateCommands(const std::vector<DrawCommand>& commands, const std::vector<std::string>& passes, bool addToShadowDrawList) override;
@@ -130,6 +138,10 @@ bool GetCurrentView(RenderView& out) override;
         private:
 
             void BeginFrame();
+
+            /// Brings what the renderer keeps (draw lists, lights, GI probe volumes) in line with the frame's snapshot
+            void SyncSceneDrawLists();
+            void SyncSkyboxDrawCommand();
             void DrawFrame();
             void EndFrame();
 
@@ -149,6 +161,10 @@ bool GetCurrentView(RenderView& out) override;
 
             std::shared_ptr<RendererAPI> m_RendererAPI;
 
+            // The simulation's frame : filled by the Extract stage, read through the lease while a frame renders
+            RenderSnapshotBuffer m_SnapshotBuffer;
+            RenderSnapshotBuffer::ReadLease m_FrameLease;
+
             std::unordered_map<std::string, std::shared_ptr<RenderPass>> m_RenderPasses;
             std::vector<std::string> m_ExecutionOrder;
             std::shared_ptr<RenderPass> m_CurrentPass;
@@ -156,6 +172,22 @@ bool GetCurrentView(RenderView& out) override;
             ImmediateRenderer m_ImmediateRenderer;
             ThumbnailService m_ThumbnailService;
             std::vector<std::string> m_PassInsertionOrder;
+
+            // What SyncSceneDrawLists() last submitted for each mesh proxy, to submit only the difference
+            struct SyncedMesh {
+                std::shared_ptr<Mesh> mesh;
+                std::vector<std::shared_ptr<Material>> materials;
+                glm::mat4 worldMatrix = glm::mat4(1.0f);
+                std::vector<std::string> extraPasses;
+                int objectId = -1;
+                int componentId = -1;
+                uint64_t seenInSync = 0;
+            };
+            std::unordered_map<uint64_t, SyncedMesh> m_SyncedMeshes;
+            uint64_t m_SyncCount = 0;
+            std::shared_ptr<Material> m_SyncedSkyMaterial;
+            int m_SyncedSkyObjectId = -1;
+            void RemoveSyncedMeshCommands(const SyncedMesh& synced);
             
             std::unordered_map<std::string, std::vector<std::string>> m_RenderPassDependencies;
             std::unordered_map<std::string, std::vector<std::string>> m_RenderPassDependents;

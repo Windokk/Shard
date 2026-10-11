@@ -4,6 +4,7 @@
 #include <memory>
 #include <vector>
 #include <cstdint>
+#include <functional>
 #include <future>
 #include <random>
 
@@ -13,14 +14,7 @@
 #include "engine/renderer/features/lighting/light_manager.hpp"
 #include "engine/renderer/features/lighting/probe_bake.hpp"
 #include "engine/renderer/features/raytracing/raytrace_scene.hpp"
-
-namespace Shard::Engine::Worlds {
-    class World;
-}
-
-namespace Shard::Engine::Objects::Components {
-    class ProbeVolume;
-}
+#include "engine/renderer/rhi/render_snapshot.hpp"
 
 namespace Shard::Engine::Rendering {
 
@@ -162,54 +156,37 @@ namespace Shard::Engine::Rendering {
             // uploads it once ready (m_SceneBuilt stays false, and probe tracing is skipped, until
             // then - same as before a first RebuildScene() call). Shared across every active volume,
             // since the scene geometry itself doesn't depend on how many probe volumes exist.
-            void RebuildScene(Worlds::World* world);
+            void RebuildScene(const RenderSnapshot& scene);
 
-            // (Re)allocates `volume`'s probe grid SSBO and atlases to match its current bounds/
-            // resolution. No-op if `volume` isn't currently active (see AddActiveVolume). Called
-            // automatically by AddActiveVolume() and whenever an active volume's grid fields change.
-            // Always leaves the volume LIVE from a clean, zeroed grid - a baked volume that goes through
-            // here loses its baked data (which no longer matches the new grid anyway), so the caller must
-            // then make sure a scene exists to trace against (RebuildScene()) - see ProbeVolume.
-            void RebuildGrid(Objects::Components::ProbeVolume* volume);
+            // Brings the GI volumes in line with the snapshot's : a volume that appeared gets a slot (its baked
+            // data is uploaded, or it runs live), one that changed its grid is rebuilt, one that went away is freed.
+            // The shaders read at most kMaxProbeVolumes volumes at once, so when the world has more the closest to the
+            // camera are the ones that get a slot. Called once per frame from Renderer::BeginFrame(), before Update().
+            void Sync(const RenderSnapshot& scene);
 
-            // Activates `volume` if it isn't already active and there's room (see kMaxProbeVolumes) -
-            // beyond the cap, activation is refused (logged) rather than silently evicting an existing
-            // volume. A volume already active is a no-op (RebuildGrid(volume) is what re-syncs an
-            // existing slot after a field edit, not this).
-            //
-            // If `baked` is given and matches the volume's current grid (see IsProbeBakeCompatible), the
-            // volume comes up baked : its atlases and probe state are uploaded straight from `baked`, and
-            // it needs no scene and no per-frame work. A `baked` that no longer matches (the volume was
-            // resized, moved, ...) is refused with a warning and the volume comes up live instead.
-            //
-            // Returns true iff the volume is active AND running from baked data. On false the caller
-            // must make sure a scene exists for the live volume to trace against (RebuildScene()).
-            bool AddActiveVolume(Objects::Components::ProbeVolume* volume, const std::shared_ptr<const ProbeBakeData>& baked = nullptr);
-
-            // No-op unless `volume` is currently active. Frees that volume's GPU resources. Also aborts
-            // a bake of that volume that is still in progress.
-            void RemoveActiveVolume(Objects::Components::ProbeVolume* volume);
-
-            // True if `volume` is active and currently shows baked data rather than tracing live.
-            bool IsVolumeBaked(const Objects::Components::ProbeVolume* volume) const;
+            // True if the volume with this proxy key has a slot and currently shows baked data rather than tracing live.
+            bool IsVolumeBaked(uint64_t key) const;
 
             // ---- Baking ----
-            // Starts baking `volume` (which must be active) into `file`. Discards the volume's current
-            // atlases, rebuilds the scene from `world` so the bake sees the geometry as it is NOW, then
-            // traces the volume over the following frames (progress: IsBaking()/GetBakeProgress()/
-            // GetBakePhase() - the editor mirrors them into a notification) and finally writes `file`.
-            // When it completes, the volume is switched to baked mode in place - the atlases it just
-            // converged are the ones it keeps using, so nothing is reloaded - and
-            // ProbeVolume::OnBakeFinished() is told the file so it can register it as an asset and
-            // reference it from the world. Only one bake runs at a time. Returns false (logged) if it
-            // couldn't start.
-            bool BeginBake(Objects::Components::ProbeVolume* volume, Worlds::World* world, const Filesystem::Path& file);
+            // Starts baking the volume with this proxy key into `file`. The volume must be active in the world ; if it has
+            // no slot (the world holds more volumes than slots) it takes the place of the farthest one. Discards the
+            // volume's current atlases, rebuilds the scene from `scene` so the bake sees the geometry as it is NOW, then
+            // traces the volume over the following frames (progress: IsBaking()/GetBakeProgress()/GetBakePhase() - the
+            // editor mirrors them into a notification) and finally writes `file`. When it completes, the volume is
+            // switched to baked mode in place - the atlases it just converged are the ones it keeps using, so nothing is
+            // reloaded - and onBakeFinished is told the file so the volume's component can register it as an asset and
+            // reference it from the world. Only one bake runs at a time. Returns false (logged) if it couldn't start.
+            bool BeginBake(uint64_t key, const RenderSnapshot& scene, const Filesystem::Path& file);
+
+            /// Called when a bake has written its file : the proxy key of the volume, and the file
+            std::function<void(uint64_t, const Filesystem::Path&)> onBakeFinished;
 
             // Aborts a bake in progress, leaving the volume live. No-op if none is running.
             void CancelBake();
 
             bool IsBaking() const { return m_Bake.active; }
-            const Objects::Components::ProbeVolume* GetBakingVolume() const { return m_Bake.active ? m_Bake.volume : nullptr; }
+            /// The proxy key of the volume being baked (0 if none)
+            uint64_t GetBakingKey() const { return m_Bake.active ? m_Bake.key : 0; }
 
             // 0 -> 1 across the whole bake : the first fifth is the scene build (same phases as
             // GetSceneBuildPhase()), the rest is tracing. GetBakePhase() is a static string literal.
@@ -273,7 +250,8 @@ namespace Shard::Engine::Rendering {
             // there can be more than one of these live at once.
             struct VolumeSlot
             {
-                Objects::Components::ProbeVolume* volume = nullptr;
+                uint64_t key = 0;                       // the proxy key of the volume
+                ProbeVolumeProxy params;                // what the volume looks like this frame
 
                 std::shared_ptr<StorageBuffer> probeBuffer;
                 uint32_t probeCount = 0;
@@ -368,7 +346,7 @@ namespace Shard::Engine::Rendering {
             struct BakeJob
             {
                 bool active = false;
-                Objects::Components::ProbeVolume* volume = nullptr;
+                uint64_t key = 0;
                 Filesystem::Path file;
                 int iteration = 0;
             };
@@ -376,8 +354,14 @@ namespace Shard::Engine::Rendering {
             void EnsureShaders();
             void UploadScene(const Raytracing::RaytraceScene& scene);
 
-            VolumeSlot* FindSlot(Objects::Components::ProbeVolume* volume);
-            const VolumeSlot* FindSlot(const Objects::Components::ProbeVolume* volume) const;
+            VolumeSlot* FindSlot(uint64_t key);
+            const VolumeSlot* FindSlot(uint64_t key) const;
+
+            // A volume gets a slot, or loses it : see Sync()
+            bool AddActiveVolume(const ProbeVolumeProxy& proxy, const std::shared_ptr<const ProbeBakeData>& baked = nullptr);
+            void RemoveActiveVolume(uint64_t key);
+            // (Re)allocates the volume grid and atlases, always leaving it live from a clean grid
+            void RebuildGrid(uint64_t key);
             const VolumeSlot* FindSlot(int index) const;
 
             // Full live (re)allocation - see the public RebuildGrid(). Also the fallback of the baked

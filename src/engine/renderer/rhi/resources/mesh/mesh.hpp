@@ -9,7 +9,13 @@
 
 #include "engine/assets/vfs/filesystem.hpp"
 
-#include "engine/world/components/transform.hpp"
+#define GLM_ENABLE_EXPERIMENTAL
+#include <glm/glm.hpp>
+#include <glm/gtx/vector_angle.hpp>
+#include <glm/gtc/constants.hpp>
+#include <glm/gtc/type_ptr.hpp>
+#include <glm/gtc/quaternion.hpp>
+#include <glm/gtc/matrix_transform.hpp>
 
 #include "engine/renderer/rhi/pipelines/pipeline.hpp"
 
@@ -153,7 +159,7 @@ namespace Shard::Engine::Rendering {
             const glm::vec3 GetBoundsMax() const { return m_BoundsMax; }
             const glm::vec3 GetBoundsMin() const { return m_BoundsMin; }
 
-            std::vector<DrawCommand> CreateDrawCommands(std::shared_ptr<Objects::Components::Transform> tr, int modelID, std::vector<std::shared_ptr<Material>> mats);
+            std::vector<DrawCommand> CreateDrawCommands(const glm::mat4& worldMatrix, int objectID, int modelID, std::vector<std::shared_ptr<Material>> mats);
 
             void SetAssetID(Filesystem::AssetID assetID) {
                 m_AssetID = assetID;

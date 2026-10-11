@@ -159,8 +159,6 @@ namespace Shard::Engine::Objects::Components{
         std::shared_ptr<Rendering::Mesh> newMesh = GetEngineContext()->GetResourcesManager()->Get<Rendering::Mesh>(Core::Resources::AssetKind::Mesh, meshPath);
 
         if(newMesh){
-            if(mesh)
-                RemoveFromDrawList();
             this->mesh = newMesh;
             this->meshID = mesh->GetAssetID();
 
@@ -184,12 +182,6 @@ namespace Shard::Engine::Objects::Components{
             }
 
             UpdateReferenceInWorld();
-
-            // Re-register the new mesh into whatever extra passes it was in before the swap (e.g. this
-            // is the currently selected actor's EditorOutlineMaskPass entry) - RemoveFromDrawList()
-            // above already dropped the old mesh's commands from them.
-            for(const auto& passName : std::vector<std::string>(extraPasses))
-                AddToPass(passName);
         }
         else{
             DEBUG_ERROR("Specified mesh path doesn't exist in project");
@@ -206,8 +198,6 @@ namespace Shard::Engine::Objects::Components{
         if(asset){
             std::string name = asset->baseInfos.nameInProject;
 
-            if(mesh)
-                RemoveFromDrawList();
             this->mesh = GetEngineContext()->GetResourcesManager()->Get<Rendering::Mesh>(Core::Resources::AssetKind::Mesh, name);
             this->meshID = mesh->GetAssetID();
 
@@ -230,14 +220,7 @@ namespace Shard::Engine::Objects::Components{
                 SetMaterials(std::move(resized));
             }
 
-            this->Update();
             UpdateReferenceInWorld();
-
-            // Re-register the new mesh into whatever extra passes it was in before the swap (e.g. this
-            // is the currently selected actor's EditorOutlineMaskPass entry) - RemoveFromDrawList()
-            // above already dropped the old mesh's commands from them.
-            for(const auto& passName : std::vector<std::string>(extraPasses))
-                AddToPass(passName);
         }
     }
 
@@ -253,8 +236,6 @@ namespace Shard::Engine::Objects::Components{
             return;
         }
         parent->world->Ext<Rendering::RenderWorldData>().meshes[parent->GetComponentIDInWorld(local_id)] = { parent->transform->GetWorldMatrix(), mesh.get() };
-        
-        Update();
     }
 
     void Model::SetMaterials(std::vector<std::shared_ptr<Rendering::Material>>&& newMaterials)
@@ -263,32 +244,9 @@ namespace Shard::Engine::Objects::Components{
             return;
 
         this->materials = std::move(newMaterials);
-        this->Update();
         materialsID.clear();
         for(int i = 0; i < materials.size(); i++){
             materialsID.push_back(materials[i]->GetAssetID());
-        }
-    }
-
-    void Model::Update(){
-
-        if(!activated)
-            return;
-
-        if (materials.size() > 0 && mesh != nullptr && parent->world && parent->world->IsLoaded()){
-
-            std::shared_ptr<Transform> tr = parent->transform;
-
-            std::vector<Rendering::DrawCommand> cmds = mesh->CreateDrawCommands(tr, parent->GetComponentIDInWorld(local_id), this->materials);
-
-            std::vector<std::string> passesName;
-            passesName.push_back("ForwardPass");
-            // SSAO's depth+normal prepass (see SSAOManager) needs every mesh's real geometry, the same
-            // way ForwardPass does - it always runs (SSAOManager::Init registers it unconditionally),
-            // only World::ssaoEnabled gates whether lit.frag actually uses the result.
-            passesName.push_back("SSAODepthNormalPass");
-
-            GetEngineContext()->GetRenderContext()->AddOrUpdateCommands(cmds, passesName, true);
         }
     }
 
@@ -299,81 +257,15 @@ namespace Shard::Engine::Objects::Components{
 
         if (std::find(extraPasses.begin(), extraPasses.end(), passName) == extraPasses.end())
             extraPasses.push_back(passName);
-
-        if (materials.size() > 0 && mesh != nullptr && parent->world && parent->world->IsLoaded()){
-
-            std::shared_ptr<Transform> tr = parent->transform;
-
-            std::vector<Rendering::DrawCommand> cmds = mesh->CreateDrawCommands(tr, parent->GetComponentIDInWorld(local_id), this->materials);
-
-            GetEngineContext()->GetRenderContext()->AddOrUpdateCommands(cmds, {passName}, false);
-        }
     }
 
     void Model::RemoveFromPass(const std::string &passName)
     {
         extraPasses.erase(std::remove(extraPasses.begin(), extraPasses.end(), passName), extraPasses.end());
-
-        if (materials.size() > 0 && mesh != nullptr && parent->world && parent->world->IsLoaded()){
-
-            std::vector<uint64_t> cmdsID;
-            for(int i = 0; i < mesh->GetSubMeshes().size(); i++){
-                cmdsID.push_back(Rendering::MakeCommandID(mesh->GetAssetID().GetAsInt(), parent->GetComponentIDInWorld(local_id), i));
-            }
-
-            GetEngineContext()->GetRenderContext()->RemoveCommands(cmdsID, {passName}, false);
-        }
-    }
-
-    void Model::Activate()
-    {
-        bool wasInactive = !activated;
-        Component::Activate();
-
-        // Re-issue the draw commands that DeActivate() pulled - Update() itself is a no-op
-        // if there's no mesh/materials yet, so this is safe to call unconditionally here.
-        if(wasInactive)
-            Update();
-    }
-
-    void Model::DeActivate()
-    {
-        if(!activated){
-            Component::DeActivate();
-            return;
-        }
-
-        Component::DeActivate();
-        RemoveFromDrawList();
-    }
-
-    void Model::RemoveFromDrawList()
-    {
-        if (materials.size() > 0 && mesh != nullptr && parent->world->IsLoaded()){
-
-            std::shared_ptr<Transform> tr = parent->transform;
-            std::vector<uint64_t> cmdsID;
-            for(int i = 0; i < mesh->GetSubMeshes().size(); i++){
-                cmdsID.push_back(Rendering::MakeCommandID(mesh->GetAssetID().GetAsInt(), parent->GetComponentIDInWorld(local_id), i));
-            }
-
-            std::vector<std::string> passesName;
-            passesName.push_back("ForwardPass");
-            passesName.push_back("SSAODepthNormalPass");
-            GetEngineContext()->GetRenderContext()->RemoveCommands(cmdsID, passesName, true);
-
-            // Also drop this (still-current, about-to-be-replaced-or-gone) mesh's commands from any
-            // extra pass it was registered into (e.g. EditorOutlineMaskPass) - otherwise a mesh swap
-            // on a selected actor leaves the old mesh's commands orphaned in that pass forever, since
-            // a later RemoveFromPass() would compute IDs from the *new* mesh instead.
-            if(!extraPasses.empty())
-                GetEngineContext()->GetRenderContext()->RemoveCommands(cmdsID, extraPasses, false);
-        }
     }
 
     void Model::Destroy()
     {
-        RemoveFromDrawList();
     }
 
     std::shared_ptr<Component> Model::Clone() const
@@ -387,7 +279,6 @@ namespace Shard::Engine::Objects::Components{
     {
         //Materials
         if(event.field->type == TypeID::Vector && event.field->container){
-            Update();
             std::vector<std::shared_ptr<Rendering::Material>> mats = {};
             for(auto matID : materialsID){
                 mats.push_back(GetEngineContext()->GetResourcesManager()->Get<Rendering::Material>(Core::Resources::AssetKind::Material, GetEngineContext()->GetAssetIDManager()->GetAssetFromID(matID)->baseInfos.nameInProject));

@@ -1,8 +1,11 @@
 #pragma once
 
 #include <memory>
+#include <unordered_map>
+#include <vector>
 
 #include "engine/core/color.hpp"
+#include "engine/renderer/rhi/render_snapshot.hpp"
 
 namespace Shard::Engine::Rendering {
 
@@ -56,22 +59,14 @@ namespace Shard::Engine::Rendering {
 
             ~LightManager();
 
-            /// @note Only call this AFTER modifying the light data
-            /// @brief Update the light system's storage buffer, and shadow maps
-            /// @param index The global index (world-relative) of the modified light
-            void Update(int index);
-
-            /// @brief Add a light to the renderer
-            /// @param index The global index (world-relative) of the light
-            /// @param light The light's parameters
-            void AddLight(int lightIndex, std::shared_ptr<LightData> data);
+            /// @brief Brings the lights the renderer lights the scene with in line with the snapshot's : adds the new ones,
+            /// updates the ones that changed, drops the ones that are gone (with their shadow maps), and uploads the storage
+            /// buffer if anything changed. A light is identified by its proxy key, its index is its position in the (sorted)
+            /// proxy list.
+            void Sync(const std::vector<LightProxy>& proxies);
 
             /// @brief Remove all lights from the renderer (and their associated shadow maps)
             void Clear();
-
-            /// @brief Remove light from renderer (and its associated shadow map)
-            /// @param lightIndex The global (world-relative) light index to remove
-            void RemoveLight(int lightIndex);
 
             /// @brief Getter for lights count
             /// @return The total number of lights in the renderer
@@ -88,7 +83,11 @@ namespace Shard::Engine::Rendering {
             std::shared_ptr<StorageBuffer> GetSSBO() const { return m_SSBO; }
 
         private:
+            void Upload();
+
             std::vector<std::shared_ptr<LightData>> m_Lights;
+            std::vector<uint64_t> m_Keys;                                  // the proxy key of each of m_Lights
+            std::unordered_map<uint64_t, std::shared_ptr<LightData>> m_ByKey;
             std::shared_ptr<StorageBuffer> m_SSBO;
     };
 }

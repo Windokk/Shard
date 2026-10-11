@@ -18,19 +18,8 @@ namespace Shard::Engine::Objects::Components
             void SetType(Rendering::LightType type);
             void SetIntensity(float intensity);
             void SetPosition(glm::vec3 postion);
-            void SetLightIndex(int index);
-
-            /// @brief Force this light's cached index to match its new slot after a sibling
-            /// light was removed and the world's light array shifted (does not touch the renderer
-            /// side, which LightManager::RemoveLight() already re-indexed on its own)
-            void ReindexTo(int index) { lightIndex = index; }
             void SetCastShadow(bool castShadows);
             void SetColor(COL_RGB color);
-
-            void Activate() override;
-            void DeActivate() override;
-
-            void OnTransformChanged(uint8_t changes) override;
 
             // Directional / Spot light
             void SetDirection(glm::vec3 direction);
@@ -42,8 +31,6 @@ namespace Shard::Engine::Objects::Components
             // Point light / Spot light
             void SetRadius(float radius);
             
-            int GetLightIndex() { return lightIndex; }
-
             void Deserialize(const json componentData) override;
 
             ordered_json Serialize() override;
@@ -80,7 +67,6 @@ namespace Shard::Engine::Objects::Components
             bool castShadows;
 
         private:
-            int lightIndex = -1;
             std::shared_ptr<Rendering::LightData> lightData;
 
             DECLARE_DESCRIPTOR(Light)

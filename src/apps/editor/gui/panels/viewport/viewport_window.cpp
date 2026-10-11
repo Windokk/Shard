@@ -1009,9 +1009,9 @@ namespace Shard::Editor::GUI {
 
             ImGui::Separator();
 
-            auto activeWorld = Engine::Core::GetEngine().GetWorldManager()->GetWorldAt(0);
-            auto activeCamera = Engine::Core::GetEngine().GetCameraManager()->GetActiveCamera();
-            bool canRender = activeWorld && activeCamera;
+            // The render reads the snapshot of the last frame, like the viewport it renders
+            const Engine::Rendering::RenderSnapshot& scene = Engine::Core::GetEngine().GetRenderContext()->GetSnapshot();
+            bool canRender = scene.camera.valid;
 
             ImGui::BeginDisabled(!canRender);
             if (ImGui::Button(ICON_LC_APERTURE " Render"))
@@ -1023,7 +1023,7 @@ namespace Shard::Editor::GUI {
                 raytraceStatusMessage.clear();
 
                 auto newRaytracer = std::make_unique<Raytracing::Raytracer>();
-                if (newRaytracer->Start(activeWorld, activeCamera, raytraceSettings, outputPath))
+                if (newRaytracer->Start(scene, scene.camera, raytraceSettings, outputPath))
                     raytracer = std::move(newRaytracer);
                 else
                     raytraceStatusMessage = newRaytracer->GetStatusMessage();

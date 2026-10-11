@@ -24,16 +24,13 @@ namespace Shard::Engine::Objects::Components
         public:
             ProbeVolume(std::shared_ptr<Actor> parent, uint32_t local_id);
 
-            void Activate() override;
-            void DeActivate() override;
-            void Destroy() override;
-
             void Deserialize(const json componentData) override;
             ordered_json Serialize() override;
 
             std::shared_ptr<Component> Clone() const override;
 
-            void OnFieldChanged(const FieldChangedEvent &event) override;
+            // The key the renderer knows this volume by (see ProbeVolumeProxy) : what to ask the ProbeManager about it
+            uint64_t GetRenderKey() const;
 
             // World-space position of probe (0,0,0) in the grid (the "min corner").
             glm::vec3 GetGridOrigin() const;
@@ -44,7 +41,7 @@ namespace Shard::Engine::Objects::Components
             // ---- Baking (see ProbeManager's "Baked volumes" comment) ----
             // Path in the project (e.g. "probes/sponza_Probes_0.probes") of this volume's baked probe data,
             // referenced by the world file the way a material references a texture : the world's asset
-            // prefetcher decodes it on a worker thread while the world loads, and Activate() uploads it so
+            // prefetcher decodes it on a worker thread while the world loads, and the renderer uploads it when it first sees the volume so
             // the volume comes up already converged. Empty if the volume has never been baked. It is
             // deliberately NOT cleared when the volume is edited : the file is then just out of date (the
             // next load says so and runs the volume live) and re-baking overwrites it in place.

@@ -10,8 +10,6 @@
 #include "engine/renderer/rhi/resources/framebuffer/framebuffer.hpp"
 #include "engine/renderer/features/lighting/light_manager.hpp"
 
-#include "engine/renderer/components/camera.hpp"
-#include "engine/renderer/components/camera_manager.hpp"
 
 #include "engine/core/diagnostics/logger.hpp"
 
@@ -72,8 +70,8 @@ namespace Shard::Engine::Rendering {
 
         IRenderContext* renderer = Core::GetEngine().GetRenderContext();
 
-        auto cam = Core::GetEngine().GetCameraManager()->GetActiveCamera();
-        if (!cam)
+        const CameraProxy& cam = renderer->GetSnapshot().camera;
+        if (!cam.valid)
             return;
 
         auto viewport = renderer->GetViewportFramebuffer();
@@ -100,8 +98,8 @@ namespace Shard::Engine::Rendering {
             m_LightIndexListBuffer->SetData(nullptr, sizeof(uint32_t) * m_TotalClusters * kMaxLightsPerCluster);
         }
 
-        float nearPlane = std::max(cam->nearPlane, 0.001f);
-        float farPlane = std::max(cam->farPlane, nearPlane + 0.001f);
+        float nearPlane = std::max(cam.nearPlane, 0.001f);
+        float farPlane = std::max(cam.farPlane, nearPlane + 0.001f);
 
         // Logarithmic Z-slice partition (Doom 2016 / Just Cause 3 clustered shading) - keeps slices
         // roughly equal-volume near vs far. Mirrored in lit.frag's GetClusterIndex to pick a fragment's
@@ -116,7 +114,7 @@ namespace Shard::Engine::Rendering {
         m_BuildPipeline->Bind();
         m_ClusterAABBBuffer->Bind(1);
 
-        m_BuildShader->SetMat4("invProjection", glm::inverse(cam->GetProjection()));
+        m_BuildShader->SetMat4("invProjection", glm::inverse(cam.projection));
         m_BuildShader->SetInt("gridSizeX", (int)m_GridSizeX);
         m_BuildShader->SetInt("gridSizeY", (int)m_GridSizeY);
         m_BuildShader->SetFloat("nearPlane", nearPlane);
@@ -140,7 +138,7 @@ namespace Shard::Engine::Rendering {
         m_LightIndexListBuffer->Bind(3);
         m_GlobalIndexCounterBuffer->Bind(5);
 
-        m_CullShader->SetMat4("view", cam->GetView());
+        m_CullShader->SetMat4("view", cam.view);
         m_CullShader->SetInt("lightCount", renderer->GetLightManager()->GetLightsCount());
         m_CullShader->SetInt("gridSizeX", (int)m_GridSizeX);
         m_CullShader->SetInt("gridSizeY", (int)m_GridSizeY);

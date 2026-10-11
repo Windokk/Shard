@@ -70,6 +70,11 @@ PATTERNS = {
         lambda p: p.startswith("src/engine/"),
         lambda p: p.startswith("src/engine/renderer/rhi/backends/") or p.startswith("src/engine/platform/"),
     ),
+    "world-type-in-renderer": (
+        re.compile(r'include\s*"engine/world/(?!engine\.hpp")'),
+        lambda p: p.startswith("src/engine/renderer/") and not p.startswith("src/engine/renderer/components/"),
+        lambda p: p.startswith("src/engine/renderer/rhi/backends/glad/"),
+    ),
     "os-header-in-engine": (
         # the OS headers belong to the platform layer (PAL) : everything else asks it through its own API
         re.compile(r'include\s*[<"](windows\.h|winsock2\.h|ws2tcpip\.h|shellapi\.h|dlfcn\.h|unistd\.h|pthread\.h|sys/[a-z_]+\.h|pdh\.h|psapi\.h)[>"]'),

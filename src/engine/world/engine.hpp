@@ -272,6 +272,7 @@ namespace Shard::Engine{
 
                 // The engine's own systems : what each phase of the frame does (see RegisterEngineSystems)
                 void RegisterEngineSystems();
+                void RegisterConsoleCommands();
                 void StepPhysics(int step, float fixedDeltaTime);
                 void TickAudio();
                 void TickScripts();

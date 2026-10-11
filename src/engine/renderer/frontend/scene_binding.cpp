@@ -1,8 +1,6 @@
 #include "renderer.hpp"
 #include "engine/renderer/rhi/material/material.hpp"
 
-#include "engine/world/engine.hpp"
-#include "engine/world/world_manager.hpp"
 #include "engine/renderer/rhi/shader/shader.hpp"
 #include "engine/renderer/rhi/resources/buffer/storage_buffer.hpp"
 #include "engine/renderer/rhi/resources/texture/texture.hpp"
@@ -12,7 +10,6 @@
 #include "engine/renderer/features/lighting/probe_manager.hpp"
 #include "engine/renderer/features/lighting/ssao_manager.hpp"
 #include "engine/renderer/features/lighting/light_culling_manager.hpp"
-#include "engine/renderer/components/render_world_data.hpp"
 
 // The Renderer's side of ISceneBinding : what the backend asks for while it issues a draw.
 
@@ -36,7 +33,7 @@ namespace Shard::Engine::Rendering{
             shader->SetBool("showShadows", studioView || dv.showShadows);
         }
 
-        auto world = Core::GetEngine().GetWorldManager()->GetWorldAt(0);
+        const EnvironmentProxy& environment = GetSnapshot().environment;
 
         RenderView currentView;
         GetCurrentView(currentView);
@@ -49,12 +46,12 @@ namespace Shard::Engine::Rendering{
             shader->SetFloat("ambientIntensity", currentView.studioAmbient);
             shader->SetBool("ssaoEnabled", false);
         }
-        else if (world)
+        else
         {
-            shader->SetFloat("ambientIntensity", world->ambientIntensity);
+            shader->SetFloat("ambientIntensity", environment.ambientIntensity);
 
-            shader->SetBool("ssaoEnabled", world->ssaoEnabled);
-            shader->SetFloat("ssaoIntensity", world->ssaoIntensity);
+            shader->SetBool("ssaoEnabled", environment.ssaoEnabled);
+            shader->SetFloat("ssaoIntensity", environment.ssaoIntensity);
         }
 
         if (!applyPassGlobals)
@@ -67,8 +64,8 @@ namespace Shard::Engine::Rendering{
         std::shared_ptr<EnvironmentMap> envMap;
         if (studio)
             envMap = currentView.studioEnvironment;
-        else if (world && world->Ext<RenderWorldData>().skybox)
-            envMap = world->Ext<RenderWorldData>().skybox->GetEnvMap();
+        else
+            envMap = environment.skybox;
 
         if(it != uniforms.end() && envMap){
             //Bind skybox data

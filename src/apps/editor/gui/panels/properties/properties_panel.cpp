@@ -455,8 +455,8 @@ namespace Shard::Editor::GUI{
         ImGui::Text("Baked GI");
 
         const bool baking = probeManager->IsBaking();
-        const bool bakingThis = probeManager->GetBakingVolume() == volume.get();
-        const bool baked = probeManager->IsVolumeBaked(volume.get());
+        const bool bakingThis = probeManager->GetBakingKey() == volume->GetRenderKey();
+        const bool baked = probeManager->IsVolumeBaked(volume->GetRenderKey());
         const bool hasFile = !volume->bakedData.empty();
 
         if (bakingThis)

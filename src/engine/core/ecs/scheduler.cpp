@@ -191,7 +191,12 @@ namespace Shard::Engine::Core::Ecs {
             system->averageMs = system->averageMs == 0.0 ? system->lastMs : system->averageMs * 0.95 + system->lastMs * 0.05;
         };
 
-        const bool parallel = jobs && jobs->ThreadCount() > 1 && graph.order.size() > 1;
+        // A system bound to the calling thread cannot be handed to a worker : the whole phase then runs here, in order
+        bool bound = false;
+        for (const System* system : graph.order)
+            bound = bound || system->desc.mainThread;
+
+        const bool parallel = jobs && jobs->ThreadCount() > 1 && graph.order.size() > 1 && !bound;
         if (!parallel) {
             for (System* system : graph.order) runSystem(system);
         } else {

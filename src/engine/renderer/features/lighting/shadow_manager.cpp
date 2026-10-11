@@ -1,6 +1,5 @@
 #include "shadow_manager.hpp"
 
-#include "engine/renderer/components/camera.hpp"
 
 #include "engine/renderer/rhi/shader/shader.hpp"
 #include "engine/renderer/rhi/material/material.hpp"
@@ -12,7 +11,6 @@
 
 #include "engine/world/engine.hpp"
 
-#include "engine/renderer/components/camera_manager.hpp"
 
 #include "engine/assets/resources_manager.hpp"
 
@@ -52,10 +50,10 @@ namespace Shard::Engine::Rendering{
 
     void ShadowManager::UpdatePassUniforms()
     {
-        std::shared_ptr<Objects::Components::Camera> cam = Core::GetEngine().GetCameraManager()->GetActiveCamera();
+        const CameraProxy& cam = Core::GetEngine().GetRenderContext()->GetSnapshot().camera;
 
         // No camera yet (e.g. the player booting a world that has none): nothing to fit the cascades to.
-        if(!cam)
+        if(!cam.valid)
             return;
 
         for(auto& sm : m_ShadowMaps){
@@ -65,20 +63,29 @@ namespace Shard::Engine::Rendering{
 
             if(sm.second.light.type == static_cast<int>(LightType::Directional))
             {
+                // The cascades span the camera's depth range : the camera may have changed (or only appeared) since the light registered
+                if(sm.second.splitCameraNear != cam.nearPlane || sm.second.splitCameraFar != cam.farPlane)
+                {
+                    for (int c = 0; c < CASCADES_PER_LIGHT; ++c)
+                        sm.second.cascadeSplits[c] = ComputeCascadeSplitDistance(c, cam.nearPlane, cam.farPlane, CASCADES_PER_LIGHT);
+                    sm.second.splitCameraNear = cam.nearPlane;
+                    sm.second.splitCameraFar = cam.farPlane;
+                }
+
                 for (int c = 0; c < CASCADES_PER_LIGHT; ++c)
                 {
                     auto pass = Core::GetEngine().GetRenderContext()->GetRenderPass(sm.second.passes[c]);
 
-                    float splitNear = c == 0 ? cam->nearPlane : sm.second.cascadeSplits[c - 1];
+                    float splitNear = c == 0 ? cam.nearPlane : sm.second.cascadeSplits[c - 1];
                     float splitFar  = sm.second.cascadeSplits[c];
-                    sm.second.lightMatrix[c] = sm.second.light.GetLightMatrix(cam->GetView(), *cam->GetFOV(), cam->GetSize().x/cam->GetSize().y, splitNear, splitFar, m_DirShadowsResolution);
+                    sm.second.lightMatrix[c] = sm.second.light.GetLightMatrix(cam.view, cam.fovDegrees, cam.AspectRatio(), splitNear, splitFar, m_DirShadowsResolution);
 
                     pass->customUniforms["lightSpaceMatrix"] = sm.second.lightMatrix[c];
                 }
             }
             else if(sm.second.light.type == static_cast<int>(LightType::Spot)){
                 auto pass = Core::GetEngine().GetRenderContext()->GetRenderPass(sm.second.passes[0]);
-                sm.second.lightMatrix[0] = sm.second.light.GetLightMatrix(cam->GetView(), -1, -1, -1, -1, -1, sm.second.light.outerCutoff);
+                sm.second.lightMatrix[0] = sm.second.light.GetLightMatrix(cam.view, -1, -1, -1, -1, -1, sm.second.light.outerCutoff);
                 pass->customUniforms["lightSpaceMatrix"] = sm.second.lightMatrix[0];
             }
             else if(sm.second.light.type == static_cast<int>(LightType::Point)){
@@ -114,7 +121,7 @@ namespace Shard::Engine::Rendering{
 
         std::vector<std::shared_ptr<RenderPass>> passes = {};
 
-        std::shared_ptr<Objects::Components::Camera> cam = Core::GetEngine().GetCameraManager()->GetActiveCamera();
+        const CameraProxy& cam = Core::GetEngine().GetRenderContext()->GetSnapshot().camera;
 
         ShadowMap* sm = &m_ShadowMaps[lightIndex];
         LightData light = sm->light;
@@ -200,8 +207,10 @@ namespace Shard::Engine::Rendering{
             // The world can load before any camera is active (the player has none until play mode starts,
             // the editor builds its viewport camera after boot): fall back to Camera's default planes,
             // and leave the light matrices to UpdatePassUniforms() once a camera exists.
-            const float camNear = cam ? cam->nearPlane : 0.1f;
-            const float camFar  = cam ? cam->farPlane  : 100.0f;
+            const float camNear = cam.valid ? cam.nearPlane : 0.1f;
+            const float camFar  = cam.valid ? cam.farPlane  : 100.0f;
+            sm->splitCameraNear = cam.valid ? cam.nearPlane : -1.0f;
+            sm->splitCameraFar = cam.valid ? cam.farPlane : -1.0f;
 
             for (int c = 0; c < CASCADES_PER_LIGHT; ++c)
                 sm->cascadeSplits[c] = ComputeCascadeSplitDistance(c, camNear, camFar, CASCADES_PER_LIGHT);
@@ -215,10 +224,10 @@ namespace Shard::Engine::Rendering{
                 pass->customPipeline = dirShadowPassPipeline;
                 pass->overridePipeline = true;
 
-                if(cam){
-                    float splitNear = c == 0 ? cam->nearPlane : sm->cascadeSplits[c - 1];
+                if(cam.valid){
+                    float splitNear = c == 0 ? cam.nearPlane : sm->cascadeSplits[c - 1];
                     float splitFar  = sm->cascadeSplits[c];
-                    sm->lightMatrix[c] = light.GetLightMatrix(cam->GetView(), *cam->GetFOV(), cam->GetSize().x/cam->GetSize().y, splitNear, splitFar, m_DirShadowsResolution);
+                    sm->lightMatrix[c] = light.GetLightMatrix(cam.view, cam.fovDegrees, cam.AspectRatio(), splitNear, splitFar, m_DirShadowsResolution);
                 }
                 else{
                     sm->lightMatrix[c] = glm::mat4(1.0f);

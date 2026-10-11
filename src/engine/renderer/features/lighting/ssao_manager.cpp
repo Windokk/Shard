@@ -11,11 +11,7 @@
 #include "engine/renderer/rhi/resources/texture/texture.hpp"
 #include "engine/renderer/rhi/resources/mesh/mesh.hpp"
 
-#include "engine/renderer/components/camera.hpp"
-#include "engine/renderer/components/camera_manager.hpp"
 
-#include "engine/world/world.hpp"
-#include "engine/world/world_manager.hpp"
 
 #include <glm/gtc/random.hpp>
 
@@ -196,24 +192,22 @@ namespace Shard::Engine::Rendering {
     {
         auto renderer = Core::GetEngine().GetRenderContext();
 
-        auto world = Core::GetEngine().GetWorldManager()->GetWorldAt(0);
-        if (!world)
-            return;
+        const RenderSnapshot& snapshot = renderer->GetSnapshot();
+        const EnvironmentProxy& environment = snapshot.environment;
 
         // lit.frag never samples the AO texture while SSAO is off (ssaoEnabled gate), so the whole chain -
         // the depth+normal prepass re-draws every mesh - is pure waste then : skip all three passes.
         for (const char* passName : { "SSAODepthNormalPass", "SSAORawPass", "SSAOBlurPass" })
         {
             if (auto pass = renderer->GetRenderPass(passName))
-                pass->enabled = world->ssaoEnabled;
+                pass->enabled = environment.ssaoEnabled;
         }
 
-        auto cam = Core::GetEngine().GetCameraManager()->GetActiveCamera();
-        if (!cam)
+        if (!snapshot.camera.valid)
             return;
 
-        glm::mat4 view = cam->GetView();
-        glm::mat4 projection = cam->GetProjection();
+        glm::mat4 view = snapshot.camera.view;
+        glm::mat4 projection = snapshot.camera.projection;
 
         auto prepass = renderer->GetRenderPass("SSAODepthNormalPass");
         prepass->customUniforms["view"] = view;
@@ -221,9 +215,9 @@ namespace Shard::Engine::Rendering {
 
         auto rawPass = renderer->GetRenderPass("SSAORawPass");
         rawPass->customUniforms["projection"] = projection;
-        rawPass->customUniforms["radius"] = world->ssaoRadius;
-        rawPass->customUniforms["bias"] = world->ssaoBias;
-        rawPass->customUniforms["power"] = world->ssaoPower;
+        rawPass->customUniforms["radius"] = environment.ssaoRadius;
+        rawPass->customUniforms["bias"] = environment.ssaoBias;
+        rawPass->customUniforms["power"] = environment.ssaoPower;
         rawPass->customUniforms["noiseScale"] = glm::vec2(
             float(m_PrepassFramebuffer->GetWidth()) / float(kNoiseTileSize),
             float(m_PrepassFramebuffer->GetHeight()) / float(kNoiseTileSize)

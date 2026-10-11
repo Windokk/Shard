@@ -27,84 +27,120 @@ namespace Shard::Engine::Rendering{
         m_SSBO->~StorageBuffer();
     }
 
-    void LightManager::Update(int index)
-    {
-        if(m_Lights.empty())
-            return;
+    namespace {
 
-        // Must run before the SSBO upload below: this may (re)assign LightData::shadowIndex (see
-        // ShadowManager::ReassignShadowIndices), which the flattened upload needs to carry to the GPU
-        // this same call.
-        if (index != -1)
+        /// Copies the proxy into the light the renderer keeps (leaving what the renderer assigns, like the shadow slot,
+        /// alone). @return whether anything differed
+        bool ApplyProxy(const LightProxy& proxy, LightData& light)
         {
-            auto& light = m_Lights[index];
-            if (light)
-                Core::GetEngine().GetRenderContext()->GetShadowManager()->RegisterOrUpdateLight(index, light);
+            const glm::vec4 position(proxy.position, 0.0f);
+            const glm::vec4 direction(proxy.direction, 0.0f);
+            const glm::vec4 color(proxy.color, 0.0f);
+            const int type = static_cast<int>(proxy.type);
+            const int castShadow = proxy.castShadows ? 1 : 0;
+
+            const bool changed = light.position != position || light.direction != direction || light.color != color ||
+                                 light.intensity != proxy.intensity || light.radius != proxy.radius ||
+                                 light.innerCutoff != proxy.innerCutoff || light.outerCutoff != proxy.outerCutoff ||
+                                 light.type != type || light.castShadow != castShadow;
+
+            light.position = position;
+            light.direction = direction;
+            light.color = color;
+            light.intensity = proxy.intensity;
+            light.radius = proxy.radius;
+            light.innerCutoff = proxy.innerCutoff;
+            light.outerCutoff = proxy.outerCutoff;
+            light.type = type;
+            light.castShadow = castShadow;
+            return changed;
         }
+    }
+
+    void LightManager::Sync(const std::vector<LightProxy>& proxies)
+    {
+        // The proxies are sorted by key : when the lights already held are the first ones of the list, nothing moved and
+        // the new ones are simply appended. Otherwise the indices shifted, and the shadow maps (which are per index) have
+        // to be registered again.
+        bool appendOnly = proxies.size() >= m_Keys.size();
+        for (size_t i = 0; appendOnly && i < m_Keys.size(); i++)
+            appendOnly = m_Keys[i] == proxies[i].key;
+
+        std::vector<std::shared_ptr<LightData>> lights;
+        std::vector<uint64_t> keys;
+        std::unordered_map<uint64_t, std::shared_ptr<LightData>> byKey;
+        std::vector<size_t> dirty;
+        lights.reserve(proxies.size());
+        keys.reserve(proxies.size());
+
+        for (size_t i = 0; i < proxies.size(); i++) {
+            const LightProxy& proxy = proxies[i];
+
+            std::shared_ptr<LightData> light;
+            bool isNew = false;
+            auto it = m_ByKey.find(proxy.key);
+            if (it != m_ByKey.end()) {
+                light = it->second;
+            } else {
+                light = std::make_shared<LightData>();
+                isNew = true;
+            }
+
+            if (ApplyProxy(proxy, *light) || isNew)
+                dirty.push_back(i);
+
+            lights.push_back(light);
+            keys.push_back(proxy.key);
+            byKey.emplace(proxy.key, light);
+        }
+
+        const bool sameCount = lights.size() == m_Lights.size();
+        if (appendOnly && sameCount && dirty.empty())
+            return;                                                    // a still scene : nothing to register, nothing to upload
+
+        auto shadows = Core::GetEngine().GetRenderContext()->GetShadowManager();
+
+        m_Lights = std::move(lights);
+        m_Keys = std::move(keys);
+        m_ByKey = std::move(byKey);
+
+        if (!appendOnly) {
+            shadows->ClearAll();
+            for (size_t i = 0; i < m_Lights.size(); i++)
+                if (m_Lights[i]->castShadow)
+                    shadows->RegisterOrUpdateLight(static_cast<int>(i), m_Lights[i]);
+        } else {
+            // Registering assigns the shadow slot (LightData::shadowIndex), which the upload below has to carry
+            for (size_t i : dirty)
+                shadows->RegisterOrUpdateLight(static_cast<int>(i), m_Lights[i]);
+        }
+
+        Upload();
+    }
+
+    void LightManager::Upload()
+    {
+        if (m_Lights.empty())
+            return;
 
         std::vector<LightData> flatLights;
         flatLights.reserve(m_Lights.size());
 
         for (auto& light : m_Lights)
-        {
-            if (light)
-                flatLights.push_back(*light);
-        }
+            flatLights.push_back(*light);
 
         m_SSBO->SetData(flatLights.data(), sizeof(LightData) * flatLights.size());
         m_SSBO->Bind(0);
     }
 
-    void LightManager::AddLight(int index, std::shared_ptr<LightData> data)
-    {
-        m_Lights.push_back(data);
-    }
-
     void LightManager::Clear()
     {
-        for (int i = 0; i < m_Lights.size(); ++i)
-        {
-            if (m_Lights[i] && m_Lights[i]->castShadow)
-            {
-                Core::GetEngine().GetRenderContext()->GetShadowManager()->UnregisterLight(i);
-            }
-        }
+        if (!m_Lights.empty())
+            Core::GetEngine().GetRenderContext()->GetShadowManager()->ClearAll();
 
         m_Lights.clear();
-    }
-
-    void LightManager::RemoveLight(int lightIndex)
-    {
-        if (lightIndex < 0 || lightIndex >= static_cast<int>(m_Lights.size()))
-        {
-            DEBUG_ERROR("RemoveLight(" + std::to_string(lightIndex) + ") REJECTED - out of range, m_Lights.size()=" + std::to_string(m_Lights.size()));
-            return;
-        }
-
-        auto* renderer = Core::GetEngine().GetRenderContext();
-        auto shadowMan = renderer->GetShadowManager();
-
-        if (m_Lights[lightIndex] && m_Lights[lightIndex]->castShadow)
-        {
-            shadowMan->UnregisterLight(lightIndex);
-        }
-
-        m_Lights.erase(m_Lights.begin() + lightIndex);
-
-        shadowMan->ClearAll();
-
-        for (size_t i = 0; i < m_Lights.size(); ++i)
-        {
-            if (m_Lights[i] && m_Lights[i]->castShadow)
-            {
-                shadowMan->RegisterOrUpdateLight(static_cast<int>(i), m_Lights[i]);
-            }
-        }
-
-        // RegisterOrUpdateLight above may have assigned new shadowIndex values onto the shifted
-        // lights (shadow-map slots re-numbered after the removal) - re-upload so the SSBO reflects
-        // them, same as any other light mutation.
-        Update(-1);
+        m_Keys.clear();
+        m_ByKey.clear();
     }
 
     int LightManager::GetLightsCount()

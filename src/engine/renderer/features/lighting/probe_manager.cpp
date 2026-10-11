@@ -1,9 +1,9 @@
 #include "probe_manager.hpp"
 
 #include "engine/renderer/features/raytracing/bvh.hpp"
+#include "engine/assets/resources_manager.hpp"
 #include "engine/renderer/features/raytracing/raytrace_scene.hpp"
 
-#include "engine/renderer/components/probe_volume.hpp"
 
 #include "engine/world/engine.hpp"
 
@@ -16,9 +16,6 @@
 #include "engine/renderer/rhi/shader/compute_shader.hpp"
 #include "engine/renderer/rhi/pipelines/compute_pipeline.hpp"
 
-#include "engine/world/world_manager.hpp"
-#include "engine/renderer/components/render_world_data.hpp"
-#include "engine/renderer/components/skybox.hpp"
 
 #include "engine/core/diagnostics/logger.hpp"
 #include "engine/core/jobs/thread_pool.hpp"
@@ -118,16 +115,13 @@ namespace Shard::Engine::Rendering {
         WaitForSceneBuilds();
     }
 
-    void ProbeManager::RebuildScene(Worlds::World* world)
+    void ProbeManager::RebuildScene(const RenderSnapshot& scene)
     {
-        if (!world)
-            return;
-
         // CaptureSnapshot() is the only GL-touching (bindless texture handle resolution) part, and
         // it's cheap (bounded by model/material count) - do it here, synchronously, on the calling
         // (main/GL) thread. The expensive part (triangle flatten + BVH build, bounded by triangle
         // count) runs in the background via BuildFromSnapshot(), which touches no engine/GL state.
-        Raytracing::RaytraceSceneSnapshot snapshot = Raytracing::SceneBuilder::CaptureSnapshot(world, /*excludeMasked=*/true);
+        Raytracing::RaytraceSceneSnapshot snapshot = Raytracing::SceneBuilder::CaptureSnapshot(scene, /*excludeMasked=*/true);
 
         // Don't let a still-running previous build block this call - std::async futures block their
         // destructor until the task finishes, so reassigning m_PendingSceneBuild directly would defeat
@@ -193,18 +187,18 @@ namespace Shard::Engine::Rendering {
         m_SceneBuilt = true;
     }
 
-    ProbeManager::VolumeSlot* ProbeManager::FindSlot(Objects::Components::ProbeVolume* volume)
+    ProbeManager::VolumeSlot* ProbeManager::FindSlot(uint64_t key)
     {
         for (auto& slot : m_Volumes)
-            if (slot.volume == volume)
+            if (slot.key == key)
                 return &slot;
         return nullptr;
     }
 
-    const ProbeManager::VolumeSlot* ProbeManager::FindSlot(const Objects::Components::ProbeVolume* volume) const
+    const ProbeManager::VolumeSlot* ProbeManager::FindSlot(uint64_t key) const
     {
         for (auto& slot : m_Volumes)
-            if (slot.volume == volume)
+            if (slot.key == key)
                 return &slot;
         return nullptr;
     }
@@ -218,19 +212,17 @@ namespace Shard::Engine::Rendering {
 
     void ProbeManager::RebuildGrid(VolumeSlot& slot)
     {
-        Objects::Components::ProbeVolume* volume = slot.volume;
-        if (!volume)
-            return;
+        const ProbeVolumeProxy& volume = slot.params;
 
         // A full live rebuild always leaves the slot live : whatever baked data it held is for the
         // old grid, and the scratch atlases a live slot needs are (re)created below.
         slot.baked = false;
 
-        glm::ivec3 counts = glm::max(volume->probeCounts, glm::ivec3(1));
+        glm::ivec3 counts = glm::max(volume.probeCounts, glm::ivec3(1));
         slot.probeCount = (uint32_t)(counts.x * counts.y * counts.z);
 
-        glm::vec3 origin = volume->GetGridOrigin();
-        glm::vec3 spacing = volume->GetGridSpacing();
+        glm::vec3 origin = volume.GridOrigin();
+        glm::vec3 spacing = volume.GridSpacing();
 
         std::vector<GPUProbe> probes(slot.probeCount);
         uint32_t idx = 0;
@@ -252,7 +244,7 @@ namespace Shard::Engine::Rendering {
         slot.probeStateBuffer->SetData(initialState.data(), (uint32_t)(initialState.size() * sizeof(glm::vec4)));
 
         // See ComputeTileSize() for how raysPerProbe becomes a tile size.
-        slot.tileSize = ComputeTileSize(volume->raysPerProbe);
+        slot.tileSize = ComputeTileSize(volume.raysPerProbe);
 
         slot.atlasProbesPerRow = std::max(1u, (uint32_t)std::ceil(std::sqrt((float)slot.probeCount)));
         uint32_t strideWithBorder = slot.tileSize + 2; // +1 texel of border on each side, see probe_border_fixup.comp
@@ -326,43 +318,56 @@ namespace Shard::Engine::Rendering {
         MarkBaked(slot, baked.gridOrigin, baked.gridSpacing);
     }
 
-    void ProbeManager::RebuildGrid(Objects::Components::ProbeVolume* volume)
+    void ProbeManager::RebuildGrid(uint64_t key)
     {
-        VolumeSlot* slot = FindSlot(volume);
+        VolumeSlot* slot = FindSlot(key);
         if (!slot)
             return;
 
         // The bake in flight was tracing the grid that is about to be replaced.
-        if (m_Bake.active && m_Bake.volume == volume)
+        if (m_Bake.active && m_Bake.key == key)
             EndBake(false);
 
         RebuildGrid(*slot);
     }
 
-    bool ProbeManager::AddActiveVolume(Objects::Components::ProbeVolume* volume, const std::shared_ptr<const ProbeBakeData>& baked)
-    {
-        if (!volume)
-            return false;
+    namespace {
 
-        if (VolumeSlot* existing = FindSlot(volume))
+        /// How far (in world units) a point is from a box : 0 inside it
+        float DistanceToBox(const glm::vec3& point, const glm::vec3& center, const glm::vec3& halfExtent)
+        {
+            const glm::vec3 outside = glm::max(glm::abs(point - center) - halfExtent, glm::vec3(0.0f));
+            return glm::length(outside);
+        }
+
+        /// A volume that already has a slot keeps it unless another is this much closer to the camera
+        constexpr float kSlotKeepMargin = 3.0f;
+    }
+
+    bool ProbeManager::AddActiveVolume(const ProbeVolumeProxy& proxy, const std::shared_ptr<const ProbeBakeData>& baked)
+    {
+        const uint64_t key = proxy.volume.key;
+
+        if (VolumeSlot* existing = FindSlot(key))
             return existing->baked;
 
         if ((int)m_Volumes.size() >= kMaxProbeVolumes)
         {
-            DEBUG_ERROR("ProbeManager : cannot activate ProbeVolume, already at the max of ", kMaxProbeVolumes, " simultaneously active volumes");
+            DEBUG_ERROR("ProbeManager : cannot activate a ProbeVolume, already at the max of ", kMaxProbeVolumes, " simultaneously active volumes");
             return false;
         }
 
         VolumeSlot slot;
-        slot.volume = volume;
+        slot.key = key;
+        slot.params = proxy;
         m_Volumes.push_back(std::move(slot));
         VolumeSlot& added = m_Volumes.back();
 
         if (baked)
         {
             std::string whyNot;
-            if (IsProbeBakeCompatible(*baked, glm::max(volume->probeCounts, glm::ivec3(1)), ComputeTileSize(volume->raysPerProbe),
-                                      volume->GetGridOrigin(), volume->GetGridSpacing(), &whyNot))
+            if (IsProbeBakeCompatible(*baked, glm::max(proxy.probeCounts, glm::ivec3(1)), ComputeTileSize(proxy.raysPerProbe),
+                                      proxy.GridOrigin(), proxy.GridSpacing(), &whyNot))
             {
                 ApplyBake(added, *baked);
                 DEBUG_INFO("ProbeManager : ProbeVolume loaded from baked probe data (", added.probeCount, " probes, ", added.atlasSize, "x", added.atlasSize, " atlas) - no scene build or tracing needed.");
@@ -376,40 +381,165 @@ namespace Shard::Engine::Rendering {
         return false;
     }
 
-    void ProbeManager::RemoveActiveVolume(Objects::Components::ProbeVolume* volume)
+    void ProbeManager::RemoveActiveVolume(uint64_t key)
     {
-        if (m_Bake.active && m_Bake.volume == volume)
+        if (m_Bake.active && m_Bake.key == key)
             EndBake(false);
 
         auto it = std::find_if(m_Volumes.begin(), m_Volumes.end(),
-            [volume](const VolumeSlot& slot) { return slot.volume == volume; });
+            [key](const VolumeSlot& slot) { return slot.key == key; });
 
         if (it != m_Volumes.end())
             m_Volumes.erase(it);
     }
 
-    bool ProbeManager::IsVolumeBaked(const Objects::Components::ProbeVolume* volume) const
+    bool ProbeManager::IsVolumeBaked(uint64_t key) const
     {
-        const VolumeSlot* slot = FindSlot(volume);
+        const VolumeSlot* slot = FindSlot(key);
         return slot && slot->baked;
     }
 
-    bool ProbeManager::BeginBake(Objects::Components::ProbeVolume* volume, Worlds::World* world, const Filesystem::Path& file)
+    void ProbeManager::Sync(const RenderSnapshot& scene)
     {
-        if (!volume || !world)
-            return false;
+        // The volumes the world asks for, and the ones that get a slot : the shaders sample at most kMaxProbeVolumes volumes
+        // at once (see lit.frag), so when the world has more, the closest to the camera are kept. A volume that already
+        // has a slot keeps it unless another is clearly closer, so walking along a boundary does not swap them back and
+        // forth (a swap costs a fresh grid, and a live volume has to converge again).
+        std::vector<const ProbeVolumeProxy*> candidates;
+        for (const ProbeVolumeProxy& proxy : scene.probeVolumes)
+            if (proxy.volume.active)
+                candidates.push_back(&proxy);
 
+        auto score = [&](const ProbeVolumeProxy& proxy) {
+            // The volume being baked must not lose its slot under the bake
+            if (m_Bake.active && m_Bake.key == proxy.volume.key)
+                return -1e30f;
+
+            float distance = scene.camera.valid ? DistanceToBox(scene.camera.position, proxy.volume.center, proxy.volume.halfExtent) : 0.0f;
+            if (FindSlot(proxy.volume.key))
+                distance -= kSlotKeepMargin;
+            return distance;
+        };
+
+        std::stable_sort(candidates.begin(), candidates.end(),
+            [&](const ProbeVolumeProxy* a, const ProbeVolumeProxy* b) { return score(*a) < score(*b); });
+        if ((int)candidates.size() > kMaxProbeVolumes)
+            candidates.resize(kMaxProbeVolumes);
+
+        auto wanted = [&](uint64_t key) {
+            for (const ProbeVolumeProxy* proxy : candidates)
+                if (proxy->volume.key == key)
+                    return true;
+            return false;
+        };
+
+        // Volumes that are gone, deactivated, or lost their slot
+        for (size_t i = 0; i < m_Volumes.size();)
+        {
+            const uint64_t key = m_Volumes[i].key;
+            if (wanted(key))
+                i++;
+            else
+            {
+                DEBUG_INFO("ProbeManager : a GI probe volume gave up its slot (", kMaxProbeVolumes, " can be shaded at once, the volumes closest to the camera win).");
+                RemoveActiveVolume(key);            // erases slot i
+            }
+        }
+
+        bool needsScene = false;
+
+        for (const ProbeVolumeProxy* proxy : candidates)
+        {
+            VolumeSlot* slot = FindSlot(proxy->volume.key);
+
+            if (!slot)
+            {
+                // New : its baked data is loaded here (the world's prefetcher normally already decoded it on a worker
+                // thread), and its CPU copy dropped once uploaded
+                auto* resources = Core::GetEngine().GetResourcesManager();
+                std::shared_ptr<const ProbeBakeData> baked;
+                if (!proxy->bakedData.empty())
+                    baked = resources->Get<ProbeBakeData>(Core::Resources::AssetKind::ProbeBake, proxy->bakedData);
+
+                if (!AddActiveVolume(*proxy, baked))
+                    needsScene = true;              // a live volume traces against a scene : the expensive part a baked one skips
+
+                if (!proxy->bakedData.empty())
+                    resources->Unload(Core::Resources::AssetKind::ProbeBake, proxy->bakedData);
+                continue;
+            }
+
+            const ProbeVolumeProxy& old = slot->params;
+            const bool baking = m_Bake.active && m_Bake.key == slot->key;
+
+            // These change the grid : anything baked on the old one no longer matches. enableRelocation only needs the
+            // grid rebuilt so accumulated relocation offsets are zeroed (the per-frame dispatch is gated on the flag).
+            const bool gridChanged = old.volume.halfExtent != proxy->volume.halfExtent || old.probeCounts != proxy->probeCounts ||
+                                     old.raysPerProbe != proxy->raysPerProbe || old.enableRelocation != proxy->enableRelocation;
+
+            // The bake was deleted : back to live
+            const bool bakeCleared = slot->baked && !old.bakedData.empty() && proxy->bakedData.empty();
+
+            slot->params = *proxy;
+
+            if (!baking && (gridChanged || bakeCleared))
+            {
+                const bool wasBaked = slot->baked;
+                RebuildGrid(*slot);
+                if (wasBaked)
+                    needsScene = true;              // a baked volume never needed a scene, a live one does
+            }
+        }
+
+        if (needsScene)
+            RebuildScene(scene);
+    }
+
+    bool ProbeManager::BeginBake(uint64_t key, const RenderSnapshot& scene, const Filesystem::Path& file)
+    {
         if (m_Bake.active)
         {
             DEBUG_WARNING("ProbeManager : a probe bake is already running, ignoring the new request.");
             return false;
         }
 
-        VolumeSlot* slot = FindSlot(volume);
+        VolumeSlot* slot = FindSlot(key);
         if (!slot)
         {
-            DEBUG_ERROR("ProbeManager : cannot bake a ProbeVolume that isn't active.");
-            return false;
+            // The world can hold more volumes than there are slots : this one is not among the closest to the camera
+            const ProbeVolumeProxy* proxy = nullptr;
+            for (const ProbeVolumeProxy& candidate : scene.probeVolumes)
+                if (candidate.volume.key == key)
+                    proxy = &candidate;
+
+            if (!proxy || !proxy->volume.active)
+            {
+                DEBUG_ERROR("ProbeManager : cannot bake a ProbeVolume that isn't active.");
+                return false;
+            }
+
+            if ((int)m_Volumes.size() >= kMaxProbeVolumes)
+            {
+                // Makes room by dropping the volume farthest from the camera
+                size_t farthest = 0;
+                float farthestDistance = -1.0f;
+                for (size_t i = 0; i < m_Volumes.size(); i++)
+                {
+                    const float distance = scene.camera.valid
+                        ? DistanceToBox(scene.camera.position, m_Volumes[i].params.volume.center, m_Volumes[i].params.volume.halfExtent) : 0.0f;
+                    if (distance > farthestDistance)
+                    {
+                        farthestDistance = distance;
+                        farthest = i;
+                    }
+                }
+                RemoveActiveVolume(m_Volumes[farthest].key);
+            }
+
+            AddActiveVolume(*proxy);
+            slot = FindSlot(key);
+            if (!slot)
+                return false;
         }
 
         // Start from a clean grid : zeroed atlases, all-active probes with no relocation offset, frame 0.
@@ -418,11 +548,11 @@ namespace Shard::Engine::Rendering {
 
         // Always rebuild the scene, even if one is already built - it may predate geometry edits, and a
         // bake is precisely the moment the result has to reflect the world as it is now.
-        RebuildScene(world);
+        RebuildScene(scene);
 
         m_Bake = BakeJob{};
         m_Bake.active = true;
-        m_Bake.volume = volume;
+        m_Bake.key = key;
         m_Bake.file = file;
         m_LastBakeSucceeded = false;
 
@@ -579,7 +709,7 @@ namespace Shard::Engine::Rendering {
 
     void ProbeManager::UpdateVolume(VolumeSlot& slot, IRenderContext* renderer, const BakeStep* bake)
     {
-        if (!slot.volume || !slot.rayAtlas || !slot.irradianceAtlas || !slot.publishedAtlas ||
+        if (!slot.rayAtlas || !slot.irradianceAtlas || !slot.publishedAtlas ||
             !slot.rayDistAtlas || !slot.distanceAtlas || !slot.publishedDistanceAtlas || slot.probeCount == 0)
             return;
 
@@ -588,7 +718,7 @@ namespace Shard::Engine::Rendering {
         // dispatch below is sized from it rather than from probeCount, which is the whole point (a
         // stride of N costs 1/N the rays, 1/N the convolve work, 1/N the blend work). A bake always
         // updates every probe on every iteration : its cost is the iteration count, not the frame time.
-        const int stride = bake ? 1 : std::clamp(slot.volume->probeUpdateStride, 1, kMaxProbeUpdateStride);
+        const int stride = bake ? 1 : std::clamp(slot.params.probeUpdateStride, 1, kMaxProbeUpdateStride);
         const uint32_t phase = slot.frameIndex % (uint32_t)stride;
         const uint32_t updateCount = phase < slot.probeCount
             ? (slot.probeCount - phase + (uint32_t)stride - 1) / (uint32_t)stride
@@ -633,9 +763,9 @@ namespace Shard::Engine::Rendering {
             ? UniformRandomRotation(m_RayRNG)
             : RandomRotation(m_RayRNG, raySpacingRadians * (bake ? 0.5f : 0.25f));
 
-        glm::vec3 gridOrigin = slot.volume->GetGridOrigin();
-        glm::vec3 gridSpacing = slot.volume->GetGridSpacing();
-        glm::ivec3 probeCounts = glm::max(slot.volume->probeCounts, glm::ivec3(1));
+        glm::vec3 gridOrigin = slot.params.GridOrigin();
+        glm::vec3 gridSpacing = slot.params.GridSpacing();
+        glm::ivec3 probeCounts = glm::max(slot.params.probeCounts, glm::ivec3(1));
 
         // A probe that has never been published yet must not fade in from the zeroed atlas through the
         // hysteresis blend - it gets a full overwrite on its own first update instead. With a stride of
@@ -683,7 +813,7 @@ namespace Shard::Engine::Rendering {
             m_TraceShader->SetVec3("uGridSpacing", gridSpacing);
             m_TraceShader->SetVec3("uProbeCounts", glm::vec3(probeCounts));
             m_TraceShader->SetMat3("uRayRotation", rayRotation);
-            m_TraceShader->SetFloat("uIndirectIntensity", std::max(slot.volume->indirectIntensity, 0.0f));
+            m_TraceShader->SetFloat("uIndirectIntensity", std::max(slot.params.indirectIntensity, 0.0f));
             // Nothing to read back on the very first frame - the published atlas is still all zeros.
             m_TraceShader->SetBool("uUseIndirect", slot.frameIndex > 0);
             m_TraceShader->SetInt("uUpdateStride", stride);
@@ -708,7 +838,7 @@ namespace Shard::Engine::Rendering {
 
             renderer->DispatchCompute(m_ClassifyPipeline, perProbeGroupsX, 1, 1, MemoryBarrierBit::ShaderStorage);
 
-            if (slot.volume->enableRelocation)
+            if (slot.params.enableRelocation)
             {
                 m_RelocatePipeline->Bind();
 
@@ -917,17 +1047,8 @@ namespace Shard::Engine::Rendering {
         // two pointer hops) instead of cached, so a world swap or a skybox change can't leave this
         // pointing at a freed cubemap.
         m_SkyIrradiance = nullptr;
-        Worlds::WorldManager* worldManager = Core::GetEngine().GetWorldManager();
-        if (worldManager && worldManager->GetLoadedWorldCount() > 0)
-        {
-            Worlds::World* world = worldManager->GetWorldAt(0);
-            if (world)
-            {
-                auto& skybox = world->Ext<RenderWorldData>().skybox;
-                if (skybox && skybox->GetEnvMap())
-                    m_SkyIrradiance = skybox->GetEnvMap()->GetIrradiance();
-            }
-        }
+        if (const auto& sky = renderer->GetSnapshot().environment.skybox)
+            m_SkyIrradiance = sky->GetIrradiance();
 
         if (m_Bake.active)
             StepBake(renderer);
@@ -938,7 +1059,7 @@ namespace Shard::Engine::Rendering {
                 continue;
 
             // The volume being baked is driven by StepBake() above, on the bake's own schedule.
-            if (m_Bake.active && slot.volume == m_Bake.volume)
+            if (m_Bake.active && slot.key == m_Bake.key)
                 continue;
 
             UpdateVolume(slot, renderer);
@@ -947,7 +1068,7 @@ namespace Shard::Engine::Rendering {
 
     void ProbeManager::StepBake(IRenderContext* renderer)
     {
-        VolumeSlot* slot = FindSlot(m_Bake.volume);
+        VolumeSlot* slot = FindSlot(m_Bake.key);
         if (!slot || slot->baked)
         {
             EndBake(false);
@@ -989,20 +1110,20 @@ namespace Shard::Engine::Rendering {
 
     void ProbeManager::FinishBake(VolumeSlot& slot)
     {
-        Objects::Components::ProbeVolume* volume = slot.volume;
+        const ProbeVolumeProxy& volume = slot.params;
 
         // The last blend dispatch wrote the published atlases through image stores, and the state buffer
         // through an SSBO : both need their host-readback barrier before the blocking reads below.
         Core::GetEngine().GetRenderContext()->GetRendererAPI()->MemoryBarrier(MemoryBarrierBit::TextureUpdate | MemoryBarrierBit::BufferUpdate);
 
         ProbeBakeData data;
-        data.probeCounts = glm::max(volume->probeCounts, glm::ivec3(1));
+        data.probeCounts = glm::max(volume.probeCounts, glm::ivec3(1));
         data.tileSize = slot.tileSize;
         data.atlasProbesPerRow = slot.atlasProbesPerRow;
         data.atlasSize = slot.atlasSize;
         data.probeCount = slot.probeCount;
-        data.gridOrigin = volume->GetGridOrigin();
-        data.gridSpacing = volume->GetGridSpacing();
+        data.gridOrigin = volume.GridOrigin();
+        data.gridSpacing = volume.GridSpacing();
 
         data.irradiance.resize((size_t)slot.atlasSize * slot.atlasSize * 4);
         data.distance.resize((size_t)slot.atlasSize * slot.atlasSize * 2);
@@ -1028,7 +1149,8 @@ namespace Shard::Engine::Rendering {
         MarkBaked(slot, data.gridOrigin, data.gridSpacing);
         EndBake(true);
 
-        volume->OnBakeFinished(file);
+        if (onBakeFinished)
+            onBakeFinished(slot.key, file);
     }
 
     bool ProbeManager::IsSlotReady(const VolumeSlot& slot, bool sceneBuilt)
@@ -1079,7 +1201,7 @@ namespace Shard::Engine::Rendering {
         const VolumeSlot* slot = FindSlot(index);
         if (slot && slot->baked)
             return slot->bakedOrigin;
-        return (slot && slot->volume) ? slot->volume->GetGridOrigin() : glm::vec3(0.0f);
+        return slot ? slot->params.GridOrigin() : glm::vec3(0.0f);
     }
 
     glm::vec3 ProbeManager::GetGridSpacing(int index) const
@@ -1087,13 +1209,13 @@ namespace Shard::Engine::Rendering {
         const VolumeSlot* slot = FindSlot(index);
         if (slot && slot->baked)
             return slot->bakedSpacing;
-        return (slot && slot->volume) ? slot->volume->GetGridSpacing() : glm::vec3(1.0f);
+        return slot ? slot->params.GridSpacing() : glm::vec3(1.0f);
     }
 
     glm::ivec3 ProbeManager::GetProbeCounts(int index) const
     {
         const VolumeSlot* slot = FindSlot(index);
-        return (slot && slot->volume) ? glm::max(slot->volume->probeCounts, glm::ivec3(1)) : glm::ivec3(0);
+        return slot ? glm::max(slot->params.probeCounts, glm::ivec3(1)) : glm::ivec3(0);
     }
 
     uint32_t ProbeManager::GetTileSize(int index) const

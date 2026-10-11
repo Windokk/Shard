@@ -2,6 +2,7 @@
 
 #include "engine/renderer/rhi/render_context.hpp"
 #include "engine/renderer/features/lighting/probe_manager.hpp"
+#include "engine/renderer/components/render_extractor.hpp"
 #include "engine/renderer/rhi/resources/mesh/mesh.hpp"
 #include "engine/world/components/transform.hpp"
 #include "engine/world/actor.hpp"
@@ -31,86 +32,20 @@ namespace Shard::Engine::Objects::Components{
     glm::vec3 ProbeVolume::GetGridOrigin() const
     {
         glm::vec3 center = parent && parent->transform ? parent->transform->GetWorldPosition() : glm::vec3(0.0f);
-        // Inset by half a cell (see GetGridSpacing()) so the outermost layer of probes sits inside the
-        // volume's bounding box instead of exactly on its surface - a probe volume is typically sized
-        // flush against a room's walls, and a probe placed right on/embedded in a wall sees it fill
-        // almost its entire hemisphere, turning the octahedral tile's coarse angular resolution into a
-        // visible faceted (diamond-shaped, from the octahedral projection) pattern directly on that wall.
-        return center - halfExtent + GetGridSpacing() * 0.5f;
+        return Rendering::ProbeGridOrigin(center, halfExtent, probeCounts);
     }
 
     glm::vec3 ProbeVolume::GetGridSpacing() const
     {
-        glm::ivec3 divisions = glm::max(probeCounts, glm::ivec3(1));
-        return (halfExtent * 2.0f) / glm::vec3(divisions);
+        return Rendering::ProbeGridSpacing(halfExtent, probeCounts);
     }
 
-    void ProbeVolume::Activate()
+    uint64_t ProbeVolume::GetRenderKey() const
     {
-        Volume::Activate();
+        if(!parent || !parent->world)
+            return 0;
 
-        if(parent && parent->world && parent->world->IsLoaded())
-        {
-            auto probeManager = GetEngineContext()->GetRenderContext()->GetProbeManager();
-            auto* resources = GetEngineContext()->GetResourcesManager();
-
-            // Normally the world's asset prefetcher already decoded the bake on a worker thread and it is
-            // waiting in the resource cache - this only reads the file itself if it isn't (a volume
-            // activated from the editor after the world loaded, ...).
-            std::shared_ptr<const Rendering::ProbeBakeData> baked;
-            if(!bakedData.empty())
-                baked = resources->Get<Rendering::ProbeBakeData>(Core::Resources::AssetKind::ProbeBake, bakedData);
-
-            if(!probeManager->AddActiveVolume(this, baked))
-            {
-                // Live volume (never baked, or its bake is out of date) : it traces against a scene, which
-                // is the expensive part a baked volume gets to skip entirely.
-                probeManager->RebuildScene(parent->world);
-            }
-
-            // Uploaded (or refused) - either way the CPU copy has served its purpose.
-            if(!bakedData.empty())
-                resources->Unload(Core::Resources::AssetKind::ProbeBake, bakedData);
-        }
-    }
-
-    void ProbeVolume::DeActivate()
-    {
-        Volume::DeActivate();
-
-        if(parent && parent->world && parent->world->IsLoaded())
-            GetEngineContext()->GetRenderContext()->GetProbeManager()->RemoveActiveVolume(this);
-    }
-
-    void ProbeVolume::Destroy()
-    {
-        if(parent && parent->world && parent->world->IsLoaded())
-            GetEngineContext()->GetRenderContext()->GetProbeManager()->RemoveActiveVolume(this);
-    }
-
-    void ProbeVolume::OnFieldChanged(const FieldChangedEvent &event)
-    {
-        std::string name = event.field->name;
-
-        // enableRelocation only needs the grid rebuilt so accumulated relocation offsets are zeroed
-        // (RebuildGrid re-inits probeStateBuffer) - the per-frame dispatch is already gated on the flag.
-        if (name == "halfExtent" || name == "probeCounts" || name == "raysPerProbe" || name == "enableRelocation")
-        {
-            if(parent && parent->world && parent->world->IsLoaded())
-            {
-                auto probeManager = GetEngineContext()->GetRenderContext()->GetProbeManager();
-                const bool wasBaked = probeManager->IsVolumeBaked(this);
-
-                // Any of these fields invalidates baked data - it was traced on the old grid - so the
-                // rebuild always leaves the volume live (see ProbeManager::RebuildGrid()). bakedData is
-                // left alone : the file is now merely out of date, and the next bake overwrites it.
-                probeManager->RebuildGrid(this);
-
-                // A baked volume never needed a scene, so it may have none. A live one does.
-                if(wasBaked)
-                    probeManager->RebuildScene(parent->world);
-            }
-        }
+        return Rendering::RenderKeyOf(*GetEngineContext()->GetWorldManager(), parent->world, parent->GetComponentIDInWorld(local_id));
     }
 
     void ProbeVolume::Deserialize(const json componentData)
@@ -121,10 +56,10 @@ namespace Shard::Engine::Objects::Components{
         // FEWER bounces than it now gets for free. It is not a field, so it is simply ignored (and it
         // stops being written on the next save).
 
-        // The fields are only loaded, not applied : the grid is built when the volume is activated below
+        // The fields are only loaded, not applied : the renderer builds the grid when it first sees the volume
         DeserializeReflectedFields(componentData, false);
 
-        // Set before Activate() below, which is what consumes it. Not a field : the editor doesn't show it
+        // Read by the renderer when it first sees the volume. Not a field : the editor doesn't show it
         if (componentData.contains("bakedData") && componentData["bakedData"].is_string())
             bakedData = componentData["bakedData"].get<std::string>();
         else
@@ -190,7 +125,7 @@ namespace Shard::Engine::Objects::Components{
                 relative = stem + "_" + std::to_string(n) + Rendering::kProbeBakeExtension;
         }
 
-        return engine->GetRenderContext()->GetProbeManager()->BeginBake(this, parent->world, resRoot / relative);
+        return engine->GetRenderContext()->GetProbeManager()->BeginBake(GetRenderKey(), engine->GetRenderContext()->GetSnapshot(), resRoot / relative);
     }
 
     void ProbeVolume::OnBakeFinished(const Filesystem::Path& file)
@@ -250,22 +185,9 @@ namespace Shard::Engine::Objects::Components{
             bakedData.clear();
         }
 
+        // The renderer sees the baked data gone at the next extraction and puts the volume back on live updates
         if (parent && parent->world)
-        {
             parent->world->SetDirty(true);
-
-            // A baked volume was running without a scene - back to live means it needs one again. (A
-            // volume that was merely out of date is already live and already has its scene.)
-            if (activated && parent->world->IsLoaded())
-            {
-                auto probeManager = engine->GetRenderContext()->GetProbeManager();
-                if (probeManager->IsVolumeBaked(this))
-                {
-                    probeManager->RebuildGrid(this);
-                    probeManager->RebuildScene(parent->world);
-                }
-            }
-        }
     }
 
 }

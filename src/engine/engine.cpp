@@ -21,6 +21,9 @@
 #include "engine/platform/hardware/system_info.hpp"
 #include "engine/world/time_manager.hpp"
 #include "engine/renderer/components/camera_manager.hpp"
+#include "engine/renderer/components/render_extractor.hpp"
+#include "engine/renderer/features/lighting/probe_manager.hpp"
+#include "engine/renderer/components/probe_volume.hpp"
 #include "engine/world/actor.hpp"
 #include "engine/audio/audio_manager.hpp"
 #include "engine/physics/physics_manager.hpp"
@@ -109,6 +112,10 @@ namespace Shard::Engine{
             m_RendererSettings->viewportHeight = m_Context.platform->GetWindow()->GetFramebufferHeight();
             m_RendererSettings->api = (RendererAPI::API)settings.api;
             m_Context.renderer->Init(m_RendererSettings);
+            m_Context.renderer->GetProbeManager()->onBakeFinished = [this](uint64_t key, const Filesystem::Path& file) {
+                if(auto* volume = Rendering::FindProbeVolume(*m_Context.worldManager, key))
+                    volume->OnBakeFinished(file);
+            };
             m_Context.renderer->SetOcclusionCullingEnabled(m_Context.currentProject->GetRenderingSettings()->occlusionCulling);
             m_Context.platform->CreateInput();
 
@@ -178,6 +185,9 @@ namespace Shard::Engine{
             m_Context.renderer = new Rendering::Renderer();
             m_Context.cameraManager = new Rendering::CameraManager();
 
+            // The renderer knows no camera : whoever owns them follows the viewport
+            m_Context.renderer->onViewportResized = [this](int width, int height) { m_Context.cameraManager->UpdateSize(width, height); };
+
             m_Context.assetIDManager = new Filesystem::AssetIDManager();
             m_Context.fileManager = new Filesystem::FileManager(*m_Context.assetIDManager);
             m_Context.resourcesManager = new Resources::ResourcesManager(*m_Context.fileManager, *m_Context.assetIDManager);
@@ -232,12 +242,13 @@ namespace Shard::Engine{
 
             // What the engine's managers do each frame, expressed as systems of the phases. They touch the managers (not
             // components), which the read / write declaration can't express, hence Exclusive : they run alone, in this order.
-            auto add = [&scheduler](const char* name, Phase phase, SystemFn fn)
+            auto add = [&scheduler](const char* name, Phase phase, SystemFn fn, bool mainThread = false)
             {
                 SystemDesc desc;
                 desc.name = name;
                 desc.phase = phase;
                 desc.exclusive = true;
+                desc.mainThread = mainThread;
                 desc.run = std::move(fn);
                 scheduler.Add(std::move(desc));
             };
@@ -256,7 +267,26 @@ namespace Shard::Engine{
             // After the scripts moved things : kinematic targets go to Jolt, dynamic results come back to the transforms
             add("Physics.Sync", Phase::Late, [this](SystemContext& c){ SyncPhysicsBodies(c.fixedDeltaTime); });
 
-            add("Render.Frame", Phase::Extract, [this](SystemContext&){ RenderFrame(); });
+            auto extractor = std::make_shared<Rendering::RenderExtractor>();
+            add("Render.Extract", Phase::Extract, [this, extractor](SystemContext& c){
+                SHARD_PROFILE_SCOPE(Debugging::ProfileCategory::Rendering);
+                extractor->Extract(*m_Context.renderer, *m_Context.worldManager, *m_Context.cameraManager, m_Context.jobSystem, c.frame);
+            }, true);
+            CVarRegistry::Global().RegisterCommand("render.snapshot", "render.snapshot : what the last Extract stage copied out of the simulation for the renderer",
+                [this, extractor](const std::vector<std::string>&) {
+                    const Rendering::RenderSnapshot& snapshot = m_Context.renderer->GetSnapshot();
+                    const Rendering::RenderExtractor::Stats& stats = extractor->GetLastStats();
+                    std::string text = "snapshot of frame " + std::to_string(snapshot.frame) + " (" + std::to_string(m_Context.renderer->GetSnapshotBuffer().PublishedCount()) + " published), viewport " +
+                                       std::to_string(snapshot.viewportWidth) + "x" + std::to_string(snapshot.viewportHeight) + "\n";
+                    text += std::string("  camera : ") + (snapshot.camera.valid ? "yes" : "none") + "\n";
+                    text += "  meshes : " + std::to_string(stats.meshes) + " (" + std::to_string(stats.meshesChanged) + " changed" + (stats.parallel ? ", extracted on the job system" : "") + ")\n";
+                    text += "  lights : " + std::to_string(stats.lights) + ", probe volumes : " + std::to_string(stats.probeVolumes) + ", sky : " + (snapshot.environment.skybox ? "yes" : "none");
+                    return CommandResult{true, text};
+                });
+
+            add("Render.Frame", Phase::Extract, [this](SystemContext&){ RenderFrame(); }, true);
+
+            RegisterConsoleCommands();
 
             // Console : what runs each frame and how long it takes, what the registry holds
             CVarRegistry::Global().RegisterCommand("ecs.systems", "ecs.systems : the systems of each phase, in start order, with their last run time",

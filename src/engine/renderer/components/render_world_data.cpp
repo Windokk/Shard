@@ -23,24 +23,17 @@ namespace Shard::Engine::Rendering{
 
     using namespace Objects::Components;
 
-    void RenderWorldData::OnComponentAdded(Worlds::World&, int idInWorld, const std::shared_ptr<Component>& component, bool cloned)
+    void RenderWorldData::OnComponentAdded(Worlds::World&, int idInWorld, const std::shared_ptr<Component>& component, bool)
     {
+        // What the renderer draws or lights with is read from these maps by the Extract stage (see RenderExtractor)
         if(auto light = std::dynamic_pointer_cast<Light>(component)){
-            light->SetLightIndex((int)lights.size());
-            lights.push_back(light);
             lightComps.emplace(idInWorld, light);
         }
         else if(auto model = std::dynamic_pointer_cast<Model>(component)){
             models.emplace(idInWorld, model);
-
-            if(cloned)
-                model->Update();
         }
         else if(auto volume = std::dynamic_pointer_cast<ProbeVolume>(component)){
-            if(!cloned){
-                probeVolume = volume;
-                volume->Activate();
-            }
+            probeVolumes.emplace(idInWorld, volume);
         }
         else if(auto camera = std::dynamic_pointer_cast<Camera>(component)){
             cameras.emplace(idInWorld, camera);
@@ -54,33 +47,19 @@ namespace Shard::Engine::Rendering{
             cameras.erase(idInWorld);
         }
         else if(component->IsInstanceOf<Light>()){
-            int index = lightComps.at(idInWorld)->GetLightIndex();
-            if (index >= 0 && index < (int)lights.size())
-            {
-                std::rotate(lights.begin() + index, lights.begin() + index + 1, lights.end());
-                lights.pop_back();
-
-                // Everything past the removed slot shifted down by one - resync each light's
-                // cached index so a later removal doesn't rotate() with a stale (now out-of-range) index.
-                for (size_t i = index; i < lights.size(); ++i)
-                    lights[i]->ReindexTo((int)i);
-            }
-            else
-            {
-                DEBUG_ERROR("World::RemoveComponent(Light) index OUT OF RANGE - light stays stuck in lights vector!");
-            }
             lightComps.erase(idInWorld);
         }
         else if(component->IsInstanceOf<Model>()){
+            models.erase(idInWorld);
             meshes.erase(idInWorld);
+        }
+        else if(component->IsInstanceOf<ProbeVolume>()){
+            probeVolumes.erase(idInWorld);
         }
     }
 
     void RenderWorldData::OnLoad(Worlds::World&)
     {
-        // The renderer's pass draw lists were cleared on the previous world's unload
-        // (ClearPassesContent), so the skybox's draw command has to be re-submitted every load -
-        // otherwise a world with a skybox but no actors renders as a black viewport.
         if(skybox)
             skybox->CreateDrawCommands();
 
@@ -88,16 +67,6 @@ namespace Shard::Engine::Rendering{
             Core::GetEngine().GetCameraManager()->AddCamera(cam->parent->GetID(), cam);
         }
 
-        for(int i = 0; i < lights.size(); i++){
-            lights[i]->SetLightIndex(i);
-        }
-
-        for(auto& [id,model] : models){
-            model->Update();
-        }
-
-        if(probeVolume)
-            probeVolume->Activate();
     }
 
     void RenderWorldData::DeserializeSettings(Worlds::World&, const nlohmann::json& settings)
@@ -160,7 +129,6 @@ namespace Shard::Engine::Rendering{
         if(!skybox)
             return;
 
-        skybox->RemoveDrawCommands();
         skybox = nullptr;
     }
 

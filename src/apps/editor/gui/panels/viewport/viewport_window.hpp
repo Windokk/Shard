@@ -7,6 +7,7 @@
 #include "apps/editor/commands/command_stack.hpp"
 
 #include "engine/renderer/features/raytracing/raytracer.hpp"
+#include "engine/renderer/components/camera.hpp"
 
 #include "imgui/imgui.h"
 #include "ImGuizmo.h"

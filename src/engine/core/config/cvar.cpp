@@ -105,6 +105,84 @@ namespace Shard::Engine::Core {
         return out;
     }
 
+    namespace {
+        CVarRegistry::Suggestion MakeSuggestion(const CVarBase& cvar) {
+            CVarRegistry::Suggestion s;
+            s.kind = CVarRegistry::Suggestion::Kind::Variable;
+            s.name = cvar.Name();
+            s.help = cvar.Description();
+            s.type = cvar.TypeName();
+            s.value = cvar.ToString();
+            s.defaultValue = cvar.DefaultString();
+            s.readOnly = HasFlag(cvar.Flags(), CVarFlags::ReadOnly);
+            return s;
+        }
+    }
+
+    std::vector<CVarRegistry::Suggestion> CVarRegistry::Suggest(std::string_view text, size_t max, bool commands, bool variables) const {
+        const std::string p = Lower(text);
+        struct Scored { int rank; Suggestion suggestion; };
+        std::vector<Scored> found;
+
+        // 0 : starts with the text, 1 : a later word of the name starts with it, 2 : contains it somewhere
+        auto rank = [&](const std::string& lowerName) -> int {
+            if (p.empty()) return 0;
+            const size_t at = lowerName.find(p);
+            if (at == std::string::npos) return -1;
+            if (at == 0) return 0;
+            const char before = lowerName[at - 1];
+            return (before == '.' || before == '_' || before == '-') ? 1 : 2;
+        };
+
+        {
+            std::lock_guard<std::mutex> lock(m_Mutex);
+            if (variables)
+                for (const auto& entry : m_CVars) {
+                    if (HasFlag(entry.second->Flags(), CVarFlags::Hidden)) continue;
+                    const int r = rank(entry.first);
+                    if (r >= 0) found.push_back({r, MakeSuggestion(*entry.second)});
+                }
+            if (commands)
+                for (const auto& entry : m_Commands) {
+                    const int r = rank(entry.first);
+                    if (r < 0) continue;
+                    Suggestion s;
+                    s.kind = Suggestion::Kind::Command;
+                    s.name = entry.second.name;
+                    s.help = entry.second.help;
+                    found.push_back({r, std::move(s)});
+                }
+        }
+
+        std::sort(found.begin(), found.end(), [](const Scored& a, const Scored& b) {
+            if (a.rank != b.rank) return a.rank < b.rank;
+            return a.suggestion.name < b.suggestion.name;
+        });
+
+        std::vector<Suggestion> out;
+        for (Scored& s : found) {
+            if (out.size() >= max) break;
+            out.push_back(std::move(s.suggestion));
+        }
+        return out;
+    }
+
+    std::optional<CVarRegistry::Suggestion> CVarRegistry::Describe(std::string_view name) const {
+        const std::string key = Lower(name);
+        std::lock_guard<std::mutex> lock(m_Mutex);
+        auto cvar = std::find_if(m_CVars.begin(), m_CVars.end(), [&](const auto& e) { return e.first == key; });
+        auto command = std::find_if(m_Commands.begin(), m_Commands.end(), [&](const auto& e) { return e.first == key; });
+        if (command != m_Commands.end()) {
+            Suggestion s;
+            s.kind = Suggestion::Kind::Command;
+            s.name = command->second.name;
+            s.help = command->second.help;
+            return s;
+        }
+        if (cvar != m_CVars.end()) return MakeSuggestion(*cvar->second);
+        return std::nullopt;
+    }
+
     void CVarRegistry::Register(CVarBase* cvar) {
         const std::string key = Lower(cvar->Name());
         {
@@ -427,6 +505,23 @@ namespace Shard::Engine::Core {
                 if (CVarBase* cvar = Find(args[0]))
                     return {true, cvar->Name() + " (" + cvar->TypeName() + ") " + cvar->Description()};
                 return {false, "Unknown command or variable '" + args[0] + "'"};
+            });
+
+        RegisterCommand("find", "find text : searches the commands and variables whose name contains text",
+            [this](const std::vector<std::string>& args) -> CommandResult {
+                if (args.empty()) return {false, "usage: find text"};
+                std::string out;
+                size_t count = 0;
+                for (const Suggestion& s : Suggest(args[0], 200)) {
+                    out += (s.kind == Suggestion::Kind::Command ? "  [cmd] " : "  [var] ") + s.name;
+                    if (s.kind == Suggestion::Kind::Variable) out += " = " + s.value;
+                    if (!s.help.empty()) out += "  -  " + s.help;
+                    out += "\n";
+                    ++count;
+                }
+                if (count == 0) return {false, "Nothing matches '" + args[0] + "'"};
+                out += std::to_string(count) + " match(es)";
+                return {true, out};
             });
 
         RegisterCommand("list", "list [prefix] : lists the variables (all, or those starting with prefix)",

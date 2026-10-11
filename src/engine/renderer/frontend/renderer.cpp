@@ -11,10 +11,8 @@
 #include "engine/renderer/features/lighting/probe_manager.hpp"
 #include "engine/renderer/features/lighting/ssao_manager.hpp"
 #include "engine/renderer/features/lighting/light_culling_manager.hpp"
-#include "engine/renderer/components/camera_manager.hpp"
 #include "engine/assets/resources_manager.hpp"
 #include "engine/renderer/frontend/render_asset_kinds.hpp"
-#include "engine/world/actor.hpp"
 #include "engine/core/diagnostics/profiler.hpp"
 #include "engine/renderer/rhi/frustum.hpp"
 #include <queue>
@@ -320,9 +318,14 @@ namespace Shard::Engine::Rendering{
 
     void Renderer::Render()
     {
+        // The frame renders from the snapshot published by the Extract stage, whatever the simulation does meanwhile
+        m_FrameLease = m_SnapshotBuffer.Acquire();
+
         BeginFrame();
         DrawFrame();
         EndFrame();
+
+        m_FrameLease = {};
     }
 
     void Renderer::Shutdown()
@@ -345,6 +348,10 @@ namespace Shard::Engine::Rendering{
 
         shadowDrawCommandsLookup.clear();
         shadowDrawList.clear();
+
+        // What the scene had submitted is gone : the next sync submits everything the snapshot holds again
+        m_SyncedMeshes.clear();
+        m_SyncedSkyMaterial = nullptr;
 
         m_CommandRefCount.clear();
         m_VerticesCount = 0;
@@ -708,7 +715,8 @@ namespace Shard::Engine::Rendering{
             }
         }
 
-        Core::GetEngine().GetCameraManager()->UpdateSize(newWidth, newHeight);
+        if(onViewportResized)
+            onViewportResized(newWidth, newHeight);
     }
 
     void Renderer::ToggleMultisampling(const bool on)
@@ -732,12 +740,129 @@ namespace Shard::Engine::Rendering{
         return m_RendererAPI->GetDriverVersion();
     }
 
+    namespace {
+
+        const std::vector<std::string> kScenePasses = {"ForwardPass", "SSAODepthNormalPass"};
+
+        // The skybox is the only fullscreen triangle the scene submits : a fixed key lets every (re)creation update
+        // the same draw command in place, and lets it be removed
+        uint64_t SkyboxCommandID()
+        {
+            constexpr uint64_t kSkyboxComponentID = 0x534B59; // "SKY"
+            return MakeCommandID(0, kSkyboxComponentID, 0);
+        }
+
+        std::vector<uint64_t> MeshCommandIDs(Mesh& mesh, int componentId)
+        {
+            std::vector<uint64_t> ids;
+            for(size_t i = 0; i < mesh.GetSubMeshes().size(); i++)
+                ids.push_back(MakeCommandID(mesh.GetAssetID().GetAsInt(), componentId, (uint64_t)i));
+            return ids;
+        }
+    }
+
+    void Renderer::RemoveSyncedMeshCommands(const SyncedMesh& synced)
+    {
+        if(!synced.mesh)
+            return;
+
+        const std::vector<uint64_t> ids = MeshCommandIDs(*synced.mesh, synced.componentId);
+        RemoveCommands(ids, kScenePasses, true);
+        if(!synced.extraPasses.empty())
+            RemoveCommands(ids, synced.extraPasses, false);
+    }
+
+    void Renderer::SyncSceneDrawLists()
+    {
+        const RenderSnapshot& snapshot = GetSnapshot();
+        m_SyncCount++;
+
+        for(const MeshProxy& proxy : snapshot.meshes)
+        {
+            auto [it, inserted] = m_SyncedMeshes.try_emplace(proxy.key);
+            SyncedMesh& synced = it->second;
+            synced.seenInSync = m_SyncCount;
+
+            const bool unchanged = !inserted && synced.mesh == proxy.mesh && synced.materials == proxy.materials &&
+                                   synced.worldMatrix == proxy.worldMatrix && synced.extraPasses == proxy.extraPasses &&
+                                   synced.objectId == proxy.objectId && synced.componentId == proxy.componentId;
+            if(unchanged)
+                continue;
+
+            // Another mesh or other extra passes : what the old state submitted would be left behind (the command IDs
+            // derive from the mesh, and a pass the mesh left must lose it)
+            if(!inserted && (synced.mesh != proxy.mesh || synced.extraPasses != proxy.extraPasses || synced.componentId != proxy.componentId))
+                RemoveSyncedMeshCommands(synced);
+
+            std::vector<DrawCommand> commands = proxy.mesh->CreateDrawCommands(proxy.worldMatrix, proxy.objectId, proxy.componentId, proxy.materials);
+
+            // SSAO's depth+normal prepass needs every mesh's real geometry, the same way ForwardPass does : it always runs,
+            // only the world's ssaoEnabled says whether the shading uses the result
+            AddOrUpdateCommands(commands, kScenePasses, true);
+            if(!proxy.extraPasses.empty())
+                AddOrUpdateCommands(commands, proxy.extraPasses, false);
+
+            synced.mesh = proxy.mesh;
+            synced.materials = proxy.materials;
+            synced.worldMatrix = proxy.worldMatrix;
+            synced.extraPasses = proxy.extraPasses;
+            synced.objectId = proxy.objectId;
+            synced.componentId = proxy.componentId;
+        }
+
+        // Whatever the snapshot no longer has is gone from the world (destroyed, deactivated, its world unloaded)
+        for(auto it = m_SyncedMeshes.begin(); it != m_SyncedMeshes.end();)
+        {
+            if(it->second.seenInSync != m_SyncCount)
+            {
+                RemoveSyncedMeshCommands(it->second);
+                it = m_SyncedMeshes.erase(it);
+            }
+            else
+                ++it;
+        }
+
+        SyncSkyboxDrawCommand();
+    }
+
+    void Renderer::SyncSkyboxDrawCommand()
+    {
+        const EnvironmentProxy& environment = GetSnapshot().environment;
+
+        if(!environment.skyboxMaterial)
+        {
+            if(m_SyncedSkyMaterial)
+            {
+                RemoveCommands({SkyboxCommandID()}, {"ForwardPass"}, false);
+                m_SyncedSkyMaterial = nullptr;
+            }
+            return;
+        }
+
+        if(m_SyncedSkyMaterial == environment.skyboxMaterial && m_SyncedSkyObjectId == environment.skyboxObjectId)
+            return;
+
+        DrawCommand cmd{};
+        cmd.commandID = SkyboxCommandID();
+        cmd.objectID = environment.skyboxObjectId;
+        cmd.modelMatrix = glm::mat4(1.0f);
+        cmd.mesh = nullptr;
+        cmd.indexCount = 3;
+        cmd.indexOffset = 0;
+        cmd.vertexCount = 3;
+        cmd.material = environment.skyboxMaterial;
+        cmd.fullscreenTri = true;
+        AddOrUpdateCommands({cmd}, {"ForwardPass"}, false);
+
+        m_SyncedSkyMaterial = environment.skyboxMaterial;
+        m_SyncedSkyObjectId = environment.skyboxObjectId;
+    }
+
     void Renderer::BeginFrame()
     {
-        {
-            SHARD_PROFILE_RENDER_SUB_SCOPE(Debugging::RenderSubSample::CameraUpdate);
-            Core::GetEngine().GetCameraManager()->Tick();
-        }
+        SyncSceneDrawLists();
+        m_LightManager->Sync(GetSnapshot().lights);
+        m_ProbeManager->Sync(GetSnapshot());
 
         ReorderDrawList();
 
@@ -781,7 +906,7 @@ namespace Shard::Engine::Rendering{
 
             // Without a camera (or a pushed view) ExecuteRenderPass() draws nothing, so there is no result worth
             // remembering : keep rendering (just the clear) and forget any cached state until one exists.
-            const bool canCache = !m_ViewStack.empty() || Core::GetEngine().GetCameraManager()->GetActiveCamera() != nullptr;
+            const bool canCache = !m_ViewStack.empty() || GetSnapshot().camera.valid;
 
             if (pass->cacheOutput && !canCache)
                 pass->hasCachedState = false;
@@ -909,15 +1034,7 @@ namespace Shard::Engine::Rendering{
             return true;
         }
 
-        auto camera = Core::GetEngine().GetCameraManager()->GetActiveCamera();
-        if(!camera)
-            return false;
-
-        out.view = camera->GetView();
-        out.projection = camera->GetProjection();
-        out.position = camera->parent->transform->GetWorldPosition();
-        out.orthographic = camera->IsOrthographic();
-        return true;
+        return BuildMainView(GetSnapshot(), out);
     }
 
     void Renderer::RenderImmediate(const std::shared_ptr<RenderPass>& pass, const RenderView& view)
@@ -934,17 +1051,17 @@ namespace Shard::Engine::Rendering{
     {
         // With a pushed view the active camera is irrelevant (and may not even exist, e.g. a
         // thumbnail rendered while no world is loaded).
-        std::shared_ptr<Objects::Components::Camera> camera = nullptr;
+        const CameraProxy* camera = nullptr;
         if(m_ViewStack.empty())
         {
-            camera = Core::GetEngine().GetCameraManager()->GetActiveCamera();
+            camera = &GetSnapshot().camera;
 
             // Benign transient: right after boot (before the editor builds its viewport camera) or
             // during a world swap there can be a frame with no active camera. Skip the pass, and warn
             // only on the no-camera -> still-no-camera edge so a genuine "stuck" state stays visible
             // without spamming one line per pass per frame.
             static bool hadCameraLastCall = true;
-            if(!camera)
+            if(!camera->valid)
             {
                 if(hadCameraLastCall)
                     DEBUG_WARNING("No active camera - skipping render passes until one is set");
@@ -963,7 +1080,7 @@ namespace Shard::Engine::Rendering{
         if (camera && camera->frustumCulling && m_CurrentPass->allowCulling)
         {
             cullingActive = true;
-            frustumPlanes = ExtractFrustumPlanes(camera->GetMatrix());
+            frustumPlanes = ExtractFrustumPlanes(CullMatrix(*camera));
         }
         else if (!m_CurrentPass->allowCulling && !m_CurrentPass->cullMatrixUniform.empty())
         {
@@ -1060,17 +1177,17 @@ namespace Shard::Engine::Rendering{
         if (!m_ViewStack.empty() || pass->externalDrawList || !pass->allowCulling || !pass->target || !pass->target->GetSpecifications().hasDepth)
             return false;
 
-        auto camera = Core::GetEngine().GetCameraManager()->GetActiveCamera();
-        if (!camera || !camera->frustumCulling)
+        const CameraProxy& camera = GetSnapshot().camera;
+        if (!camera.valid || !camera.frustumCulling)
             return false;
 
-        return m_OcclusionCulling->PrepareFirstPhase(passName, pass->drawList, camera->GetMatrix(), MakeOcclusionTarget(pass));
+        return m_OcclusionCulling->PrepareFirstPhase(passName, pass->drawList, CullMatrix(camera), MakeOcclusionTarget(pass));
     }
 
     void Renderer::ExecuteOcclusionCulledPass(const std::string& passName, const std::shared_ptr<RenderPass>& pass)
     {
-        auto camera = Core::GetEngine().GetCameraManager()->GetActiveCamera();
-        if (!camera)
+        const CameraProxy& camera = GetSnapshot().camera;
+        if (!camera.valid)
             return;
 
         m_RendererAPI->SetIndirectDrawBuffer(m_OcclusionCulling->GetIndirectBuffer(passName));
@@ -1081,7 +1198,7 @@ namespace Shard::Engine::Rendering{
 
         // Hi-Z from that depth, then every command is re-tested against it. The compute work reprograms the
         // API state behind the draw path's back, hence the invalidation before drawing again.
-        m_OcclusionCulling->PrepareSecondPhase(passName, camera->GetMatrix(), MakeOcclusionTarget(pass));
+        m_OcclusionCulling->PrepareSecondPhase(passName, CullMatrix(camera), MakeOcclusionTarget(pass));
         m_RendererAPI->InvalidateStateCache();
 
         // Phase 2 : whatever turned out visible that phase 1 didn't draw

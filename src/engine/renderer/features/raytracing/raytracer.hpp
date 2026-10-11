@@ -10,14 +10,7 @@
 #include "engine/assets/vfs/filesystem.hpp"
 
 #include "engine/renderer/features/lighting/light_manager.hpp"
-
-namespace Shard::Engine::Worlds {
-    class World;
-}
-
-namespace Shard::Engine::Objects::Components {
-    class Camera;
-}
+#include "engine/renderer/rhi/render_snapshot.hpp"
 
 namespace Shard::Engine::Rendering {
     class StorageBuffer;
@@ -70,7 +63,7 @@ namespace Shard::Engine::Rendering::Raytracing {
             // caller gets a chance to render+present a "Preparing..." frame before the BVH-build stall
             // happens, instead of freezing before any feedback is visible at all. Returns false
             // immediately (check GetStatusMessage()) if the world/camera are missing.
-            bool Start(Worlds::World* world, const std::shared_ptr<Objects::Components::Camera>& camera,
+            bool Start(const RenderSnapshot& scene, const CameraProxy& camera,
                 const RaytraceSettings& settings, const Filesystem::Path& outputPath);
 
             // No-op unless IsActive(). While Preparing, performs the one-off scene/BVH build + GPU upload
@@ -105,10 +98,11 @@ namespace Shard::Engine::Rendering::Raytracing {
             Filesystem::Path outputPath;
             std::string statusMessage;
 
-            // Captured by Start(), consumed by BuildScene() on the next Update() call. World is a raw,
-            // non-owning pointer (same lifetime assumption as the old single-call Start() had).
-            Worlds::World* pendingWorld = nullptr;
-            std::shared_ptr<Objects::Components::Camera> pendingCamera;
+            // Captured by Start(), consumed by BuildScene() on the next Update() call. The snapshot is a copy
+            // (the meshes and materials it points to are shared) : the render does not follow the simulation.
+            RenderSnapshot pendingScene;
+            CameraProxy pendingCamera;
+            bool hasPending = false;
 
             uint32_t currentSample = 0;
 

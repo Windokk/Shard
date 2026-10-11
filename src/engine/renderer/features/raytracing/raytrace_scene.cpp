@@ -5,12 +5,6 @@
 #include "engine/world/engine.hpp"
 #include "engine/platform/thread/thread.hpp"
 
-#include "engine/world/world.hpp"
-
-#include "engine/world/actor.hpp"
-#include "engine/renderer/components/render_world_data.hpp"
-#include "engine/renderer/components/model_component.hpp"
-#include "engine/world/components/transform.hpp"
 
 #include "engine/renderer/rhi/resources/mesh/mesh.hpp"
 #include "engine/renderer/rhi/material/material.hpp"
@@ -164,30 +158,24 @@ namespace Shard::Engine::Rendering::Raytracing {
         return gm;
     }
 
-    RaytraceScene SceneBuilder::Build(Worlds::World* world)
+    RaytraceScene SceneBuilder::Build(const RenderSnapshot& scene)
     {
-        return BuildFromSnapshot(CaptureSnapshot(world));
+        return BuildFromSnapshot(CaptureSnapshot(scene));
     }
 
-    RaytraceSceneSnapshot SceneBuilder::CaptureSnapshot(Worlds::World* world, bool excludeMasked)
+    RaytraceSceneSnapshot SceneBuilder::CaptureSnapshot(const RenderSnapshot& scene, bool excludeMasked)
     {
         RaytraceSceneSnapshot snapshot;
 
-        if (!world)
-            return snapshot;
-
         std::unordered_map<Rendering::Material*, uint32_t> materialIndices;
 
-        for (auto& [id, model] : world->Ext<RenderWorldData>().models)
+        for (const MeshProxy& proxy : scene.meshes)
         {
-            if (!model || !model->Active())
-                continue;
-
-            std::shared_ptr<Mesh> mesh = model->GetMesh();
+            const std::shared_ptr<Mesh>& mesh = proxy.mesh;
             if (!mesh)
                 continue;
 
-            std::vector<std::shared_ptr<Material>> mats = model->GetMaterials();
+            const std::vector<std::shared_ptr<Material>>& mats = proxy.materials;
             if (mats.empty())
                 continue;
 
@@ -195,7 +183,7 @@ namespace Shard::Engine::Rendering::Raytracing {
 
             ModelSnapshot modelSnap;
             modelSnap.mesh = mesh;
-            modelSnap.worldMatrix = model->parent->transform->GetWorldMatrix();
+            modelSnap.worldMatrix = proxy.worldMatrix;
             modelSnap.materialIndicesPerSubmesh.resize(submeshes.size());
 
             for (size_t submeshIdx = 0; submeshIdx < submeshes.size(); submeshIdx++)

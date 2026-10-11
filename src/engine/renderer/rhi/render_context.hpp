@@ -6,6 +6,7 @@
 
 #include "engine/renderer/rhi/render_pass.hpp"
 #include "engine/renderer/rhi/render_view.hpp"
+#include "engine/renderer/rhi/render_snapshot.hpp"
 #include "engine/renderer/rhi/renderer_api.hpp"
 #include "engine/renderer/rhi/pipelines/pipeline.hpp"
 #include "engine/renderer/rhi/pipelines/compute_pipeline.hpp"
@@ -50,6 +51,12 @@ namespace Shard::Engine::Rendering {
             virtual bool HasViewOverride() const = 0;
             virtual bool GetCurrentView(RenderView& out) = 0;
             virtual void RenderImmediate(const std::shared_ptr<RenderPass>& pass, const RenderView& view) = 0;
+
+            /// @brief Where the Extract stage writes the frame : the only way the renderer learns about the simulation.
+            virtual RenderSnapshotBuffer& GetSnapshotBuffer() = 0;
+            /// @brief The snapshot the current frame renders (while a frame runs), else the latest published one.
+            /// Immutable ; features read the camera, the lights and the world settings from here, never from the world.
+            virtual const RenderSnapshot& GetSnapshot() const = 0;
 
             virtual std::shared_ptr<Framebuffer> GetViewportFramebuffer() const = 0;
             virtual RendererAPI* GetRendererAPI() const = 0;

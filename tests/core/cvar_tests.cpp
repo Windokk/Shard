@@ -331,3 +331,57 @@ TEST(ConfigFiles, OnlyTheUsersChoicesAreSaved) {
     Registry().ClearLayer(ConfigLayer::Project);
     Registry().ClearLayer(ConfigLayer::User);
 }
+
+TEST(CVarSuggest, PrefixMatchesComeBeforeInnerMatches) {
+    CVarRegistry registry;
+    CVar<int> a("suggest.alpha", 1);
+    CVar<int> b("suggest.occlusionalpha", 2);
+    CVar<int> c("zeta.alpha", 3);
+    // Variables register with the global registry, so ask that one
+    auto found = CVarRegistry::Global().Suggest("alpha", 16, false, true);
+
+    ASSERT_GE(found.size(), 3u);
+    // "alpha" starts no name : a word after a '.' ranks before one in the middle of a word
+    EXPECT_EQ(found[0].name, "suggest.alpha");
+    EXPECT_EQ(found[1].name, "zeta.alpha");
+    EXPECT_EQ(found[2].name, "suggest.occlusionalpha");
+}
+
+TEST(CVarSuggest, CommandsAndVariablesCanBeToldApart) {
+    CVar<bool> flag("suggest2.flag", true, "a flag");
+
+    auto onlyCommands = CVarRegistry::Global().Suggest("help", 16, true, false);
+    ASSERT_FALSE(onlyCommands.empty());
+    for (const auto& s : onlyCommands)
+        EXPECT_EQ(s.kind, CVarRegistry::Suggestion::Kind::Command);
+
+    auto onlyVariables = CVarRegistry::Global().Suggest("suggest2", 16, false, true);
+    ASSERT_EQ(onlyVariables.size(), 1u);
+    EXPECT_EQ(onlyVariables[0].kind, CVarRegistry::Suggestion::Kind::Variable);
+    EXPECT_EQ(onlyVariables[0].type, "bool");
+    EXPECT_EQ(onlyVariables[0].value, "true");
+    EXPECT_EQ(onlyVariables[0].help, "a flag");
+}
+
+TEST(CVarSuggest, DescribeIsExactAndCaseInsensitive) {
+    CVar<int> value("suggest3.value", 7, "seven");
+
+    auto info = CVarRegistry::Global().Describe("SUGGEST3.Value");
+    ASSERT_TRUE(info.has_value());
+    EXPECT_EQ(info->name, "suggest3.value");
+    EXPECT_EQ(info->defaultValue, "7");
+
+    EXPECT_FALSE(CVarRegistry::Global().Describe("suggest3").has_value());     // a prefix is not a name
+    EXPECT_TRUE(CVarRegistry::Global().Describe("help").has_value());
+}
+
+TEST(CVarSuggest, RespectsTheLimitAndHidesHiddenVariables) {
+    CVar<int> hidden("suggest4.secret", 0, "", CVarFlags::Hidden);
+    CVar<int> shown("suggest4.shown", 0);
+
+    auto found = CVarRegistry::Global().Suggest("suggest4", 16, false, true);
+    ASSERT_EQ(found.size(), 1u);
+    EXPECT_EQ(found[0].name, "suggest4.shown");
+
+    EXPECT_LE(CVarRegistry::Global().Suggest("", 3).size(), 3u);
+}

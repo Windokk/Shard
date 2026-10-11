@@ -6,9 +6,6 @@
 
 #include <engine/core/diagnostics/logger.hpp>
 
-namespace Shard::Engine::Objects::Components{
-    class Camera;
-}
 
 namespace Shard::Engine::Rendering {
 
@@ -44,6 +41,8 @@ namespace Shard::Engine::Rendering {
         // Directional (CSM)
         glm::mat4 lightMatrix[CASCADES_PER_LIGHT];                                      // One matrix per cascade
         float cascadeSplits[CASCADES_PER_LIGHT];                                        // Only used for directional lights
+        float splitCameraNear = -1.0f;                                                  // The camera planes the splits were computed for : they follow the camera
+        float splitCameraFar = -1.0f;
 
         // Point 
         std::shared_ptr<Cubemap> depthCubemap;                                          // Single cubemap for point lights

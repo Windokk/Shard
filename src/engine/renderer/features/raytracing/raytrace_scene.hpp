@@ -7,9 +7,7 @@
 
 #include <glm/glm.hpp>
 
-namespace Shard::Engine::Worlds {
-    class World;
-}
+#include "engine/renderer/rhi/render_snapshot.hpp"
 
 namespace Shard::Engine::Rendering {
     class Mesh;
@@ -128,7 +126,7 @@ namespace Shard::Engine::Rendering::Raytracing {
             // that thread - the callback must be cheap and thread-safe.
             using ProgressCallback = std::function<void(float, const char*)>;
 
-            // Walks every active Model component in `world`, flattens their (world-transformed)
+            // Walks every mesh of the render snapshot, flattens their (world-transformed)
             // triangles and materials into GPU-ready arrays, and builds a BVH over them. Materials are
             // read from their scalar parameters (albedo/roughness/metallic/emissive) plus, when present,
             // bindless handles for their albedo/metallic/roughness/normal/emissive textures - a texture,
@@ -137,10 +135,10 @@ namespace Shard::Engine::Rendering::Raytracing {
             //
             // Equivalent to BuildFromSnapshot(CaptureSnapshot(world)) - kept as a single call for
             // callers (the offline Raytracer) that want the whole thing done synchronously in one shot.
-            static RaytraceScene Build(Worlds::World* world);
+            static RaytraceScene Build(const RenderSnapshot& scene);
 
             // Main-thread-only, cheap (bounded by model/material count, not triangle count): walks
-            // `world`'s live actors/materials and produces a self-contained snapshot with every
+            // the snapshot's meshes/materials and produces a self-contained snapshot with every
             // GL-touching bit (bindless texture handle resolution via Material::GetTextureParameter)
             // already done. Must be called from the thread that owns the GL context.
             //
@@ -156,7 +154,7 @@ namespace Shard::Engine::Rendering::Raytracing {
             // flicker/leaks on whatever it's stuck next to. Dropping masked geometry from GI capture
             // entirely (no bounce contribution from foliage) reads far better in practice than a biased,
             // unstable solid-card approximation of it.
-            static RaytraceSceneSnapshot CaptureSnapshot(Worlds::World* world, bool excludeMasked = false);
+            static RaytraceSceneSnapshot CaptureSnapshot(const RenderSnapshot& scene, bool excludeMasked = false);
 
             // Pure CPU (triangle flattening + BVH build) - touches no engine singleton, no GL, no live
             // World/Actor/Transform state, only the snapshot's copied data - safe to call from any

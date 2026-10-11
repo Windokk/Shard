@@ -436,6 +436,34 @@ TEST(EcsScheduler, IndependentSystemsReallyRunAtTheSameTime) {
     EXPECT_TRUE(overlapped[1]);
 }
 
+TEST(EcsScheduler, MainThreadSystemsRunOnTheCallingThreadInOrder) {
+    JobSystemDesc desc; desc.workerCount = 3;
+    JobSystem js(desc);
+    Registry registry;
+    Scheduler scheduler;
+
+    // Two systems of one phase : unbound, they could be handed to workers. One of them needs the main thread (the GL context),
+    // so both have to run there, in registration order.
+    const std::thread::id caller = std::this_thread::get_id();
+    std::vector<std::string> order;
+    std::vector<bool> onCaller;
+    for (const char* name : {"extract", "draw"}) {
+        SystemDesc d; d.name = name; d.phase = Phase::Extract; d.Exclusive();
+        if (std::string(name) == "draw") d.MainThread();
+        d.run = [&, name](SystemContext&) { order.push_back(name); onCaller.push_back(std::this_thread::get_id() == caller); };
+        scheduler.Add(std::move(d));
+    }
+
+    for (int frame = 0; frame < 20; ++frame) {
+        order.clear(); onCaller.clear();
+        scheduler.RunFrame(registry, &js, {});
+        ASSERT_EQ(order.size(), 2u);
+        EXPECT_EQ(order[0], "extract");
+        EXPECT_EQ(order[1], "draw");
+        EXPECT_TRUE(onCaller[0] && onCaller[1]);
+    }
+}
+
 TEST(EcsScheduler, ConflictingSystemsNeverOverlapAndKeepTheirOrder) {
     JobSystemDesc desc; desc.workerCount = 3;
     JobSystem js(desc);

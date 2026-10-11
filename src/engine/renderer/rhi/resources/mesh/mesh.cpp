@@ -5,8 +5,6 @@
 #include "engine/renderer/rhi/shader/shader.hpp"
 #include "engine/world/engine.hpp"
 
-#include "engine/world/actor.hpp"
-
 #include <unordered_map>
 #include <cstring>
 #include <algorithm>
@@ -466,7 +464,7 @@ namespace Shard::Engine::Rendering{
         }
     }
 
-    std::vector<DrawCommand> Mesh::CreateDrawCommands(std::shared_ptr<Objects::Components::Transform> tr, int modelID, std::vector<std::shared_ptr<Material>> mats)
+    std::vector<DrawCommand> Mesh::CreateDrawCommands(const glm::mat4& worldMatrix, int objectID, int modelID, std::vector<std::shared_ptr<Material>> mats)
     {
         if(mats.empty()){
             DEBUG_ERROR("Cannot create draw commands: no materials supplied");
@@ -496,8 +494,8 @@ namespace Shard::Engine::Rendering{
 
             cmd.mesh        = shared_from_this();
             cmd.material    = mats[slot];
-            cmd.modelMatrix = tr->GetWorldMatrix();
-            cmd.objectID    = tr->parent->GetID().GetAsInt();
+            cmd.modelMatrix = worldMatrix;
+            cmd.objectID    = objectID;
             cmd.modelID     = modelID;
 
             // Per-submesh bounds, so frustum culling can drop the parts of a big mesh that are out of view

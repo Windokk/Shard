@@ -24,11 +24,10 @@ namespace Shard::Engine::Rendering{
     /// What the renderer keeps on a world : the components it draws or lights the scene with, and the skybox.
     class RenderWorldData : public Worlds::IWorldExtension{
         public:
-            std::shared_ptr<Objects::Components::ProbeVolume> probeVolume;
             std::shared_ptr<Objects::Skybox> skybox;
 
             // These are maps for fast lookup (key: id IN WORLD, value: ptr to the comp)
-            std::vector<std::shared_ptr<Objects::Components::Light>> lights;
+            std::unordered_map<int, std::shared_ptr<Objects::Components::ProbeVolume>> probeVolumes;
             std::unordered_map<int, std::shared_ptr<Objects::Components::Light>> lightComps;
             std::unordered_map<int, std::shared_ptr<Objects::Components::Model>> models;
             std::unordered_map<int, std::shared_ptr<Objects::Components::Camera>> cameras;
