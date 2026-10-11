@@ -38,10 +38,10 @@ namespace {
     }
 }
 
-TEST(BillboardAtlasTest, TheSheetIs1024With16PixelTilesFor4096Sprites) {
+TEST(BillboardAtlasTest, TheSheetIs1024With64PixelTilesFor256Sprites) {
     EXPECT_EQ(BillboardAtlas::kSheetSize, 1024u);
-    EXPECT_EQ(BillboardAtlas::kTileSize, 16u);
-    EXPECT_EQ(BillboardAtlas::kMaxSprites, 4096u);
+    EXPECT_EQ(BillboardAtlas::kTileSize, 64u);
+    EXPECT_EQ(BillboardAtlas::kMaxSprites, 256u);
 }
 
 TEST(BillboardAtlasTest, ASheetIsResampledToOneTilePerFrame) {

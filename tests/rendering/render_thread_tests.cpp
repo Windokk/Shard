@@ -258,18 +258,40 @@ TEST(RenderThread, OverlapsTheSimulationWithTheFrame) {
     ScopedRenderThread scoped(2);
     RenderThread& rt = scoped.thread;
 
+    // Measured against the same work done one after the other on this machine : sleeps are as long as the machine's timer
+    // makes them (15 ms steps on a loaded Windows runner), so an absolute bound is not a fair one. Best of a few runs, as one
+    // run can be disturbed by whatever else the machine does.
     const int frames = 20;
-    const auto start = std::chrono::steady_clock::now();
-    for (int i = 0; i < frames; i++)
-    {
-        rt.WaitForFrameSlot();
-        std::this_thread::sleep_for(10ms);                                     // simulation of the next frame
-        rt.SubmitFrame([] { std::this_thread::sleep_for(10ms); });             // drawing of this one
-    }
-    rt.Flush();
-    const double totalMs = std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - start).count();
+    const auto elapsed = [](std::chrono::steady_clock::time_point since) {
+        return std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - since).count();
+    };
 
-    EXPECT_LT(totalMs, frames * 17.0) << "no overlap between simulation and render (serial would be " << frames * 20 << " ms)";
+    double bestRatio = 1e9;
+    double lastSerial = 0.0, lastOverlapped = 0.0;
+    for (int attempt = 0; attempt < 3 && bestRatio >= 0.85; attempt++)
+    {
+        auto start = std::chrono::steady_clock::now();
+        for (int i = 0; i < frames; i++)
+        {
+            std::this_thread::sleep_for(10ms);
+            std::this_thread::sleep_for(10ms);
+        }
+        lastSerial = elapsed(start);
+
+        start = std::chrono::steady_clock::now();
+        for (int i = 0; i < frames; i++)
+        {
+            rt.WaitForFrameSlot();
+            std::this_thread::sleep_for(10ms);                                     // simulation of the next frame
+            rt.SubmitFrame([] { std::this_thread::sleep_for(10ms); });             // drawing of this one
+        }
+        rt.Flush();
+        lastOverlapped = elapsed(start);
+
+        bestRatio = std::min(bestRatio, lastOverlapped / lastSerial);
+    }
+
+    EXPECT_LT(bestRatio, 0.85) << "no overlap between simulation and render (last run : " << lastOverlapped << " ms overlapped, " << lastSerial << " ms serial)";
 }
 
 TEST(RenderThread, ManyThreadsCanPostAtOnce) {

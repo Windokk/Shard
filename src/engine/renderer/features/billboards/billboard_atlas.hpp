@@ -19,7 +19,7 @@ namespace Shard::Engine::Rendering {
     enum class BuiltinSprite : uint32_t { Light = 0, Camera = 1, ProbeVolume = 2, Generic = 3, Count };
 
     /// @brief Every sprite the billboards draw, in one spritesheet texture so that the whole lot is a single draw call.
-    /// The sheet is a fixed 1024 x 1024 grid of 16 x 16 pixels tiles (64 x 64 = 4096 sprites) ; a sprite id is its tile index
+    /// The sheet is a fixed 1024 x 1024 grid of 64 x 64 pixels tiles (16 x 16 = 256 sprites) ; a sprite id is its tile index
     /// (row by row, row 0 at the bottom). Every image is resampled to one tile when it is registered.
     /// @note Registration (main thread, CPU only : the pixels are decoded by the caller) and Rebuild (graphics thread : makes the
     /// texture) are separate, and the registry is mutex protected. A sprite id never changes once given.
@@ -30,7 +30,7 @@ namespace Shard::Engine::Rendering {
             BillboardAtlas();
 
             static constexpr uint32_t kSheetSize = 1024;
-            static constexpr uint32_t kTileSize = 16;
+            static constexpr uint32_t kTileSize = 64;
             static constexpr uint32_t kTilesPerRow = kSheetSize / kTileSize;
             static constexpr uint32_t kMaxSprites = kTilesPerRow * kTilesPerRow;
 
