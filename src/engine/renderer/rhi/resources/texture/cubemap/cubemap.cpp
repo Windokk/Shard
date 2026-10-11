@@ -1,4 +1,5 @@
 #include "cubemap.hpp"
+#include "engine/renderer/rhi/render_thread.hpp"
 
 #include "engine/world/engine.hpp"
 
@@ -16,7 +17,7 @@ namespace Shard::Engine::Rendering{
         switch(RendererAPI::Current()->GetAPI())
         {
             case RendererAPI::API::OpenGL:
-                return std::make_shared<GLCubemap>(specs, faces);
+                return OnGraphicsThread([&]() -> std::shared_ptr<Cubemap> { return std::make_shared<GLCubemap>(specs, faces); });
 
             /*case API::Vulkan:
                 return std::make_shared<VKCubemap>(faces);
@@ -80,7 +81,7 @@ namespace Shard::Engine::Rendering{
         switch(RendererAPI::Current()->GetAPI())
         {
             case RendererAPI::API::OpenGL:
-                return std::make_shared<GLCubemapArray>(specs, data);
+                return OnGraphicsThread([&]() -> std::shared_ptr<CubemapArray> { return std::make_shared<GLCubemapArray>(specs, data); });
 
             /*case API::Vulkan:
                 return std::make_shared<VKCubemap>(faces);

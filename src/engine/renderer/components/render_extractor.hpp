@@ -1,6 +1,7 @@
 #pragma once
 
 #include <cstdint>
+#include <functional>
 #include <vector>
 
 #include "engine/renderer/rhi/render_snapshot.hpp"
@@ -41,8 +42,18 @@ namespace Shard::Engine::Rendering {
             uint32_t meshesChanged = 0;
             uint32_t lights = 0;
             uint32_t probeVolumes = 0;
+            uint32_t billboards = 0;
             bool parallel = false;
         };
+
+        /// @brief Turns the components of one kind in a world into billboards (appends to `out`, with keys made like the other proxies').
+        /// `snapshot` is the one being built : its camera is already set. This is where a type gets its editor icon or its handle
+        /// (lights, cameras, probe volumes and Billboard components are built in ; a skeleton's bones or an IK rig add theirs).
+        using BillboardProvider = std::function<void(Worlds::World& world, int worldIndex, const RenderSnapshot& snapshot, std::vector<BillboardProxy>& out)>;
+
+        RenderExtractor();
+
+        void AddBillboardProvider(BillboardProvider provider) { m_BillboardProviders.push_back(std::move(provider)); }
 
         /// @brief Builds the next snapshot from `worlds` and publishes it to `renderer`.
         /// @param jobs may be null (serial)
@@ -64,6 +75,7 @@ namespace Shard::Engine::Rendering {
 
         std::vector<MeshSource> m_Sources;              // scratch, kept between frames
         std::vector<int> m_PreviousIndex;
+        std::vector<BillboardProvider> m_BillboardProviders;
         Stats m_Stats;
     };
 

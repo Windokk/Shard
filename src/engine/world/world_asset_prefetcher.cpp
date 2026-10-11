@@ -56,6 +56,7 @@ namespace Shard::Engine::Worlds{
 
         totalCount = (int)jobs.size();
         state = State::Decoding;
+        loadStart = std::chrono::steady_clock::now();
         // Kick off the first decodes right away instead of waiting for the first Pump()
         for(int i = 0; i < (int)jobs.size() && i < maxInFlight; i++)
             StartDecode(jobs[i]);
@@ -138,6 +139,8 @@ namespace Shard::Engine::Worlds{
         if(applied < (int)jobs.size())
             return false;
 
+        DEBUG_INFO("World assets : " + std::to_string(jobs.size()) + " decoded and uploaded in " +
+                   std::to_string(std::chrono::duration<float>(Clock::now() - loadStart).count()) + " s");
         jobs.clear();
         state = State::Idle;
         return true;

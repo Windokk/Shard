@@ -1,10 +1,12 @@
 #pragma once
 
+#include <memory>
 #include <vector>
 
 #include "engine/core/color.hpp"
 
 #include "engine/assets/vfs/filesystem.hpp"
+#include "engine/renderer/rhi/resources/texture/texture_compression.hpp"
 
 namespace Shard::Engine::Rendering {
     
@@ -74,9 +76,6 @@ namespace Shard::Engine::Rendering {
         CompareRefToTexture
     };
 
-    // Access qualifier for binding a texture as an image unit (glBindImageTexture) rather than as a
-    // sampler - this is how a compute shader reads/writes a texture directly (e.g. a raytracer's
-    // output image), as opposed to the filtered/interpolated sampling done through Bind().
     enum class TextureAccess
     {
         ReadOnly,
@@ -106,23 +105,11 @@ namespace Shard::Engine::Rendering {
 
         bool generateMips = true;
 
-        // Allocates storage with glTexStorage2D (immutable) instead of glTexImage2D. Required in
-        // practice for a texture a compute shader will bind as an image (BindImage) - it pins down a
-        // fixed format/mip count up front, which is what image load/store needs to stay well-defined.
         bool immutableStorage = false;
 
-        // The pixel data handed to Texture2D::Create() and returned by ReadPixels() is packed 16-bit
-        // half floats (GL_HALF_FLOAT) instead of the 32-bit floats every *16F format uses by default.
-        // Only meaningful for R16F/RG16F/RGB16F/RGBA16F. Lets a half-float texture be saved to and
-        // restored from disk byte-for-byte (see ProbeBakeData) with no float<->half conversion, and makes
-        // GetPixelDataSize() the true readback size - with the default float path it under-reports a
-        // *16F texture's ReadPixels() output by half.
         bool halfFloatPixelData = false;
     };
 
-    // Result of decoding an image file into CPU memory, with no GL calls involved - safe to produce
-    // on a worker thread. `pixels` owns its own copy of the decoded data (not a raw stbi pointer), so
-    // it can be handed across a thread boundary and consumed later by Texture2D::Create(spec, data).
     struct TextureDecodeResult
     {
         bool success = false;
@@ -130,12 +117,15 @@ namespace Shard::Engine::Rendering {
         int height = 0;
         TextureInternalFormat format = TextureInternalFormat::RGBA;
         std::vector<unsigned char> pixels;
+
+        std::shared_ptr<CompressedImage> compressed;
     };
 
-    // Pure CPU decode (file read + stb_image decode) of an image file - no GL calls, safe to call
-    // from any thread. Used both by Texture2D::Create(spec, filepath) and by the async world loader's
-    // background decode workers.
     TextureDecodeResult DecodeTextureFile(const Filesystem::Path& filepath);
+
+    TextureDecodeResult DecodeTextureFileForUpload(const Filesystem::Path& filepath, unsigned threads = 1);
+
+    uint32_t MipsToSkip(uint32_t width, uint32_t height);
 
     class Texture2D
     {
@@ -145,20 +135,10 @@ namespace Shard::Engine::Rendering {
 
             virtual void Bind(uint32_t slot = 0) const = 0;
 
-            // Binds this texture to an image unit for use with image load/store in a shader (e.g.
-            // `imageStore`/`imageLoad` in a compute shader), as opposed to sampled access via Bind().
-            // Requires the texture to have been created with immutableStorage = true.
             virtual void BindImage(uint32_t unit, TextureAccess access, uint32_t world = 0) const = 0;
 
-            // Blocking readback of this texture's pixel data into CPU memory (e.g. to export a
-            // compute-shader-rendered image to disk). outData must be at least GetPixelDataSize(world)
-            // bytes. If a compute shader wrote to this texture via BindImage, a
-            // MemoryBarrierBit::TextureUpdate barrier must be issued after the dispatch and before this
-            // call, or the read may return stale data.
             virtual void ReadPixels(void* outData, size_t bufferSize, uint32_t world = 0) const = 0;
 
-            // Size in bytes of a full ReadPixels() call for the given mip level, based on this
-            // texture's format - use this to size the buffer passed to ReadPixels().
             size_t GetPixelDataSize(uint32_t world = 0) const;
 
             uint32_t GetWidth() const { return m_Specifications.width; }
@@ -178,6 +158,17 @@ namespace Shard::Engine::Rendering {
             static std::shared_ptr<Texture2D> Create(
                 TextureSpecifications& spec,
                 const Filesystem::Path& filepath
+            );
+
+            static std::shared_ptr<Texture2D> Create(
+                const TextureSpecifications& spec,
+                const CompressedImage& image,
+                uint32_t firstMip = 0
+            );
+
+            static std::shared_ptr<Texture2D> Create(
+                TextureSpecifications& spec,
+                const TextureDecodeResult& decoded
             );
 
             void SetAssetID(Filesystem::AssetID assetID) {

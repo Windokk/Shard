@@ -1,4 +1,5 @@
 #include "gl_api.hpp"
+#include "engine/renderer/rhi/render_thread.hpp"
 
 #include "engine/renderer/rhi/render_pass.hpp"
 #include "engine/renderer/rhi/render_view.hpp"
@@ -41,16 +42,19 @@ namespace Shard::Engine::Rendering{
 
     void GLRendererAPI::SetViewport(uint32_t x, uint32_t y, uint32_t width, uint32_t height)
     {
+        SHARD_ASSERT_GRAPHICS_THREAD();
         glViewport(x, y, width, height);
     }
 
     void GLRendererAPI::SetClearColor(float r, float g, float b, float a)
     {
+        SHARD_ASSERT_GRAPHICS_THREAD();
         glClearColor(r, g, b, a);
     }
 
     glm::vec4 GLRendererAPI::GetClearColor()
     {
+        SHARD_ASSERT_GRAPHICS_THREAD();
         glm::vec4 color;
         glGetFloatv(GL_COLOR_CLEAR_VALUE, &color.x);
         return color;
@@ -58,6 +62,7 @@ namespace Shard::Engine::Rendering{
 
     void GLRendererAPI::Clear(ClearBit clearBits)
     {
+        SHARD_ASSERT_GRAPHICS_THREAD();
         GLStateCache::Reset();
         m_LastDraw = LastDraw{};
 
@@ -79,6 +84,7 @@ namespace Shard::Engine::Rendering{
 
     void GLRendererAPI::BindTextureUnit(uint32_t binding, uint32_t handle)
     {
+        SHARD_ASSERT_GRAPHICS_THREAD();
         GLStateCache::BindTextureUnit(binding, handle);
     }
 
@@ -96,18 +102,21 @@ namespace Shard::Engine::Rendering{
 
     std::string GLRendererAPI::GetDeviceVendor()
     {
+        SHARD_ASSERT_GRAPHICS_THREAD();
         const GLubyte* vendor = glGetString(GL_VENDOR);
         return vendor ? reinterpret_cast<const char*>(vendor) : "Unknown";
     }
 
     std::string GLRendererAPI::GetRendererName()
     {
+        SHARD_ASSERT_GRAPHICS_THREAD();
         const GLubyte* renderer = glGetString(GL_RENDERER);
         return renderer ? reinterpret_cast<const char*>(renderer) : "Unknown";
     }
 
     std::string GLRendererAPI::GetDriverVersion()
     {
+        SHARD_ASSERT_GRAPHICS_THREAD();
         const GLubyte* version = glGetString(GL_VERSION);
         return version ? reinterpret_cast<const char*>(version) : "Unknown";
     }
@@ -209,6 +218,7 @@ namespace Shard::Engine::Rendering{
 
     void GLRendererAPI::SetIndirectDrawBuffer(uint32_t bufferHandle)
     {
+        SHARD_ASSERT_GRAPHICS_THREAD();
         m_IndirectBuffer = bufferHandle;
         // The binding point is only ever used for these draws, so it is bound once here rather than per draw
         glBindBuffer(GL_DRAW_INDIRECT_BUFFER, bufferHandle);
@@ -231,8 +241,118 @@ namespace Shard::Engine::Rendering{
         glDrawArrays(GL_TRIANGLES, 0, 3);
     }
 
+    bool GLRendererAPI::IsDepthPrepassCandidate(const DrawCommand& command, const RenderPass& pass)
+    {
+        if (command.fullscreenTri || !command.material || !command.mesh || pass.overridePipeline)
+            return false;
+        if (command.material->GetOpacity() != Opacity::Opaque)
+            return false;
+
+        const std::shared_ptr<Pipeline>& pipeline = command.material->GetPipeline();
+        if (!pipeline)
+            return false;
+        const PipelineSpecifications& specs = pipeline->GetSpecifications();
+        if (!specs.depthTest || !specs.depthWrite || specs.blending || specs.polygonMode != PolygonMode::Fill || !specs.shader)
+            return false;
+
+        return specs.shader->SupportsDepthPrepass();
+    }
+
+    void GLRendererAPI::SetDepthSweep(DepthSweep sweep)
+    {
+        if (m_Sweep == DepthSweep::Prepass && sweep != DepthSweep::Prepass)
+        {
+            // The shaders go back to shading : the switch is a program uniform, it would stay on for any later draw
+            for (const std::shared_ptr<Shader>& shader : m_PrepassShaders)
+            {
+                std::static_pointer_cast<GLShader>(shader)->Bind();
+                shader->SetBool("depthPrepass", false);
+            }
+            m_PrepassShaders.clear();
+        }
+
+        m_Sweep = sweep;
+
+        switch (sweep)
+        {
+            case DepthSweep::None:
+                GLStateCache::SetDepthMode(GLStateCache::DepthMode::Normal);
+                GLStateCache::SetColorWrite(true);
+                break;
+            case DepthSweep::Prepass:
+                GLStateCache::SetDepthMode(GLStateCache::DepthMode::Prepass);
+                GLStateCache::SetColorWrite(false);
+                break;
+            case DepthSweep::Equal:
+                GLStateCache::SetColorWrite(true);
+                break;      // the mode follows each draw (a candidate or not)
+        }
+
+        // The programs, depth state and texture units the sweep left bound are not what the next one expects
+        InvalidateStateCache();
+    }
+
+    void GLRendererAPI::ExecuteDepthOnlyDraw(const DrawCommand& command)
+    {
+        {
+            SHARD_PROFILE_RENDER_SUB_SCOPE(Debugging::RenderSubSample::StateBinding);
+
+            BindMesh(command.mesh);
+
+            std::shared_ptr<Pipeline> pipeline = command.material->GetPipeline();
+            BindPipeline(pipeline);
+
+            std::shared_ptr<Shader> shader = pipeline->GetSpecifications().shader;
+            const GLuint program = std::static_pointer_cast<GLShader>(shader)->GetProgram();
+
+            if (GLStateCache::NeedsPassGlobalsUpdate(program, GLStateCache::PassGlobalsKind::DepthSweep))
+            {
+                shader->SetBool("depthPrepass", true);
+                if (std::find(m_PrepassShaders.begin(), m_PrepassShaders.end(), shader) == m_PrepassShaders.end())
+                    m_PrepassShaders.push_back(shader);
+            }
+
+            if (command.bindCameraState && GLStateCache::NeedsPassGlobalsUpdate(program, GLStateCache::PassGlobalsKind::Camera))
+            {
+                RenderView currentView;
+                if (m_Scene->GetCurrentView(currentView))
+                {
+                    shader->SetMat4("uProjection", currentView.projection);
+                    shader->SetMat4("uView", currentView.view);
+                    shader->SetBool("uIsOrtho", currentView.orthographic);
+                }
+            }
+
+            if (m_LastDraw.pipeline != pipeline.get() || m_LastDraw.modelMatrix != command.modelMatrix)
+                shader->SetMat4("model", command.modelMatrix);
+
+            m_LastDraw.pass = nullptr;
+            m_LastDraw.pipeline = pipeline.get();
+            m_LastDraw.material = nullptr;
+            m_LastDraw.modelMatrix = command.modelMatrix;
+        }
+
+        if (command.indexCount == 0)
+            return;
+
+        if (m_IndirectBuffer != 0 && command.cullSlot >= 0)
+            DrawIndexedIndirect(command.material->GetPipeline(), (uint32_t)command.cullSlot);
+        else
+            DrawIndexed(command.material->GetPipeline(), command.indexCount, command.indexOffset);
+    }
+
     void GLRendererAPI::ExecuteDrawCommand(const DrawCommand &command, const std::shared_ptr<RenderPass> pass)
     {
+        SHARD_ASSERT_GRAPHICS_THREAD();
+        if (m_Sweep == DepthSweep::Prepass)
+        {
+            ExecuteDepthOnlyDraw(command);
+            return;
+        }
+
+        if (m_Sweep == DepthSweep::Equal)
+            GLStateCache::SetDepthMode(IsDepthPrepassCandidate(command, *pass) ? GLStateCache::DepthMode::Equal : GLStateCache::DepthMode::Normal);
+
         std::shared_ptr<Pipeline> pipeline = nullptr;
 
         {
@@ -307,7 +427,13 @@ namespace Shard::Engine::Rendering{
         }
 
         if(command.fullscreenTri){
-            DrawFullScreenTriangle();
+            if(command.proceduralVertexCount > 0)
+            {
+                if(command.instanceCount > 0)
+                    glDrawArraysInstanced(GL_TRIANGLES, 0, GLsizei(command.proceduralVertexCount), GLsizei(command.instanceCount));
+            }
+            else
+                DrawFullScreenTriangle();
         }
         else{
             if (command.indexCount == 0) return;
@@ -321,6 +447,7 @@ namespace Shard::Engine::Rendering{
 
     void GLRendererAPI::ExecuteComputeDispatch(const std::shared_ptr<ComputePipeline> pipeline, uint32_t groupsX, uint32_t groupsY, uint32_t groupsZ)
     {
+        SHARD_ASSERT_GRAPHICS_THREAD();
         const ComputeLimits& limits = GetComputeLimits();
 
         uint32_t requested[3] = { groupsX, groupsY, groupsZ };
@@ -346,6 +473,8 @@ namespace Shard::Engine::Rendering{
 
     const ComputeLimits& GLRendererAPI::GetComputeLimits()
     {
+        if (!m_ComputeLimitsQueried && !RenderThread::Get().IsGraphicsThread())
+            RenderThread::Get().Invoke([this] { GetComputeLimits(); });     // the first call asks the driver
         if (m_ComputeLimitsQueried)
             return m_ComputeLimits;
 
@@ -375,6 +504,7 @@ namespace Shard::Engine::Rendering{
 
     void GLRendererAPI::MemoryBarrier(MemoryBarrierBit barriers)
     {
+        SHARD_ASSERT_GRAPHICS_THREAD();
         GLbitfield bits = 0;
 
         if (barriers == MemoryBarrierBit::All)
@@ -411,9 +541,26 @@ namespace Shard::Engine::Rendering{
 
     void GLRendererAPI::ToggleMultisampling(const bool on)
     {
+        SHARD_ASSERT_GRAPHICS_THREAD();
         if(on)
             glEnable(GL_MULTISAMPLE);
         else
             glDisable(GL_MULTISAMPLE);
+    }
+}
+
+namespace Shard::Engine::Rendering{
+
+    bool GLRendererAPI::SupportsBlockCompression()
+    {
+        // BC7 is BPTC (core since 4.2), BC4 / BC5 are RGTC (core since 3.0) ; glTexStorage2D needs 4.2 as well
+        return GLAD_GL_VERSION_4_2 || (GLAD_GL_ARB_texture_compression_bptc && GLAD_GL_ARB_texture_storage);
+    }
+
+    GpuProfiler* GLRendererAPI::GetGpuProfiler()
+    {
+        if (!m_GpuProfiler)
+            m_GpuProfiler = std::make_unique<GLGpuProfiler>();
+        return m_GpuProfiler.get();
     }
 }

@@ -1,4 +1,5 @@
 #include "gl_compute_shader.hpp"
+#include "engine/renderer/rhi/render_thread.hpp"
 
 #include "engine/renderer/rhi/backends/opengl/gl_utils.hpp"
 #include "engine/renderer/rhi/shader/glsl_preprocessor.hpp"
@@ -263,11 +264,13 @@ namespace Shard::Engine::Rendering{
 
     void GLComputeShader::Bind()
     {
+        SHARD_ASSERT_GRAPHICS_THREAD();
         GLStateCache::BindProgram(m_Program);
     }
 
     void GLComputeShader::Unbind()
     {
+        SHARD_ASSERT_GRAPHICS_THREAD();
         GLStateCache::BindProgram(0);
     }
 
@@ -317,52 +320,62 @@ namespace Shard::Engine::Rendering{
 
     void GLComputeShader::SetBool(const std::string &name, bool value)
     {
+        SHARD_ASSERT_GRAPHICS_THREAD();
         glUniform1i(GetUniformLocationCached(name), (int)value);
     }
 
     void GLComputeShader::SetInt(const std::string &name, int value)
     {
+        SHARD_ASSERT_GRAPHICS_THREAD();
         glUniform1i(GetUniformLocationCached(name), value);
     }
 
     void GLComputeShader::SetFloat(const std::string &name, float value)
     {
+        SHARD_ASSERT_GRAPHICS_THREAD();
         glUniform1f(GetUniformLocationCached(name), value);
     }
 
     void GLComputeShader::SetVec2(const std::string &name, const glm::vec2 &value)
     {
+        SHARD_ASSERT_GRAPHICS_THREAD();
         glUniform2fv(GetUniformLocationCached(name), 1, &value[0]);
     }
 
     void GLComputeShader::SetVec3(const std::string &name, const glm::vec3 &value)
     {
+        SHARD_ASSERT_GRAPHICS_THREAD();
         glUniform3fv(GetUniformLocationCached(name), 1, &value[0]);
     }
 
     void GLComputeShader::SetVec4(const std::string &name, const glm::vec4 &value)
     {
+        SHARD_ASSERT_GRAPHICS_THREAD();
         glUniform4fv(GetUniformLocationCached(name), 1, &value[0]);
     }
 
     void GLComputeShader::SetMat2(const std::string &name, const glm::mat2 &mat)
     {
+        SHARD_ASSERT_GRAPHICS_THREAD();
         glUniformMatrix2fv(GetUniformLocationCached(name), 1, GL_FALSE, &mat[0][0]);
     }
 
     void GLComputeShader::SetMat3(const std::string &name, const glm::mat3 &mat)
     {
+        SHARD_ASSERT_GRAPHICS_THREAD();
         glUniformMatrix3fv(GetUniformLocationCached(name), 1, GL_FALSE, &mat[0][0]);
     }
 
     void GLComputeShader::SetMat4(const std::string &name, const glm::mat4 &mat)
     {
+        SHARD_ASSERT_GRAPHICS_THREAD();
         glUniformMatrix4fv(GetUniformLocationCached(name), 1, GL_FALSE, &mat[0][0]);
     }
 
     GLComputeShader::~GLComputeShader()
     {
-        glDeleteProgram(m_Program);
+        const uint32_t program = m_Program;
+        RenderThread::Get().Post([program] { glDeleteProgram(program); });
     }
 
 }

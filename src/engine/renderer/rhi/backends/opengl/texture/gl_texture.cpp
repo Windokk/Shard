@@ -1,6 +1,8 @@
 #include "gl_texture.hpp"
+#include "engine/renderer/rhi/render_thread.hpp"
 
 #include "engine/renderer/rhi/backends/opengl/gl_utils.hpp"
+#include "engine/renderer/rhi/gpu_memory.hpp"
 
 #include <algorithm>
 #include <cmath>
@@ -15,6 +17,9 @@ namespace Shard::Engine::Rendering{
 
     uint64_t GLTexture2D::GetBindlessHandle(uint32_t glTextureID)
     {
+        if (!RenderThread::Get().IsGraphicsThread())
+            return RenderThread::Get().InvokeResult([glTextureID] { return GetBindlessHandle(glTextureID); });
+
         if (glTextureID == 0)
             return 0;
 
@@ -43,17 +48,112 @@ namespace Shard::Engine::Rendering{
 
     bool GLTexture2D::HasBindlessHandle(uint32_t glTextureID)
     {
+        if (!RenderThread::Get().IsGraphicsThread())
+            return RenderThread::Get().InvokeResult([glTextureID] { return HasBindlessHandle(glTextureID); });
+
         return glTextureID != 0 && s_BindlessHandles.find(glTextureID) != s_BindlessHandles.end();
     }
 
     void GLTexture2D::ReleaseBindlessHandle(uint32_t glTextureID)
     {
+        SHARD_FORWARD_TO_GRAPHICS_THREAD(ReleaseBindlessHandle(glTextureID))
+
         auto it = s_BindlessHandles.find(glTextureID);
         if (it == s_BindlessHandles.end())
             return;
 
         glMakeTextureHandleNonResidentARB(it->second);
         s_BindlessHandles.erase(it);
+    }
+
+    namespace {
+        // What the driver really keeps for an uncompressed texture : RGB is padded to four channels, and a mip chain adds a third
+        size_t EstimateTextureBytes(const TextureSpecifications& specs)
+        {
+            size_t bytesPerTexel = 4;
+            switch (specs.internalFormat)
+            {
+                case TextureInternalFormat::RED:  bytesPerTexel = 1; break;
+                case TextureInternalFormat::RG:
+                case TextureInternalFormat::R16F:
+                case TextureInternalFormat::Depth16: bytesPerTexel = 2; break;
+                case TextureInternalFormat::RGB16F:
+                case TextureInternalFormat::RGBA16F: bytesPerTexel = 8; break;
+                case TextureInternalFormat::RGB32F:
+                case TextureInternalFormat::RGB32I:
+                case TextureInternalFormat::RGBA32F:
+                case TextureInternalFormat::RGBA32I: bytesPerTexel = 16; break;
+                default: break;
+            }
+            size_t bytes = size_t(specs.width) * specs.height * bytesPerTexel;
+            return specs.generateMips ? bytes + bytes / 3 : bytes;
+        }
+    }
+
+    GLTexture2D::GLTexture2D(const TextureSpecifications& specs, const CompressedImage& image, uint32_t firstMip)
+    {
+        // Only the levels from `firstMip` on go to the GPU : the image is that many times smaller (never below one level)
+        firstMip = std::min<uint32_t>(firstMip, uint32_t(image.mips.size()) - 1);
+        const uint32_t baseWidth = std::max(1u, image.width >> firstMip);
+        const uint32_t baseHeight = std::max(1u, image.height >> firstMip);
+
+        m_Specifications = specs;
+        m_Specifications.width = baseWidth;
+        m_Specifications.height = baseHeight;
+
+        GLenum internalFormat = GL_COMPRESSED_RGBA_BPTC_UNORM;
+        switch (image.format)
+        {
+            case BlockFormat::BC4: internalFormat = GL_COMPRESSED_RED_RGTC1; m_Specifications.internalFormat = TextureInternalFormat::RED; break;
+            case BlockFormat::BC5: internalFormat = GL_COMPRESSED_RG_RGTC2;  m_Specifications.internalFormat = TextureInternalFormat::RG; break;
+            case BlockFormat::BC7: internalFormat = GL_COMPRESSED_RGBA_BPTC_UNORM; m_Specifications.internalFormat = TextureInternalFormat::RGBA; break;
+        }
+        m_GLInternalFormat = internalFormat;
+
+        GLTextureSpec glSpecs = GLTextureSpec::FromTextureSpecifications(m_Specifications);
+        const int levels = int(image.mips.size() - firstMip);
+
+        glGenTextures(1, &ID);
+        glBindTexture(GL_TEXTURE_2D, ID);
+
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, glSpecs.wrapModeS);
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, glSpecs.wrapModeT);
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, glSpecs.minFilter);
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, glSpecs.magFilter);
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAX_LEVEL, levels - 1);
+
+        // Two channels (a normal map keeps only x and y, the shaders rebuild z) : the blue channel reads as 1 rather than 0, so
+        // such a texture shown as an image (the asset browser) looks like the bluish normal map it is, not red and green
+        if (image.format == BlockFormat::BC5)
+            glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_SWIZZLE_B, GL_ONE);
+
+        glTexStorage2D(GL_TEXTURE_2D, levels, internalFormat, baseWidth, baseHeight);
+
+        uint32_t width = baseWidth, height = baseHeight;
+        for (int level = 0; level < levels; level++)
+        {
+            const std::vector<uint8_t>& mip = image.mips[firstMip + level];
+            glCompressedTexSubImage2D(GL_TEXTURE_2D, level, 0, 0, width, height, internalFormat,
+                                      static_cast<GLsizei>(mip.size()), mip.data());
+            width = std::max(1u, width / 2);
+            height = std::max(1u, height / 2);
+        }
+
+        if (levels > 1 && (GLAD_GL_ARB_texture_filter_anisotropic || GLAD_GL_EXT_texture_filter_anisotropic))
+        {
+            static GLfloat s_MaxAniso = []{
+                GLfloat m = 1.0f;
+                glGetFloatv(GL_MAX_TEXTURE_MAX_ANISOTROPY, &m);
+                return m;
+            }();
+
+            glTexParameterf(GL_TEXTURE_2D, GL_TEXTURE_MAX_ANISOTROPY, std::min(8.0f, s_MaxAniso));
+        }
+
+        m_GpuBytes = 0;
+        for (size_t level = firstMip; level < image.mips.size(); level++)
+            m_GpuBytes += static_cast<int64_t>(image.mips[level].size());
+        GpuMemory::Add(GpuMemory::Kind::Texture, m_GpuBytes);
     }
 
     GLTexture2D::GLTexture2D(TextureSpecifications &specs, const void *data)
@@ -114,10 +214,14 @@ namespace Shard::Engine::Rendering{
                 glTexParameterf(GL_TEXTURE_2D, GL_TEXTURE_MAX_ANISOTROPY, std::min(8.0f, s_MaxAniso));
             }
         }
+
+        m_GpuBytes = static_cast<int64_t>(EstimateTextureBytes(specs));
+        GpuMemory::Add(GpuMemory::Kind::Texture, m_GpuBytes);
     }
 
     void GLTexture2D::Bind(uint32_t slot) const
     {
+        SHARD_ASSERT_GRAPHICS_THREAD();
         glActiveTexture(GL_TEXTURE0 + slot);
         glBindTexture(GL_TEXTURE_2D, ID);
     }
@@ -145,6 +249,7 @@ namespace Shard::Engine::Rendering{
 
     void GLTexture2D::BindImage(uint32_t unit, TextureAccess access, uint32_t world) const
     {
+        SHARD_ASSERT_GRAPHICS_THREAD();
         if (!IsImageLoadStoreFormat(m_GLInternalFormat))
         {
             DEBUG_WARNING("Texture bound as image at unit " + std::to_string(unit) + " uses a format not supported by image load/store (e.g. RGB/RGB32F/RGB32I or depth formats aren't allowed - use RGBA32F, RGBA8, R32F, etc).");
@@ -163,6 +268,7 @@ namespace Shard::Engine::Rendering{
 
     void GLTexture2D::ReadPixels(void* outData, size_t bufferSize, uint32_t world) const
     {
+        SHARD_ASSERT_GRAPHICS_THREAD();
         size_t required = GetPixelDataSize(world);
         if (bufferSize < required)
         {
@@ -178,14 +284,18 @@ namespace Shard::Engine::Rendering{
 
     bool GLTexture2D::IsValid() const
     {
-        return glIsTexture(ID);
+        return ID != 0;     // a name was generated : the texture lives as long as this object
     }
 
     GLTexture2D::~GLTexture2D()
     {
-        ReleaseBindlessHandle(ID);
+        GpuMemory::Add(GpuMemory::Kind::Texture, -m_GpuBytes);
 
-        glDeleteTextures(1, &ID);
+        const GLuint id = ID;
+        RenderThread::Get().Post([id] {
+            ReleaseBindlessHandle(id);
+            glDeleteTextures(1, &id);
+        });
     }
 
     GLTextureSpec GLTextureSpec::FromTextureSpecifications(const TextureSpecifications &spec)

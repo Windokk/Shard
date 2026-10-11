@@ -11,7 +11,7 @@ namespace Shard::Engine::Rendering {
 
     class StorageBuffer;
 
-    enum LightType : uint32_t{
+    enum LightType : uint8_t{
         Directional = 0,
         Point = 1,
         Spot = 2

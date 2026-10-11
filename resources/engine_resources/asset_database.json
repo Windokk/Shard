@@ -247,5 +247,15 @@
     "shaders/ssao/ssao_blur.frag":{
         "id":43,
         "dependencies":[]
+    },
+
+    "shaders/billboard/billboard.vert":{
+        "id":51,
+        "dependencies":[]
+    },
+
+    "shaders/billboard/billboard.frag":{
+        "id":52,
+        "dependencies":[]
     }
 }

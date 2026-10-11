@@ -1,4 +1,5 @@
 #include "gl_pipeline.hpp"
+#include "engine/renderer/rhi/render_thread.hpp"
 
 #include "engine/renderer/rhi/backends/opengl/gl_utils.hpp"
 
@@ -18,6 +19,7 @@ namespace Shard::Engine::Rendering{
 
     void GLPipeline::Bind()
     {
+        SHARD_ASSERT_GRAPHICS_THREAD();
         const auto& spec = m_Specifications;
 
         std::shared_ptr<GLShader> glShader = std::static_pointer_cast<GLShader>(spec.shader);

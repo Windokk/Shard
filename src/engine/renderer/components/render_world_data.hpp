@@ -13,6 +13,7 @@
 namespace Shard::Engine::Objects::Components{
     class Light;
     class Camera;
+    class Billboard;
     class Model;
     class ProbeVolume;
 }
@@ -31,6 +32,7 @@ namespace Shard::Engine::Rendering{
             std::unordered_map<int, std::shared_ptr<Objects::Components::Light>> lightComps;
             std::unordered_map<int, std::shared_ptr<Objects::Components::Model>> models;
             std::unordered_map<int, std::shared_ptr<Objects::Components::Camera>> cameras;
+            std::unordered_map<int, std::shared_ptr<Objects::Components::Billboard>> billboards;
             std::unordered_map<int, std::pair<glm::mat4, Mesh*>> meshes;
 
             /// @brief Makes `pathInProject` (an equirectangular RGB image, e.g. an .hdr) this world's skybox,

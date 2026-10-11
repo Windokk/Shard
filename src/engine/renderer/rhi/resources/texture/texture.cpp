@@ -1,4 +1,5 @@
 #include "texture.hpp"
+#include "engine/renderer/rhi/render_thread.hpp"
 
 #include "engine/world/engine.hpp"
 
@@ -9,10 +10,22 @@
 #include "engine/renderer/rhi/renderer_api.hpp"
 
 #include "engine/core/diagnostics/logger.hpp"
+#include "engine/core/config/cvar.hpp"
 
 #include <algorithm>
+#include <chrono>
 
 namespace Shard::Engine::Rendering{
+
+    namespace {
+        Core::CVar<int> cvTextureMaxSize("texture.max_size", 0,
+            "Biggest side, in texels, a texture keeps in video memory (the bigger levels are left out when it is uploaded) : 2048 divides the memory of 4096 textures by 4. 0 : no limit. Applies to textures loaded afterwards",
+            Core::CVarFlags::Archive, 0, 16384);
+
+        Core::CVar<bool> cvTextureCompress("texture.compress", true,
+            "Block compress (BC7 / BC4 / BC5) the textures when they are loaded : a quarter to an eighth of the video memory. Applies to textures loaded afterwards",
+            Core::CVarFlags::Archive);
+    }
 
     // Bytes per pixel for each internal format, mirroring the format/type resolved by
     // GLTextureSpec::FromTextureSpecifications (kept here rather than in the OpenGL backend since it's
@@ -58,7 +71,7 @@ namespace Shard::Engine::Rendering{
         switch(RendererAPI::Current()->GetAPI())
         {
             case RendererAPI::API::OpenGL:
-                return std::make_shared<GLTexture2D>(spec, data);
+                return OnGraphicsThread([&]() -> std::shared_ptr<Texture2D> { return std::make_shared<GLTexture2D>(spec, data); });
 
             /*case RendererAPI::API::Vulkan:
                 return std::make_shared<VKTexture>(spec, data);
@@ -127,6 +140,89 @@ namespace Shard::Engine::Rendering{
         result.format = format;
 
         return result;
+    }
+
+    TextureDecodeResult DecodeTextureFileForUpload(const Filesystem::Path& filepath, unsigned threads)
+    {
+        if (!cvTextureCompress.Get())
+            return DecodeTextureFile(filepath);
+
+        const std::string key = TextureCache::MakeKey(filepath.full);
+        if (!key.empty())
+        {
+            auto cached = std::make_shared<CompressedImage>();
+            if (TextureCache::Load(key, *cached))
+            {
+                TextureDecodeResult result;
+                result.success = true;
+                result.width = int(cached->width);
+                result.height = int(cached->height);
+                result.format = cached->format == BlockFormat::BC4 ? TextureInternalFormat::RED
+                              : cached->format == BlockFormat::BC5 ? TextureInternalFormat::RG : TextureInternalFormat::RGBA;   // what the sampler returns
+                result.compressed = std::move(cached);
+                return result;
+            }
+        }
+
+        TextureDecodeResult result = DecodeTextureFile(filepath);
+        if (!result.success || !ShouldCompress(uint32_t(result.width), uint32_t(result.height)))
+            return result;
+
+        const uint32_t channels = BytesPerPixel(result.format);
+        if (channels < 1 || channels > 4 || result.pixels.size() != size_t(result.width) * result.height * channels)
+            return result;
+
+        const bool normalMap = LooksLikeNormalMap(result.pixels.data(), uint32_t(result.width), uint32_t(result.height), channels);
+        auto compressed = std::make_shared<CompressedImage>();
+        if (!CompressImage(result.pixels.data(), uint32_t(result.width), uint32_t(result.height), channels, *compressed, normalMap, threads))
+            return result;
+
+        TextureCache::Store(key, *compressed);
+
+        result.compressed = std::move(compressed);
+        std::vector<unsigned char>().swap(result.pixels);   // the encoded blocks are all that goes to the GPU
+        return result;
+    }
+
+    uint32_t MipsToSkip(uint32_t width, uint32_t height)
+    {
+        const int limit = cvTextureMaxSize.Get();
+        if (limit <= 0)
+            return 0;
+
+        uint32_t skip = 0;
+        uint32_t side = std::max(width, height);
+        while (side > uint32_t(limit) && side > 4)
+        {
+            side >>= 1;
+            skip++;
+        }
+        return skip;
+    }
+
+    std::shared_ptr<Texture2D> Texture2D::Create(const TextureSpecifications& spec, const CompressedImage& image, uint32_t firstMip)
+    {
+        switch(RendererAPI::Current()->GetAPI())
+        {
+            case RendererAPI::API::OpenGL:
+                return OnGraphicsThread([&]() -> std::shared_ptr<Texture2D> { return std::make_shared<GLTexture2D>(spec, image, firstMip); });
+            default:
+                return nullptr;
+        }
+    }
+
+    std::shared_ptr<Texture2D> Texture2D::Create(TextureSpecifications& spec, const TextureDecodeResult& decoded)
+    {
+        if (!decoded.success)
+            return nullptr;
+
+        if (decoded.compressed)
+            return Create(static_cast<const TextureSpecifications&>(spec), *decoded.compressed, MipsToSkip(decoded.compressed->width, decoded.compressed->height));
+
+        spec.internalFormat = decoded.format;
+        spec.width = decoded.width;
+        spec.height = decoded.height;
+        return Create(spec, decoded.pixels.data());
     }
 
     std::shared_ptr<Texture2D> Texture2D::Create(TextureSpecifications &spec, const Filesystem::Path &filepath)

@@ -1,4 +1,5 @@
 #include "gl_material.hpp"
+#include "engine/renderer/rhi/render_thread.hpp"
 
 #include "engine/renderer/rhi/backends/opengl/gl_utils.hpp"
 #include "engine/renderer/rhi/backends/opengl/pipeline/gl_pipeline.hpp"
@@ -79,6 +80,10 @@ namespace Shard::Engine::Rendering{
             default:
             {
                 m_Pipeline->GetSpecifications().blending = false;
+                // `masked` is a uniform of the program, which other materials sharing it set to true : an opaque one says so
+                // itself, or it would keep (and discard by) whatever the last masked material left there.
+                if (m_Shader->GetActiveUniformsMap().find("masked") != m_Shader->GetActiveUniformsMap().end())
+                    m_ScalarParameters["masked"] = false;
                 break;
             }
         }
@@ -144,23 +149,27 @@ namespace Shard::Engine::Rendering{
         return str.rfind(prefix, 0) == 0;
     }
 
+    namespace {
+        // The two textures a material falls back on for a slot it has nothing bound to. Held here, loaded once by
+        // PreloadDefaultTextures() : binding a material happens on the render thread, which has no business with the
+        // resources manager (the simulation uses it at the same time).
+        std::shared_ptr<Texture2D> g_WhiteTexture;
+        std::shared_ptr<Texture2D> g_DefaultNormalTexture;
+    }
+
+    void GLMaterial::PreloadDefaultTextures()
+    {
+        auto* resources = Core::GetEngine().GetResourcesManager();
+        g_WhiteTexture = resources->Get<Rendering::Texture2D>(Core::Resources::AssetKind::Texture, "textures/white.png");
+        g_DefaultNormalTexture = resources->Get<Rendering::Texture2D>(Core::Resources::AssetKind::Texture, "textures/default_normal.png");
+    }
+
     uint32_t GLMaterial::GetDefaultTexture(std::string samplerName)
     {
-        if(StartsWith(samplerName, "albedo")){
-            return Core::GetEngine().GetResourcesManager()->Get<Rendering::Texture2D>(Core::Resources::AssetKind::Texture, "textures/white.png")->GetHandle();
-        }
-        else if(StartsWith(samplerName, "roughness")){
-            return Core::GetEngine().GetResourcesManager()->Get<Rendering::Texture2D>(Core::Resources::AssetKind::Texture, "textures/white.png")->GetHandle();
-        }
-        else if(StartsWith(samplerName, "metallic")){
-            return Core::GetEngine().GetResourcesManager()->Get<Rendering::Texture2D>(Core::Resources::AssetKind::Texture, "textures/white.png")->GetHandle();
-        }
-        else if(StartsWith(samplerName, "normal")){
-            return Core::GetEngine().GetResourcesManager()->Get<Rendering::Texture2D>(Core::Resources::AssetKind::Texture, "textures/default_normal.png")->GetHandle();
-        }
-        else if(StartsWith(samplerName, "emissive")){
-            return Core::GetEngine().GetResourcesManager()->Get<Rendering::Texture2D>(Core::Resources::AssetKind::Texture, "textures/white.png")->GetHandle();
-        }
+        if(StartsWith(samplerName, "albedo") || StartsWith(samplerName, "roughness") || StartsWith(samplerName, "metallic") || StartsWith(samplerName, "emissive"))
+            return g_WhiteTexture ? g_WhiteTexture->GetHandle() : 0;
+        if(StartsWith(samplerName, "normal"))
+            return g_DefaultNormalTexture ? g_DefaultNormalTexture->GetHandle() : 0;
         return 0;
     }
 
@@ -171,6 +180,7 @@ namespace Shard::Engine::Rendering{
 
     void GLMaterial::Bind()
     {
+        SHARD_ASSERT_GRAPHICS_THREAD();
         std::shared_ptr<GLShader> glShader = std::static_pointer_cast<GLShader>(m_Shader);
         glShader->Bind();
 

@@ -1,4 +1,5 @@
 #include "probe_manager.hpp"
+#include "engine/renderer/rhi/render_thread.hpp"
 
 #include "engine/renderer/features/raytracing/bvh.hpp"
 #include "engine/assets/resources_manager.hpp"
@@ -395,8 +396,30 @@ namespace Shard::Engine::Rendering {
 
     bool ProbeManager::IsVolumeBaked(uint64_t key) const
     {
-        const VolumeSlot* slot = FindSlot(key);
-        return slot && slot->baked;
+        std::lock_guard<std::mutex> lock(m_StatusMutex);
+        return std::find(m_Status.bakedKeys.begin(), m_Status.bakedKeys.end(), key) != m_Status.bakedKeys.end();
+    }
+
+    void ProbeManager::PublishStatus()
+    {
+        Status status;
+        status.baking = m_Bake.active;
+        status.bakingKey = m_Bake.key;
+        status.bakeProgress = GetBakeProgressNow();
+        status.bakePhase = GetBakePhaseNow();
+        status.lastBakeSucceeded = m_LastBakeSucceeded;
+        for (const VolumeSlot& slot : m_Volumes)
+            if (slot.baked)
+                status.bakedKeys.push_back(slot.key);
+
+        std::lock_guard<std::mutex> lock(m_StatusMutex);
+        m_Status = std::move(status);
+    }
+
+    void ProbeManager::ProvideBakedData(const std::string& path, std::shared_ptr<const ProbeBakeData> data)
+    {
+        std::lock_guard<std::mutex> lock(m_BakedInboxMutex);
+        m_BakedInbox[path] = std::move(data);
     }
 
     void ProbeManager::Sync(const RenderSnapshot& scene)
@@ -454,18 +477,29 @@ namespace Shard::Engine::Rendering {
 
             if (!slot)
             {
-                // New : its baked data is loaded here (the world's prefetcher normally already decoded it on a worker
-                // thread), and its CPU copy dropped once uploaded
-                auto* resources = Core::GetEngine().GetResourcesManager();
+                // New : its baked data comes from the simulation (the world prefetcher normally already decoded it on a
+                // worker thread), asked for here and waited for across the next frames. The CPU copy is dropped once uploaded.
                 std::shared_ptr<const ProbeBakeData> baked;
-                if (!proxy->bakedData.empty())
-                    baked = resources->Get<ProbeBakeData>(Core::Resources::AssetKind::ProbeBake, proxy->bakedData);
+                if (!proxy->bakedData.empty() && requestBakedData)
+                {
+                    std::lock_guard<std::mutex> lock(m_BakedInboxMutex);
+                    auto answer = m_BakedInbox.find(proxy->bakedData);
+                    if (answer == m_BakedInbox.end())
+                    {
+                        if (m_BakedRequested.insert(proxy->bakedData).second)
+                            requestBakedData(proxy->bakedData);
+                        continue;                   // no slot yet : the answer is on its way
+                    }
+                    baked = answer->second;
+                    m_BakedInbox.erase(answer);
+                    m_BakedRequested.erase(proxy->bakedData);
+                }
 
                 if (!AddActiveVolume(*proxy, baked))
                     needsScene = true;              // a live volume traces against a scene : the expensive part a baked one skips
 
-                if (!proxy->bakedData.empty())
-                    resources->Unload(Core::Resources::AssetKind::ProbeBake, proxy->bakedData);
+                if (!proxy->bakedData.empty() && releaseBakedData)
+                    releaseBakedData(proxy->bakedData);
                 continue;
             }
 
@@ -497,6 +531,10 @@ namespace Shard::Engine::Rendering {
 
     bool ProbeManager::BeginBake(uint64_t key, const RenderSnapshot& scene, const Filesystem::Path& file)
     {
+        // Called by the editor : the bake belongs to the render thread (it parks the caller meanwhile, `scene` stays valid)
+        if (!RenderThread::Get().IsGraphicsThread())
+            return RenderThread::Get().InvokeResult([&] { return BeginBake(key, scene, file); });
+
         if (m_Bake.active)
         {
             DEBUG_WARNING("ProbeManager : a probe bake is already running, ignoring the new request.");
@@ -561,6 +599,8 @@ namespace Shard::Engine::Rendering {
 
     void ProbeManager::CancelBake()
     {
+        SHARD_FORWARD_TO_GRAPHICS_THREAD(CancelBake())
+
         if (m_Bake.active)
             EndBake(false);
     }
@@ -572,6 +612,18 @@ namespace Shard::Engine::Rendering {
     }
 
     float ProbeManager::GetBakeProgress() const
+    {
+        std::lock_guard<std::mutex> lock(m_StatusMutex);
+        return m_Status.bakeProgress;
+    }
+
+    const char* ProbeManager::GetBakePhase() const
+    {
+        std::lock_guard<std::mutex> lock(m_StatusMutex);
+        return m_Status.bakePhase;
+    }
+
+    float ProbeManager::GetBakeProgressNow() const
     {
         if (!m_Bake.active)
             return 0.0f;
@@ -585,7 +637,7 @@ namespace Shard::Engine::Rendering {
         return kSceneShare + (1.0f - kSceneShare) * std::clamp((float)m_Bake.iteration / (float)total, 0.0f, 1.0f);
     }
 
-    const char* ProbeManager::GetBakePhase() const
+    const char* ProbeManager::GetBakePhaseNow() const
     {
         if (m_SceneBuilding.load(std::memory_order_relaxed))
             return m_SceneBuildPhase.load(std::memory_order_relaxed);

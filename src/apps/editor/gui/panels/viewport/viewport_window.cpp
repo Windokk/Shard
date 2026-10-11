@@ -15,6 +15,7 @@
 #include "engine/renderer/components/render_world_data.hpp"
 #include "engine/renderer/components/camera_manager.hpp"
 #include "engine/renderer/components/camera.hpp"
+#include "engine/renderer/features/billboards/billboard_renderer.hpp"
 #include "engine/physics/physics_body.hpp"
 
 
@@ -751,6 +752,7 @@ namespace Shard::Editor::GUI {
         ImGui::Text("Draw Calls: %d", stats.cmds);
         ImGui::Text("Primitives: %d", stats.primitives);
         ImGui::Text("Vertices: %d", stats.vertices);
+        ImGui::Text("RAM Usage: %.1f MB", stats.ramUsageMB);
         ImGui::Text("GPU Memory: %.1f MB", stats.gpuMemoryMB);
 
         ImGui::Separator();
@@ -813,6 +815,8 @@ namespace Shard::Editor::GUI {
         ImGui::Checkbox("Show DDGI Gizmos ?", &parent->settings.showDDGIGizmos);
 
         ImGui::Checkbox("Show Physics Shapes ?", &parent->settings.showPhysicsShapes);
+
+        ImGui::Checkbox("Show Billboards ?", &parent->settings.showBillboards);
 
         ImGui::Separator();
 
@@ -1199,6 +1203,20 @@ namespace Shard::Editor::GUI {
                             pickedDistance = t;
                             pickedActor = modelComp->parent;
                         }
+                    }
+                }
+
+                // The icons (lights, cameras, probe volumes, billboards) : one in front of what the ray hit wins
+                {
+                    const Engine::Rendering::BillboardPick icon = Engine::Rendering::BillboardRenderer::Pick(
+                        engine->GetRenderContext()->GetSnapshot(), parent->settings.showBillboards, localX, localY, camera->GetSize().x, camera->GetSize().y);
+
+                    if (icon.hit && icon.distance < pickedDistance)
+                    {
+                        auto iconActor = std::dynamic_pointer_cast<Engine::Objects::Actor>(
+                            engine->GetObjectIDManager()->GetObjectFromID(Engine::Core::ObjectID(icon.objectId)));
+                        if (iconActor)
+                            pickedActor = iconActor;
                     }
                 }
 

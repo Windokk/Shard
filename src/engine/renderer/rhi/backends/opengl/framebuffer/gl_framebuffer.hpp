@@ -50,6 +50,11 @@ namespace Shard::Engine::Rendering{
             // the constructor and Resize()'s bindless path (see the comment there).
             void CreateColorAttachment(uint32_t width, uint32_t height);
 
+            // What GpuMemory was told this framebuffer holds, kept in line after every (re)allocation
+            void UpdateGpuAccounting(bool destroyed = false);
+            int64_t m_GpuBytes = 0;
+            bool m_Destroyed = false;
+
             uint32_t m_FBO = 0;
             uint32_t m_ColorAttachment = 0;
             uint32_t m_DepthAttachment = 0;

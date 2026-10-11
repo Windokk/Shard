@@ -1,4 +1,5 @@
 #include "envmap.hpp"
+#include "engine/renderer/rhi/render_thread.hpp"
 
 #include "engine/world/engine.hpp"
 
@@ -13,8 +14,10 @@ namespace Shard::Engine::Rendering{
         switch(RendererAPI::Current()->GetAPI())
         {
             case RendererAPI::API::OpenGL:{
-                GLEnvironmentMapGenerator glGenerator;
-                return glGenerator.GenerateFromFiles(specs, imageFiles);
+                return OnGraphicsThread([&]() -> std::shared_ptr<EnvironmentMap> {
+                    GLEnvironmentMapGenerator glGenerator;
+                    return glGenerator.GenerateFromFiles(specs, imageFiles);
+                });
             }
 
             /*case API::Vulkan:
@@ -35,8 +38,10 @@ namespace Shard::Engine::Rendering{
         switch(RendererAPI::Current()->GetAPI())
         {
             case RendererAPI::API::OpenGL:{
-                static GLEnvironmentMapGenerator glGenerator;
-                return glGenerator.GenerateFromHDR(specs, hdrFile);
+                return OnGraphicsThread([&]() -> std::shared_ptr<EnvironmentMap> {
+                    static GLEnvironmentMapGenerator glGenerator;
+                    return glGenerator.GenerateFromHDR(specs, hdrFile);
+                });
             }
 
             /*case API::Vulkan:

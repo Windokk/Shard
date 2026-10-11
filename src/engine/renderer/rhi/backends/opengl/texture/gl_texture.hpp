@@ -1,6 +1,7 @@
 #pragma once
 
 #include "engine/renderer/rhi/resources/texture/texture.hpp"
+#include "engine/renderer/rhi/resources/texture/texture_compression.hpp"
 
 namespace Shard::Engine::Rendering{
 
@@ -28,6 +29,9 @@ namespace Shard::Engine::Rendering{
         public:
 
             GLTexture2D(TextureSpecifications& specs, const void* data);
+
+            /// A texture whose blocks are already encoded (BC4 / BC5 / BC7), all mip levels included : uploaded as they are
+            GLTexture2D(const TextureSpecifications& specs, const CompressedImage& image, uint32_t firstMip = 0);
 
             void Bind(uint32_t slot = 0) const override;
 
@@ -63,6 +67,8 @@ namespace Shard::Engine::Rendering{
             uint32_t ID;
 
             uint32_t m_GLInternalFormat = 0;
+
+            int64_t m_GpuBytes = 0;     // what GpuMemory was told this texture holds
 
     };
 

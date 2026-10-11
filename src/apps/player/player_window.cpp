@@ -3,6 +3,7 @@
 #include "engine/world/engine.hpp"
 
 #include "engine/renderer/frontend/renderer.hpp"
+#include "engine/renderer/rhi/render_thread.hpp"
 
 #include "engine/renderer/rhi/backends/glad/include/glad/gl.h"
 #include "engine/renderer/rhi/backends/glad/include/glad/vulkan.h"
@@ -29,9 +30,14 @@ namespace Shard::Game::Core::Platform{
 
     void PlayerWindow::SwapBuffers()
     {
-        Engine::Core::GetEngine().GetRenderer()->PresentToScreen(GetFramebufferWidth(), GetFramebufferHeight());
-
-        SDLWindow::SwapBuffers();
+        // The frame is on its way to the render thread : the blit to the screen and the swap follow it there. The window size
+        // is read here, on the thread that owns the window.
+        const int width = GetFramebufferWidth();
+        const int height = GetFramebufferHeight();
+        Engine::Rendering::RenderThread::Get().Post([this, width, height] {
+            Engine::Core::GetEngine().GetRenderer()->PresentToScreen(width, height);
+            SDLWindow::SwapBuffers();
+        });
     }
 
     Shard::Engine::Core::Platform::SystemInfos PlayerWindow::GetSystemInfos() const

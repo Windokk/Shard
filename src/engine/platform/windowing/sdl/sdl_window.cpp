@@ -53,6 +53,7 @@ namespace Shard::Engine::Core::Platform {
         }
 
         SDL_GL_MakeCurrent(m_Window, m_GLContext);
+        m_SwapInterval = vsync;
         SDL_GL_SetSwapInterval(vsync);
         m_ShouldClose = false;
     }
@@ -175,6 +176,20 @@ namespace Shard::Engine::Core::Platform {
     void SDLWindow::SwapBuffers()
     {
         SDL_GL_SwapWindow(m_Window);
+    }
+
+    bool SDLWindow::MakeContextCurrent(bool current)
+    {
+        if (!m_Window || !m_GLContext)
+            return false;
+        if (!SDL_GL_MakeCurrent(m_Window, current ? m_GLContext : nullptr))
+        {
+            DEBUG_ERROR("Failed to ", current ? "acquire" : "release", " the OpenGL context : ", SDL_GetError());
+            return false;
+        }
+        if (current)
+            SDL_GL_SetSwapInterval(m_SwapInterval);    // the interval belongs to the context of the thread that swaps
+        return true;
     }
 
     int SDLWindow::GetFramebufferWidth() const

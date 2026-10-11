@@ -74,12 +74,14 @@ namespace Shard::Engine::Time{
                 maxAccumulatedTime = maxAccumulated;
             }
 
-            void Tick() {
+            /// @param forcedDelta  when above 0, the frame lasts that long whatever the clock says (a deterministic run :
+            /// every frame of a test or a benchmark then sees the same simulation, see the `time.frame_dt` variable)
+            void Tick(float forcedDelta = 0.0f) {
                 frameStartTime = Clock::now();
                 auto delta = std::chrono::duration<float>(frameStartTime - lastTime);
                 lastTime = frameStartTime;
 
-                Advance(delta.count());
+                Advance(forcedDelta > 0.0f ? forcedDelta : delta.count());
             }
 
             /// Feeds a frame of real time by hand instead of reading the clock. Kept separate from

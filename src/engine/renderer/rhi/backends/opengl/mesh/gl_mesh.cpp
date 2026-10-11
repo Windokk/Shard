@@ -1,4 +1,6 @@
 #include "gl_mesh.hpp"
+#include "engine/renderer/rhi/render_thread.hpp"
+#include "engine/renderer/rhi/gpu_memory.hpp"
 
 #include "engine/renderer/rhi/backends/opengl/gl_utils.hpp"
 
@@ -97,13 +99,19 @@ namespace Shard::Engine::Rendering{
 
     GLMesh::~GLMesh()
     {
-        glDeleteVertexArrays(1, &m_VAO);
-        glDeleteBuffers(1, &m_VBO);
-        glDeleteBuffers(1, &m_EBO);
+        GpuMemory::Add(GpuMemory::Kind::Mesh, -m_GpuBytes);
+        const GLuint vao = m_VAO, vbo = m_VBO, ebo = m_EBO;
+        RenderThread::Get().Post([vao, vbo, ebo] {
+            glDeleteVertexArrays(1, &vao);
+            glDeleteBuffers(1, &vbo);
+            glDeleteBuffers(1, &ebo);
+        });
     }
 
     void GLMesh::GenerateGLBuffers()
     {
+        SHARD_FORWARD_TO_GRAPHICS_THREAD(GenerateGLBuffers())
+
         GLint previousVAO = 0;
         glGetIntegerv(GL_VERTEX_ARRAY_BINDING, &previousVAO);
 
@@ -166,5 +174,32 @@ namespace Shard::Engine::Rendering{
 
         glBindVertexArray(previousVAO);
         glBindBuffer(GL_ARRAY_BUFFER, 0);
+
+        const int64_t bytes = int64_t(m_Vertices.size()) + int64_t(m_Indices.size() * sizeof(uint32_t));
+        GpuMemory::Add(GpuMemory::Kind::Mesh, bytes - m_GpuBytes);
+        m_GpuBytes = bytes;
+        m_VertexBytes = m_Vertices.size();
+
+        // On the GPU now : the CPU copy is not needed (see Mesh::AcquireCPUData)
+        FinishCPUData();
+    }
+
+    bool GLMesh::ReadBackCPUData(MeshCPUCopy& out)
+    {
+        return OnGraphicsThread([&]() -> bool {
+            if (!m_VBO || !m_EBO)
+                return false;
+
+            out.vertices.resize(m_VertexBytes);
+            out.indices.resize(m_IndexCount);
+
+            // The copy targets : binding the element buffer to a VAO would change that VAO
+            glBindBuffer(GL_COPY_READ_BUFFER, m_VBO);
+            glGetBufferSubData(GL_COPY_READ_BUFFER, 0, static_cast<GLsizeiptr>(out.vertices.size()), out.vertices.data());
+            glBindBuffer(GL_COPY_READ_BUFFER, m_EBO);
+            glGetBufferSubData(GL_COPY_READ_BUFFER, 0, static_cast<GLsizeiptr>(out.indices.size() * sizeof(uint32_t)), out.indices.data());
+            glBindBuffer(GL_COPY_READ_BUFFER, 0);
+            return true;
+        });
     }
 }

@@ -1,4 +1,5 @@
 #include "shader.hpp"
+#include "engine/renderer/rhi/render_thread.hpp"
 
 #include "engine/world/engine.hpp"
 
@@ -14,7 +15,7 @@ namespace Shard::Engine::Rendering
         switch (RendererAPI::Current()->GetAPI())
         {
             case RendererAPI::API::OpenGL:
-                return std::make_shared<GLShader>(vertexPath, fragmentPath, geometryPath);
+                return OnGraphicsThread([&]() -> std::shared_ptr<Shader> { return std::make_shared<GLShader>(vertexPath, fragmentPath, geometryPath); });
 
             /*case RendererAPI::API::Vulkan:
                 return std::make_shared<VKShader>(vertexPath, fragmentPath, geometry);

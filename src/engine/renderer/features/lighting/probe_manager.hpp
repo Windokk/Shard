@@ -6,7 +6,11 @@
 #include <cstdint>
 #include <functional>
 #include <future>
+#include <mutex>
 #include <random>
+#include <string>
+#include <unordered_map>
+#include <unordered_set>
 
 #include <glm/glm.hpp>
 
@@ -165,6 +169,8 @@ namespace Shard::Engine::Rendering {
             void Sync(const RenderSnapshot& scene);
 
             // True if the volume with this proxy key has a slot and currently shows baked data rather than tracing live.
+            // Like the other status getters below, safe to call from any thread : the manager belongs to the render thread,
+            // which publishes these after each Update().
             bool IsVolumeBaked(uint64_t key) const;
 
             // ---- Baking ----
@@ -178,15 +184,25 @@ namespace Shard::Engine::Rendering {
             // reference it from the world. Only one bake runs at a time. Returns false (logged) if it couldn't start.
             bool BeginBake(uint64_t key, const RenderSnapshot& scene, const Filesystem::Path& file);
 
-            /// Called when a bake has written its file : the proxy key of the volume, and the file
+            /// Called (on the render thread) when a bake has written its file : the proxy key of the volume, and the file
             std::function<void(uint64_t, const Filesystem::Path&)> onBakeFinished;
+
+            /// The renderer does not touch the resources manager (the simulation uses it at the same time) : when a volume
+            /// needs its baked data it asks for it by this, which must not block. The owner loads it where it can and
+            /// answers with ProvideBakedData() (null if the file is unusable : the volume then runs live). The volume gets
+            /// its slot on the first Sync() after the answer.
+            std::function<void(const std::string&)> requestBakedData;
+            void ProvideBakedData(const std::string& path, std::shared_ptr<const ProbeBakeData> data);
+
+            /// Called once the data of a volume is uploaded, so its owner can drop the CPU copy
+            std::function<void(const std::string&)> releaseBakedData;
 
             // Aborts a bake in progress, leaving the volume live. No-op if none is running.
             void CancelBake();
 
-            bool IsBaking() const { return m_Bake.active; }
+            bool IsBaking() const { std::lock_guard<std::mutex> lock(m_StatusMutex); return m_Status.baking; }
             /// The proxy key of the volume being baked (0 if none)
-            uint64_t GetBakingKey() const { return m_Bake.active ? m_Bake.key : 0; }
+            uint64_t GetBakingKey() const { std::lock_guard<std::mutex> lock(m_StatusMutex); return m_Status.baking ? m_Status.bakingKey : 0; }
 
             // 0 -> 1 across the whole bake : the first fifth is the scene build (same phases as
             // GetSceneBuildPhase()), the rest is tracing. GetBakePhase() is a static string literal.
@@ -195,7 +211,7 @@ namespace Shard::Engine::Rendering {
 
             // Whether the most recent bake ran to completion and wrote its file - lets the editor's
             // notification close as a success or a failure once IsBaking() goes false.
-            bool DidLastBakeSucceed() const { return m_LastBakeSucceeded; }
+            bool DidLastBakeSucceed() const { std::lock_guard<std::mutex> lock(m_StatusMutex); return m_Status.lastBakeSucceeded; }
 
             // Dispatches this frame's probe ray-trace + border-fixup compute passes for every active
             // volume. No-op if there are no active volumes or no persistent scene has been built yet
@@ -203,6 +219,10 @@ namespace Shard::Engine::Rendering {
             // DrawFrame() executes the forward pass - so this frame's atlases are ready by the time
             // lit.frag samples them.
             void Update();
+
+            /// Copies what the other threads may ask about (bake progress, which volumes are baked) : the render thread calls
+            /// it once per frame, after Update().
+            void PublishStatus();
 
             /// @brief Blocks until every background scene build (the current one and the superseded ones) has
             /// finished, discarding their results. They run on the engine's job system, so this has to happen before it
@@ -389,6 +409,26 @@ namespace Shard::Engine::Rendering {
 
             BakeJob m_Bake;
             bool m_LastBakeSucceeded = false;
+
+            // What the other threads (the editor) may ask about, copied at the end of Update() : the manager itself is the
+            // render thread business
+            struct Status {
+                bool baking = false;
+                uint64_t bakingKey = 0;
+                float bakeProgress = 0.0f;
+                const char* bakePhase = "";
+                bool lastBakeSucceeded = false;
+                std::vector<uint64_t> bakedKeys;
+            };
+            Status m_Status;
+            mutable std::mutex m_StatusMutex;
+            float GetBakeProgressNow() const;
+            const char* GetBakePhaseNow() const;
+
+            // Baked data the simulation answered with, waiting for Sync() (a null entry : asked for, unusable)
+            std::mutex m_BakedInboxMutex;
+            std::unordered_map<std::string, std::shared_ptr<const ProbeBakeData>> m_BakedInbox;
+            std::unordered_set<std::string> m_BakedRequested;
 
             // ---- Persistent scene (rebuilt on demand, see RebuildScene()) - shared across every volume ----
             bool m_SceneBuilt = false;

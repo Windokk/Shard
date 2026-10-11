@@ -15,7 +15,18 @@ using namespace Shard::Engine::Objects::Components;
 using namespace Shard::Engine::Objects;
 using namespace Shard::Game;
 
+#include <algorithm>
+#include <chrono>
 #include <cstdlib>
+#include <map>
+#include "engine/renderer/rhi/gpu_memory.hpp"
+#include "engine/renderer/rhi/render_thread.hpp"
+#include "engine/renderer/rhi/resources/texture/image_export.hpp"
+#include "engine/renderer/rhi/gpu_profiler.hpp"
+#include "engine/renderer/frontend/renderer.hpp"
+#include <vector>
+#include "engine/platform/hardware/system_info.hpp"
+#include "engine/core/diagnostics/profiler.hpp"
 #include <iostream>
 #include <optional>
 
@@ -30,6 +41,14 @@ std::optional<ViewMode> debugViewMode;
 // scripts/smoke_test.sh) : nothing waits for Enter, the exit code says whether it went well, and the project is not
 // written to (EngineCreationSettings::readOnly). -1 : a normal run.
 int maxFrames = -1;
+
+// --bench : with --frames, prints the average / worst frame times and the memory the process holds at the end
+// ("[BENCH] ..." lines), the first --bench-warmup frames (shader compiles, streaming) left out.
+bool benchmark = false;
+int benchWarmup = 120;
+
+// --screenshot : writes the last rendered frame (the viewport, before it is presented) to that PNG
+std::string screenshotPath;
 
 bool ParseViewMode(const std::string& name, ViewMode& out)
 {
@@ -81,8 +100,20 @@ EngineCreationSettings ComputeEngineSettings(int argc, char* argv[]) {
         else if (strcmp(argv[i], "--project") == 0 && i + 1 < argc) {
             settings.project = argv[++i];
         }
+        else if (strcmp(argv[i], "--bench") == 0) {
+            benchmark = true;
+        }
+        else if (strcmp(argv[i], "--screenshot") == 0 && i + 1 < argc) {
+            screenshotPath = argv[++i];
+        }
+        else if (strcmp(argv[i], "--bench-warmup") == 0 && i + 1 < argc) {
+            benchWarmup = std::stoi(argv[++i]);
+        }
         else if (strcmp(argv[i], "--world") == 0 && i + 1 < argc) {
             settings.startWorld = argv[++i];
+        }
+        else if (strcmp(argv[i], "--script") == 0 && i + 1 < argc) {
+            settings.scriptFile = argv[++i];
         }
         else if (strcmp(argv[i], "--frames") == 0 && i + 1 < argc) {
             maxFrames = std::stoi(argv[++i]);
@@ -194,10 +225,70 @@ int main(int argc, char* argv[]) {
 
     //Main Loop
     int frames = 0;
+    std::vector<float> frameTimes;
+    Engine::Debugging::FrameProfile profileSum;
+    std::map<std::string, double> gpuSums;
+    uint64_t gpuSeen = 0;
+    uint64_t gpuFrames = 0;
     while (!Engine::Core::GetEngine().ShouldEnd()) {
         if (maxFrames >= 0 && frames >= maxFrames) break;
+        const auto frameStart = std::chrono::steady_clock::now();
         if (!Engine::Core::GetEngine().Run()) break;
+        if (benchmark && frames >= benchWarmup)
+            frameTimes.push_back(std::chrono::duration<float, std::milli>(std::chrono::steady_clock::now() - frameStart).count());
+        if (benchmark && frames >= benchWarmup) {
+            const auto& p = Engine::Core::GetEngine().GetProfiler()->GetLastFrameProfile();
+            for (size_t c = 0; c < Engine::Debugging::kProfileCategoryCount; c++) profileSum.categoryMs[c] += p.categoryMs[c];
+            for (size_t c = 0; c < Engine::Debugging::kRenderSubSampleCount; c++) profileSum.renderSubMs[c] += p.renderSubMs[c];
+            if (auto* gpu = Engine::Core::GetEngine().GetRenderer()->GetRendererAPI()->GetGpuProfiler(); gpu && gpu->LatestSequence() != gpuSeen) {
+                gpuSeen = gpu->LatestSequence();
+                gpuFrames++;
+                for (const auto& t : gpu->Latest()) gpuSums[t.name] += t.ms;
+            }
+        }
         frames++;
+    }
+
+    if (!screenshotPath.empty()) {
+        std::vector<uint8_t> pixels;
+        auto viewport = Engine::Core::GetEngine().GetRenderer()->GetViewportFramebuffer();
+        Engine::Rendering::RenderThread::Get().Flush();     // the last frame is drawn before it is read back
+        if (viewport && Engine::Rendering::OnGraphicsThread([&] { return viewport->ReadPixelsRGBA8(pixels); }))
+            Engine::Rendering::ImageExport::WritePNG(Filesystem::Path(screenshotPath), viewport->GetWidth(), viewport->GetHeight(), 4, pixels.data());
+        else
+            std::cerr << "Screenshot failed" << std::endl;
+    }
+
+    if (benchmark && !frameTimes.empty()) {
+        std::vector<float> sorted = frameTimes;
+        std::sort(sorted.begin(), sorted.end());
+        double sum = 0.0;
+        for (float t : sorted) sum += t;
+        const double avg = sum / sorted.size();
+        const float p99 = sorted[std::min(sorted.size() - 1, size_t(sorted.size() * 0.99))];
+        std::cout << "[BENCH] frames " << sorted.size() << " avg " << avg << " ms (" << 1000.0 / avg << " fps), median " << sorted[sorted.size() / 2]
+                  << " ms, p99 " << p99 << " ms, worst " << sorted.back() << " ms" << std::endl;
+        for (size_t c = 0; c < Engine::Debugging::kProfileCategoryCount; c++)
+            std::cout << "[BENCH]   " << Engine::Debugging::ProfileCategoryName((Engine::Debugging::ProfileCategory)c) << " " << profileSum.categoryMs[c] / sorted.size() << " ms" << std::endl;
+        for (size_t c = 0; c < Engine::Debugging::kRenderSubSampleCount; c++)
+            std::cout << "[BENCH]     render/" << Engine::Debugging::RenderSubSampleName((Engine::Debugging::RenderSubSample)c) << " " << profileSum.renderSubMs[c] / sorted.size() << " ms" << std::endl;
+        for (const auto& [name, ms] : gpuSums)
+            std::cout << "[BENCH]   gpu/" << name << " " << ms / gpuFrames << " ms" << std::endl;
+        if (Engine::Rendering::RenderThread::Get().IsRunning()) {
+            const auto t = Engine::Rendering::RenderThread::Get().GetStats();
+            std::cout << "[BENCH] render thread : " << t.averageFrameMs << " ms per frame, busy " << t.busyFraction * 100.0 << "%, simulation waited "
+                      << t.averageWaitMs << " ms per frame, parked in invokes " << t.averageInvokeMs << " ms" << std::endl;
+        } else {
+            std::cout << "[BENCH] no render thread" << std::endl;
+        }
+        {
+            const auto stats = Engine::Core::GetEngine().GetProfiler()->GetStats();
+            std::cout << "[BENCH] scene : " << stats.cmds << " draw commands, " << stats.primitives << " indices, " << stats.vertices << " vertices, " << stats.actors << " actors" << std::endl;
+        }
+        std::cout << "[BENCH] graphics calls from the wrong thread : " << Engine::Rendering::RenderThread::Get().WrongThreadCount() << std::endl;
+        std::cout << "[BENCH] gpu memory (engine) " << Engine::Rendering::GpuMemory::Report() << std::endl;
+        std::cout << "[BENCH] ram " << Engine::Core::Platform::ProcessMemoryUsage() / (1024.0 * 1024.0) << " MB, vram "
+                  << Engine::Core::Platform::ProcessGpuMemoryUsage() / (1024.0 * 1024.0) << " MB" << std::endl;
     }
 
     //Cleaning

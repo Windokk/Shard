@@ -1,4 +1,5 @@
 #include "renderer.hpp"
+#include "engine/renderer/rhi/gpu_profiler.hpp"
 
 #include "engine/world/engine.hpp"
 
@@ -20,9 +21,14 @@
 #include <algorithm>
 #include <glm/gtx/string_cast.hpp>
 
+#include "engine/core/config/cvar.hpp"
+
 namespace Shard::Engine::Rendering{
 
     namespace {
+
+        Core::CVar<bool> cvDepthPrepass("render.depth_prepass", true, "Lay the depth of the opaque geometry down first so every pixel is shaded once (see render.gpu)");
+        Core::CVar<bool> cvGpuTimers("render.gpu_timers", false, "Measure the GPU time of each render pass (see render.gpu)");
 
         // FNV-1a over raw bytes, chained through `h`. Only used to detect "did anything this pass depends on
         // change since it last ran" (RenderPass::cacheOutput), so a collision merely costs a stale frame and
@@ -101,11 +107,18 @@ namespace Shard::Engine::Rendering{
         RendererAPI::SetCurrent(m_RendererAPI.get());
         m_RendererAPI->SetSceneBinding(this);
 
+        // Textures are block compressed when they are loaded : a GPU that cannot take them gets them uncompressed
+        if (!m_RendererAPI->SupportsBlockCompression())
+        {
+            DEBUG_WARNING("The GPU does not support BC4 / BC5 / BC7 textures : texture compression is off.");
+            Core::CVarRegistry::Global().Execute("texture.compress false");
+        }
+
         if (Debugging::Profiler* profiler = Debugging::Profiler::Active())
         {
             profiler->AddStatsProvider([this](Debugging::MinimalStatistics& stats)
             {
-                stats.lights = GetLightManager()->GetLightsCount();
+                stats.lights = m_PublishedLightCount;
                 stats.cmds = GetDrawCallsCount();
                 stats.primitives = GetPrimitivesCount();
                 stats.vertices = GetVerticesCount();
@@ -216,6 +229,7 @@ namespace Shard::Engine::Rendering{
         forwardPass->clearColor = true;
         forwardPass->clearDepth = true;
         forwardPass->overridePipeline = false;
+        forwardPass->depthPrepass = true;
         // Initially no dependencies for forward pass
         AddRenderPass(forwardPass, "ForwardPass", {});
         m_RendererAPI->SetClearColor(0,0,0,1);
@@ -230,8 +244,12 @@ namespace Shard::Engine::Rendering{
         m_OcclusionCulling = std::make_shared<OcclusionCullingManager>();
         m_OcclusionCulling->Init(this);
 
+        m_BillboardRenderer.Init(this);
+
         m_ImmediateRenderer.Init(this);
         m_ThumbnailService.Init(this);
+
+        Material::PreloadDefaultTextures();
     }
 
     void Renderer::BuildExecutionOrder()
@@ -321,9 +339,24 @@ namespace Shard::Engine::Rendering{
         // The frame renders from the snapshot published by the Extract stage, whatever the simulation does meanwhile
         m_FrameLease = m_SnapshotBuffer.Acquire();
 
-        BeginFrame();
-        DrawFrame();
-        EndFrame();
+        {
+            std::lock_guard<std::mutex> lock(m_DebugViewMutex);
+            m_DebugView = m_PendingDebugView;
+        }
+
+        GpuProfiler* gpu = m_RendererAPI->GetGpuProfiler();
+        gpu->SetEnabled(cvGpuTimers.Get());
+        gpu->BeginFrame();
+        {
+            GpuScope frameScope(gpu, "Frame");
+            {
+                GpuScope scope(gpu, "Managers");
+                BeginFrame();
+            }
+            DrawFrame();
+            EndFrame();
+        }
+        gpu->EndFrame();
 
         m_FrameLease = {};
     }
@@ -341,6 +374,8 @@ namespace Shard::Engine::Rendering{
 
     void Renderer::ClearPassesContent()
     {
+        SHARD_FORWARD_TO_GRAPHICS_THREAD(ClearPassesContent())
+
         for(auto& [name, pass] : m_RenderPasses){
             pass->drawList.clear();
             pass->drawCommandsLookup.clear();
@@ -386,6 +421,7 @@ namespace Shard::Engine::Rendering{
 
     std::shared_ptr<Pipeline> Renderer::GetOrAddPipeline(const PipelineSpecifications& specs)
     {
+        std::lock_guard<std::mutex> lock(m_PipelineMutex);
         auto [it, inserted] = m_Pipelines.try_emplace(specs, nullptr);
 
         if (inserted)
@@ -398,6 +434,7 @@ namespace Shard::Engine::Rendering{
 
     std::shared_ptr<ComputePipeline> Renderer::GetOrAddComputePipeline(const ComputePipelineSpecifications& specs)
     {
+        std::lock_guard<std::mutex> lock(m_PipelineMutex);
         auto [it, inserted] = m_ComputePipelines.try_emplace(specs, nullptr);
 
         if (inserted)
@@ -439,6 +476,13 @@ namespace Shard::Engine::Rendering{
 
     void Renderer::AddOrUpdateCommands(const std::vector<DrawCommand>& commands, const std::vector<std::string>& passes, bool addToShadowDrawList)
     {
+        if (!RenderThread::Get().IsGraphicsThread())
+        {
+            // Fire and forget : copies of the arguments travel, and the commands are in place before the next frame is drawn
+            RenderThread::Get().Post([this, commands, passes, addToShadowDrawList] { AddOrUpdateCommands(commands, passes, addToShadowDrawList); });
+            return;
+        }
+
         uint32_t newDrawCallsCount = 0;
 
         for(const auto& passName : passes){
@@ -536,6 +580,12 @@ namespace Shard::Engine::Rendering{
 
     void Renderer::RemoveCommands(const std::vector<uint64_t> commandIDs, const std::vector<std::string>& passes, bool removeFromShadowDrawList)
     {
+        if (!RenderThread::Get().IsGraphicsThread())
+        {
+            RenderThread::Get().Post([this, commandIDs, passes, removeFromShadowDrawList] { RemoveCommands(commandIDs, passes, removeFromShadowDrawList); });
+            return;
+        }
+
         size_t removedCount = 0;
 
         for(auto passName : passes){
@@ -636,6 +686,8 @@ namespace Shard::Engine::Rendering{
 
     void Renderer::AddRenderPass(const std::shared_ptr<RenderPass> pass, const std::string& name, const std::vector<std::string>& dependencies)
     {
+        SHARD_FORWARD_TO_GRAPHICS_THREAD(AddRenderPass(pass, name, dependencies))
+
         if (!pass)
         {
             DEBUG_ERROR("Trying to add null RenderPass: " + name);
@@ -657,6 +709,8 @@ namespace Shard::Engine::Rendering{
 
     void Renderer::RemoveRenderPass(const std::string &name)
     {
+        SHARD_FORWARD_TO_GRAPHICS_THREAD(RemoveRenderPass(name))
+
         auto it = m_RenderPasses.find(name);
 
         if(it != m_RenderPasses.end()){
@@ -676,6 +730,8 @@ namespace Shard::Engine::Rendering{
 
     void Renderer::AddDependencyToPass(const std::string& passName, const std::string& dependencyName)
     {
+        SHARD_FORWARD_TO_GRAPHICS_THREAD(AddDependencyToPass(passName, dependencyName))
+
         auto passIt = m_RenderPasses.find(passName);
         if (passIt == m_RenderPasses.end())
         {
@@ -690,6 +746,8 @@ namespace Shard::Engine::Rendering{
 
     void Renderer::RemoveDependencyFromPass(const std::string& passName, const std::string& dependencyName)
     {
+        SHARD_FORWARD_TO_GRAPHICS_THREAD(RemoveDependencyFromPass(passName, dependencyName))
+
         auto passIt = m_RenderPasses.find(passName);
         if (passIt == m_RenderPasses.end())
         {
@@ -709,6 +767,8 @@ namespace Shard::Engine::Rendering{
 
     void Renderer::RescaleFramebuffers(int newWidth, int newHeight)
     {
+        SHARD_FORWARD_TO_GRAPHICS_THREAD(RescaleFramebuffers(newWidth, newHeight))
+
         for(auto renderPass : m_RenderPasses){
             if(renderPass.second->allowResize){
                 renderPass.second->target->Resize(newWidth, newHeight);
@@ -721,23 +781,25 @@ namespace Shard::Engine::Rendering{
 
     void Renderer::ToggleMultisampling(const bool on)
     {
+        SHARD_FORWARD_TO_GRAPHICS_THREAD(ToggleMultisampling(on))
+
         m_MultisamplingEnabled = on;
         m_RendererAPI->ToggleMultisampling(on);
     }
 
     std::string Renderer::GetDeviceVendor()
     {
-        return m_RendererAPI->GetDeviceVendor();
+        return OnGraphicsThread([this] { return m_RendererAPI->GetDeviceVendor(); });
     }
 
     std::string Renderer::GetRendererName()
     {
-        return m_RendererAPI->GetRendererName();
+        return OnGraphicsThread([this] { return m_RendererAPI->GetRendererName(); });
     }
 
     std::string Renderer::GetDriverVersion()
     {
-        return m_RendererAPI->GetDriverVersion();
+        return OnGraphicsThread([this] { return m_RendererAPI->GetDriverVersion(); });
     }
 
     namespace {
@@ -861,7 +923,10 @@ namespace Shard::Engine::Rendering{
     void Renderer::BeginFrame()
     {
         SyncSceneDrawLists();
+        m_BillboardRenderer.Sync(GetSnapshot());
         m_LightManager->Sync(GetSnapshot().lights);
+        m_PublishedLightCount = m_LightManager->GetLightsCount();
+        m_PublishedPassCount = static_cast<uint32_t>(m_RenderPasses.size());
         m_ProbeManager->Sync(GetSnapshot());
 
         ReorderDrawList();
@@ -874,6 +939,7 @@ namespace Shard::Engine::Rendering{
         {
             SHARD_PROFILE_RENDER_SUB_SCOPE(Debugging::RenderSubSample::GIProbeUpdate);
             m_ProbeManager->Update();
+            m_ProbeManager->PublishStatus();
         }
 
         {
@@ -934,6 +1000,8 @@ namespace Shard::Engine::Rendering{
             const bool debugViewIsPlain = m_DebugView.mode == ViewMode::Lit || m_DebugView.mode == ViewMode::Unlit;
             const bool occlusionCulled = (passName == "SSAODepthNormalPass" || (passName == "ForwardPass" && debugViewIsPlain))
                 && PrepareOcclusionCulling(passName, pass);
+
+            GpuScope passScope(m_RendererAPI->GetGpuProfiler(), passName.c_str());
 
             BeginRenderPass(pass);
 
@@ -1095,6 +1163,9 @@ namespace Shard::Engine::Rendering{
             }
         }
 
+        // What this pass draws now : culled once, drawn once (or twice with depth sweeps)
+        m_VisibleCommands.clear();
+
         for(auto& drawCmd : (m_CurrentPass->externalDrawList ? *m_CurrentPass->externalDrawList : m_CurrentPass->drawList)){
 
             bool skip = false;
@@ -1150,8 +1221,33 @@ namespace Shard::Engine::Rendering{
                     continue;
             }
 
-            m_RendererAPI->ExecuteDrawCommand(drawCmd, m_CurrentPass);
+            m_VisibleCommands.push_back(&drawCmd);
         }
+
+        // Opaque geometry first lays its depth down alone (cheap : no shading), then is shaded where that depth says it
+        // is visible : the lit shader is by far the heaviest part of the frame and would otherwise run for every
+        // surface behind another one. Only the main scene's forward pass, in its plain shaded view.
+        const bool depthSweeps = cvDepthPrepass.Get() && m_CurrentPass->depthPrepass && m_ViewStack.empty()
+            && m_DebugView.mode == ViewMode::Lit && !m_DebugView.wireframeRaster && !m_SkipFullscreenCommands;
+
+        if (depthSweeps)
+        {
+            GpuScope scope(m_RendererAPI->GetGpuProfiler(), "  depth sweep");
+            m_RendererAPI->SetDepthSweep(DepthSweep::Prepass);
+            for (const DrawCommand* drawCmd : m_VisibleCommands)
+                if (m_RendererAPI->IsDepthPrepassCandidate(*drawCmd, *m_CurrentPass))
+                    m_RendererAPI->ExecuteDrawCommand(*drawCmd, m_CurrentPass);
+            m_RendererAPI->SetDepthSweep(DepthSweep::Equal);
+        }
+
+        {
+            GpuScope scope(m_RendererAPI->GetGpuProfiler(), depthSweeps ? "  shaded sweep" : "  draws");
+            for (const DrawCommand* drawCmd : m_VisibleCommands)
+                m_RendererAPI->ExecuteDrawCommand(*drawCmd, m_CurrentPass);
+        }
+
+        if (depthSweeps)
+            m_RendererAPI->SetDepthSweep(DepthSweep::None);
     }
 
     OcclusionCullingManager::Target Renderer::MakeOcclusionTarget(const std::shared_ptr<RenderPass>& pass) const

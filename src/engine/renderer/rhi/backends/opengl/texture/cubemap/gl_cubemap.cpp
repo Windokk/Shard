@@ -1,4 +1,5 @@
 #include "gl_cubemap.hpp"
+#include "engine/renderer/rhi/render_thread.hpp"
 
 #include "engine/renderer/rhi/backends/opengl/gl_utils.hpp"
 #include "engine/renderer/rhi/backends/opengl/texture/gl_texture.hpp"
@@ -37,18 +38,20 @@ namespace Shard::Engine::Rendering{
 
     void GLCubemap::Bind(uint32_t slot) const
     {
+        SHARD_ASSERT_GRAPHICS_THREAD();
         glActiveTexture(GL_TEXTURE0 + slot);
         glBindTexture(GL_TEXTURE_CUBE_MAP, m_ID);
     }
 
     bool GLCubemap::IsValid() const
     {
-        return glIsTexture(m_ID);
+        return m_ID != 0;
     }
 
     GLCubemap::~GLCubemap()
     {
-        glDeleteTextures(1, &m_ID);
+        const GLuint id = m_ID;
+        RenderThread::Get().Post([id] { glDeleteTextures(1, &id); });
     }
     
     GLCubemapArray::GLCubemapArray(const TextureSpecifications &specs, std::vector<std::array<unsigned char *, 6>> data)
@@ -127,13 +130,14 @@ namespace Shard::Engine::Rendering{
 
     void GLCubemapArray::Bind(uint32_t slot) const
     {
+        SHARD_ASSERT_GRAPHICS_THREAD();
         glActiveTexture(GL_TEXTURE0 + slot);
         glBindTexture(GL_TEXTURE_CUBE_MAP_ARRAY, m_ID);
     }
 
     bool GLCubemapArray::IsValid() const
     {
-        return glIsTexture(m_ID);
+        return m_ID != 0;
     }
 
     uint32_t GLCubemapArray::GetCount() const
@@ -143,6 +147,7 @@ namespace Shard::Engine::Rendering{
 
     GLCubemapArray::~GLCubemapArray()
     {
-        glDeleteTextures(1, &m_ID);
+        const GLuint id = m_ID;
+        RenderThread::Get().Post([id] { glDeleteTextures(1, &id); });
     }
 }

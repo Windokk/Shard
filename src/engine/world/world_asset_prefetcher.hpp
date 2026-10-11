@@ -1,5 +1,6 @@
 #pragma once
 
+#include <chrono>
 #include <string>
 #include <vector>
 #include <exception>
@@ -75,6 +76,7 @@ namespace Shard::Engine::Worlds{
             std::vector<DecodeJob> jobs;
 
             std::atomic<int> completedCount{0};
+            std::chrono::steady_clock::time_point loadStart;
             int totalCount = 0;
 
             // Worker threads decoding at once. Every asset used to get its own thread, which on a

@@ -1,6 +1,6 @@
 name: tsan
 
-# Runs the job system, thread pool, memory, cvar and ecs tests (src/engine/core/jobs) under ThreadSanitizer, which detects data races and memory-ordering
+# Runs the job system, thread pool, memory, cvar, ecs and render thread tests under ThreadSanitizer, which detects data races and memory-ordering
 # mistakes that a plain test run can miss for months. TSan does not exist on Windows / MinGW, hence a Linux-only job.
 # Only the job system and googletest are compiled (the job system depends on nothing but the standard library), so this
 # takes about a minute instead of a full engine build.
@@ -17,6 +17,8 @@ on:
       - 'tests/core/memory_tests.cpp'
       - 'tests/core/cvar_tests.cpp'
       - 'tests/core/ecs_tests.cpp'
+      - 'src/engine/renderer/rhi/render_thread.*'
+      - 'tests/rendering/render_thread_tests.cpp'
       - '.github/workflows/tsan.yml'
   pull_request:
     paths:
@@ -29,6 +31,8 @@ on:
       - 'tests/core/memory_tests.cpp'
       - 'tests/core/cvar_tests.cpp'
       - 'tests/core/ecs_tests.cpp'
+      - 'src/engine/renderer/rhi/render_thread.*'
+      - 'tests/rendering/render_thread_tests.cpp'
       - '.github/workflows/tsan.yml'
   workflow_dispatch:
 
@@ -65,6 +69,7 @@ jobs:
             src/engine/core/ecs/archetype.cpp src/engine/core/ecs/registry.cpp src/engine/core/ecs/scheduler.cpp \
             tests/core/job_system_tests.cpp tests/core/thread_pool_tests.cpp \
             tests/core/memory_tests.cpp tests/core/cvar_tests.cpp tests/core/ecs_tests.cpp \
+            src/engine/renderer/rhi/render_thread.cpp tests/rendering/render_thread_tests.cpp \
             -I $GT/include -I $GT $GT/src/gtest-all.cc $GT/src/gtest_main.cc \
             -lpthread -o jobs_tsan
 

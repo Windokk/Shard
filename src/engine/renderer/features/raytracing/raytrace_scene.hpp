@@ -11,6 +11,7 @@
 
 namespace Shard::Engine::Rendering {
     class Mesh;
+    struct MeshCPUCopy;
     class Material;
 }
 
@@ -90,6 +91,8 @@ namespace Shard::Engine::Rendering::Raytracing {
         // one-shot at load time), so reading through this shared_ptr from a worker thread while the
         // main thread carries on is safe.
         std::shared_ptr<Mesh> mesh;
+        // Its vertices and indices, held until the build is done (the mesh keeps them on the GPU only, see Mesh::AcquireCPUData)
+        std::shared_ptr<const MeshCPUCopy> cpu;
         // One already-resolved index into RaytraceSceneSnapshot::materials per submesh, or UINT32_MAX
         // (see kSkippedSubmesh) for a submesh CaptureSnapshot(..., excludeMasked=true) chose to leave out
         // entirely - BuildFromSnapshot() skips generating triangles for those.

@@ -74,7 +74,32 @@ namespace Shard::Engine::Rendering{
                 s_VAOValid = true;
             }
 
+            // A depth sweep (see RendererAPI::SetDepthSweep) overrides what the pipelines ask for : Prepass writes depth
+            // with LESS, Equal tests with EQUAL and writes nothing. Changing the mode forgets the cached depth state.
+            enum class DepthMode { Normal, Prepass, Equal };
+
+            static void SetDepthMode(DepthMode mode){
+                if (s_DepthMode == mode)
+                    return;
+                s_DepthMode = mode;
+                s_DepthTestValid = false;
+                s_DepthWriteValid = false;
+                s_DepthFuncValid = false;
+            }
+
+            static DepthMode GetDepthMode(){ return s_DepthMode; }
+
+            static void SetColorWrite(bool enabled){
+                if (s_ColorWriteValid && s_ColorWrite == enabled)
+                    return;
+                glColorMask(enabled, enabled, enabled, enabled);
+                s_ColorWrite = enabled;
+                s_ColorWriteValid = true;
+            }
+
             static void SetDepthTest(bool enabled){
+                if (s_DepthMode != DepthMode::Normal)
+                    enabled = true;
                 if (s_DepthTestValid && s_DepthTest == enabled)
                     return;
                 if (enabled) glEnable(GL_DEPTH_TEST);
@@ -84,6 +109,10 @@ namespace Shard::Engine::Rendering{
             }
 
             static void SetDepthWrite(bool enabled){
+                if (s_DepthMode == DepthMode::Prepass)
+                    enabled = true;
+                else if (s_DepthMode == DepthMode::Equal)
+                    enabled = false;
                 if (s_DepthWriteValid && s_DepthWrite == enabled)
                     return;
                 glDepthMask(enabled ? GL_TRUE : GL_FALSE);
@@ -92,6 +121,10 @@ namespace Shard::Engine::Rendering{
             }
 
             static void SetDepthFunc(GLenum func){
+                if (s_DepthMode == DepthMode::Prepass)
+                    func = GL_LESS;
+                else if (s_DepthMode == DepthMode::Equal)
+                    func = GL_EQUAL;
                 if (s_DepthFuncValid && s_DepthFunc == func)
                     return;
                 glDepthFunc(func);
@@ -185,7 +218,7 @@ namespace Shard::Engine::Rendering{
             // command needs camera state is decided per-command (not per-program), so a program's
             // first use might skip one kind while still needing another later - sharing a single flag
             // could wrongly suppress that later update.
-            enum class PassGlobalsKind { World = 0, Camera = 1, Count = 2 };
+            enum class PassGlobalsKind { World = 0, Camera = 1, DepthSweep = 2, Count = 3 };
 
             static bool NeedsPassGlobalsUpdate(GLuint program, PassGlobalsKind kind){
                 size_t i = static_cast<size_t>(kind);
@@ -220,6 +253,10 @@ namespace Shard::Engine::Rendering{
 
             inline static bool s_DepthWrite = false;
             inline static bool s_DepthWriteValid = false;
+
+            inline static DepthMode s_DepthMode = DepthMode::Normal;
+            inline static bool s_ColorWrite = true;
+            inline static bool s_ColorWriteValid = false;
 
             inline static GLenum s_DepthFunc = 0;
             inline static bool s_DepthFuncValid = false;

@@ -21,6 +21,7 @@ namespace Shard::Engine::Core::Platform {
         bool ShouldClose() const override { return m_ShouldClose; }
 
         void SwapBuffers() override;
+        bool MakeContextCurrent(bool current) override;
 
         int GetFramebufferWidth() const override;
         int GetFramebufferHeight() const override;
@@ -54,5 +55,6 @@ namespace Shard::Engine::Core::Platform {
         SDL_Window* m_Window = nullptr;
         SDL_GLContext m_GLContext = nullptr;
         bool m_ShouldClose = false;
+        int m_SwapInterval = 0;     // the vertical sync the window was created with, set again whenever the context moves
     };
 }

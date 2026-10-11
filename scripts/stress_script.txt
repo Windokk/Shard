@@ -1,0 +1,14 @@
+# Console commands run by scripts/stress_test.sh : "<frame> <command>" (see EngineCreationSettings::scriptFile)
+60 render.resize 800 600
+120 render.resize 1280 720
+180 play on
+300 play off
+340 thumbnail.test models/Dragon.fbx
+350 thumbnail.test materials/dragon.mat
+420 world.load pbr.world
+600 render.msaa off
+660 render.msaa on
+780 render.resize 640 360
+840 world.load cornell.world
+900 render.thread
+910 render.memory

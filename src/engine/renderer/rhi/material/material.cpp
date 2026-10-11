@@ -11,6 +11,12 @@
 
 namespace Shard::Engine::Rendering{
 
+    void Material::PreloadDefaultTextures()
+    {
+        if (RendererAPI::Current() && RendererAPI::Current()->GetAPI() == RendererAPI::API::OpenGL)
+            GLMaterial::PreloadDefaultTextures();
+    }
+
     std::shared_ptr<Material> Material::Create(std::shared_ptr<Shader> shader, std::shared_ptr<Pipeline> pipeline, bool receivesShadows, Opacity opacity)
     {
         if(!shader || !pipeline){

@@ -264,7 +264,7 @@ namespace Shard::Editor::Core{
 
         // Setup Platform/Renderer backends
         ImGui_ImplSDL3_InitForOpenGL(GetSDLWindow(), GetGLContext());
-        ImGui_ImplOpenGL3_Init();
+        Rendering::OnGraphicsThread([] { ImGui_ImplOpenGL3_Init(); });
 
         SetupImGuiStyle();
 
@@ -622,16 +622,12 @@ namespace Shard::Editor::Core{
 
         if(renderPassesInitialized)
         {
-            auto outlineMaskPass = renderer->GetRenderPass("EditorOutlineMaskPass");
-            auto outlinePass = renderer->GetRenderPass("EditorOutlinePass");
-            outlineMaskPass->enabled = settings.showOutlines;
-            outlinePass->enabled = settings.showOutlines;
-
             Rendering::DebugViewState debugView;
             debugView.mode = settings.viewMode;
             debugView.showLighting = settings.showLighting;
             debugView.showShadows = settings.showShadows;
             renderer->SetDebugView(debugView);
+            renderer->SetShowEditorBillboards(settings.showBillboards);
 
             debugDraw.SetLayerVisible(Debug::DebugLayer::Volumes, settings.showGizmos);
             debugDraw.SetLayerVisible(Debug::DebugLayer::Probes, settings.showDDGIGizmos);
@@ -652,40 +648,53 @@ namespace Shard::Editor::Core{
             // Grid squares follow the location snap increment (1m when snapping is off).
             const float gridCell = (settings.snapLocation && settings.locationSnap > 0.0f) ? settings.locationSnap : 1.0f;
             const bool gridPlaneEnabled[3] = { settings.showGridX, settings.showGridY, settings.showGridZ };
-            const char* gridPassNames[3] = {"EditorGridPassX", "EditorGridPassY", "EditorGridPassZ"};
-            for (int axis = 0; axis < 3; axis++)
-            {
-                auto gridPass = renderer->GetRenderPass(gridPassNames[axis]);
-                gridPass->enabled = settings.showGrid && gridPlaneEnabled[axis];
-                gridPass->customUniforms["cellSize"] = gridCell;
-            }
+            const bool showOutlines = settings.showOutlines;
+            const bool showGrid = settings.showGrid;
 
-            // Grid passes also lose their command on a world reload.
-            for(auto& [passName, material] : gridCommands)
+            // What the editor draws over the scene is the renderer's own state : it is set from the render thread, between two
+            // frames, from copies of the editor settings (this thread goes on without waiting). The passes' flags and
+            // uniforms apply to the frame after the one being drawn.
+            Rendering::RenderThread::Get().Post([renderer, showOutlines, showGrid, gridPlaneEnabled, gridCell,
+                                                 gridCommands = gridCommands, fullscreenCommands = outlinePipelineFullscreenCommands]()
             {
-                Rendering::DrawCommand gridCmd{};
-                gridCmd.fullscreenTri = true;
-                gridCmd.bindCameraState = true;
-                gridCmd.material = material;
-                renderer->AddOrUpdateCommands({gridCmd}, {passName}, false);
-            }
+                renderer->GetRenderPass("EditorOutlineMaskPass")->enabled = showOutlines;
+                renderer->GetRenderPass("EditorOutlinePass")->enabled = showOutlines;
 
-            // Same reasoning as above, but for the JFA/composite passes' single permanent fullscreen
-            // command each (see where outlinePipelineFullscreenCommands is populated in the one-time
-            // setup above) - a world reload clears every pass's draw list (ClearPassesContent), and
-            // that setup never runs again, so without this the outline silhouette mask would keep
-            // updating correctly on selection while nothing ever turns it into a visible outline again.
-            for(auto& [passName, material] : outlinePipelineFullscreenCommands)
-            {
-                Rendering::DrawCommand fsCmd{};
-                fsCmd.fullscreenTri = true;
-                fsCmd.bindCameraState = false;
-                fsCmd.material = material;
-                renderer->AddOrUpdateCommands({fsCmd}, {passName}, false);
-            }
+                const char* gridPassNames[3] = {"EditorGridPassX", "EditorGridPassY", "EditorGridPassZ"};
+                for (int axis = 0; axis < 3; axis++)
+                {
+                    auto gridPass = renderer->GetRenderPass(gridPassNames[axis]);
+                    gridPass->enabled = showGrid && gridPlaneEnabled[axis];
+                    gridPass->customUniforms["cellSize"] = gridCell;
+                }
+
+                // Grid passes also lose their command on a world reload.
+                for(auto& [passName, material] : gridCommands)
+                {
+                    Rendering::DrawCommand gridCmd{};
+                    gridCmd.fullscreenTri = true;
+                    gridCmd.bindCameraState = true;
+                    gridCmd.material = material;
+                    renderer->AddOrUpdateCommands({gridCmd}, {passName}, false);
+                }
+
+                // Same reasoning as above, but for the JFA/composite passes' single permanent fullscreen
+                // command each (see where outlinePipelineFullscreenCommands is populated in the one-time
+                // setup above) - a world reload clears every pass's draw list (ClearPassesContent), and
+                // that setup never runs again, so without this the outline silhouette mask would keep
+                // updating correctly on selection while nothing ever turns it into a visible outline again.
+                for(auto& [passName, material] : fullscreenCommands)
+                {
+                    Rendering::DrawCommand fsCmd{};
+                    fsCmd.fullscreenTri = true;
+                    fsCmd.bindCameraState = false;
+                    fsCmd.material = material;
+                    renderer->AddOrUpdateCommands({fsCmd}, {passName}, false);
+                }
+            });
         }
 
-        ImGui_ImplOpenGL3_NewFrame();
+        // The graphics backend of the UI is set up (and used) by the render thread : only the platform half is here
         ImGui_ImplSDL3_NewFrame();
         ImGui::NewFrame();
 
@@ -723,8 +732,16 @@ namespace Shard::Editor::Core{
         GUI::Popups::Draw();
 
         ImGui::Render();
-        ImGui_ImplOpenGL3_RenderDrawData(ImGui::GetDrawData());
-        SDLWindow::SwapBuffers();
+
+        // The UI is drawn by the render thread, after the scene it shows. This thread waits for it (the draw data and the
+        // textures it points at are ImGui's own, which the next frame would change), then goes on with the next simulation
+        // while the render thread swaps.
+        ImDrawData* drawData = ImGui::GetDrawData();
+        Rendering::OnGraphicsThread([drawData] {
+            ImGui_ImplOpenGL3_NewFrame();
+            ImGui_ImplOpenGL3_RenderDrawData(drawData);
+        });
+        Rendering::RenderThread::Get().Post([this] { SDLWindow::SwapBuffers(); });
     }
 
     void EditorMainWindow::UpdateProbeBuildNotification()

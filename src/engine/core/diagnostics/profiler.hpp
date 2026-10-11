@@ -5,7 +5,9 @@
 #include <vector>
 #include <array>
 #include <chrono>
+#include <atomic>
 #include <functional>
+#include <mutex>
 
 namespace Shard::Engine::Debugging{
 
@@ -97,6 +99,7 @@ namespace Shard::Engine::Debugging{
 
         ////// Memory usage
         float gpuMemoryMB = 0;
+        float ramUsageMB = 0;
 
         //World
         int actors = 0;
@@ -217,6 +220,15 @@ namespace Shard::Engine::Debugging{
             void BeginRenderSubSample(RenderSubSample sample);
             void EndRenderSubSample(RenderSubSample sample);
 
+            // The thread that draws calls this once, when it starts (and Unmark when it ends) : the samples it takes are then
+            // kept apart from the ones of the simulation (they run at the same time) and handed over by PublishRenderThread(),
+            // which the render thread calls after each frame. The next EndFrameSampling() adds what was published to the
+            // frame it closes. While a render thread samples, its categories (Rendering, Presentation) are time of another
+            // thread : they do not count in what the frame's own thread accounted for when "Other" is derived.
+            static void MarkRenderThread();
+            static void UnmarkRenderThread();
+            void PublishRenderThread();
+
             // Closes the current frame : derives the "Other" bucket, pushes the frame into the
             // history ring buffer, and resets the accumulator for the next frame. Call once per
             // frame, after all tracked subsystems have run. frameMs is the frame's total duration.
@@ -239,6 +251,22 @@ namespace Shard::Engine::Debugging{
 
             std::array<ProfileClock::time_point, kProfileCategoryCount> m_SampleStart{};
             std::array<ProfileClock::time_point, kRenderSubSampleCount> m_RenderSubSampleStart{};
+
+            // What the render thread sampled : `m_RenderLocal` is its own (no other thread touches it), `m_RenderPublished`
+            // is what it handed over and the simulation has not taken yet
+            struct RenderSide {
+                std::array<float, kProfileCategoryCount> categoryMs{};
+                std::array<float, kRenderSubSampleCount> renderSubMs{};
+                uint32_t subSampleCount = 0;
+                std::array<ProfileClock::time_point, kProfileCategoryCount> sampleStart{};
+                std::array<ProfileClock::time_point, kRenderSubSampleCount> subSampleStart{};
+            };
+            RenderSide m_RenderLocal;
+            RenderSide m_RenderPublished;
+            std::mutex m_RenderMutex;
+
+            static inline thread_local bool t_RenderSide = false;
+            static inline std::atomic<bool> s_RenderThreadSampling{false};
 
             // Cost (ms) of one Begin/End pair itself, measured at startup. Every sample includes it in
             // its own duration, and Rendering also contains the pairs of all its sub-samples, so it is

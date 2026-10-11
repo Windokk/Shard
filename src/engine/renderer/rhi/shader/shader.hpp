@@ -137,6 +137,15 @@ namespace Shard::Engine::Rendering {
 
             virtual void SetUVec2(const std::string& name, uint32_t x, uint32_t y) = 0;
 
+            /// Whether the fragment stage has a `depthPrepass` switch that makes it return before any shading : such a
+            /// shader can be drawn twice, depth first (see RendererAPI::SetDepthSweep)
+            bool SupportsDepthPrepass()
+            {
+                if (m_DepthPrepassSupport < 0)
+                    m_DepthPrepassSupport = GetActiveUniformsMap().find("depthPrepass") != GetActiveUniformsMap().end() ? 1 : 0;
+                return m_DepthPrepassSupport == 1;
+            }
+
             static std::shared_ptr<Shader> Create(
                 const Filesystem::Path& vertexPath,
                 const Filesystem::Path& fragmentPath,
@@ -156,7 +165,9 @@ namespace Shard::Engine::Rendering {
             }
 
         protected:
-        
+
+            int m_DepthPrepassSupport = -1;     // SupportsDepthPrepass(), worked out on first use
+
             Filesystem::AssetID m_AssetID;
 
             std::string m_VertexFilePath;

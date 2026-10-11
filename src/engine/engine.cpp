@@ -1,5 +1,7 @@
 #include "engine/world/engine.hpp"
 
+#include <algorithm>
+#include <fstream>
 #include <iostream>
 #include <string>
 #include <thread>
@@ -25,9 +27,12 @@
 #include "engine/renderer/features/lighting/probe_manager.hpp"
 #include "engine/renderer/components/probe_volume.hpp"
 #include "engine/world/actor.hpp"
+#include "engine/renderer/rhi/resources/texture/texture_compression.hpp"
+#include <filesystem>
 #include "engine/audio/audio_manager.hpp"
 #include "engine/physics/physics_manager.hpp"
 #include "engine/renderer/frontend/renderer.hpp"
+#include "engine/renderer/rhi/render_thread.hpp"
 #include "engine/audio/audio_world_data.hpp"
 #include "engine/physics/physics_world_data.hpp"
 #include "engine/renderer/components/render_world_data.hpp"
@@ -45,6 +50,18 @@ namespace Shard::Engine{
         namespace {
             // Published by the engine for the console (`list jobs`) : what the job system actually got
             CVar<int> cvJobThreads("jobs.threads", 0, "Threads that run jobs, the main thread included", CVarFlags::ReadOnly);
+
+            // Above 0 : every frame lasts that many seconds instead of what the clock says, so a run is reproducible
+            // (benchmarks, image comparisons) whatever the machine does meanwhile
+            CVar<float> cvFrameDt("time.frame_dt", 0.0f, "Length in seconds of every frame, 0 : real time (deterministic runs)", CVarFlags::None, 0.0f, 1.0f);
+
+            // Draws on a thread of its own : the simulation of the next frame runs while the previous one is drawn
+            CVar<bool> cvRenderThread("render.thread", true, "Draw on a dedicated render thread (applies at startup)", CVarFlags::Archive);
+
+            // How many frames may be submitted and not drawn yet : the simulation waits when it is that far ahead.
+            // 1 is the lowest latency, 2 smooths out frames that vary in length.
+            CVar<int> cvFramesInFlight("render.frames_in_flight", 2, "Frames the simulation may run ahead of the render thread",
+                                       CVarFlags::Archive, 1, 4);
 
             // Per-frame scratch memory budget, read when the engine starts (a change applies at the next start)
             CVar<int> cvFrameKB("memory.frame_kb", 4096, "Per-frame scratch memory, in KB, per buffered frame (applies at startup)",
@@ -96,6 +113,9 @@ namespace Shard::Engine{
 
             m_Context.fileManager->Init(m_Context.currentProject->GetProjectResourcesPath(), m_Context.fileManager->GetCurrentExecutablePath() / "engine_resources", m_Context.currentProject->GetProjectRoot());
             
+            // Textures are block compressed once and kept next to the thumbnails (derived data, safe to delete)
+            Rendering::TextureCache::SetDirectory((std::filesystem::path(m_Context.currentProject->GetProjectRoot().full) / ".cache" / "textures").generic_string());
+
             m_Context.resourcesManager->ConstructGlobalFileIndex(m_Context.currentProject->GetProjectResourcesPath(), m_Context.currentProject->GetAssetDatabasePath());
 
             m_Context.platform->CreateWindow("Shard", settings.windowWidth, settings.windowHeight, settings.fullscreen, settings.vsync, settings.api);
@@ -112,9 +132,22 @@ namespace Shard::Engine{
             m_RendererSettings->viewportHeight = m_Context.platform->GetWindow()->GetFramebufferHeight();
             m_RendererSettings->api = (RendererAPI::API)settings.api;
             m_Context.renderer->Init(m_RendererSettings);
-            m_Context.renderer->GetProbeManager()->onBakeFinished = [this](uint64_t key, const Filesystem::Path& file) {
-                if(auto* volume = Rendering::FindProbeVolume(*m_Context.worldManager, key))
-                    volume->OnBakeFinished(file);
+            // The probe manager lives on the render thread : what it needs from the world or the resources comes through the
+            // main thread's queue, and its answers go straight back to it
+            Rendering::ProbeManager* probeManager = m_Context.renderer->GetProbeManager().get();
+            probeManager->onBakeFinished = [this](uint64_t key, const Filesystem::Path& file) {
+                PostToMainThread([this, key, file] {
+                    if(auto* volume = Rendering::FindProbeVolume(*m_Context.worldManager, key))
+                        volume->OnBakeFinished(file);
+                });
+            };
+            probeManager->requestBakedData = [this, probeManager](const std::string& path) {
+                PostToMainThread([this, probeManager, path] {
+                    probeManager->ProvideBakedData(path, m_Context.resourcesManager->Get<Rendering::ProbeBakeData>(Core::Resources::AssetKind::ProbeBake, path));
+                });
+            };
+            probeManager->releaseBakedData = [this](const std::string& path) {
+                PostToMainThread([this, path] { m_Context.resourcesManager->Unload(Core::Resources::AssetKind::ProbeBake, path); });
             };
             m_Context.renderer->SetOcclusionCullingEnabled(m_Context.currentProject->GetRenderingSettings()->occlusionCulling);
             m_Context.platform->CreateInput();
@@ -152,7 +185,13 @@ namespace Shard::Engine{
                     window->DrawLoadingFrame(progress);
                 });
             }
-            
+
+            // Everything above ran on this thread, which owns the graphics context : from here on the render thread does
+            StartRenderThread();
+
+            if(!settings.scriptFile.empty())
+                LoadScript(settings.scriptFile);
+
         }
 
         ThreadPool* EngineInstance::GetThreadPool(PoolKind kind) const
@@ -230,6 +269,7 @@ namespace Shard::Engine{
             m_Context.profiler->AddStatsProvider([](Debugging::MinimalStatistics& stats)
             {
                 stats.gpuMemoryMB = Platform::ProcessGpuMemoryUsage() / (1024.0f * 1024.0f);
+                stats.ramUsageMB = Platform::ProcessMemoryUsage() / (1024.0f * 1024.0f);
             });
 
             RegisterEngineSystems();
@@ -269,6 +309,9 @@ namespace Shard::Engine{
 
             auto extractor = std::make_shared<Rendering::RenderExtractor>();
             add("Render.Extract", Phase::Extract, [this, extractor](SystemContext& c){
+                // The pacing : the simulation does not get further ahead of the drawn frames than the limit
+                Rendering::RenderThread::Get().WaitForFrameSlot();
+
                 SHARD_PROFILE_SCOPE(Debugging::ProfileCategory::Rendering);
                 extractor->Extract(*m_Context.renderer, *m_Context.worldManager, *m_Context.cameraManager, m_Context.jobSystem, c.frame);
             }, true);
@@ -287,6 +330,34 @@ namespace Shard::Engine{
             add("Render.Frame", Phase::Extract, [this](SystemContext&){ RenderFrame(); }, true);
 
             RegisterConsoleCommands();
+
+            CVarRegistry::Global().RegisterCommand("render.thread", "render.thread : what the render thread does (frames, time per frame, how long the simulation waited for it)",
+                [](const std::vector<std::string>& args) {
+                    Rendering::RenderThread& thread = Rendering::RenderThread::Get();
+                    if(!args.empty() && args[0] == "reset")
+                    {
+                        thread.ResetStats();
+                        return CommandResult{true, "statistics reset"};
+                    }
+                    if(!thread.IsRunning())
+                        return CommandResult{true, "no render thread : drawing on the main thread (render.thread 0, or not started yet)"};
+                    const Rendering::RenderThread::Stats s = thread.GetStats();
+                    char text[512];
+                    std::snprintf(text, sizeof(text),
+                        "render thread running, %d frame(s) in flight allowed\n  frames : %llu submitted, %llu drawn\n"
+                        "  render thread : %.2f ms per frame, busy %.0f%% of the time\n"
+                        "  simulation : waited %.2f ms per frame for a slot, %.2f ms parked in calls to the render thread",
+                        thread.MaxFramesInFlight(), (unsigned long long)s.framesSubmitted, (unsigned long long)s.framesFinished,
+                        s.averageFrameMs, s.busyFraction * 100.0, s.averageWaitMs, s.averageInvokeMs);
+                    std::string result = text;
+                    if(thread.WrongThreadCount() > 0)
+                    {
+                        result += "\n  !! " + std::to_string(thread.WrongThreadCount()) + " call(s) used the graphics API from the wrong thread :";
+                        for(const std::string& place : thread.WrongThreadPlaces())
+                            result += " " + place;
+                    }
+                    return CommandResult{true, result};
+                });
 
             // Console : what runs each frame and how long it takes, what the registry holds
             CVarRegistry::Global().RegisterCommand("ecs.systems", "ecs.systems : the systems of each phase, in start order, with their last run time",
@@ -378,6 +449,9 @@ namespace Shard::Engine{
 
         void EngineInstance::Destroy()
         {
+            // The graphics context comes back to this thread before anything is torn down
+            StopRenderThread();
+
             if(!m_EngineSettings.readOnly)
                 m_Context.currentProject->Shutdown(m_EngineSettings.project, *m_Context.assetIDManager);
             m_Context.profiler->Shutdown();
@@ -388,6 +462,8 @@ namespace Shard::Engine{
             m_Context.worldManager->UnloadAllWorlds();
             m_Context.renderer->Shutdown();
             m_Context.platform->GetWindow()->Destroy();
+
+            CVarRegistry::Global().UnregisterCommand("render.thread");
 
             // Last : every system that submitted work is shut down, and every JobGroup has been waited on. The pools'
             // queued tasks are run to the end first (they may use the job system), then the job system goes.
@@ -423,9 +499,12 @@ namespace Shard::Engine{
 
         bool EngineInstance::Run() {
 
+            RunScriptedCommands();
+            m_FrameCount++;
+
             // Measured first thing in the frame so every system below works off the same delta, and so
             // the time the previous frame actually took is what decides how much simulation is owed.
-            m_Context.timeManager->Tick();
+            m_Context.timeManager->Tick(cvFrameDt.Get());
 
             // New frame of scratch memory : what was allocated two frames ago is gone, last frame's is still readable
             m_Context.frameAllocator->NextFrame();
@@ -515,12 +594,122 @@ namespace Shard::Engine{
 
         void EngineInstance::RenderFrame()
         {
-            SHARD_PROFILE_SCOPE(Debugging::ProfileCategory::Rendering);
-            m_Context.renderer->Render();
+            // Handed to the render thread : the frame draws from the snapshot Extract just published, while this thread
+            // goes on with the next one. Without a render thread it simply runs here.
+            Rendering::Renderer* renderer = m_Context.renderer;
+            Rendering::RenderThread::Get().SubmitFrame([renderer] {
+                SHARD_PROFILE_SCOPE(Debugging::ProfileCategory::Rendering);
+                renderer->Render();
+            });
+        }
+
+        void EngineInstance::StartRenderThread()
+        {
+            if(!cvRenderThread.Get())
+                return;
+
+            Platform::IWindow* window = GetWindow();
+            if(!window || m_RendererSettings->api != RendererAPI::API::OpenGL)
+                return;
+
+            Rendering::RenderThread& thread = Rendering::RenderThread::Get();
+            thread.SetMaxFramesInFlight(cvFramesInFlight.Get());
+            thread.onFrameFinished = [this] {
+                if(m_Context.profiler)
+                    m_Context.profiler->PublishRenderThread();
+            };
+
+            const bool started = thread.Start(
+                [window] { window->MakeContextCurrent(false); },
+                [window] {
+                    Platform::SetCurrentThreadName("Shard Render");
+                    Debugging::Profiler::MarkRenderThread();
+                    return window->MakeContextCurrent(true);
+                });
+
+            if(started)
+                DEBUG_INFO("Render thread started (" + std::to_string(thread.MaxFramesInFlight()) + " frame(s) in flight)");
+            else
+                DEBUG_WARNING("The render thread could not take the graphics context : drawing on the main thread");
+        }
+
+        void EngineInstance::StopRenderThread()
+        {
+            Rendering::RenderThread& thread = Rendering::RenderThread::Get();
+            if(!thread.IsRunning())
+                return;
+
+            Platform::IWindow* window = GetWindow();
+            thread.Stop(
+                [window] {
+                    Debugging::Profiler::UnmarkRenderThread();
+                    window->MakeContextCurrent(false);
+                },
+                [window] { return window->MakeContextCurrent(true); });
+            thread.onFrameFinished = nullptr;
+        }
+
+        void EngineInstance::LoadScript(const std::string& path)
+        {
+            std::ifstream file(path);
+            if(!file)
+            {
+                DEBUG_ERROR("Script not found : " + path);
+                return;
+            }
+
+            std::string line;
+            while(std::getline(file, line))
+            {
+                if(!line.empty() && line.back() == '\r')
+                    line.pop_back();
+                size_t start = line.find_first_not_of(" \t");
+                if(start == std::string::npos || line[start] == '#')
+                    continue;
+                size_t space = line.find(' ', start);
+                if(space == std::string::npos)
+                    continue;
+                try
+                {
+                    m_Script.push_back({std::stoull(line.substr(start, space - start)), line.substr(space + 1)});
+                }
+                catch(...) { DEBUG_WARNING("Script line ignored : " + line); }
+            }
+            std::stable_sort(m_Script.begin(), m_Script.end(), [](const ScriptedCommand& a, const ScriptedCommand& b) { return a.frame < b.frame; });
+            DEBUG_INFO("Script : " + std::to_string(m_Script.size()) + " command(s) from " + path);
+        }
+
+        void EngineInstance::RunScriptedCommands()
+        {
+            while(m_ScriptNext < m_Script.size() && m_Script[m_ScriptNext].frame <= m_FrameCount)
+            {
+                const std::string& line = m_Script[m_ScriptNext++].line;
+                const CommandResult result = CVarRegistry::Global().Execute(line);
+                DEBUG_INFO("Script @" + std::to_string(m_FrameCount) + " > " + line + (result.ok ? " : " : " FAILED : ") + result.output);
+            }
+        }
+
+        void EngineInstance::PostToMainThread(std::function<void()> work)
+        {
+            std::lock_guard<std::mutex> lock(m_MainQueueMutex);
+            m_MainQueue.push_back(std::move(work));
+        }
+
+        void EngineInstance::RunMainThreadQueue()
+        {
+            std::vector<std::function<void()>> work;
+            {
+                std::lock_guard<std::mutex> lock(m_MainQueueMutex);
+                work.swap(m_MainQueue);
+            }
+            for(auto& fn : work)
+                fn();
         }
 
         void EngineInstance::PollInput()
         {
+            RunMainThreadQueue();
+
             SHARD_PROFILE_SCOPE(Debugging::ProfileCategory::Input);
             m_Context.platform->GetInput()->Tick();
             m_Context.platform->GetWindow()->PollEvents();

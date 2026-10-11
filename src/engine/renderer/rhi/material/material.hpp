@@ -59,6 +59,10 @@ namespace Shard::Engine::Rendering {
                 return m_AssetID;
             }
 
+            /// Loads what a material falls back on for a slot it has nothing bound to. Call once, on the thread that uses
+            /// the resources manager, before anything is drawn.
+            static void PreloadDefaultTextures();
+
             static std::shared_ptr<Material> Create(std::shared_ptr<Shader> shader, std::shared_ptr<Pipeline> pipeline, bool receivesShadows = true, Opacity opacity = Opacity::Opaque);
 
             bool GetRecieveShadows() const { return m_ReceivesShadows; }

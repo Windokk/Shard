@@ -15,6 +15,9 @@
 #include "engine/renderer/rhi/shader/compute_shader.hpp"
 #include "engine/renderer/rhi/material/material.hpp"
 
+#include <algorithm>
+#include <thread>
+
 namespace Shard::Engine::Rendering{
 
     using namespace Core::Resources;
@@ -68,7 +71,9 @@ namespace Shard::Engine::Rendering{
             // level 0 - aliasing/shimmer on detailed textures at distance. GLTexture2D adds anisotropy on
             // top when mips are present.
             specs.minFilter = TextureFilter::LinearMipmapLinear;
-            return Texture2D::Create(specs, path);
+            // Called on the main thread : a miss in the texture cache is encoded on several threads at once
+            TextureDecodeResult decoded = DecodeTextureFileForUpload(path, std::max(1u, std::thread::hardware_concurrency() / 2));
+            return Texture2D::Create(specs, decoded);
         }
 
         std::shared_ptr<EnvironmentMap> LoadEnvMap(const Filesystem::Path &path)
@@ -135,7 +140,8 @@ namespace Shard::Engine::Rendering{
             info.load = [](const std::string&, const Filesystem::AssetInfos& infos) -> std::shared_ptr<void> { return LoadTexture(infos.baseInfos.path); };
             info.setAssetID = AssetIDSetter<Texture2D>();
             info.prefetch = [](ResourcesManager& resources, const std::string& pathInProject, const Filesystem::Path& file) -> std::function<void()> {
-                auto data = std::make_shared<TextureDecodeResult>(DecodeTextureFile(file));
+                // Compressed here, on the worker : what reaches the main thread is the (small) blocks to upload
+                auto data = std::make_shared<TextureDecodeResult>(DecodeTextureFileForUpload(file));
                 if(!data->success)
                     return nullptr;
 
@@ -149,7 +155,7 @@ namespace Shard::Engine::Rendering{
                     // 0 and shimmered at distance/grazing angles. Match LoadTexture.
                     specs.minFilter = TextureFilter::LinearMipmapLinear;
 
-                    std::shared_ptr<Texture2D> texture = Texture2D::Create(specs, data->pixels.data());
+                    std::shared_ptr<Texture2D> texture = Texture2D::Create(specs, *data);
                     resources.Adopt(AssetKind::Texture, pathInProject, texture);
                 };
             };

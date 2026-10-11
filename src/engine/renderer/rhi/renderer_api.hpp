@@ -105,7 +105,12 @@ namespace Shard::Engine::Rendering {
         bool wireframeRaster = false;
     };
 
+    /// What a sweep over a pass's draw list is for : an opaque pass can lay its depth down first (Prepass : depth only, cheap
+    /// vertex work, no shading) and then shade (Equal : only what is visible, depth test EQUAL), so every pixel is shaded once.
+    enum class DepthSweep : uint8_t { None = 0, Prepass, Equal };
+
     class Shader;
+    class GpuProfiler;
     struct RenderView;
 
     class RendererAPI;
@@ -187,6 +192,21 @@ namespace Shard::Engine::Rendering {
             /// @brief Forget every piece of API state the backend caches to skip redundant calls. Call after
             /// touching the API outside the normal draw path (immediate renders, raw calls, ...).
             virtual void InvalidateStateCache() = 0;
+
+            /// Sets what the draws that follow are part of (see DepthSweep). Prepass writes depth only, Equal only draws
+            /// the candidates again with a depth test that matches what the prepass wrote.
+            virtual void SetDepthSweep(DepthSweep sweep) { (void)sweep; }
+
+            /// Whether a command is drawn by the two sweeps : an opaque, depth written, unblended draw of a shader that
+            /// understands the prepass (see Shader::SupportsDepthPrepass). Everything else is drawn by the Equal sweep alone,
+            /// as it would be without sweeps.
+            virtual bool IsDepthPrepassCandidate(const DrawCommand& command, const RenderPass& pass) { (void)command; (void)pass; return false; }
+
+            /// Whether the GPU takes BC4 / BC5 / BC7 textures as they are (see texture_compression.hpp)
+            virtual bool SupportsBlockCompression() { return false; }
+
+            /// GPU timings of the render passes (null when the backend has none)
+            virtual GpuProfiler* GetGpuProfiler() { return nullptr; }
 
             virtual std::string GetDeviceVendor() = 0;
             virtual std::string GetRendererName() = 0;

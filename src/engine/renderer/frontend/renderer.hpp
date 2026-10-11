@@ -13,11 +13,15 @@
 #include "engine/renderer/rhi/render_view.hpp"
 #include "engine/renderer/rhi/render_pass.hpp"
 #include "engine/renderer/rhi/render_context.hpp"
+#include "engine/renderer/rhi/render_thread.hpp"
 #include "engine/renderer/features/immediate/immediate_renderer.hpp"
 #include "engine/renderer/features/immediate/thumbnail_service.hpp"
 #include "engine/renderer/features/culling/occlusion_culling_manager.hpp"
+#include "engine/renderer/features/billboards/billboard_renderer.hpp"
 
+#include <atomic>
 #include <functional>
+#include <mutex>
 #include <map>
 #include <variant>
 
@@ -41,7 +45,12 @@ namespace Shard::Engine::Rendering {
             void Render();
 
             RenderSnapshotBuffer& GetSnapshotBuffer() override { return m_SnapshotBuffer; }
-            const RenderSnapshot& GetSnapshot() const override { return m_FrameLease ? m_FrameLease.Get() : m_SnapshotBuffer.Latest(); }
+            /// The frame being drawn on the graphics thread (the one it holds a lease on), the newest published one anywhere else
+            /// (the simulation, which is also the thread that publishes).
+            const RenderSnapshot& GetSnapshot() const override
+            {
+                return (RenderThread::Get().IsGraphicsThread() && m_FrameLease) ? m_FrameLease.Get() : m_SnapshotBuffer.Latest();
+            }
 
             /// Called when the viewport is resized, once the framebuffers follow : whoever owns the cameras resizes them
             /// (the renderer itself knows no camera).
@@ -58,17 +67,22 @@ namespace Shard::Engine::Rendering {
 
             std::shared_ptr<RenderPass> GetRenderPass(const std::string& name) const override
             {
-                auto it = m_RenderPasses.find(name);
+                return OnGraphicsThread([&]() -> std::shared_ptr<RenderPass> {
+                    auto it = m_RenderPasses.find(name);
 
-                if (it != m_RenderPasses.end())
-                    return it->second;
+                    if (it != m_RenderPasses.end())
+                        return it->second;
 
-                return nullptr;
+                    return nullptr;
+                });
             }
 
             std::vector<DrawCommand>* GetShadowDrawList() override { return &shadowDrawList; }
 
-            bool HasRenderPass(const std::string& name) const override { return m_RenderPasses.find(name) != m_RenderPasses.end(); }
+            bool HasRenderPass(const std::string& name) const override
+            {
+                return OnGraphicsThread([&] { return m_RenderPasses.find(name) != m_RenderPasses.end(); });
+            }
 
             void RescaleFramebuffers(int newWidth, int newHeight);
 
@@ -92,8 +106,17 @@ bool GetCurrentView(RenderView& out) override;
             void RenderImmediate(const std::shared_ptr<RenderPass>& pass, const RenderView& view) override;
 
             /// @brief Editor viewport debug view for the main scene render (view mode, lighting/shadow toggles).
-            void SetDebugView(const DebugViewState& state) { m_DebugView = state; }
-            const DebugViewState& GetDebugView() const { return m_DebugView; }
+            /// Takes effect at the start of the next frame
+            void SetDebugView(const DebugViewState& state)
+            {
+                std::lock_guard<std::mutex> lock(m_DebugViewMutex);
+                m_PendingDebugView = state;
+            }
+            DebugViewState GetDebugView() const
+            {
+                std::lock_guard<std::mutex> lock(m_DebugViewMutex);
+                return m_PendingDebugView;
+            }
 
             ImmediateRenderer* GetImmediateRenderer() override { return &m_ImmediateRenderer; }
             ThumbnailService* GetThumbnailService() override { return &m_ThumbnailService; }
@@ -112,10 +135,21 @@ bool GetCurrentView(RenderView& out) override;
             bool IsOcclusionCullingEnabled() const { return m_OcclusionCullingEnabled; }
             OcclusionCullingManager* GetOcclusionCulling() const { return m_OcclusionCulling.get(); }
 
+            /// @brief The billboards flagged EditorOnly (light, camera and probe volume icons...) are drawn only while this is on : the editor turns it on.
+            void SetShowEditorBillboards(bool show) { m_BillboardRenderer.SetShowEditorBillboards(show); }
+            bool GetShowEditorBillboards() const { return m_BillboardRenderer.GetShowEditorBillboards(); }
+            uint32_t GetBillboardCount() const { return m_BillboardRenderer.GetDrawnCount(); }
+
+            /// @brief The billboard under a pixel of the viewport (from its top left) : what a click on an icon selects.
+            BillboardPick PickBillboard(float mouseX, float mouseY, float viewportWidth, float viewportHeight) const
+            {
+                return BillboardRenderer::Pick(GetSnapshot(), m_BillboardRenderer.GetShowEditorBillboards(), mouseX, mouseY, viewportWidth, viewportHeight);
+            }
+
             std::string GetDeviceVendor();
             std::string GetRendererName();
             std::string GetDriverVersion();
-            const uint32_t GetPassesCount() const { return m_RenderPasses.size(); }
+            const uint32_t GetPassesCount() const { return m_PublishedPassCount; }
             const uint32_t GetDrawCallsCount() const { return m_DrawCallsCount; }
             const uint32_t GetPrimitivesCount() const { return m_PrimitivesCount; }
             const uint32_t GetVerticesCount() const { return m_VerticesCount; }
@@ -169,6 +203,7 @@ bool GetCurrentView(RenderView& out) override;
             std::vector<std::string> m_ExecutionOrder;
             std::shared_ptr<RenderPass> m_CurrentPass;
             std::vector<RenderView> m_ViewStack;
+            std::vector<const DrawCommand*> m_VisibleCommands;      // what ExecuteRenderPass() drew : culled once, drawn per sweep
             ImmediateRenderer m_ImmediateRenderer;
             ThumbnailService m_ThumbnailService;
             std::vector<std::string> m_PassInsertionOrder;
@@ -204,11 +239,13 @@ bool GetCurrentView(RenderView& out) override;
             std::shared_ptr<ProbeManager> m_ProbeManager;
             std::shared_ptr<SSAOManager> m_SSAOManager;
             std::shared_ptr<LightCullingManager> m_LightCullingManager;
+            BillboardRenderer m_BillboardRenderer;
             std::shared_ptr<OcclusionCullingManager> m_OcclusionCulling;
-            bool m_OcclusionCullingEnabled = true;
+            std::atomic<bool> m_OcclusionCullingEnabled{true};
             // 0 = not occlusion culling, 1/2 = which phase ExecuteRenderPass is currently issuing draws for
             int m_OcclusionPhase = 0;
 
+            std::mutex m_PipelineMutex;     // pipelines are asked for by the simulation (components) and by the renderer
             std::unordered_map<PipelineSpecifications,std::shared_ptr<Pipeline>,PipelineSpecsHash> m_Pipelines;
             std::unordered_map<ComputePipelineSpecifications,std::shared_ptr<ComputePipeline>,ComputePipelineSpecsHash> m_ComputePipelines;
 
@@ -218,12 +255,19 @@ bool GetCurrentView(RenderView& out) override;
 
             bool m_NeedExecutionOrderRebuild = false;
 
-            DebugViewState m_DebugView;
+            DebugViewState m_DebugView;             // what the frame being drawn uses (see SetDebugView)
+            DebugViewState m_PendingDebugView;
+            mutable std::mutex m_DebugViewMutex;
             bool m_SkipFullscreenCommands = false;
 
-            uint32_t m_DrawCallsCount = 0;
-            uint32_t m_PrimitivesCount = 0;
-            uint32_t m_VerticesCount = 0;
+            // The sizes of what only the render thread may look into, as of the last frame (for the statistics of the simulation)
+            std::atomic<uint32_t> m_PublishedPassCount{0};
+            std::atomic<int> m_PublishedLightCount{0};
+
+            // Read by the profiler statistics from another thread than the one that draws
+            std::atomic<uint32_t> m_DrawCallsCount{0};
+            std::atomic<uint32_t> m_PrimitivesCount{0};
+            std::atomic<uint32_t> m_VerticesCount{0};
             std::unordered_map<uint64_t, uint32_t> m_CommandRefCount;
     };
 }

@@ -39,6 +39,29 @@ namespace Shard::Engine::Rendering {
         bool changed = true;
     };
 
+    enum class BillboardProxyFacing : uint8_t { Camera = 0, AxisY = 1, Fixed = 2 };
+
+    /// Bits of BillboardProxy::flags
+    namespace BillboardFlag {
+        constexpr uint8_t ScreenSpaceSize = 1 << 0;   // size is in pixels (constant on screen), else in meters
+        constexpr uint8_t DepthTest       = 1 << 1;   // hidden by the geometry in front of it
+        constexpr uint8_t EditorOnly      = 1 << 2;   // only drawn when the editor asks for its helpers (see Renderer::SetShowEditorBillboards)
+        constexpr uint8_t Pickable        = 1 << 3;   // the editor can select its actor by clicking it
+    }
+
+    /// A camera-facing (or axis-aligned) quad : an editor icon (light, camera, probe volume...), a sprite, a future bone / IK handle.
+    /// Every kind of billboard goes through this one proxy ; what changes is the provider that extracts it.
+    struct BillboardProxy {
+        uint64_t key = 0;                        // (world<<48)|id
+        int objectId = -1;                       // the actor it stands for (picking)
+        glm::dvec3 position = glm::dvec3(0);     // 64-bit, brought relative to the camera when it is drawn
+        float size = 0;                          // pixels or meters (ScreenSpaceSize)
+        uint32_t sprite = 0;                     // index in the BillboardAtlas (icons, sprites...)
+        glm::vec4 tint = glm::vec4(1,1,1,1);
+        BillboardProxyFacing facing = BillboardProxyFacing::Camera;
+        uint8_t flags = BillboardFlag::ScreenSpaceSize | BillboardFlag::DepthTest;
+    };
+
     enum class LightProxyType : uint32_t { Directional = 0, Point = 1, Spot = 2 };
 
     struct LightProxy {
@@ -141,6 +164,7 @@ namespace Shard::Engine::Rendering {
         std::vector<MeshProxy> meshes;
         std::vector<LightProxy> lights;
         std::vector<ProbeVolumeProxy> probeVolumes;
+        std::vector<BillboardProxy> billboards;
 
         /// Empties the lists but keeps their memory : the next extraction refills the same buffers.
         void Reset()
@@ -151,6 +175,7 @@ namespace Shard::Engine::Rendering {
             meshes.clear();
             lights.clear();
             probeVolumes.clear();
+            billboards.clear();
         }
 
         /// The proxy of the previous snapshot with the same key, or null

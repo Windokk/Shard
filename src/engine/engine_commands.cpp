@@ -14,7 +14,12 @@
 #include "engine/core/memory/memory_tracker.hpp"
 #include "engine/renderer/components/camera_manager.hpp"
 #include "engine/renderer/components/render_world_data.hpp"
+#include "engine/renderer/components/probe_volume.hpp"
+#include "engine/renderer/features/lighting/probe_manager.hpp"
 #include "engine/renderer/frontend/renderer.hpp"
+#include "engine/renderer/features/immediate/thumbnail_service.hpp"
+#include "engine/renderer/rhi/gpu_memory.hpp"
+#include "engine/platform/hardware/system_info.hpp"
 #include "engine/world/time_manager.hpp"
 #include "engine/world/world.hpp"
 #include "engine/world/world_manager.hpp"
@@ -140,6 +145,81 @@ namespace Shard::Engine::Core {
                     m_Context.renderer->SetOcclusionCullingEnabled(on);
                 }
                 return CommandResult{true, std::string("render.occlusion = ") + (m_Context.renderer->IsOcclusionCullingEnabled() ? "on" : "off")};
+            });
+
+        registry.RegisterCommand("play", "play on|off : enters / leaves play mode (leaving it reloads the world)",
+            [this](const std::vector<std::string>& args) {
+                bool on = true;
+                if (args.empty() || !ParseSwitch(args[0], on)) return CommandResult{false, "usage: play on|off"};
+                SetPlayMode(on);
+                return CommandResult{true, std::string("play mode ") + (on ? "on" : "off")};
+            });
+
+        registry.RegisterCommand("world.load", "world.load <path in the project> : loads that world (the current ones are unloaded)",
+            [this](const std::vector<std::string>& args) {
+                if (args.empty() || !m_Context.worldManager) return CommandResult{false, "usage: world.load <world>"};
+                m_Context.worldManager->LoadWorldAsync(args[0]);
+                return CommandResult{true, "loading " + args[0]};
+            });
+
+        registry.RegisterCommand("render.resize", "render.resize <width> <height> : resizes the viewport framebuffers as a window resize does",
+            [this](const std::vector<std::string>& args) {
+                if (args.size() < 2 || !m_Context.renderer) return CommandResult{false, "usage: render.resize <width> <height>"};
+                int w = 0, h = 0;
+                try { w = std::stoi(args[0]); h = std::stoi(args[1]); } catch (...) { return CommandResult{false, "usage: render.resize <width> <height>"}; }
+                if (w < 16 || h < 16 || w > 8192 || h > 8192) return CommandResult{false, "size out of range"};
+                m_Context.renderer->RescaleFramebuffers(w, h);
+                return CommandResult{true, "viewport " + std::to_string(w) + "x" + std::to_string(h)};
+            });
+
+        registry.RegisterCommand("probes.bake", "probes.bake : bakes the first active GI probe volume of the loaded worlds (what the Bake button of the editor does)",
+            [this](const std::vector<std::string>&) {
+                if (!m_Context.worldManager)
+                    return CommandResult{false, "no world manager"};
+                for (int i = 0; i < m_Context.worldManager->GetLoadedWorldCount(); ++i) {
+                    Worlds::World* world = m_Context.worldManager->GetWorldAt(i);
+                    if (!world) continue;
+                    for (auto& [id, volume] : world->Ext<Rendering::RenderWorldData>().probeVolumes)
+                        if (volume && volume->Active())
+                            return volume->Bake() ? CommandResult{true, "baking"} : CommandResult{false, "the bake could not start"};
+                }
+                return CommandResult{false, "no active probe volume"};
+            });
+
+        registry.RegisterCommand("probes.status", "probes.status : the GI probe bake, if one is running",
+            [this](const std::vector<std::string>&) {
+                auto probes = m_Context.renderer ? m_Context.renderer->GetProbeManager() : nullptr;
+                if (!probes)
+                    return CommandResult{false, "no probe manager"};
+                if (!probes->IsBaking())
+                    return CommandResult{true, std::string("no bake running, last bake ") + (probes->DidLastBakeSucceed() ? "succeeded" : "did not succeed")};
+                return CommandResult{true, std::string("baking : ") + probes->GetBakePhase() + " " + std::to_string(int(probes->GetBakeProgress() * 100.0f)) + "%"};
+            });
+
+        registry.RegisterCommand("render.memory", "render.memory : what the engine holds on the GPU (textures, render targets, meshes, buffers) and what the process holds in RAM and video memory",
+            [](const std::vector<std::string>&) {
+                const double mb = 1024.0 * 1024.0;
+                return CommandResult{true, "GPU, allocated by the engine : " + Rendering::GpuMemory::Report() + "\nProcess : " +
+                                           Fixed(Platform::ProcessMemoryUsage() / mb, 0) + " MB of RAM, " + Fixed(Platform::ProcessGpuMemoryUsage() / mb, 0) + " MB of video memory"};
+            });
+
+        registry.RegisterCommand("thumbnail.test", "thumbnail.test <mesh or material in the project> : renders its asset browser thumbnail now (what the browser does for a visible asset)",
+            [this](const std::vector<std::string>& args) {
+                if (args.empty() || !m_Context.renderer || !m_Context.fileManager)
+                    return CommandResult{false, "usage: thumbnail.test <models/x.fbx | materials/x.mat>"};
+
+                Rendering::ThumbnailRequest request;
+                request.nameInProject = args[0];
+                request.filePath = m_Context.fileManager->GetProjectResRoot() / args[0];
+                const bool material = args[0].size() > 4 && args[0].compare(args[0].size() - 4, 4, ".mat") == 0;
+                request.kind = material ? Rendering::ThumbnailKind::Material : Rendering::ThumbnailKind::Mesh;
+
+                Rendering::ThumbnailService* thumbnails = m_Context.renderer->GetThumbnailService();
+                thumbnails->BeginFrame();
+                Rendering::ThumbnailRegion region;
+                if (!thumbnails->Get(request, region))
+                    return CommandResult{false, "no thumbnail for " + args[0]};
+                return CommandResult{true, "thumbnail of " + args[0] + " in the atlas (texture " + std::to_string(thumbnails->GetAtlasTexture()) + ")"};
             });
 
         registry.RegisterCommand("render.msaa", "render.msaa on|off : multisampling of the viewport",

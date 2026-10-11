@@ -8,6 +8,7 @@
 #include "engine/assets/resources_manager.hpp"
 #include "engine/core/diagnostics/logger.hpp"
 
+#include "engine/renderer/components/billboard_component.hpp"
 #include "engine/renderer/components/camera.hpp"
 #include "engine/renderer/components/light_component.hpp"
 #include "engine/renderer/components/model_component.hpp"
@@ -39,6 +40,9 @@ namespace Shard::Engine::Rendering{
             cameras.emplace(idInWorld, camera);
             camera->AddToCameraManager();
         }
+        else if(auto billboard = std::dynamic_pointer_cast<Billboard>(component)){
+            billboards.emplace(idInWorld, billboard);
+        }
     }
 
     void RenderWorldData::OnComponentRemoved(Worlds::World&, int idInWorld, const std::shared_ptr<Component>& component)
@@ -55,6 +59,9 @@ namespace Shard::Engine::Rendering{
         }
         else if(component->IsInstanceOf<ProbeVolume>()){
             probeVolumes.erase(idInWorld);
+        }
+        else if(component->IsInstanceOf<Billboard>()){
+            billboards.erase(idInWorld);
         }
     }
 
@@ -173,6 +180,7 @@ namespace Shard::Engine::Rendering{
                 }
             });
         registry.RegisterBuiltinComponent<Light>("light");
+        registry.RegisterBuiltinComponent<Billboard>("billboard");
         registry.RegisterBuiltinComponent<Camera>("camera");
         registry.RegisterBuiltinComponent<ProbeVolume>("probeVolume",
             [](const nlohmann::json& component, std::vector<ResourceKey>& out){

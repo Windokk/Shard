@@ -7,6 +7,7 @@
 #include "engine/core/jobs/parallel_for.hpp"
 #include "engine/core/diagnostics/profiler.hpp"
 
+#include "engine/renderer/components/billboard_component.hpp"
 #include "engine/renderer/components/camera.hpp"
 #include "engine/renderer/components/camera_manager.hpp"
 #include "engine/renderer/components/light_component.hpp"
@@ -14,6 +15,7 @@
 #include "engine/renderer/components/probe_volume.hpp"
 #include "engine/renderer/components/render_world_data.hpp"
 #include "engine/renderer/components/skybox.hpp"
+#include "engine/renderer/features/billboards/billboard_atlas.hpp"
 #include "engine/renderer/rhi/render_context.hpp"
 #include "engine/renderer/rhi/resources/framebuffer/framebuffer.hpp"
 #include "engine/renderer/rhi/resources/texture/cubemap/envmap.hpp"
@@ -80,6 +82,81 @@ namespace Shard::Engine::Rendering {
             proxy.enableRelocation = volume.enableRelocation;
             proxy.bakedData = volume.bakedData;
             return proxy;
+        }
+
+        // ---- Billboards : the built-in providers. One per kind of component, each only reads its own components.
+
+        constexpr float kIconSize = 40.0f;      // pixels
+        constexpr uint8_t kIconFlags = BillboardFlag::ScreenSpaceSize | BillboardFlag::DepthTest | BillboardFlag::EditorOnly | BillboardFlag::Pickable;
+
+        BillboardProxy MakeIcon(uint64_t key, Objects::Actor* actor, BuiltinSprite sprite, const glm::vec4& tint)
+        {
+            BillboardProxy proxy;
+            proxy.key = key;
+            proxy.objectId = actor ? actor->GetID().GetAsInt() : -1;
+            if (actor && actor->transform)
+                proxy.position = glm::dvec3(actor->transform->GetWorldPosition());
+            proxy.size = kIconSize;
+            proxy.sprite = BillboardAtlas::Get().GetBuiltin(sprite);
+            proxy.tint = tint;
+            proxy.facing = BillboardProxyFacing::Camera;
+            proxy.flags = kIconFlags;
+            return proxy;
+        }
+
+        void LightBillboards(Worlds::World& world, int worldIndex, const RenderSnapshot&, std::vector<BillboardProxy>& out)
+        {
+            for (auto& [id, light] : world.Ext<RenderWorldData>().lightComps) {
+                if (!light || !light->Active() || !light->parent)
+                    continue;
+                // The icon takes the light colour, kept bright enough to read on any background
+                const glm::vec3 color = glm::mix(glm::vec3(light->color), glm::vec3(1.0f), 0.5f);
+                out.push_back(MakeIcon(MakeKey(worldIndex, id), light->parent.get(), BuiltinSprite::Light, glm::vec4(color, 1.0f)));
+            }
+        }
+
+        void CameraBillboards(Worlds::World& world, int worldIndex, const RenderSnapshot& snapshot, std::vector<BillboardProxy>& out)
+        {
+            for (auto& [id, camera] : world.Ext<RenderWorldData>().cameras) {
+                if (!camera || !camera->Active() || !camera->parent)
+                    continue;
+                // The camera the frame is seen from has no icon to show : it would be drawn on the lens
+                if (snapshot.camera.valid && snapshot.camera.objectId == camera->parent->GetID().GetAsInt())
+                    continue;
+                out.push_back(MakeIcon(MakeKey(worldIndex, id), camera->parent.get(), BuiltinSprite::Camera, glm::vec4(1.0f)));
+            }
+        }
+
+        void ProbeVolumeBillboards(Worlds::World& world, int worldIndex, const RenderSnapshot&, std::vector<BillboardProxy>& out)
+        {
+            for (auto& [id, volume] : world.Ext<RenderWorldData>().probeVolumes) {
+                if (!volume || !volume->Active() || !volume->parent)
+                    continue;
+                out.push_back(MakeIcon(MakeKey(worldIndex, id), volume->parent.get(), BuiltinSprite::ProbeVolume, glm::vec4(1.0f)));
+            }
+        }
+
+        void ComponentBillboards(Worlds::World& world, int worldIndex, const RenderSnapshot&, std::vector<BillboardProxy>& out)
+        {
+            for (auto& [id, billboard] : world.Ext<RenderWorldData>().billboards) {
+                if (!billboard || !billboard->Active() || !billboard->parent)
+                    continue;
+
+                BillboardProxy proxy;
+                proxy.key = MakeKey(worldIndex, id);
+                proxy.objectId = billboard->parent->GetID().GetAsInt();
+                proxy.position = billboard->GetPosition();
+                proxy.size = billboard->size;
+                proxy.sprite = billboard->GetAtlasSprite();
+                proxy.tint = glm::vec4(billboard->tint);
+                proxy.facing = static_cast<BillboardProxyFacing>(billboard->facingType);
+                proxy.flags = 0;
+                if (billboard->ScreenSpaceSize) proxy.flags |= BillboardFlag::ScreenSpaceSize;
+                if (billboard->DepthTest)       proxy.flags |= BillboardFlag::DepthTest;
+                if (billboard->EditorOnly)      proxy.flags |= BillboardFlag::EditorOnly;
+                if (billboard->Pickable)        proxy.flags |= BillboardFlag::Pickable;
+                out.push_back(proxy);
+            }
         }
 
         EnvironmentProxy MakeEnvironmentProxy(Worlds::World& world)
@@ -169,6 +246,14 @@ namespace Shard::Engine::Rendering {
                    a.probeUpdateStride != b.probeUpdateStride || a.indirectIntensity != b.indirectIntensity ||
                    a.enableRelocation != b.enableRelocation || a.bakedData != b.bakedData;
         }
+    }
+
+    RenderExtractor::RenderExtractor()
+    {
+        m_BillboardProviders.push_back(LightBillboards);
+        m_BillboardProviders.push_back(CameraBillboards);
+        m_BillboardProviders.push_back(ProbeVolumeBillboards);
+        m_BillboardProviders.push_back(ComponentBillboards);
     }
 
     void RenderExtractor::ExtractMeshes(Worlds::WorldManager& worlds, const RenderSnapshot& previous, RenderSnapshot& next, Core::JobSystem* jobs)
@@ -281,6 +366,14 @@ namespace Shard::Engine::Rendering {
                 ExtractLightsAndVolumes(*world, w, next);
         }
         SortByKey(next.lights);
+
+        for (int w = 0; w < worlds.GetLoadedWorldCount(); w++) {
+            if (Worlds::World* world = worlds.GetWorldAt(w)) {
+                for (const BillboardProvider& provider : m_BillboardProviders)
+                    provider(*world, w, next, next.billboards);
+            }
+        }
+        SortByKey(next.billboards);
         std::sort(next.probeVolumes.begin(), next.probeVolumes.end(),
                   [](const ProbeVolumeProxy& a, const ProbeVolumeProxy& b) { return a.volume.key < b.volume.key; });
 
@@ -303,6 +396,7 @@ namespace Shard::Engine::Rendering {
 
         m_Stats.lights = uint32_t(next.lights.size());
         m_Stats.probeVolumes = uint32_t(next.probeVolumes.size());
+        m_Stats.billboards = uint32_t(next.billboards.size());
 
         buffer.Publish();
     }

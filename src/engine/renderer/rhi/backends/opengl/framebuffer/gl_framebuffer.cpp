@@ -1,4 +1,6 @@
 #include "gl_framebuffer.hpp"
+#include "engine/renderer/rhi/render_thread.hpp"
+#include "engine/renderer/rhi/gpu_memory.hpp"
 
 #include "engine/renderer/rhi/shader/shader.hpp"
 #include "engine/renderer/rhi/backends/opengl/gl_utils.hpp"
@@ -179,10 +181,49 @@ namespace Shard::Engine::Rendering{
             glBindTexture(GL_TEXTURE_2D_MULTISAMPLE, 0);
         
         glBindTexture(GL_TEXTURE_2D, 0);
+
+        UpdateGpuAccounting();
+    }
+
+    void GLFramebuffer::UpdateGpuAccounting(bool destroyed)
+    {
+        auto bytesPerTexel = [](TextureInternalFormat format) -> int64_t {
+            switch (format)
+            {
+                case TextureInternalFormat::RED: return 1;
+                case TextureInternalFormat::RG:
+                case TextureInternalFormat::R16F: return 2;
+                case TextureInternalFormat::RGB16F:
+                case TextureInternalFormat::RGBA16F:
+                case TextureInternalFormat::RG16F: return 8;
+                case TextureInternalFormat::RGB32F:
+                case TextureInternalFormat::RGBA32F:
+                case TextureInternalFormat::RGB32I:
+                case TextureInternalFormat::RGBA32I: return 16;
+                default: return 4;
+            }
+        };
+
+        int64_t bytes = 0;
+        if (!destroyed)
+        {
+            const int64_t pixels = int64_t(m_Specifications.width) * int64_t(m_Specifications.height);
+            const int64_t samples = m_Specifications.multisampled ? m_Specifications.samplesCount : 1;
+            const int64_t colorBytes = bytesPerTexel(m_Specifications.colorSpecs.internalFormat);
+            if (m_Specifications.hasColor)
+                bytes += pixels * (m_Specifications.multisampled ? 4 * samples + colorBytes : colorBytes);
+            if (m_Specifications.hasDepth)
+                bytes += pixels * 4 * (m_Specifications.multisampled ? samples + 1 : 1);
+        }
+        GpuMemory::Add(GpuMemory::Kind::RenderTarget, bytes - m_GpuBytes);
+        m_GpuBytes = bytes;
     }
 
     void GLFramebuffer::Destroy()
     {
+        SHARD_ASSERT_GRAPHICS_THREAD();
+        UpdateGpuAccounting(true);
+        m_Destroyed = true;
         if (m_FBO)
             glDeleteFramebuffers(1, &m_FBO);
         if(m_Specifications.hasColor)
@@ -205,16 +246,19 @@ namespace Shard::Engine::Rendering{
 
     void GLFramebuffer::Bind()
     {
+        SHARD_ASSERT_GRAPHICS_THREAD();
         glBindFramebuffer(GL_FRAMEBUFFER, m_FBO);
     }
 
     void GLFramebuffer::Unbind()
     {
+        SHARD_ASSERT_GRAPHICS_THREAD();
         glBindFramebuffer(GL_FRAMEBUFFER, 0);
     }
 
     void GLFramebuffer::CopyFrom(std::shared_ptr<Framebuffer> src)
     {
+        SHARD_ASSERT_GRAPHICS_THREAD();
         auto srcSpecs = src->GetSpecifications();
 
         glBindFramebuffer(GL_READ_FRAMEBUFFER, src->GetHandle());
@@ -248,6 +292,7 @@ namespace Shard::Engine::Rendering{
 
     void GLFramebuffer::BlitToScreen(uint32_t screenWidth, uint32_t screenHeight)
     {
+        SHARD_ASSERT_GRAPHICS_THREAD();
         uint32_t readFBO = m_Specifications.multisampled ? m_ResolveFBO : m_FBO;
 
         glBindFramebuffer(GL_READ_FRAMEBUFFER, readFBO);
@@ -265,6 +310,7 @@ namespace Shard::Engine::Rendering{
 
     bool GLFramebuffer::ReadPixelsRGBA8(std::vector<uint8_t>& outPixels)
     {
+        SHARD_ASSERT_GRAPHICS_THREAD();
         if (!m_Specifications.hasColor)
             return false;
 
@@ -292,6 +338,7 @@ namespace Shard::Engine::Rendering{
 
     void GLFramebuffer::UploadColorRegion(uint32_t x, uint32_t y, uint32_t width, uint32_t height, const uint8_t* rgba)
     {
+        SHARD_ASSERT_GRAPHICS_THREAD();
         if (!m_Specifications.hasColor || m_Specifications.multisampled)
             return;
 
@@ -307,6 +354,7 @@ namespace Shard::Engine::Rendering{
 
     void GLFramebuffer::BlitColorTo(Framebuffer& dst, uint32_t dstX, uint32_t dstY, uint32_t dstWidth, uint32_t dstHeight)
     {
+        SHARD_ASSERT_GRAPHICS_THREAD();
         uint32_t readFBO = m_Specifications.multisampled ? m_ResolveFBO : m_FBO;
 
         glBindFramebuffer(GL_READ_FRAMEBUFFER, readFBO);
@@ -324,6 +372,7 @@ namespace Shard::Engine::Rendering{
 
     void GLFramebuffer::ResolveMultisampled()
     {
+        SHARD_ASSERT_GRAPHICS_THREAD();
         if (!m_Specifications.multisampled) return;
 
         glBindFramebuffer(GL_FRAMEBUFFER, m_FBO);   
@@ -339,6 +388,7 @@ namespace Shard::Engine::Rendering{
 
     void GLFramebuffer::AttachCubemapArray(uint32_t texture)
     {
+        SHARD_ASSERT_GRAPHICS_THREAD();
         glBindFramebuffer(GL_FRAMEBUFFER, m_FBO);
 
         glFramebufferTexture(
@@ -362,6 +412,7 @@ namespace Shard::Engine::Rendering{
 
     void GLFramebuffer::DetachCubemapArray()
     {
+        SHARD_ASSERT_GRAPHICS_THREAD();
         glBindFramebuffer(GL_FRAMEBUFFER, m_FBO);
 
         glFramebufferTexture(GL_FRAMEBUFFER, GL_DEPTH_ATTACHMENT, 0, 0);
@@ -379,6 +430,7 @@ namespace Shard::Engine::Rendering{
 
     void GLFramebuffer::Resize(uint32_t width, uint32_t height)
     {
+        SHARD_ASSERT_GRAPHICS_THREAD();
         m_Specifications.width = width;
         m_Specifications.height = height;
 
@@ -452,11 +504,15 @@ namespace Shard::Engine::Rendering{
             glBindTexture(GL_TEXTURE_2D_MULTISAMPLE, 0);
         else
             glBindTexture(GL_TEXTURE_2D, 0);
+
+        UpdateGpuAccounting();
     }
 
     bool GLFramebuffer::IsValid() const
     {
-        return glIsFramebuffer(m_FBO);
+        // Answered from what is known on the CPU side (it is asked from any thread, often) : the object exists from its creation
+        // until Destroy()
+        return m_FBO != 0 && !m_Destroyed;
     }
 
     uint32_t GLFramebuffer::GetColorAttachment() const

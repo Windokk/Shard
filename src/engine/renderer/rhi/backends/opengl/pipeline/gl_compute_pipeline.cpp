@@ -1,4 +1,5 @@
 #include "gl_compute_pipeline.hpp"
+#include "engine/renderer/rhi/render_thread.hpp"
 
 #include "engine/renderer/rhi/backends/opengl/gl_utils.hpp"
 
@@ -13,6 +14,7 @@ namespace Shard::Engine::Rendering{
 
     void GLComputePipeline::Bind()
     {
+        SHARD_ASSERT_GRAPHICS_THREAD();
         std::shared_ptr<GLComputeShader> glShader = std::static_pointer_cast<GLComputeShader>(m_Specifications.shader);
         glShader->Bind();
     }

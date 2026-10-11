@@ -51,6 +51,10 @@ The tests are built with the project : `ctest --test-dir build --output-on-failu
 
 The smoke test (`bash scripts/smoke_test.sh`, after a build) starts the player on example_project, loads its Cornell box world, renders a few frames and shuts down : it fails on a crash, a hang or an error in the log. The CI runs it on Linux, on a virtual display with Mesa's software OpenGL (`sudo apt install xvfb` to do the same without a desktop). It uses the player's `--world <world in the project>` and `--frames <count>` options : with `--frames` the player renders that many frames, writes nothing to the project, then exits with a code that says whether it went well.
 
+The stress test (`bash scripts/stress_test.sh`) runs the player through a script of console commands (resizes, play mode in and out, world loads, multisampling toggles : `scripts/stress_script.txt`, run with `--script <file>`, one `<frame> <command>` per line), once with the render thread and once without, and fails on a crash, a hang, an error, or a graphics call made from the wrong thread. The benchmark (`bash scripts/bench.sh`, `SHARD_BENCH_MIN_FPS` / `SHARD_BENCH_MAX_VRAM_MB` make it a regression guard) prints the frame time, the GPU time of every pass, and the RAM / video memory (`--bench`, `--screenshot <png>` and `+time.frame_dt=0.016` for a reproducible run are the player options behind it). The `build/` folder is a Debug build unless it was configured for Release : only the GPU figures of a Debug build are comparable.
+
+Rendering settings (console variables, also `+name=value` on the command line) : `render.thread` (draw on a dedicated thread, default on), `render.frames_in_flight` (how far the simulation may run ahead of the drawn frames, 2), `render.depth_prepass`, `render.gpu_timers`, `texture.compress` (BC7 / BC5 / BC4 textures, cached in `<project>/.cache/textures`), `texture.max_size` (biggest side a texture keeps in video memory, 0 = no limit), `mesh.keep_cpu_data`. Console commands : `render.thread`, `render.memory`, `render.resize`, `probes.bake`.
+
 ## How to use (Windows)
 
 ### Build tools :

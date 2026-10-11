@@ -1,4 +1,5 @@
 #include "thumbnail_service.hpp"
+#include "engine/renderer/rhi/render_thread.hpp"
 
 #include "engine/world/engine.hpp"
 #include "engine/assets/resources_manager.hpp"
@@ -349,7 +350,10 @@ namespace Shard::Engine::Rendering {
 
     void ThumbnailService::StoreInAtlas(uint32_t slot, const uint8_t* rgba)
     {
-        m_Atlas->UploadColorRegion((slot % kGridDim) * kCellSize, (slot / kGridDim) * kCellSize, kCellSize, kCellSize, rgba);
+        // The atlas is a graphics resource : the upload runs on the render thread, the caller waits (and `rgba` stays valid)
+        OnGraphicsThread([&] {
+            m_Atlas->UploadColorRegion((slot % kGridDim) * kCellSize, (slot / kGridDim) * kCellSize, kCellSize, kCellSize, rgba);
+        });
     }
 
     void ThumbnailService::Invalidate(const ThumbnailRequest& request)
@@ -528,23 +532,27 @@ namespace Shard::Engine::Rendering {
 
         ImmediateRenderer* immediate = m_Renderer->GetImmediateRenderer();
 
-        ImmediateTarget target = immediate->Render(desc, commands);
-        if (!target.IsValid())
-            return false;
+        // Drawn between two frames of the scene, on the render thread (the caller waits : the commands and the meshes
+        // they point at belong to it meanwhile)
+        return OnGraphicsThread([&]() -> bool {
+            ImmediateTarget target = immediate->Render(desc, commands);
+            if (!target.IsValid())
+                return false;
 
-        immediate->CopyTo(target, *m_Atlas, (slot % kGridDim) * kCellSize, (slot / kGridDim) * kCellSize, kCellSize, kCellSize);
+            immediate->CopyTo(target, *m_Atlas, (slot % kGridDim) * kCellSize, (slot / kGridDim) * kCellSize, kCellSize, kCellSize);
 
-        if (!cacheFile.empty())
-        {
-            std::vector<uint8_t> pixels;
-            if (immediate->ReadPixels(target, pixels))
+            if (!cacheFile.empty())
             {
-                std::error_code ec;
-                std::filesystem::create_directories(std::filesystem::path(cacheFile).parent_path(), ec);
-                ImageExport::WritePNG(Filesystem::Path(cacheFile), kCellSize, kCellSize, 4, pixels.data());
+                std::vector<uint8_t> pixels;
+                if (immediate->ReadPixels(target, pixels))
+                {
+                    std::error_code ec;
+                    std::filesystem::create_directories(std::filesystem::path(cacheFile).parent_path(), ec);
+                    ImageExport::WritePNG(Filesystem::Path(cacheFile), kCellSize, kCellSize, 4, pixels.data());
+                }
             }
-        }
 
-        return true;
+            return true;
+        });
     }
 }

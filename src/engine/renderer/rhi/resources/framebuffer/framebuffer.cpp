@@ -1,4 +1,5 @@
 #include "framebuffer.hpp"
+#include "engine/renderer/rhi/render_thread.hpp"
 
 #include <memory>
 
@@ -14,7 +15,7 @@ namespace Shard::Engine::Rendering{
         switch(RendererAPI::Current()->GetAPI())
         {
             case RendererAPI::API::OpenGL:
-                return std::make_shared<GLFramebuffer>(specs);
+                return OnGraphicsThread([&]() -> std::shared_ptr<Framebuffer> { return std::make_shared<GLFramebuffer>(specs); });
 
             /*case RendererAPI::API::Vulkan:
                 return std::make_shared<VKFramebuffer>(spec);

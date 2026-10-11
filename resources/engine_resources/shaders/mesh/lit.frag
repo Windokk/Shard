@@ -7,6 +7,7 @@
 
 #include "../common/light.glsl"
 #include "../common/cluster.glsl"
+#include "../common/normal_map.glsl"
 
 layout(std430, binding = 0) buffer LightBuffer {
     Light lights[];
@@ -40,6 +41,11 @@ uniform int lightNB;
 uniform vec3 camPos;
 
 uniform bool masked;
+
+// Set by the renderer for the depth only sweep that runs before the shaded one (see RendererAPI::SetDepthSweep) : the
+// draw writes depth and nothing else, so the shader returns before it reads a texture or computes any lighting. Only
+// opaque materials take part (a masked one needs its alpha, and is drawn by the shaded sweep alone).
+uniform bool depthPrepass;
 
 // Editor viewport debug views (see DebugViewState). 0 Lit, 1 Unlit, 2 Wireframe, 3 Shaded+Wireframe
 // (wire sweep), 4 Normals, 5 Depth, 6 UVs. showLighting = false swaps the lighting for a flat
@@ -76,6 +82,9 @@ layout(binding = 6) uniform sampler2D ibl_brdfLUT;
 // smallest one containing the point, so a dense local volume overrides a coarse room-scale one it's
 // nested in. MUST equal ProbeManager::kMaxProbeVolumes - gl_api.cpp fills ddgi_*[0 .. volumeCount-1].
 #define MAX_PROBE_VOLUMES 2
+
+// Kernel weight under which a probe of the blend is skipped, see DDGI_SampleVolume
+#define DDGI_MIN_TAP_WEIGHT 0.004
 
 // One octahedral irradiance tile atlas + one (mean dist, mean dist^2) distance atlas per volume. These
 // are scalar samplers on hand-picked units (7,8,9,19 - the gaps left between the material/IBL block
@@ -397,7 +406,11 @@ void DDGI_SampleVolume(int v, vec3 worldPos, vec3 N, vec3 specDir, out vec3 outD
     for (int i = 0; i < 27; i++) {
         ivec3 tap = ivec3(i % 3, (i / 3) % 3, i / 9);
         float kernelWeight = tapWeights[tap.x].x * tapWeights[tap.y].y * tapWeights[tap.z].z;
-        if (kernelWeight <= 0.0)
+        // The outermost taps (the corners of the 3x3x3 block, and the ones far from the point along an axis) weigh a
+        // fraction of a percent : each costs a state read, a distance and two irradiance fetches, and leaving them out (the
+        // rest is renormalized below) changes the picture by less than one level of an 8 bit channel (PSNR 67 dB on
+        // Sponza) while the pass runs about a fifth faster.
+        if (kernelWeight < DDGI_MIN_TAP_WEIGHT)
             continue;
 
         // Off the lattice edge the outermost probe layer is reused (clamp), so the field goes flat there.
@@ -566,6 +579,11 @@ vec3 ComputeLightDisney(Light light, vec3 L, vec3 V, vec3 N, vec3 baseColor, flo
 }
 
 void main() {
+    if (depthPrepass) {
+        fragColor = vec4(0.0);
+        return;
+    }
+
     vec4 baseColor = texture(albedo, texCoord);
 
     if (masked && baseColor.a < 0.5)
@@ -574,8 +592,7 @@ void main() {
     float metallicValue = texture(metallicMap, texCoord).r * metallic;
     float roughnessValue = texture(roughnessMap, texCoord).r * roughness;
 
-    vec3 normalFromMap = texture(normalMap, texCoord).rgb;
-    normalFromMap = normalFromMap * 2.0 - 1.0;
+    vec3 normalFromMap = DecodeTangentNormal(texture(normalMap, texCoord));
 
     mat3 TBN = mat3(T, B, N);
     vec3 worldNormal = normalize(TBN * normalFromMap);

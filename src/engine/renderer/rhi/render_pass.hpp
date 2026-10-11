@@ -27,6 +27,9 @@ namespace Shard::Engine::Rendering {
         bool overridePipeline = false;
         std::shared_ptr<Pipeline> customPipeline = nullptr;
         bool allowResize = true;
+        // Opt-in : the pass draws its opaque geometry twice (depth first, then shaded where the depth matches, see
+        // RendererAPI::SetDepthSweep). Only for a pass that is the main view's shaded scene.
+        bool depthPrepass = false;
         bool allowCulling = true;
         // Name of a mat4 in customUniforms to frustum-cull against instead of the active camera - a shadow pass
         // sets "lightSpaceMatrix", so casters outside the light's view volume are never submitted. Only used

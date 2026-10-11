@@ -183,6 +183,9 @@ namespace Shard::Engine::Rendering::Raytracing {
 
             ModelSnapshot modelSnap;
             modelSnap.mesh = mesh;
+            modelSnap.cpu = mesh->AcquireCPUData();
+            if (!modelSnap.cpu)
+                continue;       // nothing to read the triangles from
             modelSnap.worldMatrix = proxy.worldMatrix;
             modelSnap.materialIndicesPerSubmesh.resize(submeshes.size());
 
@@ -228,6 +231,7 @@ namespace Shard::Engine::Rendering::Raytracing {
         struct FlattenModelInfo
         {
             const Mesh* mesh = nullptr;
+            const MeshCPUCopy* cpu = nullptr;
             uint32_t stride = 0;
             uint32_t posOffset = 0, normalOffset = 0, uvOffset = 0, tangentOffset = 0;
             bool hasNormal = false, hasUV = false, hasTangent = false;
@@ -258,8 +262,8 @@ namespace Shard::Engine::Rendering::Raytracing {
         void FlattenChunkInto(const FlattenChunk& chunk, const FlattenModelInfo& info,
             std::vector<GPUTrianglePos>& positions, std::vector<GPUTriangleAttrib>& attribs)
         {
-            const std::vector<uint8_t>& vertexData = info.mesh->GetVertices();
-            const std::vector<uint32_t>& indices = info.mesh->GetIndices();
+            const std::vector<uint8_t>& vertexData = info.cpu->vertices;
+            const std::vector<uint32_t>& indices = info.cpu->indices;
 
             for (size_t t = 0; t < chunk.triangleCount; t++)
             {
@@ -387,6 +391,7 @@ namespace Shard::Engine::Rendering::Raytracing {
 
             FlattenModelInfo info;
             info.mesh = mesh;
+            info.cpu = modelSnap.cpu.get();
             info.stride = layout.GetStride();
             info.hasNormal = FindElementOffset(layout, "aNormal", info.normalOffset);
             info.hasUV = FindElementOffset(layout, "aTexCoord", info.uvOffset);

@@ -51,6 +51,10 @@ namespace Shard::Engine::Core::Platform {
 
         virtual void SwapBuffers() = 0;
 
+        /// @brief Makes the window graphics context current on the calling thread, or releases it from there. The context
+        /// belongs to one thread at a time : it moves to the render thread when that starts, and back when it stops.
+        virtual bool MakeContextCurrent(bool current) { (void)current; return true; }
+
         // Renders a single minimal "loading" frame (progress in [0,1]) and presents it - called
         // repeatedly by a blocking world load (e.g. the boot-time default world) so the window stays
         // responsive and shows feedback instead of appearing frozen. No-op by default; only

@@ -46,6 +46,8 @@ namespace Shard::Editor::Core {
         bool showGizmos = true;
         bool showDDGIGizmos = true;
         bool showPhysicsShapes = true;
+        /// The icons of the lights, cameras and probe volumes (and the billboards flagged editor only)
+        bool showBillboards = true;
         bool showLighting = true;
         bool showShadows = true;
 
@@ -64,9 +66,6 @@ namespace Shard::Editor::Core {
         float locationSnap = 1.0f;
         float rotationSnap = 15.0f;
         float scaleSnap = 0.25f;
-
-        /// TODO
-        /// bool showBillboards;
     };
 
     struct PanelVisibility{

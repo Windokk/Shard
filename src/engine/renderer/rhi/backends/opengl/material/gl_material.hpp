@@ -32,6 +32,10 @@ namespace Shard::Engine::Rendering{
 
         void Bind();
 
+        /// Loads the textures bound to the slots a material leaves empty. Call once, on the thread that uses the resources
+        /// manager, before anything is drawn.
+        static void PreloadDefaultTextures();
+
     private:
 
         uint32_t GetDefaultTexture(std::string samplerName);

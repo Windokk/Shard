@@ -1,5 +1,6 @@
 #pragma once
 
+#include <mutex>
 #include <vector>
 #include <memory>
 #include <limits>
@@ -68,6 +69,11 @@ namespace Shard::Engine::Rendering {
 
         bool fullscreenTri = false;
 
+        /// With fullscreenTri : a draw without a mesh made of `proceduralVertexCount` vertices (the vertex shader builds them from
+        /// gl_VertexID), `instanceCount` times. 0 keeps the fullscreen triangle. Billboards : 6 vertices, one instance each.
+        uint32_t proceduralVertexCount = 0;
+        uint32_t instanceCount = 1;
+
         bool bindCameraState = true;
 
         /// Slot in the pass's GPU occlusion-culling buffers (see OcclusionCullingManager), or -1 when this
@@ -120,6 +126,13 @@ namespace Shard::Engine::Rendering {
     // ResourcesManager::LoadModel path and the async world loader's background decode workers.
     MeshCPUData DecodeMeshFile(const Filesystem::Path& path);
 
+    /// A mesh's vertices and indices on the CPU side (see Mesh::AcquireCPUData)
+    struct MeshCPUCopy
+    {
+        std::vector<uint8_t> vertices;
+        std::vector<uint32_t> indices;
+    };
+
     class Mesh : public std::enable_shared_from_this<Mesh>
     {
         public:
@@ -150,11 +163,16 @@ namespace Shard::Engine::Rendering {
                 return slots;
             }
 
-            const size_t GetIndexCount() const { return m_Indices.size(); }
-            const std::vector<uint32_t>& GetIndices() const { return m_Indices; }
-
+            const size_t GetIndexCount() const { return m_IndexCount; }
             const size_t GetVertexCount() const { return m_VertexCount; }
-            const std::vector<uint8_t>& GetVertices() const { return m_Vertices; }
+
+            /// @brief The vertices and indices on the CPU side, for the rare code that reads them (building the BVH of the
+            /// ray traced GI). Once a mesh is on the GPU only the GPU keeps them - the CPU copy is as big as the buffers, and
+            /// would double the memory of every mesh of the world for something almost nothing reads (`mesh.keep_cpu_data`
+            /// brings that back). They are read back from the GPU buffers when nobody holds them, and go away again with the
+            /// last holder. Safe from any thread (it waits for the graphics thread when it has to read back). Null if they
+            /// cannot be had.
+            std::shared_ptr<const MeshCPUCopy> AcquireCPUData();
 
             const glm::vec3 GetBoundsMax() const { return m_BoundsMax; }
             const glm::vec3 GetBoundsMin() const { return m_BoundsMin; }
@@ -176,14 +194,28 @@ namespace Shard::Engine::Rendering {
             Filesystem::AssetID m_AssetID;
 
             std::vector<SubMesh> m_Submeshes;
+            // Only what the creation (Create / CreateFromData) is given, until it is on the GPU : see FinishCPUData()
             std::vector<uint8_t> m_Vertices;
             std::vector<uint32_t> m_Indices;
-            size_t m_VertexCount;
+            size_t m_VertexCount = 0;
+            size_t m_IndexCount = 0;
+
+            /// Called once the mesh is uploaded : the CPU copy is dropped (or kept, see `mesh.keep_cpu_data`)
+            void FinishCPUData();
+
+            /// Reads the vertices and indices back from the GPU (on the graphics thread). False if the backend cannot.
+            virtual bool ReadBackCPUData(MeshCPUCopy& out) { (void)out; return false; }
             
             VertexLayout m_VertexLayout;
 
             glm::vec3 m_BoundsMin = glm::vec3(std::numeric_limits<float>::max());
             glm::vec3 m_BoundsMax = glm::vec3(std::numeric_limits<float>::lowest());
+
+        private:
+
+            std::mutex m_CPUMutex;
+            std::shared_ptr<MeshCPUCopy> m_KeptCPU;         // `mesh.keep_cpu_data` : held for good
+            std::weak_ptr<MeshCPUCopy> m_ReadBackCPU;       // read back on demand : alive while someone holds it
 
         public:
 

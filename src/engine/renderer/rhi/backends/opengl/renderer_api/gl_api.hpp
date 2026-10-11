@@ -3,6 +3,10 @@
 #include "engine/renderer/rhi/renderer_api.hpp"
 
 #include <glm/glm.hpp>
+#include <memory>
+#include <vector>
+
+#include "engine/renderer/rhi/backends/opengl/profiling/gl_gpu_profiler.hpp"
 
 namespace Shard::Engine::Rendering{
 
@@ -34,6 +38,10 @@ namespace Shard::Engine::Rendering{
 
             void SetIndirectDrawBuffer(uint32_t bufferHandle) override;
 
+            GpuProfiler* GetGpuProfiler() override;
+            bool SupportsBlockCompression() override;
+            void SetDepthSweep(DepthSweep sweep) override;
+            bool IsDepthPrepassCandidate(const DrawCommand& command, const RenderPass& pass) override;
             void InvalidateStateCache() override;
             void SetDebugView(const DebugViewState& state) override;
 
@@ -43,6 +51,7 @@ namespace Shard::Engine::Rendering{
 
         private:
 
+            std::unique_ptr<GLGpuProfiler> m_GpuProfiler;
             ComputeLimits m_ComputeLimits;
             bool m_ComputeLimitsQueried = false;
 
@@ -75,5 +84,11 @@ namespace Shard::Engine::Rendering{
             uint32_t m_IndirectBuffer = 0;
                 
             void DrawFullScreenTriangle();
+
+            // The depth only draw of a command in the Prepass sweep : no material, no scene state, just the geometry
+            void ExecuteDepthOnlyDraw(const DrawCommand& command);
+
+            DepthSweep m_Sweep = DepthSweep::None;
+            std::vector<std::shared_ptr<Shader>> m_PrepassShaders;     // the shaders told `depthPrepass = true`, put back after the sweep
     };
 }

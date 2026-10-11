@@ -18,6 +18,10 @@ using namespace Shard::Engine::Objects;
 Debugging::Level minDebugLevel = Debugging::Level::Log;
 std::string gameModuleLib = "";
 
+// --frames : runs that many frames, then closes by itself without waiting for Enter (a non-interactive run, for smoke tests).
+// -1 : a normal run.
+int maxFrames = -1;
+
 EngineCreationSettings ComputeEngineSettings(int argc, char* argv[]) {
     // "+name=value" or "+name value" : sets a console variable (see engine/core/config/cvar.hpp) before the engine starts
     {
@@ -65,6 +69,12 @@ EngineCreationSettings ComputeEngineSettings(int argc, char* argv[]) {
             } else {
                 std::cerr << "Unknown debug level: " << level << ". Using default (Log).\n";
             }
+        }
+        else if (strcmp(argv[i], "--script") == 0 && i + 1 < argc) {
+            settings.scriptFile = argv[++i];
+        }
+        else if (strcmp(argv[i], "--frames") == 0 && i + 1 < argc) {
+            maxFrames = std::stoi(argv[++i]);
         }
         else if (strcmp(argv[i], "--game") == 0 && i + 1 < argc) {
             gameModuleLib = argv[++i];
@@ -125,8 +135,11 @@ int main(int argc, char* argv[]) {
     }
 
     //Main Loop
+    int frames = 0;
     while (!Core::GetEngine().ShouldEnd()) {
+        if (maxFrames >= 0 && frames >= maxFrames) break;
         if (!Core::GetEngine().Run()) break;
+        frames++;
 
         Core::GetEngine().GetWindow()->ProcessInputs();
         
@@ -137,6 +150,11 @@ int main(int argc, char* argv[]) {
     Shard::Editor::GUI::EditorResources::Instance().Shutdown();
 
     Core::GetEngine().Destroy();
+
+    if (maxFrames >= 0) {
+        std::cout << "Rendered " << frames << " frames, shut down cleanly." << std::endl;
+        return 0;
+    }
 
     std::cout << "Shard Engine has finished. Press Enter to exit..." << std::endl;
     std::cin.ignore(std::numeric_limits<std::streamsize>::max(), '\n');

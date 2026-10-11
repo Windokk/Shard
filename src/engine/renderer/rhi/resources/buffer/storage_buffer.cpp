@@ -1,4 +1,5 @@
 #include "storage_buffer.hpp"
+#include "engine/renderer/rhi/render_thread.hpp"
 
 #include "engine/world/engine.hpp"
 #include "engine/renderer/rhi/renderer_api.hpp"
@@ -12,7 +13,7 @@ namespace Shard::Engine::Rendering{
         switch(RendererAPI::Current()->GetAPI())
         {
             case RendererAPI::API::OpenGL:
-                return std::make_shared<GLStorageBuffer>(size);
+                return OnGraphicsThread([&]() -> std::shared_ptr<StorageBuffer> { return std::make_shared<GLStorageBuffer>(size); });
         }
 
         return nullptr;

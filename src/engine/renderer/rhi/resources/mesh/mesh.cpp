@@ -4,7 +4,9 @@
 #include "engine/renderer/rhi/renderer_api.hpp"
 #include "engine/renderer/rhi/shader/shader.hpp"
 #include "engine/world/engine.hpp"
+#include "engine/core/config/cvar.hpp"
 
+#include <memory>
 #include <unordered_map>
 #include <cstring>
 #include <algorithm>
@@ -77,6 +79,83 @@ namespace std {
 namespace Shard::Engine::Rendering{
 
     namespace {
+
+        // Finds the vertex equal to a given one among those already added, or adds it. Open addressing over the hash of the
+        // vertex (the hash is kept in the slot, two vertices are only compared when their hashes are the same : the same
+        // answers as the std::unordered_map this replaces, which a Sponza sized mesh (millions of vertices) spent most of
+        // its loading time in allocating nodes).
+        class VertexDeduplicator {
+        public:
+            explicit VertexDeduplicator(size_t expected) { Reset(NextPowerOfTwo(std::max<size_t>(expected, 16) * 2)); }
+
+            /// The index of the vertex equal to `v` in `verts`, which it is appended to when there is none
+            unsigned int FindOrAdd(const Vertex& v, std::vector<Vertex>& verts)
+            {
+                const size_t hash = std::hash<Vertex>()(v);
+                size_t slot = SlotOf(hash);
+                for (;;)
+                {
+                    Slot& s = m_Slots[slot];
+                    if (s.index == kEmpty)
+                    {
+                        s.hash = hash;
+                        s.index = static_cast<unsigned int>(verts.size());
+                        verts.push_back(v);
+                        if (++m_Count * 2 > m_Slots.size())
+                            Grow();
+                        return static_cast<unsigned int>(verts.size() - 1);
+                    }
+                    if (s.hash == hash && verts[s.index] == v)
+                        return s.index;
+                    slot = (slot + 1) & m_Mask;
+                }
+            }
+
+        private:
+            static constexpr unsigned int kEmpty = std::numeric_limits<unsigned int>::max();
+            struct Slot { size_t hash = 0; unsigned int index = kEmpty; };
+
+            static size_t NextPowerOfTwo(size_t n)
+            {
+                size_t p = 1;
+                while (p < n)
+                    p <<= 1;
+                return p;
+            }
+
+            void Reset(size_t capacity)
+            {
+                m_Slots.assign(capacity, Slot{});
+                m_Mask = capacity - 1;
+                m_Shift = 64;
+                for (size_t c = capacity; c > 1; c >>= 1)
+                    m_Shift--;
+            }
+
+            // Fibonacci hashing : the top bits of the product, whatever the quality of the low bits of the hash
+            size_t SlotOf(size_t hash) const { return static_cast<size_t>((static_cast<uint64_t>(hash) * 0x9E3779B97F4A7C15ULL) >> m_Shift) & m_Mask; }
+
+            void Grow()
+            {
+                std::vector<Slot> old;
+                old.swap(m_Slots);
+                Reset(old.size() * 2);
+                for (const Slot& s : old)
+                {
+                    if (s.index == kEmpty)
+                        continue;
+                    size_t slot = SlotOf(s.hash);
+                    while (m_Slots[slot].index != kEmpty)
+                        slot = (slot + 1) & m_Mask;
+                    m_Slots[slot] = s;
+                }
+            }
+
+            std::vector<Slot> m_Slots;
+            size_t m_Mask = 0;
+            unsigned int m_Shift = 0;
+            size_t m_Count = 0;
+        };
 
         void ComputeTangents(std::vector<Vertex>& vertices, const std::vector<uint32_t>& indices)
         {
@@ -263,7 +342,7 @@ namespace Shard::Engine::Rendering{
         struct GroupedTriangles {
             std::vector<Vertex> verts;
             std::vector<unsigned int> localIndices;
-            std::unordered_map<Vertex, unsigned int> vertexToIndex;
+            std::unique_ptr<VertexDeduplicator> dedup;
         };
 
         // One group per FBX material slot, kept in the mesh's own material-index
@@ -277,6 +356,26 @@ namespace Shard::Engine::Rendering{
             : 1u;
 
         std::vector<GroupedTriangles> materialGroups(materialSlotCount);
+
+        // How many vertices each slot can have at most (one per face corner of its faces) : its table never has to grow
+        {
+            std::vector<size_t> corners(materialSlotCount, 0);
+            for (size_t i = 0; i < ufbx_mesh->num_faces; i++) {
+                uint32_t mat_index = (ufbx_mesh->face_material.data && i < ufbx_mesh->face_material.count) ? ufbx_mesh->face_material.data[i] : 0;
+                if (mat_index >= materialSlotCount)
+                    mat_index = 0;
+                const ufbx_face face = ufbx_mesh->faces.data[i];
+                corners[mat_index] += face.num_indices >= 3 ? (face.num_indices - 2) * 3 : 0;
+            }
+            for (uint32_t slot = 0; slot < materialSlotCount; slot++) {
+                materialGroups[slot].dedup = std::make_unique<VertexDeduplicator>(corners[slot]);
+                materialGroups[slot].verts.reserve(corners[slot]);
+                materialGroups[slot].localIndices.reserve(corners[slot]);
+            }
+        }
+
+        // The same for every vertex of the mesh
+        const ufbx_matrix normalMatrix = ufbx_matrix_for_normals(&mesh_node->geometry_to_world);
 
         for (size_t i = 0; i < ufbx_mesh->num_faces; i++) {
             ufbx_face face = ufbx_mesh->faces.data[i];
@@ -316,8 +415,7 @@ namespace Shard::Engine::Rendering{
                     // Normal
                     if (ufbx_mesh->vertex_normal.exists) {
                         ufbx_vec3 normal = ufbx_get_vertex_vec3(&ufbx_mesh->vertex_normal, vertex_index);
-                        ufbx_matrix normal_mtx = ufbx_matrix_for_normals(&mesh_node->geometry_to_world);
-                        ufbx_vec3 wn = ufbx_transform_direction(&normal_mtx, normal);
+                        ufbx_vec3 wn = ufbx_transform_direction(&normalMatrix, normal);
                         v.normal = glm::normalize(glm::vec3{ wn.x, wn.y, wn.z });
                     }
 
@@ -331,20 +429,15 @@ namespace Shard::Engine::Rendering{
                     v.color = vertexColor;
 
                     // Deduplication
-                    auto it = group.vertexToIndex.find(v);
-                    if (it != group.vertexToIndex.end()) {
-                        group.localIndices.push_back(it->second);
-                    } else {
-                        unsigned int newIndex = static_cast<unsigned int>(group.verts.size());
-                        group.verts.push_back(v);
-                        group.localIndices.push_back(newIndex);
-                        group.vertexToIndex[v] = newIndex;
-                    }
+                    group.localIndices.push_back(group.dedup->FindOrAdd(v, group.verts));
                 }
             }
         }
 
         (void)ufbx_mats;
+
+        for (GroupedTriangles& group : materialGroups)
+            group.dedup.reset();
 
         uint32_t totalVertexCount = 0;
 
@@ -441,6 +534,50 @@ namespace Shard::Engine::Rendering{
         ufbx_free_scene(scene);
 
         return result;
+    }
+
+    namespace {
+        Core::CVar<bool> cvKeepMeshData("mesh.keep_cpu_data", false,
+            "Keep a CPU copy of every mesh after it is uploaded (doubles the memory of the meshes ; the ray traced GI otherwise reads them back from the GPU when it needs them). Applies to meshes loaded afterwards",
+            Core::CVarFlags::Archive);
+    }
+
+    void Mesh::FinishCPUData()
+    {
+        m_IndexCount = m_Indices.size();
+
+        std::lock_guard<std::mutex> lock(m_CPUMutex);
+        if (cvKeepMeshData.Get())
+        {
+            m_KeptCPU = std::make_shared<MeshCPUCopy>();
+            m_KeptCPU->vertices = std::move(m_Vertices);
+            m_KeptCPU->indices = std::move(m_Indices);
+        }
+        std::vector<uint8_t>().swap(m_Vertices);
+        std::vector<uint32_t>().swap(m_Indices);
+        m_ReadBackCPU.reset();
+    }
+
+    std::shared_ptr<const MeshCPUCopy> Mesh::AcquireCPUData()
+    {
+        {
+            std::lock_guard<std::mutex> lock(m_CPUMutex);
+            if (m_KeptCPU)
+                return m_KeptCPU;
+            if (std::shared_ptr<MeshCPUCopy> alive = m_ReadBackCPU.lock())
+                return alive;
+        }
+
+        // Read back without the lock held : the readback waits for the graphics thread, which may be asking for this very mesh
+        auto copy = std::make_shared<MeshCPUCopy>();
+        if (!ReadBackCPUData(*copy))
+            return nullptr;
+
+        std::lock_guard<std::mutex> lock(m_CPUMutex);
+        if (std::shared_ptr<MeshCPUCopy> alive = m_ReadBackCPU.lock())
+            return alive;       // another thread was faster : share its copy
+        m_ReadBackCPU = copy;
+        return copy;
     }
 
     std::shared_ptr<Mesh> Mesh::Create()

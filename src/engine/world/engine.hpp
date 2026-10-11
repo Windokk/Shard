@@ -2,7 +2,10 @@
 
 #include <cstdint>
 #include <stdexcept>
+#include <functional>
 #include <memory>
+#include <mutex>
+#include <vector>
 #include <glm/glm.hpp>
 
 namespace Shard::Engine{
@@ -85,6 +88,10 @@ namespace Shard::Engine{
             /// Command line override for the world loaded at startup (a path in the project, such as "cornell.world");
             /// the first world of the project's build settings is loaded unless it is set.
             std::string startWorld = "";
+
+            /// A file of console commands to run while the engine runs, one per line : "<frame> <command>" (blank lines and
+            /// lines starting with # are ignored). For scripted runs : tests, benchmarks.
+            std::string scriptFile = "";
 
             //WINDOW (Editor preferences)
             int windowWidth = 1280;
@@ -281,6 +288,25 @@ namespace Shard::Engine{
                 void RenderFrame();
                 void PollInput();
                 void Present();
+
+                // The render thread owns the graphics context while it runs (see Rendering::RenderThread)
+                void StartRenderThread();
+                void StopRenderThread();
+
+                // Work another thread (the render thread, mostly) leaves for the main thread, which owns the world and the
+                // resources : it runs at the start of the next frame. Safe to call from any thread.
+                void PostToMainThread(std::function<void()> work);
+                void RunMainThreadQueue();
+                // Console commands to run at given frames (see EngineCreationSettings::scriptFile)
+                struct ScriptedCommand { uint64_t frame; std::string line; };
+                std::vector<ScriptedCommand> m_Script;
+                size_t m_ScriptNext = 0;
+                uint64_t m_FrameCount = 0;
+                void LoadScript(const std::string& path);
+                void RunScriptedCommands();
+
+                std::mutex m_MainQueueMutex;
+                std::vector<std::function<void()>> m_MainQueue;
 
                 EngineContext m_Context;
 
