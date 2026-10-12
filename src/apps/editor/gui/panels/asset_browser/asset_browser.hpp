@@ -204,6 +204,7 @@ namespace Shard::Editor::GUI{
             float           zoomWheelAccum = 0.0f;      // Mouse wheel accumulator to handle smooth wheels better
 
             bool dirty = true;
+            uint64_t hotReloadRevision = 0;      // the asset set the listing was made from (see HotReloader::GetRevision)
 
             std::vector<Engine::Filesystem::Type> allowedTypes = {
                 Engine::Filesystem::Type::T_IMAGE,

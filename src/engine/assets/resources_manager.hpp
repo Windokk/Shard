@@ -68,6 +68,11 @@ namespace Shard::Engine::Core::Resources{
         /// continuation (usually an `Adopt`), or an empty function if the file can't be used.
         std::function<std::function<void()>(ResourcesManager& resources, const std::string& pathInProject, const Filesystem::Path& file)> prefetch;
 
+        /// Hot reload : rebuilds the resident `existing` resource in place from its file, so that the object, its AssetID and every
+        /// pointer to it stay valid. Returns false if it couldn't (the previous content must then be left untouched). Optional :
+        /// a kind without it is not reloaded. Called on the main thread.
+        std::function<bool(void* existing, const std::string& pathInProject, const Filesystem::AssetInfos& infos)> reload;
+
         /// Only for kinds that keep other resources alive (world, material) : the resources the file at
         /// `path` needs. Such a resource is an "owner" in the dependency graph.
         std::function<std::vector<ResourceKey>(const Filesystem::Path& path)> dependencies;
@@ -125,6 +130,21 @@ namespace Shard::Engine::Core::Resources{
             {
                 AdoptRaw(kind, pathInProject, std::move(resource));
             }
+
+            /// @brief Hot reload : rebuilds a resident resource from its file, in place (see AssetKindInfo::reload), and
+            /// refreshes what it depends on. False if it isn't resident, its kind can't be reloaded or the file can't be read.
+            bool Reload(AssetKind kind, const std::string& pathInProject);
+
+            /// @brief The resident owners (materials, worlds) that list `key` among their dependencies.
+            std::vector<ResourceKey> ResidentOwnersOf(const ResourceKey& key) const;
+
+            /// @brief The paths of the resident resources of a kind.
+            std::vector<std::string> ResidentPaths(AssetKind kind) const;
+
+            /// @brief An asset was renamed/moved (or, with a folder, everything in it) : the resident resources of the kinds
+            /// keyed by their file name follow, under their new path, with the graph that refers to them. Shaders (keyed by a
+            /// name without extension, three files) are left alone.
+            void RenameResident(const std::string& oldName, const std::string& newName, bool isDirectory);
 
             /// @brief True if `pathInProject` is already resident in the cache.
             bool Has(AssetKind kind, const std::string& pathInProject) const;

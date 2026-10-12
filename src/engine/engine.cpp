@@ -17,6 +17,8 @@
 #include "engine/core/memory/memory_tracker.hpp"
 #include "engine/platform/thread/thread.hpp"
 #include "engine/assets/serialization/project/project_serializer.hpp"
+#include "engine/assets/hot_reloader.hpp"
+#include "engine/assets/asset_database_serializer.hpp"
 #include "engine/world/world_manager.hpp"
 #include "engine/core/diagnostics/profiler.hpp"
 #include "engine/platform/windowing/iplatform.hpp"
@@ -59,6 +61,10 @@ namespace Shard::Engine{
 
             // Draws on a thread of its own : the simulation of the next frame runs while the previous one is drawn
             CVar<bool> cvRenderThread("render.thread", true, "Draw on a dedicated render thread (applies at startup)", CVarFlags::Archive);
+
+            // Watches the resources on disk : changed textures / shaders / materials are rebuilt in place, new, renamed and
+            // deleted files follow in the asset database (applies at startup)
+            CVar<bool> cvHotReload("assets.hot_reload", true, "Reload the assets changed on disk while the engine runs (applies at startup)", CVarFlags::Archive);
 
             // How many frames may be submitted and not drawn yet : the simulation waits when it is that far ahead.
             // 1 is the lowest latency, 2 smooths out frames that vary in length.
@@ -209,6 +215,8 @@ namespace Shard::Engine{
 
             // Everything above ran on this thread, which owns the graphics context : from here on the render thread does
             StartRenderThread();
+
+            StartHotReload();
 
             if(!settings.scriptFile.empty())
                 LoadScript(settings.scriptFile);
@@ -473,6 +481,12 @@ namespace Shard::Engine{
 
         void EngineInstance::Destroy()
         {
+            if(m_HotReloader){
+                m_HotReloader->Stop();
+                delete m_HotReloader;
+                m_HotReloader = nullptr;
+            }
+
             // The graphics context comes back to this thread before anything is torn down
             StopRenderThread();
 
@@ -730,9 +744,35 @@ namespace Shard::Engine{
                 fn();
         }
 
+        void EngineInstance::StartHotReload()
+        {
+            if(!cvHotReload.Get())
+                return;
+
+            Assets::HotReloader::Config config;
+            config.files = m_Context.fileManager;
+            config.ids = m_Context.assetIDManager;
+            config.resources = m_Context.resourcesManager;
+            config.buildSettings = GetBuildSettings();
+            if(!m_EngineSettings.readOnly){
+                config.persistDatabase = [this]{
+                    Serialization::SerializeAssetDataBase(m_Context.currentProject->GetAssetDatabasePath(), *m_Context.assetIDManager);
+                };
+            }
+
+            m_HotReloader = new Assets::HotReloader();
+            if(!m_HotReloader->Start(config)){
+                delete m_HotReloader;
+                m_HotReloader = nullptr;
+            }
+        }
+
         void EngineInstance::PollInput()
         {
             RunMainThreadQueue();
+
+            if(m_HotReloader)
+                m_HotReloader->Update();
 
             SHARD_PROFILE_SCOPE(Debugging::ProfileCategory::Input);
             m_Context.platform->GetInput()->Tick();

@@ -164,6 +164,11 @@ namespace Shard::Engine::Rendering {
 
             virtual bool IsValid() const = 0;
 
+            /// Hot reload : takes over the GPU texture and the specifications of `other` (a freshly decoded texture of the
+            /// same API), which is left holding the old ones and is to be dropped. This object - and so every shared_ptr to it - stays,
+            /// only the raw GL handle changes. Graphics thread. False if the API can't do it.
+            virtual bool SwapContents(Texture2D& other) { (void)other; return false; }
+
             const TextureSpecifications& GetSpecifications() const { return m_Specifications; };
 
             static std::shared_ptr<Texture2D> Create(

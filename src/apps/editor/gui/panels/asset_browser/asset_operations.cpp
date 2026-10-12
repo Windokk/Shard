@@ -13,6 +13,7 @@
 #include "engine/world/world.hpp"
 #include "engine/assets/resources_manager.hpp"
 #include "engine/assets/asset_database_serializer.hpp"
+#include "engine/assets/asset_references.hpp"
 #include "engine/core/diagnostics/logger.hpp"
 
 namespace Shard::Editor::GUI::AssetOperations
@@ -89,16 +90,6 @@ namespace Shard::Editor::GUI::AssetOperations
             return "";
         }
 
-        bool ReadFileBinary(const fs::path& p, std::string& out)
-        {
-            std::ifstream in(p, std::ios::binary);
-            if(!in) return false;
-            std::ostringstream ss;
-            ss << in.rdbuf();
-            out = ss.str();
-            return true;
-        }
-
         // Path::WriteFile() opens in text mode, which would turn the \r\n of a file read in binary into \r\r\n
         bool WriteFileBinary(const fs::path& p, const std::string& content)
         {
@@ -108,79 +99,15 @@ namespace Shard::Editor::GUI::AssetOperations
             return (bool)out;
         }
 
-        bool ReplaceAll(std::string& text, const std::string& from, const std::string& to)
-        {
-            bool changed = false;
-            size_t pos = 0;
-            while((pos = text.find(from, pos)) != std::string::npos){
-                text.replace(pos, from.size(), to);
-                pos += to.size();
-                changed = true;
-            }
-            return changed;
-        }
-
-        /// Worlds and materials name the assets they use by their path in the project : rewrite those
-        /// strings after a rename/move. A quoted-string match keeps this to real references.
         int RewriteReferences(const std::string& oldName, const std::string& newName, bool isDirectory)
         {
-            std::string from, to;
-            if(isDirectory){
-                from = "\"" + oldName + "/";
-                to = "\"" + newName + "/";
-            }
-            else{
-                from = "\"" + oldName + "\"";
-                to = "\"" + newName + "\"";
-            }
-
-            int rewritten = 0;
-            for(auto& [id, info] : Engine::Core::GetEngine().GetAssetIDManager()->AssetIDMap){
-                if(id.GetAsInt() < kFirstProjectAssetID)
-                    continue;
-                if(info->baseInfos.type != Engine::Filesystem::Type::T_WORLD && info->baseInfos.type != Engine::Filesystem::Type::T_MATERIAL)
-                    continue;
-
-                fs::path file(info->baseInfos.path.full);
-                std::string text;
-                if(!ReadFileBinary(file, text))
-                    continue;
-
-                if(ReplaceAll(text, from, to) && WriteFileBinary(file, text))
-                    rewritten++;
-            }
-            return rewritten;
+            return Engine::Assets::RewriteAssetReferences(*Engine::Core::GetEngine().GetAssetIDManager(), oldName, newName, isDirectory);
         }
 
-        /// Follows a rename/move (or, with an empty `newName`, a deletion) in the project's list of worlds.
         void RemapBuildSettings(const std::string& oldName, const std::string& newName, bool isDirectory)
         {
-            auto& list = Engine::Core::GetEngine().GetBuildSettings()->buildIndex;
-
-            for(size_t i = 0; i < list.size();){
-                std::string entry = list[i].full;
-                bool absolute = fs::path(entry).is_absolute();
-
-                std::string rel;
-                if(absolute){
-                    if(!NameInProject(fs::path(entry), rel)){ ++i; continue; }
-                }
-                else{
-                    rel = entry;
-                    std::replace(rel.begin(), rel.end(), '\\', '/');
-                }
-
-                if(rel != oldName && !(isDirectory && IsUnder(rel, oldName))){ ++i; continue; }
-
-                if(newName.empty()){
-                    list.erase(list.begin() + i);
-                    continue;
-                }
-
-                std::string newRel = newName + rel.substr(oldName.size());
-                list[i] = absolute ? Path((ProjectRoot() / newRel).string(), true) : Path(newRel);
-                ++i;
-            }
+            Engine::Assets::RemapBuildSettings(*Engine::Core::GetEngine().GetBuildSettings(),
+                Engine::Core::GetEngine().GetCurrentProject()->GetProjectResourcesPath(), oldName, newName, isDirectory);
         }
 
         Result Fail(const std::string& message)

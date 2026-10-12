@@ -26,6 +26,9 @@ namespace Shard::Engine::Rendering {
             virtual void SetMat3(const std::string& name, const glm::mat3& mat) = 0;
             virtual void SetMat4(const std::string& name, const glm::mat4& mat) = 0;
 
+            /// Hot reload : see Shader::Reload.
+            virtual bool Reload() { return false; }
+
             static std::shared_ptr<ComputeShader> Create(
                 const Filesystem::Path& path);
 

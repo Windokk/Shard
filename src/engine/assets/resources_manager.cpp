@@ -100,6 +100,118 @@ namespace Shard::Engine::Core::Resources{
             info->setAssetID(it->second.get(), ids->GetIDFromNameInProject(pathInProject + info->nameSuffix));
     }
 
+    bool ResourcesManager::Reload(AssetKind kind, const std::string &pathInProject)
+    {
+        const size_t index = static_cast<size_t>(kind);
+        if(index >= resident.size())
+            return false;
+        auto it = resident[index].find(pathInProject);
+        if(it == resident[index].end())
+            return false;
+
+        const AssetKindInfo* info = KindInfo(kind);
+        if(!info || !info->reload)
+            return false;
+
+        std::shared_ptr<Filesystem::AssetInfos> assetInfos = ids->GetAssetFromID(ids->GetIDFromNameInProject(pathInProject + info->nameSuffix));
+        if(!assetInfos || assetInfos->baseInfos.nameInProject != pathInProject + info->nameSuffix)
+            return false;
+
+        // Held across the reload : the resource must not go away if the reload callback touches the cache
+        std::shared_ptr<void> keepAlive = it->second;
+        if(!info->reload(keepAlive.get(), pathInProject, *assetInfos))
+            return false;
+
+        if(info->dependencies)
+            SetDependencies({kind, pathInProject}, info->dependencies(assetInfos->baseInfos.path));
+        return true;
+    }
+
+    std::vector<ResourceKey> ResourcesManager::ResidentOwnersOf(const ResourceKey &key) const
+    {
+        std::vector<ResourceKey> owners;
+        for(const auto& [owner, deps] : dependencies){
+            if(std::find(deps.begin(), deps.end(), key) != deps.end() && IsResident(owner))
+                owners.push_back(owner);
+        }
+        return owners;
+    }
+
+    std::vector<std::string> ResourcesManager::ResidentPaths(AssetKind kind) const
+    {
+        std::vector<std::string> paths;
+        const size_t index = static_cast<size_t>(kind);
+        if(index < resident.size()){
+            for(const auto& entry : resident[index])
+                paths.push_back(entry.first);
+        }
+        return paths;
+    }
+
+    void ResourcesManager::RenameResident(const std::string &oldName, const std::string &newName, bool isDirectory)
+    {
+        auto renamed = [&](const std::string& path, std::string& out){
+            if(path == oldName){ out = newName; return true; }
+            if(isDirectory && path.size() > oldName.size() && path.compare(0, oldName.size(), oldName) == 0 && path[oldName.size()] == '/'){
+                out = newName + path.substr(oldName.size());
+                return true;
+            }
+            return false;
+        };
+        auto follows = [&](AssetKind kind){
+            const AssetKindInfo* info = KindInfo(kind);
+            return info && info->nameSuffix.empty();
+        };
+        auto remap = [&](ResourceKey& key){
+            std::string target;
+            if(follows(key.kind) && renamed(key.path, target))
+                key.path = target;
+        };
+
+        for(size_t i = 0; i < resident.size(); i++){
+            if(!follows(static_cast<AssetKind>(i)))
+                continue;
+            std::unordered_map<std::string, std::shared_ptr<void>> moved;
+            for(auto it = resident[i].begin(); it != resident[i].end();){
+                std::string target;
+                if(renamed(it->first, target)){
+                    moved.emplace(std::move(target), std::move(it->second));
+                    it = resident[i].erase(it);
+                }
+                else
+                    ++it;
+            }
+            for(auto& entry : moved)
+                resident[i].emplace(entry.first, std::move(entry.second));
+        }
+
+        decltype(retainCount) newRetains;
+        for(auto& [key, count] : retainCount){
+            ResourceKey k = key;
+            remap(k);
+            newRetains[k] += count;
+        }
+        retainCount = std::move(newRetains);
+
+        decltype(dependencies) newDependencies;
+        for(auto& [owner, deps] : dependencies){
+            ResourceKey o = owner;
+            remap(o);
+            for(ResourceKey& dep : deps)
+                remap(dep);
+            newDependencies[o] = std::move(deps);
+        }
+        dependencies = std::move(newDependencies);
+
+        decltype(evictionCandidates) newCandidates;
+        for(const ResourceKey& key : evictionCandidates){
+            ResourceKey k = key;
+            remap(k);
+            newCandidates.insert(k);
+        }
+        evictionCandidates = std::move(newCandidates);
+    }
+
     bool ResourcesManager::Has(AssetKind kind, const std::string &pathInProject) const
     {
         const size_t index = static_cast<size_t>(kind);

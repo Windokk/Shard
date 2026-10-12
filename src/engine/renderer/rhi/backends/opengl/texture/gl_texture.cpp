@@ -292,6 +292,20 @@ namespace Shard::Engine::Rendering{
         return ID != 0;     // a name was generated : the texture lives as long as this object
     }
 
+    bool GLTexture2D::SwapContents(Texture2D& other)
+    {
+        SHARD_ASSERT_GRAPHICS_THREAD();
+        auto* glOther = dynamic_cast<GLTexture2D*>(&other);
+        if (!glOther)
+            return false;
+
+        std::swap(ID, glOther->ID);
+        std::swap(m_GLInternalFormat, glOther->m_GLInternalFormat);
+        std::swap(m_GpuBytes, glOther->m_GpuBytes);
+        std::swap(m_Specifications, glOther->m_Specifications);
+        return true;
+    }
+
     GLTexture2D::~GLTexture2D()
     {
         GpuMemory::Add(GpuMemory::Kind::Texture, -m_GpuBytes);

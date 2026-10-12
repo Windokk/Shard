@@ -41,6 +41,8 @@ namespace Shard::Engine::Rendering{
 
             bool IsValid() const override;
 
+            bool SwapContents(Texture2D& other) override;
+
             uint32_t GetHandle() const override { return ID; }
 
             uint64_t GetBindlessHandle() const override { return GetBindlessHandle(ID); }

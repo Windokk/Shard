@@ -33,6 +33,8 @@ namespace Shard::Engine::Rendering{
 
             uint32_t GetProgram() const { return m_Program; }
 
+            bool Reload() override;
+
             const uint32_t* GetLocalSize() const { return m_LocalSize; }
 
         private:
@@ -48,7 +50,8 @@ namespace Shard::Engine::Rendering{
             // per-bounce trace/classify/relocate/convolve passes), so this was a real per-frame cost.
             int32_t GetUniformLocationCached(const std::string& name);
 
-            uint32_t m_Program;
+            uint32_t m_Program = 0;
+            bool m_CompileFailed = false;      // the shader didn't compile or the program didn't link (the message was logged)
             uint32_t m_LocalSize[3] = { 0, 0, 0 };
             std::vector<UniformInfo> m_ActiveUniforms;
             std::unordered_map<std::string, UniformInfo> m_ActiveUniformsMap;

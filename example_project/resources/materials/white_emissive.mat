@@ -8,6 +8,13 @@
         },
         {
             "useEnvReflections": true
+        },
+        {
+            "emissive": [
+                10.0,
+                10.0,
+                10.0
+            ]
         }
     ]
 }

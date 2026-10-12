@@ -20,6 +20,7 @@ namespace Shard::Engine::Rendering{
             if (hasCompiled == GL_FALSE)
             {
                 glGetShaderInfoLog(shader, 1024, NULL, infoLog);
+                m_CompileFailed = true;
                 DEBUG_ERROR("Couldn't compile shader : " + std::string(type) + "\n" + infoLog);
                 return;
             }
@@ -30,6 +31,7 @@ namespace Shard::Engine::Rendering{
             if (hasCompiled == GL_FALSE)
             {
                 glGetProgramInfoLog(shader, 1024, NULL, infoLog);
+                m_CompileFailed = true;
                 DEBUG_ERROR("Couldn't link shader : " + std::string(type) + "\n" + infoLog);
                 return;
             } 
@@ -265,6 +267,29 @@ namespace Shard::Engine::Rendering{
             }
 
         }
+    }
+
+    bool GLShader::Reload()
+    {
+        SHARD_ASSERT_GRAPHICS_THREAD();
+        if (m_VertexFilePath.empty() || m_FragmentFilePath.empty())
+            return false;
+
+        GLShader fresh{ Filesystem::Path(m_VertexFilePath), Filesystem::Path(m_FragmentFilePath), Filesystem::Path(m_GeometryFilePath) };
+        if (fresh.m_CompileFailed || fresh.m_Program == 0)
+            return false;       // `fresh` deletes its broken program, this one keeps running
+
+        // The state cache must not keep the id of a program that is about to be deleted
+        GLStateCache::BindProgram(0);
+
+        std::swap(m_Program, fresh.m_Program);
+        std::swap(m_ActiveUniforms, fresh.m_ActiveUniforms);
+        std::swap(m_ActiveUniformsMap, fresh.m_ActiveUniformsMap);
+        std::swap(m_ActiveSamplers, fresh.m_ActiveSamplers);
+        std::swap(m_ActiveSamplersMap, fresh.m_ActiveSamplersMap);
+        std::swap(m_UnmappedLocations, fresh.m_UnmappedLocations);
+        m_DepthPrepassSupport = -1;
+        return true;
     }
 
     void GLShader::Bind()

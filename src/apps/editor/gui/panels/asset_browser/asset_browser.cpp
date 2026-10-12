@@ -6,6 +6,7 @@
 #include "engine/world/world_manager.hpp"
 #include "engine/world/world.hpp"
 #include "engine/assets/resources_manager.hpp"
+#include "engine/assets/hot_reloader.hpp"
 #include "engine/renderer/frontend/renderer.hpp"
 #include "engine/renderer/rhi/resources/texture/texture.hpp"
 #include "engine/renderer/features/immediate/thumbnail_service.hpp"
@@ -214,6 +215,13 @@ namespace Shard::Editor::GUI{
 
     void AssetBrowser::Draw()
     {
+        // Files added, renamed or deleted from outside the editor
+        if (auto* hotReloader = Engine::Core::GetEngine().GetHotReloader(); hotReloader && hotReloader->GetRevision() != hotReloadRevision)
+        {
+            hotReloadRevision = hotReloader->GetRevision();
+            dirty = true;
+        }
+
         if (dirty)
             Refresh();
 

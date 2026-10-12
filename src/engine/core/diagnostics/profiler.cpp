@@ -116,9 +116,12 @@ namespace Shard::Engine::Debugging{
         m_CurrentFrame.totalMs = frameMs;
 
         // What the render thread did since the last time (it is a frame or so behind) joins this frame's figures
-        const bool renderThread = s_RenderThreadSampling.load(std::memory_order_acquire);
+        // `otherThreadMs` is the part of each category that was sampled by the render thread : the rest was sampled by
+        // this thread (e.g. the main thread's own Present() wait), which is time this thread did account for.
+        std::array<float, kProfileCategoryCount> otherThreadMs{};
         {
             std::lock_guard<std::mutex> lock(m_RenderMutex);
+            otherThreadMs = m_RenderPublished.categoryMs;
             for (size_t i = 0; i < kProfileCategoryCount; i++)
                 m_CurrentFrame.categoryMs[i] += m_RenderPublished.categoryMs[i];
             for (size_t i = 0; i < kRenderSubSampleCount; i++)
@@ -141,10 +144,8 @@ namespace Shard::Engine::Debugging{
         {
             if (static_cast<ProfileCategory>(i) == ProfileCategory::Other)
                 continue;
-            // Time the render thread spent is not time this thread frame was busy
-            if (renderThread && (static_cast<ProfileCategory>(i) == ProfileCategory::Rendering || static_cast<ProfileCategory>(i) == ProfileCategory::Presentation))
-                continue;
-            tracked += m_CurrentFrame.categoryMs[i];
+            // Time the render thread spent is not time this thread's frame was busy
+            tracked += m_CurrentFrame.categoryMs[i] - otherThreadMs[i];
         }
 
         float other = m_CurrentFrame.totalMs - tracked;

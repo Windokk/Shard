@@ -146,6 +146,10 @@ namespace Shard::Engine::Rendering {
                 return m_DepthPrepassSupport == 1;
             }
 
+            /// Hot reload : compiles the stages again from their files and, if that works, replaces the program of this
+            /// shader (materials keep pointing at it). A failure leaves the old program running. Graphics thread.
+            virtual bool Reload() { return false; }
+
             static std::shared_ptr<Shader> Create(
                 const Filesystem::Path& vertexPath,
                 const Filesystem::Path& fragmentPath,

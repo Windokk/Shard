@@ -69,6 +69,18 @@ namespace Shard::Engine::Rendering {
 
             Opacity GetOpacity() const { return m_Opacity; }
 
+            /// Hot reload : takes the shader, pipeline, flags and parameters of `other` (the material freshly read from the same
+            /// file), keeping this object - and so its asset id and everything that points at it. Graphics thread.
+            void AssignContent(const Material& other)
+            {
+                m_Shader = other.m_Shader;
+                m_Pipeline = other.m_Pipeline;
+                m_ReceivesShadows = other.m_ReceivesShadows;
+                m_Opacity = other.m_Opacity;
+                m_ScalarParameters = other.m_ScalarParameters;
+                m_SamplersParameters = other.m_SamplersParameters;
+            }
+
             void SetPipeline(std::shared_ptr<Pipeline> pipeline){
                 m_Pipeline = pipeline;
             }

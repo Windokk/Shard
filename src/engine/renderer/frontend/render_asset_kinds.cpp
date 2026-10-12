@@ -15,6 +15,7 @@
 #include "engine/renderer/rhi/shader/shader.hpp"
 #include "engine/renderer/rhi/shader/compute_shader.hpp"
 #include "engine/renderer/rhi/material/material.hpp"
+#include "engine/renderer/rhi/render_thread.hpp"
 
 #include <algorithm>
 #include <thread>
@@ -146,6 +147,13 @@ namespace Shard::Engine::Rendering{
             AssetKindInfo info;
             info.load = [srgb](const std::string&, const Filesystem::AssetInfos& infos) -> std::shared_ptr<void> { return LoadTexture(infos.baseInfos.path, srgb); };
             info.setAssetID = AssetIDSetter<Texture2D>();
+            // The decoded file replaces the GL texture inside the same object ; the materials that stored its handle are reloaded by the caller
+            info.reload = [srgb](void* existing, const std::string&, const Filesystem::AssetInfos& infos) -> bool {
+                std::shared_ptr<Texture2D> fresh = LoadTexture(infos.baseInfos.path, srgb);
+                if(!fresh)
+                    return false;
+                return OnGraphicsThread([&]() -> bool { return static_cast<Texture2D*>(existing)->SwapContents(*fresh); });
+            };
             info.prefetch = [kind, srgb](ResourcesManager& resources, const std::string& pathInProject, const Filesystem::Path& file) -> std::function<void()> {
                 // Compressed here, on the worker : what reaches the main thread is the (small) blocks to upload
                 auto data = std::make_shared<TextureDecodeResult>(DecodeTextureFileForUpload(file, 1, srgb));
@@ -181,6 +189,9 @@ namespace Shard::Engine::Rendering{
             AssetKindInfo info;
             info.load = [](const std::string&, const Filesystem::AssetInfos& infos) -> std::shared_ptr<void> { return LoadShader(infos); };
             info.setAssetID = AssetIDSetter<Shader>();
+            info.reload = [](void* existing, const std::string&, const Filesystem::AssetInfos&) -> bool {
+                return OnGraphicsThread([&]() -> bool { return static_cast<Shader*>(existing)->Reload(); });
+            };
             info.nameSuffix = ".vert";
             info.dependencySuffixes = {".vert", ".frag", ".geom"};
             resources.RegisterKind(AssetKind::Shader, std::move(info));
@@ -190,6 +201,9 @@ namespace Shard::Engine::Rendering{
             AssetKindInfo info;
             info.load = [](const std::string&, const Filesystem::AssetInfos& infos) -> std::shared_ptr<void> { return ComputeShader::Create(infos.baseInfos.path); };
             info.setAssetID = AssetIDSetter<ComputeShader>();
+            info.reload = [](void* existing, const std::string&, const Filesystem::AssetInfos&) -> bool {
+                return OnGraphicsThread([&]() -> bool { return static_cast<ComputeShader*>(existing)->Reload(); });
+            };
             info.nameSuffix = ".comp";
             resources.RegisterKind(AssetKind::ComputeShader, std::move(info));
         }
@@ -198,6 +212,13 @@ namespace Shard::Engine::Rendering{
             AssetKindInfo info;
             info.load = [](const std::string&, const Filesystem::AssetInfos& infos) -> std::shared_ptr<void> { return LoadMaterial(infos.baseInfos.path); };
             info.setAssetID = AssetIDSetter<Material>();
+            info.reload = [](void* existing, const std::string&, const Filesystem::AssetInfos& infos) -> bool {
+                std::shared_ptr<Material> fresh = Serialization::DeserializeMaterial(infos.baseInfos.path);
+                if(!fresh)
+                    return false;
+                OnGraphicsThread([&] { static_cast<Material*>(existing)->AssignContent(*fresh); });
+                return true;
+            };
             info.ownerType = Filesystem::Type::T_MATERIAL;
             info.dependencies = [](const Filesystem::Path& path){
                 std::vector<ResourceKey> keys;

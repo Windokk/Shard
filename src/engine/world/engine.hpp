@@ -8,6 +8,8 @@
 #include <vector>
 #include <glm/glm.hpp>
 
+namespace Shard::Engine::Assets { class HotReloader; }
+
 namespace Shard::Engine{
 
     namespace Rendering {
@@ -197,6 +199,8 @@ namespace Shard::Engine{
                 virtual Ecs::Registry* GetEcs() const = 0;
                 /// The systems run each frame, by phase (Input, PreSim, Fixed, PostPhysics, Update, Late, Extract)
                 virtual Ecs::Scheduler* GetScheduler() const = 0;
+                /// Keeps the loaded assets in line with their files on disk (null if it isn't running)
+                virtual Assets::HotReloader* GetHotReloader() const { return nullptr; }
 
                 virtual bool IsInPlayMode() const = 0;
                 virtual void SetPlayMode(bool on) = 0;
@@ -270,6 +274,8 @@ namespace Shard::Engine{
 
                 Ecs::Scheduler* GetScheduler() const override { return m_Context.scheduler; }
 
+                Assets::HotReloader* GetHotReloader() const override { return m_HotReloader; }
+
                 bool IsInPlayMode() const override { return m_PlayMode; }
 
                 void SetPlayMode(bool on) override;
@@ -287,6 +293,7 @@ namespace Shard::Engine{
                 void SyncPhysicsBodies(float fixedDeltaTime);
                 void RenderFrame();
                 void PollInput();
+                void StartHotReload();
                 void Present();
 
                 // The render thread owns the graphics context while it runs (see Rendering::RenderThread)
@@ -309,6 +316,8 @@ namespace Shard::Engine{
                 std::vector<std::function<void()>> m_MainQueue;
 
                 EngineContext m_Context;
+
+                Assets::HotReloader* m_HotReloader = nullptr;
 
                 EngineCreationSettings m_EngineSettings;
 
