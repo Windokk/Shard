@@ -341,6 +341,18 @@ namespace Shard::Engine::Rendering{
             DrawIndexed(command.material->GetPipeline(), command.indexCount, command.indexOffset);
     }
 
+    void GLRendererAPI::BindLightmap(const DrawCommand& command, const std::shared_ptr<Shader>& shader)
+    {
+        // A uniform the program does not have is a no-op (see GLShader::GetUniformLocationCached), so every shader can be
+        // given these : only the lit one reads them
+        shader->SetBool("lightmapEnabled", command.lightmapHandle != 0);
+        if (command.lightmapHandle != 0)
+        {
+            shader->SetUVec2("lightmapHandle", uint32_t(command.lightmapHandle & 0xFFFFFFFFu), uint32_t(command.lightmapHandle >> 32));
+            shader->SetVec4("lightmapScaleOffset", command.lightmapScaleOffset);
+        }
+    }
+
     void GLRendererAPI::ExecuteDrawCommand(const DrawCommand &command, const std::shared_ptr<RenderPass> pass)
     {
         SHARD_ASSERT_GRAPHICS_THREAD();
@@ -386,11 +398,14 @@ namespace Shard::Engine::Rendering{
                         pipeline->GetSpecifications().shader->SetMat4("model", command.modelMatrix);
                     if(command.objectID != m_LastDraw.objectID)
                         pipeline->GetSpecifications().shader->SetInt("objID", command.objectID);
+                    if(command.lightmapHandle != m_LastDraw.lightmapHandle || command.lightmapScaleOffset != m_LastDraw.lightmapScaleOffset)
+                        BindLightmap(command, pipeline->GetSpecifications().shader);
                 }
                 else
                 {
                     m_Scene->BindWorldState(*this, pipeline->GetSpecifications().shader, command.modelMatrix, command.objectID,
                         GLStateCache::NeedsPassGlobalsUpdate(program, GLStateCache::PassGlobalsKind::World));
+                    BindLightmap(command, pipeline->GetSpecifications().shader);
                 }
 
                 m_LastDraw.pass = pass.get();
@@ -398,6 +413,8 @@ namespace Shard::Engine::Rendering{
                 m_LastDraw.material = drawMaterial;
                 m_LastDraw.modelMatrix = command.modelMatrix;
                 m_LastDraw.objectID = command.objectID;
+                m_LastDraw.lightmapHandle = command.lightmapHandle;
+                m_LastDraw.lightmapScaleOffset = command.lightmapScaleOffset;
             }
             else
             {

@@ -25,9 +25,11 @@
 #include "engine/renderer/components/camera_manager.hpp"
 #include "engine/renderer/components/render_extractor.hpp"
 #include "engine/renderer/features/lighting/probe_manager.hpp"
+#include "engine/renderer/features/lighting/lightmap_manager.hpp"
 #include "engine/renderer/components/probe_volume.hpp"
 #include "engine/world/actor.hpp"
 #include "engine/renderer/rhi/resources/texture/texture_compression.hpp"
+#include "engine/renderer/rhi/resources/mesh/lightmap_uv.hpp"
 #include <filesystem>
 #include "engine/audio/audio_manager.hpp"
 #include "engine/physics/physics_manager.hpp"
@@ -115,6 +117,8 @@ namespace Shard::Engine{
             
             // Textures are block compressed once and kept next to the thumbnails (derived data, safe to delete)
             Rendering::TextureCache::SetDirectory((std::filesystem::path(m_Context.currentProject->GetProjectRoot().full) / ".cache" / "textures").generic_string());
+            // The lightmap layout of a mesh is worked out once and kept there too, instead of at every load
+            Rendering::SetLightmapUnwrapCacheDirectory((std::filesystem::path(m_Context.currentProject->GetProjectRoot().full) / ".cache" / "lightmap_uv").generic_string());
 
             m_Context.resourcesManager->ConstructGlobalFileIndex(m_Context.currentProject->GetProjectResourcesPath(), m_Context.currentProject->GetAssetDatabasePath());
 
@@ -148,6 +152,23 @@ namespace Shard::Engine{
             };
             probeManager->releaseBakedData = [this](const std::string& path) {
                 PostToMainThread([this, path] { m_Context.resourcesManager->Unload(Core::Resources::AssetKind::ProbeBake, path); });
+            };
+            // The same for the lightmaps : a bake hands its result to the world on the main thread, and the pages the world names
+            // are loaded there
+            Rendering::LightmapManager* lightmaps = m_Context.renderer->GetLightmapManager().get();
+            lightmaps->onBakeFinished = [this](const Rendering::LightmapBakeResult& result) {
+                PostToMainThread([this, result] {
+                    if(Worlds::World* world = m_Context.worldManager ? m_Context.worldManager->GetWorldAt(0) : nullptr)
+                        world->Ext<Rendering::RenderWorldData>().OnLightmapsBaked(*world, result);
+                });
+            };
+            lightmaps->requestData = [this, lightmaps](const std::string& path) {
+                PostToMainThread([this, lightmaps, path] {
+                    lightmaps->ProvideData(path, m_Context.resourcesManager->Get<Rendering::LightmapData>(Core::Resources::AssetKind::Lightmap, path));
+                });
+            };
+            lightmaps->releaseData = [this](const std::string& path) {
+                PostToMainThread([this, path] { m_Context.resourcesManager->Unload(Core::Resources::AssetKind::Lightmap, path); });
             };
             m_Context.renderer->SetOcclusionCullingEnabled(m_Context.currentProject->GetRenderingSettings()->occlusionCulling);
             m_Context.platform->CreateInput();
@@ -310,7 +331,10 @@ namespace Shard::Engine{
             auto extractor = std::make_shared<Rendering::RenderExtractor>();
             add("Render.Extract", Phase::Extract, [this, extractor](SystemContext& c){
                 // The pacing : the simulation does not get further ahead of the drawn frames than the limit
-                Rendering::RenderThread::Get().WaitForFrameSlot();
+                {
+                    SHARD_PROFILE_SCOPE(Debugging::ProfileCategory::Waiting);
+                    Rendering::RenderThread::Get().WaitForFrameSlot();
+                }
 
                 SHARD_PROFILE_SCOPE(Debugging::ProfileCategory::Rendering);
                 extractor->Extract(*m_Context.renderer, *m_Context.worldManager, *m_Context.cameraManager, m_Context.jobSystem, c.frame);

@@ -43,6 +43,8 @@ namespace Shard::Engine::Rendering{
 
             uint32_t GetHandle() const override { return ID; }
 
+            uint64_t GetBindlessHandle() const override { return GetBindlessHandle(ID); }
+
             // Returns a resident ARB_bindless_texture handle for the given raw GL texture ID, creating
             // and residency-registering it on first use (cached thereafter). Returns 0 if glTextureID is
             // 0 or GL_ARB_bindless_texture isn't supported by the driver - callers should treat 0 as

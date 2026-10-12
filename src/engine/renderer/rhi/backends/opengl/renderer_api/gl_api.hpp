@@ -65,7 +65,12 @@ namespace Shard::Engine::Rendering{
                 const Material* material = nullptr; // null for a pass that overrides the pipeline
                 glm::mat4 modelMatrix = glm::mat4(1.0f);
                 uint32_t objectID = 0;
+                uint64_t lightmapHandle = 0;
+                glm::vec4 lightmapScaleOffset = glm::vec4(1.0f, 1.0f, 0.0f, 0.0f);
             } m_LastDraw;
+
+            // The baked lighting of the draw (the lightmap page it reads and where on it) : per object, like the model matrix
+            void BindLightmap(const DrawCommand& command, const std::shared_ptr<Shader>& shader);
 
             void BindMesh(std::shared_ptr<Mesh> mesh);
 

@@ -76,6 +76,11 @@ namespace Shard::Engine::Rendering {
 
         bool bindCameraState = true;
 
+        /// Baked lighting : the bindless handle of the lightmap page this draw reads the light it receives from (0 : the draw
+        /// has no lightmap), and what maps the mesh's lightmap coordinates onto that page (uv * xy + zw)
+        uint64_t lightmapHandle = 0;
+        glm::vec4 lightmapScaleOffset = glm::vec4(1.0f, 1.0f, 0.0f, 0.0f);
+
         /// Slot in the pass's GPU occlusion-culling buffers (see OcclusionCullingManager), or -1 when this
         /// command isn't GPU-culled. @note Automatically filled by the renderer every frame.
         int32_t cullSlot = -1;
@@ -177,7 +182,8 @@ namespace Shard::Engine::Rendering {
             const glm::vec3 GetBoundsMax() const { return m_BoundsMax; }
             const glm::vec3 GetBoundsMin() const { return m_BoundsMin; }
 
-            std::vector<DrawCommand> CreateDrawCommands(const glm::mat4& worldMatrix, int objectID, int modelID, std::vector<std::shared_ptr<Material>> mats);
+            std::vector<DrawCommand> CreateDrawCommands(const glm::mat4& worldMatrix, int objectID, int modelID, std::vector<std::shared_ptr<Material>> mats,
+                uint64_t lightmapHandle = 0, const glm::vec4& lightmapScaleOffset = glm::vec4(1.0f, 1.0f, 0.0f, 0.0f));
 
             void SetAssetID(Filesystem::AssetID assetID) {
                 m_AssetID = assetID;

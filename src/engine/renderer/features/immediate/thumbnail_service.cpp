@@ -386,6 +386,10 @@ namespace Shard::Engine::Rendering {
 
         std::vector<char> bytes((std::istreambuf_iterator<char>(file)), std::istreambuf_iterator<char>());
 
+        // The cache file was written flipped (ImageExport::WritePNG), so it is read flipped : whatever the last decode on this
+        // thread left in the setting
+        stbi_set_flip_vertically_on_load_thread(true);
+
         int width = 0, height = 0, channels = 0;
         unsigned char* pixels = stbi_load_from_memory(reinterpret_cast<const unsigned char*>(bytes.data()),
             static_cast<int>(bytes.size()), &width, &height, &channels, 4);

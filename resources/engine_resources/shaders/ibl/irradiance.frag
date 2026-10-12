@@ -5,6 +5,7 @@ in vec3 WorldPos;
 uniform samplerCube uEnvironmentMap;
 
 const float PI = 3.14159265359;
+const float MAX_RADIANCE = 500.0;
 
 void main()
 {		
@@ -13,7 +14,8 @@ void main()
     vec3 irradiance = vec3(0.0);   
     
     // tangent space calculation from origin point
-    vec3 up    = vec3(0.0, 1.0, 0.0);
+    // (straight up is parallel to a vertical normal : cross() is then 0 and its normalize a NaN, which an 8 bit scene hid)
+    vec3 up    = abs(N.y) < 0.999 ? vec3(0.0, 1.0, 0.0) : vec3(0.0, 0.0, 1.0);
     vec3 right = normalize(cross(up, N));
     up         = normalize(cross(N, right));
        
@@ -28,7 +30,10 @@ void main()
             // tangent space to world
             vec3 sampleVec = tangentSample.x * right + tangentSample.y * up + tangentSample.z * N; 
 
-            irradiance += texture(uEnvironmentMap, sampleVec).rgb * cos(theta) * sin(theta);
+            // A sun disc is a few hundred times brighter than the sky around it : its share of the irradiance is the directional
+            // light's job, and left in it makes the diffuse term a flickering blob. Clamped, the way a convolution is kept stable.
+            vec3 radiance = min(texture(uEnvironmentMap, sampleVec).rgb, vec3(MAX_RADIANCE));
+            irradiance += radiance * cos(theta) * sin(theta);
             nrSamples++;
         }
     }

@@ -1,6 +1,7 @@
 #include "material_serializer.hpp"
 
 #include "engine/assets/resources_manager.hpp"
+#include "engine/assets/serialization/material/material_asset_refs.hpp"
 
 #include "engine/world/engine.hpp"
 
@@ -74,7 +75,8 @@ namespace Shard::Engine::Serialization{
                         // with it) - dereferencing it unconditionally here used to segfault instead of
                         // hitting the "No texture found" error path right below, which is exactly what a
                         // bad texture path should produce.
-                        std::shared_ptr<Texture2D> texture = Core::GetEngine().GetResourcesManager()->Get<Texture2D>(AssetKind::Texture, value.get<std::string>());
+                        // The colour slots (albedo, emission) hold sRGB images : the GPU linearizes them as it samples
+                        std::shared_ptr<Texture2D> texture = Core::GetEngine().GetResourcesManager()->Get<Texture2D>(IsColorTextureSlot(name) ? AssetKind::ColorTexture : AssetKind::Texture, value.get<std::string>());
                         uint32_t tex = texture ? texture->GetHandle() : 0;
                         if(tex){
                             mat->SetTextureParameter(name, tex);

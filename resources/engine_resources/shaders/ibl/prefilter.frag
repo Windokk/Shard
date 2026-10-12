@@ -6,6 +6,10 @@ uniform samplerCube uEnvironmentMap;
 uniform float roughness;
 
 const float PI = 3.14159265359;
+
+// Brighter than this a sample is a sun disc, not sky : its reflection is the directional light's job, and unclamped one
+// sample outweighs a thousand others (fireflies) or, in 16 bit floats, overflows to an infinity
+const float MAX_RADIANCE = 500.0;
 // ----------------------------------------------------------------------------
 float DistributionGGX(vec3 N, vec3 H, float roughness)
 {
@@ -95,7 +99,7 @@ void main()
 
             float mipLevel = roughness == 0.0 ? 0.0 : 0.5 * log2(saSample / saTexel); 
             
-            prefilteredColor += textureLod(uEnvironmentMap, L, mipLevel).rgb * NdotL;
+            prefilteredColor += min(textureLod(uEnvironmentMap, L, mipLevel).rgb, vec3(MAX_RADIANCE)) * NdotL;
             totalWeight      += NdotL;
         }
     }

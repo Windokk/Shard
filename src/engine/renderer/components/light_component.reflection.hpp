@@ -113,6 +113,44 @@ inline FieldInfo Light_castShadows_info = {
     &Equals<bool>
 };
 
+inline FieldInfo Light_sourceSize_info = {
+    "sourceSize",
+    TypeID::Float,
+    offsetof(Shard::Engine::Objects::Components::Light, sourceSize),
+    Editable,
+    0.0f, 50.0f,
+    nullptr,
+    nullptr,
+    &CopyConstruct<float>,
+    &Assign<float>,
+    &Destroy<float>,
+    &Equals<float>
+};
+
+static EnumDescriptor LightBakeMode_descriptor = {
+    "LightBakeMode",
+    {
+        { 0, "Dynamic" },
+        { 1, "Stationary" },
+        { 2, "Static" },
+    },
+    sizeof(Rendering::LightBakeMode)
+};
+
+inline FieldInfo Light_bakeMode_info = {
+    "bakeMode",
+    TypeID::Enum,
+    offsetof(Shard::Engine::Objects::Components::Light, bakeMode),
+    Editable,
+    0, 0,
+    nullptr,
+    &LightBakeMode_descriptor,
+    &CopyConstruct<Rendering::LightBakeMode>,
+    &Assign<Rendering::LightBakeMode>,
+    &Destroy<Rendering::LightBakeMode>,
+    &Equals<Rendering::LightBakeMode>
+};
+
 inline ClassDescriptor Shard::Engine::Objects::Components::Light::descriptor = {
     "Light",
     {
@@ -123,6 +161,8 @@ inline ClassDescriptor Shard::Engine::Objects::Components::Light::descriptor = {
         &Light_outerCutoff_info,
         &Light_innerCutoff_info,
         &Light_castShadows_info,
+        &Light_sourceSize_info,
+        &Light_bakeMode_info,
     }
 };
 

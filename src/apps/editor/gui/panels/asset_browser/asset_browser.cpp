@@ -37,6 +37,7 @@ namespace Shard::Editor::GUI{
             case Engine::Filesystem::Type::T_MODEL:          return IM_COL32(230, 126, 34, 255);  // orange
             case Engine::Filesystem::Type::T_MATERIAL:       return IM_COL32(46, 204, 113, 255);  // green
             case Engine::Filesystem::Type::T_PROBES:         return IM_COL32(236, 96, 160, 255);  // pink
+            case Engine::Filesystem::Type::T_LIGHTMAP:       return IM_COL32(244, 143, 177, 255); // light pink
             case Engine::Filesystem::Type::T_IMAGE:          return IM_COL32(175, 110, 220, 255); // purple/pink
             case Engine::Filesystem::Type::T_SOUND:          return IM_COL32(26, 188, 156, 255);  // teal
             case Engine::Filesystem::Type::T_SCRIPT:         return IM_COL32(241, 196, 15, 255);  // yellow
@@ -60,6 +61,7 @@ namespace Shard::Editor::GUI{
             case Engine::Filesystem::Type::T_MODEL:          return "Static Mesh";
             case Engine::Filesystem::Type::T_MATERIAL:       return "Material";
             case Engine::Filesystem::Type::T_PROBES:         return "Probe Bake";
+            case Engine::Filesystem::Type::T_LIGHTMAP:       return "Lightmap Bake";
             case Engine::Filesystem::Type::T_IMAGE:          return "Texture";
             case Engine::Filesystem::Type::T_SOUND:          return "Sound";
             case Engine::Filesystem::Type::T_SCRIPT:         return "Script";

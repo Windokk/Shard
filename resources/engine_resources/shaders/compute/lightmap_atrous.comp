@@ -1,0 +1,88 @@
+#version 430 core
+
+// Edge aware denoiser of the baked lightmaps : one iteration of the a-trous wavelet filter (Dammertz et al. 2010) with the
+// variance guided weights of SVGF (Schied et al. 2017). A 5 x 5 kernel whose taps are `uStep` texels apart, so five
+// iterations with a step of 1, 2, 4, 8 and 16 cover a wide neighbourhood at the cost of five small ones.
+//
+// What keeps it from blurring the lighting that is real is the weight of each tap :
+//   * the surface : its normal and its distance to the plane of the centre texel - a tap on a wall that meets the floor, or on
+//     another surface that merely sits next to this one in the atlas, counts for nothing ;
+//   * the luminance : a tap whose light differs from the centre's by more than the noise can explain (a few standard
+//     deviations of the variance the resolve pass measured) counts for nothing - that is what keeps a shadow edge sharp,
+//     while the flat, noisy light of an open wall is averaged hard.
+// The variance goes through the filter with the squared weights, so the next iteration knows how much noise is left.
+
+layout(local_size_x = 8, local_size_y = 8, local_size_z = 1) in;
+
+layout(rgba32f, binding = 0) readonly uniform image2D uIn;          // rgb light, a variance
+layout(rgba32f, binding = 1) writeonly uniform image2D uOut;
+layout(rgba32f, binding = 2) readonly uniform image2D uGPos;        // xyz world position, w the world size of a texel (0 : no surface)
+layout(rgba16f, binding = 3) readonly uniform image2D uGNormal;
+
+uniform int uSize;
+uniform int uStep;
+uniform float uLuminanceSigma;      // how many standard deviations of noise a luminance difference may be and still blend
+
+float Luminance(vec3 c)
+{
+    return dot(c, vec3(0.2126, 0.7152, 0.0722));
+}
+
+void main()
+{
+    ivec2 center = ivec2(gl_GlobalInvocationID.xy);
+    if (center.x >= uSize || center.y >= uSize)
+        return;
+
+    vec4 centerPos = imageLoad(uGPos, center);
+    if (centerPos.w <= 0.0)
+        return;
+
+    vec3 centerNormal = normalize(imageLoad(uGNormal, center).xyz);
+    vec4 centerColor = imageLoad(uIn, center);
+    float centerLuminance = Luminance(centerColor.rgb);
+
+    float texelWorld = centerPos.w;
+    float luminanceSigma = uLuminanceSigma * sqrt(max(centerColor.a, 0.0)) + 1e-4;
+    float planeSigma = 2.0 * texelWorld;
+    float lateralSigma = texelWorld * float(uStep) * 1.5;
+
+    const float kernel[3] = float[](3.0 / 8.0, 1.0 / 4.0, 1.0 / 16.0);
+
+    float weightSum = 0.0;
+    vec3 colorSum = vec3(0.0);
+    float varianceSum = 0.0;
+
+    for (int dy = -2; dy <= 2; dy++)
+    {
+        for (int dx = -2; dx <= 2; dx++)
+        {
+            ivec2 tap = center + ivec2(dx, dy) * uStep;
+            if (tap.x < 0 || tap.y < 0 || tap.x >= uSize || tap.y >= uSize)
+                continue;
+
+            vec4 tapPos = imageLoad(uGPos, tap);
+            if (tapPos.w <= 0.0)
+                continue;
+
+            vec3 tapNormal = normalize(imageLoad(uGNormal, tap).xyz);
+            vec4 tapColor = imageLoad(uIn, tap);
+
+            vec3 offset = tapPos.xyz - centerPos.xyz;
+            float planeDistance = dot(centerNormal, offset);
+
+            float weight = kernel[abs(dx)] * kernel[abs(dy)];
+            weight *= pow(max(dot(centerNormal, tapNormal), 0.0), 48.0);
+            weight *= exp(-(planeDistance * planeDistance) / (2.0 * planeSigma * planeSigma));
+            weight *= exp(-dot(offset, offset) / (2.0 * lateralSigma * lateralSigma + 1e-12));
+            weight *= exp(-abs(centerLuminance - Luminance(tapColor.rgb)) / luminanceSigma);
+
+            weightSum += weight;
+            colorSum += weight * tapColor.rgb;
+            varianceSum += weight * weight * tapColor.a;
+        }
+    }
+
+    // The centre is always a tap of weight kernel[0]^2 : the sum cannot be zero
+    imageStore(uOut, center, vec4(colorSum / weightSum, varianceSum / (weightSum * weightSum)));
+}

@@ -18,6 +18,7 @@
 #include "apps/editor/gui/loading_widgets.hpp"
 
 #include "engine/renderer/features/lighting/probe_manager.hpp"
+#include "engine/renderer/features/lighting/lightmap_manager.hpp"
 
 #include "engine/assets/resources_manager.hpp"
 #include "engine/world/world_manager.hpp"
@@ -728,6 +729,7 @@ namespace Shard::Editor::Core{
             DrawLoadingOverlay(Engine::Core::GetEngine().GetWorldManager()->GetAsyncLoadProgress());
 
         UpdateProbeBuildNotification();
+        UpdateLightmapBuildNotification();
         GUI::Notifications::RenderFrame();
         GUI::Popups::Draw();
 
@@ -742,6 +744,44 @@ namespace Shard::Editor::Core{
             ImGui_ImplOpenGL3_RenderDrawData(drawData);
         });
         Rendering::RenderThread::Get().Post([this] { SDLWindow::SwapBuffers(); });
+    }
+
+    void EditorMainWindow::UpdateLightmapBuildNotification()
+    {
+        Rendering::Renderer* renderer = Engine::Core::GetEngine().GetRenderer();
+        if(!renderer)
+            return;
+
+        auto lightmaps = renderer->GetLightmapManager();
+        if(!lightmaps)
+            return;
+
+        // One long-lived progress notification for the whole bake, closed when it ends
+        static GUI::Notifications::ProgressId lightmapNotif = 0;
+        static bool tracking = false;
+
+        if(lightmaps->IsBaking())
+        {
+            const float progress = std::clamp(lightmaps->GetBakeProgress(), 0.0f, 1.0f);
+            const std::string message = std::string(lightmaps->GetBakePhase()) + " - " + std::to_string((int)std::lround(progress * 100.0f)) + "%";
+
+            if(!tracking)
+            {
+                lightmapNotif = GUI::Notifications::BeginProgress("Baking lightmaps", message);
+                tracking = true;
+            }
+            else
+            {
+                GUI::Notifications::UpdateProgress(lightmapNotif, progress, message);
+            }
+        }
+        else if(tracking)
+        {
+            const bool ok = lightmaps->DidLastBakeSucceed();
+            GUI::Notifications::EndProgress(lightmapNotif, ok, ok ? "Lightmaps baked - save the world to keep them" : "Lightmap bake failed or cancelled - see the log");
+            tracking = false;
+            lightmapNotif = 0;
+        }
     }
 
     void EditorMainWindow::UpdateProbeBuildNotification()

@@ -98,6 +98,11 @@ namespace Shard::Engine::Rendering::Raytracing {
         // entirely - BuildFromSnapshot() skips generating triangles for those.
         std::vector<uint32_t> materialIndicesPerSubmesh;
         glm::mat4 worldMatrix = glm::mat4(1.0f);
+
+        // What the instance is known by in the render snapshot (MeshProxy::key), and the lightmap resolution it asked for (0 :
+        // by density) - only the lightmap bake reads them
+        uint64_t key = 0;
+        int lightmapResolution = 0;
     };
 
     struct RaytraceSceneSnapshot

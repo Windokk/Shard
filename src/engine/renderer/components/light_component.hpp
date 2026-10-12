@@ -19,6 +19,8 @@ namespace Shard::Engine::Objects::Components
             void SetIntensity(float intensity);
             void SetPosition(glm::vec3 postion);
             void SetCastShadow(bool castShadows);
+            void SetSourceSize(float sourceSize);
+            void SetBakeMode(Rendering::LightBakeMode mode);
             void SetColor(COL_RGB color);
 
             // Directional / Spot light
@@ -65,6 +67,18 @@ namespace Shard::Engine::Objects::Components
 
             FIELD(Editable)
             bool castShadows;
+
+            // Size of the emitter, for the soft shadows of the offline renderers (the offline raytrace and the lightmap
+            // bake - the real-time shadows keep their own filtering). Point / spot light : radius of the emitting sphere
+            // in world units. Directional light : angular radius of the sun disc, in degrees (the real sun is 0.27).
+            // 0 : an ideal point / direction, with hard shadows.
+            FIELD(Editable, range=0.0f|50.0f)
+            float sourceSize;
+
+            // What the light does for baked lighting (see LightBakeMode) : Dynamic, never baked ; Stationary, real-time
+            // direct light with its bounced light baked ; Static, baked entirely into the lightmaps.
+            FIELD(Editable)
+            Rendering::LightBakeMode bakeMode;
 
         private:
             std::shared_ptr<Rendering::LightData> lightData;

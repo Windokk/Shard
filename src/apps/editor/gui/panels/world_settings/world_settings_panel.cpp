@@ -5,6 +5,8 @@
 #include "engine/world/world.hpp"
 #include "engine/world/world_manager.hpp"
 #include "engine/renderer/components/render_world_data.hpp"
+#include "engine/renderer/frontend/renderer.hpp"
+#include "engine/renderer/features/lighting/lightmap_manager.hpp"
 
 #include "apps/editor/gui/dragdrop/asset_drag_drop.hpp"
 #include "apps/editor/gui/IconsLucide.h"
@@ -168,6 +170,180 @@ namespace Shard::Editor::GUI{
         ImGui::TreePop();
     }
 
+    void WorldSettingsPanel::DrawDisplaySection(Worlds::World* world)
+    {
+        if (!ImGui::TreeNodeEx("Display", ImGuiTreeNodeFlags_DefaultOpen | ImGuiTreeNodeFlags_Framed))
+            return;
+
+        Rendering::DisplaySettings& display = world->Ext<Rendering::RenderWorldData>().display;
+        bool changed = false;
+
+        struct Entry { Rendering::Tonemapper tonemapper; const char* label; const char* hint; };
+        static const Entry kEntries[] = {
+            { Rendering::Tonemapper::ACES, "ACES (filmic)", "The Academy filmic curve : contrasty, bright colours roll off toward white. The look of most games." },
+            { Rendering::Tonemapper::Neutral, "Neutral", "Khronos PBR Neutral : leaves what is below ~0.8 as it is and only compresses highlights, so a material keeps its colour." },
+            { Rendering::Tonemapper::Reinhard, "Reinhard", "A simple soft shoulder on the luminance." },
+            { Rendering::Tonemapper::None, "None (clamp)", "No curve : everything brighter than white is white. Exposure and the sRGB curve still apply." },
+        };
+
+        int current = 0;
+        for (int i = 0; i < 4; i++)
+            if (kEntries[i].tonemapper == display.tonemapper)
+                current = i;
+
+        if (ImGui::BeginCombo("Tonemapper", kEntries[current].label))
+        {
+            for (int i = 0; i < 4; i++)
+            {
+                if (ImGui::Selectable(kEntries[i].label, i == current))
+                {
+                    display.tonemapper = kEntries[i].tonemapper;
+                    changed = true;
+                }
+                if (ImGui::IsItemHovered())
+                    ImGui::SetTooltip("%s", kEntries[i].hint);
+            }
+            ImGui::EndCombo();
+        }
+
+        changed |= ImGui::SliderFloat("Exposure (EV)", &display.exposure, -6.0f, 6.0f, "%+.2f");
+        if (ImGui::IsItemHovered())
+            ImGui::SetTooltip("Stops of light added before the curve : +1 doubles the brightness of the scene, -1 halves it.\nCtrl+click to type a value.");
+
+        ImGui::SameLine();
+        if (ImGui::Button("Reset##Exposure"))
+        {
+            display.exposure = 0.0f;
+            changed = true;
+        }
+
+        if (changed)
+            world->SetDirty(true);
+
+        ImGui::TextDisabled("The scene is lit in linear HDR and mapped to the screen by this, then sRGB encoded.");
+
+        ImGui::TreePop();
+    }
+
+    void WorldSettingsPanel::DrawLightmapsSection(Worlds::World* world)
+    {
+        if (!ImGui::TreeNodeEx("Lightmaps", ImGuiTreeNodeFlags_DefaultOpen | ImGuiTreeNodeFlags_Framed))
+            return;
+
+        Rendering::RenderWorldData& data = world->Ext<Rendering::RenderWorldData>();
+        Rendering::LightmapSettings& settings = data.lightmapSettings;
+        auto lightmaps = GetEngine().GetRenderer() ? GetEngine().GetRenderer()->GetLightmapManager() : nullptr;
+
+        const bool baking = lightmaps && lightmaps->IsBaking();
+        const bool baked = !data.lightmapData.empty();
+
+        if (baking)
+            ImGui::TextDisabled("Baking - %s (%d%%)", lightmaps->GetBakePhase(), int(lightmaps->GetBakeProgress() * 100.0f + 0.5f));
+        else if (baked)
+            ImGui::TextDisabled("Baked : %s", data.lightmapData.c_str());
+        else
+            ImGui::TextDisabled("Not baked - the models are lit by the probes and the sky.");
+
+        bool changed = false;
+
+        ImGui::BeginDisabled(baking);
+
+        changed |= ImGui::DragFloat("Texels per meter", &settings.texelsPerMeter, 0.5f, 1.0f, 512.0f, "%.1f");
+        if (ImGui::IsItemHovered())
+            ImGui::SetTooltip("How sharp the baked light is : the lightmap texels one meter of surface gets, on every model.\n8 is soft light on large surfaces, 32 is a crisp shadow edge, 64+ is for hero props.");
+
+        int samples = int(settings.samples);
+        if (ImGui::DragInt("Samples", &samples, 1.0f, 1, 16384))
+        {
+            settings.samples = uint32_t(std::max(samples, 1));
+            changed = true;
+        }
+        if (ImGui::IsItemHovered())
+            ImGui::SetTooltip("Light paths traced from every texel. The noise falls with the square root of this ;\nthe denoiser removes most of what is left. 256 is a clean result, 1024+ a final one.");
+
+        int bounces = int(settings.maxBounces);
+        if (ImGui::DragInt("Bounces", &bounces, 0.1f, 1, 16))
+        {
+            settings.maxBounces = uint32_t(std::max(bounces, 1));
+            changed = true;
+        }
+        if (ImGui::IsItemHovered())
+            ImGui::SetTooltip("How many times the light can bounce before it is dropped : 1 is direct light only (and sky),\neach more adds the light the walls throw on each other (colour bleeding).");
+
+        changed |= ImGui::DragFloat("Indirect intensity", &settings.indirectIntensity, 0.01f, 0.0f, 16.0f, "%.2f");
+        if (ImGui::IsItemHovered())
+            ImGui::SetTooltip("A multiplier on the light bounced between surfaces and brought in by the sky (not on a Static light's own\ndirect light). 1 is physically correct ; 2-4 fills the shadows for a brighter, flatter look.");
+
+        changed |= ImGui::Checkbox("Denoise", &settings.denoise);
+        if (ImGui::IsItemHovered())
+            ImGui::SetTooltip("Filters the noise of the bake with an edge aware filter that follows the surfaces and the shadows.");
+
+        ImGui::SameLine();
+        ImGui::SetNextItemWidth(120.0f);
+        changed |= ImGui::DragFloat("Firefly clamp", &settings.fireflyClamp, 0.5f, 0.0f, 1000.0f, settings.fireflyClamp > 0.0f ? "%.1f" : "off");
+        if (ImGui::IsItemHovered())
+            ImGui::SetTooltip("Limits the brightness one path may bring back, so a rare very bright one doesn't leave a white speck. 0 = off.");
+
+        static const int kPageSizes[] = { 512, 1024, 2048, 4096, 8192 };
+        int pageIndex = 2;
+        for (int i = 0; i < 5; i++)
+            if (int(settings.maxPageSize) == kPageSizes[i])
+                pageIndex = i;
+        const char* pageLabels[] = { "512", "1024", "2048", "4096", "8192" };
+        if (ImGui::Combo("Max page size", &pageIndex, pageLabels, 5))
+        {
+            settings.maxPageSize = uint32_t(kPageSizes[pageIndex]);
+            changed = true;
+        }
+        if (ImGui::IsItemHovered())
+            ImGui::SetTooltip("The lightmaps of the models are packed into pages (textures) of at most this size, 4 bytes a texel.");
+
+        int maxResolution = int(settings.maxResolution);
+        if (ImGui::DragInt("Max resolution per model", &maxResolution, 8.0f, 16, 4096))
+        {
+            settings.maxResolution = uint32_t(std::max(maxResolution, 16));
+            changed = true;
+        }
+
+        ImGui::EndDisabled();
+
+        if (changed)
+            world->SetDirty(true);
+
+        ImGui::Spacing();
+
+        if (baking)
+        {
+            ImGui::ProgressBar(lightmaps->GetBakeProgress(), ImVec2(-1.0f, 0.0f));
+            if (ImGui::Button(ICON_LC_X " Cancel##LightmapBake"))
+                lightmaps->CancelBake();
+        }
+        else
+        {
+            ImGui::BeginDisabled(!lightmaps);
+            if (ImGui::Button((std::string(baked ? ICON_LC_REFRESH_CW " Re-bake" : ICON_LC_SUN " Bake") + "##LightmapBake").c_str()))
+                data.BakeLightmaps(*world);
+            ImGui::EndDisabled();
+
+            if (ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled))
+                ImGui::SetTooltip("Bakes the diffuse light of the sky, the Static lights and everything they bounce off into lightmaps\nfor the models marked Static, and saves them next to the world. Save the world afterwards to keep the result.");
+
+            if (baked)
+            {
+                ImGui::SameLine();
+                if (ImGui::Button(ICON_LC_TRASH_2 " Delete##LightmapBake"))
+                    data.ClearLightmaps(*world);
+                if (ImGui::IsItemHovered())
+                    ImGui::SetTooltip("Deletes the baked lightmaps : the models are lit by the probes again.");
+            }
+        }
+
+        ImGui::TextDisabled("Static light : set a Light's Bake Mode to Static (baked) or Stationary (indirect light baked).");
+        ImGui::TextDisabled("Moving models : untick Static Lighting in their Model component.");
+
+        ImGui::TreePop();
+    }
+
     void WorldSettingsPanel::DrawRenderingCategory()
     {
         Worlds::World* world = GetEngine().GetWorldManager()->GetWorldAt(0);
@@ -210,6 +386,10 @@ namespace Shard::Editor::GUI{
 
             ImGui::TreePop();
         }
+
+        DrawDisplaySection(world);
+
+        DrawLightmapsSection(world);
 
         ImGui::Unindent();
     }

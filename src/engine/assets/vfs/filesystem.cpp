@@ -195,6 +195,8 @@ namespace Shard::Engine::Filesystem{
             {".mat", Type::T_MATERIAL}, {".material", Type::T_MATERIAL},
             // Baked probe data of a probe volume (Rendering::kProbeBakeExtension)
             {".probes", Type::T_PROBES},
+            // Baked lightmap pages of a world (Rendering::kLightmapExtension)
+            {".lightmap", Type::T_LIGHTMAP},
             // World formats
             {".world", Type::T_WORLD},
             // Config formats

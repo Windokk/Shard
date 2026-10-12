@@ -58,6 +58,26 @@ namespace Shard::Engine::Objects::Components
 
             FIELD(Editable)
             std::vector<Filesystem::AssetID> materialsID;
+
+            // ---- Baked lighting (see LightmapManager) ----
+            // Whether the model is part of the baked lighting : it blocks and bounces the light of a bake, and gets a lightmap
+            // of its own (the diffuse light it receives, stored on its surface). Leave it off for what moves : a baked shadow
+            // does not follow a moving object, and the lightmap of one that was baked in place stays behind.
+            FIELD(Editable)
+            bool staticLighting = true;
+
+            // The lightmap resolution of this model, in texels per side (0 : worked out from the bake's texel density)
+            FIELD(Editable, range=0|2048)
+            int lightmapResolution = 0;
+
+            // Where the model's lightmap is in the baked atlas : the page, and what turns a coordinate of the mesh's lightmap
+            // square into one of the page (uv * xy + zw). Written by a bake and saved with the world, not edited by hand ;
+            // a negative page is no lightmap.
+            int lightmapPage = -1;
+            glm::vec4 lightmapScaleOffset = glm::vec4(1.0f, 1.0f, 0.0f, 0.0f);
+
+            /// @brief Drops the model's baked lightmap : it is lit by the probes again
+            void ClearLightmap() { lightmapPage = -1; }
             
             DECLARE_DESCRIPTOR(Model)
 

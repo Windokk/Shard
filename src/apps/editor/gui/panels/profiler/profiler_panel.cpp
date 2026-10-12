@@ -24,6 +24,7 @@ namespace Shard::Editor::GUI{
             case ProfileCategory::Rendering:    return IM_COL32(52, 152, 219, 255);
             case ProfileCategory::Input:        return IM_COL32(241, 196, 15, 255);
             case ProfileCategory::Presentation: return IM_COL32(230, 126, 34, 255);
+            case ProfileCategory::Waiting:      return IM_COL32(86, 98, 112, 255);
             case ProfileCategory::Other:        return IM_COL32(127, 140, 141, 255);
             default:                            return IM_COL32(255, 255, 255, 255);
         }
@@ -118,6 +119,11 @@ namespace Shard::Editor::GUI{
 
             if (isTop)
                 ImGui::PopStyleColor();
+
+            if (entry.category == ProfileCategory::Waiting && ImGui::IsItemHovered())
+                ImGui::SetTooltip("The simulation thread is idle, waiting for the render thread (vsync / GPU pacing).\nNot work : a frame made of this is limited by the display or the GPU.");
+            else if (entry.category == ProfileCategory::Rendering && ImGui::IsItemHovered())
+                ImGui::SetTooltip("Snapshot extraction (simulation thread) plus the render thread's frame.\nThe render thread runs in parallel : this can exceed what the simulation thread's frame leaves for it.");
 
             // Sub-measures nested within this category (e.g. glDrawElements under Rendering),
             // only shown while this category is the one selected.

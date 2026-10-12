@@ -20,6 +20,10 @@ namespace Shard::Engine::Rendering{
             return nullptr;
 
         std::array<Filesystem::Path, 6> files = {imageFiles[0], imageFiles[1], imageFiles[2], imageFiles[3], imageFiles[4], imageFiles[5]};
+
+        // Six ordinary 8 bit pictures : they hold colours in the sRGB curve, which the GPU turns into the linear light the IBL
+        // convolutions (and the lighting) work in as it samples them
+        specs.srgb = true;
         std::shared_ptr<Cubemap> cubemap = Cubemap::Create(specs, files);
 
         std::shared_ptr<Cubemap> irradianceMap;
@@ -89,10 +93,16 @@ namespace Shard::Engine::Rendering{
         if (hdrFile.Exists()) {
             std::string file = hdrFile.ReadFile();
             
-            stbi_set_flip_vertically_on_load(true);
-            data = stbi_load_from_memory(reinterpret_cast<const unsigned char*>(file.data()),
+            // As floats, in linear light : a Radiance .hdr keeps the radiance it stores (a sun many times brighter than the
+            // sky), and an ordinary 8 bit picture is linearized from its sRGB curve. (The 8 bit loader squeezes an .hdr into
+            // [0, 1] and encodes it with a gamma : what the sky then holds is a picture, not light.) Three channels whatever
+            // the file has.
+            stbi_set_flip_vertically_on_load_thread(true);
+            data = stbi_loadf_from_memory(reinterpret_cast<const unsigned char*>(file.data()),
                                             static_cast<int>(file.size()),
-                                            &width, &height, &nrChannels, 0);
+                                            &width, &height, &nrChannels, 3);
+            if (data)
+                nrChannels = 3;
 
         } else {
             DEBUG_ERROR("Couldn't find texture : " + hdrFile.full);
@@ -127,7 +137,7 @@ namespace Shard::Engine::Rendering{
             return nullptr;
         }
 
-        specs.internalFormat = TextureInternalFormat::RGB8;
+        specs.internalFormat = TextureInternalFormat::RGB16F;
         specs.width = width;
         specs.height = height;
         specs.wrapS = TextureWrap::ClampEdge;
@@ -138,12 +148,16 @@ namespace Shard::Engine::Rendering{
 
         std::shared_ptr<Texture2D> hdrTex = Texture2D::Create(specs, data);
 
+        // The pixels are on the GPU now (float data is 12 bytes a texel : 100 MB for a 4k sky, which was never released)
+        stbi_image_free(data);
+        data = nullptr;
+
         std::shared_ptr<Shader> equirectangularToCubemapShaderAbstract = Core::GetEngine().GetResourcesManager()->Get<Rendering::Shader>(Core::Resources::AssetKind::Shader, "shaders/ibl/equirectToCubemap");
 
         std::shared_ptr<GLShader> equirectangularToCubemapShader = std::static_pointer_cast<GLShader>(equirectangularToCubemapShaderAbstract);
 
         std::array<unsigned char*, 6> dataArray = {nullptr, nullptr, nullptr, nullptr, nullptr, nullptr};
-        specs.internalFormat = TextureInternalFormat::RGB;
+        specs.internalFormat = TextureInternalFormat::RGB16F;       // the sky keeps its dynamic range
             
         const uint32_t CUBEMAP_SIZE = 512;
 

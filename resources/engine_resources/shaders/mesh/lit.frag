@@ -8,6 +8,7 @@
 #include "../common/light.glsl"
 #include "../common/cluster.glsl"
 #include "../common/normal_map.glsl"
+#include "../common/tonemap.glsl"
 
 layout(std430, binding = 0) buffer LightBuffer {
     Light lights[];
@@ -29,6 +30,7 @@ uniform float clusterBiasZ;
 out vec4 fragColor;
 
 in vec2 texCoord;
+in vec2 lightmapUV;
 in vec4 color;
 in vec3 worldPos;
 in mat4 viewMatrix;
@@ -180,6 +182,19 @@ vec3 sampleOffsetDirections[20] = vec3[]
 );
 
 uniform bool useEnvReflections;
+
+// The scene is normally drawn into an HDR target and mapped to the picture by a pass of its own (tonemap.frag), so this
+// shader outputs linear light. A render that goes straight to an 8 bit target - the studio views of the thumbnails and the
+// previews - sets this, and gets the display transform (a fixed filmic curve) here instead.
+uniform bool outputDisplayColors;
+
+// Baked lighting (see LightmapManager) : the page of the lightmap atlas this draw reads, as a bindless handle (the sampler
+// units are all taken, see emissiveMap), and what maps the mesh's lightmap coordinates onto it (uv * xy + zw). The page holds
+// the irradiance the surface receives from the sky, the Static lights and the bounces of all of it, which replaces the probes
+// and the skybox for the diffuse ambient term. Set per draw : lightmapEnabled is false for a mesh without a lightmap.
+uniform bool lightmapEnabled;
+uniform uvec2 lightmapHandle;
+uniform vec4 lightmapScaleOffset;
 
 ///////// Shadow Functions /////////
 
@@ -527,7 +542,7 @@ vec3 IBL_Specular(vec3 N, vec3 V, vec3 albedo, float metallic, float roughness){
     vec3 prefilteredColor = textureLod(ibl_prefilteredEnvMap, R, roughness * MAX_REFLECTION_LOD).rgb;
 
     // Fresnel-Schlick for IBL  
-    vec3 F = F0 + (1.0 - F0) * pow(1.0 - NdotV, 5.0);
+    vec3 F = F0 + (1.0 - F0) * pow(clamp(1.0 - NdotV, 0.0, 1.0), 5.0);
 
     return prefilteredColor * (F * brdf.x + brdf.y);
 }
@@ -545,7 +560,9 @@ vec3 ComputeLightDisney(Light light, vec3 L, vec3 V, vec3 N, vec3 baseColor, flo
 
     vec3 F0 = mix(vec3(0.04), baseColor, metallic);
 
-    // GGX Distribution
+    // GGX Distribution. A perfectly smooth surface (roughness 0) makes the lobe a delta : 0 / 0 at the highlight, a NaN that an
+    // 8 bit target used to hide by clamping it. The lowest roughness a punctual light can show is clamped to what stays finite.
+    roughness = max(roughness, 0.045);
     float a = roughness * roughness;
     float a2 = a * a;
     float denom = (NdotH * NdotH) * (a2 - 1.0) + 1.0;
@@ -559,7 +576,7 @@ vec3 ComputeLightDisney(Light light, vec3 L, vec3 V, vec3 N, vec3 baseColor, flo
     float G = G_V * G_L;
 
     // Fresnel
-    vec3 F = F0 + (1.0 - F0) * pow(1.0 - VdotH, 5.0);
+    vec3 F = F0 + (1.0 - F0) * pow(clamp(1.0 - VdotH, 0.0, 1.0), 5.0);
 
     // Specular BRDF
     vec3 numerator = D * G * F;
@@ -600,6 +617,15 @@ void main() {
     vec3 V = normalize(camPos - worldPos);
     vec3 result = vec3(0.0);
 
+    // The baked light this fragment receives, if its mesh has a lightmap (see lightmapEnabled)
+    bool hasLightmap = lightmapEnabled && lightmapHandle != uvec2(0);
+    vec3 bakedIrradiance = vec3(0.0);
+    if (hasLightmap)
+    {
+        sampler2D lightmapTex = sampler2D(lightmapHandle);
+        bakedIrradiance = textureLod(lightmapTex, lightmapUV * lightmapScaleOffset.xy + lightmapScaleOffset.zw, 0.0).rgb;
+    }
+
     if (viewMode != 0) {
         if (viewMode == 2) { fragColor = vec4(0.85, 0.9, 1.0, 1.0); return; }
         if (viewMode == 3) { fragColor = vec4(0.02, 0.02, 0.03, 1.0); return; }
@@ -629,6 +655,10 @@ void main() {
         if (l.type != 0)
             continue;
 
+        // A Static light is part of the lightmap this surface reads : lighting it again here would count it twice
+        if (hasLightmap && l.bakeMode == LIGHT_BAKE_STATIC)
+            continue;
+
         vec3 L = -normalize(l.direction.xyz);
         float visibility = 1.0;
 
@@ -649,6 +679,9 @@ void main() {
 
     for (uint k = 0; k < clusterLightCount; ++k) {
         Light l = lights[lightIndices[clusterLightOffset + k]];
+
+        if (hasLightmap && l.bakeMode == LIGHT_BAKE_STATIC)
+            continue;
 
         float visibility = 1.0;
         float attenuation = 1.0;
@@ -716,7 +749,9 @@ void main() {
                           DDGI_SpecularDirection(worldNormal, V, roughnessValue),
                           probeIrradiance, probeRadiance);
 
-        ambientDiffuse = DDGI_Diffuse(probeIrradiance, baseColor.rgb, metallicValue);
+        // A lightmapped surface takes its diffuse light from the lightmap, which has a texel per few centimetres where the
+        // probes have one per metre or more ; the probes still say what the surroundings reflect (below)
+        ambientDiffuse = DDGI_Diffuse(hasLightmap ? bakedIrradiance : probeIrradiance, baseColor.rgb, metallicValue);
 
         // Indirect specular from the probes : what the surroundings actually reflect, rather than what
         // the sky would if it could be seen from here. Crossfaded against the skybox reflection by
@@ -733,8 +768,12 @@ void main() {
             specularIBL = probeSpecular;
     }
     else if (useEnvReflections) {
-        ambientDiffuse = IBL_Diffuse(worldNormal, baseColor.rgb, metallicValue);
+        ambientDiffuse = hasLightmap ? DDGI_Diffuse(bakedIrradiance, baseColor.rgb, metallicValue)
+                                     : IBL_Diffuse(worldNormal, baseColor.rgb, metallicValue);
         specularIBL = IBL_Specular(worldNormal, V, baseColor.rgb, metallicValue, roughnessValue);
+    }
+    else if (hasLightmap) {
+        ambientDiffuse = DDGI_Diffuse(bakedIrradiance, baseColor.rgb, metallicValue);
     }
 
     // Flat ambient floor, ADDED on top of whatever DDGI/IBL/direct lighting already computed above
@@ -781,5 +820,12 @@ void main() {
     vec3 emission = texture(emissiveMap, texCoord).rgb * emissive;
 
     vec3 lighting = result + ambientDiffuse + specularIBL + emission;
+    // One non finite sample would spread over its neighbours in the multisample resolve :
+    // it is dropped here, where the pixel is still a single sample
+    lighting = clamp(lighting, vec3(0.0), vec3(60000.0));
+    if (any(isnan(lighting)))
+        lighting = vec3(0.0);
+    if (outputDisplayColors)
+        lighting = DisplayTransform(lighting, TONEMAP_ACES, 1.0);
     fragColor = vec4(lighting, baseColor.a);
 }

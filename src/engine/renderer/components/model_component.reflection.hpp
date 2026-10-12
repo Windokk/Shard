@@ -35,11 +35,41 @@ inline FieldInfo Model_materialsID_info = {
     &Equals<std::vector<Filesystem::AssetID>>
 };
 
+inline FieldInfo Model_staticLighting_info = {
+    "staticLighting",
+    TypeID::Bool,
+    offsetof(Shard::Engine::Objects::Components::Model, staticLighting),
+    Editable,
+    0, 0,
+    nullptr,
+    nullptr,
+    &CopyConstruct<bool>,
+    &Assign<bool>,
+    &Destroy<bool>,
+    &Equals<bool>
+};
+
+inline FieldInfo Model_lightmapResolution_info = {
+    "lightmapResolution",
+    TypeID::Int32,
+    offsetof(Shard::Engine::Objects::Components::Model, lightmapResolution),
+    Editable,
+    0, 2048,
+    nullptr,
+    nullptr,
+    &CopyConstruct<int>,
+    &Assign<int>,
+    &Destroy<int>,
+    &Equals<int>
+};
+
 inline ClassDescriptor Shard::Engine::Objects::Components::Model::descriptor = {
     "Model",
     {
         &Model_meshID_info,
         &Model_materialsID_info,
+        &Model_staticLighting_info,
+        &Model_lightmapResolution_info,
     }
 };
 

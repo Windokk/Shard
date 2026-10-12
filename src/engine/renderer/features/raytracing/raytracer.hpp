@@ -10,11 +10,13 @@
 #include "engine/assets/vfs/filesystem.hpp"
 
 #include "engine/renderer/features/lighting/light_manager.hpp"
+#include "engine/renderer/rhi/display_transform.hpp"
 #include "engine/renderer/rhi/render_snapshot.hpp"
 
 namespace Shard::Engine::Rendering {
     class StorageBuffer;
     class Texture2D;
+    class Cubemap;
     class ComputeShader;
     class ComputePipeline;
 }
@@ -27,7 +29,20 @@ namespace Shard::Engine::Rendering::Raytracing {
         uint32_t height = 600;
         uint32_t samplesPerPixel = 256;
         uint32_t maxBounces = 6;
+
+        // What a ray that leaves the scene sees : the world's skybox (the one the viewport draws, so the lighting matches)
+        // when `useLevelSky` is set and the world has one, `skyColor` otherwise
+        bool useLevelSky = true;
         glm::vec3 skyColor = glm::vec3(0.05f, 0.07f, 0.1f);
+
+        // A sample of light brighter than this (luminance) is scaled down to it, so a rare very bright path does not leave
+        // a white speck that averaging never removes. 0 : no limit.
+        float fireflyClamp = 0.0f;
+
+        // Also writes the picture as an 8 bit PNG next to the .hdr (same name), shown the way the viewport shows the world :
+        // the world's exposure and tonemapper, then the sRGB curve (the .hdr itself stays linear light), so the two can be
+        // compared directly
+        bool writePreview = true;
     };
 
     enum class RaytraceStatus
@@ -93,6 +108,9 @@ namespace Shard::Engine::Rendering::Raytracing {
             void Finish(bool success);
             void ReleaseGPUResources();
 
+            // Update() runs this on the graphics thread, which owns every call into the graphics API
+            void UpdateOnGraphicsThread();
+
             RaytraceStatus status = RaytraceStatus::Idle;
             RaytraceSettings settings;
             Filesystem::Path outputPath;
@@ -103,6 +121,11 @@ namespace Shard::Engine::Rendering::Raytracing {
             RenderSnapshot pendingScene;
             CameraProxy pendingCamera;
             bool hasPending = false;
+
+            // The world's sky and ambient, taken from the snapshot with the scene (see BuildScene)
+            std::shared_ptr<Cubemap> skyCube;
+            float ambientIntensity = 0.0f;
+            DisplaySettings display;                    // how the world is shown, for the preview
 
             uint32_t currentSample = 0;
 

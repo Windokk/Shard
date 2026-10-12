@@ -46,6 +46,7 @@ namespace Shard::Engine::Rendering{
             case TextureInternalFormat::RGB32F:            return 12;
             case TextureInternalFormat::RGBA8:
             case TextureInternalFormat::RGBA:              return 4;
+            case TextureInternalFormat::RGB9E5:            return 4;
             case TextureInternalFormat::RGBA16F:           return 8;
             case TextureInternalFormat::RGBA32I:
             case TextureInternalFormat::RGBA32F:           return 16;
@@ -142,12 +143,12 @@ namespace Shard::Engine::Rendering{
         return result;
     }
 
-    TextureDecodeResult DecodeTextureFileForUpload(const Filesystem::Path& filepath, unsigned threads)
+    TextureDecodeResult DecodeTextureFileForUpload(const Filesystem::Path& filepath, unsigned threads, bool srgb)
     {
         if (!cvTextureCompress.Get())
             return DecodeTextureFile(filepath);
 
-        const std::string key = TextureCache::MakeKey(filepath.full);
+        const std::string key = TextureCache::MakeKey(filepath.full, srgb);
         if (!key.empty())
         {
             auto cached = std::make_shared<CompressedImage>();
@@ -174,7 +175,7 @@ namespace Shard::Engine::Rendering{
 
         const bool normalMap = LooksLikeNormalMap(result.pixels.data(), uint32_t(result.width), uint32_t(result.height), channels);
         auto compressed = std::make_shared<CompressedImage>();
-        if (!CompressImage(result.pixels.data(), uint32_t(result.width), uint32_t(result.height), channels, *compressed, normalMap, threads))
+        if (!CompressImage(result.pixels.data(), uint32_t(result.width), uint32_t(result.height), channels, *compressed, normalMap, threads, srgb))
             return result;
 
         TextureCache::Store(key, *compressed);

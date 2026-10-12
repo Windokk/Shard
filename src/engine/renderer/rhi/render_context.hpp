@@ -19,6 +19,7 @@ namespace Shard::Engine::Rendering {
     class LightManager;
     class ShadowManager;
     class ProbeManager;
+    class LightmapManager;
     class SSAOManager;
     class LightCullingManager;
     class ImmediateRenderer;
@@ -67,6 +68,7 @@ namespace Shard::Engine::Rendering {
             virtual const std::shared_ptr<ShadowManager> GetShadowManager() = 0;
             virtual const std::shared_ptr<LightManager> GetLightManager() = 0;
             virtual const std::shared_ptr<ProbeManager> GetProbeManager() = 0;
+            virtual const std::shared_ptr<LightmapManager> GetLightmapManager() = 0;
             virtual const std::shared_ptr<SSAOManager> GetSSAOManager() = 0;
             virtual const std::shared_ptr<LightCullingManager> GetLightCullingManager() = 0;
             virtual ImmediateRenderer* GetImmediateRenderer() = 0;

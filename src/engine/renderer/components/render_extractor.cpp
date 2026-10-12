@@ -64,6 +64,8 @@ namespace Shard::Engine::Rendering {
             proxy.innerCutoff = data.innerCutoff;
             proxy.outerCutoff = data.outerCutoff;
             proxy.castShadows = data.castShadow != 0;
+            proxy.sourceSize = data.sourceSize;
+            proxy.bakeMode = data.bakeMode;
             return proxy;
         }
 
@@ -169,6 +171,9 @@ namespace Shard::Engine::Rendering {
             env.ssaoIntensity = world.ssaoIntensity;
             env.ssaoPower = world.ssaoPower;
 
+            env.lightmapData = world.Ext<RenderWorldData>().lightmapData;
+            env.display = world.Ext<RenderWorldData>().display;
+
             const auto& skybox = world.Ext<RenderWorldData>().skybox;
             if (skybox) {
                 env.skybox = skybox->GetEnvMap();
@@ -235,7 +240,8 @@ namespace Shard::Engine::Rendering {
         {
             return a.type != b.type || a.position != b.position || a.direction != b.direction || a.color != b.color ||
                    a.intensity != b.intensity || a.radius != b.radius || a.innerCutoff != b.innerCutoff ||
-                   a.outerCutoff != b.outerCutoff || a.castShadows != b.castShadows || a.objectId != b.objectId;
+                   a.outerCutoff != b.outerCutoff || a.castShadows != b.castShadows || a.objectId != b.objectId ||
+                   a.sourceSize != b.sourceSize || a.bakeMode != b.bakeMode;
         }
 
         bool Differs(const ProbeVolumeProxy& a, const ProbeVolumeProxy& b)
@@ -308,6 +314,11 @@ namespace Shard::Engine::Rendering {
                 proxy.mesh = source.model->MeshRef();
                 proxy.materials = source.model->MaterialList();
                 proxy.extraPasses = source.model->ExtraPasses();
+                proxy.staticLighting = source.model->staticLighting;
+                proxy.lightmapResolution = source.model->lightmapResolution;
+                // A model that is no longer static keeps the lightmap it was baked with in the world file, but does not use it : it moves
+                proxy.lightmapPage = source.model->staticLighting ? source.model->lightmapPage : -1;
+                proxy.lightmapScaleOffset = source.model->lightmapScaleOffset;
 
                 const int prev = m_PreviousIndex[i];
                 if (prev < 0) {
@@ -316,7 +327,9 @@ namespace Shard::Engine::Rendering {
                     const MeshProxy& old = previous.meshes[prev];
                     proxy.changed = old.worldMatrix != proxy.worldMatrix || old.mesh != proxy.mesh ||
                                     old.materials != proxy.materials || old.objectId != proxy.objectId ||
-                                    old.extraPasses != proxy.extraPasses;
+                                    old.extraPasses != proxy.extraPasses || old.staticLighting != proxy.staticLighting ||
+                                    old.lightmapResolution != proxy.lightmapResolution || old.lightmapPage != proxy.lightmapPage ||
+                                    old.lightmapScaleOffset != proxy.lightmapScaleOffset;
                 }
                 if (proxy.changed)
                     changedHere++;

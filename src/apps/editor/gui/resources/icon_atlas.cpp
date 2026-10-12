@@ -25,6 +25,7 @@ namespace Shard::Editor::GUI {
             Engine::Filesystem::Type::T_MODEL,
             Engine::Filesystem::Type::T_MATERIAL,
             Engine::Filesystem::Type::T_PROBES,
+            Engine::Filesystem::Type::T_LIGHTMAP,
             Engine::Filesystem::Type::T_CONFIG,
             Engine::Filesystem::Type::T_DIRECTORY
         };
@@ -34,6 +35,11 @@ namespace Shard::Editor::GUI {
         std::vector<stbrp_rect> rects(iconPaths.size());
         std::vector<unsigned char*> images(iconPaths.size());
         int channels;
+
+        // The icons are drawn the way they are stored, top row first. The flip on load is a per thread setting that the texture
+        // decoding turns on (a GL texture starts at its bottom row) and leaves on : without this, an atlas built after the first
+        // texture was decoded on this thread came out upside down
+        stbi_set_flip_vertically_on_load_thread(false);
 
         // Load images
         for (size_t i = 0; i < iconPaths.size(); i++)

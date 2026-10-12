@@ -6,7 +6,9 @@
 #include "engine/world/engine.hpp"
 
 #include "engine/renderer/rhi/render_context.hpp"
+#include "engine/renderer/rhi/render_thread.hpp"
 #include "engine/renderer/rhi/renderer_api.hpp"
+#include "engine/renderer/rhi/resources/texture/cubemap/envmap.hpp"
 #include "engine/renderer/rhi/resources/buffer/storage_buffer.hpp"
 #include "engine/renderer/rhi/resources/texture/texture.hpp"
 #include "engine/renderer/rhi/resources/texture/image_export.hpp"
@@ -19,6 +21,7 @@
 #include <chrono>
 #include <cmath>
 #include <cstdio>
+#include <filesystem>
 
 namespace Shard::Engine::Rendering::Raytracing {
 
@@ -57,6 +60,11 @@ namespace Shard::Engine::Rendering::Raytracing {
         CameraProxy camera = pendingCamera;
         pendingScene = RenderSnapshot();
         hasPending = false;
+
+        // The world's own sky and flat ambient, so a ray that leaves the scene sees what the viewport draws
+        skyCube = sceneSnapshot.environment.skybox ? sceneSnapshot.environment.skybox->GetCubemap() : nullptr;
+        ambientIntensity = sceneSnapshot.environment.ambientIntensity;
+        display = sceneSnapshot.environment.display;
 
         RaytraceScene scene = SceneBuilder::Build(sceneSnapshot);
         if (scene.trianglePositions.empty())
@@ -146,6 +154,13 @@ namespace Shard::Engine::Rendering::Raytracing {
 
     void Raytracer::Update()
     {
+        // The scene build and the dispatches use the graphics API : they belong to the graphics thread, which the caller
+        // (the editor's UI, on the main thread) parks on meanwhile
+        OnGraphicsThread([this] { UpdateOnGraphicsThread(); });
+    }
+
+    void Raytracer::UpdateOnGraphicsThread()
+    {
         // Deferred from Start() so a "Preparing..." frame gets presented before this blocking call - see
         // BuildScene()'s comment on the header. Runs exactly once, on the first Update() after Start().
         if (status == RaytraceStatus::Preparing)
@@ -174,6 +189,14 @@ namespace Shard::Engine::Rendering::Raytracing {
         lightBuffer->Bind(4);
 
         outputImage->BindImage(0, TextureAccess::ReadWrite);
+
+        // The sky : a raw bind on a unit the forward pass never uses (see path_tracing.glsl's uSkyCube)
+        const bool useSky = settings.useLevelSky && skyCube != nullptr;
+        if (useSky)
+            skyCube->Bind(45);
+        shader->SetBool("uHasSky", useSky);
+        shader->SetFloat("uAmbientIntensity", ambientIntensity);
+        shader->SetFloat("uFireflyClamp", settings.fireflyClamp);
 
         shader->SetVec3("uCameraPos", camPos);
         shader->SetVec3("uCameraRight", camRight);
@@ -233,6 +256,21 @@ namespace Shard::Engine::Rendering::Raytracing {
         }
 
         bool success = ImageExport::WriteHDR(outputPath, settings.width, settings.height, 3, rgb.data());
+
+        if (success && settings.writePreview)
+        {
+            std::vector<uint8_t> preview(rgb.size());
+            for (size_t i = 0; i + 2 < rgb.size(); i += 3)
+            {
+                const glm::vec3 shown = DisplayTransform(glm::vec3(rgb[i], rgb[i + 1], rgb[i + 2]), display);
+                for (int c = 0; c < 3; c++)
+                    preview[i + c] = (uint8_t)std::lround(shown[c] * 255.0f);
+            }
+
+            const std::string previewPath = std::filesystem::path(outputPath.full).replace_extension(".png").generic_string();
+            ImageExport::WritePNG(Filesystem::Path(previewPath, true), settings.width, settings.height, 3, preview.data());
+        }
+
         Finish(success);
     }
 
@@ -264,6 +302,7 @@ namespace Shard::Engine::Rendering::Raytracing {
         matBuffer.reset();
         lightBuffer.reset();
         outputImage.reset();
+        skyCube.reset();
     }
 
     float Raytracer::GetProgress() const

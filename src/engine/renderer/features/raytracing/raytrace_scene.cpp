@@ -187,6 +187,8 @@ namespace Shard::Engine::Rendering::Raytracing {
             if (!modelSnap.cpu)
                 continue;       // nothing to read the triangles from
             modelSnap.worldMatrix = proxy.worldMatrix;
+            modelSnap.key = proxy.key;
+            modelSnap.lightmapResolution = proxy.lightmapResolution;
             modelSnap.materialIndicesPerSubmesh.resize(submeshes.size());
 
             for (size_t submeshIdx = 0; submeshIdx < submeshes.size(); submeshIdx++)

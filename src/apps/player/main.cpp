@@ -254,7 +254,14 @@ int main(int argc, char* argv[]) {
         auto viewport = Engine::Core::GetEngine().GetRenderer()->GetViewportFramebuffer();
         Engine::Rendering::RenderThread::Get().Flush();     // the last frame is drawn before it is read back
         if (viewport && Engine::Rendering::OnGraphicsThread([&] { return viewport->ReadPixelsRGBA8(pixels); }))
+        {
+            // ReadPixelsRGBA8 gives the top row first, and WritePNG flips (it expects the bottom row first, like a GL texture) :
+            // flip back, or the picture comes out upside down
+            const size_t rowBytes = size_t(viewport->GetWidth()) * 4;
+            for (size_t y = 0; y < size_t(viewport->GetHeight()) / 2; y++)
+                std::swap_ranges(pixels.begin() + y * rowBytes, pixels.begin() + (y + 1) * rowBytes, pixels.begin() + (size_t(viewport->GetHeight()) - 1 - y) * rowBytes);
             Engine::Rendering::ImageExport::WritePNG(Filesystem::Path(screenshotPath), viewport->GetWidth(), viewport->GetHeight(), 4, pixels.data());
+        }
         else
             std::cerr << "Screenshot failed" << std::endl;
     }

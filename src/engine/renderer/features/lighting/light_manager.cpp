@@ -42,7 +42,8 @@ namespace Shard::Engine::Rendering{
             const bool changed = light.position != position || light.direction != direction || light.color != color ||
                                  light.intensity != proxy.intensity || light.radius != proxy.radius ||
                                  light.innerCutoff != proxy.innerCutoff || light.outerCutoff != proxy.outerCutoff ||
-                                 light.type != type || light.castShadow != castShadow;
+                                 light.type != type || light.castShadow != castShadow ||
+                                 light.sourceSize != proxy.sourceSize || light.bakeMode != proxy.bakeMode;
 
             light.position = position;
             light.direction = direction;
@@ -53,6 +54,8 @@ namespace Shard::Engine::Rendering{
             light.outerCutoff = proxy.outerCutoff;
             light.type = type;
             light.castShadow = castShadow;
+            light.sourceSize = proxy.sourceSize;
+            light.bakeMode = proxy.bakeMode;
             return changed;
         }
     }

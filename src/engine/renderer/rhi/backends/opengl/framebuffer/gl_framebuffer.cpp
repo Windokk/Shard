@@ -85,7 +85,8 @@ namespace Shard::Engine::Rendering{
                 glGenTextures(1, &m_ColorAttachment);
                 glBindTexture(GL_TEXTURE_2D_MULTISAMPLE, m_ColorAttachment);
                 /// @todo option to modify samples count at runtime
-                glTexImage2DMultisample(GL_TEXTURE_2D_MULTISAMPLE, spec.samplesCount, GL_RGBA8, spec.width, spec.height, GL_TRUE);
+                // The format of the color specs : a render target of the HDR scene is 16 bit floats, not 8 bit
+                glTexImage2DMultisample(GL_TEXTURE_2D_MULTISAMPLE, spec.samplesCount, GLTextureSpec::FromTextureSpecifications(spec.colorSpecs).internalFormat, spec.width, spec.height, GL_TRUE);
                 glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D_MULTISAMPLE, m_ColorAttachment, 0);
             }
             if(spec.hasDepth)
@@ -211,7 +212,7 @@ namespace Shard::Engine::Rendering{
             const int64_t samples = m_Specifications.multisampled ? m_Specifications.samplesCount : 1;
             const int64_t colorBytes = bytesPerTexel(m_Specifications.colorSpecs.internalFormat);
             if (m_Specifications.hasColor)
-                bytes += pixels * (m_Specifications.multisampled ? 4 * samples + colorBytes : colorBytes);
+                bytes += pixels * (m_Specifications.multisampled ? colorBytes * samples + colorBytes : colorBytes);
             if (m_Specifications.hasDepth)
                 bytes += pixels * 4 * (m_Specifications.multisampled ? samples + 1 : 1);
         }
@@ -288,6 +289,27 @@ namespace Shard::Engine::Rendering{
             bitMask,
             filter
         );
+    }
+
+    void GLFramebuffer::CopyDepthFrom(std::shared_ptr<Framebuffer> src)
+    {
+        SHARD_ASSERT_GRAPHICS_THREAD();
+        const FramebufferSpecifications& srcSpecs = src->GetSpecifications();
+        if (!srcSpecs.hasDepth || !m_Specifications.hasDepth)
+            return;
+
+        glBindFramebuffer(GL_READ_FRAMEBUFFER, src->GetHandle());
+        glBindFramebuffer(GL_DRAW_FRAMEBUFFER, m_FBO);
+
+        // Same size, no filtering : a depth blit between two multisampled targets is a copy of every sample
+        glBlitFramebuffer(
+            0, 0, srcSpecs.width, srcSpecs.height,
+            0, 0, m_Specifications.width, m_Specifications.height,
+            GL_DEPTH_BUFFER_BIT,
+            GL_NEAREST
+        );
+
+        glBindFramebuffer(GL_FRAMEBUFFER, 0);
     }
 
     void GLFramebuffer::BlitToScreen(uint32_t screenWidth, uint32_t screenHeight)

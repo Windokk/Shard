@@ -7,16 +7,23 @@
             "normalMap": "textures/dragon_normal.png"
         },
         {
-            "metallic": 1.2000000476837158
+            "metallic": 0.20000000298023224
         },
         {
-            "roughness": 0.15000000596046448
+            "roughness": 0.20000000298023224
         },
         {
             "useEnvReflections": true
         },
         {
             "albedo": "textures/generic/green.png"
+        },
+        {
+            "emissive": [
+                0.0,
+                0.0,
+                0.0
+            ]
         }
     ]
 }

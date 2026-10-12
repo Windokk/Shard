@@ -121,6 +121,9 @@ bool GetCurrentView(RenderView& out) override;
             ImmediateRenderer* GetImmediateRenderer() override { return &m_ImmediateRenderer; }
             ThumbnailService* GetThumbnailService() override { return &m_ThumbnailService; }
 
+            /// The picture : what the UI shows, the screenshots read and the window presents (8 bit, display colours). The
+            /// scene is rendered in HDR into another target and mapped into this one at the end of the forward pass, the
+            /// overlays are drawn on it afterwards (see ResolveSceneToViewport).
             uint32_t GetViewportTextureHandle() const { return m_ViewportBuffer->GetResolveColorAttachment(); }
 
             std::shared_ptr<Framebuffer> GetViewportFramebuffer() const override { return m_ViewportBuffer; }
@@ -166,6 +169,7 @@ bool GetCurrentView(RenderView& out) override;
             const std::shared_ptr<ShadowManager> GetShadowManager() override { return m_ShadowManager; }
             const std::shared_ptr<LightManager> GetLightManager() override { return m_LightManager; }
             const std::shared_ptr<ProbeManager> GetProbeManager() override { return m_ProbeManager; }
+            const std::shared_ptr<LightmapManager> GetLightmapManager() override { return m_LightmapManager; }
             const std::shared_ptr<SSAOManager> GetSSAOManager() override { return m_SSAOManager; }
             const std::shared_ptr<LightCullingManager> GetLightCullingManager() override { return m_LightCullingManager; }
 
@@ -216,6 +220,8 @@ bool GetCurrentView(RenderView& out) override;
                 std::vector<std::string> extraPasses;
                 int objectId = -1;
                 int componentId = -1;
+                uint64_t lightmapHandle = 0;
+                glm::vec4 lightmapScaleOffset = glm::vec4(1.0f, 1.0f, 0.0f, 0.0f);
                 uint64_t seenInSync = 0;
             };
             std::unordered_map<uint64_t, SyncedMesh> m_SyncedMeshes;
@@ -230,13 +236,32 @@ bool GetCurrentView(RenderView& out) override;
             std::shared_ptr<Mesh> m_UnitCube = nullptr;
             std::shared_ptr<Mesh> m_UnitQuad = nullptr;
 
-            std::shared_ptr<Framebuffer> m_ViewportBuffer;
+            std::shared_ptr<Framebuffer> m_ViewportBuffer;      // the display target : 8 bit, display colours
+
+            // The forward pass draws into this one : 16 bit floats, linear light, no clamping. Lighting is arithmetic on physical
+            // quantities and a lit pixel is far brighter than 1 as soon as there is a sun or a lamp, which an 8 bit target
+            // would clip before anything could roll it off.
+            std::shared_ptr<Framebuffer> m_SceneBuffer;
+
+            // The pass that turns the HDR scene into the viewport (tonemap.frag) : built the first time it is needed
+            std::shared_ptr<Shader> m_TonemapShader;
+            std::shared_ptr<Material> m_TonemapMaterial;
+            std::shared_ptr<RenderPass> m_TonemapPass;
+            void EnsureTonemapPass();
+
+            /// End of the forward pass : resolves the HDR scene, gives the viewport its depth (what the overlays are tested
+            /// against) and maps the light of the scene onto it - exposure, tonemapper, sRGB curve.
+            void ResolveSceneToViewport();
+
+            /// How the picture is shown for the debug view that is on (see tonemap.frag's displayMode)
+            int GetDisplayMode() const;
 
             std::shared_ptr<ShadowManager> m_ShadowManager;
             std::vector<DrawCommand> shadowDrawList = {};
             std::unordered_map<uint64_t, size_t> shadowDrawCommandsLookup;
             std::shared_ptr<LightManager> m_LightManager;
             std::shared_ptr<ProbeManager> m_ProbeManager;
+            std::shared_ptr<LightmapManager> m_LightmapManager;
             std::shared_ptr<SSAOManager> m_SSAOManager;
             std::shared_ptr<LightCullingManager> m_LightCullingManager;
             BillboardRenderer m_BillboardRenderer;

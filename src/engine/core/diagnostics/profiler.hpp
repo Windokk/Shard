@@ -13,7 +13,10 @@ namespace Shard::Engine::Debugging{
 
     // Engine subsystems tracked by the per-frame performance profiler.
     // "Other" is not sampled directly: it is derived as (total frame time - sum of the rest),
-    // so it captures whatever isn't wrapped in a ProfileCategory scope (OS/driver overhead, vsync wait, ...).
+    // so it captures whatever isn't wrapped in a ProfileCategory scope (OS/driver overhead, ...).
+    // "Waiting" is the time the simulation thread spends blocked on the render thread (the frame pacing : it does not
+    // run further ahead of the drawn frames than the limit). It is idle time, which is what a frame that is limited by
+    // the display (vsync) or the GPU is made of : without its own bucket it all ended up in "Other".
     enum class ProfileCategory : uint8_t {
         Physics = 0,
         Audio,
@@ -21,6 +24,7 @@ namespace Shard::Engine::Debugging{
         Rendering,
         Input,
         Presentation,
+        Waiting,
         Other,
         COUNT
     };
@@ -33,6 +37,7 @@ namespace Shard::Engine::Debugging{
             case ProfileCategory::Rendering:    return "Rendering";
             case ProfileCategory::Input:        return "Input";
             case ProfileCategory::Presentation: return "Presentation";
+            case ProfileCategory::Waiting:      return "Waiting";
             case ProfileCategory::Other:        return "Other";
             default:                            return "Unknown";
         }

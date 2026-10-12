@@ -1,0 +1,34 @@
+#version 430 core
+
+// Turns the sums the baker accumulated into what the denoiser works on : per texel the mean of the samples (rgb) and the
+// variance of that mean (a), which says how much of the picture is noise (see lightmap_atrous.comp). The variance of a mean of N
+// samples is the variance of one sample over N ; the variance of one sample comes from the sum of their squared luminances
+// the baker kept next to the sum of the samples (the mean of the squares, minus the square of the mean).
+
+layout(local_size_x = 8, local_size_y = 8, local_size_z = 1) in;
+
+layout(rgba32f, binding = 0) readonly uniform image2D uAccum;
+layout(rgba32f, binding = 1) writeonly uniform image2D uOut;
+layout(rgba32f, binding = 2) readonly uniform image2D uGPos;
+
+uniform int uSize;
+uniform float uSampleCount;
+
+void main()
+{
+    ivec2 texel = ivec2(gl_GlobalInvocationID.xy);
+    if (texel.x >= uSize || texel.y >= uSize)
+        return;
+
+    if (imageLoad(uGPos, texel).w <= 0.0)
+        return;
+
+    vec4 acc = imageLoad(uAccum, texel);
+    vec3 mean = acc.rgb / uSampleCount;
+
+    float lumMean = dot(mean, vec3(0.2126, 0.7152, 0.0722));
+    float lumSquares = acc.a / uSampleCount;
+    float variance = max(lumSquares - lumMean * lumMean, 0.0) / uSampleCount;
+
+    imageStore(uOut, texel, vec4(mean, variance));
+}

@@ -10,6 +10,7 @@
 #include "engine/renderer/rhi/resources/mesh/mesh.hpp"
 #include "engine/renderer/features/lighting/shadow_manager.hpp"
 #include "engine/renderer/features/lighting/probe_manager.hpp"
+#include "engine/renderer/features/lighting/lightmap_manager.hpp"
 #include "engine/renderer/features/lighting/ssao_manager.hpp"
 #include "engine/renderer/features/lighting/light_culling_manager.hpp"
 #include "engine/assets/resources_manager.hpp"
@@ -63,6 +64,8 @@ namespace Shard::Engine::Rendering{
                 h = HashValue(h, cmd.mesh.get());
                 h = HashValue(h, cmd.material.get());
                 h = HashValue(h, cmd.modelMatrix);
+                h = HashValue(h, cmd.lightmapHandle);
+                h = HashValue(h, cmd.lightmapScaleOffset);
             }
 
             return h;
@@ -135,6 +138,11 @@ namespace Shard::Engine::Rendering{
         viewportSpecs.hasDepth = true;
         viewportSpecs.multisampled = true;
         m_ViewportBuffer = Framebuffer::Create(viewportSpecs);
+
+        // The scene is rendered in HDR : the forward pass draws here, and the viewport above only ever receives the result
+        FramebufferSpecifications sceneSpecs = viewportSpecs;
+        sceneSpecs.colorSpecs.internalFormat = TextureInternalFormat::RGBA16F;
+        m_SceneBuffer = Framebuffer::Create(sceneSpecs);
 
         //Init base geometry
         /// Unit cube
@@ -221,11 +229,12 @@ namespace Shard::Engine::Rendering{
         m_ShadowManager = std::make_shared<ShadowManager>();
         m_ShadowManager->Init(1024, 1024, 2048);
         m_ProbeManager = std::make_shared<ProbeManager>();
+        m_LightmapManager = std::make_shared<LightmapManager>();
 
         // Init built-in passes
         /// Forward pass
         std::shared_ptr<RenderPass> forwardPass = std::make_shared<RenderPass>();
-        forwardPass->target = m_ViewportBuffer;
+        forwardPass->target = m_SceneBuffer;
         forwardPass->clearColor = true;
         forwardPass->clearDepth = true;
         forwardPass->overridePipeline = false;
@@ -366,9 +375,12 @@ namespace Shard::Engine::Rendering{
         // Scene builds run on the job system, which is destroyed right after the renderer shuts down
         if(m_ProbeManager)
             m_ProbeManager->WaitForSceneBuilds();
+        if(m_LightmapManager)
+            m_LightmapManager->WaitForJobs();
         m_ThumbnailService.Shutdown();
         m_ImmediateRenderer.Shutdown();
         m_ViewportBuffer->Destroy();
+        m_SceneBuffer->Destroy();
         m_LightManager->Clear();
     }
 
@@ -775,6 +787,13 @@ namespace Shard::Engine::Rendering{
             }
         }
 
+        // The two targets of the picture follow the viewport, whichever passes happened to resize them above (a target that
+        // is no pass's own - the viewport, now that the forward pass draws in the HDR one - would never be)
+        for(const auto& buffer : {m_ViewportBuffer, m_SceneBuffer}){
+            if(buffer && (buffer->GetWidth() != uint32_t(newWidth) || buffer->GetHeight() != uint32_t(newHeight)))
+                buffer->Resize(newWidth, newHeight);
+        }
+
         if(onViewportResized)
             onViewportResized(newWidth, newHeight);
     }
@@ -845,9 +864,13 @@ namespace Shard::Engine::Rendering{
             SyncedMesh& synced = it->second;
             synced.seenInSync = m_SyncCount;
 
+            // Where the model's baked lighting is : the page may be loaded later than the mesh is drawn, or be replaced by a new bake
+            const uint64_t lightmapHandle = m_LightmapManager->GetPageHandle(proxy.lightmapPage);
+
             const bool unchanged = !inserted && synced.mesh == proxy.mesh && synced.materials == proxy.materials &&
                                    synced.worldMatrix == proxy.worldMatrix && synced.extraPasses == proxy.extraPasses &&
-                                   synced.objectId == proxy.objectId && synced.componentId == proxy.componentId;
+                                   synced.objectId == proxy.objectId && synced.componentId == proxy.componentId &&
+                                   synced.lightmapHandle == lightmapHandle && synced.lightmapScaleOffset == proxy.lightmapScaleOffset;
             if(unchanged)
                 continue;
 
@@ -856,7 +879,8 @@ namespace Shard::Engine::Rendering{
             if(!inserted && (synced.mesh != proxy.mesh || synced.extraPasses != proxy.extraPasses || synced.componentId != proxy.componentId))
                 RemoveSyncedMeshCommands(synced);
 
-            std::vector<DrawCommand> commands = proxy.mesh->CreateDrawCommands(proxy.worldMatrix, proxy.objectId, proxy.componentId, proxy.materials);
+            std::vector<DrawCommand> commands = proxy.mesh->CreateDrawCommands(proxy.worldMatrix, proxy.objectId, proxy.componentId, proxy.materials,
+                                                                               lightmapHandle, proxy.lightmapScaleOffset);
 
             // SSAO's depth+normal prepass needs every mesh's real geometry, the same way ForwardPass does : it always runs,
             // only the world's ssaoEnabled says whether the shading uses the result
@@ -870,6 +894,8 @@ namespace Shard::Engine::Rendering{
             synced.extraPasses = proxy.extraPasses;
             synced.objectId = proxy.objectId;
             synced.componentId = proxy.componentId;
+            synced.lightmapHandle = lightmapHandle;
+            synced.lightmapScaleOffset = proxy.lightmapScaleOffset;
         }
 
         // Whatever the snapshot no longer has is gone from the world (destroyed, deactivated, its world unloaded)
@@ -922,6 +948,8 @@ namespace Shard::Engine::Rendering{
 
     void Renderer::BeginFrame()
     {
+        // First : the draws below take the handle of the lightmap page they read from here
+        m_LightmapManager->Sync(GetSnapshot());
         SyncSceneDrawLists();
         m_BillboardRenderer.Sync(GetSnapshot());
         m_LightManager->Sync(GetSnapshot().lights);
@@ -941,6 +969,9 @@ namespace Shard::Engine::Rendering{
             m_ProbeManager->Update();
             m_ProbeManager->PublishStatus();
         }
+
+        m_LightmapManager->Update();
+        m_LightmapManager->PublishStatus();
 
         {
             SHARD_PROFILE_RENDER_SUB_SCOPE(Debugging::RenderSubSample::SSAOUpdate);
@@ -1068,8 +1099,109 @@ namespace Shard::Engine::Rendering{
             }
 
             EndRenderPass();
+
+            // The scene was drawn in HDR : the picture is made now, so that whatever is drawn over the forward pass (the grid,
+            // the outlines, the billboards, the debug shapes) lands on display colours
+            if (passName == "ForwardPass")
+                ResolveSceneToViewport();
         }
 
+    }
+
+    void Renderer::EnsureTonemapPass()
+    {
+        if (m_TonemapPass)
+            return;
+
+        const Filesystem::Path shaderDirectory = Core::GetEngine().GetFileManager()->GetEngineResRoot() / "shaders/fb";
+        m_TonemapShader = Shader::Create(shaderDirectory / "tonemap.vert", shaderDirectory / "tonemap.frag", Filesystem::Path(""));
+        if (!m_TonemapShader)
+        {
+            DEBUG_ERROR("The tonemap shader could not be loaded : the viewport shows the HDR scene as it is.");
+            return;
+        }
+
+        PipelineSpecifications specs;
+        specs.shader = m_TonemapShader;
+        specs.topology = PrimitiveTopology::Triangles;
+        specs.cullMode = CullMode::None;
+        specs.depthTest = false;
+        specs.depthWrite = false;
+        specs.blending = false;
+        specs.debugName = "TonemapPipeline";
+
+        m_TonemapMaterial = Material::Create(m_TonemapShader, GetOrAddPipeline(specs), false, Opacity::Opaque);
+
+        // Draws into the viewport on top of nothing : every pixel is written, the depth copied from the scene stays
+        m_TonemapPass = std::make_shared<RenderPass>();
+        m_TonemapPass->target = m_ViewportBuffer;
+        m_TonemapPass->clearColor = false;
+        m_TonemapPass->clearDepth = false;
+        m_TonemapPass->allowResize = false;
+        m_TonemapPass->allowCulling = false;
+    }
+
+    int Renderer::GetDisplayMode() const
+    {
+        const DebugViewState& view = m_DebugView;
+        switch (view.mode)
+        {
+            // Light : exposure, tonemapper, sRGB curve
+            case ViewMode::Lit:
+                return view.showLighting ? 0 : 1;           // without the lighting it is the albedo, flat : just its colours
+            case ViewMode::ShadedWireframe:
+            case ViewMode::GlobalIllumination:
+                return 0;
+
+            // The albedo alone : colours, nothing to roll off
+            case ViewMode::Unlit:
+                return 1;
+
+            // Colours chosen to be seen as they are : a normal, a depth, a UV, an occlusion term, a wireframe
+            default:
+                return 2;
+        }
+    }
+
+    void Renderer::ResolveSceneToViewport()
+    {
+        EnsureTonemapPass();
+
+        // Only the resolve is this sub-sample : the tonemap draw below is made of the pass setup, state binding and draw
+        // sub-samples, which a scope around it would count twice
+        {
+            SHARD_PROFILE_RENDER_SUB_SCOPE(Debugging::RenderSubSample::MultisampleResolve);
+
+            m_SceneBuffer->ResolveMultisampled();
+
+            if (!m_TonemapPass)
+            {
+                // No shader : show the scene as it is, so that the viewport is not left empty
+                m_ViewportBuffer->CopyFrom(m_SceneBuffer);
+                return;
+            }
+
+            m_ViewportBuffer->CopyDepthFrom(m_SceneBuffer);
+        }
+
+        const DisplaySettings& display = GetSnapshot().environment.display;
+        m_TonemapMaterial->SetTextureParameter("sceneTexture", m_SceneBuffer->GetResolveColorAttachment());
+        m_TonemapMaterial->SetScalarParameter("exposure", display.ExposureScale());
+        m_TonemapMaterial->SetScalarParameter("tonemapper", static_cast<int>(display.tonemapper));
+        m_TonemapMaterial->SetScalarParameter("displayMode", GetDisplayMode());
+
+        DrawCommand command{};
+        command.commandID = 0x544F4E45;     // "TONE"
+        command.mesh = nullptr;
+        command.material = m_TonemapMaterial;
+        command.indexCount = 3;
+        command.vertexCount = 3;
+        command.fullscreenTri = true;
+        command.bindCameraState = false;
+
+        BeginRenderPass(m_TonemapPass);
+        m_RendererAPI->ExecuteDrawCommand(command, m_TonemapPass);
+        EndRenderPass();
     }
 
     void Renderer::EndFrame()

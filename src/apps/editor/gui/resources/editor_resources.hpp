@@ -34,6 +34,7 @@ namespace Shard::Editor::GUI {
                         "editor_resources/icons/model.png",
                         "editor_resources/icons/material.png",
                         "editor_resources/icons/probes.png",
+                        "editor_resources/icons/probes.png",       // the lightmaps share the probes' icon
                         "editor_resources/icons/config.png",
                         "editor_resources/icons/folder.png"
                     };

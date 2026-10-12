@@ -123,6 +123,7 @@ namespace Shard::Editor::Core {
         // Polls the ProbeManager's async scene-build progress and mirrors it into a single
         // "Baking GI probes" progress notification (see editor/gui/notifications.hpp).
         void UpdateProbeBuildNotification();
+        void UpdateLightmapBuildNotification();
 
         bool imguiInitialized = false;
         bool renderPassesInitialized = false;

@@ -27,6 +27,8 @@ namespace Shard::Engine::Objects::Components{
         innerCutoff = glm::degrees(glm::acos(lightData->innerCutoff));
         color = glm::vec3(lightData->color);
         castShadows = lightData->castShadow;
+        sourceSize = lightData->sourceSize;
+        bakeMode = (Rendering::LightBakeMode)lightData->bakeMode;
     }
 
     Light::Light(std::shared_ptr<Actor> parent, uint32_t local_id) : Component(parent, local_id)
@@ -147,6 +149,30 @@ namespace Shard::Engine::Objects::Components{
         UpdateExposedValues();
     }
 
+    /// @brief Set the size of the light's emitter, for the soft shadows of the offline renderers
+    /// @param sourceSize Radius of the emitting sphere in world units (point / spot), angular radius of the sun disc in degrees (directional). 0 : hard shadows
+    void Light::SetSourceSize(float sourceSize)
+    {
+        if(!activated)
+            return;
+
+        lightData->sourceSize = std::max(sourceSize, 0.0f);
+
+        UpdateExposedValues();
+    }
+
+    /// @brief Set what this light does for baked lighting
+    /// @param mode Dynamic (never baked), Stationary (indirect light baked) or Static (fully baked)
+    void Light::SetBakeMode(Rendering::LightBakeMode mode)
+    {
+        if(!activated)
+            return;
+
+        lightData->bakeMode = (int)mode;
+
+        UpdateExposedValues();
+    }
+
     void Light::Deserialize(const json componentData)
     {
         json data = componentData;
@@ -239,6 +265,14 @@ namespace Shard::Engine::Objects::Components{
         if(event.field->name == "castShadows")
         {
             SetCastShadow(castShadows);
+        }
+        if(event.field->name == "sourceSize")
+        {
+            SetSourceSize(sourceSize);
+        }
+        if(event.field->name == "bakeMode")
+        {
+            SetBakeMode(bakeMode);
         }
     }
 

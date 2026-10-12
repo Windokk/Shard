@@ -53,6 +53,11 @@ namespace Shard::Engine::Rendering {
 
             virtual void CopyFrom(std::shared_ptr<Framebuffer> src) = 0;
 
+            /// @brief Copies only the depth of `src` into this framebuffer's depth. Both have to be the same size, and the same
+            /// kind (both multisampled with the same sample count, or both not) : what a frame that is drawn into one target
+            /// and presented from another does to keep the depth the overlays are tested against.
+            virtual void CopyDepthFrom(std::shared_ptr<Framebuffer> src) = 0;
+
             virtual void BlitToScreen(uint32_t screenWidth, uint32_t screenHeight) = 0;
 
             /// @brief Blocking readback of the (resolved) color attachment as tightly packed RGBA8,

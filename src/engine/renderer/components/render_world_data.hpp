@@ -9,6 +9,8 @@
 
 #include "engine/world/world.hpp"
 #include "engine/renderer/components/skybox.hpp"
+#include "engine/renderer/features/lighting/lightmap_data.hpp"
+#include "engine/renderer/rhi/display_transform.hpp"
 
 namespace Shard::Engine::Objects::Components{
     class Light;
@@ -21,6 +23,7 @@ namespace Shard::Engine::Objects::Components{
 namespace Shard::Engine::Rendering{
 
     class Mesh;
+    struct LightmapBakeResult;
 
     /// What the renderer keeps on a world : the components it draws or lights the scene with, and the skybox.
     class RenderWorldData : public Worlds::IWorldExtension{
@@ -49,6 +52,34 @@ namespace Shard::Engine::Rendering{
             /// @brief Path in the project of the skybox's image, or empty if the world has no skybox. This
             /// is what the world file stores.
             std::string GetSkyboxPath() const;
+
+            // ---- Baked lighting (see LightmapManager) ----
+
+            /// Path in the project (e.g. "lightmaps/sponza.lightmap") of the baked lightmap pages the world's static models
+            /// read, empty if the world was never baked. The world file stores it ; where each model's lightmap is in those
+            /// pages is stored in the model.
+            std::string lightmapData;
+
+            /// The settings of the world's bake, stored with the world so a re-bake starts from the last one
+            LightmapSettings lightmapSettings;
+
+            // ---- Display ----
+
+            /// How the light of the scene becomes the picture : the tonemapper and the exposure (see display_transform.hpp)
+            DisplaySettings display;
+
+            /// @brief Bakes the lightmaps of this world's static models (asynchronously, see LightmapManager::BeginBake), into
+            /// the project's "lightmaps" folder (or over the file the world already has). Needs the world to be loaded.
+            /// @return false (logged) if the bake could not start
+            bool BakeLightmaps(Worlds::World& world);
+
+            /// @brief Called (on the main thread) when a bake has written its file : registers the file as an asset, stores where
+            /// every static model's lightmap is, and flags the world as having unsaved changes - the world file has to be saved
+            /// for the references to persist.
+            void OnLightmapsBaked(Worlds::World& world, const LightmapBakeResult& result);
+
+            /// @brief Deletes the baked lightmaps (file, asset entry, every model's placement) : the world is lit by its probes again
+            void ClearLightmaps(Worlds::World& world);
 
             void OnComponentAdded(Worlds::World& world, int idInWorld, const std::shared_ptr<Objects::Components::Component>& component, bool cloned) override;
             void OnComponentRemoved(Worlds::World& world, int idInWorld, const std::shared_ptr<Objects::Components::Component>& component) override;

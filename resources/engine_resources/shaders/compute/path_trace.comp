@@ -6,6 +6,9 @@
 // per pixel in .rgb / .a rather than an average, so accumulation across dispatches is a simple add with
 // no read-modify-normalize step needed here (normalization to a mean happens once, on the CPU, after
 // the last sample - see Raytracer::Render).
+//
+// The path itself (TracePath, the light sampling, the sky) is shared with the lightmap baker, see
+// common/path_tracing.glsl.
 
 layout(local_size_x = 8, local_size_y = 8, local_size_z = 1) in;
 
@@ -24,6 +27,7 @@ layout(std430, binding = 3) readonly buffer Materials         { GPUMaterial mate
 layout(std430, binding = 4) readonly buffer Lights            { Light lights[]; };
 
 #include "../common/raytracing_trace.glsl"
+#include "../common/path_tracing.glsl"
 
 uniform vec3 uCameraPos;
 uniform vec3 uCameraRight;   // basis vector, pre-scaled by tan(fov/2) * aspect
@@ -32,252 +36,6 @@ uniform vec3 uCameraForward;
 uniform vec2 uImageSize;
 uniform vec2 uTileOffset;    // pixel offset of this dispatch's strip within the full image (tiled dispatch)
 uniform int  uFrameIndex;    // which accumulated sample this dispatch is (0-based) - also seeds the RNG
-uniform int  uLightCount;
-uniform int  uMaxBounces;
-uniform vec3 uSkyColor;      // flat radiance returned for rays that escape the scene
-
-const float PI = 3.14159265359;
-
-// ---------------------------------------------------------------------------
-// RNG - PCG hash, seeded per-pixel per-sample so every dispatch draws an
-// independent stream of pseudo-random numbers.
-// ---------------------------------------------------------------------------
-
-uint rngState;
-
-uint PcgHash(uint x)
-{
-    uint state = x * 747796405u + 2891336453u;
-    uint word = ((state >> ((state >> 28u) + 4u)) ^ state) * 277803737u;
-    return (word >> 22u) ^ word;
-}
-
-float RandomFloat()
-{
-    rngState = PcgHash(rngState);
-    return float(rngState) / 4294967296.0;
-}
-
-vec2 RandomVec2()
-{
-    return vec2(RandomFloat(), RandomFloat());
-}
-
-// ---------------------------------------------------------------------------
-// Sampling helpers
-// ---------------------------------------------------------------------------
-
-// Builds an orthonormal basis (t, b) around unit vector n (Duff et al., "Building an Orthonormal
-// Basis, Revisited" - avoids the singularity/branch cost of a naive cross-product approach).
-void BuildONB(vec3 n, out vec3 t, out vec3 b)
-{
-    float s = n.z >= 0.0 ? 1.0 : -1.0;
-    float a = -1.0 / (s + n.z);
-    float bb = n.x * n.y * a;
-    t = vec3(1.0 + s * n.x * n.x * a, s * bb, -s * n.x);
-    b = vec3(bb, s + n.y * n.y * a, -n.y);
-}
-
-vec3 CosineSampleHemisphere(vec3 n)
-{
-    vec2 u = RandomVec2();
-    float r = sqrt(u.x);
-    float phi = 2.0 * PI * u.y;
-    vec3 t, b;
-    BuildONB(n, t, b);
-    return normalize(t * (r * cos(phi)) + b * (r * sin(phi)) + n * sqrt(max(0.0, 1.0 - u.x)));
-}
-
-// Importance-samples the GGX half-vector distribution around n.
-vec3 SampleGGX(vec3 n, float roughness)
-{
-    vec2 u = RandomVec2();
-    float a = max(roughness * roughness, 1e-4);
-    float phi = 2.0 * PI * u.x;
-    float cosTheta = sqrt((1.0 - u.y) / (1.0 + (a * a - 1.0) * u.y));
-    float sinTheta = sqrt(max(0.0, 1.0 - cosTheta * cosTheta));
-    vec3 hLocal = vec3(sinTheta * cos(phi), sinTheta * sin(phi), cosTheta);
-    vec3 t, b;
-    BuildONB(n, t, b);
-    return normalize(t * hLocal.x + b * hLocal.y + n * hLocal.z);
-}
-
-#include "../common/pbr_direct.glsl"
-
-// ---------------------------------------------------------------------------
-// Shading
-// ---------------------------------------------------------------------------
-
-vec3 GetSkyColor(vec3 rd)
-{
-    return uSkyColor;
-}
-
-vec3 TracePath(vec3 ro, vec3 rd)
-{
-    vec3 radiance = vec3(0.0);
-    vec3 throughput = vec3(1.0);
-
-    for (int bounce = 0; bounce < uMaxBounces; bounce++)
-    {
-        HitInfo hit;
-        if (!TraceRay(ro, rd, 1e30, hit))
-        {
-            radiance += throughput * GetSkyColor(rd);
-            break;
-        }
-
-        TriangleAttrib attrib = triAttrib[hit.triIndex];
-        float w0 = 1.0 - hit.bary.x - hit.bary.y;
-        vec3 n = normalize(attrib.n0.xyz * w0 + attrib.n1.xyz * hit.bary.x + attrib.n2.xyz * hit.bary.y);
-        uint matID = uint(attrib.uvMatID.w);
-        GPUMaterial mat = materials[matID];
-
-        vec3 hitPos = ro + rd * hit.t;
-        if (dot(n, rd) > 0.0)
-            n = -n; // shade whichever side the ray actually came from (double-sided geometry)
-
-        // ---- Texture sampling : overrides (or, for metallic/roughness, modulates) the material's
-        // scalar values wherever a bit is set - see GPUMaterial's comment. ----
-        vec3 albedo = mat.albedo.rgb;
-        float roughness = mat.roughness;
-        float metallic = mat.metallic;
-        vec3 emission = mat.emissive.rgb;
-
-        if (mat.textureFlags != 0u)
-        {
-            vec2 uv = vec2(attrib.n0.w, attrib.uvMatID.x) * w0
-                    + vec2(attrib.n1.w, attrib.uvMatID.y) * hit.bary.x
-                    + vec2(attrib.n2.w, attrib.uvMatID.z) * hit.bary.y;
-
-            if ((mat.textureFlags & TEX_ALBEDO_BIT) != 0u)
-                albedo = texture(sampler2D(mat.albedoTex), uv).rgb;
-
-            if ((mat.textureFlags & TEX_METALLIC_BIT) != 0u)
-                metallic *= texture(sampler2D(mat.metallicTex), uv).r;
-
-            if ((mat.textureFlags & TEX_ROUGHNESS_BIT) != 0u)
-                roughness *= texture(sampler2D(mat.roughnessTex), uv).r;
-
-            // Modulates the scalar factor (same as lit.frag's emissiveMap * emissive), not overrides it.
-            if ((mat.textureFlags & TEX_EMISSIVE_BIT) != 0u)
-                emission *= texture(sampler2D(mat.emissiveTex), uv).rgb;
-
-            if ((mat.textureFlags & TEX_NORMAL_BIT) != 0u)
-            {
-                vec3 tangent = normalize(attrib.t0.xyz * w0 + attrib.t1.xyz * hit.bary.x + attrib.t2.xyz * hit.bary.y);
-                tangent = normalize(tangent - n * dot(tangent, n)); // re-orthogonalize against the interpolated normal
-                vec3 bitangent = cross(n, tangent);
-                mat3 TBN = mat3(tangent, bitangent, n);
-
-                vec3 sampledNormal = DecodeTangentNormal(texture(sampler2D(mat.normalTex), uv));
-                n = normalize(TBN * sampledNormal);
-            }
-        }
-
-        radiance += throughput * emission;
-
-        vec3 viewDir = normalize(-rd);
-        vec3 F0 = mix(vec3(0.04), albedo, metallic);
-
-        // ---- Next event estimation : sample one light directly, with a shadow ray ----
-        if (uLightCount > 0)
-        {
-            int lightIdx = min(int(RandomFloat() * float(uLightCount)), uLightCount - 1);
-            Light light = lights[lightIdx];
-
-            vec3 toLight;
-            float dist;
-            vec3 incomingRadiance;
-
-            if (light.type == 0) // Directional
-            {
-                toLight = normalize(-light.direction.xyz);
-                dist = 1e30;
-                incomingRadiance = light.color.rgb * light.intensity;
-            }
-            else // Point / Spot
-            {
-                vec3 d = light.position.xyz - hitPos;
-                dist = length(d);
-                toLight = d / max(dist, 1e-6);
-                float atten = 1.0 / max(dist * dist, 1e-4);
-                incomingRadiance = light.color.rgb * light.intensity * atten;
-
-                if (light.type == 2) // Spot cone falloff
-                {
-                    float cosAngle = dot(-toLight, normalize(light.direction.xyz));
-                    float t = clamp((cosAngle - light.outerCutoff) / max(light.innerCutoff - light.outerCutoff, 1e-4), 0.0, 1.0);
-                    incomingRadiance *= t;
-                }
-            }
-
-            float NdotL = dot(n, toLight);
-            if (NdotL > 0.0)
-            {
-                bool occluded = TraceRayAny(hitPos + n * 1e-3, toLight, dist - 2e-3);
-                if (!occluded)
-                {
-                    vec3 h = normalize(viewDir + toLight);
-                    vec3 F = FresnelSchlick(max(dot(h, viewDir), 0.0), F0);
-                    float D = DistributionGGX(n, h, roughness);
-                    float G = GeometrySmith(n, viewDir, toLight, roughness);
-                    vec3 specular = (D * G * F) / max(4.0 * max(dot(n, viewDir), 0.0) * NdotL, 1e-4);
-                    vec3 kd = (vec3(1.0) - F) * (1.0 - metallic);
-                    vec3 diffuse = kd * albedo / PI;
-
-                    // uLightCount factor : we sampled one of uLightCount lights uniformly (pdf = 1 / uLightCount)
-                    radiance += throughput * (diffuse + specular) * incomingRadiance * NdotL * float(uLightCount);
-                }
-            }
-        }
-
-        // ---- Continue the path : stochastically pick a lobe and sample a bounce direction ----
-        float specProb = clamp(mix(0.04, 1.0, metallic), 0.04, 0.95);
-        vec3 newDir;
-        vec3 lobeWeight;
-
-        if (RandomFloat() < specProb)
-        {
-            vec3 h = SampleGGX(n, roughness);
-            newDir = reflect(rd, h);
-            if (dot(newDir, n) <= 0.0)
-                break; // sampled a direction below the surface - dead end for this path
-
-            vec3 F = FresnelSchlick(max(dot(h, viewDir), 0.0), F0);
-            float G = GeometrySmith(n, viewDir, newDir, roughness);
-            float NdotV = max(dot(n, viewDir), 0.0);
-            float NdotH = max(dot(n, h), 0.0);
-            // Standard GGX-half-vector-importance-sampling weight : BRDF * NdotL / pdf, simplified
-            // using dot(newDir,h) == dot(viewDir,h) for a mirror reflection about h.
-            lobeWeight = (F * G * max(dot(newDir, h), 0.0)) / max(NdotV * NdotH * specProb, 1e-4);
-        }
-        else
-        {
-            newDir = CosineSampleHemisphere(n);
-            vec3 kd = (vec3(1.0) - F0) * (1.0 - metallic);
-            // Cosine-weighted hemisphere pdf (cosTheta / PI) cancels the BRDF's NdotL / PI exactly,
-            // leaving just the diffuse albedo term, divided by the probability of picking this lobe.
-            lobeWeight = kd * albedo / max(1.0 - specProb, 1e-4);
-        }
-
-        throughput *= lobeWeight;
-
-        // ---- Russian roulette : bound path length without introducing bias ----
-        if (bounce > 3)
-        {
-            float surviveProb = clamp(max(throughput.r, max(throughput.g, throughput.b)), 0.05, 0.95);
-            if (RandomFloat() > surviveProb)
-                break;
-            throughput /= surviveProb;
-        }
-
-        ro = hitPos + n * 1e-3;
-        rd = newDir;
-    }
-
-    return radiance;
-}
 
 void main()
 {
@@ -294,7 +52,7 @@ void main()
     vec3 rd = normalize(uCameraForward + uCameraRight * ndc.x + uCameraUp * ndc.y);
     vec3 ro = uCameraPos;
 
-    vec3 sampleRadiance = TracePath(ro, rd);
+    vec3 sampleRadiance = ClampFirefly(TracePath(ro, rd));
 
     vec4 prev = uFrameIndex == 0 ? vec4(0.0) : imageLoad(uAccum, pixel);
     imageStore(uAccum, pixel, prev + vec4(sampleRadiance, 1.0));

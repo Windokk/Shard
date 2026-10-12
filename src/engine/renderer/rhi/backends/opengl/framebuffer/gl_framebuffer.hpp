@@ -16,6 +16,8 @@ namespace Shard::Engine::Rendering{
 
             void CopyFrom(std::shared_ptr<Framebuffer> src) override;
 
+            void CopyDepthFrom(std::shared_ptr<Framebuffer> src) override;
+
             void BlitToScreen(uint32_t screenWidth, uint32_t screenHeight) override;
 
             bool ReadPixelsRGBA8(std::vector<uint8_t>& outPixels) override;

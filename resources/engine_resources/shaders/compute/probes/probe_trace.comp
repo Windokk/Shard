@@ -329,7 +329,9 @@ vec3 TraceAndShadeDirect(vec3 ro, vec3 rd, out float outHitDist, out float outVa
 
             dist = sqrt(dist2);
             toLight = d / max(dist, 1e-6);
-            float atten = 1.0 / max(dist2, 1e-4);
+            // The forward pass's smooth window on the inverse-square law (LightRangeFalloff, see light.glsl) : the probes
+            // have to see the light the way the surfaces do, or the bounce they feed back is brighter than what it bounces from
+            float atten = LightRangeFalloff(light.radius, dist) / max(dist2, 1e-4);
             incomingRadiance = light.color.rgb * light.intensity * atten;
 
             if (light.type == 2) // Spot cone falloff

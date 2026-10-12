@@ -74,6 +74,7 @@ namespace Shard::Engine::Rendering{
             switch (specs.internalFormat)
             {
                 case TextureInternalFormat::RED:  bytesPerTexel = 1; break;
+                case TextureInternalFormat::RGB9E5: bytesPerTexel = 4; break;
                 case TextureInternalFormat::RG:
                 case TextureInternalFormat::R16F:
                 case TextureInternalFormat::Depth16: bytesPerTexel = 2; break;
@@ -106,7 +107,11 @@ namespace Shard::Engine::Rendering{
         {
             case BlockFormat::BC4: internalFormat = GL_COMPRESSED_RED_RGTC1; m_Specifications.internalFormat = TextureInternalFormat::RED; break;
             case BlockFormat::BC5: internalFormat = GL_COMPRESSED_RG_RGTC2;  m_Specifications.internalFormat = TextureInternalFormat::RG; break;
-            case BlockFormat::BC7: internalFormat = GL_COMPRESSED_RGBA_BPTC_UNORM; m_Specifications.internalFormat = TextureInternalFormat::RGBA; break;
+            case BlockFormat::BC7:
+                // The same blocks, read through the sRGB curve when the texture holds colours
+                internalFormat = specs.srgb ? GL_COMPRESSED_SRGB_ALPHA_BPTC_UNORM : GL_COMPRESSED_RGBA_BPTC_UNORM;
+                m_Specifications.internalFormat = TextureInternalFormat::RGBA;
+                break;
         }
         m_GLInternalFormat = internalFormat;
 
@@ -371,7 +376,7 @@ namespace Shard::Engine::Rendering{
             // RGB
             case TextureInternalFormat::RGB:
             case TextureInternalFormat::RGB8:
-                glSpecs.internalFormat = GL_RGB8;
+                glSpecs.internalFormat = spec.srgb ? GL_SRGB8 : GL_RGB8;
                 glSpecs.format = GL_RGB;
                 glSpecs.type = GL_UNSIGNED_BYTE;
                 break;
@@ -397,7 +402,7 @@ namespace Shard::Engine::Rendering{
             // RGBA
             case TextureInternalFormat::RGBA:
             case TextureInternalFormat::RGBA8:
-                glSpecs.internalFormat = GL_RGBA8;
+                glSpecs.internalFormat = spec.srgb ? GL_SRGB8_ALPHA8 : GL_RGBA8;
                 glSpecs.format = GL_RGBA;
                 glSpecs.type = GL_UNSIGNED_BYTE;
                 break;
@@ -418,6 +423,13 @@ namespace Shard::Engine::Rendering{
                 glSpecs.internalFormat = GL_RGBA32I;
                 glSpecs.format = GL_RGBA_INTEGER;
                 glSpecs.type = GL_INT;
+                break;
+
+            // Shared exponent : the pixel data is one packed 32 bit word per texel
+            case TextureInternalFormat::RGB9E5:
+                glSpecs.internalFormat = GL_RGB9_E5;
+                glSpecs.format = GL_RGB;
+                glSpecs.type = GL_UNSIGNED_INT_5_9_9_9_REV;
                 break;
 
             // Depth

@@ -16,6 +16,8 @@
 #include "engine/renderer/components/render_world_data.hpp"
 #include "engine/renderer/components/probe_volume.hpp"
 #include "engine/renderer/features/lighting/probe_manager.hpp"
+#include "engine/renderer/features/lighting/lightmap_manager.hpp"
+#include "engine/renderer/features/raytracing/raytracer.hpp"
 #include "engine/renderer/frontend/renderer.hpp"
 #include "engine/renderer/features/immediate/thumbnail_service.hpp"
 #include "engine/renderer/rhi/gpu_memory.hpp"
@@ -194,6 +196,95 @@ namespace Shard::Engine::Core {
                 if (!probes->IsBaking())
                     return CommandResult{true, std::string("no bake running, last bake ") + (probes->DidLastBakeSucceed() ? "succeeded" : "did not succeed")};
                 return CommandResult{true, std::string("baking : ") + probes->GetBakePhase() + " " + std::to_string(int(probes->GetBakeProgress() * 100.0f)) + "%"};
+            });
+
+        registry.RegisterCommand("raytrace.render", "raytrace.render <file.hdr> [width] [height] [samples] [bounces] : path traces the world from the active camera into a linear HDR file in the project (what the editor's Offline Raytrace window does), blocking until it is done",
+            [this](const std::vector<std::string>& args) {
+                if (args.empty() || !m_Context.renderer || !m_Context.fileManager)
+                    return CommandResult{false, "usage: raytrace.render <file.hdr> [width] [height] [samples] [bounces]"};
+
+                Rendering::Raytracing::RaytraceSettings settings;
+                try {
+                    if (args.size() > 1) settings.width = uint32_t(std::stoul(args[1]));
+                    if (args.size() > 2) settings.height = uint32_t(std::stoul(args[2]));
+                    if (args.size() > 3) settings.samplesPerPixel = uint32_t(std::stoul(args[3]));
+                    if (args.size() > 4) settings.maxBounces = uint32_t(std::stoul(args[4]));
+                } catch (...) {
+                    return CommandResult{false, "usage: raytrace.render <file.hdr> [width] [height] [samples] [bounces]"};
+                }
+                if (settings.width < 1 || settings.height < 1 || settings.samplesPerPixel < 1 || settings.maxBounces < 1)
+                    return CommandResult{false, "every number has to be at least 1"};
+
+                const Rendering::RenderSnapshot& scene = m_Context.renderer->GetSnapshot();
+                if (!scene.camera.valid)
+                    return CommandResult{false, "the world has no active camera"};
+
+                Rendering::Raytracing::Raytracer raytracer;
+                const Filesystem::Path output(m_Context.fileManager->GetProjectRoot().full + "/" + args[0], true);
+                if (!raytracer.Start(scene, scene.camera, settings, output))
+                    return CommandResult{false, raytracer.GetStatusMessage()};
+
+                while (raytracer.IsActive())
+                    raytracer.Update();
+
+                return CommandResult{raytracer.GetStatus() == Rendering::Raytracing::RaytraceStatus::Completed, raytracer.GetStatusMessage()};
+            });
+
+        registry.RegisterCommand("lightmaps.bake", "lightmaps.bake [samples] [texels per meter] [bounces] [max page size] [max resolution] : bakes the lightmaps of the first world's static models (what the Bake button of the World Settings does)",
+            [this](const std::vector<std::string>& args) {
+                Worlds::World* world = m_Context.worldManager ? m_Context.worldManager->GetWorldAt(0) : nullptr;
+                if (!world)
+                    return CommandResult{false, "no world loaded"};
+
+                Rendering::RenderWorldData& data = world->Ext<Rendering::RenderWorldData>();
+                try {
+                    if (args.size() > 0) data.lightmapSettings.samples = uint32_t(std::stoul(args[0]));
+                    if (args.size() > 1) data.lightmapSettings.texelsPerMeter = std::stof(args[1]);
+                    if (args.size() > 2) data.lightmapSettings.maxBounces = uint32_t(std::stoul(args[2]));
+                    if (args.size() > 3) data.lightmapSettings.maxPageSize = uint32_t(std::stoul(args[3]));
+                    if (args.size() > 4) data.lightmapSettings.maxResolution = uint32_t(std::stoul(args[4]));
+                } catch (...) {
+                    return CommandResult{false, "usage: lightmaps.bake [samples] [texels per meter] [bounces] [max page size] [max resolution]"};
+                }
+
+                return data.BakeLightmaps(*world) ? CommandResult{true, "baking"} : CommandResult{false, "the bake could not start (see the log)"};
+            });
+
+        registry.RegisterCommand("lightmaps.status", "lightmaps.status : the lightmap bake, if one is running, and the lightmaps the world uses",
+            [this](const std::vector<std::string>&) {
+                auto lightmaps = m_Context.renderer ? m_Context.renderer->GetLightmapManager() : nullptr;
+                if (!lightmaps)
+                    return CommandResult{false, "no lightmap manager"};
+
+                std::string out;
+                if (lightmaps->IsBaking())
+                    out = std::string("baking : ") + lightmaps->GetBakePhase() + " " + std::to_string(int(lightmaps->GetBakeProgress() * 100.0f)) + "%";
+                else
+                    out = std::string("no bake running, last bake ") + (lightmaps->DidLastBakeSucceed() ? "succeeded" : "did not succeed");
+
+                if (Worlds::World* world = m_Context.worldManager ? m_Context.worldManager->GetWorldAt(0) : nullptr) {
+                    const std::string& file = world->Ext<Rendering::RenderWorldData>().lightmapData;
+                    out += file.empty() ? "\nthe world has no baked lightmaps" : "\nthe world uses " + file;
+                }
+                return CommandResult{true, out};
+            });
+
+        registry.RegisterCommand("lightmaps.clear", "lightmaps.clear : deletes the baked lightmaps of the first world (the models go back to the probe lighting)",
+            [this](const std::vector<std::string>&) {
+                Worlds::World* world = m_Context.worldManager ? m_Context.worldManager->GetWorldAt(0) : nullptr;
+                if (!world)
+                    return CommandResult{false, "no world loaded"};
+                world->Ext<Rendering::RenderWorldData>().ClearLightmaps(*world);
+                return CommandResult{true, "lightmaps deleted - save the world to keep that"};
+            });
+
+        registry.RegisterCommand("world.save", "world.save : writes the first loaded world back to its file",
+            [this](const std::vector<std::string>&) {
+                Worlds::World* world = m_Context.worldManager ? m_Context.worldManager->GetWorldAt(0) : nullptr;
+                if (!world)
+                    return CommandResult{false, "no world loaded"};
+                world->Serialize(world->GetPath());
+                return CommandResult{true, "saved " + world->GetPath().full};
             });
 
         registry.RegisterCommand("render.memory", "render.memory : what the engine holds on the GPU (textures, render targets, meshes, buffers) and what the process holds in RAM and video memory",

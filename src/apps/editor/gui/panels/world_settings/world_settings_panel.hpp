@@ -17,6 +17,8 @@ namespace Shard::Editor::GUI{
             void DrawGeneralCategory();
             void DrawRenderingCategory();
             void DrawSkyboxSection(Engine::Worlds::World* world);
+            void DrawLightmapsSection(Engine::Worlds::World* world);
+            void DrawDisplaySection(Engine::Worlds::World* world);
 
             void ApplySkybox(Engine::Worlds::World* world, const std::string& pathInProject);
 

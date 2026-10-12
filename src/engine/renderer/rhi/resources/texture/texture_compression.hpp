@@ -56,7 +56,10 @@ namespace Shard::Engine::Rendering {
     /// @param normalMap  a tangent-space normal map : only x and y are kept (BC5, twice the precision per channel of what a
     /// single colour line can give a normal), the shaders rebuild z. Needs 3 or 4 channels.
     /// @param threads  how many threads share the work (1 : the caller's thread only)
-    bool CompressImage(const uint8_t* pixels, uint32_t width, uint32_t height, uint32_t channels, CompressedImage& out, bool normalMap = false, unsigned threads = 1);
+    /// @param srgb  the colours of a 3 or 4 channel image are in the sRGB transfer curve : the mip levels are then averaged in
+    /// linear light (the alpha channel always is linear). Averaging the encoded values instead makes the two halves of a
+    /// black and white pattern come out as a mid grey that is far too dark - a brick wall turns murky with distance.
+    bool CompressImage(const uint8_t* pixels, uint32_t width, uint32_t height, uint32_t channels, CompressedImage& out, bool normalMap = false, unsigned threads = 1, bool srgb = false);
 
     /// BC7, mode 6 only : one line through colour space, 16 positions on it, alpha included. `rgba` is 16 pixels
     /// (row major, 4 bytes each), `out` the 16 bytes of the block.
@@ -72,9 +75,9 @@ namespace Shard::Engine::Rendering {
         void SetDirectory(const std::string& directory);
         const std::string& GetDirectory();
 
-        /// The cache key of a source image, from its path, its size and its modification time. Empty if the file cannot
-        /// be inspected or there is no cache.
-        std::string MakeKey(const std::string& sourcePath);
+        /// The cache key of a source image, from its path, its size and its modification time (and whether it is a colour
+        /// texture : its mips are not the same). Empty if the file cannot be inspected or there is no cache.
+        std::string MakeKey(const std::string& sourcePath, bool srgb = false);
 
         bool Load(const std::string& key, CompressedImage& out);
         void Store(const std::string& key, const CompressedImage& image);

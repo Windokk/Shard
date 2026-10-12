@@ -5,6 +5,8 @@
 #include "engine/world/actor.hpp"
 #include "engine/world/components/transform.hpp"
 #include "engine/renderer/components/camera.hpp"
+#include "engine/renderer/components/light_component.hpp"
+#include "engine/renderer/components/model_component.hpp"
 
 using namespace Shard::Engine::Core;
 using namespace Shard::Engine::Objects;
@@ -88,4 +90,59 @@ TEST_F(ComponentSerializationTest, CameraIsWrittenFromItsReflectedFields) {
     EXPECT_FLOAT_EQ(out["fov"], 75.0f);
     EXPECT_TRUE(out["orthographic"]);
     EXPECT_FLOAT_EQ(out["orthoSize"], 4.0f);
+}
+
+// ---- Baked lighting ----
+
+TEST_F(ComponentSerializationTest, LightKeepsItsSoftShadowSizeAndBakeMode) {
+    auto light = actor->AddComponent<Light>();
+    light->SetSourceSize(0.35f);
+    light->SetBakeMode(Shard::Engine::Rendering::LightBakeMode::Static);
+
+    ordered_json out = light->Serialize();
+    EXPECT_EQ(out["type"], "light");
+    EXPECT_FLOAT_EQ(out["sourceSize"], 0.35f);
+    EXPECT_EQ(out["bakeMode"], "Static");
+
+    // What the renderer reads is the light's data, which the setters feed
+    EXPECT_FLOAT_EQ(light->GetData().sourceSize, 0.35f);
+    EXPECT_EQ(light->GetData().bakeMode, int(Shard::Engine::Rendering::LightBakeMode::Static));
+
+    auto other = actor->AddComponent<Light>();
+    other->Deserialize(json(out));
+    EXPECT_FLOAT_EQ(other->GetData().sourceSize, 0.35f);
+    EXPECT_EQ(other->GetData().bakeMode, int(Shard::Engine::Rendering::LightBakeMode::Static));
+}
+
+TEST_F(ComponentSerializationTest, ALightWithoutTheBakingKeysIsADynamicHardShadowedOne) {
+    // Every level written before baking existed : no sourceSize, no bakeMode
+    auto light = actor->AddComponent<Light>();
+    light->Deserialize(json::parse(R"({"type": "light", "active": true, "lightType": "Point", "intensity": 3.0, "radius": 10.0})"));
+
+    EXPECT_FLOAT_EQ(light->GetData().sourceSize, 0.0f);
+    EXPECT_EQ(light->GetData().bakeMode, int(Shard::Engine::Rendering::LightBakeMode::Dynamic));
+}
+
+TEST_F(ComponentSerializationTest, ModelTakesPartInTheBakedLightingUnlessItSaysOtherwise) {
+    // (Serializing a model reaches the asset manager, which this context does not have : the file format of the placement is
+    // checked by the sample world round trip, see lightmaps.world)
+    auto model = actor->AddComponent<Model>();
+
+    EXPECT_TRUE(model->staticLighting);
+    EXPECT_EQ(model->lightmapResolution, 0);
+    EXPECT_EQ(model->lightmapPage, -1) << "no lightmap until a bake gives it one";
+
+    model->lightmapPage = 2;
+    model->ClearLightmap();
+    EXPECT_EQ(model->lightmapPage, -1);
+}
+
+TEST_F(ComponentSerializationTest, ACopyOfAModelDoesNotShareItsLightmap) {
+    auto model = actor->AddComponent<Model>();
+    model->lightmapPage = 1;
+
+    auto copy = std::dynamic_pointer_cast<Model>(model->Clone());
+    ASSERT_NE(copy, nullptr);
+    EXPECT_EQ(copy->lightmapPage, -1) << "the copy stands somewhere else : the original's lightmap would be the wrong light";
+    EXPECT_EQ(model->lightmapPage, 1);
 }

@@ -5,12 +5,16 @@ layout (location = 1) in vec2 aTexCoord;
 layout (location = 2) in vec3 aNormal;
 layout (location = 3) in vec4 aColor;
 layout (location = 4) in vec3 aTangent;
+// Where the vertex is in the mesh's lightmap layout (see lightmap_uv.hpp). A mesh that was not unwrapped does not feed this
+// attribute at all : it then reads (0, 0), which is never used since such a mesh has no lightmap.
+layout (location = 5) in vec2 aLightmapUV;
 
 uniform mat4 model;
 uniform mat4 uProjection;
 uniform mat4 uView;
 
 out vec2 texCoord;
+out vec2 lightmapUV;
 out vec4 color;
 out vec3 worldPos;
 out mat4 viewMatrix;
@@ -30,6 +34,7 @@ void main()
     N = N_world;
 
     texCoord = aTexCoord;
+    lightmapUV = aLightmapUV;
     color = aColor;
     viewMatrix = uView;
 

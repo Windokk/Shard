@@ -2,6 +2,7 @@
 
 #include "engine/world/engine.hpp"
 #include "engine/assets/resources_manager.hpp"
+#include "engine/assets/serialization/material/material_asset_refs.hpp"
 
 #include "engine/renderer/rhi/material/material.hpp"
 #include "engine/renderer/frontend/renderer.hpp"
@@ -442,7 +443,8 @@ namespace Shard::Editor::GUI{
             case MatParamKind::Vec4:  mat->SetScalarParameter(param.name, param.vec4Value); break;
             case MatParamKind::Mat4:  mat->SetScalarParameter(param.name, param.mat4Value); break;
             case MatParamKind::Texture:{
-                auto tex = engine.GetResourcesManager()->Get<Engine::Rendering::Texture2D>(Engine::Core::Resources::AssetKind::Texture, param.texturePath);
+                const bool colours = Engine::Serialization::IsColorTextureSlot(param.name);
+                auto tex = engine.GetResourcesManager()->Get<Engine::Rendering::Texture2D>(colours ? Engine::Core::Resources::AssetKind::ColorTexture : Engine::Core::Resources::AssetKind::Texture, param.texturePath);
                 if(tex)
                     mat->SetTextureParameter(param.name, tex->GetHandle());
                 break;

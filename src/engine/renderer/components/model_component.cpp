@@ -134,6 +134,18 @@ namespace Shard::Engine::Objects::Components{
 
         SetMaterials(std::move(loadedMaterials));
 
+        // ---------------- LIGHTMAP ----------------
+        // Where the model's baked lightmap is (written by a bake, see LightmapManager) - not a field, the editor doesn't show it
+        lightmapPage = -1;
+        lightmapScaleOffset = glm::vec4(1.0f, 1.0f, 0.0f, 0.0f);
+        if (data.contains("lightmapPage") && data["lightmapPage"].is_number_integer() &&
+            data.contains("lightmapScaleOffset") && data["lightmapScaleOffset"].is_array() && data["lightmapScaleOffset"].size() == 4)
+        {
+            lightmapPage = data["lightmapPage"].get<int>();
+            for (int i = 0; i < 4; i++)
+                lightmapScaleOffset[i] = data["lightmapScaleOffset"][i].get<float>();
+        }
+
         // ---------------- ACTIVE ----------------
         DeserializeActive(data, false);
     }
@@ -148,7 +160,15 @@ namespace Shard::Engine::Objects::Components{
         for (const auto& material : materials)
             materialsID.push_back(material ? material->GetAssetID() : Filesystem::AssetID());
 
-        return SerializeReflected("model");
+        ordered_json component = SerializeReflected("model");
+
+        if (lightmapPage >= 0)
+        {
+            component["lightmapPage"] = lightmapPage;
+            component["lightmapScaleOffset"] = { lightmapScaleOffset.x, lightmapScaleOffset.y, lightmapScaleOffset.z, lightmapScaleOffset.w };
+        }
+
+        return component;
     }
 
     void Model::SetMesh(std::string meshPath)
@@ -161,6 +181,7 @@ namespace Shard::Engine::Objects::Components{
         if(newMesh){
             this->mesh = newMesh;
             this->meshID = mesh->GetAssetID();
+            lightmapPage = -1;      // the lightmap was laid on the other mesh
 
             size_t submeshCount = mesh->GetMaterialSlotCount();
             if(materials.size() != submeshCount)
@@ -200,6 +221,7 @@ namespace Shard::Engine::Objects::Components{
 
             this->mesh = GetEngineContext()->GetResourcesManager()->Get<Rendering::Mesh>(Core::Resources::AssetKind::Mesh, name);
             this->meshID = mesh->GetAssetID();
+            lightmapPage = -1;      // the lightmap was laid on the other mesh
 
             size_t submeshCount = mesh->GetMaterialSlotCount();
             if(materials.size() != submeshCount)
@@ -271,6 +293,9 @@ namespace Shard::Engine::Objects::Components{
     std::shared_ptr<Component> Model::Clone() const
     {
         auto cloned = Object::Create<Model>(*this);
+
+        // A copy is a different object : it sits somewhere else, which the lightmap of the original does not know
+        cloned->lightmapPage = -1;
 
         return cloned;
     }

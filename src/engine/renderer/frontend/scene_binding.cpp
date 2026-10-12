@@ -39,6 +39,9 @@ namespace Shard::Engine::Rendering{
         GetCurrentView(currentView);
         const bool studio = currentView.lighting == ViewLighting::Studio;
 
+        // A studio view is drawn straight into an 8 bit target, which the HDR scene pass is not : it maps the light itself
+        shader->SetBool("outputDisplayColors", studio);
+
         if (studio)
         {
             // Fixed studio look : none of the world's lighting settings apply, and SSAO's texture is

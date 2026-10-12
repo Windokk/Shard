@@ -26,6 +26,10 @@ namespace Shard::Engine::Core::Resources{
         World,
         Sound,
         ProbeBake,
+        Lightmap,
+        /// An image file read as colours in the sRGB transfer curve (an albedo, an emission map) : the same files as Texture, but
+        /// the GPU turns them into linear light when it samples them. The kind a material asks for in its colour slots.
+        ColorTexture,
         FirstUser
     };
 

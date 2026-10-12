@@ -1004,7 +1004,17 @@ namespace Shard::Editor::GUI {
             if (ImGui::InputInt("Max bounces", &bounces))
                 raytraceSettings.maxBounces = (uint32_t)std::max(1, bounces);
 
+            ImGui::Checkbox("Use the world's sky", &raytraceSettings.useLevelSky);
+            if (ImGui::IsItemHovered())
+                ImGui::SetTooltip("Rays that leave the scene see the world's skybox (what the viewport draws).\nWithout one, or when this is off, they see the flat colour below.");
+
+            ImGui::BeginDisabled(raytraceSettings.useLevelSky);
             ImGui::ColorEdit3("Sky color", &raytraceSettings.skyColor.x);
+            ImGui::EndDisabled();
+
+            ImGui::DragFloat("Firefly clamp", &raytraceSettings.fireflyClamp, 0.5f, 0.0f, 1000.0f, raytraceSettings.fireflyClamp > 0.0f ? "%.1f" : "off");
+            if (ImGui::IsItemHovered())
+                ImGui::SetTooltip("Limits the brightness one sample may carry, so a rare very bright path doesn't leave a white speck.\n0 = off.");
 
             ImGui::Separator();
 

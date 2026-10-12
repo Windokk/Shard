@@ -10,6 +10,7 @@
 #include <glm/glm.hpp>
 
 #include "engine/renderer/rhi/render_view.hpp"
+#include "engine/renderer/rhi/display_transform.hpp"
 
 namespace Shard::Engine::Rendering {
 
@@ -36,6 +37,15 @@ namespace Shard::Engine::Rendering {
         /// Passes the mesh is drawn into besides the standing ones (ForwardPass, the SSAO prepass and the shadow list) :
         /// the editor adds the selected actor to its outline mask this way.
         std::vector<std::string> extraPasses;
+
+        /// Baked lighting (see LightmapManager) : whether the mesh takes part in a bake, the resolution asked for its lightmap
+        /// (0 : by density), and where its lightmap is in the baked atlas (a negative page : none) - uv * xy + zw maps the
+        /// mesh's lightmap coordinates onto the page
+        bool staticLighting = true;
+        int lightmapResolution = 0;
+        int lightmapPage = -1;
+        glm::vec4 lightmapScaleOffset = glm::vec4(1.0f, 1.0f, 0.0f, 0.0f);
+
         bool changed = true;
     };
 
@@ -76,6 +86,8 @@ namespace Shard::Engine::Rendering {
         float innerCutoff = 0.0f;                       // cosine of the inner cone's half angle (what the shader compares against)
         float outerCutoff = 0.0f;                       // cosine of the outer cone's half angle
         bool castShadows = false;
+        float sourceSize = 0.0f;                        // emitter size for the offline renderers' soft shadows (see LightData::sourceSize)
+        int bakeMode = 0;                               // LightBakeMode : what the light does for baked lighting
         bool changed = true;
     };
 
@@ -148,6 +160,8 @@ namespace Shard::Engine::Rendering {
         float ssaoBias = 0.025f;
         float ssaoIntensity = 1.0f;
         float ssaoPower = 2.0f;
+        DisplaySettings display;                        // how the scene's light is turned into the picture : tonemapper and exposure
+        std::string lightmapData;                       // path in the project of the baked lightmap pages, empty if none
         std::shared_ptr<EnvironmentMap> skybox;         // null : no sky
         std::shared_ptr<Material> skyboxMaterial;       // what draws it : a fullscreen triangle, set up by the world's skybox
         int skyboxObjectId = -1;

@@ -1,5 +1,6 @@
 #include "mesh.hpp"
 
+#include "engine/renderer/rhi/resources/mesh/lightmap_uv.hpp"
 #include "engine/renderer/rhi/backends/opengl/mesh/gl_mesh.hpp"
 #include "engine/renderer/rhi/renderer_api.hpp"
 #include "engine/renderer/rhi/shader/shader.hpp"
@@ -20,6 +21,9 @@ namespace {
         glm::vec3 normal;
         glm::vec4 color;
         glm::vec3 tangent;
+        // Where the vertex sits in the mesh's lightmap layout (see lightmap_uv.hpp) : the second set of texture coordinates,
+        // for baked lighting. (0, 0) on a mesh that was not unwrapped.
+        glm::vec2 lightmapUV;
 
         bool operator==(const Vertex& other) const {
             const float eps = 0.0001f;
@@ -27,7 +31,8 @@ namespace {
                 glm::all(glm::epsilonEqual(normal, other.normal, eps)) &&
                 glm::all(glm::epsilonEqual(color, other.color, eps)) &&
                 glm::all(glm::epsilonEqual(texCoord, other.texCoord, eps))&&
-                glm::all(glm::epsilonEqual(tangent, other.tangent, eps));
+                glm::all(glm::epsilonEqual(tangent, other.tangent, eps)) &&
+                glm::all(glm::epsilonEqual(lightmapUV, other.lightmapUV, eps));
         }
     };
 
@@ -70,6 +75,9 @@ namespace std {
             HashCombine(seed, h(v.tangent.x));
             HashCombine(seed, h(v.tangent.y));
             HashCombine(seed, h(v.tangent.z));
+
+            HashCombine(seed, h(v.lightmapUV.x));
+            HashCombine(seed, h(v.lightmapUV.y));
 
             return seed;
         }
@@ -332,18 +340,77 @@ namespace Shard::Engine::Rendering{
         }
     }
 
+    namespace {
+
+        // The triangles of one material slot while the mesh is being built
+        struct GroupedTriangles {
+            std::vector<Vertex> verts;
+            std::vector<unsigned int> localIndices;
+            std::unique_ptr<VertexDeduplicator> dedup;
+        };
+
+        // Whether a mesh gets its lightmap texture coordinates when it is built (they cost a vertex attribute and the vertices
+        // cut along the charts' seams). A mesh built without them cannot take a baked lightmap. Applies to meshes loaded afterwards.
+        Core::CVar<bool> cvLightmapUVs("mesh.lightmap_uvs", true,
+            "Give every mesh a second set of texture coordinates for baked lighting (lightmaps) when it is loaded. Meshes loaded without them cannot be lightmapped. Applies to meshes loaded afterwards",
+            Core::CVarFlags::Archive);
+
+        // Lays the whole mesh (every material slot) out in one lightmap square, see UnwrapForLightmap() : the vertices on the
+        // seams between two charts are split, and every vertex gets its lightmapUV
+        void AssignLightmapUVs(std::vector<GroupedTriangles>& groups)
+        {
+            std::vector<std::vector<glm::vec3>> positions(groups.size()), normals(groups.size());
+            std::vector<LightmapUnwrapGroup> input(groups.size());
+
+            for (size_t g = 0; g < groups.size(); g++)
+            {
+                const std::vector<Vertex>& verts = groups[g].verts;
+                positions[g].reserve(verts.size());
+                normals[g].reserve(verts.size());
+                for (const Vertex& v : verts)
+                {
+                    positions[g].push_back(v.position);
+                    normals[g].push_back(v.normal);
+                }
+
+                input[g].positions = positions[g].data();
+                input[g].normals = normals[g].data();
+                input[g].vertexCount = verts.size();
+                input[g].indices = groups[g].localIndices.data();
+                input[g].indexCount = groups[g].localIndices.size();
+            }
+
+            const LightmapUnwrapResult unwrapped = UnwrapForLightmap(input);
+            if (!unwrapped.success)
+                return;
+
+            for (size_t g = 0; g < groups.size(); g++)
+            {
+                const LightmapUnwrapGroupResult& cut = unwrapped.groups[g];
+                if (cut.indices.empty())
+                    continue;
+
+                std::vector<Vertex> cutVerts;
+                cutVerts.reserve(cut.sourceVertex.size());
+                for (size_t i = 0; i < cut.sourceVertex.size(); i++)
+                {
+                    Vertex v = groups[g].verts[cut.sourceVertex[i]];
+                    v.lightmapUV = cut.uv[i];
+                    cutVerts.push_back(v);
+                }
+
+                groups[g].verts = std::move(cutVerts);
+                groups[g].localIndices.assign(cut.indices.begin(), cut.indices.end());
+            }
+        }
+    }
+
     MeshCPUData BuildMeshCPUDataFromFBX(const ufbx_mesh *ufbx_mesh, double scene_unit_meters,
         ufbx_material_list &ufbx_mats, ufbx_node *mesh_node, COL_RGBA vertexColor)
     {
         MeshCPUData result;
 
         double scene_scale = scene_unit_meters;
-
-        struct GroupedTriangles {
-            std::vector<Vertex> verts;
-            std::vector<unsigned int> localIndices;
-            std::unique_ptr<VertexDeduplicator> dedup;
-        };
 
         // One group per FBX material slot, kept in the mesh's own material-index
         // order. World files (and DCC tools) address materials by that index, so
@@ -439,12 +506,18 @@ namespace Shard::Engine::Rendering{
         for (GroupedTriangles& group : materialGroups)
             group.dedup.reset();
 
+        // The tangents are worked out on the mesh as it is, before the lightmap layout cuts its vertices : the two halves of a
+        // vertex split along a lightmap seam are the same point of the surface and must shade with the same tangent
+        for (GroupedTriangles& group : materialGroups)
+            ComputeTangents(group.verts, group.localIndices);
+
+        if (cvLightmapUVs.Get())
+            AssignLightmapUVs(materialGroups);
+
         uint32_t totalVertexCount = 0;
 
         for (uint32_t slot = 0; slot < materialSlotCount; slot++) {
             auto& group = materialGroups[slot];
-
-            ComputeTangents(group.verts, group.localIndices);
 
             // One submesh per spatial chunk of this slot, all pointing at the same material slot. An unused slot
             // still yields one (empty) submesh so the slot numbering stays aligned.
@@ -488,7 +561,8 @@ namespace Shard::Engine::Rendering{
             {"aTexCoord",ShaderDataType::Vec2, 1, offsetof(Vertex, texCoord)},
             {"aNormal",  ShaderDataType::Vec3, 2, offsetof(Vertex, normal)},
             {"aColor",   ShaderDataType::Vec4, 3, offsetof(Vertex, color)},
-            {"aTangent", ShaderDataType::Vec3, 4, offsetof(Vertex, tangent)}}, sizeof(Vertex)
+            {"aTangent", ShaderDataType::Vec3, 4, offsetof(Vertex, tangent)},
+            {"aLightmapUV", ShaderDataType::Vec2, 5, offsetof(Vertex, lightmapUV)}}, sizeof(Vertex)
         };
 
         result.success = true;
@@ -601,7 +675,8 @@ namespace Shard::Engine::Rendering{
         }
     }
 
-    std::vector<DrawCommand> Mesh::CreateDrawCommands(const glm::mat4& worldMatrix, int objectID, int modelID, std::vector<std::shared_ptr<Material>> mats)
+    std::vector<DrawCommand> Mesh::CreateDrawCommands(const glm::mat4& worldMatrix, int objectID, int modelID, std::vector<std::shared_ptr<Material>> mats,
+        uint64_t lightmapHandle, const glm::vec4& lightmapScaleOffset)
     {
         if(mats.empty()){
             DEBUG_ERROR("Cannot create draw commands: no materials supplied");
@@ -634,6 +709,8 @@ namespace Shard::Engine::Rendering{
             cmd.modelMatrix = worldMatrix;
             cmd.objectID    = objectID;
             cmd.modelID     = modelID;
+            cmd.lightmapHandle = lightmapHandle;
+            cmd.lightmapScaleOffset = lightmapScaleOffset;
 
             // Per-submesh bounds, so frustum culling can drop the parts of a big mesh that are out of view
             cmd.boundsMax = m_Submeshes[i].boundsMax;

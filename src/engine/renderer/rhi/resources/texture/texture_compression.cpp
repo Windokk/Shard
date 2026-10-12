@@ -189,9 +189,42 @@ namespace Shard::Engine::Rendering {
             return true;
         }
 
-        // The block downsampled by two, with the border pixels repeated for an odd size
-        void Downsample(const uint8_t* src, uint32_t width, uint32_t height, uint32_t channels, std::vector<uint8_t>& dst, uint32_t& newWidth, uint32_t& newHeight)
+        // sRGB <-> linear for the 8 bit colours of a colour texture : the decode is a 256 entry table, the encode a 4096 entry
+        // table indexed by the linear value (twice the precision of the finest step the curve has, near black)
+        struct SRGBTables
         {
+            float toLinear[256];
+            uint8_t toSRGB[4096];
+
+            SRGBTables()
+            {
+                for (int i = 0; i < 256; i++)
+                {
+                    const float c = float(i) / 255.0f;
+                    toLinear[i] = c <= 0.04045f ? c / 12.92f : std::pow((c + 0.055f) / 1.055f, 2.4f);
+                }
+                for (int i = 0; i < 4096; i++)
+                {
+                    const float l = float(i) / 4095.0f;
+                    const float c = l <= 0.0031308f ? l * 12.92f : 1.055f * std::pow(l, 1.0f / 2.4f) - 0.055f;
+                    toSRGB[i] = uint8_t(std::clamp(int(c * 255.0f + 0.5f), 0, 255));
+                }
+            }
+        };
+
+        const SRGBTables& GetSRGBTables()
+        {
+            static const SRGBTables tables;
+            return tables;
+        }
+
+        // The block downsampled by two, with the border pixels repeated for an odd size. `srgb` : the colour channels (the first
+        // three of a 3 or 4 channel image) are averaged as light, not as encoded values.
+        void Downsample(const uint8_t* src, uint32_t width, uint32_t height, uint32_t channels, std::vector<uint8_t>& dst, uint32_t& newWidth, uint32_t& newHeight, bool srgb = false)
+        {
+            const uint32_t colourChannels = (srgb && channels >= 3) ? 3 : 0;
+            const SRGBTables& tables = GetSRGBTables();
+
             newWidth = std::max(1u, width / 2);
             newHeight = std::max(1u, height / 2);
             dst.resize(size_t(newWidth) * newHeight * channels);
@@ -209,7 +242,15 @@ namespace Shard::Engine::Rendering {
                     const uint8_t* p11 = src + (size_t(y1) * width + x1) * channels;
                     uint8_t* out = &dst[(size_t(y) * newWidth + x) * channels];
                     for (uint32_t c = 0; c < channels; c++)
-                        out[c] = uint8_t((int(p00[c]) + int(p10[c]) + int(p01[c]) + int(p11[c]) + 2) >> 2);
+                    {
+                        if (c < colourChannels)
+                        {
+                            const float light = 0.25f * (tables.toLinear[p00[c]] + tables.toLinear[p10[c]] + tables.toLinear[p01[c]] + tables.toLinear[p11[c]]);
+                            out[c] = tables.toSRGB[std::clamp(int(light * 4095.0f + 0.5f), 0, 4095)];
+                        }
+                        else
+                            out[c] = uint8_t((int(p00[c]) + int(p10[c]) + int(p01[c]) + int(p11[c]) + 2) >> 2);
+                    }
                 }
             }
         }
@@ -500,7 +541,7 @@ namespace Shard::Engine::Rendering {
         return samples > 0 && unitLength * 100 >= samples * 95 && sumZ / samples > 0.3;
     }
 
-    bool CompressImage(const uint8_t* pixels, uint32_t width, uint32_t height, uint32_t channels, CompressedImage& out, bool normalMap, unsigned threads)
+    bool CompressImage(const uint8_t* pixels, uint32_t width, uint32_t height, uint32_t channels, CompressedImage& out, bool normalMap, unsigned threads, bool srgb)
     {
         if (!pixels || width == 0 || height == 0 || channels < 1 || channels > 4)
             return false;
@@ -551,7 +592,7 @@ namespace Shard::Engine::Rendering {
             if (level + 1 < levels)
             {
                 uint32_t nextWidth, nextHeight;
-                Downsample(current, levelWidth, levelHeight, channels, next, nextWidth, nextHeight);
+                Downsample(current, levelWidth, levelHeight, channels, next, nextWidth, nextHeight, srgb && !normalMap);
                 storage.swap(next);
                 current = storage.data();
                 levelWidth = nextWidth;
@@ -574,7 +615,7 @@ namespace Shard::Engine::Rendering {
             return g_CacheDirectory;
         }
 
-        std::string MakeKey(const std::string& sourcePath)
+        std::string MakeKey(const std::string& sourcePath, bool srgb)
         {
             std::string directory;
             {
@@ -592,7 +633,8 @@ namespace Shard::Engine::Rendering {
             if (ec)
                 return "";
 
-            const std::string identity = std::to_string(kVersion) + "|" + sourcePath + "|" + std::to_string(size) + "|" + std::to_string(stamp.time_since_epoch().count());
+            // The key of a linear texture is what it always was : the files already cached stay valid
+            const std::string identity = std::to_string(kVersion) + "|" + sourcePath + "|" + std::to_string(size) + "|" + std::to_string(stamp.time_since_epoch().count()) + (srgb ? "|srgb" : "");
             char name[32];
             std::snprintf(name, sizeof(name), "%016llx.stx", static_cast<unsigned long long>(Fnv1a64(identity)));
             return (std::filesystem::path(directory) / name).generic_string();
