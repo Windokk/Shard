@@ -294,6 +294,7 @@ namespace Shard::Engine{
                 void RenderFrame();
                 void PollInput();
                 void StartHotReload();
+                void ReloadWorldFromDisk(const std::string& nameInProject);
                 void Present();
 
                 // The render thread owns the graphics context while it runs (see Rendering::RenderThread)

@@ -204,6 +204,10 @@ namespace Shard::Editor::GUI{
             float           zoomWheelAccum = 0.0f;      // Mouse wheel accumulator to handle smooth wheels better
 
             bool dirty = true;
+            // Assets whose content changed on disk (HotReloader) : their thumbnails are redrawn. Shared with the listener, which
+            // outlives nothing but the engine.
+            std::shared_ptr<std::vector<std::string>> staleThumbnails = std::make_shared<std::vector<std::string>>();
+            bool hotReloadListening = false;
             uint64_t hotReloadRevision = 0;      // the asset set the listing was made from (see HotReloader::GetRevision)
 
             std::vector<Engine::Filesystem::Type> allowedTypes = {

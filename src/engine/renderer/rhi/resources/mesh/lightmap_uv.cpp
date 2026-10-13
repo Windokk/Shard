@@ -41,6 +41,7 @@ namespace Shard::Engine::Rendering {
         {
             uint32_t v[3] = { 0, 0, 0 };
             glm::vec3 normal = glm::vec3(0.0f);     // unit, or zero for a triangle without an area
+            glm::vec3 facing = glm::vec3(0.0f);     // what the charts are grown with : the mesh's smooth normal over the triangle when it has one (see BuildGroupGeometry)
             float area = 0.0f;
             int chart = -1;
             int region = 0;                         // the set of triangles a chart is being grown in (see BuildCharts)
@@ -71,6 +72,49 @@ namespace Shard::Engine::Rendering {
             glm::vec2 offset = glm::vec2(0.0f);     // where the layout put the chart's origin, in the unit square
         };
 
+        // A finely tessellated surface (cloth, scans) has face normals that jitter by tens of degrees from one triangle to the
+        // next while the surface itself is smooth : grown on those, the charts stop after a triangle or two and the lightmap
+        // becomes a heap of slivers. Each triangle's `facing` is its normal averaged (by area) with its neighbours', a few
+        // rings deep, over the neighbours that face about the same way as it does - so noise is averaged out while a real
+        // crease (a wall meeting a floor) is not blurred across, and still cuts a chart.
+        void SmoothFacing(GroupGeometry& geometry)
+        {
+            constexpr int iterations = 20;
+            constexpr float cosLimit = 0.8f;        // about 37 degrees : the neighbours that count as the same surface
+            const size_t count = geometry.triangles.size();
+            std::vector<glm::vec3> current(count), next(count);
+            for (size_t t = 0; t < count; t++)
+                current[t] = geometry.triangles[t].normal;
+
+            for (int pass = 0; pass < iterations; pass++)
+            {
+                for (size_t t = 0; t < count; t++)
+                {
+                    const Triangle& tri = geometry.triangles[t];
+                    if (tri.area <= 0.0f)
+                    {
+                        next[t] = current[t];
+                        continue;
+                    }
+                    glm::vec3 sum = current[t] * tri.area;
+                    for (uint32_t n = geometry.firstNeighbour[t]; n < geometry.firstNeighbour[t + 1]; n++)
+                    {
+                        const Triangle& other = geometry.triangles[geometry.neighbours[n]];
+                        // The face normals decide who is a neighbour of the same surface, so the filter cannot creep around a crease
+                        if (other.area > 0.0f && glm::dot(other.normal, tri.normal) >= cosLimit)
+                            sum += current[geometry.neighbours[n]] * other.area;
+                    }
+                    const float length = glm::length(sum);
+                    next[t] = length > 1e-12f ? sum / length : current[t];
+                }
+                current.swap(next);
+            }
+
+            for (size_t t = 0; t < count; t++)
+                if (geometry.triangles[t].area > 0.0f)
+                    geometry.triangles[t].facing = current[t];
+        }
+
         void BuildGroupGeometry(const LightmapUnwrapGroup& group, GroupGeometry& out)
         {
             const size_t triangleCount = group.indexCount / 3;
@@ -96,6 +140,8 @@ namespace Shard::Engine::Rendering {
                     tri.normal = c / length;
                 else
                     tri.area = 0.0f;
+
+                tri.facing = tri.normal;
             }
 
             // Triangles that share an edge are neighbours - judged on the vertices' positions, not their indices : a mesh
@@ -174,6 +220,8 @@ namespace Shard::Engine::Rendering {
                 out.neighbours[cursor[link.first]++] = link.second;
                 out.neighbours[cursor[link.second]++] = link.first;
             }
+
+            SmoothFacing(out);
         }
 
         // The projection plane of a chart : the plane its triangles face on average
@@ -245,7 +293,10 @@ namespace Shard::Engine::Rendering {
             }
 
             const glm::vec2 extent = glm::max(hi - lo, glm::vec2(1e-12f));
-            const float epsilon = 1e-5f * std::max(extent.x, extent.y);
+            // Two triangles that overlap by less than a centimeter are the relief of the surface (a weave, a crumpled cloth), not a
+            // part that folds over : the light they would share is the same to within a fraction of a texel
+            constexpr float kOverlapTolerance = 0.01f;
+            const float epsilon = std::max(1e-5f * std::max(extent.x, extent.y), kOverlapTolerance);
             const int cells = int(std::clamp(std::sqrt(double(count)) * 1.5, 1.0, 256.0));
             std::vector<std::vector<uint32_t>> grid(size_t(cells) * cells);
 
@@ -272,6 +323,9 @@ namespace Shard::Engine::Rendering {
             }
             return false;
         }
+
+        void MergeSmallCharts(const LightmapUnwrapGroup& group, GroupGeometry& geometry, const LightmapUnwrapSettings& settings,
+                              std::vector<Chart>& charts);
 
         // Grows the group's charts : from the largest triangle not in a chart yet, across shared edges, for as long as the
         // neighbour faces about the same way as the chart does. A chart that would fold over itself when flattened is thrown
@@ -322,7 +376,7 @@ namespace Shard::Engine::Rendering {
                     chart.group = groupIndex;
                     seedTriangle.chart = kGrowing;
                     chart.triangles.push_back(seed);
-                    chart.normalSum = seedTriangle.normal * seedTriangle.area;
+                    chart.normalSum = seedTriangle.facing * seedTriangle.area;
 
                     stack.clear();
                     stack.push_back(seed);
@@ -343,9 +397,9 @@ namespace Shard::Engine::Rendering {
                             if (!accept)
                             {
                                 const float sumLength = glm::length(chart.normalSum);
-                                const glm::vec3 average = sumLength > 1e-12f ? chart.normalSum / sumLength : seedTriangle.normal;
-                                accept = glm::dot(candidate.normal, average) >= cosChart &&
-                                         (seedTriangle.area <= 0.0f || glm::dot(candidate.normal, seedTriangle.normal) >= cosSeed);
+                                const glm::vec3 average = sumLength > 1e-12f ? chart.normalSum / sumLength : seedTriangle.facing;
+                                accept = glm::dot(candidate.facing, average) >= cosChart &&
+                                         (seedTriangle.area <= 0.0f || glm::dot(candidate.facing, seedTriangle.facing) >= cosSeed);
                             }
 
                             if (!accept)
@@ -353,7 +407,7 @@ namespace Shard::Engine::Rendering {
 
                             candidate.chart = kGrowing;
                             chart.triangles.push_back(candidateIndex);
-                            chart.normalSum += candidate.normal * candidate.area;
+                            chart.normalSum += candidate.facing * candidate.area;
                             stack.push_back(candidateIndex);
                         }
                     }
@@ -381,6 +435,102 @@ namespace Shard::Engine::Rendering {
                     charts.push_back(std::move(chart));
                 }
             }
+
+            MergeSmallCharts(group, geometry, settings, charts);
+        }
+
+        // The leftovers of the growth above : on a surface with fine relief, the triangles that did not fit a big chart each
+        // end up in a chart of their own, a few triangles wide - a few texels of lightmap with a seam all around them, and a
+        // visible patch of wrong light. Every chart smaller than the settings' minimum is merged into the neighbour it shares
+        // most edges with (smallest first, so a run of slivers collects into one), as long as that neighbour does not face
+        // away from it. What is merged is tiny, so what it gets wrong when projected onto the neighbour's plane stays far
+        // below a texel.
+        void MergeSmallCharts(const LightmapUnwrapGroup& group, GroupGeometry& geometry, const LightmapUnwrapSettings& settings,
+                              std::vector<Chart>& charts)
+        {
+            if (settings.minChartArea <= 0.0f || charts.size() < 2)
+                return;
+
+            const float cosMerge = std::cos(glm::radians(settings.maxMergeAngleDegrees));
+            std::vector<float> area(charts.size(), 0.0f);
+            for (size_t c = 0; c < charts.size(); c++)
+                for (uint32_t t : charts[c].triangles)
+                    area[c] += geometry.triangles[t].area;
+
+            std::vector<uint32_t> order(charts.size());
+            std::iota(order.begin(), order.end(), 0u);
+            std::sort(order.begin(), order.end(), [&](uint32_t a, uint32_t b) { return area[a] != area[b] ? area[a] < area[b] : a < b; });
+
+            std::vector<int> mergedInto(charts.size(), -1);
+            auto resolve = [&](int c) { while (mergedInto[c] >= 0) c = mergedInto[c]; return c; };
+
+            std::unordered_map<int, int> shared;
+            for (uint32_t index : order)
+            {
+                if (mergedInto[index] >= 0 || area[index] >= settings.minChartArea)
+                    continue;
+
+                Chart& small = charts[index];
+                const float smallLength = glm::length(small.normalSum);
+                if (smallLength <= 1e-12f)
+                    continue;
+                const glm::vec3 smallNormal = small.normalSum / smallLength;
+
+                shared.clear();
+                for (uint32_t t : small.triangles)
+                    for (uint32_t n = geometry.firstNeighbour[t]; n < geometry.firstNeighbour[t + 1]; n++)
+                    {
+                        const int other = geometry.triangles[geometry.neighbours[n]].chart;
+                        if (other >= 0 && resolve(other) != int(index))
+                            shared[resolve(other)]++;
+                    }
+
+                int best = -1, bestCount = 0;
+                for (const auto& entry : shared)
+                {
+                    const Chart& candidate = charts[entry.first];
+                    const float length = glm::length(candidate.normalSum);
+                    if (length <= 1e-12f || glm::dot(candidate.normalSum / length, smallNormal) < cosMerge)
+                        continue;
+                    // The most shared edges, then the larger chart, then the lower index : deterministic whatever the map's order
+                    if (entry.second > bestCount || (entry.second == bestCount && (area[entry.first] > area[best] || (area[entry.first] == area[best] && entry.first < best))))
+                    {
+                        best = entry.first;
+                        bestCount = entry.second;
+                    }
+                }
+                if (best < 0)
+                    continue;
+
+                Chart& target = charts[best];
+                target.triangles.insert(target.triangles.end(), small.triangles.begin(), small.triangles.end());
+                target.normalSum += small.normalSum;
+                area[best] += area[index];
+                for (uint32_t t : small.triangles)
+                    geometry.triangles[t].chart = best;
+                small.triangles.clear();
+                mergedInto[index] = best;
+            }
+
+            // Compact : the emptied charts leave, the others keep their order
+            std::vector<int> remap(charts.size(), -1);
+            std::vector<Chart> kept;
+            kept.reserve(charts.size());
+            for (size_t c = 0; c < charts.size(); c++)
+                if (!charts[c].triangles.empty())
+                {
+                    remap[c] = int(kept.size());
+                    kept.push_back(std::move(charts[c]));
+                }
+            for (Chart& chart : kept)
+            {
+                std::sort(chart.triangles.begin(), chart.triangles.end());       // a merged chart is flattened in a stable order
+                ChartFrame(chart);
+                for (uint32_t t : chart.triangles)
+                    geometry.triangles[t].chart = remap[geometry.triangles[t].chart];
+            }
+            charts = std::move(kept);
+            (void)group;
         }
 
         // Convex hull of the points (Andrew's monotone chain), counter clockwise, without the first point repeated
@@ -724,7 +874,7 @@ namespace Shard::Engine::Rendering {
         // ---------------------------------------------------------------------------------------------------------------------
 
         // Changes with every change of the algorithm that would give another layout for the same mesh
-        constexpr uint32_t kAlgorithmVersion = 1;
+        constexpr uint32_t kAlgorithmVersion = 2;
 
         std::mutex& CacheMutex()
         {
@@ -764,6 +914,8 @@ namespace Shard::Engine::Rendering {
             hash = HashWords(hash, &settings.maxChartAngleDegrees, sizeof(float));
             hash = HashWords(hash, &settings.maxSeedAngleDegrees, sizeof(float));
             hash = HashWords(hash, &settings.padding, sizeof(float));
+            hash = HashWords(hash, &settings.minChartArea, sizeof(float));
+            hash = HashWords(hash, &settings.maxMergeAngleDegrees, sizeof(float));
 
             for (const LightmapUnwrapGroup& group : groups)
             {

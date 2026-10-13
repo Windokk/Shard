@@ -18,6 +18,7 @@ namespace {
     struct Tex {
         int version = 0;
     };
+    struct Blob {};
 
     // The hot reloader over a real folder, with a made-up texture kind that counts its reloads
     class HotReloaderTest : public ::testing::Test {
@@ -29,6 +30,9 @@ namespace {
         Assets::HotReloader reloader;
         int reloads = 0;
         int databaseSaves = 0;
+        std::vector<std::string> replacedMeshes;
+        std::vector<std::string> changedWorlds;
+        std::vector<std::string> notified;
 
         void SetUp() override
         {
@@ -49,6 +53,23 @@ namespace {
                 return true;
             };
             rm.RegisterKind(AssetKind::Texture, std::move(info));
+
+            {
+                AssetKindInfo mesh;     // no in-place reload : replaced in the cache
+                mesh.load = [](const std::string&, const Filesystem::AssetInfos&) -> std::shared_ptr<void> { return std::make_shared<Blob>(); };
+                rm.RegisterKind(AssetKind::Mesh, std::move(mesh));
+
+                AssetKindInfo bake;
+                bake.load = [](const std::string&, const Filesystem::AssetInfos&) -> std::shared_ptr<void> { return std::make_shared<Blob>(); };
+                rm.RegisterKind(AssetKind::ProbeBake, std::move(bake));
+
+                AssetKindInfo world;
+                world.load = [](const std::string&, const Filesystem::AssetInfos&) -> std::shared_ptr<void> { return std::make_shared<Blob>(); };
+                world.ownerType = Filesystem::Type::T_WORLD;
+                world.evictable = false;
+                world.dependencies = [](const Filesystem::Path&) { return std::vector<Core::Resources::ResourceKey>{ { AssetKind::ProbeBake, "probes/p.probes" } }; };
+                rm.RegisterKind(AssetKind::World, std::move(world));
+            }
         }
 
         void TearDown() override
@@ -71,8 +92,12 @@ namespace {
             config.ids = &ids;
             config.resources = &rm;
             config.persistDatabase = [this] { databaseSaves++; };
+            config.onMeshReplaced = [this](const std::string& name) { replacedMeshes.push_back(name); };
+            config.onWorldChanged = [this](const std::string& name) { changedWorlds.push_back(name); };
             reloader.SetSettleTime(0.05);
-            return reloader.Start(config);
+            const bool started = reloader.Start(config);
+            reloader.AddChangeListener([this](const std::string& name) { notified.push_back(name); });
+            return started;
         }
 
         template <class Predicate>
@@ -194,5 +219,83 @@ namespace {
         ASSERT_TRUE(Pump([&] { return reloads > 0; }));
         EXPECT_TRUE(Registered("textures/a.png"));
         EXPECT_FALSE(Registered("textures/a.png.tmp"));
+    }
+
+    TEST_F(HotReloaderTest, AModifiedMeshReplacesTheCachedOneAndTellsTheModels)
+    {
+        Write("models/m.fbx", "one");
+        files.RegisterAsset(Filesystem::Path((root / "resources" / "models" / "m.fbx").generic_string(), true));
+        auto old = rm.Get<Blob>(AssetKind::Mesh, "models/m.fbx");
+        ASSERT_NE(old, nullptr);
+
+        ASSERT_TRUE(StartReloader());
+        Write("models/m.fbx", "two");
+
+        ASSERT_TRUE(Pump([&] { return !replacedMeshes.empty(); }));
+        EXPECT_EQ(replacedMeshes[0], "models/m.fbx");
+        EXPECT_NE(rm.Get<Blob>(AssetKind::Mesh, "models/m.fbx"), old);
+    }
+
+    TEST_F(HotReloaderTest, AChangedBakeReloadsTheWorldThatUsesIt)
+    {
+        Write("w.world", "{}");
+        Write("probes/p.probes", "one");
+        files.RegisterAsset(Filesystem::Path((root / "resources" / "w.world").generic_string(), true));
+        files.RegisterAsset(Filesystem::Path((root / "resources" / "probes" / "p.probes").generic_string(), true));
+        auto world = rm.Get<Blob>(AssetKind::World, "w.world");
+        ASSERT_NE(world, nullptr);
+        { ASSERT_NE(rm.Get<Blob>(AssetKind::ProbeBake, "probes/p.probes"), nullptr); }      // what the world's prefetch does
+
+        ASSERT_TRUE(StartReloader());
+        Write("probes/p.probes", "two");
+
+        ASSERT_TRUE(Pump([&] { return !changedWorlds.empty(); }));
+        EXPECT_EQ(changedWorlds[0], "w.world");
+        EXPECT_FALSE(rm.Has(AssetKind::ProbeBake, "probes/p.probes"));   // read again the next time the world asks
+    }
+
+    TEST_F(HotReloaderTest, AModifiedWorldFileIsReported)
+    {
+        Write("w.world", "{}");
+        files.RegisterAsset(Filesystem::Path((root / "resources" / "w.world").generic_string(), true));
+
+        ASSERT_TRUE(StartReloader());
+        Write("w.world", "{ }");
+
+        ASSERT_TRUE(Pump([&] { return !changedWorlds.empty(); }));
+        EXPECT_EQ(changedWorlds[0], "w.world");
+    }
+
+    TEST_F(HotReloaderTest, WhatTheEngineWroteItselfIsNotAnOutsideChange)
+    {
+        Write("w.world", "{}");
+        files.RegisterAsset(Filesystem::Path((root / "resources" / "w.world").generic_string(), true));
+
+        ASSERT_TRUE(StartReloader());
+        Write("w.world", "{ saved by the engine }");
+        Assets::NoteOwnWrite((root / "resources" / "w.world").generic_string());
+
+        Pump([] { return false; });
+        EXPECT_TRUE(changedWorlds.empty());
+
+        // ... while the next edit from outside is
+        Write("w.world", "{ edited by someone else }");
+        ASSERT_TRUE(Pump([&] { return !changedWorlds.empty(); }));
+    }
+
+    TEST_F(HotReloaderTest, ListenersAreToldOfTheChangedAssetAndOfWhatDependsOnIt)
+    {
+        Write("textures/a.png", "one");
+        Write("materials/m.mat", "{}");
+        const Filesystem::AssetID texture = files.RegisterAsset(Filesystem::Path((root / "resources" / "textures" / "a.png").generic_string(), true));
+        const Filesystem::AssetID material = files.RegisterAsset(Filesystem::Path((root / "resources" / "materials" / "m.mat").generic_string(), true));
+        ids.GetAssetFromID(material)->dependencies = { texture };
+
+        ASSERT_TRUE(StartReloader());
+        Write("textures/a.png", "two");
+
+        ASSERT_TRUE(Pump([&] { return notified.size() >= 2; }));
+        EXPECT_NE(std::find(notified.begin(), notified.end(), "textures/a.png"), notified.end());
+        EXPECT_NE(std::find(notified.begin(), notified.end(), "materials/m.mat"), notified.end());
     }
 }

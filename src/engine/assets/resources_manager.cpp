@@ -127,6 +127,35 @@ namespace Shard::Engine::Core::Resources{
         return true;
     }
 
+    bool ResourcesManager::Replace(AssetKind kind, const std::string &pathInProject)
+    {
+        const size_t index = static_cast<size_t>(kind);
+        if(index >= resident.size() || resident[index].find(pathInProject) == resident[index].end())
+            return false;
+
+        const AssetKindInfo* info = KindInfo(kind);
+        if(!info || !info->load)
+            return false;
+
+        const std::string databaseName = pathInProject + info->nameSuffix;
+        const Filesystem::AssetID id = ids->GetIDFromNameInProject(databaseName);
+        std::shared_ptr<Filesystem::AssetInfos> assetInfos = ids->GetAssetFromID(id);
+        if(!assetInfos || assetInfos->baseInfos.nameInProject != databaseName)
+            return false;
+
+        std::shared_ptr<void> fresh = info->load(pathInProject, *assetInfos);
+        if(!fresh)
+            return false;
+
+        if(info->setAssetID)
+            info->setAssetID(fresh.get(), id);
+        resident[index][pathInProject] = std::move(fresh);
+
+        if(info->dependencies)
+            SetDependencies({kind, pathInProject}, info->dependencies(assetInfos->baseInfos.path));
+        return true;
+    }
+
     std::vector<ResourceKey> ResourcesManager::ResidentOwnersOf(const ResourceKey &key) const
     {
         std::vector<ResourceKey> owners;

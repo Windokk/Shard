@@ -9,6 +9,8 @@
 #include "engine/renderer/rhi/material/material.hpp"
 
 #include "engine/world/actor.hpp"
+#include "engine/world/world.hpp"
+#include "engine/world/world_manager.hpp"
 #include "engine/renderer/components/render_world_data.hpp"
 
 #include "model_component.reflection.hpp"
@@ -314,6 +316,28 @@ namespace Shard::Engine::Objects::Components{
         //Mesh
         else if(event.field->type == TypeID::Asset){
             SetMesh(meshID);
+        }
+    }
+
+    void ReloadModelsUsingMesh(Worlds::WorldManager& worlds, const std::string& meshNameInProject)
+    {
+        auto* assetIDs = Core::GetEngine().GetAssetIDManager();
+
+        for (int w = 0; w < worlds.GetLoadedWorldCount(); w++)
+        {
+            Worlds::World* world = worlds.GetWorldAt(w);
+            if (!world)
+                continue;
+
+            for (auto& [id, model] : world->Ext<Rendering::RenderWorldData>().models)
+            {
+                if (!model || !model->MeshRef())
+                    continue;
+
+                auto info = assetIDs->GetAssetFromID(model->MeshRef()->GetAssetID());
+                if (info && info->baseInfos.nameInProject == meshNameInProject)
+                    model->SetMesh(meshNameInProject);
+            }
         }
     }
 }

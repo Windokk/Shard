@@ -304,6 +304,27 @@ TEST(LightmapUnwrap, AFlatGridIsOneChart) {
     EXPECT_GT(result.uvArea, 0.9f);
 }
 
+// A cloth modelled with relief at the scale of its own triangles : its face normals jitter by tens of degrees while the
+// surface is flat as far as a lightmap can tell. It has to come out as a few charts, not as a heap of slivers.
+TEST(LightmapUnwrap, ANoisyFineSurfaceDoesNotShatterIntoSlivers) {
+    SoupMesh mesh = MakeGrid(100, 1.0f);     // 1 cm triangles
+    uint32_t state = 12345u;
+    for (glm::vec3& p : mesh.positions)
+    {
+        state = state * 1664525u + 1013904223u;
+        p.y = (float((state >> 8) & 0xFFFF) / 65535.0f - 0.5f) * 0.02f;        // +- 1 cm
+    }
+
+    std::vector<LightmapUnwrapGroup> groups = { mesh.Group() };
+    const LightmapUnwrapResult result = UnwrapForLightmap(groups);
+    ASSERT_TRUE(result.success);
+
+    LightmapUnwrapSettings unmerged;
+    unmerged.minChartArea = 0.0f;
+    const uint32_t before = UnwrapForLightmap(groups, unmerged).chartCount;
+    EXPECT_LT(result.chartCount * 4u, before) << "20000 triangles of cloth: " << before << " charts, " << result.chartCount << " once the small ones are merged";
+}
+
 TEST(LightmapUnwrap, ASphereIsCutIntoSeveralNonOverlappingCharts) {
     const SoupMesh sphere = MakeSphere(24, 32, 1.0f);
     const LightmapUnwrapResult result = UnwrapForLightmap({ sphere.Group() });

@@ -18,6 +18,7 @@
 #include "engine/platform/thread/thread.hpp"
 #include "engine/assets/serialization/project/project_serializer.hpp"
 #include "engine/assets/hot_reloader.hpp"
+#include "engine/renderer/components/model_component.hpp"
 #include "engine/assets/asset_database_serializer.hpp"
 #include "engine/world/world_manager.hpp"
 #include "engine/core/diagnostics/profiler.hpp"
@@ -744,6 +745,37 @@ namespace Shard::Engine{
                 fn();
         }
 
+        void EngineInstance::ReloadWorldFromDisk(const std::string& nameInProject)
+        {
+            auto nameOfWorld = [this](int index) -> std::string {
+                Worlds::World* world = m_Context.worldManager->GetWorldAt(index);
+                auto info = world ? m_Context.assetIDManager->GetAssetFromID(world->GetAssetID()) : nullptr;
+                return info ? info->baseInfos.nameInProject : "";
+            };
+
+            for(int i = 0; i < m_Context.worldManager->GetLoadedWorldCount(); i++){
+                if(nameOfWorld(i) != nameInProject)
+                    continue;
+
+                if(m_PlayMode){
+                    DEBUG_WARNING("[HotReload] ", nameInProject, " changed on disk while playing : not reloaded");
+                    return;
+                }
+                if(i != 0){
+                    DEBUG_WARNING("[HotReload] ", nameInProject, " changed on disk : only the first world is reloaded automatically, reload it by hand");
+                    return;
+                }
+                if(m_Context.worldManager->GetWorldAt(i)->IsDirty()){
+                    DEBUG_WARNING("[HotReload] ", nameInProject, " changed on disk but has unsaved changes : not reloaded");
+                    return;
+                }
+
+                DEBUG_INFO("[HotReload] Reloading world ", nameInProject);
+                m_ReloadCurrentWorld = true;
+                return;
+            }
+        }
+
         void EngineInstance::StartHotReload()
         {
             if(!cvHotReload.Get())
@@ -754,6 +786,10 @@ namespace Shard::Engine{
             config.ids = m_Context.assetIDManager;
             config.resources = m_Context.resourcesManager;
             config.buildSettings = GetBuildSettings();
+            config.onMeshReplaced = [this](const std::string& name){
+                Objects::Components::ReloadModelsUsingMesh(*m_Context.worldManager, name);
+            };
+            config.onWorldChanged = [this](const std::string& name){ ReloadWorldFromDisk(name); };
             if(!m_EngineSettings.readOnly){
                 config.persistDatabase = [this]{
                     Serialization::SerializeAssetDataBase(m_Context.currentProject->GetAssetDatabasePath(), *m_Context.assetIDManager);

@@ -11,6 +11,8 @@ namespace Shard::Engine::Rendering{
     class Material;
 }
 
+namespace Shard::Engine::Worlds { class WorldManager; }
+
 namespace Shard::Engine::Objects::Components
 {
     class CLASS() Model : public Component{
@@ -92,4 +94,8 @@ namespace Shard::Engine::Objects::Components
             std::vector<std::string> extraPasses;
 
     };
+
+    /// @brief Hot reload : a mesh asset was replaced in the cache by a freshly read one. Points every model that uses it at the new one
+    /// (the materials slots follow the new geometry, its baked lightmap is dropped : it was laid on the old one).
+    void ReloadModelsUsingMesh(Worlds::WorldManager& worlds, const std::string& meshNameInProject);
 }

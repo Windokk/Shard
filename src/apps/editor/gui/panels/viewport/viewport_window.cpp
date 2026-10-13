@@ -848,6 +848,7 @@ namespace Shard::Editor::GUI {
             { "UVs", Rendering::ViewMode::UVs },
             { "Global Illumination", Rendering::ViewMode::GlobalIllumination },
             { "SSAO", Rendering::ViewMode::SSAO },
+            { "Lightmap UVs", Rendering::ViewMode::LightmapUVs },
         };
 
         const char* currentLabel = "Lit";

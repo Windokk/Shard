@@ -1072,6 +1072,7 @@ namespace Shard::Engine::Rendering{
                     case ViewMode::UVs:
                     case ViewMode::GlobalIllumination:
                     case ViewMode::SSAO:
+                    case ViewMode::LightmapUVs:
                         m_SkipFullscreenCommands = true;
                         m_RendererAPI->SetDebugView(state);
                         ExecuteRenderPass();

@@ -4,7 +4,9 @@
 #include <cctype>
 #include <filesystem>
 #include <fstream>
+#include <mutex>
 #include <set>
+#include <unordered_map>
 
 #include "engine/assets/asset_references.hpp"
 #include "engine/assets/resources_manager.hpp"
@@ -73,6 +75,43 @@ namespace Shard::Engine::Assets {
             return fs::is_directory(fs::u8path(path), ec);
         }
 
+        // What this process wrote : path -> (last write time, size) as they were right after the write
+        struct WriteStamp {
+            fs::file_time_type time;
+            uintmax_t size = 0;
+        };
+        std::mutex g_OwnWritesMutex;
+        std::unordered_map<std::string, WriteStamp> g_OwnWrites;
+
+        std::string OwnWriteKey(const std::string& path)
+        {
+            std::error_code ec;
+            std::string key = fs::weakly_canonical(fs::u8path(path), ec).generic_u8string();
+            if(ec)
+                key = path;
+            std::transform(key.begin(), key.end(), key.begin(), [](unsigned char c){ return (char)std::tolower(c); });
+            return key;
+        }
+
+        bool Stamp(const std::string& path, WriteStamp& out)
+        {
+            std::error_code ec;
+            out.time = fs::last_write_time(fs::u8path(path), ec);
+            if(ec) return false;
+            out.size = fs::file_size(fs::u8path(path), ec);
+            return !ec;
+        }
+
+        bool IsOwnWrite(const std::string& path)
+        {
+            WriteStamp now;
+            if(!Stamp(path, now))
+                return false;
+            std::lock_guard<std::mutex> lock(g_OwnWritesMutex);
+            auto it = g_OwnWrites.find(OwnWriteKey(path));
+            return it != g_OwnWrites.end() && it->second.time == now.time && it->second.size == now.size;
+        }
+
         /// The file can be opened and has content : whoever writes it is done (or at least not holding it exclusively).
         bool IsReadable(const std::string& path, bool& empty)
         {
@@ -81,6 +120,51 @@ namespace Shard::Engine::Assets {
                 return false;
             empty = in.tellg() <= 0;
             return true;
+        }
+    }
+
+    void NoteOwnWrite(const std::string& path)
+    {
+        WriteStamp stamp;
+        if(!Stamp(path, stamp))
+            return;
+        std::lock_guard<std::mutex> lock(g_OwnWritesMutex);
+        g_OwnWrites[OwnWriteKey(path)] = stamp;
+    }
+
+    int HotReloader::AddChangeListener(ChangeListener listener)
+    {
+        m_Listeners.emplace_back(m_NextListenerID, std::move(listener));
+        return m_NextListenerID++;
+    }
+
+    void HotReloader::RemoveChangeListener(int id)
+    {
+        m_Listeners.erase(std::remove_if(m_Listeners.begin(), m_Listeners.end(), [id](const auto& l){ return l.first == id; }), m_Listeners.end());
+    }
+
+    void HotReloader::NotifyChanged(const std::string& nameInProject)
+    {
+        if(m_Listeners.empty())
+            return;
+
+        std::vector<std::string> names{ nameInProject };
+
+        // What depends on it, in the asset database (a material lists its textures and shader)
+        const AssetID id = m_Config.ids->GetIDFromNameInProject(nameInProject);
+        auto info = m_Config.ids->GetAssetFromID(id);
+        if(info && info->baseInfos.nameInProject == nameInProject){
+            for(auto& [otherID, other] : m_Config.ids->AssetIDMap){
+                if(std::find(other->dependencies.begin(), other->dependencies.end(), id) != other->dependencies.end())
+                    names.push_back(other->baseInfos.nameInProject);
+            }
+        }
+
+        // A listener may add or remove listeners
+        const auto listeners = m_Listeners;
+        for(const std::string& name : names){
+            for(const auto& [listenerID, listener] : listeners)
+                listener(name);
         }
     }
 
@@ -373,6 +457,9 @@ namespace Shard::Engine::Assets {
         if(name.empty())
             return;
 
+        if(!engine && IsOwnWrite(path))
+            return;
+
         if(!engine){
             // Written by something that never told us it exists
             const AssetID id = m_Config.ids->GetIDFromNameInProject(name);
@@ -421,6 +508,42 @@ namespace Shard::Engine::Assets {
         else if(ext == ".mat" || ext == ".material"){
             resources->RefreshDependencies(name);
             reload(AssetKind::Material, name, true);
+            NotifyChanged(name);
+            return;
+        }
+        else if(ext == ".fbx"){
+            if(resources->Has(AssetKind::Mesh, name)){
+                if(resources->Replace(AssetKind::Mesh, name)){
+                    DEBUG_INFO("[HotReload] Reloaded ", name);
+                    if(m_Config.onMeshReplaced)
+                        m_Config.onMeshReplaced(name);
+                }
+                else
+                    DEBUG_WARNING("[HotReload] Couldn't reload ", name, " : keeping the previous version");
+            }
+            NotifyChanged(name);
+            return;
+        }
+        else if(ext == ".world"){
+            if(m_Config.onWorldChanged)
+                m_Config.onWorldChanged(name);
+            return;
+        }
+        else if(ext == ".probes" || ext == ".lightmap"){
+            // Only read when a world comes up : what is cached is dropped, and the worlds that use it start over
+            const AssetKind kind = ext == ".probes" ? AssetKind::ProbeBake : AssetKind::Lightmap;
+            const ResourceKey key{ kind, name };
+            const std::vector<ResourceKey> owners = resources->ResidentOwnersOf(key);
+            if(resources->Has(kind, name))
+                resources->Unload(kind, name);
+            for(const ResourceKey& owner : owners){
+                if(owner.kind == AssetKind::World && m_Config.onWorldChanged)
+                    m_Config.onWorldChanged(owner.path);
+            }
+            return;
+        }
+        else if(ext == ".wav" || ext == ".mp3" || ext == ".ogg"){
+            NotifyChanged(name);       // nothing is loaded for it here, but its thumbnail is out of date
             return;
         }
         else
@@ -438,6 +561,9 @@ namespace Shard::Engine::Assets {
         }
         for(const std::string& material : materials)
             reload(AssetKind::Material, material, true);
+
+        if(ext != ".glsl")
+            NotifyChanged(name);
     }
 
     void HotReloader::ApplyDeleted(const std::string& path)

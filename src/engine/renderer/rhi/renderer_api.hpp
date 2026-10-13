@@ -93,7 +93,8 @@ namespace Shard::Engine::Rendering {
         Depth = 5,
         UVs = 6,
         GlobalIllumination = 7,
-        SSAO = 8
+        SSAO = 8,
+        LightmapUVs = 9
     };
 
     struct DebugViewState

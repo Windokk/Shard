@@ -1,4 +1,5 @@
 #include "probe_bake.hpp"
+#include "engine/assets/hot_reloader.hpp"
 
 #include <algorithm>
 #include <cmath>
@@ -101,6 +102,8 @@ namespace Shard::Engine::Rendering {
             return false;
         }
 
+        out.close();
+        Assets::NoteOwnWrite(path.full);        // the bake's own file : not an outside edit for the hot reload
         return true;
     }
 

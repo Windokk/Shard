@@ -32,6 +32,11 @@ namespace Shard::Engine::Rendering {
         /// a resolution : padding * resolution). The empty border is what keeps bilinear sampling, and the filling of the
         /// texels next to a chart, from reaching into another chart.
         float padding = 2.0f / 128.0f;
+        /// A chart smaller than this (in square mesh units, i.e. m2) is merged into the neighbouring chart it shares most edges
+        /// with, unless that one faces more than maxMergeAngleDegrees away from it. Charts a few texels wide are all seam :
+        /// they show as patches in the lightmap (0 : never merge)
+        float minChartArea = 0.03f;
+        float maxMergeAngleDegrees = 75.0f;
     };
 
     /// One group's geometry once cut into charts : the vertices that sit on a chart seam are split, one copy per chart.

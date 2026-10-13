@@ -62,6 +62,7 @@ bool ParseViewMode(const std::string& name, ViewMode& out)
         { "uvs", ViewMode::UVs },
         { "gi", ViewMode::GlobalIllumination },
         { "ssao", ViewMode::SSAO },
+        { "lightmap-uvs", ViewMode::LightmapUVs },
     };
 
     for (const auto& m : modes)

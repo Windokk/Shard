@@ -135,6 +135,11 @@ namespace Shard::Engine::Core::Resources{
             /// refreshes what it depends on. False if it isn't resident, its kind can't be reloaded or the file can't be read.
             bool Reload(AssetKind kind, const std::string& pathInProject);
 
+            /// @brief Hot reload for a resource that can't be rebuilt in place (a mesh) : reads it again with the kind's loader and puts the
+            /// result in the cache in place of the resident one, which lives on for whoever still holds it. False if it isn't
+            /// resident or can't be read (the old one stays).
+            bool Replace(AssetKind kind, const std::string& pathInProject);
+
             /// @brief The resident owners (materials, worlds) that list `key` among their dependencies.
             std::vector<ResourceKey> ResidentOwnersOf(const ResourceKey& key) const;
 

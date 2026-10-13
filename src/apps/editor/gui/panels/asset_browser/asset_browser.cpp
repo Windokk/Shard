@@ -79,12 +79,10 @@ namespace Shard::Editor::GUI{
     // Fills the request for the thumbnail the ThumbnailService makes of this asset : meshes and materials are
     // rendered, sounds get their waveform drawn. False for the rest (images sample their own texture
     // directly, every other type shows its icon).
-    static bool MakeThumbnailRequest(const Asset& item, Engine::Rendering::ThumbnailRequest& request)
+    static bool MakeThumbnailRequest(Engine::Filesystem::Type type, const std::string& nameInProject, const Engine::Filesystem::Path& path,
+                                     Engine::Rendering::ThumbnailRequest& request)
     {
-        if (item.isDirectory)
-            return false;
-
-        switch (item.type)
+        switch (type)
         {
             case Engine::Filesystem::Type::T_MODEL:
                 request.kind = Engine::Rendering::ThumbnailKind::Mesh;
@@ -101,9 +99,14 @@ namespace Shard::Editor::GUI{
                 return false;
         }
 
-        request.nameInProject = item.nameInProject;
-        request.filePath = item.path;
+        request.nameInProject = nameInProject;
+        request.filePath = path;
         return true;
+    }
+
+    static bool MakeThumbnailRequest(const Asset& item, Engine::Rendering::ThumbnailRequest& request)
+    {
+        return !item.isDirectory && MakeThumbnailRequest(item.type, item.nameInProject, item.path, request);
     }
 
     // Wraps a filename into at most two centered lines that fit within maxWidth, truncating
@@ -215,11 +218,34 @@ namespace Shard::Editor::GUI{
 
     void AssetBrowser::Draw()
     {
-        // Files added, renamed or deleted from outside the editor
-        if (auto* hotReloader = Engine::Core::GetEngine().GetHotReloader(); hotReloader && hotReloader->GetRevision() != hotReloadRevision)
+        // Files added, renamed, deleted or changed from outside the editor
+        if (auto* hotReloader = Engine::Core::GetEngine().GetHotReloader())
         {
-            hotReloadRevision = hotReloader->GetRevision();
-            dirty = true;
+            if (!hotReloadListening)
+            {
+                hotReloadListening = true;
+                hotReloader->AddChangeListener([stale = staleThumbnails](const std::string& name) { stale->push_back(name); });
+            }
+
+            if (hotReloader->GetRevision() != hotReloadRevision)
+            {
+                hotReloadRevision = hotReloader->GetRevision();
+                dirty = true;
+            }
+        }
+
+        if (!staleThumbnails->empty())
+        {
+            auto* thumbnailService = Engine::Core::GetEngine().GetRenderer()->GetThumbnailService();
+            auto* assetIDs = Engine::Core::GetEngine().GetAssetIDManager();
+            for (const std::string& name : *staleThumbnails)
+            {
+                auto info = assetIDs->GetAssetFromID(assetIDs->GetIDFromNameInProject(name));
+                Engine::Rendering::ThumbnailRequest request;
+                if (info && info->baseInfos.nameInProject == name && MakeThumbnailRequest(info->baseInfos.type, name, info->baseInfos.path, request))
+                    thumbnailService->Invalidate(request);
+            }
+            staleThumbnails->clear();
         }
 
         if (dirty)

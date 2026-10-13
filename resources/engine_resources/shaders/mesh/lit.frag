@@ -213,8 +213,28 @@ int selectCascade(int lightIndex){
     return base + CASCADES_PER_LIGHT - 1;
 }
 
+// worldNormal must be the GEOMETRIC (interpolated vertex) normal, not the normal-mapped one : the bias below is a statement about
+// the surface the shadow map actually stored, and a weave normal map makes it flicker per texel of the cloth (the mosaic).
 float ShadowCalculationDir(sampler2DShadow shadowMap, mat4 lightSpaceMatrix, vec3 lightDir, vec3 worldPos, vec3 worldNormal){
-    vec4 fragLS = lightSpaceMatrix * vec4(worldPos, 1.0);
+    mat3 M = mat3(lightSpaceMatrix);
+    // The cascade is an orthographic box : the scale of each axis of the light space gives the size of a shadow texel and the
+    // world depth range of the map
+    float scaleX = length(vec3(M[0][0], M[1][0], M[2][0]));
+    float scaleZ = length(vec3(M[0][2], M[1][2], M[2][2]));
+    vec2 mapSize = vec2(textureSize(shadowMap, 0));
+    float texelWorld = 2.0 / (scaleX * mapSize.x);
+    float zPerWorld = 0.5 * scaleZ;                 // shadow depth (0..1) per world unit
+
+    // A cloth is seen from both sides : the bias only cares how slanted the surface is to the light, and which way is "off" it
+    vec3 n = normalize(worldNormal);
+    float NdotL = dot(n, lightDir);
+    if (NdotL < 0.0) { n = -n; NdotL = -NdotL; }
+    float sinTheta = sqrt(max(1.0 - NdotL * NdotL, 0.0));
+
+    // ----- Normal offset : look the surface up from slightly above it, more the more it grazes the light -----
+    vec3 biasedPos = worldPos + n * (texelWorld * 2.0 * sinTheta);
+
+    vec4 fragLS = lightSpaceMatrix * vec4(biasedPos, 1.0);
     vec3 proj = fragLS.xyz / fragLS.w;
 
     // Transform to [0..1]
@@ -226,18 +246,25 @@ float ShadowCalculationDir(sampler2DShadow shadowMap, mat4 lightSpaceMatrix, vec
         proj.z > 1.0)
         return 1.0;
 
-    // ----- Slope-scale bias -----
-    float bias = max(0.0005 * (1.0 - dot(normalize(worldNormal), lightDir)), 0.00005);
+    // ----- Receiver-plane depth bias : every PCF tap is compared against the depth the surface has AT that tap, not at the
+    // centre. A constant bias cannot hold for a 5 x 5 kernel on a slanted surface, it either lets it self-shadow (acne) or
+    // detaches the shadow. The plane's slope in shadow space comes from its normal (M^-T n, depth over u and v). -----
+    vec3 nLS = transpose(inverse(M)) * n;
+    vec2 depthSlope = vec2(0.0);
+    if (abs(nLS.z) > 1e-4)
+        depthSlope = clamp(-nLS.xy / nLS.z, vec2(-8.0), vec2(8.0));     // clamped : a surface edge on to the light must not explode
 
-    // ----- PCF -----
-    vec2 texelSize = 1.0 / vec2(textureSize(shadowMap, 0));
+    float constBias = texelWorld * 0.75 * zPerWorld;
 
-    float visibility = 0.0; 
+    vec2 texelSize = 1.0 / mapSize;
+
+    float visibility = 0.0;
 
     for (int x = -2; x <= 2; ++x) {
         for (int y = -2; y <= 2; ++y) {
             vec2 offset = vec2(x, y) * texelSize;
-            visibility += texture(shadowMap, vec3(proj.xy + offset, proj.z - bias));
+            float planeDepth = dot(depthSlope, offset);
+            visibility += texture(shadowMap, vec3(proj.xy + offset, proj.z + planeDepth - constBias));
         }
     }
 
@@ -595,6 +622,20 @@ vec3 ComputeLightDisney(Light light, vec3 L, vec3 V, vec3 N, vec3 baseColor, flo
     return Lo;
 }
 
+// A normal map perturbs N.L around the shading terminator : where the geometric surface turns from the light, the weave's
+// normals face it in patches, which cuts the lit area into a ragged edge at the scale of the texture. The geometric N.L fades
+// the direct light out over a short range instead, so the edge follows the folds, not the weave.
+float TerminatorSoften(vec3 geoNormal, vec3 L){
+    return smoothstep(0.0, 0.3, dot(normalize(geoNormal), L));
+}
+
+// Same terminator, seen from the normal : near it the shading normal is the geometric one, so the weave cannot flip N.L patch by
+// patch inside the fade ; away from it the full normal-mapped detail is back.
+vec3 TerminatorNormal(vec3 geoNormal, vec3 mappedNormal, vec3 L){
+    float t = smoothstep(0.0, 0.5, dot(normalize(geoNormal), L));
+    return normalize(mix(normalize(geoNormal), mappedNormal, t));
+}
+
 void main() {
     if (depthPrepass) {
         fragColor = vec4(0.0);
@@ -636,6 +677,16 @@ void main() {
             return;
         }
         if (viewMode == 6) { fragColor = vec4(fract(texCoord), 0.0, 1.0); return; }
+        if (viewMode == 9) {
+            // The lightmap UVs as the bake sees them (atlas placement applied) : a checker shows texel density and
+            // stretching, the colour is the UV itself. Meshes without a lightmap show their raw second UV set, dimmed.
+            vec2 lmUV = hasLightmap ? lightmapUV * lightmapScaleOffset.xy + lightmapScaleOffset.zw : lightmapUV;
+            vec2 cell = floor(lmUV * 64.0);
+            float checker = mod(cell.x + cell.y, 2.0);
+            vec3 col = vec3(fract(lmUV), 0.35) * mix(0.55, 1.0, checker);
+            fragColor = vec4(hasLightmap ? col : col * 0.4, 1.0);
+            return;
+        }
         if (viewMode == 1) {
             fragColor = vec4(baseColor.rgb + texture(emissiveMap, texCoord).rgb * emissive, baseColor.a);
             return;
@@ -664,10 +715,10 @@ void main() {
 
         if (showShadows && l.castShadow == 1 && l.shadowIndex >= 0) {
             int cascadeIdx = selectCascade(l.shadowIndex);
-            visibility = ShadowCalculationDir(dirShadowMaps[cascadeIdx], dirLightSpaceMatrices[cascadeIdx], L, worldPos, worldNormal);
+            visibility = ShadowCalculationDir(dirShadowMaps[cascadeIdx], dirLightSpaceMatrices[cascadeIdx], L, worldPos, normalize(N));
         }
 
-        result += ComputeLightDisney(l, L, V, worldNormal, baseColor.rgb, roughnessValue, metallicValue, visibility, 1.0);
+        result += ComputeLightDisney(l, L, V, TerminatorNormal(N, worldNormal, L), baseColor.rgb, roughnessValue, metallicValue, visibility * TerminatorSoften(N, L), 1.0);
     }
 
     // Point/Spot lights: only the subset the light-culling compute pass placed in this fragment's
@@ -729,7 +780,7 @@ void main() {
             }
         }
 
-        result += ComputeLightDisney(l, L, V, worldNormal, baseColor.rgb, roughnessValue, metallicValue, visibility, attenuation);
+        result += ComputeLightDisney(l, L, V, TerminatorNormal(N, worldNormal, L), baseColor.rgb, roughnessValue, metallicValue, visibility * TerminatorSoften(N, L), attenuation);
     }
 
     // Real-time GI (ddgi_enabled) intentionally isn't gated behind useEnvReflections - that flag toggles
@@ -737,6 +788,11 @@ void main() {
     // should show up on every material regardless, or it silently does nothing on any material that
     // doesn't happen to have useEnvReflections set. A point outside every active volume's grid
     // (ddgiVolume < 0) falls back to the same IBL / flat-ambient path as when no volume exists.
+    // Indirect light is low frequency : probes and the environment map hold no detail at the scale of a weave, so looking them up
+    // with the full normal map only makes the GI flicker texel by texel (the patches seen in the GI only view). The lookups use a
+    // normal mostly geometric, with a little of the normal map left.
+    vec3 giNormal = normalize(mix(normalize(N), worldNormal, 0.3));
+
     vec3 ambientDiffuse = vec3(0.0);
     vec3 specularIBL = vec3(0.0);
 
@@ -745,8 +801,8 @@ void main() {
     if (ddgiVolume >= 0) {
         vec3 probeIrradiance;
         vec3 probeRadiance;
-        DDGI_SampleVolume(ddgiVolume, worldPos, worldNormal,
-                          DDGI_SpecularDirection(worldNormal, V, roughnessValue),
+        DDGI_SampleVolume(ddgiVolume, worldPos, giNormal,
+                          DDGI_SpecularDirection(giNormal, V, roughnessValue),
                           probeIrradiance, probeRadiance);
 
         // A lightmapped surface takes its diffuse light from the lightmap, which has a texel per few centimetres where the
@@ -761,16 +817,16 @@ void main() {
         // gated behind useEnvReflections, for the same reason the diffuse term above isn't : that flag
         // toggles the costlier skybox reflections per material, and gating real computed GI behind it
         // means a material that happens to have it off silently gets no indirect specular anywhere.
-        vec3 probeSpecular = DDGI_Specular(probeRadiance, worldNormal, V, baseColor.rgb, metallicValue, roughnessValue);
+        vec3 probeSpecular = DDGI_Specular(probeRadiance, giNormal, V, baseColor.rgb, metallicValue, roughnessValue);
         if (useEnvReflections)
-            specularIBL = mix(IBL_Specular(worldNormal, V, baseColor.rgb, metallicValue, roughnessValue), probeSpecular, roughnessValue);
+            specularIBL = mix(IBL_Specular(giNormal, V, baseColor.rgb, metallicValue, roughnessValue), probeSpecular, roughnessValue);
         else
             specularIBL = probeSpecular;
     }
     else if (useEnvReflections) {
         ambientDiffuse = hasLightmap ? DDGI_Diffuse(bakedIrradiance, baseColor.rgb, metallicValue)
-                                     : IBL_Diffuse(worldNormal, baseColor.rgb, metallicValue);
-        specularIBL = IBL_Specular(worldNormal, V, baseColor.rgb, metallicValue, roughnessValue);
+                                     : IBL_Diffuse(giNormal, baseColor.rgb, metallicValue);
+        specularIBL = IBL_Specular(giNormal, V, baseColor.rgb, metallicValue, roughnessValue);
     }
     else if (hasLightmap) {
         ambientDiffuse = DDGI_Diffuse(bakedIrradiance, baseColor.rgb, metallicValue);

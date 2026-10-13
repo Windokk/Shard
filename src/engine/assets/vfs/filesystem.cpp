@@ -3,6 +3,7 @@
 #include "engine/platform/filesystem/paths.hpp"
 
 #include "engine/core/diagnostics/logger.hpp"
+#include "engine/assets/hot_reloader.hpp"
 
 namespace Shard::Engine::Filesystem{
 
@@ -146,15 +147,19 @@ namespace Shard::Engine::Filesystem{
 
     bool Path::WriteFile(const std::string &content) const
     {
-        std::ofstream out(full, std::ios::trunc); // truncate = overwrite if file exists
-        if (!out.is_open()) return false;
-    
-        try {
-            out << content;
-        } catch (...) {
-            return false;
+        {
+            std::ofstream out(full, std::ios::trunc); // truncate = overwrite if file exists
+            if (!out.is_open()) return false;
+
+            try {
+                out << content;
+            } catch (...) {
+                return false;
+            }
         }
-    
+
+        // Not an outside edit for the hot reload
+        Assets::NoteOwnWrite(full);
         return true;
     }
 
