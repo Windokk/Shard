@@ -64,6 +64,11 @@ namespace Shard::Editor::Commands{
                 return !activeStack.empty();
             }
 
+            void Clear() {
+                undoStack.clear();
+                redoStack.clear();
+            }
+
         private:
             void PushToHistory(std::unique_ptr<Command> cmd) {
 

@@ -100,6 +100,8 @@ namespace Shard::Editor::Core {
 
         void SetSelectedActor(std::shared_ptr<Engine::Objects::Actor> newPtr);
 
+        void RequestPlay();
+
         std::shared_ptr<Engine::Objects::Actor> GetSelectedActor(){
             return selectedActor;
         }
@@ -119,6 +121,8 @@ namespace Shard::Editor::Core {
     private:
         void EnsureImGuiInitialized();
         void DrawLoadingOverlay(float progress);
+
+        void OnWorldLoaded();
 
         // Polls the ProbeManager's async scene-build progress and mirrors it into a single
         // "Baking GI probes" progress notification (see editor/gui/notifications.hpp).

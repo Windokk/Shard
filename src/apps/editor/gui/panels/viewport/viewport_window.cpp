@@ -312,10 +312,7 @@ namespace Shard::Editor::GUI {
         else
         {
             if (ImGui::Button(ICON_LC_PLAY))
-            {
-                parent->SetSelectedActor(nullptr);
-                Engine::Core::GetEngine().SetPlayMode(true);
-            }
+                parent->RequestPlay();
         }
 
         

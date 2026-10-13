@@ -303,7 +303,12 @@ namespace Shard::Editor::GUI{
 
         bool playing = GetEngine().IsInPlayMode();
         if (ImGui::MenuItem("Play Mode", nullptr, playing))
-            GetEngine().SetPlayMode(!playing);
+        {
+            if (playing)
+                GetEngine().SetPlayMode(false);
+            else
+                parent->RequestPlay();
+        }
 
         ImGui::EndMenu();
     }

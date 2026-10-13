@@ -3,6 +3,8 @@
 #include "engine/world/engine.hpp"
 
 #include "apps/editor/gui/panels/asset_browser/asset_browser.hpp"
+#include "apps/editor/commands/command_stack.hpp"
+#include "engine/world/event_system.hpp"
 
 #include <algorithm>
 #include <cmath>
@@ -231,6 +233,49 @@ namespace Shard::Editor::Core{
             worldTree->SetSelection(newPtr);
     }
 
+    void EditorMainWindow::RequestPlay()
+    {
+        auto& engine = Engine::Core::GetEngine();
+        if(engine.IsInPlayMode())
+            return;
+
+        auto startPlay = [this]{
+            SetSelectedActor(nullptr);
+            Engine::Core::GetEngine().SetPlayMode(true);
+        };
+
+        Engine::Worlds::World* world = engine.GetWorldManager()->GetWorldAt(0);
+        if(!world || !world->IsDirty()){
+            startPlay();
+            return;
+        }
+
+        // The play session starts from the saved world and the editor returns to it on stop : unsaved changes
+        // have to be saved first, or they would be lost (or silently written, see EngineInstance::SetPlayMode).
+        GUI::Popups::Show(GUI::Popups::PopupType::Warning, "Unsaved changes",
+            "\"" + world->GetName() + "\" has unsaved changes. Save the world before starting the play mode.",
+            {
+                { "Save and play", [startPlay]{
+                    if(Engine::Worlds::World* current = Engine::Core::GetEngine().GetWorldManager()->GetWorldAt(0))
+                        current->Serialize(current->GetPath());
+                    startPlay();
+                } },
+                { "Cancel", nullptr }
+            });
+    }
+
+    void EditorMainWindow::OnWorldLoaded()
+    {
+        // The previous world's draw lists were cleared before the load (Renderer::ClearPassesContent) : the old actor's
+        // models are not in the outline pass any more, and their components must not be touched, so SetSelectedActor
+        // is not used here.
+        selectedActor = nullptr;
+        if(worldTree)
+            worldTree->SetSelection(nullptr);
+
+        Editor::Commands::CommandStack::Get().Clear();
+    }
+
     void EditorMainWindow::Init(const std::string &title, const int &width, const int &height, const bool &fullscreen, const int &vsync, const uint32_t& api)
     {
         SDLWindow::Init(title, width, height, fullscreen, vsync, api);
@@ -292,6 +337,12 @@ namespace Shard::Editor::Core{
         menuBar->SetParentWindow(this);
 
         GUI::EditorResources::Instance().Init();
+
+        Engine::Core::GetEngine().GetEventDispatcher()->subscribeGlobal<Engine::Events::WorldStructureChangedEvent>(
+            [this](const Engine::Events::WorldStructureChangedEvent& e){
+                if(e.changeType == Engine::Events::LOADED)
+                    OnWorldLoaded();
+            });
 
         imguiInitialized = true;
     }
