@@ -23,7 +23,7 @@ namespace Shard::Engine::Audio
 {
     using namespace Filesystem;
 
-    void AudioManager::Init(float masterVolume)
+    void AudioManager::Init(float masterVolume, bool silent)
     {
         AudioManager::masterVolume = masterVolume;
 
@@ -65,6 +65,9 @@ namespace Shard::Engine::Audio
                 stats.sounds = GetSoundsCount();
             });
         }
+
+        if (silent)
+            return;
 
         engine = new ma_engine();
         ma_result result = ma_engine_init(nullptr, engine);

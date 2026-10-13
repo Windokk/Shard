@@ -1,6 +1,7 @@
 #include "renderer_api.hpp"
 
 #include "engine/renderer/rhi/backends/opengl/renderer_api/gl_api.hpp"
+#include "engine/renderer/rhi/backends/null/null_rhi.hpp"
 
 #include "engine/world/engine.hpp"
 
@@ -27,6 +28,7 @@ namespace Shard::Engine::Rendering{
         switch(api)
         {
             case API::OpenGL: return std::make_shared<GLRendererAPI>();
+            case API::Null: return std::make_shared<Null::NullRendererAPI>();
             default: return nullptr;
         }
     }

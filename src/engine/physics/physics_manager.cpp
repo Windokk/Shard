@@ -22,7 +22,7 @@ namespace Shard::Engine::Physics {
     static constexpr uint cMaxContactConstraints = 1024;
     static constexpr uint cTempAllocatorSize = 10 * 1024 * 1024;
 
-    void PhysicsManager::Init(glm::vec3 gravity)
+    void PhysicsManager::Init(glm::vec3 gravity, bool deterministic)
     {
         JPH::RegisterDefaultAllocator();
 
@@ -45,7 +45,9 @@ namespace Shard::Engine::Physics {
         // Physics runs on the engine's job system when there is one (it then shares the cores with everything else) ;
         // without an engine (unit tests) it gets a pool of its own
         Core::JobSystem* engineJobs = Core::gSharedEnginePtr ? Core::gSharedEnginePtr->GetJobSystem() : nullptr;
-        if(engineJobs)
+        if(deterministic)
+            m_jobSystem = new JPH::JobSystemSingleThreaded(JPH::cMaxPhysicsJobs);
+        else if(engineJobs)
             m_jobSystem = new JoltJobSystem(*engineJobs, JPH::cMaxPhysicsJobs, JPH::cMaxPhysicsBarriers);
         else
             m_jobSystem = new JPH::JobSystemThreadPool(JPH::cMaxPhysicsJobs, JPH::cMaxPhysicsBarriers, Core::Platform::HardwareConcurrency() - 1);

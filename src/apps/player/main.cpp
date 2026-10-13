@@ -29,6 +29,11 @@ using namespace Shard::Game;
 #include "engine/core/diagnostics/profiler.hpp"
 #include <iostream>
 #include <optional>
+#include "engine/core/determinism/determinism.hpp"
+#include "engine/platform/replay/input_replay.hpp"
+#include "engine/platform/windowing/sdl/sdl_window.hpp"
+#include "engine/replay_session.hpp"
+#include "engine/world/time_manager.hpp"
 
 Debugging::Level minDebugLevel = Debugging::Level::Log;
 std::string mainModuleLib = "";
@@ -49,6 +54,15 @@ int benchWarmup = 120;
 
 // --screenshot : writes the last rendered frame (the viewport, before it is presented) to that PNG
 std::string screenshotPath;
+
+// --record <file> : writes the input of the run (and the state of the simulation every --check-every frames) to a replay file
+// when the run ends ; --replay <file> : plays such a file back instead of reading the keyboard, and verifies its state checks.
+// Both make the run deterministic (every frame is one fixed step : see EngineCreationSettings::deterministic), which is not
+// what a normal run is : the clock no longer drives the simulation. --seed picks the seed the random streams derive from.
+std::string recordPath;
+std::string replayPath;
+std::optional<uint64_t> seedArgument;
+uint64_t checkEvery = 60;
 
 bool ParseViewMode(const std::string& name, ViewMode& out)
 {
@@ -150,6 +164,18 @@ EngineCreationSettings ComputeEngineSettings(int argc, char* argv[]) {
             else
                 std::cerr << "Unknown view mode: " << name << ". Use lit, unlit, wireframe, shaded-wireframe, normals, depth, uvs, gi or ssao." << std::endl;
         }
+        else if (strcmp(argv[i], "--record") == 0 && i + 1 < argc) {
+            recordPath = argv[++i];
+        }
+        else if (strcmp(argv[i], "--replay") == 0 && i + 1 < argc) {
+            replayPath = argv[++i];
+        }
+        else if (strcmp(argv[i], "--seed") == 0 && i + 1 < argc) {
+            seedArgument = std::stoull(argv[++i]);
+        }
+        else if (strcmp(argv[i], "--check-every") == 0 && i + 1 < argc) {
+            checkEvery = std::stoull(argv[++i]);
+        }
         else if(strcmp(argv[i], "--game") == 0 && i + 1 < argc){
             mainModuleLib = argv[++i];
         }
@@ -186,6 +212,33 @@ int main(int argc, char* argv[]) {
     // Engine init parameters
     EngineCreationSettings engineSettings = ComputeEngineSettings(argc, argv);
     engineSettings.readOnly = maxFrames >= 0;
+
+    // A replay says which seed and world it was recorded with
+    Engine::Core::Platform::ReplayData replay;
+    const bool playing = !replayPath.empty();
+    const bool recording = !recordPath.empty();
+    if (playing) {
+        std::string error;
+        if (!Engine::Core::Platform::ReplayData::Load(replayPath, replay, error)) {
+            std::cerr << error << std::endl;
+            early_crash();
+        }
+        if (engineSettings.startWorld.empty())
+            engineSettings.startWorld = replay.world;
+        if (maxFrames < 0) {
+            // The replay is a non-interactive run : as long as it says, then it stops
+            maxFrames = int(replay.Length());
+            engineSettings.readOnly = true;
+        }
+    }
+    if (playing || recording) {
+        engineSettings.deterministic = true;
+        engineSettings.readOnly = true;     // a run that is recorded or replayed leaves the project as it found it
+        engineSettings.seed = seedArgument ? seedArgument : (playing ? std::optional<uint64_t>(replay.seed) : std::optional<uint64_t>(1));
+    }
+    else if (seedArgument) {
+        engineSettings.seed = seedArgument;
+    }
 
     if(engineSettings.project == ""){
         std::cerr<<"No project specified, aborting..."<<std::endl;
@@ -224,6 +277,30 @@ int main(int argc, char* argv[]) {
 
     Engine::Core::GetEngine().SetPlayMode(true);
 
+    // The replay : played back (the keyboard is ignored, the replay's events are posted to the window) or recorded (what the
+    // window sends is stored)
+    Engine::Core::ReplaySession session;
+    Engine::Core::Platform::SDLWindow* sdlWindow = dynamic_cast<Engine::Core::Platform::SDLWindow*>(Engine::Core::GetEngine().GetWindow());
+    const float fixedStep = Engine::Core::GetEngine().GetTimeManager()->GetFixedDeltaTime();
+    if (playing || recording) {
+        if (!sdlWindow) {
+            std::cerr << "--record / --replay need the SDL window" << std::endl;
+            early_crash();
+        }
+        if (playing && replay.fixedStep > 0.0f && replay.fixedStep != fixedStep) {
+            std::cerr << "The replay was recorded with a fixed step of " << replay.fixedStep << " s, the project has " << fixedStep << " s" << std::endl;
+            early_crash();
+        }
+        session.SetCheckInterval(checkEvery);
+        session.onState = [](const Engine::Core::SimulationStateHash& state) { std::cout << "[STATE] " << state.Describe() << std::endl; };
+        if (playing) {
+            sdlWindow->SetOSInputSuppressed(true);
+            session.Play(replay);
+        }
+        else
+            session.Record(*sdlWindow, *engineSettings.seed, fixedStep, engineSettings.startWorld);
+    }
+
     //Main Loop
     int frames = 0;
     std::vector<float> frameTimes;
@@ -234,7 +311,10 @@ int main(int argc, char* argv[]) {
     while (!Engine::Core::GetEngine().ShouldEnd()) {
         if (maxFrames >= 0 && frames >= maxFrames) break;
         const auto frameStart = std::chrono::steady_clock::now();
+        session.BeforeFrame(uint64_t(frames), [&](const Engine::Core::Platform::OSEvent& event) { sdlWindow->PostEvent(event); });
         if (!Engine::Core::GetEngine().Run()) break;
+        session.AfterFrame(Engine::Core::GetEngine());
+        if (session.Diverged()) break;
         if (benchmark && frames >= benchWarmup)
             frameTimes.push_back(std::chrono::duration<float, std::milli>(std::chrono::steady_clock::now() - frameStart).count());
         if (benchmark && frames >= benchWarmup) {
@@ -248,6 +328,26 @@ int main(int argc, char* argv[]) {
             }
         }
         frames++;
+    }
+
+    int replayResult = 0;
+    if (playing || recording) {
+        session.Finish(Engine::Core::GetEngine());
+        if (session.Diverged()) {
+            std::cerr << "[REPLAY FAILED] " << session.Report() << std::endl;
+            replayResult = 2;
+        }
+        else if (playing)
+            std::cout << "[REPLAY] " << session.ChecksPassed() << " state check(s) matched" << std::endl;
+        if (recording) {
+            std::string error;
+            if (session.TakeRecording().Save(recordPath, error))
+                std::cout << "[REPLAY] recorded " << frames << " frames to " << recordPath << std::endl;
+            else {
+                std::cerr << error << std::endl;
+                replayResult = 1;
+            }
+        }
     }
 
     if (!screenshotPath.empty()) {
@@ -306,12 +406,12 @@ int main(int argc, char* argv[]) {
 
     if (maxFrames >= 0) {
         std::cout << "Rendered " << frames << " frames, shut down cleanly." << std::endl;
-        return 0;
+        return replayResult;
     }
 
     std::cout << "Shard Engine has finished. Press Enter to exit..." << std::endl;
     std::cin.ignore(std::numeric_limits<std::streamsize>::max(), '\n');
     std::cin.get();
 
-    return 0;
+    return replayResult;
 }

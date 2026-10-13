@@ -4,6 +4,7 @@
 #include "engine/world/engine.hpp"
 
 #include "engine/renderer/rhi/backends/opengl/texture/gl_texture.hpp"
+#include "engine/renderer/rhi/backends/null/null_rhi.hpp"
 
 #include <stb/stb_image.h>
 
@@ -73,6 +74,9 @@ namespace Shard::Engine::Rendering{
         {
             case RendererAPI::API::OpenGL:
                 return OnGraphicsThread([&]() -> std::shared_ptr<Texture2D> { return std::make_shared<GLTexture2D>(spec, data); });
+
+            case RendererAPI::API::Null:
+                return std::make_shared<Null::NullTexture2D>(spec, data);
 
             /*case RendererAPI::API::Vulkan:
                 return std::make_shared<VKTexture>(spec, data);
@@ -145,6 +149,23 @@ namespace Shard::Engine::Rendering{
 
     TextureDecodeResult DecodeTextureFileForUpload(const Filesystem::Path& filepath, unsigned threads, bool srgb)
     {
+        // The null backend draws nothing : the pixels of a texture are of no use to it, so a headless run (a server, the CI)
+        // does not decode images only to throw them away. The file is still looked for : a missing asset is an error everywhere.
+        if (RendererAPI::Current() && RendererAPI::Current()->GetAPI() == RendererAPI::API::Null)
+        {
+            TextureDecodeResult stub;
+            if (!filepath.Exists())
+            {
+                DEBUG_ERROR("Couldn't find texture : " + filepath.full);
+                return stub;
+            }
+            stub.success = true;
+            stub.width = stub.height = 1;
+            stub.format = TextureInternalFormat::RGBA8;
+            stub.pixels = {0, 0, 0, 255};
+            return stub;
+        }
+
         if (!cvTextureCompress.Get())
             return DecodeTextureFile(filepath);
 
@@ -207,6 +228,8 @@ namespace Shard::Engine::Rendering{
         {
             case RendererAPI::API::OpenGL:
                 return OnGraphicsThread([&]() -> std::shared_ptr<Texture2D> { return std::make_shared<GLTexture2D>(spec, image, firstMip); });
+            case RendererAPI::API::Null:
+                return std::make_shared<Null::NullTexture2D>(spec, image, firstMip);
             default:
                 return nullptr;
         }

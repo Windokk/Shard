@@ -140,7 +140,9 @@ namespace Shard::Engine::Rendering {
                 OpenGL = 0,
                 Vulkan,
                 DX11,
-                DX12
+                DX12,
+                /// No graphics API : everything exists, nothing is drawn (headless runs, see backends/null)
+                Null
             };
 
             virtual ~RendererAPI() = default;
@@ -214,7 +216,7 @@ namespace Shard::Engine::Rendering {
             virtual std::string GetDriverVersion() = 0;
 
         protected:
-            API api;
+            API api = API::OpenGL;
             ISceneBinding* m_Scene = nullptr;
             DebugViewState m_DebugView;
     };

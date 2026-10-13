@@ -6,6 +6,7 @@
 #include <Jolt/Core/Factory.h>
 #include <Jolt/Core/TempAllocator.h>
 #include <Jolt/Core/JobSystemThreadPool.h>
+#include <Jolt/Core/JobSystemSingleThreaded.h>
 #include <Jolt/Physics/PhysicsSettings.h>
 #include <Jolt/Physics/PhysicsSystem.h>
 #include <Jolt/Physics/Collision/Shape/BoxShape.h>
@@ -296,7 +297,9 @@ namespace Shard::Engine::Physics
     class PhysicsManager {
     public:
 
-        void Init(glm::vec3 gravity);
+        /// @param deterministic  the simulation runs on the calling thread only : Jolt gives the same result on any number of
+        /// threads, but the order of the contact callbacks (and so of what the scripts do in them) depends on which job ran first
+        void Init(glm::vec3 gravity, bool deterministic = false);
         void Shutdown();
 
         RaycastResult RayCast(RaycastRequest request);

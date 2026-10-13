@@ -52,6 +52,17 @@ set(SDL_EXAMPLES OFF CACHE BOOL "" FORCE)
 set(SDL_INSTALL OFF CACHE BOOL "" FORCE)
 add_subdirectory(submodules/SDL EXCLUDE_FROM_ALL)
 add_subdirectory(submodules/glm)
+# Determinism (see docs, "Headless & determinism") : a replay has to give the same state on Windows and on Linux. Jolt then
+# is built in its cross platform deterministic mode (no fused multiply-add, its own sin/cos... a little slower), and the
+# compiler is told not to fuse a * b + c on its own, which would round differently from one target to the next.
+option(SHARD_DETERMINISTIC_PHYSICS "Build Jolt in cross platform deterministic mode (same simulation on every platform)" ON)
+if(SHARD_DETERMINISTIC_PHYSICS)
+    set(CROSS_PLATFORM_DETERMINISTIC ON CACHE BOOL "Cross platform deterministic" FORCE)
+    if(NOT MSVC)
+        add_compile_options(-ffp-contract=off)
+    endif()
+endif()
+
 # Jolt with RTTI, like the rest of the engine. Without it libJolt has no typeinfo for the Jolt classes that define a
 # virtual function out of line (JobSystemWithBarrier...), and a class of ours deriving from one (JoltJobSystem) fails to
 # link on Linux ("undefined reference to typeinfo for JPH::JobSystemWithBarrier").
@@ -66,6 +77,7 @@ add_subdirectory(src/engine)
 add_subdirectory(src/apps/game)
 add_subdirectory(src/apps/editor)
 add_subdirectory(src/apps/player)
+add_subdirectory(src/apps/headless)
 
 enable_testing()
 add_subdirectory(tests)

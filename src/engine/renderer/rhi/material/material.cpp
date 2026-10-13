@@ -5,6 +5,7 @@
 #include "engine/renderer/rhi/renderer_api.hpp"
 
 #include "engine/renderer/rhi/backends/opengl/material/gl_material.hpp"
+#include "engine/renderer/rhi/backends/null/null_rhi.hpp"
 
 #include "engine/renderer/rhi/shader/shader.hpp"
 #include "engine/renderer/rhi/pipelines/pipeline.hpp"
@@ -33,6 +34,9 @@ namespace Shard::Engine::Rendering{
         {
             case RendererAPI::API::OpenGL:
                 return std::make_shared<GLMaterial>(shader, pipeline, receivesShadows, opacity);
+
+            case RendererAPI::API::Null:
+                return std::make_shared<Null::NullMaterial>(shader, pipeline, receivesShadows, opacity);
 
             /*case RendererAPI::API::Vulkan:
                 return std::make_shared<VKFramebuffer>(spec);

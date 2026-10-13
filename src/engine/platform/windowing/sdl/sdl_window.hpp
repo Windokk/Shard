@@ -4,6 +4,8 @@
 
 #include <SDL3/SDL.h>
 
+#include <deque>
+
 namespace Shard::Engine::Core::Platform {
 
     /// @brief SDL3 window with an OpenGL context : everything the window systems have in common (context, events, fullscreen,
@@ -39,6 +41,14 @@ namespace Shard::Engine::Core::Platform {
         /// @brief Asks the application to close (ShouldClose becomes true), like the close button would.
         void RequestClose() { m_ShouldClose = true; }
 
+        /// @brief Queues an event the window did not get from the OS (a replay playing back) : it is dispatched by the next
+        /// PollEvents, after what the OS sent, like an event that came from the keyboard.
+        void PostEvent(const OSEvent& event) { m_Posted.push_back(event); }
+
+        /// @brief While set, the keyboard, mouse and gamepad events of the OS are dropped : a replay is playing, and what the
+        /// person at the keyboard does must not mix into it. Window events (close, resize) still go through.
+        void SetOSInputSuppressed(bool suppressed) { m_SuppressOSInput = suppressed; }
+
         SDL_Window* GetSDLWindow() const { return m_Window; }
         SDL_GLContext GetGLContext() const { return m_GLContext; }
 
@@ -55,6 +65,8 @@ namespace Shard::Engine::Core::Platform {
         SDL_Window* m_Window = nullptr;
         SDL_GLContext m_GLContext = nullptr;
         bool m_ShouldClose = false;
+        std::deque<OSEvent> m_Posted;
+        bool m_SuppressOSInput = false;
         int m_SwapInterval = 0;     // the vertical sync the window was created with, set again whenever the context moves
     };
 }

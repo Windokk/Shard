@@ -1,5 +1,6 @@
 #pragma once
 
+#include <map>
 #include <string>
 #include <vector>
 #include <typeindex>
@@ -109,7 +110,9 @@ namespace Shard::Engine::Worlds{
             // belong to the other modules (lights, models, physics bodies...) are kept by their module, in an
             // extension of the world.
             std::unordered_map<int, std::shared_ptr<Objects::Components::Transform>> transforms;
-            std::unordered_map<int, std::shared_ptr<Objects::Components::Script>> scripts;
+            // Ordered by id (= the order the components were added) : the scripts of a world tick in that order, on every
+            // platform. The iteration order of a hash table is the library's business, and a replay cannot depend on it.
+            std::map<int, std::shared_ptr<Objects::Components::Script>> scripts;
 
             /// @brief What the module that owns `T` keeps on this world (created on first use)
             template<class T>

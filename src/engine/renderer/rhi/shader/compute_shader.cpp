@@ -4,6 +4,7 @@
 #include "engine/world/engine.hpp"
 
 #include "engine/renderer/rhi/backends/opengl/shader/gl_compute_shader.hpp"
+#include "engine/renderer/rhi/backends/null/null_rhi.hpp"
 
 #include "engine/renderer/rhi/renderer_api.hpp"
 
@@ -17,6 +18,12 @@ namespace Shard::Engine::Rendering
         {
             case RendererAPI::API::OpenGL:
                 return OnGraphicsThread([&]() -> std::shared_ptr<ComputeShader> { return std::make_shared<GLComputeShader>(path); });
+
+            case RendererAPI::API::Null:
+                return std::make_shared<Null::NullComputeShader>(path);
+
+            default:
+                break;
 
             /*case RendererAPI::API::Vulkan:
                 return std::make_shared<VKComputeShader>(vertexPath, fragmentPath, geometry);

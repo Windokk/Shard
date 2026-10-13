@@ -20,15 +20,21 @@ namespace Shard::Engine::Core {
     }
 
     glm::vec3 Random::OnUnitSphere() {
-        // Archimedes : z uniform in [-1, 1], angle uniform -> uniform on the sphere
-        const float z = Range(-1.0f, 1.0f);
-        const float angle = Range(0.0f, 6.28318530718f);
-        const float r = std::sqrt(std::fmax(0.0f, 1.0f - z * z));
-        return glm::vec3(r * std::cos(angle), r * std::sin(angle), z);
+        // Rejection sampling, then the point is pushed out to the surface : only + - * / and sqrt (which IEEE 754 rounds
+        // exactly), no sin / cos, whose last bit differs from one C library to the next and would break "the same seed gives
+        // the same sequence on every platform". The points too close to the centre are skipped : their direction is mostly rounding.
+        for (;;) {
+            const glm::vec3 p(Range(-1.0f, 1.0f), Range(-1.0f, 1.0f), Range(-1.0f, 1.0f));
+            const float lengthSquared = glm::dot(p, p);
+            if (lengthSquared <= 1.0f && lengthSquared >= 1e-4f) return p / std::sqrt(lengthSquared);
+        }
     }
 
     glm::vec2 Random::OnUnitCircle() {
-        const float angle = Range(0.0f, 6.28318530718f);
-        return glm::vec2(std::cos(angle), std::sin(angle));
+        for (;;) {
+            const glm::vec2 p(Range(-1.0f, 1.0f), Range(-1.0f, 1.0f));
+            const float lengthSquared = glm::dot(p, p);
+            if (lengthSquared <= 1.0f && lengthSquared >= 1e-4f) return p / std::sqrt(lengthSquared);
+        }
     }
 }

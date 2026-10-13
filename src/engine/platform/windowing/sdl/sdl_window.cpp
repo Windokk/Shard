@@ -2,6 +2,7 @@
 
 #include "engine/platform/devices/sdl/sdl_keymap.hpp"
 #include "engine/platform/hardware/system_info.hpp"
+#include "engine/platform/replay/input_replay.hpp"
 #include "engine/core/diagnostics/logger.hpp"
 
 namespace Shard::Engine::Core::Platform {
@@ -66,6 +67,12 @@ namespace Shard::Engine::Core::Platform {
             OnNativeEvent(native);
             Translate(native);
         }
+
+        // What a replay posted : after the real ones, in the order it posted them
+        std::deque<OSEvent> posted;
+        posted.swap(m_Posted);
+        for (const OSEvent& event : posted)
+            DispatchEvent(event);
     }
 
     void SDLWindow::Translate(const SDL_Event& native)
@@ -170,6 +177,8 @@ namespace Shard::Engine::Core::Platform {
             default:
                 return;
         }
+        if (m_SuppressOSInput && ReplayRecorder::IsRecorded(event))
+            return;
         DispatchEvent(event);
     }
 

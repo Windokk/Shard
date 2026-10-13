@@ -1,7 +1,8 @@
 name: build
 
-# Builds the whole engine (layers, editor, player, game module, tests) on Windows AND Linux, then runs the tests, and on
-# Linux boots the player on example_project (smoke test).
+# Builds the whole engine (layers, editor, player, headless runner, game module, tests) on Windows AND Linux, then runs the tests
+# (among them a headless replay : the simulation has to end in the same state on both), and on Linux boots the player on
+# example_project (smoke test).
 # A red run means a change broke one of the two platforms (or a test, or the engine's boot).
 
 on:
@@ -83,6 +84,13 @@ jobs:
 
       - name: Test
         run: ctest --test-dir build --output-on-failure --timeout 300
+
+      # The simulation regression test (also part of the step above : it is run alone here so that its result has a line of
+      # its own). ShardHeadless plays tests/determinism/golden/determinism.replay back : no window, no GPU, no sound card, and
+      # every state check of the replay has to hash to the recorded value, on Windows AND on Linux. A failure on one platform only
+      # means something in the simulation depends on the platform (see docs/docs/headless.md).
+      - name: Determinism (headless replay, no GPU)
+        run: ctest --test-dir build -R "^Determinism\." --output-on-failure --timeout 300
 
       # The smoke test starts the player on example_project (scripts/smoke_test.sh). The runner has no GPU : on a virtual
       # display (Xvfb) OpenGL comes from Mesa's software renderer. Linux only : a Windows runner offers no OpenGL 4.3 at all.

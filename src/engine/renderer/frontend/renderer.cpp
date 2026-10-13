@@ -353,9 +353,13 @@ namespace Shard::Engine::Rendering{
             m_DebugView = m_PendingDebugView;
         }
 
+        // A backend without GPU timers (the null one) has no profiler : GpuScope takes a null one
         GpuProfiler* gpu = m_RendererAPI->GetGpuProfiler();
-        gpu->SetEnabled(cvGpuTimers.Get());
-        gpu->BeginFrame();
+        if (gpu)
+        {
+            gpu->SetEnabled(cvGpuTimers.Get());
+            gpu->BeginFrame();
+        }
         {
             GpuScope frameScope(gpu, "Frame");
             {
@@ -365,7 +369,8 @@ namespace Shard::Engine::Rendering{
             DrawFrame();
             EndFrame();
         }
-        gpu->EndFrame();
+        if (gpu)
+            gpu->EndFrame();
 
         m_FrameLease = {};
     }

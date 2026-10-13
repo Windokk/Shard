@@ -38,7 +38,9 @@ namespace Shard::Engine::Audio
     class AudioManager{
         public:
 
-            void Init(float masterVolume);
+            /// @param silent  no audio device is opened (headless runs : a server, the tests, the CI have none) : sounds are not
+            /// created, everything else behaves as usual
+            void Init(float masterVolume, bool silent = false);
             void Shutdown();
             void Tick();
             void CreateSound(AudioID id, const std::string& pathInProject, glm::vec3 pos, bool spatialize);

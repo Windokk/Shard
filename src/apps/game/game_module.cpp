@@ -2,6 +2,7 @@
 #include "engine/world/engine.hpp"
 
 #include "character.reflection.hpp"
+#include "random_kicker.reflection.hpp"
 
 using namespace Shard::Engine;
 using namespace Shard::Engine::Core;

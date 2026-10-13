@@ -5,6 +5,7 @@
 #include "engine/renderer/rhi/shader/shader.hpp"
 
 #include "engine/renderer/rhi/backends/opengl/pipeline/gl_pipeline.hpp"
+#include "engine/renderer/rhi/backends/null/null_rhi.hpp"
 
 #include "engine/renderer/rhi/renderer_api.hpp"
 
@@ -16,6 +17,9 @@ namespace Shard::Engine::Rendering
         {
             case RendererAPI::API::OpenGL:
                 return std::make_shared<GLPipeline>(specs);
+
+            case RendererAPI::API::Null:
+                return std::make_shared<Null::NullPipeline>(specs);
 
             /*case RendererAPI::API::Vulkan:
                 return std::make_shared<VKFramebuffer>(spec);

@@ -19,7 +19,8 @@ namespace Shard::Engine::Core::Platform {
 
     enum WindowHost{
         SDL3,
-        QT
+        QT,
+        Headless    // no window at all (see windowing/headless)
     };
 
     struct SystemInfos{

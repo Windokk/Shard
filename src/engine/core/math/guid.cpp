@@ -5,6 +5,7 @@
 #include <random>
 #include <thread>
 
+#include "engine/core/determinism/determinism.hpp"
 #include "engine/core/math/hash.hpp"
 #include "engine/core/math/random.hpp"
 
@@ -48,6 +49,12 @@ namespace Shard::Engine::Core {
     }
 
     Guid Guid::Generate() {
+        // A deterministic run counts its GUIDs from the seed : the same run makes the same ones
+        if (Determinism::Enabled()) {
+            uint64_t high, low;
+            Determinism::NextGuidWords(high, low);
+            return Stamp(high, low, 4);
+        }
         SplitMix64 mix(EntropySeed());
         return Stamp(mix.Next(), mix.Next(), 4);
     }

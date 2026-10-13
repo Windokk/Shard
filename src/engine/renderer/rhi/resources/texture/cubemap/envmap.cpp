@@ -4,6 +4,7 @@
 #include "engine/world/engine.hpp"
 
 #include "engine/renderer/rhi/backends/opengl/texture/cubemap/gl_envmap.hpp"
+#include "engine/renderer/rhi/backends/null/null_rhi.hpp"
 
 #include "engine/renderer/rhi/renderer_api.hpp"
 
@@ -19,6 +20,9 @@ namespace Shard::Engine::Rendering{
                     return glGenerator.GenerateFromFiles(specs, imageFiles);
                 });
             }
+
+            case RendererAPI::API::Null:
+                return Null::NullEnvironmentMapGenerator().GenerateFromFiles(specs, imageFiles);
 
             /*case API::Vulkan:
                 return std::make_shared<VKCubemap>(spec, faces);
@@ -43,6 +47,9 @@ namespace Shard::Engine::Rendering{
                     return glGenerator.GenerateFromHDR(specs, hdrFile);
                 });
             }
+
+            case RendererAPI::API::Null:
+                return Null::NullEnvironmentMapGenerator().GenerateFromHDR(specs, hdrFile);
 
             /*case API::Vulkan:
                 return std::make_shared<VKCubemap>(spec, faces);

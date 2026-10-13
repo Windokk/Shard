@@ -5,8 +5,13 @@
 #include <functional>
 #include <memory>
 #include <mutex>
+#include <optional>
+#include <string>
+#include <string_view>
 #include <vector>
 #include <glm/glm.hpp>
+
+#include "engine/core/math/random.hpp"
 
 namespace Shard::Engine::Assets { class HotReloader; }
 
@@ -115,7 +120,21 @@ namespace Shard::Engine{
             /// found it (the CI's smoke test).
             bool readOnly = false;
 
-            uint32_t api;
+            /// No window system, no GPU, no sound card (a dedicated server, the tests, a replay checked by the CI) : the platform
+            /// is a headless one, the audio device is not opened, nothing is watched on disk. The renderer is then to be run on
+            /// the null graphics backend (api = RendererAPI::API::Null) : the frame runs, nothing is drawn.
+            bool headless = false;
+
+            /// A run that can be repeated : every frame lasts exactly one fixed step (the clock is ignored), physics runs on
+            /// one thread, GUIDs are counted from the seed, nothing is reloaded behind the simulation's back. With the same seed,
+            /// the same project and the same input it ends in the same state (see HashSimulationState), on every platform.
+            bool deterministic = false;
+
+            /// The seed every random stream of the engine derives from (see Core::Determinism). A seed drawn from the OS, and
+            /// logged, when it is not set.
+            std::optional<uint64_t> seed;
+
+            uint32_t api = 0;
         };
 
         struct EngineContext {
@@ -204,6 +223,18 @@ namespace Shard::Engine{
 
                 virtual bool IsInPlayMode() const = 0;
                 virtual void SetPlayMode(bool on) = 0;
+
+                /// Frames run so far (the calls of Run)
+                virtual uint64_t GetFrameNumber() const { return 0; }
+                /// Whether this run can be repeated (EngineCreationSettings::deterministic)
+                virtual bool IsDeterministic() const { return false; }
+                /// The seed the random streams derive from
+                virtual uint64_t GetSimulationSeed() const { return 0; }
+                /// A random generator for a system of its own : the same name gives the same sequence in every run with the same
+                /// seed, whatever order the systems start in. Keep it, do not ask every frame. Gameplay uses this instead of
+                /// rand() / std::random_device, which no replay can reproduce. (Here, not a free function : the game module has
+                /// its own copy of the engine's statics.)
+                virtual Random MakeRandomStream(std::string_view name) const { return Random(Fnv1a64(name)); }
         };
 
         class EngineInstance : public IEngineContext {
@@ -279,6 +310,11 @@ namespace Shard::Engine{
                 bool IsInPlayMode() const override { return m_PlayMode; }
 
                 void SetPlayMode(bool on) override;
+
+                uint64_t GetFrameNumber() const override { return m_FrameCount; }
+                bool IsDeterministic() const override { return m_EngineSettings.deterministic; }
+                uint64_t GetSimulationSeed() const override;
+                Random MakeRandomStream(std::string_view name) const override;
 
             private:
                 EngineInstance() = default;

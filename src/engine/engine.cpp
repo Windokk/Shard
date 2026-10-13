@@ -8,6 +8,7 @@
 
 #include "engine/assets/resources_manager.hpp"
 #include "engine/core/diagnostics/logger.hpp"
+#include "engine/core/determinism/determinism.hpp"
 #include "engine/core/ecs/registry.hpp"
 #include "engine/core/ecs/scheduler.hpp"
 #include "engine/core/jobs/job_system.hpp"
@@ -42,6 +43,7 @@
 #include "engine/audio/audio_world_data.hpp"
 #include "engine/physics/physics_world_data.hpp"
 #include "engine/renderer/components/render_world_data.hpp"
+#include "engine/simulation_state.hpp"
 
 using namespace std::chrono;
 
@@ -110,6 +112,14 @@ namespace Shard::Engine{
 
         void EngineInstance::Init(EngineCreationSettings settings){
 
+            // First of all : whatever draws a random number (a GUID, a system's stream) derives it from the seed
+            {
+                const uint64_t seed = settings.seed ? *settings.seed : Determinism::Seed();
+                Determinism::Configure(seed, settings.deterministic);
+                DEBUG_INFO(std::string(settings.deterministic ? "Deterministic run" : "Run") + ", seed " + std::to_string(seed) +
+                           (settings.seed ? "" : " (drawn : --seed " + std::to_string(seed) + " repeats it)"));
+            }
+
             InitSystems();
 
             if(settings.platform == nullptr)
@@ -142,8 +152,8 @@ namespace Shard::Engine{
             if(settings.overrideGravity)
                 physicsSettings->gravity = settings.gravity;
 
-            m_Context.physicsManager->Init(physicsSettings->gravity);
-            m_Context.audioManager->Init(100.0f);
+            m_Context.physicsManager->Init(physicsSettings->gravity, settings.deterministic);
+            m_Context.audioManager->Init(100.0f, settings.headless);
             m_RendererSettings = std::make_shared<RendererSettings>();
             m_RendererSettings->viewportWidth = m_Context.platform->GetWindow()->GetFramebufferWidth();
             m_RendererSettings->viewportHeight = m_Context.platform->GetWindow()->GetFramebufferHeight();
@@ -194,7 +204,7 @@ namespace Shard::Engine{
             DEBUG_INFO("GPU Vendor : " + infos.gpu_vendor);
             DEBUG_INFO("GPU Renderer : " + infos.gpu_renderer);
             DEBUG_INFO("OpenGL Version : " + infos.gl_version);
-            DEBUG_INFO("Using Host : " + std::string(infos.windowHost == Platform::WindowHost::QT ? "QT" : "SDL3") + " with version : " + infos.windowHostVersion);
+            DEBUG_INFO("Using Host : " + std::string(infos.windowHost == Platform::WindowHost::QT ? "QT" : infos.windowHost == Platform::WindowHost::Headless ? "none (headless)" : "SDL3") + " with version : " + infos.windowHostVersion);
             DEBUG_INFO("CPU : " + infos.cpuBrand + " (" + std::to_string(infos.cpuLogicalCores) + " threads)");
             DEBUG_INFO("RAM : " + std::to_string(infos.totalRamMB) + " MB");
 
@@ -228,6 +238,16 @@ namespace Shard::Engine{
             if(!settings.scriptFile.empty())
                 LoadScript(settings.scriptFile);
 
+        }
+
+        uint64_t EngineInstance::GetSimulationSeed() const
+        {
+            return Determinism::Seed();
+        }
+
+        Random EngineInstance::MakeRandomStream(std::string_view name) const
+        {
+            return Determinism::MakeStream(name);
         }
 
         ThreadPool* EngineInstance::GetThreadPool(PoolKind kind) const
@@ -420,6 +440,13 @@ namespace Shard::Engine{
                     return CommandResult{true, result};
                 });
 
+            // Console : the hash of the simulation state (what two runs compare to say they stayed identical, see simulation_state.hpp)
+            CVarRegistry::Global().RegisterCommand("sim.hash", "sim.hash : the hash of the simulation state (transforms, physics bodies, scripts' fields), and the seed of the run",
+                [this](const std::vector<std::string>&) {
+                    return CommandResult{true, HashSimulationState(*this).Describe() + ", seed " + std::to_string(GetSimulationSeed()) +
+                                               (m_EngineSettings.deterministic ? ", deterministic" : ", not deterministic")};
+                });
+
             // Console : what runs each frame and how long it takes, what the registry holds
             CVarRegistry::Global().RegisterCommand("ecs.systems", "ecs.systems : the systems of each phase, in start order, with their last run time",
                 [this](const std::vector<std::string>&) {
@@ -534,6 +561,7 @@ namespace Shard::Engine{
 
             // Last : every system that submitted work is shut down, and every JobGroup has been waited on. The pools'
             // queued tasks are run to the end first (they may use the job system), then the job system goes.
+            CVarRegistry::Global().UnregisterCommand("sim.hash");
             CVarRegistry::Global().UnregisterCommand("ecs.systems");
             CVarRegistry::Global().UnregisterCommand("ecs.stats");
             delete m_Context.scheduler;
@@ -571,7 +599,9 @@ namespace Shard::Engine{
 
             // Measured first thing in the frame so every system below works off the same delta, and so
             // the time the previous frame actually took is what decides how much simulation is owed.
-            m_Context.timeManager->Tick(cvFrameDt.Get());
+            // A deterministic run does not look at the clock : every frame is exactly one fixed step, so the simulation does
+            // the same thing whatever the machine is doing meanwhile
+            m_Context.timeManager->Tick(m_EngineSettings.deterministic ? m_Context.timeManager->GetFixedDeltaTime() : cvFrameDt.Get());
 
             // New frame of scratch memory : what was allocated two frames ago is gone, last frame's is still readable
             m_Context.frameAllocator->NextFrame();
@@ -806,7 +836,8 @@ namespace Shard::Engine{
 
         void EngineInstance::StartHotReload()
         {
-            if(!cvHotReload.Get())
+            // Files changing on disk is not something a repeatable run (or a run without a window) can follow
+            if(!cvHotReload.Get() || m_EngineSettings.deterministic || m_EngineSettings.headless)
                 return;
 
             Assets::HotReloader::Config config;
