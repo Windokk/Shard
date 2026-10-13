@@ -17,9 +17,29 @@
 
 #include "engine/core/color.hpp"
 
+#include <glm/glm.hpp>
+#include <glm/gtc/matrix_transform.hpp>
+#include <glm/gtc/quaternion.hpp>
+
 #include "engine/assets/reflection/reflection_fields.hpp"
 #include "engine/assets/reflection/attributes.hpp"
 
+
+namespace Shard::Engine::Physics
+{
+    /// @brief The world-space matrix that carries something sitting at pose `curr` to the pose `alpha` of the way from `prev`
+    /// to `curr` : it turns it about the origin of `curr` by what separates the two orientations, then moves it to the
+    /// interpolated position. Multiplied on the left of a world matrix that was built from `curr`, it keeps the scale and the parents.
+    inline glm::mat4 PoseInterpolationOffset(const glm::vec3& prevPosition, const glm::quat& prevRotation,
+                                             const glm::vec3& currPosition, const glm::quat& currRotation, float alpha)
+    {
+        alpha = glm::clamp(alpha, 0.0f, 1.0f);
+        const glm::vec3 position = glm::mix(prevPosition, currPosition, alpha);
+        const glm::quat rotation = glm::slerp(prevRotation, currRotation, alpha);
+        return glm::translate(glm::mat4(1.0f), position) * glm::mat4_cast(rotation * glm::inverse(currRotation)) *
+               glm::translate(glm::mat4(1.0f), -currPosition);
+    }
+}
 
 namespace Shard::Engine::Objects::Components
 {
@@ -98,6 +118,12 @@ namespace Shard::Engine::Objects::Components
             void ApplyTransformToPhysics(float dt);
 
             void SyncTransformFromPhysics();
+
+            /// @brief Where a dynamic body is drawn between its last two simulated poses, as a world-space matrix that
+            /// moves the body from the pose its transform holds (the last step) to the interpolated one.
+            /// @param alpha how far the frame is between the last step and the next one, in [0, 1) (TimeManager::GetFixedStepAlpha)
+            /// @return false when there is nothing to correct (not dynamic, no step simulated yet, or the body did not move)
+            bool GetInterpolationOffset(float alpha, glm::mat4& offset) const;
 
             void Tick(float dt);
 
@@ -218,6 +244,16 @@ namespace Shard::Engine::Objects::Components
         private:
 
             bool shouldUpdateShape = false;
+
+            /// Keeps the last two poses Jolt gave (world space), shifting only when a new step was simulated since the last read
+            void RecordPose(const glm::vec3& position, const glm::quat& rotation);
+
+            glm::vec3 m_PrevPosition = glm::vec3(0.0f);
+            glm::quat m_PrevRotation = glm::quat(1.0f, 0.0f, 0.0f, 0.0f);
+            glm::vec3 m_CurrPosition = glm::vec3(0.0f);
+            glm::quat m_CurrRotation = glm::quat(1.0f, 0.0f, 0.0f, 0.0f);
+            uint64_t m_PoseStep = 0;            // PhysicsManager::GetStepCount() when the current pose was recorded
+            bool m_PoseValid = false;           // false after a teleport / a rebuild : the next pose is taken as both previous and current
 
             JPH::ShapeRefC BuildShape();
 

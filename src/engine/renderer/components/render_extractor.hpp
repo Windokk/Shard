@@ -2,7 +2,10 @@
 
 #include <cstdint>
 #include <functional>
+#include <unordered_map>
 #include <vector>
+
+#include <glm/glm.hpp>
 
 #include "engine/renderer/rhi/render_snapshot.hpp"
 
@@ -51,7 +54,15 @@ namespace Shard::Engine::Rendering {
         /// (lights, cameras, probe volumes and Billboard components are built in ; a skeleton's bones or an IK rig add theirs).
         using BillboardProvider = std::function<void(Worlds::World& world, int worldIndex, const RenderSnapshot& snapshot, std::vector<BillboardProxy>& out)>;
 
+        /// Where the actors that move on their own (physics bodies) are drawn this frame, as a world-space correction applied to the
+        /// world matrix their transform holds : keyed by actor id. The meshes, lights and camera of such an actor, or of one of its
+        /// descendants, take the nearest ancestor's correction. The renderer knows nothing of what produced them.
+        using PoseOffsets = std::unordered_map<int, glm::mat4>;
+
         RenderExtractor();
+
+        /// @brief The corrections to apply to the next Extract() calls (null or empty : none). Not copied : it must outlive them.
+        void SetPoseOffsets(const PoseOffsets* offsets) { m_PoseOffsets = offsets; }
 
         void AddBillboardProvider(BillboardProvider provider) { m_BillboardProviders.push_back(std::move(provider)); }
 
@@ -76,6 +87,7 @@ namespace Shard::Engine::Rendering {
         std::vector<MeshSource> m_Sources;              // scratch, kept between frames
         std::vector<int> m_PreviousIndex;
         std::vector<BillboardProvider> m_BillboardProviders;
+        const PoseOffsets* m_PoseOffsets = nullptr;
         Stats m_Stats;
     };
 

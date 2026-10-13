@@ -42,7 +42,25 @@ namespace Shard::Engine::Rendering {
             std::sort(proxies.begin(), proxies.end(), [](const Proxy& a, const Proxy& b) { return a.key < b.key; });
         }
 
-        LightProxy MakeLightProxy(uint64_t key, Light& light)
+        /// The correction of the nearest actor, from `actor` up its parents, that has one (null : the actor is drawn where its transform says)
+        const glm::mat4* FindPoseOffset(const RenderExtractor::PoseOffsets* offsets, Objects::Actor* actor)
+        {
+            if (!offsets || offsets->empty() || !actor)
+                return nullptr;
+
+            std::shared_ptr<Objects::WorldObject> node = actor->AsShared<Objects::WorldObject>();
+            while (node) {
+                if (dynamic_cast<Objects::Actor*>(node.get())) {
+                    const auto it = offsets->find(node->GetID().GetAsInt());
+                    if (it != offsets->end())
+                        return &it->second;
+                }
+                node = node->GetParent();
+            }
+            return nullptr;
+        }
+
+        LightProxy MakeLightProxy(uint64_t key, Light& light, const glm::mat4* poseOffset)
         {
             const LightData data = light.GetData();
 
@@ -57,6 +75,10 @@ namespace Shard::Engine::Rendering {
             } else {
                 proxy.position = glm::vec3(data.position);
                 proxy.direction = glm::vec3(data.direction);
+            }
+            if (poseOffset) {
+                proxy.position = glm::vec3(*poseOffset * glm::vec4(proxy.position, 1.0f));
+                proxy.direction = glm::normalize(glm::mat3(*poseOffset) * proxy.direction);
             }
             proxy.color = glm::vec3(data.color);
             proxy.intensity = data.intensity;
@@ -183,13 +205,13 @@ namespace Shard::Engine::Rendering {
             return env;
         }
 
-        void ExtractLightsAndVolumes(Worlds::World& world, int worldIndex, RenderSnapshot& next)
+        void ExtractLightsAndVolumes(Worlds::World& world, int worldIndex, RenderSnapshot& next, const RenderExtractor::PoseOffsets* poseOffsets)
         {
             RenderWorldData& data = world.Ext<RenderWorldData>();
 
             for (auto& [id, light] : data.lightComps) {
                 if (light && light->Active())
-                    next.lights.push_back(MakeLightProxy(MakeKey(worldIndex, id), *light));
+                    next.lights.push_back(MakeLightProxy(MakeKey(worldIndex, id), *light, FindPoseOffset(poseOffsets, light->parent.get())));
             }
 
             for (auto& [id, volume] : data.probeVolumes) {
@@ -198,7 +220,7 @@ namespace Shard::Engine::Rendering {
             }
         }
 
-        CameraProxy MakeCameraProxy(Camera& camera)
+        CameraProxy MakeCameraProxy(Camera& camera, const RenderExtractor::PoseOffsets* poseOffsets)
         {
             CameraProxy proxy;
             if (!camera.parent || !camera.parent->transform)
@@ -224,6 +246,16 @@ namespace Shard::Engine::Rendering {
             proxy.height = int(camera.GetSize().y);
             proxy.orthographic = camera.orthographic;
             proxy.frustumCulling = camera.frustumCulling;
+
+            // A camera riding on a body is drawn from where the body is drawn
+            if (const glm::mat4* offset = FindPoseOffset(poseOffsets, camera.parent.get())) {
+                proxy.view = proxy.view * glm::inverse(*offset);
+                proxy.viewProjection = proxy.projection * proxy.view;
+                proxy.position = glm::vec3(*offset * glm::vec4(proxy.position, 1.0f));
+                proxy.forward = glm::normalize(glm::mat3(*offset) * proxy.forward);
+                proxy.right = glm::normalize(glm::mat3(*offset) * proxy.right);
+                proxy.up = glm::normalize(glm::mat3(*offset) * proxy.up);
+            }
             return proxy;
         }
 
@@ -297,8 +329,13 @@ namespace Shard::Engine::Rendering {
 
         // World matrices are cached lazily by the transforms, and a parent's is shared by its children : settle them
         // here, on this thread, so that the parallel part below only reads.
-        for (size_t i = 0; i < count; i++)
-            next.meshes[i].worldMatrix = m_Sources[i].model->parent->transform->GetWorldMatrix();
+        for (size_t i = 0; i < count; i++) {
+            glm::mat4 world = m_Sources[i].model->parent->transform->GetWorldMatrix();
+            // An actor on a moving body is drawn between the body's last two simulated poses, not at the last one
+            if (const glm::mat4* offset = FindPoseOffset(m_PoseOffsets, m_Sources[i].model->parent.get()))
+                world = *offset * world;
+            next.meshes[i].worldMatrix = world;
+        }
 
         std::atomic<uint32_t> changedCount{0};
 
@@ -368,7 +405,7 @@ namespace Shard::Engine::Rendering {
         }
 
         if (auto camera = cameras.GetActiveCamera()) {
-            next.camera = MakeCameraProxy(*camera);
+            next.camera = MakeCameraProxy(*camera, m_PoseOffsets);
             next.camera.changed = Differs(next.camera, previous.camera);
         }
 
@@ -376,7 +413,7 @@ namespace Shard::Engine::Rendering {
 
         for (int w = 0; w < worlds.GetLoadedWorldCount(); w++) {
             if (Worlds::World* world = worlds.GetWorldAt(w))
-                ExtractLightsAndVolumes(*world, w, next);
+                ExtractLightsAndVolumes(*world, w, next, m_PoseOffsets);
         }
         SortByKey(next.lights);
 

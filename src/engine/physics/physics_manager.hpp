@@ -308,6 +308,9 @@ namespace Shard::Engine::Physics
 
         void StepSimulation(float deltaTime, bool activateAll);
 
+        /// Fixed steps simulated so far : tells a body whether the pose it reads from Jolt is a new one (see PhysicsBody::GetInterpolationOffset)
+        uint64_t GetStepCount() const { return m_StepCount; }
+
         void TickBodies(float deltaTime);
 
         JPH::BodyID CreateBody(const JPH::BodyCreationSettings& settings, Objects::Components::PhysicsBody* component, JPH::EActivation activation = JPH::EActivation::Activate);
@@ -349,6 +352,8 @@ namespace Shard::Engine::Physics
         std::mutex mQueueMutex;
 
         bool initialized = false;
+
+        uint64_t m_StepCount = 0;
 
         friend class PhysicsContactListener;
     };

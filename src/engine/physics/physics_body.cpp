@@ -14,6 +14,7 @@
 #include <Jolt/Physics/Body/BodyLock.h>
 
 #include <glm/gtc/matrix_transform.hpp>
+#include <glm/gtc/quaternion.hpp>
 
 #include <iostream>
 #include <cstring>
@@ -240,6 +241,7 @@ namespace Shard::Engine::Objects::Components{
         }
 
         m_BodyID = GetEngineContext()->GetPhysicsManager()->CreateBody(settings, this);
+        m_PoseValid = false;
     }
 
     void PhysicsBody::ApplyTransformToPhysics(float dt)
@@ -284,6 +286,8 @@ namespace Shard::Engine::Objects::Components{
         glm::vec3 worldPos = ToGLM(bi.GetPosition(m_BodyID));
         glm::quat worldRot = ToGLM(bi.GetRotation(m_BodyID));
 
+        RecordPose(worldPos, worldRot);
+
         std::shared_ptr<Actor> parentActor = std::dynamic_pointer_cast<Actor>(parent->GetParent());
 
         if (!parentActor || !parentActor->transform)
@@ -310,6 +314,41 @@ namespace Shard::Engine::Objects::Components{
 
         parent->transform->SetPosition(glm::vec3(localMatrix[3]), false);
         parent->transform->SetRotation(glm::quat_cast(localRotBasis), false);
+    }
+
+    void PhysicsBody::RecordPose(const glm::vec3& position, const glm::quat& rotation)
+    {
+        const uint64_t step = GetEngineContext()->GetPhysicsManager()->GetStepCount();
+
+        if (!m_PoseValid)
+        {
+            m_PrevPosition = m_CurrPosition = position;
+            m_PrevRotation = m_CurrRotation = rotation;
+            m_PoseValid = true;
+        }
+        else
+        {
+            // Read again within the same step (the Late sync of a frame that ran no step) : nothing new to shift in
+            if (step != m_PoseStep)
+            {
+                m_PrevPosition = m_CurrPosition;
+                m_PrevRotation = m_CurrRotation;
+            }
+            m_CurrPosition = position;
+            m_CurrRotation = rotation;
+        }
+        m_PoseStep = step;
+    }
+
+    bool PhysicsBody::GetInterpolationOffset(float alpha, glm::mat4& offset) const
+    {
+        if (!m_PoseValid || !activated || motionType != EMotionType::Dynamic)
+            return false;
+        if (m_PrevPosition == m_CurrPosition && m_PrevRotation == m_CurrRotation)
+            return false;
+
+        offset = Physics::PoseInterpolationOffset(m_PrevPosition, m_PrevRotation, m_CurrPosition, m_CurrRotation, alpha);
+        return true;
     }
 
     void PhysicsBody::Tick(float dt){
@@ -381,7 +420,8 @@ namespace Shard::Engine::Objects::Components{
 
 
         if(motionType == EMotionType::Dynamic || motionType == EMotionType::Kinematic){
-            // Teleport dynamic/kinematic body
+            // Teleport dynamic/kinematic body : the frames must not slide from where it was
+            m_PoseValid = false;
             bi.SetPosition(
                 m_BodyID,
                 newPosition,
@@ -416,6 +456,7 @@ namespace Shard::Engine::Objects::Components{
 
         JPH::Quat joltRot = ToJolt(newRot);
 
+        m_PoseValid = false;
         bi.SetRotation(
             m_BodyID,
             joltRot,

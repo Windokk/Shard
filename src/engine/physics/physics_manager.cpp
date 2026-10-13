@@ -210,16 +210,20 @@ namespace Shard::Engine::Physics {
         }
 
         m_physicsSystem.Update(deltaTime, 1, m_tempAllocator, m_jobSystem);
+        m_StepCount++;
     }
  
     void PhysicsManager::TickBodies(float deltaTime){
         
-        if(int worldCount = Core::GetEngine().GetWorldManager()->GetLoadedWorldCount() > 0){
-            for(int i = 0; i < worldCount; i++){
-                for (auto& [id,physicsBody] : Core::GetEngine().GetWorldManager()->GetWorldAt(i)->Ext<PhysicsWorldData>().bodies){
-                    if(physicsBody->Active())
-                        physicsBody->Tick(deltaTime);
-                }
+        Worlds::WorldManager* worlds = Core::GetEngine().GetWorldManager();
+        const int worldCount = worlds->GetLoadedWorldCount();
+        for(int i = 0; i < worldCount; i++){
+            Worlds::World* world = worlds->GetWorldAt(i);
+            if(!world)
+                continue;
+            for (auto& [id,physicsBody] : world->Ext<PhysicsWorldData>().bodies){
+                if(physicsBody->Active())
+                    physicsBody->Tick(deltaTime);
             }
         }
     }

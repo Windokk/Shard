@@ -36,6 +36,7 @@
 #include <filesystem>
 #include "engine/audio/audio_manager.hpp"
 #include "engine/physics/physics_manager.hpp"
+#include "engine/physics/physics_body.hpp"
 #include "engine/renderer/frontend/renderer.hpp"
 #include "engine/renderer/rhi/render_thread.hpp"
 #include "engine/audio/audio_world_data.hpp"
@@ -71,6 +72,11 @@ namespace Shard::Engine{
             // 1 is the lowest latency, 2 smooths out frames that vary in length.
             CVar<int> cvFramesInFlight("render.frames_in_flight", 2, "Frames the simulation may run ahead of the render thread",
                                        CVarFlags::Archive, 1, 4);
+
+            // The simulation steps at a fixed rate, the frames do not : with this on, what a physics body drives is drawn between
+            // its last two steps (by how far the frame is into the next one) instead of at the last one, which is what keeps the
+            // motion even when the frame rate is not a multiple of the physics rate
+            CVar<bool> cvPhysicsInterpolate("physics.interpolate", true, "Draw physics bodies between their last two steps (smooth motion at any frame rate)", CVarFlags::Archive);
 
             // Per-frame scratch memory budget, read when the engine starts (a change applies at the next start)
             CVar<int> cvFrameKB("memory.frame_kb", 4096, "Per-frame scratch memory, in KB, per buffered frame (applies at startup)",
@@ -338,7 +344,9 @@ namespace Shard::Engine{
             add("Physics.Sync", Phase::Late, [this](SystemContext& c){ SyncPhysicsBodies(c.fixedDeltaTime); });
 
             auto extractor = std::make_shared<Rendering::RenderExtractor>();
-            add("Render.Extract", Phase::Extract, [this, extractor](SystemContext& c){
+            auto poseOffsets = std::make_shared<Rendering::RenderExtractor::PoseOffsets>();
+            extractor->SetPoseOffsets(poseOffsets.get());
+            add("Render.Extract", Phase::Extract, [this, extractor, poseOffsets](SystemContext& c){
                 // The pacing : the simulation does not get further ahead of the drawn frames than the limit
                 {
                     SHARD_PROFILE_SCOPE(Debugging::ProfileCategory::Waiting);
@@ -346,6 +354,26 @@ namespace Shard::Engine{
                 }
 
                 SHARD_PROFILE_SCOPE(Debugging::ProfileCategory::Rendering);
+
+                // Where each moving body is drawn this frame : the frame sits `alpha` of the way from the last step to the next
+                poseOffsets->clear();
+                if(m_PlayMode && cvPhysicsInterpolate.Get() && c.fixedDeltaTime > 0.0f)
+                {
+                    const float alpha = m_Context.timeManager->GetFixedStepAlpha();
+                    for(int i = 0; i < m_Context.worldManager->GetLoadedWorldCount(); i++)
+                    {
+                        Worlds::World* world = m_Context.worldManager->GetWorldAt(i);
+                        if(!world)
+                            continue;
+                        for(auto& [id, body] : world->Ext<PhysicsWorldData>().bodies)
+                        {
+                            glm::mat4 offset;
+                            if(body && body->Active() && body->parent && body->GetInterpolationOffset(alpha, offset))
+                                poseOffsets->emplace(body->parent->GetID().GetAsInt(), offset);
+                        }
+                    }
+                }
+
                 extractor->Extract(*m_Context.renderer, *m_Context.worldManager, *m_Context.cameraManager, m_Context.jobSystem, c.frame);
             }, true);
             CVarRegistry::Global().RegisterCommand("render.snapshot", "render.snapshot : what the last Extract stage copied out of the simulation for the renderer",
