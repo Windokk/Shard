@@ -36,6 +36,8 @@ namespace Shard::Engine::Rendering{
 
             void Resize(uint32_t width, uint32_t height) override;
 
+            void SetSamplesCount(uint32_t samples) override;
+
             bool IsValid() const override;
 
             uint32_t GetColorAttachment() const override;

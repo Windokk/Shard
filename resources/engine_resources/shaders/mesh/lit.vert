@@ -20,7 +20,7 @@ out vec3 worldPos;
 out mat4 viewMatrix;
 out vec3 T;
 out vec3 B;
-out vec3 N;
+out vec3 N_in;
 
 
 void main()
@@ -31,7 +31,7 @@ void main()
 
     T = T_world;
     B = B_world;
-    N = N_world;
+    N_in = N_world;
 
     texCoord = aTexCoord;
     lightmapUV = aLightmapUV;

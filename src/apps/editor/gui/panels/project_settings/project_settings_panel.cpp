@@ -237,11 +237,34 @@ namespace Shard::Editor::GUI{
             }
         }
 
+        ImGui::SeparatorText("Anti-aliasing");
+
+        if (BeginRow("MSAA Samples", "Samples per pixel of the viewport (multisample anti-aliasing). More samples smooth edges better but cost GPU time and memory ; the GPU's maximum caps the value."))
+        {
+            static const uint32_t counts[] = { 2, 4, 8, 16 };
+            const std::string preview = std::to_string(rendering->msaaSamples) + "x";
+            if (ImGui::BeginCombo("##MSAASamples", preview.c_str()))
+            {
+                for (uint32_t count : counts)
+                {
+                    const std::string label = std::to_string(count) + "x";
+                    if (ImGui::Selectable(label.c_str(), rendering->msaaSamples == count))
+                    {
+                        rendering->msaaSamples = count;
+                        GetEngine().GetRenderer()->SetMultisampleCount(count);
+                        m_Dirty = true;
+                    }
+                }
+                ImGui::EndCombo();
+            }
+        }
+
         ImGui::Spacing();
         if (ImGui::Button("Reset to Defaults"))
         {
             *rendering = Projects::RenderingSettings{};
             GetEngine().GetRenderer()->SetOcclusionCullingEnabled(rendering->occlusionCulling);
+            GetEngine().GetRenderer()->SetMultisampleCount(rendering->msaaSamples);
             m_Dirty = true;
         }
     }

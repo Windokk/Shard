@@ -65,6 +65,7 @@ namespace Shard::Editor::GUI{
 
         shaderPath = data.value("shader", std::string());
         receivesShadows = data.value("recievesShadows", true);
+        doubleSided = data.value("doubleSided", false);
 
         std::string mode = data.value("renderMode", std::string("opaque"));
         renderModeIndex = mode == "translucent" ? 2 : (mode == "masked" ? 1 : 0);
@@ -137,6 +138,7 @@ namespace Shard::Editor::GUI{
         json out;
         out["shader"] = shaderPath;
         out["recievesShadows"] = receivesShadows;
+        out["doubleSided"] = doubleSided;
 
         static const char* kModes[] = {"opaque", "masked", "translucent"};
         out["renderMode"] = kModes[renderModeIndex];
@@ -224,6 +226,11 @@ namespace Shard::Editor::GUI{
 
             if(ImGui::Checkbox("Receives Shadows", &receivesShadows))
                 dirty = true;
+
+            if(ImGui::Checkbox("Double Sided", &doubleSided))
+                dirty = true;
+            if(ImGui::IsItemHovered())
+                ImGui::SetTooltip("Draws both faces of the triangles instead of culling the back ones (leaves, cloth, planes...).");
 
             ImGui::TextDisabled("Shader/render mode changes apply after the world is reloaded.");
 
@@ -374,10 +381,36 @@ namespace Shard::Editor::GUI{
             return false;
         };
 
+        // Engine-driven uniforms/samplers (transforms, lights, shadows, GI, IBL, SSAO, debug...) are
+        // set by the renderer every frame, so they're never meaningful as material parameters.
+        auto isInternal = [](const std::string& name){
+            static const char* kExact[] = {
+                "model", "view", "projection", "uView", "uProjection", "camPos", "lightNB",
+                "masked", "depthPrepass", "viewMode", "showLighting", "showShadows",
+                "useEnvReflections", "outputDisplayColors", "viewportSize", "firstInstance",
+                "lightPos", "farPlane", "lightSpaceMatrix", "lightSpaceMatrices",
+                "clusterGridSizeXY", "clusterScaleZ", "clusterBiasZ",
+                "lightmapEnabled", "lightmapHandle", "lightmapScaleOffset",
+                "ssaoEnabled", "ssaoIntensity", "ssaoTextureHandle",
+            };
+            static const char* kPrefixes[] = {
+                "ddgi_", "ibl_", "dirLight", "dirCascade", "dirShadow", "spotLight", "spotShadow",
+                "pointLight", "pointShadow", "shadow", "cluster", "light",
+            };
+
+            // Reflection may report arrays as "name[0]"
+            std::string base = name.substr(0, name.find('['));
+            for(const char* e : kExact)
+                if(base == e) return true;
+            for(const char* p : kPrefixes)
+                if(base.rfind(p, 0) == 0) return true;
+            return false;
+        };
+
         bool any = false;
 
         for(auto& [name, info] : shader->GetActiveUniformsMap()){
-            if(alreadyUsed(name))
+            if(alreadyUsed(name) || isInternal(name))
                 continue;
 
             MatParamKind kind;
@@ -405,7 +438,7 @@ namespace Shard::Editor::GUI{
         }
 
         for(auto& [name, samplerInfo] : shader->GetActiveSamplersMap()){
-            if(alreadyUsed(name))
+            if(alreadyUsed(name) || isInternal(name))
                 continue;
 
             any = true;

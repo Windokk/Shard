@@ -47,6 +47,9 @@ namespace Shard::Engine::Rendering {
 
             virtual void Resize(uint32_t width, uint32_t height) = 0;
 
+            /// @brief Changes the sample count of a multisampled framebuffer (its contents are lost, like a Resize).
+            virtual void SetSamplesCount(uint32_t samples) = 0;
+
             virtual void AttachCubemapArray(uint32_t texture) = 0;
 
             virtual void DetachCubemapArray() = 0;

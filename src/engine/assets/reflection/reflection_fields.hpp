@@ -67,6 +67,7 @@ struct FieldInfo {
     uint32_t flags;           // Editable / ReadOnly
     float min;                // Optional min value for editor widgets
     float max;                // Optional max value for editor widgets
+    const char* tooltip;      // Optional help text shown by the editor when the field is hovered
 
     const Container* container = nullptr;
     const EnumDescriptor* enumDesc = nullptr;

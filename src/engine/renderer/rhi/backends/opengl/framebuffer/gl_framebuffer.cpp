@@ -530,6 +530,20 @@ namespace Shard::Engine::Rendering{
         UpdateGpuAccounting();
     }
 
+    void GLFramebuffer::SetSamplesCount(uint32_t samples)
+    {
+        SHARD_ASSERT_GRAPHICS_THREAD();
+        if (!m_Specifications.multisampled || samples == m_Specifications.samplesCount)
+            return;
+
+        GLint maxSamples = 0;
+        glGetIntegerv(GL_MAX_SAMPLES, &maxSamples);
+        m_Specifications.samplesCount = std::clamp<uint32_t>(samples, 1u, std::max<GLint>(maxSamples, 1));
+
+        // Re-specifies the multisampled storage with the new count
+        Resize(m_Specifications.width, m_Specifications.height);
+    }
+
     bool GLFramebuffer::IsValid() const
     {
         // Answered from what is known on the CPU side (it is asked from any thread, often) : the object exists from its creation

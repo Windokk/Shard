@@ -811,6 +811,15 @@ namespace Shard::Engine::Rendering{
         m_RendererAPI->ToggleMultisampling(on);
     }
 
+    void Renderer::SetMultisampleCount(uint32_t samples)
+    {
+        SHARD_FORWARD_TO_GRAPHICS_THREAD(SetMultisampleCount(samples))
+
+        for(const auto& buffer : {m_ViewportBuffer, m_SceneBuffer})
+            if(buffer)
+                buffer->SetSamplesCount(samples);
+    }
+
     std::string Renderer::GetDeviceVendor()
     {
         return OnGraphicsThread([this] { return m_RendererAPI->GetDeviceVendor(); });

@@ -67,6 +67,7 @@ namespace Shard::Editor::GUI{
             Engine::Filesystem::Path path;
             std::string shaderPath;
             bool receivesShadows = true;
+            bool doubleSided = false;
             int renderModeIndex = 0; // 0 = opaque, 1 = masked, 2 = translucent
 
             std::shared_ptr<Engine::Rendering::Shader> shader;

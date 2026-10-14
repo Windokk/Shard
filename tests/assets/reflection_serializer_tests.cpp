@@ -36,7 +36,7 @@ namespace {
     template<typename T>
     FieldInfo MakeField(const char* name, TypeID type, uint32_t offset, uint32_t flags = Editable)
     {
-        return FieldInfo{ name, type, offset, flags, 0, 0, nullptr, nullptr, &CopyConstruct<T>, &Assign<T>, &Destroy<T>, nullptr };
+        return FieldInfo{ name, type, offset, flags, 0, 0, nullptr, nullptr, nullptr, &CopyConstruct<T>, &Assign<T>, &Destroy<T>, nullptr };
     }
 
     struct SampleFields {

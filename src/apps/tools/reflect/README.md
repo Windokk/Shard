@@ -31,6 +31,6 @@ Works for Linux and Windows (MinGW)
 ## What a header can say
 
 - `CLASS()` / `STRUCT()` on the type, `FIELD(...)` on its fields.
-- `FIELD(Editable)` / `FIELD(ReadOnly)`, and `FIELD(Editable, range=<min>|<max>)` for the bounds of the editor's widget (`range=0.0f|1.0f`, `range=1|0` when only the minimum matters).
+- `FIELD(Editable)` / `FIELD(ReadOnly)`, and `FIELD(Editable, range=<min>|<max>)` for the bounds of the editor's widget (`range=0.0f|1.0f`, `range=1|0` when only the minimum matters). `tooltip=Some help text` adds a tooltip shown when the field's label is hovered in the editor ; it runs to the end of the annotation (commas allowed), so put it last : `FIELD(Editable, range=0.0f|1.0f, tooltip=How bouncy it is)`.
 - A class gets a descriptor only if it declares one (`DECLARE_DESCRIPTOR()`) : an abstract annotated base (such as `Volume`) has none, and its fields are part of the descriptor of each class derived from it.
 - Each header only produces its own file : the annotated classes it includes are left to their own header.

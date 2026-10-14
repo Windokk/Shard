@@ -61,7 +61,17 @@ namespace Shard::Engine::Serialization{
             else if(mode == "masked")
                 renderMode = Opacity::Masked;
                 
-            std::shared_ptr<Material> mat = Material::Create(shader, Core::GetEngine().GetRenderContext()->GetOrAddPipeline({shader}), data["recievesShadows"], renderMode);
+            // Optional : a material written before the setting existed is single sided
+            const bool doubleSided = data.contains("doubleSided") && data["doubleSided"].is_boolean() && data["doubleSided"].get<bool>();
+
+            PipelineSpecifications pipelineSpecs{shader};
+            if(doubleSided)
+                pipelineSpecs.cullMode = CullMode::None;
+
+            std::shared_ptr<Material> mat = Material::Create(shader, Core::GetEngine().GetRenderContext()->GetOrAddPipeline(pipelineSpecs), data["recievesShadows"], renderMode);
+            if(!mat)
+                return nullptr;
+            mat->SetDoubleSided(doubleSided);
 
             for(auto& uniform : data["uniforms"]){
                 for (auto it = uniform.begin(); it != uniform.end(); ++it) {

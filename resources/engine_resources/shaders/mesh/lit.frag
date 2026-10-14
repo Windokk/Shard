@@ -36,7 +36,11 @@ in vec3 worldPos;
 in mat4 viewMatrix;
 in vec3 T;
 in vec3 B;
-in vec3 N;
+in vec3 N_in;
+
+// The interpolated normal, turned to face the viewer : a back face (double sided materials) is lit as the surface seen from its
+// other side. Written at the start of main().
+vec3 N;
 
 uniform int lightNB;
 
@@ -637,6 +641,8 @@ vec3 TerminatorNormal(vec3 geoNormal, vec3 mappedNormal, vec3 L){
 }
 
 void main() {
+    N = gl_FrontFacing ? N_in : -N_in;
+
     if (depthPrepass) {
         fragColor = vec4(0.0);
         return;

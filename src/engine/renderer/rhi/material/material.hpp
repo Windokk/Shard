@@ -69,6 +69,10 @@ namespace Shard::Engine::Rendering {
 
             Opacity GetOpacity() const { return m_Opacity; }
 
+            /// A double sided material draws both faces of its triangles (its pipeline does not cull) : leaves, cloth, planes...
+            bool IsDoubleSided() const { return m_DoubleSided; }
+            void SetDoubleSided(bool doubleSided) { m_DoubleSided = doubleSided; }
+
             /// Hot reload : takes the shader, pipeline, flags and parameters of `other` (the material freshly read from the same
             /// file), keeping this object - and so its asset id and everything that points at it. Graphics thread.
             void AssignContent(const Material& other)
@@ -77,6 +81,7 @@ namespace Shard::Engine::Rendering {
                 m_Pipeline = other.m_Pipeline;
                 m_ReceivesShadows = other.m_ReceivesShadows;
                 m_Opacity = other.m_Opacity;
+                m_DoubleSided = other.m_DoubleSided;
                 m_ScalarParameters = other.m_ScalarParameters;
                 m_SamplersParameters = other.m_SamplersParameters;
             }
@@ -91,6 +96,7 @@ namespace Shard::Engine::Rendering {
             std::shared_ptr<Pipeline> m_Pipeline;
             bool m_ReceivesShadows = false;
             Opacity m_Opacity;
+            bool m_DoubleSided = false;
             std::unordered_map<std::string, NumericValue> m_ScalarParameters;
             std::unordered_map<std::string, uint32_t> m_SamplersParameters;
             Filesystem::AssetID m_AssetID;

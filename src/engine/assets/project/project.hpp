@@ -88,6 +88,9 @@ namespace Shard::Engine::Projects{
         /// see OcclusionCullingManager). It never changes the image, only how much is drawn to produce it, so the
         /// only reason to turn it off is to compare, or to rule it out when chasing a rendering problem.
         bool occlusionCulling = true;
+
+        /// Samples per pixel of the multisampled viewport targets (2, 4, 8 or 16 ; the GPU clamps it to what it supports).
+        uint32_t msaaSamples = 4;
     };
 
     class Project{

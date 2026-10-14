@@ -45,6 +45,7 @@ struct FieldInfo {
     uint32_t flags;           // Editable / ReadOnly
     float min;                // Optional min value for editor widgets
     float max;                // Optional max value for editor widgets
+    const char* tooltip;      // Optional help text shown by the editor when the field is hovered
 
     const Container* container = nullptr;
     const EnumDescriptor* enumDesc = nullptr;
@@ -346,6 +347,7 @@ private:
 
         std::string readFunc, writeFunc, copyFunc, equalsFunc;
         std::string range;
+        std::string tooltip;
 
         for (const Attr* attr : F->attrs()) {
             if (const auto* aa = dyn_cast<AnnotateAttr>(attr)) {
@@ -357,6 +359,15 @@ private:
                 while (std::getline(ss, token, ',')) {
                     token.erase(0, token.find_first_not_of(" \t"));
                     token.erase(token.find_last_not_of(" \t") + 1);
+
+                    if (token.find("tooltip=") == 0) {
+                        // The text may hold commas : it runs to the end of the annotation, so it goes last
+                        std::string rest;
+                        std::getline(ss, rest, '\0');
+                        tooltip = token.substr(8) + (rest.empty() ? "" : "," + rest);
+                        tooltip.erase(tooltip.find_last_not_of(" \t") + 1);
+                        break;
+                    }
 
                     if (token == "Editable") isEditable = true;
                     else if (token == "ReadOnly") isReadOnly = true;
@@ -448,6 +459,16 @@ private:
 
         // ---------- FieldInfo ----------
 
+        std::string quotedTooltip = "nullptr";
+        if (!tooltip.empty()) {
+            quotedTooltip = "\"";
+            for (char c : tooltip) {
+                if (c == '"' || c == '\\') quotedTooltip += '\\';
+                quotedTooltip += c;
+            }
+            quotedTooltip += "\"";
+        }
+
         out << "inline FieldInfo "
             << Parent->getNameAsString() << "_" << fieldName << "_info = {\n"
             << "    \"" << fieldName << "\",\n"
@@ -461,6 +482,7 @@ private:
             << "),\n"
             << "    " << (isEditable ? "Editable" : "ReadOnly") << ",\n"
             << "    " << (range.empty() ? "0, 0" : range) << ",\n"
+            << "    " << quotedTooltip << ",\n"
             << "    " << ((isVector || isMap) ? "&" + containerVar : "nullptr") << ",\n"
             << "    " << (isEnum ? "&" + enumDescVar : "nullptr") << ",\n"
             << "    " << "&CopyConstruct<" << fieldType.getAsString(policy) << ">,\n"

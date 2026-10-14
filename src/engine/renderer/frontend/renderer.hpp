@@ -132,6 +132,9 @@ bool GetCurrentView(RenderView& out) override;
 
             void ToggleMultisampling(const bool on);
 
+            /// @brief Samples per pixel of the viewport's multisampled targets (the GPU's maximum caps it).
+            void SetMultisampleCount(uint32_t samples);
+
             /// @brief GPU occlusion culling of the main camera's geometry passes (see OcclusionCullingManager).
             /// On by default; it only ever skips geometry that is hidden, so toggling it never changes the image.
             void SetOcclusionCullingEnabled(bool enabled) { m_OcclusionCullingEnabled = enabled; }

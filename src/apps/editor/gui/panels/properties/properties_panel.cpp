@@ -757,6 +757,8 @@ namespace Shard::Editor::GUI{
 
         ImGui::AlignTextToFramePadding();
         ImGui::Text(fieldName);
+        if(field->tooltip && ImGui::IsItemHovered())
+            ImGui::SetTooltip("%s", field->tooltip);
 
         // Column 1 : Widget
         ImGui::TableSetColumnIndex(1);

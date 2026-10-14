@@ -234,6 +234,7 @@ namespace Shard::Engine::Rendering::Null {
         void Unbind() override {}
         void ResolveMultisampled() override {}
         void Resize(uint32_t width, uint32_t height) override { m_Specifications.width = width; m_Specifications.height = height; }
+        void SetSamplesCount(uint32_t samples) override { m_Specifications.samplesCount = samples; }
         void AttachCubemapArray(uint32_t texture) override { (void)texture; }
         void DetachCubemapArray() override {}
         void CopyFrom(std::shared_ptr<Framebuffer> src) override { (void)src; }

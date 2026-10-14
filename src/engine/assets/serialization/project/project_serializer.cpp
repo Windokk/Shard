@@ -128,6 +128,9 @@ namespace Shard::Engine::Serialization{
 
                 if(rendering.contains("occlusionCulling") && rendering["occlusionCulling"].is_boolean())
                     renderingSettings.occlusionCulling = rendering["occlusionCulling"];
+
+                if(rendering.contains("msaaSamples") && rendering["msaaSamples"].is_number_unsigned())
+                    renderingSettings.msaaSamples = std::clamp<uint32_t>(rendering["msaaSamples"], 2u, 16u);
             }
             else{
                 DEBUG_INFO("No rendering settings for project: "+path.full+", using the defaults");
@@ -177,6 +180,7 @@ namespace Shard::Engine::Serialization{
         data["physics"]["maxAccumulatedTime"] = physics->maxAccumulatedTime;
 
         data["rendering"]["occlusionCulling"] = pro->GetRenderingSettings()->occlusionCulling;
+        data["rendering"]["msaaSamples"] = pro->GetRenderingSettings()->msaaSamples;
 
         //TODO data["editorPreferences"] = pro->GetEditorPrefs();
 
