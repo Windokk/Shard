@@ -48,41 +48,41 @@ namespace Shard::Engine::Objects::Components {
             uint32_t GetAtlasSprite() const;
 
             /// Pixels when ScreenSpaceSize, else meters
-            FIELD(Editable, range=0.1f|500.0f)
+            FIELD(Editable, range=0.1f|500.0f, tooltip=Pixels when Screen Space Size is on, otherwise meters)
             float size = 48.0f;
 
-            FIELD(Editable)
+            FIELD(Editable, tooltip=How the quad is oriented relative to the camera)
             Rendering::BillboardFacingType facingType = Rendering::BillboardFacingType::Camera;
 
             /// A constant size on the screen, whatever the distance
-            FIELD(Editable)
+            FIELD(Editable, tooltip=Keep a constant size on the screen, whatever the distance)
             bool ScreenSpaceSize = true;
 
             /// Hidden by the geometry in front of it
-            FIELD(Editable)
+            FIELD(Editable, tooltip=Hidden by the geometry in front of it)
             bool DepthTest = true;
 
             /// Only drawn while the editor shows its helpers
-            FIELD(Editable)
+            FIELD(Editable, tooltip=Only drawn while the editor shows its helpers)
             bool EditorOnly = false;
 
             /// The editor selects its actor when it is clicked
-            FIELD(Editable)
+            FIELD(Editable, tooltip=Clicking it in the editor viewport selects its actor)
             bool Pickable = true;
 
             /// Which cell of the sheet
-            FIELD(Editable)
+            FIELD(Editable, tooltip=Which cell of the sprite sheet to draw)
             uint32_t sprite = 0;
 
             /// How many cells the image holds, side by side
-            FIELD(Editable, range=1|64)
+            FIELD(Editable, range=1|64, tooltip=How many cells the image holds, side by side)
             int spritesCount = 1;
 
             /// An image of the project ("textures/icons.png"). Empty : the generic marker.
-            FIELD(Editable)
+            FIELD(Editable, tooltip=Image of the project, such as textures/icons.png. Empty uses the generic marker)
             std::string spritePath;
 
-            FIELD(Editable)
+            FIELD(Editable, tooltip=Color multiplied with the sprite)
             COL_RGBA tint = 1.0f;
 
         private:

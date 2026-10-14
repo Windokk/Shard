@@ -110,22 +110,22 @@ namespace Shard::Engine::Objects::Components {
             // Smallest near plane a perspective camera may use (matches the viewport's slider minimum)
             static constexpr float MIN_NEAR_PLANE = 0.01f;
 
-            FIELD(Editable)
+            FIELD(Editable, tooltip=Farthest distance that is rendered)
             float farPlane = 100.0f;
 
-            FIELD(Editable)
+            FIELD(Editable, tooltip=Closest distance that is rendered. Too small a value causes depth precision artifacts)
             float nearPlane = 0.1f;
 
-            FIELD(Editable)
+            FIELD(Editable, tooltip=Orthographic projection without perspective, instead of a perspective one)
             bool orthographic = false;
 
-            FIELD(Editable)
+            FIELD(Editable, tooltip=Skip the objects outside of the camera view)
             bool frustumCulling = true;
 
-            FIELD(Editable)
+            FIELD(Editable, tooltip=Vertical field of view in degrees, perspective only)
             float fov = 60.0f;
 
-            FIELD(Editable)
+            FIELD(Editable, tooltip=Half of the vertical size of the view in world units, orthographic only)
             float orthoSize = 10.0f;
 
         private:

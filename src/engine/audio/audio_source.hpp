@@ -54,16 +54,16 @@ namespace Shard::Engine::Objects::Components
 
             DECLARE_DESCRIPTOR(AudioSource)
 
-            FIELD(Editable)
+            FIELD(Editable, tooltip=The audio clip to play)
             Filesystem::AssetID assetID;
 
-            FIELD(Editable)
+            FIELD(Editable, tooltip=Playback volume, 1 is the clip at its original level)
             float volume = 1.0f;
 
-            FIELD(Editable)
+            FIELD(Editable, tooltip=Start playing as soon as the game starts)
             bool playOnStart = true;
 
-            FIELD(Editable)
+            FIELD(Editable, tooltip=Play in 3D : the volume and panning follow the distance and direction to the listener)
             bool spatialize = true;
 
         private:

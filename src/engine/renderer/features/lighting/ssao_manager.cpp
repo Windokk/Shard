@@ -125,6 +125,7 @@ namespace Shard::Engine::Rendering {
         blurPass->overridePipeline = true;
         blurPass->customPipeline = m_BlurPipeline;
         blurPass->customSamplers.emplace("ssaoInput", m_RawAOFramebuffer->GetColorAttachment());
+        blurPass->customSamplers.emplace("gDepth", m_PrepassFramebuffer->GetDepthAttachment());
         blurPass->barrierAfter = MemoryBarrierBit::TextureFetch;
 
         renderer->AddRenderPass(blurPass, "SSAOBlurPass", {"SSAORawPass"});
@@ -218,6 +219,8 @@ namespace Shard::Engine::Rendering {
         rawPass->customUniforms["radius"] = environment.ssaoRadius;
         rawPass->customUniforms["bias"] = environment.ssaoBias;
         rawPass->customUniforms["power"] = environment.ssaoPower;
+        renderer->GetRenderPass("SSAOBlurPass")->customUniforms["projection"] = projection;
+
         rawPass->customUniforms["noiseScale"] = glm::vec2(
             float(m_PrepassFramebuffer->GetWidth()) / float(kNoiseTileSize),
             float(m_PrepassFramebuffer->GetHeight()) / float(kNoiseTileSize)

@@ -61,7 +61,7 @@ namespace Shard::Engine::Objects::Components
             // having unsaved changes - the world file has to be saved for the reference to persist.
             void OnBakeFinished(const Filesystem::Path& file);
 
-            FIELD(Editable, range=1|0)
+            FIELD(Editable, range=1|0, tooltip=Number of probes along each axis of the grid)
             glm::ivec3 probeCounts = glm::ivec3(8, 4, 8);
 
             // Traced per probe per update - must be a perfect square (8x8=64, 16x16=256) since each ray
@@ -70,7 +70,7 @@ namespace Shard::Engine::Objects::Components
             // nearest one when the grid is (re)built, and the whole thing is capped at
             // ProbeManager::kMaxRaysPerProbe. Cost is linear in this while noise only falls with its
             // square root, so it's rarely the right knob to turn first - see probeUpdateStride.
-            FIELD(Editable, range=1|256)
+            FIELD(Editable, range=1|256, tooltip=Rays traced per probe and update, a perfect square such as 64 or 256. More is less noisy but costly)
             int raysPerProbe = 64;
 
             // Round-robin probe update (RTXGI's, see ProbeManager) : a stride of N traces only 1/N of
@@ -81,7 +81,7 @@ namespace Shard::Engine::Objects::Components
             // around a moving object wants 1. Clamped to ProbeManager::kMaxProbeUpdateStride. The
             // temporal blend compensates automatically (see kBaseTemporalHysteresis), so raising this
             // costs responsiveness to a lighting change only through a slightly grainier result, not
-            FIELD(Editable, range=1|8)
+            FIELD(Editable, range=1|8, tooltip=Update only 1/N of the probes each frame. The main performance knob, large coarse volumes can use 2 to 4)
             int probeUpdateStride = 1;
 
             // Multiplier on the bounce (indirect) term the probes feed back into themselves - RTXGI's
@@ -92,7 +92,7 @@ namespace Shard::Engine::Objects::Components
             // exaggerates colour bleed, which can be worth it because an octahedral tile loses a little
             // energy at every hop; lowering it tames a scene whose albedos are high enough that the
             // bounce series takes an uncomfortably long time to settle.
-            FIELD(Editable, range=0.0f|4.0f)
+            FIELD(Editable, range=0.0f|4.0f, tooltip=Multiplier on the bounced light fed back into the probes. 1 is physically correct)
             float indirectIntensity = 1.0f;
 
             // RTXGI "Probe Relocation" : each frame, every probe is nudged by a small bounded offset
@@ -100,7 +100,7 @@ namespace Shard::Engine::Objects::Components
             // landing probes inside walls/pillars/statues still produces useful data there instead of
             // just switching those probes off (that's probe classification, which always runs). On by
             // default; toggling it re-zeroes accumulated offsets (via ProbeManager::RebuildGrid).
-            FIELD(Editable)
+            FIELD(Editable, tooltip=Nudge probes out of the geometry they sit inside, so they still give useful data)
             bool enableRelocation = true;
 
             DECLARE_DESCRIPTOR(ProbeVolume)

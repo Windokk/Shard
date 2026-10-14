@@ -45,7 +45,7 @@ namespace Shard::Engine::Objects::Components
 {
 
     struct STRUCT() SphereParams{
-        FIELD(Editable) float radius = 0.5f;
+        FIELD(Editable, tooltip=Radius of the shape) float radius = 0.5f;
         SphereParams(float r) : radius(r) {}
         SphereParams() = default;
         ~SphereParams() = default;
@@ -58,8 +58,8 @@ namespace Shard::Engine::Objects::Components
 
 
     struct STRUCT() CapsuleParams{
-        FIELD(Editable) float radius = 0.5f;
-        FIELD(Editable) float halfHeight = 0.5f;
+        FIELD(Editable, tooltip=Radius of the shape) float radius = 0.5f;
+        FIELD(Editable, tooltip=Half of the height of the shape, without the caps for a capsule) float halfHeight = 0.5f;
         CapsuleParams(float r, float h) : radius(r), halfHeight(h) {}
         CapsuleParams() = default;
         ~CapsuleParams() = default;
@@ -72,7 +72,7 @@ namespace Shard::Engine::Objects::Components
     };
 
     struct STRUCT() BoxParams{
-        FIELD(Editable) glm::vec3 halfExtent = glm::vec3(0.5f);
+        FIELD(Editable, tooltip=Half of the size of the box along each axis) glm::vec3 halfExtent = glm::vec3(0.5f);
         BoxParams(glm::vec3 e) : halfExtent(e) {}
         BoxParams() = default;
         ~BoxParams() = default;
@@ -83,8 +83,8 @@ namespace Shard::Engine::Objects::Components
     };
 
     struct STRUCT() CylinderParams{
-        FIELD(Editable) float radius = 0.5f;
-        FIELD(Editable) float halfHeight = 0.5f;
+        FIELD(Editable, tooltip=Radius of the shape) float radius = 0.5f;
+        FIELD(Editable, tooltip=Half of the height of the shape, without the caps for a capsule) float halfHeight = 0.5f;
         CylinderParams(float r, float h) : radius(r), halfHeight(h) {}
         CylinderParams() = default;
         ~CylinderParams() = default;
@@ -217,28 +217,28 @@ namespace Shard::Engine::Objects::Components
             void SetRestitution(float newRestitution);
             float GetRestitution() const;
 
-            FIELD(Editable)
+            FIELD(Editable, tooltip=Static never moves, Kinematic is moved by code only, Dynamic is driven by the physics simulation)
             EMotionType motionType = EMotionType::Static;
 
-            FIELD(Editable)
+            FIELD(Editable, tooltip=Use the mass below instead of the one computed from the shape)
             bool overrideMass = false;
 
-            FIELD(Editable, range=0.001f|100000.0f)
+            FIELD(Editable, range=0.001f|100000.0f, tooltip=Mass in kg, only used when Override Mass is on)
             float mass = 1.0f;
 
-            FIELD(Editable, range=0.0f|1.0f)
+            FIELD(Editable, range=0.0f|1.0f, tooltip=How fast the body loses its linear velocity, 0 keeps it forever)
             float linearDamping = 0.05f;
 
-            FIELD(Editable, range=0.0f|1.0f)
+            FIELD(Editable, range=0.0f|1.0f, tooltip=How fast the body loses its spin, 0 keeps it forever)
             float angularDamping = 0.05f;
 
-            FIELD(Editable, range=-10.0f|10.0f)
+            FIELD(Editable, range=-10.0f|10.0f, tooltip=Multiplier on the world gravity, 0 floats and a negative value falls upwards)
             float gravityFactor = 1.0f;
 
-            FIELD(Editable, range=0.0f|1.0f)
+            FIELD(Editable, range=0.0f|1.0f, tooltip=Resistance when sliding on another body, 0 is ice and 1 is very grippy)
             float friction = 0.2f;
 
-            FIELD(Editable, range=0.0f|1.0f)
+            FIELD(Editable, range=0.0f|1.0f, tooltip=Bounciness, 0 does not bounce and 1 bounces back with all its energy)
             float restitution = 0.0f;
 
         private:

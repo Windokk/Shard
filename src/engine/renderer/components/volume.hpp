@@ -17,7 +17,7 @@ namespace Shard::Engine::Objects::Components
         public:
             Volume(std::shared_ptr<Actor> parent, uint32_t local_id);
 
-            FIELD(Editable)
+            FIELD(Editable, tooltip=Half of the size of the box along each axis)
             glm::vec3 halfExtent = glm::vec3(1.0f);
     };
 }

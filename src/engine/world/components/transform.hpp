@@ -135,13 +135,13 @@ namespace Shard::Engine::Objects::Components
             bool IsDirty(DirtyFlags flag) const;
             void ClearDirty(DirtyFlags flag);
 
-            FIELD(Editable)
+            FIELD(Editable, tooltip=Position relative to the parent actor)
             glm::vec3 position = glm::vec3(0);
 
-            FIELD(Editable) 
+            FIELD(Editable, tooltip=Rotation relative to the parent actor) 
             glm::quat rotation = glm::quat(glm::vec3(0, 0, 0));
 
-            FIELD(Editable) 
+            FIELD(Editable, tooltip=Scale relative to the parent actor) 
             glm::vec3 scale = glm::vec3(1);
 
         private:

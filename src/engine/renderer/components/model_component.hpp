@@ -55,21 +55,21 @@ namespace Shard::Engine::Objects::Components
 
             std::shared_ptr<Component> Clone() const override;
             
-            FIELD(Editable)
+            FIELD(Editable, tooltip=The mesh to draw)
             Filesystem::AssetID meshID;
 
-            FIELD(Editable)
+            FIELD(Editable, tooltip=One material per submesh)
             std::vector<Filesystem::AssetID> materialsID;
 
             // ---- Baked lighting (see LightmapManager) ----
             // Whether the model is part of the baked lighting : it blocks and bounces the light of a bake, and gets a lightmap
             // of its own (the diffuse light it receives, stored on its surface). Leave it off for what moves : a baked shadow
             // does not follow a moving object, and the lightmap of one that was baked in place stays behind.
-            FIELD(Editable)
+            FIELD(Editable, tooltip=Take part in the baked lighting : it blocks and bounces light and gets a lightmap. Turn it off for what moves)
             bool staticLighting = true;
 
             // The lightmap resolution of this model, in texels per side (0 : worked out from the bake's texel density)
-            FIELD(Editable, range=0|2048)
+            FIELD(Editable, range=0|2048, tooltip=Lightmap size of this model in texels per side. 0 is worked out from the bake texel density)
             int lightmapResolution = 0;
 
             // Where the model's lightmap is in the baked atlas : the page, and what turns a coordinate of the mesh's lightmap

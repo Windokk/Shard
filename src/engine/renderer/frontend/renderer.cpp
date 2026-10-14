@@ -1200,7 +1200,13 @@ namespace Shard::Engine::Rendering{
         }
 
         const DisplaySettings& display = GetSnapshot().environment.display;
+        // The samples themselves go to the shader (it tonemaps each one, see tonemap.frag) ; the resolved image is for a scene
+        // that was not multisampled
+        const FramebufferSpecifications& sceneSpecs = m_SceneBuffer->GetSpecifications();
+        const int sceneSamples = sceneSpecs.multisampled ? static_cast<int>(sceneSpecs.samplesCount) : 0;
         m_TonemapMaterial->SetTextureParameter("sceneTexture", m_SceneBuffer->GetResolveColorAttachment());
+        m_TonemapMaterial->SetTextureParameter("sceneTextureMS", sceneSamples > 0 ? m_SceneBuffer->GetColorAttachment() : 0);
+        m_TonemapMaterial->SetScalarParameter("sceneSamples", sceneSamples);
         m_TonemapMaterial->SetScalarParameter("exposure", display.ExposureScale());
         m_TonemapMaterial->SetScalarParameter("tonemapper", static_cast<int>(display.tonemapper));
         m_TonemapMaterial->SetScalarParameter("displayMode", GetDisplayMode());
