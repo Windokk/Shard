@@ -60,9 +60,6 @@ namespace Shard::Engine::Rendering{
         if (!applyPassGlobals)
             return;
 
-        const auto& uniforms = shader->GetActiveUniformsMap();
-        auto it = uniforms.find("useEnvReflections");
-
         // A studio view brings its own environment so its look never depends on the world.
         std::shared_ptr<EnvironmentMap> envMap;
         if (studio)
@@ -70,15 +67,21 @@ namespace Shard::Engine::Rendering{
         else
             envMap = environment.skybox;
 
-        if(it != uniforms.end() && envMap){
+        if(envMap){
             //Bind skybox data
             const auto& samplers = shader->GetActiveSamplersMap();
 
-            api.BindTextureUnit(samplers.find("ibl_irradianceMap")->second.binding, envMap->GetIrradiance()->GetHandle());
+            // A permutation that only reads the flag (the G-buffer's) has none of the environment's samplers
+            auto bindIfUsed = [&](const char* name, const auto& texture)
+            {
+                auto sampler = samplers.find(name);
+                if (sampler != samplers.end())
+                    api.BindTextureUnit(sampler->second.binding, texture->GetHandle());
+            };
 
-            api.BindTextureUnit(samplers.find("ibl_prefilteredEnvMap")->second.binding, envMap->GetPrefilter()->GetHandle());
-
-            api.BindTextureUnit(samplers.find("ibl_brdfLUT")->second.binding, envMap->GetBRDFLUT()->GetHandle());
+            bindIfUsed("ibl_irradianceMap", envMap->GetIrradiance());
+            bindIfUsed("ibl_prefilteredEnvMap", envMap->GetPrefilter());
+            bindIfUsed("ibl_brdfLUT", envMap->GetBRDFLUT());
         }
 
         auto probeManager = GetProbeManager();

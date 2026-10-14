@@ -52,6 +52,9 @@ namespace Shard::Engine::Core::Platform {
         SDL_Window* GetSDLWindow() const { return m_Window; }
         SDL_GLContext GetGLContext() const { return m_GLContext; }
 
+        std::vector<std::string> GetVulkanInstanceExtensions() const override;
+        uint64_t CreateVulkanSurface(void* vulkanInstance) const override;
+
         /// @brief Function loader for the GL function pointers : gladLoadGL((GLADloadfunc)SDLWindow::GLProcLoader)
         static void* GLProcLoader(const char* name);
 
@@ -64,6 +67,7 @@ namespace Shard::Engine::Core::Platform {
 
         SDL_Window* m_Window = nullptr;
         SDL_GLContext m_GLContext = nullptr;
+        bool m_Vulkan = false;      // the window is a Vulkan one : no OpenGL context, the renderer presents
         bool m_ShouldClose = false;
         std::deque<OSEvent> m_Posted;
         bool m_SuppressOSInput = false;

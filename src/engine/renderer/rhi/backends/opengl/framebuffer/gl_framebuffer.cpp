@@ -71,6 +71,50 @@ namespace Shard::Engine::Rendering{
         glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D, m_ColorAttachment, 0);
     }
 
+    void GLFramebuffer::CreateExtraColorAttachments(uint32_t width, uint32_t height)
+    {
+        const auto& extras = m_Specifications.extraColorSpecs;
+
+        if (m_ExtraColorAttachments.size() != extras.size())
+        {
+            for (uint32_t texture : m_ExtraColorAttachments)
+                glDeleteTextures(1, &texture);
+            m_ExtraColorAttachments.assign(extras.size(), 0);
+        }
+
+        for (size_t i = 0; i < extras.size(); i++)
+        {
+            GLTextureSpec specs = GLTextureSpec::FromTextureSpecifications(extras[i]);
+
+            if (m_ExtraColorAttachments[i] == 0)
+                glGenTextures(1, &m_ExtraColorAttachments[i]);
+
+            glBindTexture(GL_TEXTURE_2D, m_ExtraColorAttachments[i]);
+            glTexImage2D(GL_TEXTURE_2D, 0, specs.internalFormat, width, height, 0, specs.format, specs.type, nullptr);
+            glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, specs.minFilter);
+            glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, specs.magFilter);
+            glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, specs.wrapModeS);
+            glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, specs.wrapModeT);
+            glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT1 + static_cast<GLenum>(i), GL_TEXTURE_2D, m_ExtraColorAttachments[i], 0);
+        }
+    }
+
+    void GLFramebuffer::ApplyDrawBuffers()
+    {
+        if (m_Specifications.hasColor)
+        {
+            std::vector<GLenum> drawBuffers = { GL_COLOR_ATTACHMENT0 };
+            for (size_t i = 0; i < m_ExtraColorAttachments.size(); i++)
+                drawBuffers.push_back(GL_COLOR_ATTACHMENT1 + static_cast<GLenum>(i));
+            glDrawBuffers(static_cast<GLsizei>(drawBuffers.size()), drawBuffers.data());
+        }
+        else
+        {
+            glDrawBuffer(GL_NONE);
+            glReadBuffer(GL_NONE);
+        }
+    }
+
     GLFramebuffer::GLFramebuffer(const FramebufferSpecifications &spec)
     {
         m_Specifications = spec;
@@ -164,16 +208,10 @@ namespace Shard::Engine::Rendering{
             }
         }
 
-        if (spec.hasColor)
-        {
-            GLenum drawBuffers[1] = { GL_COLOR_ATTACHMENT0 };
-            glDrawBuffers(1, drawBuffers);
-        }
-        else
-        {
-            glDrawBuffer(GL_NONE);
-            glReadBuffer(GL_NONE);
-        }
+        if (!spec.multisampled && spec.hasColor)
+            CreateExtraColorAttachments(spec.width, spec.height);
+
+        ApplyDrawBuffers();
 
         CheckFBStatus();
 
@@ -237,6 +275,9 @@ namespace Shard::Engine::Rendering{
         }
         if(m_Specifications.hasDepth)
             glDeleteTextures(1, &m_DepthAttachment);
+        for (uint32_t texture : m_ExtraColorAttachments)
+            glDeleteTextures(1, &texture);
+        m_ExtraColorAttachments.clear();
         if (m_ResolveFBO) 
             glDeleteFramebuffers(1, &m_ResolveFBO);
         if (m_ResolveDepthAttachment) 
@@ -507,16 +548,10 @@ namespace Shard::Engine::Rendering{
             }
         }
 
-        if (m_Specifications.hasColor)
-        {
-            GLenum drawBuffers[1] = { GL_COLOR_ATTACHMENT0 };
-            glDrawBuffers(1, drawBuffers);
-        }
-        else
-        {
-            glDrawBuffer(GL_NONE);
-            glReadBuffer(GL_NONE);
-        }
+        if (!m_Specifications.multisampled && m_Specifications.hasColor)
+            CreateExtraColorAttachments(width, height);
+
+        ApplyDrawBuffers();
 
         CheckFBStatus();
 
@@ -554,6 +589,13 @@ namespace Shard::Engine::Rendering{
     uint32_t GLFramebuffer::GetColorAttachment() const
     {
         return m_ColorAttachment;
+    }
+
+    uint32_t GLFramebuffer::GetColorAttachmentAt(uint32_t index) const
+    {
+        if (index == 0)
+            return m_ColorAttachment;
+        return index - 1 < m_ExtraColorAttachments.size() ? m_ExtraColorAttachments[index - 1] : 0;
     }
 
     uint64_t GLFramebuffer::GetColorAttachmentBindlessHandle() const

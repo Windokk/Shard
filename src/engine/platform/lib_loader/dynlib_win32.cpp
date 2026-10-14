@@ -47,6 +47,22 @@ namespace Shard::Engine::Core::Platform {
         return m_Handle != nullptr;
     }
 
+    bool DynLib::OpenIfLoaded(const std::string& name)
+    {
+        Close();
+        m_LastError.clear();
+
+        HMODULE module = nullptr;
+        if (!GetModuleHandleExA(0, name.c_str(), &module))
+        {
+            m_LastError = ErrorMessage(GetLastError());
+            return false;
+        }
+
+        m_Handle = module;
+        return true;
+    }
+
     void DynLib::Close()
     {
         if (m_Handle)

@@ -126,7 +126,6 @@ namespace Shard::Engine::Rendering {
         blurPass->customPipeline = m_BlurPipeline;
         blurPass->customSamplers.emplace("ssaoInput", m_RawAOFramebuffer->GetColorAttachment());
         blurPass->customSamplers.emplace("gDepth", m_PrepassFramebuffer->GetDepthAttachment());
-        blurPass->barrierAfter = MemoryBarrierBit::TextureFetch;
 
         renderer->AddRenderPass(blurPass, "SSAOBlurPass", {"SSAORawPass"});
         renderer->AddDependencyToPass("ForwardPass", "SSAOBlurPass");

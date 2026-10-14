@@ -5,6 +5,7 @@
 
 #include "engine/renderer/rhi/backends/opengl/texture/gl_texture.hpp"
 #include "engine/renderer/rhi/backends/null/null_rhi.hpp"
+#include "engine/renderer/rhi/backends/vulkan/vk_texture.hpp"
 
 #include <stb/stb_image.h>
 
@@ -74,6 +75,9 @@ namespace Shard::Engine::Rendering{
         {
             case RendererAPI::API::OpenGL:
                 return OnGraphicsThread([&]() -> std::shared_ptr<Texture2D> { return std::make_shared<GLTexture2D>(spec, data); });
+
+            case RendererAPI::API::Vulkan:
+                return OnGraphicsThread([&]() -> std::shared_ptr<Texture2D> { return std::make_shared<VKTexture2D>(spec, data); });
 
             case RendererAPI::API::Null:
                 return std::make_shared<Null::NullTexture2D>(spec, data);
@@ -228,6 +232,8 @@ namespace Shard::Engine::Rendering{
         {
             case RendererAPI::API::OpenGL:
                 return OnGraphicsThread([&]() -> std::shared_ptr<Texture2D> { return std::make_shared<GLTexture2D>(spec, image, firstMip); });
+            case RendererAPI::API::Vulkan:
+                return OnGraphicsThread([&]() -> std::shared_ptr<Texture2D> { return std::make_shared<VKTexture2D>(spec, image, firstMip); });
             case RendererAPI::API::Null:
                 return std::make_shared<Null::NullTexture2D>(spec, image, firstMip);
             default:

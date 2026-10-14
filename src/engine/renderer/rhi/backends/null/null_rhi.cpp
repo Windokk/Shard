@@ -31,8 +31,9 @@ namespace Shard::Engine::Rendering::Null {
 
     // ---- shaders, materials ---------------------------------------------------------------------------------------
 
-    NullShader::NullShader(const Filesystem::Path& vertexPath, const Filesystem::Path& fragmentPath, const Filesystem::Path& geometryPath)
+    NullShader::NullShader(const Filesystem::Path& vertexPath, const Filesystem::Path& fragmentPath, const Filesystem::Path& geometryPath, const std::vector<std::string>& defines)
     {
+        m_Defines = defines;
         m_VertexFilePath = vertexPath.full;
         m_FragmentFilePath = fragmentPath.full;
         m_GeometryFilePath = geometryPath.full;

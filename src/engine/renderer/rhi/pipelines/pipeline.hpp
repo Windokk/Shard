@@ -5,6 +5,7 @@
 #include <cstdint>
 #include <vector>
 #include <functional>
+#include <unordered_map>
 
 namespace Shard::Engine::Rendering{
 
@@ -177,9 +178,14 @@ namespace Shard::Engine::Rendering{
 
             virtual void Bind() = 0;
 
+            /// The same pipeline with a permutation of its shader (see Shader::GetVariant) : what a pass that draws materials with another program uses
+            std::shared_ptr<Pipeline> GetVariant(const std::string& define);
+
 
         protected:
             PipelineSpecifications m_Specifications;
+
+            std::unordered_map<std::string, std::shared_ptr<Pipeline>> m_Variants;
 
         private:
             static std::shared_ptr<Pipeline> Create(const PipelineSpecifications& specs);

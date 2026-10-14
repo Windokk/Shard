@@ -18,9 +18,16 @@ file(GLOB_RECURSE AUDIO_SOURCES ${CMAKE_CURRENT_SOURCE_DIR}/audio/*.cpp ${CMAKE_
 file(GLOB_RECURSE RHI_SOURCES
   ${CMAKE_CURRENT_SOURCE_DIR}/renderer/rhi/*.cpp
   ${CMAKE_CURRENT_SOURCE_DIR}/renderer/rhi/backends/glad/src/gl.c
-  ${CMAKE_CURRENT_SOURCE_DIR}/renderer/rhi/backends/glad/src/vulkan.c
   ${CMAKE_SOURCE_DIR}/submodules/ufbx/ufbx.c
+  ${CMAKE_SOURCE_DIR}/submodules/volk/volk.c
 )
+# The compiler from GLSL to SPIR-V and the format of what it makes (ShardShaderCompiler) : the rhi reads the format, only the shaderc tool and
+# the runtime shader compilation need the compiler itself
+file(GLOB SHADER_COMPILER_SOURCES
+  ${CMAKE_CURRENT_SOURCE_DIR}/renderer/rhi/shader_compiler/*.cpp
+  ${CMAKE_CURRENT_SOURCE_DIR}/renderer/rhi/shader/shader_binary.cpp
+)
+list(FILTER RHI_SOURCES EXCLUDE REGEX "/renderer/rhi/shader_compiler/|/renderer/rhi/shader/shader_binary[.]cpp")
 file(GLOB_RECURSE RENDERER_SOURCES ${CMAKE_CURRENT_SOURCE_DIR}/renderer/*.cpp)
 list(FILTER RENDERER_SOURCES EXCLUDE REGEX "/renderer/rhi/")
 file(GLOB_RECURSE ENGINE_SOURCES ${CMAKE_CURRENT_SOURCE_DIR}/*.cpp)
@@ -89,9 +96,29 @@ add_library(ShardAudio STATIC ${AUDIO_SOURCES})
 target_compile_definitions(ShardAudio PRIVATE BUILD_ENGINE)
 target_link_libraries(ShardAudio PUBLIC ShardWorld ShardAssets ShardPlatform ShardCore)
 
+add_library(ShardShaderCompiler STATIC ${SHADER_COMPILER_SOURCES} ${CMAKE_SOURCE_DIR}/submodules/SPIRV-Reflect/spirv_reflect.c)
+target_compile_definitions(ShardShaderCompiler PRIVATE BUILD_ENGINE)
+target_include_directories(ShardShaderCompiler PUBLIC
+    "${CMAKE_SOURCE_DIR}/src/"
+    "${CMAKE_SOURCE_DIR}/submodules/"
+    "${CMAKE_SOURCE_DIR}/submodules/json/single_include/"
+    "${CMAKE_SOURCE_DIR}/submodules/glm/"
+    "${CMAKE_SOURCE_DIR}/submodules/SPIRV-Reflect/"
+)
+target_link_libraries(ShardShaderCompiler PUBLIC glslang SPIRV glslang-default-resource-limits ShardAssets ShardCore)
+
 add_library(ShardRHI STATIC ${RHI_SOURCES})
 target_compile_definitions(ShardRHI PRIVATE BUILD_ENGINE)
-target_link_libraries(ShardRHI PUBLIC ShardWorld ShardAssets ShardPlatform ShardCore)
+target_link_libraries(ShardRHI PUBLIC ShardShaderCompiler ShardWorld ShardAssets ShardPlatform ShardCore)
+target_link_libraries(ShardRHI PUBLIC vk-bootstrap::vk-bootstrap)
+target_include_directories(ShardRHI PUBLIC
+    "${CMAKE_SOURCE_DIR}/submodules/Vulkan-Headers/include"
+    "${CMAKE_SOURCE_DIR}/submodules/volk"
+    "${CMAKE_SOURCE_DIR}/submodules/VulkanMemoryAllocator/include"
+    "${CMAKE_SOURCE_DIR}/submodules/vk-bootstrap/src"
+)
+# volk declares the entry points itself : the headers must not (see volk.h)
+target_compile_definitions(ShardRHI PUBLIC VK_NO_PROTOTYPES)
 
 add_library(ShardRenderer STATIC ${RENDERER_SOURCES})
 target_compile_definitions(ShardRenderer PRIVATE BUILD_ENGINE)

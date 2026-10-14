@@ -35,3 +35,21 @@
 [submodule "submodules/miniaudio"]
 	path = submodules/miniaudio
 	url = https://github.com/mackron/miniaudio
+[submodule "submodules/Vulkan-Headers"]
+	path = submodules/Vulkan-Headers
+	url = https://github.com/KhronosGroup/Vulkan-Headers.git
+[submodule "submodules/glslang"]
+	path = submodules/glslang
+	url = https://github.com/KhronosGroup/glslang.git
+[submodule "submodules/SPIRV-Reflect"]
+	path = submodules/SPIRV-Reflect
+	url = https://github.com/KhronosGroup/SPIRV-Reflect.git
+[submodule "submodules/VulkanMemoryAllocator"]
+	path = submodules/VulkanMemoryAllocator
+	url = https://github.com/GPUOpen-LibrariesAndSDKs/VulkanMemoryAllocator.git
+[submodule "submodules/SPIRV-Headers"]
+	path = submodules/SPIRV-Headers
+	url = https://github.com/KhronosGroup/SPIRV-Headers.git
+[submodule "submodules/volk"]
+	path = submodules/volk
+	url = https://github.com/zeux/volk.git

@@ -6,6 +6,7 @@
 
 #include "engine/renderer/rhi/backends/opengl/pipeline/gl_pipeline.hpp"
 #include "engine/renderer/rhi/backends/null/null_rhi.hpp"
+#include "engine/renderer/rhi/backends/vulkan/vk_pipeline.hpp"
 
 #include "engine/renderer/rhi/renderer_api.hpp"
 
@@ -17,6 +18,9 @@ namespace Shard::Engine::Rendering
         {
             case RendererAPI::API::OpenGL:
                 return std::make_shared<GLPipeline>(specs);
+
+            case RendererAPI::API::Vulkan:
+                return std::make_shared<VKPipeline>(specs);
 
             case RendererAPI::API::Null:
                 return std::make_shared<Null::NullPipeline>(specs);
@@ -35,6 +39,25 @@ namespace Shard::Engine::Rendering
         }
     }
     
+    std::shared_ptr<Pipeline> Pipeline::GetVariant(const std::string& define)
+    {
+        std::shared_ptr<Shader> shader = m_Specifications.shader ? m_Specifications.shader->GetVariant(define) : nullptr;
+        if (!shader)
+            return nullptr;
+
+        // What a material did to this pipeline since it was made (its blending) applies to the variant as well
+        PipelineSpecifications specs = m_Specifications;
+        specs.shader = shader;
+
+        std::shared_ptr<Pipeline>& variant = m_Variants[define];
+        if (!variant)
+            variant = Create(specs);
+        else
+            variant->GetSpecifications() = specs;
+
+        return variant;
+    }
+
     uint32_t VertexElement::Size() const
     {
         return ShaderDataTypeSize(type);

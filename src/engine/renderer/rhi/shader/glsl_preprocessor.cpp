@@ -120,6 +120,30 @@ namespace Shard::Engine::Rendering {
 
     }
 
+    std::string InjectGLSLDefines(const std::string& source, const std::vector<std::string>& defines)
+    {
+        if (defines.empty())
+            return source;
+
+        std::string block;
+        for (const std::string& define : defines)
+        {
+            const size_t equals = define.find('=');
+            block += "#define " + (equals == std::string::npos ? define : define.substr(0, equals) + " " + define.substr(equals + 1)) + "\n";
+        }
+
+        // After the #version line (and the #extension lines that have to follow it) : at the start of the line that comes next
+        size_t at = source.find("#version");
+        if (at == std::string::npos)
+            return block + source;
+
+        size_t lineEnd = source.find('\n', at);
+        if (lineEnd == std::string::npos)
+            return source + "\n" + block;
+
+        return source.substr(0, lineEnd + 1) + block + source.substr(lineEnd + 1);
+    }
+
     std::string ResolveGLSLIncludes(const Filesystem::Path& path)
     {
         IncludeContext ctx;

@@ -7,7 +7,6 @@
 #include "engine/world/actor.hpp"
 
 #include "engine/renderer/rhi/backends/glad/include/glad/gl.h"
-#include "engine/renderer/rhi/backends/glad/include/glad/vulkan.h"
 #include "engine/platform/windowing/sdl/sdl_window.hpp"
 #include "apps/editor/gui/panels/viewport/viewport_window.hpp"
 #include "apps/editor/gui/panels/properties/properties_panel.hpp"
@@ -26,7 +25,6 @@
 #include "imgui/imgui_internal.h"
 #include "imgui/backends/imgui_impl_sdl3.h"
 #include "imgui/backends/imgui_impl_opengl3.h"
-#include "imgui/backends/imgui_impl_vulkan.h"
 
 #include <cstdint>
 

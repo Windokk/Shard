@@ -1,5 +1,7 @@
 #include "main_window.hpp"
 
+#include "imgui/backends/imgui_impl_vulkan.h"
+
 #include "engine/world/engine.hpp"
 
 #include "apps/editor/gui/panels/asset_browser/asset_browser.hpp"
@@ -276,6 +278,103 @@ namespace Shard::Editor::Core{
         Editor::Commands::CommandStack::Get().Clear();
     }
 
+    namespace {
+
+        bool UsesVulkan()
+        {
+            Rendering::RendererAPI* api = Rendering::RendererAPI::Current();
+            return api && api->GetAPI() == Rendering::RendererAPI::API::Vulkan;
+        }
+
+        void CheckVulkanResult(VkResult result)
+        {
+            if(result != VK_SUCCESS)
+                DEBUG_ERROR("The interface's Vulkan renderer failed : VkResult ", static_cast<int>(result));
+        }
+
+        /// Sets the interface's Vulkan renderer up with the handles of the engine's backend. On the render thread.
+        bool InitVulkanUI()
+        {
+            Rendering::RendererAPI* api = Rendering::RendererAPI::Current();
+
+            Rendering::UIBackendInfo info;
+            if(!api || !api->GetUIBackendInfo(info))
+            {
+                DEBUG_ERROR("The Vulkan backend has no window to draw the interface on");
+                return false;
+            }
+
+            const VkFormat format = static_cast<VkFormat>(info.swapchainFormat);
+
+            // The pointer has to outlive the backend : the interface's pipeline is made now, but it is made again when the format changes
+            static VkFormat colorFormat;
+            colorFormat = format;
+
+            ImGui_ImplVulkan_InitInfo init{};
+            init.ApiVersion = info.apiVersion;
+            init.Instance = static_cast<VkInstance>(info.instance);
+            init.PhysicalDevice = static_cast<VkPhysicalDevice>(info.physicalDevice);
+            init.Device = static_cast<VkDevice>(info.device);
+            init.QueueFamily = info.queueFamily;
+            init.Queue = static_cast<VkQueue>(info.queue);
+            // One descriptor per texture the interface shows (the thumbnails of the asset browser, the viewport...), and the font atlas
+            init.DescriptorPoolSize = 2048;
+            init.MinImageCount = 2;
+            init.ImageCount = info.imageCount;
+            init.UseDynamicRendering = true;
+            init.PipelineInfoMain.PipelineRenderingCreateInfo = {VK_STRUCTURE_TYPE_PIPELINE_RENDERING_CREATE_INFO_KHR};
+            init.PipelineInfoMain.PipelineRenderingCreateInfo.colorAttachmentCount = 1;
+            init.PipelineInfoMain.PipelineRenderingCreateInfo.pColorAttachmentFormats = &colorFormat;
+            init.CheckVkResultFn = CheckVulkanResult;
+
+            if(!ImGui_ImplVulkan_Init(&init))
+            {
+                DEBUG_ERROR("The interface's Vulkan renderer could not be created");
+                return false;
+            }
+
+            // The textures the interface shows are named by their handle in its draw lists ; the render thread turns them into descriptors
+            // when it draws (see ConvertTextureIDs)
+            Rendering::UITextureHooks hooks;
+            hooks.add = [](void* sampler, void* view, uint32_t layout) -> uint64_t {
+                return reinterpret_cast<uint64_t>(ImGui_ImplVulkan_AddTexture(static_cast<VkSampler>(sampler), static_cast<VkImageView>(view), static_cast<VkImageLayout>(layout)));
+            };
+            hooks.remove = [](uint64_t id) { ImGui_ImplVulkan_RemoveTexture(reinterpret_cast<VkDescriptorSet>(id)); };
+            api->SetUITextureHooks(hooks);
+            return true;
+        }
+
+        /// The draw lists carry the handle of the engine's textures : on Vulkan the interface draws descriptor sets. The fonts are the backend's.
+        void ConvertTextureIDs(ImDrawData* drawData)
+        {
+            Rendering::RendererAPI* api = Rendering::RendererAPI::Current();
+
+            for(int n = 0; n < drawData->CmdListsCount; n++)
+            {
+                for(ImDrawCmd& command : drawData->CmdLists[n]->CmdBuffer)
+                {
+                    if(command.TexRef._TexData != nullptr)
+                        continue;
+
+                    const ImTextureID handle = command.TexRef._TexID;
+                    if(handle != 0)
+                        command.TexRef._TexID = api->GetUITextureID(static_cast<uint32_t>(handle));
+                }
+            }
+        }
+
+        const float kClearColor[4] = {0.1f, 0.1f, 0.1f, 1.0f};
+
+        /// Draws the interface as the picture of the frame (Vulkan). On the render thread.
+        void PresentVulkanUI(ImDrawData* drawData, uint32_t width, uint32_t height)
+        {
+            ConvertTextureIDs(drawData);
+            Rendering::RendererAPI::Current()->PresentUI([drawData](void* commandBuffer) {
+                ImGui_ImplVulkan_RenderDrawData(drawData, static_cast<VkCommandBuffer>(commandBuffer));
+            }, width, height, kClearColor);
+        }
+    }
+
     void EditorMainWindow::Init(const std::string &title, const int &width, const int &height, const bool &fullscreen, const int &vsync, const uint32_t& api)
     {
         SDLWindow::Init(title, width, height, fullscreen, vsync, api);
@@ -309,8 +408,16 @@ namespace Shard::Editor::Core{
         io.ConfigFlags |= ImGuiConfigFlags_DpiEnableScaleViewports;
 
         // Setup Platform/Renderer backends
-        ImGui_ImplSDL3_InitForOpenGL(GetSDLWindow(), GetGLContext());
-        Rendering::OnGraphicsThread([] { ImGui_ImplOpenGL3_Init(); });
+        if(UsesVulkan())
+        {
+            ImGui_ImplSDL3_InitForVulkan(GetSDLWindow());
+            Rendering::OnGraphicsThread([] { InitVulkanUI(); });
+        }
+        else
+        {
+            ImGui_ImplSDL3_InitForOpenGL(GetSDLWindow(), GetGLContext());
+            Rendering::OnGraphicsThread([] { ImGui_ImplOpenGL3_Init(); });
+        }
 
         SetupImGuiStyle();
 
@@ -419,7 +526,10 @@ namespace Shard::Editor::Core{
         api->SetClearColor(0.1f, 0.1f, 0.1f, 1.0f);
         api->Clear(Rendering::ClearBit::Color | Rendering::ClearBit::Depth);
 
-        ImGui_ImplOpenGL3_NewFrame();
+        if(UsesVulkan())
+            ImGui_ImplVulkan_NewFrame();
+        else
+            ImGui_ImplOpenGL3_NewFrame();
         ImGui_ImplSDL3_NewFrame();
         ImGui::NewFrame();
 
@@ -429,6 +539,16 @@ namespace Shard::Editor::Core{
         GUI::Popups::Draw();
 
         ImGui::Render();
+
+        if(UsesVulkan())
+        {
+            ImDrawData* drawData = ImGui::GetDrawData();
+            const uint32_t width = static_cast<uint32_t>(SDLWindow::GetFramebufferWidth());
+            const uint32_t height = static_cast<uint32_t>(SDLWindow::GetFramebufferHeight());
+            Rendering::OnGraphicsThread([drawData, width, height] { PresentVulkanUI(drawData, width, height); });
+            return;
+        }
+
         ImGui_ImplOpenGL3_RenderDrawData(ImGui::GetDrawData());
         SDLWindow::SwapBuffers();
     }
@@ -790,6 +910,19 @@ namespace Shard::Editor::Core{
         // textures it points at are ImGui's own, which the next frame would change), then goes on with the next simulation
         // while the render thread swaps.
         ImDrawData* drawData = ImGui::GetDrawData();
+
+        if(UsesVulkan())
+        {
+            // The window's size, not the viewport's (see GetFramebufferWidth) : the swapchain is as big as the window
+            const uint32_t width = static_cast<uint32_t>(SDLWindow::GetFramebufferWidth());
+            const uint32_t height = static_cast<uint32_t>(SDLWindow::GetFramebufferHeight());
+            Rendering::OnGraphicsThread([drawData, width, height] {
+                ImGui_ImplVulkan_NewFrame();
+                PresentVulkanUI(drawData, width, height);
+            });
+            return;
+        }
+
         Rendering::OnGraphicsThread([drawData] {
             ImGui_ImplOpenGL3_NewFrame();
             ImGui_ImplOpenGL3_RenderDrawData(drawData);
@@ -909,7 +1042,17 @@ namespace Shard::Editor::Core{
 
     void EditorMainWindow::Destroy() const
     {
-        ImGui_ImplOpenGL3_Shutdown();
+        if(UsesVulkan())
+            Rendering::OnGraphicsThread([] {
+                // What the interface recorded may still be running
+                Rendering::UIBackendInfo info;
+                Rendering::RendererAPI::Current()->GetUIBackendInfo(info);
+                if(info.device)
+                    vkDeviceWaitIdle(static_cast<VkDevice>(info.device));
+                ImGui_ImplVulkan_Shutdown();
+            });
+        else
+            ImGui_ImplOpenGL3_Shutdown();
         ImGui_ImplSDL3_Shutdown();
         ImGui::DestroyContext();
 

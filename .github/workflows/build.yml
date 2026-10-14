@@ -93,7 +93,8 @@ jobs:
         run: ctest --test-dir build -R "^Determinism\." --output-on-failure --timeout 300
 
       # The smoke test starts the player on example_project (scripts/smoke_test.sh). The runner has no GPU : on a virtual
-      # display (Xvfb) OpenGL comes from Mesa's software renderer. Linux only : a Windows runner offers no OpenGL 4.3 at all.
+      # display (Xvfb) OpenGL comes from Mesa's software renderer. Linux only : a Windows runner offers no OpenGL 4.6 at all.
+      # llvmpipe only goes up to GL 4.5, so MESA_GL_VERSION_OVERRIDE is needed to get a 4.6 context.
       - name: Install the virtual display and the software OpenGL
         if: runner.os == 'Linux'
         run: sudo apt-get install -y --no-install-recommends xvfb libgl1-mesa-dri libglx-mesa0
@@ -102,4 +103,5 @@ jobs:
         if: runner.os == 'Linux'
         env:
           LIBGL_ALWAYS_SOFTWARE: '1'
+          MESA_GL_VERSION_OVERRIDE: '4.6'
         run: bash scripts/smoke_test.sh

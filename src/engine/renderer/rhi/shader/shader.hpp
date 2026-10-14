@@ -4,6 +4,12 @@
 
 #include "engine/assets/vfs/filesystem.hpp"
 
+#include <memory>
+#include <mutex>
+#include <string>
+#include <unordered_map>
+#include <vector>
+
 namespace Shard::Engine::Rendering {
 
     enum class ShaderDataType
@@ -150,10 +156,18 @@ namespace Shard::Engine::Rendering {
             /// shader (materials keep pointing at it). A failure leaves the old program running. Graphics thread.
             virtual bool Reload() { return false; }
 
+            /// @param defines  `NAME` or `NAME=value` : added as #define before the first line of every stage, a permutation of the shader
             static std::shared_ptr<Shader> Create(
                 const Filesystem::Path& vertexPath,
                 const Filesystem::Path& fragmentPath,
-                const Filesystem::Path& geometryPath = Filesystem::Path(""));
+                const Filesystem::Path& geometryPath = Filesystem::Path(""),
+                const std::vector<std::string>& defines = {});
+
+            /// A permutation of this shader : the same files with one more define (`GBUFFER`, `SHARD_DEFERRED_LIGHTING`...). Made the first time it is asked
+            /// for, kept as long as this shader lives, and the parameters of a material apply to it by name as they do to this one.
+            std::shared_ptr<Shader> GetVariant(const std::string& define);
+
+            const std::vector<std::string>& GetDefines() const { return m_Defines; }
 
             std::string GetVertexShaderName() const { return m_VertexFilePath; }
             std::string GetFragmentShaderName() const { return m_FragmentFilePath; }
@@ -177,6 +191,13 @@ namespace Shard::Engine::Rendering {
             std::string m_VertexFilePath;
             std::string m_FragmentFilePath;
             std::string m_GeometryFilePath;
+
+            std::vector<std::string> m_Defines;
+
+        private:
+
+            std::mutex m_VariantMutex;
+            std::unordered_map<std::string, std::shared_ptr<Shader>> m_Variants;
     };
 
 }

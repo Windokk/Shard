@@ -1,6 +1,9 @@
 #pragma once
 
+#include <functional>
 #include <memory>
+#include <string>
+#include <vector>
 
 #include <cstdint>
 
@@ -133,6 +136,63 @@ namespace Shard::Engine::Rendering {
             virtual bool GetCurrentView(RenderView& out) = 0;
     };
 
+    /// @brief What a graphics backend asks of the window it presents on. The window belongs to the platform layer : whoever creates both
+    /// (the engine) fills this in before the renderer is created, the backend only calls it.
+    struct WindowHooks
+    {
+        /// The instance extensions the window's surface needs (Vulkan)
+        std::function<std::vector<std::string>()> vulkanInstanceExtensions;
+
+        /// Makes the surface of the window on a Vulkan instance (the handle of the surface, 0 on failure)
+        std::function<uint64_t(void* vulkanInstance)> createVulkanSurface;
+
+        int width = 1280;
+        int height = 720;
+        bool vsync = true;
+        bool validation = false;
+    };
+
+    /// @brief What an application that draws its own user interface on the Vulkan backend (the editor : Dear ImGui) needs to set its renderer up.
+    /// The handles are Vulkan's, as opaque pointers : the engine's headers stay free of the Vulkan ones.
+    struct UIBackendInfo
+    {
+        void* instance = nullptr;               ///< VkInstance
+        void* physicalDevice = nullptr;         ///< VkPhysicalDevice
+        void* device = nullptr;                 ///< VkDevice
+        void* queue = nullptr;                  ///< VkQueue (the one the frames are submitted on)
+        uint32_t queueFamily = 0;
+        uint32_t apiVersion = 0;
+        uint32_t imageCount = 0;                ///< images of the swapchain
+        uint32_t swapchainFormat = 0;           ///< VkFormat the UI is drawn in
+    };
+
+    /// What the user interface's renderer does with a texture it is asked to show : turns the (sampler, view, layout) of a Vulkan image into
+    /// the id it draws it by (ImGui_ImplVulkan_AddTexture), and gives that id back
+    struct UITextureHooks
+    {
+        std::function<uint64_t(void* sampler, void* imageView, uint32_t imageLayout)> add;
+        std::function<void(uint64_t id)> remove;
+    };
+
+    /// Draws the user interface on the swapchain image of the frame, between its clear and its presentation : the command buffer (a VkCommandBuffer)
+    /// is in a dynamic rendering pass on that image
+    using UIDrawCallback = std::function<void(void* commandBuffer)>;
+
+    class RendererAPI;
+
+    /// A named stretch of the commands of the current backend (see RendererAPI::PushDebugGroup)
+    class DebugScope
+    {
+        public:
+            DebugScope(RendererAPI* api, const char* name);
+            ~DebugScope();
+            DebugScope(const DebugScope&) = delete;
+            DebugScope& operator=(const DebugScope&) = delete;
+
+        private:
+            RendererAPI* m_Api;
+    };
+
     class RendererAPI{
         public: 
             enum class API : uint32_t
@@ -151,6 +211,34 @@ namespace Shard::Engine::Rendering {
             /// studio/immediate views). Set by the Renderer around the forward pass.
             virtual void SetDebugView(const DebugViewState& state) { m_DebugView = state; }
             const DebugViewState& GetDebugView() const { return m_DebugView; }
+
+            /// A frame of the renderer begins / ends : a backend that records commands submits them at the end
+            virtual void BeginFrame() {}
+            virtual void EndFrame() {}
+
+            /// Names a stretch of the commands (a pass, a compute step) for the tools that read a capture of the frame (RenderDoc, the
+            /// validation layers). Nests. Nothing for a backend that has no such thing.
+            virtual void PushDebugGroup(const char* name) { (void)name; }
+            virtual void PopDebugGroup() {}
+
+            static void SetWindowHooks(const WindowHooks& hooks);
+            static const WindowHooks& GetWindowHooks();
+
+            // ---- The user interface of an application on the Vulkan backend ----
+            // The OpenGL one draws its interface itself on the window's framebuffer, there is nothing to ask of the backend
+
+            /// What the UI's renderer is set up with. False on a backend that has no such need.
+            virtual bool GetUIBackendInfo(UIBackendInfo& out) { (void)out; return false; }
+
+            /// Where the UI's renderer registers the textures it shows (see GetUITextureID)
+            virtual void SetUITextureHooks(const UITextureHooks& hooks) { (void)hooks; }
+
+            /// The id the UI draws a texture by (the texture is named by its GetHandle()). OpenGL : the handle itself.
+            virtual uint64_t GetUITextureID(uint32_t handle) { return handle; }
+
+            /// Draws the UI as the frame's picture : acquires the swapchain image (of the size of the window), clears it, calls `draw`, presents.
+            /// False when there is no picture this time (a minimised window, a swapchain being rebuilt).
+            virtual bool PresentUI(const UIDrawCallback& draw, uint32_t windowWidth, uint32_t windowHeight, const float clearColor[4]) { (void)draw; (void)windowWidth; (void)windowHeight; (void)clearColor; return false; }
 
             virtual void ExecuteDrawCommand(const DrawCommand& command, const std::shared_ptr<RenderPass> pass) = 0;
 

@@ -18,11 +18,17 @@
 #include "engine/core/diagnostics/profiler.hpp"
 #include "engine/renderer/rhi/frustum.hpp"
 #include <queue>
+#include <unordered_set>
 #include "engine/renderer/features/culling/occlusion_culling_manager.hpp"
 #include <algorithm>
 #include <glm/gtx/string_cast.hpp>
 
 #include "engine/core/config/cvar.hpp"
+#include "engine/assets/project/project.hpp"
+#include "engine/renderer/frontend/pipelines/render_pipeline.hpp"
+#include "engine/renderer/rhi/resources/texture/image_export.hpp"
+#include <filesystem>
+#include <fstream>
 
 namespace Shard::Engine::Rendering{
 
@@ -90,6 +96,51 @@ namespace Shard::Engine::Rendering{
             return h;
         }
 
+
+        constexpr const char* kViewportResource = "ViewportColor";
+        constexpr const char* kSceneResource = "SceneColor";
+        constexpr const char* kResolvePassName = "SceneResolvePass";
+
+        uint32_t BytesPerTexel(TextureInternalFormat format)
+        {
+            switch (format)
+            {
+                case TextureInternalFormat::RED:        return 1;
+                case TextureInternalFormat::R16F:
+                case TextureInternalFormat::RG:
+                case TextureInternalFormat::Depth16:    return 2;
+                case TextureInternalFormat::RGB:
+                case TextureInternalFormat::RGB8:       return 3;
+                case TextureInternalFormat::RG16F:
+                case TextureInternalFormat::RGBA8:
+                case TextureInternalFormat::RGBA:
+                case TextureInternalFormat::Depth24Stencil8:
+                case TextureInternalFormat::Depth24:
+                case TextureInternalFormat::Depth32:
+                case TextureInternalFormat::Depth32F:
+                case TextureInternalFormat::R32F:
+                case TextureInternalFormat::RGB9E5:     return 4;
+                case TextureInternalFormat::RGB16F:     return 6;
+                case TextureInternalFormat::RGBA16F:    return 8;
+                case TextureInternalFormat::RGB32I:
+                case TextureInternalFormat::RGB32F:     return 12;
+                case TextureInternalFormat::RGBA32I:
+                case TextureInternalFormat::RGBA32F:    return 16;
+            }
+            return 4;
+        }
+
+        /// What a framebuffer costs per pixel, all its attachments (the samples of a multisampled one, and the target they resolve into)
+        uint32_t FramebufferBytesPerTexel(const FramebufferSpecifications& specs)
+        {
+            const uint32_t copies = specs.multisampled ? specs.samplesCount + 1 : 1;
+            uint32_t bytes = 0;
+            if (specs.hasColor)
+                bytes += BytesPerTexel(specs.colorSpecs.internalFormat) * copies;
+            if (specs.hasDepth)
+                bytes += BytesPerTexel(specs.depthSpecs.internalFormat) * copies;
+            return bytes;
+        }
     }
 
 
@@ -107,6 +158,11 @@ namespace Shard::Engine::Rendering{
         RegisterAssetKinds(*Core::GetEngine().GetResourcesManager());
 
         m_RendererAPI = RendererAPI::Create(initialSettings->api);
+        if (!m_RendererAPI)
+        {
+            DEBUG_FATAL("The graphics backend could not be created (see the messages above).");
+            return;
+        }
         RendererAPI::SetCurrent(m_RendererAPI.get());
         m_RendererAPI->SetSceneBinding(this);
 
@@ -243,6 +299,17 @@ namespace Shard::Engine::Rendering{
         AddRenderPass(forwardPass, "ForwardPass", {});
         m_RendererAPI->SetClearColor(0,0,0,1);
 
+        // The step that turns the HDR scene into the viewport : the graph orders what draws over the picture (the grid, the outlines,
+        // the billboards, the debug shapes) after it, because they write the viewport as well. Its work is ResolveSceneToViewport(),
+        // the pass itself only stands for it in the graph.
+        std::shared_ptr<RenderPass> resolvePass = std::make_shared<RenderPass>();
+        resolvePass->target = m_ViewportBuffer;
+        resolvePass->clearColor = false;
+        resolvePass->clearDepth = false;
+        resolvePass->allowResize = false;
+        resolvePass->graphSideEffects = true;
+        AddRenderPass(resolvePass, kResolvePassName, {"ForwardPass"});
+
         m_SSAOManager = std::make_shared<SSAOManager>();
         m_SSAOManager->Init(this, m_Settings->viewportWidth, m_Settings->viewportHeight);
 
@@ -255,92 +322,167 @@ namespace Shard::Engine::Rendering{
 
         m_BillboardRenderer.Init(this);
 
+        // The render pipelines : the engine's own, then the assets (the engine's, the project's)
+        RegisterBuiltinRenderPipelines();
+        {
+            RenderPipelineRegistry& registry = RenderPipelineRegistry::Get();
+            registry.ScanDirectory((Core::GetEngine().GetFileManager()->GetEngineResRoot() / "pipelines").GetNativePath());
+            if (Core::GetEngine().GetCurrentProject())
+                registry.ScanDirectory((Core::GetEngine().GetCurrentProject()->GetProjectResourcesPath() / "pipelines").GetNativePath());
+        }
+        ActivatePipeline(m_RequestedPipeline);
+
         m_ImmediateRenderer.Init(this);
         m_ThumbnailService.Init(this);
 
         Material::PreloadDefaultTextures();
     }
 
+    std::string Renderer::GraphResourceName(const std::shared_ptr<Framebuffer>& target) const
+    {
+        if (!target)
+            return {};
+        if (target == m_ViewportBuffer)
+            return kViewportResource;
+        if (target == m_SceneBuffer)
+            return kSceneResource;
+
+        // Any other target is named after the first pass (in registration order) that draws into it
+        for (const std::string& name : m_PassInsertionOrder)
+        {
+            auto it = m_RenderPasses.find(name);
+            if (it != m_RenderPasses.end() && it->second->target == target)
+                return name + ".target";
+        }
+
+        return {};
+    }
+
+    uint64_t Renderer::ComputeGraphSignature() const
+    {
+        uint64_t h = 1469598103934665603ULL;
+        for (const std::string& name : m_PassInsertionOrder)
+        {
+            auto it = m_RenderPasses.find(name);
+            if (it == m_RenderPasses.end())
+                continue;
+
+            h = HashValue(h, it->second.get());
+            h = HashValue(h, it->second->enabled);
+        }
+        return h;
+    }
+
     void Renderer::BuildExecutionOrder()
     {
         m_ExecutionOrder.clear();
+        m_ExecutionBarriers.clear();
+        m_Graph.Clear();
 
-        std::unordered_map<std::string, int> inDegree;
-        std::unordered_map<std::string, std::vector<std::string>> dependents;
+        std::unordered_set<std::string> resourcesDeclared;
 
-        for (const auto& [name, _] : m_RenderPasses)
+        auto declareTarget = [&](const std::shared_ptr<Framebuffer>& target, bool persistent)
         {
-            inDegree[name] = 0;
-            dependents[name] = {};
-        }
+            const std::string name = GraphResourceName(target);
+            if (name.empty())
+                return name;
 
-        for (const auto& [name, deps] : m_RenderPassDependencies)
-        {
-            for (const auto& dep : deps)
+            if (resourcesDeclared.insert(name).second)
             {
-                inDegree[name]++;
-                dependents[dep].push_back(name);
+                const FramebufferSpecifications& specs = target->GetSpecifications();
+
+                GraphResourceDesc desc;
+                desc.name = name;
+                // The picture is looked at by whoever presents it, and a shadow map that is not redrawn (see RenderPass::cacheOutput)
+                // holds its content from one frame to the next : neither may share its memory
+                desc.imported = persistent || name == kViewportResource;
+                desc.width = specs.width;
+                desc.height = specs.height;
+                desc.bytesPerTexel = FramebufferBytesPerTexel(specs);
+                m_Graph.DeclareResource(desc);
             }
-        }
- 
-        auto getCategory = [](const std::string& name, const std::unordered_map<std::string, std::vector<std::string>>& dependencies, const std::unordered_map<std::string, std::vector<std::string>>& dependents) {
-            auto it = dependencies.find(name);
-            bool hasDeps = (it != dependencies.end() && !it->second.empty());
-            bool hasDependents = !dependents.at(name).empty();
-        
-            if (!hasDeps && !hasDependents) return 0;
-            if (!hasDeps && hasDependents)  return 1;
-            if (hasDeps && hasDependents)   return 2;
-            return 3; // hasDeps && !hasDependents
+            return name;
         };
 
-        auto cmp = [getCategory, this, &dependents](const std::string& a, const std::string& b) {
-            int ca = getCategory(a, this->m_RenderPassDependencies, dependents);
-            int cb = getCategory(b, this->m_RenderPassDependencies, dependents);
+        // The dependencies the passes were registered with, as the active pipeline wants them (a pipeline that lights in a pass of its own
+        // moves the forward pass's dependencies to it)
+        std::unordered_map<std::string, std::vector<std::string>> dependencies = m_RenderPassDependencies;
+        if (m_ActivePipeline)
+            m_ActivePipeline->AdjustDependencies(dependencies);
 
-            if (ca != cb)
-                return ca > cb; // lower category first
-
-            return a > b;
-        };
-
-        std::priority_queue<
-            std::string,
-            std::vector<std::string>,
-            decltype(cmp)
-        > q(cmp);
-
-        for (const auto& [name, _] : m_RenderPasses)
+        // Declaration order is registration order
+        for (const std::string& name : m_PassInsertionOrder)
         {
-            if (inDegree[name] == 0)
-                q.push(name);
-        }
+            auto passIt = m_RenderPasses.find(name);
+            if (passIt == m_RenderPasses.end())
+                continue;
 
-        std::vector<std::string> topo;
+            const std::shared_ptr<RenderPass>& pass = passIt->second;
 
-        while (!q.empty())
-        {
-            auto current = q.top();
-            q.pop();
+            GraphPassDesc desc;
+            desc.name = name;
+            desc.enabled = pass->enabled;
+            desc.sideEffects = pass->graphSideEffects;
 
-            topo.push_back(current);
+            auto depsIt = dependencies.find(name);
+            if (depsIt != dependencies.end())
+                desc.after = depsIt->second;
 
-            for (const auto& dep : dependents[current])
+            // What it draws into
+            std::unordered_set<std::string> touched;
+            const std::string written = declareTarget(pass->target, pass->cacheOutput);
+            if (!written.empty())
             {
-                if (--inDegree[dep] == 0)
-                    q.push(dep);
+                const bool hasColor = !pass->target || pass->target->GetSpecifications().hasColor;
+                desc.accesses.push_back({written, hasColor ? ResourceUsage::ColorTarget : ResourceUsage::DepthTarget});
+                touched.insert(written);
             }
+
+            // What it names itself
+            for (const PassAccess& access : pass->graphAccesses)
+            {
+                desc.accesses.push_back(access);
+                touched.insert(access.resource);
+            }
+
+            // What the passes it comes after drew : it may sample it (the shadow maps, the AO, the HDR scene...), which is what makes
+            // a dependency more than an order
+            for (const std::string& dependency : desc.after)
+            {
+                auto dependencyIt = m_RenderPasses.find(dependency);
+                if (dependencyIt == m_RenderPasses.end())
+                    continue;
+
+                const std::string produced = declareTarget(dependencyIt->second->target, dependencyIt->second->cacheOutput);
+                if (!produced.empty() && touched.insert(produced).second)
+                    desc.accesses.push_back({produced, ResourceUsage::ShaderRead});
+            }
+
+            m_Graph.AddPass(desc);
         }
 
-        // Cycle check
-        if (topo.size() != m_RenderPasses.size())
+        m_GraphSignature = ComputeGraphSignature();
+        CompiledGraph compiled = m_Graph.Compile();
+
+        if (!compiled.valid)
         {
-            DEBUG_ERROR("RenderPass cycle detected!");
+            DEBUG_ERROR("RenderPass cycle detected! " + compiled.error);
             return;
         }
-        
-        m_ExecutionOrder = topo;
-            
+
+        for (int index : compiled.order)
+        {
+            m_ExecutionOrder.push_back(compiled.passes[index].name);
+            m_ExecutionBarriers.push_back(compiled.passes[index].memoryBarrierBefore);
+        }
+
+        {
+            std::lock_guard<std::mutex> lock(m_GraphMutex);
+            m_GraphText = RenderGraph::ToText(compiled, m_Graph);
+            m_GraphDot = RenderGraph::ToDot(compiled, m_Graph);
+        }
+
+        m_CompiledGraph = std::move(compiled);
     }
 
     void Renderer::Render()
@@ -352,6 +494,8 @@ namespace Shard::Engine::Rendering{
             std::lock_guard<std::mutex> lock(m_DebugViewMutex);
             m_DebugView = m_PendingDebugView;
         }
+
+        m_RendererAPI->BeginFrame();
 
         // A backend without GPU timers (the null one) has no profiler : GpuScope takes a null one
         GpuProfiler* gpu = m_RendererAPI->GetGpuProfiler();
@@ -371,6 +515,8 @@ namespace Shard::Engine::Rendering{
         }
         if (gpu)
             gpu->EndFrame();
+
+        m_RendererAPI->EndFrame();
 
         m_FrameLease = {};
     }
@@ -414,6 +560,9 @@ namespace Shard::Engine::Rendering{
         // their only draw command wiped along with it - put those back.
         if(m_SSAOManager)
             m_SSAOManager->SubmitFullscreenCommands(this);
+
+        if(m_ActivePipeline)
+            m_ActivePipeline->OnPassesCleared(*this);
     }
 
     uint64_t Renderer::GenerateSortKey(const DrawCommand& cmd, const uint32_t submeshID)
@@ -464,6 +613,7 @@ namespace Shard::Engine::Rendering{
 
     void Renderer::DispatchCompute(const std::shared_ptr<ComputePipeline> pipeline, uint32_t groupsX, uint32_t groupsY, uint32_t groupsZ, MemoryBarrierBit barriersAfter)
     {
+        DebugScope marker(m_RendererAPI.get(), pipeline && !pipeline->GetSpecifications().debugName.empty() ? pipeline->GetSpecifications().debugName.c_str() : "Compute");
         m_RendererAPI->ExecuteComputeDispatch(pipeline, groupsX, groupsY, groupsZ);
 
         if (barriersAfter != MemoryBarrierBit::None)
@@ -502,13 +652,19 @@ namespace Shard::Engine::Rendering{
 
         uint32_t newDrawCallsCount = 0;
 
-        for(const auto& passName : passes){
-            auto pass = m_RenderPasses.find(passName);
+        for(const auto& requestedPass : passes){
+            auto requested = m_RenderPasses.find(requestedPass);
 
-            if(pass != m_RenderPasses.end()){
+            if(requested != m_RenderPasses.end()){
                 for(int submeshID = 0; submeshID < commands.size(); submeshID++)
                 {
                     auto cmd = commands[submeshID];
+
+                    // The pipeline says which pass the draw really goes to (the deferred one sends the opaque geometry to the G-buffer)
+                    const std::string passName = m_ActivePipeline ? m_ActivePipeline->Route(requestedPass, cmd) : requestedPass;
+                    auto pass = passName == requestedPass ? requested : m_RenderPasses.find(passName);
+                    if(pass == m_RenderPasses.end())
+                        continue;
                     
                     if(!cmd.fullscreenTri && cmd.mesh)
                     {
@@ -562,7 +718,7 @@ namespace Shard::Engine::Rendering{
 
             }
             else{
-                DEBUG_WARNING("Tried adding a draw command to a non-registered draw pass. Always register the pass before the draw commands ! passName : ", passName);
+                DEBUG_WARNING("Tried adding a draw command to a non-registered draw pass. Always register the pass before the draw commands ! passName : ", requestedPass);
             }
         }
         m_DrawCallsCount += newDrawCallsCount;
@@ -605,7 +761,16 @@ namespace Shard::Engine::Rendering{
 
         size_t removedCount = 0;
 
-        for(auto passName : passes){
+        // What was submitted to a pass may be in another one (see RenderPipeline::Route)
+        std::vector<std::string> removalPasses;
+        for(const std::string& requestedPass : passes){
+            if(m_ActivePipeline)
+                m_ActivePipeline->RouteRemoval(requestedPass, removalPasses);
+            else
+                removalPasses.push_back(requestedPass);
+        }
+
+        for(auto passName : removalPasses){
 
             auto pass = m_RenderPasses.find(passName);
 
@@ -732,6 +897,7 @@ namespace Shard::Engine::Rendering{
 
         if(it != m_RenderPasses.end()){
             m_RenderPasses.erase(name);
+            m_PassInsertionOrder.erase(std::remove(m_PassInsertionOrder.begin(), m_PassInsertionOrder.end(), name), m_PassInsertionOrder.end());
         }
         else{
             DEBUG_ERROR("Tried removing non-registered render pass");
@@ -818,6 +984,56 @@ namespace Shard::Engine::Rendering{
         for(const auto& buffer : {m_ViewportBuffer, m_SceneBuffer})
             if(buffer)
                 buffer->SetSamplesCount(samples);
+    }
+
+    std::string Renderer::DumpFrame(const std::string& directory)
+    {
+        return OnGraphicsThread([&]() -> std::string {
+            std::error_code ec;
+            std::filesystem::create_directories(directory, ec);
+            if (ec)
+                return "cannot create " + directory;
+
+            std::string report;
+
+            {
+                std::ofstream graph(std::filesystem::path(directory) / "graph.txt", std::ios::binary);
+                graph << GetRenderGraphText();
+                std::ofstream dot(std::filesystem::path(directory) / "graph.dot", std::ios::binary);
+                dot << GetRenderGraphDot();
+                report += "graph.txt graph.dot";
+            }
+
+            // The picture each pass made : once per target (several passes draw into the same one, it shows the end of the frame)
+            std::unordered_set<const Framebuffer*> written;
+            auto dump = [&](const std::string& name, const std::shared_ptr<Framebuffer>& target) {
+                if (!target || !target->GetSpecifications().hasColor || !written.insert(target.get()).second)
+                    return;
+
+                if (target->GetSpecifications().multisampled)
+                    target->ResolveMultisampled();
+
+                std::vector<uint8_t> pixels;
+                if (!target->ReadPixelsRGBA8(pixels))
+                    return;
+
+                const std::string file = name + ".png";
+                if (ImageExport::WritePNG(Filesystem::Path(directory + "/" + file), target->GetWidth(), target->GetHeight(), 4, pixels.data()))
+                    report += " " + file;
+            };
+
+            dump("Viewport", m_ViewportBuffer);
+            dump("SceneHDR", m_SceneBuffer);
+
+            for (const std::string& name : m_ExecutionOrder)
+            {
+                auto it = m_RenderPasses.find(name);
+                if (it != m_RenderPasses.end())
+                    dump(name, it->second->target);
+            }
+
+            return report;
+        });
     }
 
     std::string Renderer::GetDeviceVendor()
@@ -960,8 +1176,90 @@ namespace Shard::Engine::Rendering{
         m_SyncedSkyObjectId = environment.skyboxObjectId;
     }
 
+    void Renderer::SetRenderPipeline(const std::string& name)
+    {
+        {
+            std::lock_guard<std::mutex> lock(m_PipelineSelectMutex);
+            if(!RenderPipelineRegistry::Get().Has(name))
+            {
+                DEBUG_ERROR("There is no render pipeline called '", name, "'.");
+                return;
+            }
+            m_RequestedPipeline = name;
+        }
+        // The frame that runs notices at its start
+    }
+
+    void Renderer::ActivatePipeline(const std::string& name)
+    {
+        if(m_ActivePipeline)
+        {
+            m_ActivePipeline->Deactivate(*this);
+            m_ActivePipeline.reset();
+        }
+
+        std::unique_ptr<RenderPipeline> pipeline = RenderPipelineRegistry::Get().Create(name);
+        std::string resolved = name;
+        if(!pipeline)
+        {
+            DEBUG_ERROR("The render pipeline '", name, "' could not be created : using forward+.");
+            pipeline = RenderPipelineRegistry::Get().Create("forward+");
+            resolved = "forward+";
+        }
+
+        m_ActivePipeline = std::move(pipeline);
+        {
+            std::lock_guard<std::mutex> lock(m_PipelineSelectMutex);
+            m_ActivePipelineName = resolved;
+        }
+
+        m_ActivePipeline->Activate(*this);
+
+        // What the scene submitted went where the old pipeline wanted it : it submits everything again, to where the new one wants it
+        m_SyncedMeshes.clear();
+        m_SyncedSkyMaterial = nullptr;
+        if(auto forward = m_RenderPasses.find("ForwardPass"); forward != m_RenderPasses.end())
+        {
+            forward->second->drawList.clear();
+            forward->second->drawCommandsLookup.clear();
+        }
+        m_CommandRefCount.clear();
+        m_NeedExecutionOrderRebuild = true;
+
+        DEBUG_INFO("Render pipeline : ", resolved);
+    }
+
+    void Renderer::ApplyPipelineForFrame()
+    {
+        std::string wanted;
+        {
+            std::lock_guard<std::mutex> lock(m_PipelineSelectMutex);
+            wanted = m_RequestedPipeline;
+        }
+
+        // A debug view the pipeline cannot draw (the normals, the wireframe) is drawn by the forward pipeline, for as long as it is on
+        std::string effective = wanted;
+        if(wanted != "forward+")
+        {
+            bool supportsView = true;
+            if(m_ActivePipeline && wanted == m_ActivePipelineName)
+                supportsView = m_ActivePipeline->SupportsView(m_DebugView);
+            else if(std::unique_ptr<RenderPipeline> candidate = RenderPipelineRegistry::Get().Create(wanted))
+                supportsView = candidate->SupportsView(m_DebugView);
+
+            if(!supportsView)
+                effective = "forward+";
+        }
+
+        if(effective != m_ActivePipelineName)
+            ActivatePipeline(effective);
+    }
+
     void Renderer::BeginFrame()
     {
+        // The pipeline first : the scene is submitted to the passes it has
+        ApplyPipelineForFrame();
+
         // First : the draws below take the handle of the lightmap page they read from here
         m_LightmapManager->Sync(GetSnapshot());
         SyncSceneDrawLists();
@@ -992,12 +1290,17 @@ namespace Shard::Engine::Rendering{
             m_SSAOManager->Update();
         }
 
+        if(m_ActivePipeline)
+            m_ActivePipeline->BeforeFrame(*this, GetSnapshot());
+
         {
             SHARD_PROFILE_RENDER_SUB_SCOPE(Debugging::RenderSubSample::LightCullingUpdate);
             m_LightCullingManager->Update();
         }
 
-        if(m_NeedExecutionOrderRebuild){
+        // The passes that are enabled this frame are part of the graph : one that was switched on or off (the billboards, the editor's
+        // overlays) changes what runs, and so the barriers
+        if(m_NeedExecutionOrderRebuild || ComputeGraphSignature() != m_GraphSignature){
             BuildExecutionOrder();
             m_NeedExecutionOrderRebuild = false;
         }
@@ -1009,11 +1312,31 @@ namespace Shard::Engine::Rendering{
         // once per frame and only if a cacheable pass actually asks for it.
         std::unordered_map<const std::vector<DrawCommand>*, uint64_t> drawListHashes;
 
-        for (const auto& passName : m_ExecutionOrder)
+        for (size_t orderIndex = 0; orderIndex < m_ExecutionOrder.size(); orderIndex++)
         {
-            auto pass = m_RenderPasses[passName];
+            const std::string& passName = m_ExecutionOrder[orderIndex];
+            auto passIt = m_RenderPasses.find(passName);
+            if (passIt == m_RenderPasses.end())
+                continue;
+
+            auto pass = passIt->second;
             if (!pass->enabled)
                 continue;
+
+            // What the passes before this one wrote and this one reads (or writes again) : the graph worked the barrier out from the
+            // declarations, nobody has to remember it at the end of the producing pass
+            if (m_ExecutionBarriers[orderIndex] != MemoryBarrierBit::None)
+                m_RendererAPI->MemoryBarrier(m_ExecutionBarriers[orderIndex]);
+
+            if (passName == kResolvePassName)
+            {
+                // The scene was drawn in HDR : the picture is made now, so that whatever is drawn over the forward pass (the grid,
+                // the outlines, the billboards, the debug shapes) lands on display colours
+                GpuScope passScope(m_RendererAPI->GetGpuProfiler(), passName.c_str());
+                DebugScope passMarker(m_RendererAPI.get(), passName.c_str());
+                ResolveSceneToViewport();
+                continue;
+            }
 
             // Without a camera (or a pushed view) ExecuteRenderPass() draws nothing, so there is no result worth
             // remembering : keep rendering (just the clear) and forget any cached state until one exists.
@@ -1043,10 +1366,11 @@ namespace Shard::Engine::Rendering{
             // and the pass's own clear/bind then also resets the API state the compute dispatches disturbed.
             // The main view's debug modes (wireframe, normals...) draw everything, so they are never culled.
             const bool debugViewIsPlain = m_DebugView.mode == ViewMode::Lit || m_DebugView.mode == ViewMode::Unlit;
-            const bool occlusionCulled = (passName == "SSAODepthNormalPass" || (passName == "ForwardPass" && debugViewIsPlain))
+            const bool occlusionCulled = (passName == "SSAODepthNormalPass" || passName == "GBufferPass" || (passName == "ForwardPass" && debugViewIsPlain))
                 && PrepareOcclusionCulling(passName, pass);
 
             GpuScope passScope(m_RendererAPI->GetGpuProfiler(), passName.c_str());
+            DebugScope passMarker(m_RendererAPI.get(), passName.c_str());
 
             BeginRenderPass(pass);
 
@@ -1114,11 +1438,6 @@ namespace Shard::Engine::Rendering{
             }
 
             EndRenderPass();
-
-            // The scene was drawn in HDR : the picture is made now, so that whatever is drawn over the forward pass (the grid,
-            // the outlines, the billboards, the debug shapes) lands on display colours
-            if (passName == "ForwardPass")
-                ResolveSceneToViewport();
         }
 
     }

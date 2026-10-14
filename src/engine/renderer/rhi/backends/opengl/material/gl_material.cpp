@@ -178,10 +178,11 @@ namespace Shard::Engine::Rendering{
         return StartsWith(name,"ibl_") || StartsWith(name,"ddgi_");
     }
 
-    void GLMaterial::Bind()
+    void GLMaterial::Bind(std::shared_ptr<Shader> shader)
     {
         SHARD_ASSERT_GRAPHICS_THREAD();
-        std::shared_ptr<GLShader> glShader = std::static_pointer_cast<GLShader>(m_Shader);
+        std::shared_ptr<Shader> target = shader ? shader : m_Shader;
+        std::shared_ptr<GLShader> glShader = std::static_pointer_cast<GLShader>(target);
         glShader->Bind();
 
         const auto& samplers = glShader->GetActiveSamplersMap();
@@ -203,31 +204,31 @@ namespace Shard::Engine::Rendering{
                 using T = std::decay_t<decltype(v)>;
 
                 if constexpr (std::is_same_v<T, bool>)
-                    m_Shader->SetBool(name, v);
+                    target->SetBool(name, v);
 
                 else if constexpr (std::is_same_v<T, int>)
-                    m_Shader->SetInt(name, v);
+                    target->SetInt(name, v);
 
                 else if constexpr (std::is_same_v<T, float>)
-                    m_Shader->SetFloat(name, v);
+                    target->SetFloat(name, v);
 
                 else if constexpr (std::is_same_v<T, glm::vec2>)
-                    m_Shader->SetVec2(name, v);
+                    target->SetVec2(name, v);
 
                 else if constexpr (std::is_same_v<T, glm::vec3>)
-                    m_Shader->SetVec3(name, v);
+                    target->SetVec3(name, v);
 
                 else if constexpr (std::is_same_v<T, glm::vec4>)
-                    m_Shader->SetVec4(name, v);
+                    target->SetVec4(name, v);
 
                 else if constexpr (std::is_same_v<T, glm::mat2>)
-                    m_Shader->SetMat2(name, v);
+                    target->SetMat2(name, v);
 
                 else if constexpr (std::is_same_v<T, glm::mat3>)
-                    m_Shader->SetMat3(name, v);
+                    target->SetMat3(name, v);
 
                 else if constexpr (std::is_same_v<T, glm::mat4>)
-                    m_Shader->SetMat4(name, v);
+                    target->SetMat4(name, v);
 
             }, value);
         }

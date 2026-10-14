@@ -31,6 +31,17 @@ namespace Shard::Engine::Core::Platform {
         return m_Handle != nullptr;
     }
 
+    bool DynLib::OpenIfLoaded(const std::string& name)
+    {
+        Close();
+        m_LastError.clear();
+
+        m_Handle = dlopen(name.c_str(), RTLD_NOW | RTLD_NOLOAD);
+        if (!m_Handle)
+            m_LastError = "not loaded in this process";
+        return m_Handle != nullptr;
+    }
+
     void DynLib::Close()
     {
         if (m_Handle)

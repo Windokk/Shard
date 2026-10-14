@@ -3,6 +3,7 @@
 #include "engine/renderer/rhi/resources/mesh/lightmap_uv.hpp"
 #include "engine/renderer/rhi/backends/opengl/mesh/gl_mesh.hpp"
 #include "engine/renderer/rhi/backends/null/null_rhi.hpp"
+#include "engine/renderer/rhi/backends/vulkan/vk_mesh.hpp"
 #include "engine/renderer/rhi/renderer_api.hpp"
 #include "engine/renderer/rhi/shader/shader.hpp"
 #include "engine/world/engine.hpp"
@@ -661,6 +662,9 @@ namespace Shard::Engine::Rendering{
         {
             case RendererAPI::API::OpenGL:
                 return std::make_shared<GLMesh>();
+
+            case RendererAPI::API::Vulkan:
+                return std::make_shared<VKMesh>();
 
             case RendererAPI::API::Null:
                 return std::make_shared<Null::NullMesh>();

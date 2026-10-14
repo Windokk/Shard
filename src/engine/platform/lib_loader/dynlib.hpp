@@ -17,6 +17,9 @@ namespace Shard::Engine::Core::Platform {
 
         /// @brief Loads the library. On failure LastError() tells why.
         bool Open(const std::string& path);
+
+        /// @brief Takes the library only if the process has it already (a tool injected it, like RenderDoc does) : nothing is loaded.
+        bool OpenIfLoaded(const std::string& name);
         void Close();
         bool IsOpen() const { return m_Handle != nullptr; }
 

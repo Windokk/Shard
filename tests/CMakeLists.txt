@@ -8,7 +8,7 @@ add_executable(ShardTests ${SHARD_TEST_SOURCES})
 
 target_include_directories(ShardTests PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})
 target_link_libraries(ShardTests PRIVATE Engine gtest gtest_main)
-target_compile_definitions(ShardTests PRIVATE BUILD_ENGINE)
+target_compile_definitions(ShardTests PRIVATE BUILD_ENGINE SHARD_SOURCE_DIR="${CMAKE_SOURCE_DIR}")
 
 include(GoogleTest)
 # PRE_TEST: discover at test time, so a missing runtime DLL fails a test run instead of the build

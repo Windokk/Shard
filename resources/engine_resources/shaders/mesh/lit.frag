@@ -27,8 +27,26 @@ uniform uvec2 clusterGridSizeXY;
 uniform float clusterScaleZ;
 uniform float clusterBiasZ;
 
+// This file is three programs (see the permutations the renderer asks for, Shader::GetVariant) :
+//   (nothing)                   the forward shader : a mesh drawn with its material, lit where it is drawn
+//   SHARD_GBUFFER               the material half of a deferred pipeline : the same material evaluation, written to the G-buffer instead of lit
+//   SHARD_DEFERRED_LIGHTING     the lighting half : rebuilds the surface of each pixel from the G-buffer and runs the same lighting (ShadeSurface)
+#ifdef SHARD_GBUFFER
+layout(location = 0) out vec4 gAlbedo;          // albedo.rgb, flags (3 * a : bit 0 the surface has a lightmap, bit 1 it reflects the environment)
+layout(location = 1) out vec4 gNormals;         // octahedral shading normal (xy), octahedral geometric normal (zw)
+layout(location = 2) out vec4 gMaterial;        // emission.rgb, metallic
+layout(location = 3) out vec4 gBaked;           // baked irradiance.rgb, roughness
+#else
 out vec4 fragColor;
+#endif
 
+#ifdef SHARD_DEFERRED_LIGHTING
+// No vertex stage feeds the surface here : it is rebuilt from the G-buffer and the depth, with the camera's matrices
+vec3 worldPos;
+uniform mat4 uView;
+uniform mat4 uInvViewProjection;
+#define viewMatrix uView
+#else
 in vec2 texCoord;
 in vec2 lightmapUV;
 in vec4 color;
@@ -37,6 +55,7 @@ in mat4 viewMatrix;
 in vec3 T;
 in vec3 B;
 in vec3 N_in;
+#endif
 
 // The interpolated normal, turned to face the viewer : a back face (double sided materials) is lit as the surface seen from its
 // other side. Written at the start of main().
@@ -73,10 +92,17 @@ uniform mat4 spotLightSpaceMatrices[10];
 
 uniform float pointLightFarPlanes[10];
 
+#ifdef SHARD_DEFERRED_LIGHTING
+layout(binding = 0) uniform sampler2D gAlbedoTex;
+layout(binding = 1) uniform sampler2D gNormalsTex;
+layout(binding = 2) uniform sampler2D gMaterialTex;
+layout(binding = 3) uniform sampler2D gBakedTex;
+#else
 layout(binding = 0) uniform sampler2D albedo;
 layout(binding = 1) uniform sampler2D metallicMap;
 layout(binding = 2) uniform sampler2D roughnessMap;
 layout(binding = 3) uniform sampler2D normalMap;
+#endif
 
 layout(binding = 4) uniform samplerCube ibl_irradianceMap;
 layout(binding = 5) uniform samplerCube ibl_prefilteredEnvMap;
@@ -137,7 +163,11 @@ layout(binding = 30) uniform samplerCubeArray pointShadowMapArray;
 // bindless handle like ssaoTextureHandle. Parked on unit 31, the last of the 32 units : 0-30 are all taken
 // above, so there is NO free unit left - a new sampler means freeing one first (e.g. shrinking the
 // cascade/spot/point shadow ranges), not just picking a number.
+#ifdef SHARD_DEFERRED_LIGHTING
+layout(binding = 31) uniform sampler2D gDepthTex;
+#else
 layout(binding = 31) uniform sampler2D emissiveMap;
+#endif
 
 // PBR values
 const float PI = 3.141592653589793;
@@ -168,8 +198,9 @@ vec3 SampleSSAO(vec3 ambient) {
     if (!ssaoEnabled || ssaoTextureHandle == uvec2(0))
         return ambient;
 
-    sampler2D ssaoTex = sampler2D(ssaoTextureHandle);
-    float ao = texture(ssaoTex, gl_FragCoord.xy / vec2(textureSize(ssaoTex, 0))).r;
+    // The constructor is used where the sampler is read, never stored in a variable : the Vulkan build (shaderc) turns it into a
+    // read of the bindless texture array, and a sampler cannot be a local variable there
+    float ao = texture(sampler2D(ssaoTextureHandle), gl_FragCoord.xy / vec2(textureSize(sampler2D(ssaoTextureHandle), 0))).r;
     // ssaoIntensity is allowed above 1.0 as an amplification knob (mix() extrapolates past `ao`
     // once the blend factor exceeds 1) - clamp so an aggressive value can't overshoot into
     // negative/relighting territory.
@@ -185,7 +216,11 @@ vec3 sampleOffsetDirections[20] = vec3[]
    vec3( 0,  1,  1), vec3( 0, -1,  1), vec3( 0, -1, -1), vec3( 0,  1, -1)
 );
 
+#ifdef SHARD_DEFERRED_LIGHTING
+bool useEnvReflections;     // a property of the material, carried by the G-buffer (see the flags in gAlbedo.a)
+#else
 uniform bool useEnvReflections;
+#endif
 
 // The scene is normally drawn into an HDR target and mapped to the picture by a pass of its own (tonemap.frag), so this
 // shader outputs linear light. A render that goes straight to an 8 bit target - the studio views of the thumbnails and the
@@ -640,69 +675,16 @@ vec3 TerminatorNormal(vec3 geoNormal, vec3 mappedNormal, vec3 L){
     return normalize(mix(normalize(geoNormal), mappedNormal, t));
 }
 
-void main() {
-    N = gl_FrontFacing ? N_in : -N_in;
-
-    if (depthPrepass) {
-        fragColor = vec4(0.0);
-        return;
-    }
-
-    vec4 baseColor = texture(albedo, texCoord);
-
-    if (masked && baseColor.a < 0.5)
-        discard;
-
-    float metallicValue = texture(metallicMap, texCoord).r * metallic;
-    float roughnessValue = texture(roughnessMap, texCoord).r * roughness;
-
-    vec3 normalFromMap = DecodeTangentNormal(texture(normalMap, texCoord));
-
-    mat3 TBN = mat3(T, B, N);
-    vec3 worldNormal = normalize(TBN * normalFromMap);
-
-    vec3 V = normalize(camPos - worldPos);
+// Everything that lights a surface once its material is known : the direct lights (clustered, shadowed), the probes, the environment, the ambient
+// term and the occlusion. The forward shader calls it where the mesh is drawn, the deferred lighting shader once per pixel of the G-buffer.
+// `N` (the interpolated normal facing the viewer, the geometric one) and `worldPos` are set by whoever calls it.
+vec4 ShadeSurface(vec4 baseColor, float metallicValue, float roughnessValue, vec3 worldNormal, bool hasLightmap, vec3 bakedIrradiance, vec3 emission, vec3 V)
+{
     vec3 result = vec3(0.0);
-
-    // The baked light this fragment receives, if its mesh has a lightmap (see lightmapEnabled)
-    bool hasLightmap = lightmapEnabled && lightmapHandle != uvec2(0);
-    vec3 bakedIrradiance = vec3(0.0);
-    if (hasLightmap)
-    {
-        sampler2D lightmapTex = sampler2D(lightmapHandle);
-        bakedIrradiance = textureLod(lightmapTex, lightmapUV * lightmapScaleOffset.xy + lightmapScaleOffset.zw, 0.0).rgb;
-    }
-
-    if (viewMode != 0) {
-        if (viewMode == 2) { fragColor = vec4(0.85, 0.9, 1.0, 1.0); return; }
-        if (viewMode == 3) { fragColor = vec4(0.02, 0.02, 0.03, 1.0); return; }
-        if (viewMode == 4) { fragColor = vec4(worldNormal * 0.5 + 0.5, 1.0); return; }
-        if (viewMode == 5) {
-            float d = length(camPos - worldPos);
-            fragColor = vec4(vec3(1.0 - d / (d + 20.0)), 1.0);
-            return;
-        }
-        if (viewMode == 6) { fragColor = vec4(fract(texCoord), 0.0, 1.0); return; }
-        if (viewMode == 9) {
-            // The lightmap UVs as the bake sees them (atlas placement applied) : a checker shows texel density and
-            // stretching, the colour is the UV itself. Meshes without a lightmap show their raw second UV set, dimmed.
-            vec2 lmUV = hasLightmap ? lightmapUV * lightmapScaleOffset.xy + lightmapScaleOffset.zw : lightmapUV;
-            vec2 cell = floor(lmUV * 64.0);
-            float checker = mod(cell.x + cell.y, 2.0);
-            vec3 col = vec3(fract(lmUV), 0.35) * mix(0.55, 1.0, checker);
-            fragColor = vec4(hasLightmap ? col : col * 0.4, 1.0);
-            return;
-        }
-        if (viewMode == 1) {
-            fragColor = vec4(baseColor.rgb + texture(emissiveMap, texCoord).rgb * emissive, baseColor.a);
-            return;
-        }
-    }
 
     if (!showLighting) {
         float facing = 0.25 + 0.75 * max(dot(worldNormal, V), 0.0);
-        fragColor = vec4(baseColor.rgb * facing + texture(emissiveMap, texCoord).rgb * emissive, baseColor.a);
-        return;
+        return vec4(baseColor.rgb * facing + emission, baseColor.a);
     }
 
     // Directional lights: never clustered (at most a handful in any scene - see
@@ -862,25 +844,20 @@ void main() {
     // Debug views 7 (GI only) / 8 (SSAO only) - see ViewMode. GI shows the indirect light before SSAO
     // (diffuse + specular, no direct light/emission); SSAO shows the raw occlusion term, white = none.
     if (viewMode == 7) {
-        fragColor = vec4(ambientDiffuse + specularIBL, 1.0);
-        return;
+        return vec4(ambientDiffuse + specularIBL, 1.0);
     }
     if (viewMode == 8) {
         float ao = 1.0;
         if (ssaoEnabled && ssaoTextureHandle != uvec2(0)) {
-            sampler2D ssaoTex = sampler2D(ssaoTextureHandle);
-            ao = texture(ssaoTex, gl_FragCoord.xy / vec2(textureSize(ssaoTex, 0))).r;
+            ao = texture(sampler2D(ssaoTextureHandle), gl_FragCoord.xy / vec2(textureSize(sampler2D(ssaoTextureHandle), 0))).r;
             ao = clamp(mix(1.0, ao, ssaoIntensity), 0.0, 1.0);
         }
-        fragColor = vec4(vec3(ao), 1.0);
-        return;
+        return vec4(vec3(ao), 1.0);
     }
     ambientDiffuse = SampleSSAO(ambientDiffuse);
 
     // Emission is light the surface itself gives off, so it goes on after everything else and is not
     // touched by SSAO, shadows or the material's albedo/metallic - it doesn't depend on any incoming light.
-    vec3 emission = texture(emissiveMap, texCoord).rgb * emissive;
-
     vec3 lighting = result + ambientDiffuse + specularIBL + emission;
     // One non finite sample would spread over its neighbours in the multisample resolve :
     // it is dropped here, where the pixel is still a single sample
@@ -889,5 +866,111 @@ void main() {
         lighting = vec3(0.0);
     if (outputDisplayColors)
         lighting = DisplayTransform(lighting, TONEMAP_ACES, 1.0);
-    fragColor = vec4(lighting, baseColor.a);
+    return vec4(lighting, baseColor.a);
 }
+#ifdef SHARD_DEFERRED_LIGHTING
+
+void main() {
+    ivec2 pixel = ivec2(gl_FragCoord.xy);
+
+    float depth = texelFetch(gDepthTex, pixel, 0).r;
+    if (depth >= 1.0)
+        discard;        // nothing was drawn here : the background (the sky, drawn after the lighting) is not lit
+
+    // The world position, from the depth the G-buffer pass wrote (OpenGL's window depth : 0..1, clip space z -1..1)
+    vec4 clip = vec4(gl_FragCoord.xy / vec2(textureSize(gDepthTex, 0)) * 2.0 - 1.0, depth * 2.0 - 1.0, 1.0);
+    vec4 world = uInvViewProjection * clip;
+    worldPos = world.xyz / world.w;
+
+    vec4 albedoRaw = texelFetch(gAlbedoTex, pixel, 0);
+    vec4 normals = texelFetch(gNormalsTex, pixel, 0);
+    vec4 material = texelFetch(gMaterialTex, pixel, 0);
+    vec4 baked = texelFetch(gBakedTex, pixel, 0);
+
+    int flags = int(albedoRaw.a * 3.0 + 0.5);
+    useEnvReflections = (flags & 2) != 0;
+
+    vec3 worldNormal = OctDecode(normals.xy);
+    N = OctDecode(normals.zw);
+    vec3 V = normalize(camPos - worldPos);
+
+    fragColor = ShadeSurface(vec4(albedoRaw.rgb, 1.0), material.a, baked.a, worldNormal, (flags & 1) != 0, baked.rgb, material.rgb, V);
+    gl_FragDepth = depth;
+}
+
+#else
+
+void main() {
+    N = gl_FrontFacing ? N_in : -N_in;
+
+    if (depthPrepass) {
+#ifndef SHARD_GBUFFER
+        fragColor = vec4(0.0);
+#endif
+        return;
+    }
+
+    vec4 baseColor = texture(albedo, texCoord);
+
+    if (masked && baseColor.a < 0.5)
+        discard;
+
+    float metallicValue = texture(metallicMap, texCoord).r * metallic;
+    float roughnessValue = texture(roughnessMap, texCoord).r * roughness;
+
+    vec3 normalFromMap = DecodeTangentNormal(texture(normalMap, texCoord));
+
+    mat3 TBN = mat3(T, B, N);
+    vec3 worldNormal = normalize(TBN * normalFromMap);
+
+    vec3 V = normalize(camPos - worldPos);
+
+    // The baked light this fragment receives, if its mesh has a lightmap (see lightmapEnabled)
+    bool hasLightmap = lightmapEnabled && lightmapHandle != uvec2(0);
+    vec3 bakedIrradiance = vec3(0.0);
+    if (hasLightmap)
+    {
+        bakedIrradiance = textureLod(sampler2D(lightmapHandle), lightmapUV * lightmapScaleOffset.xy + lightmapScaleOffset.zw, 0.0).rgb;
+    }
+
+    vec3 emission = texture(emissiveMap, texCoord).rgb * emissive;
+
+#ifdef SHARD_GBUFFER
+    gAlbedo = vec4(baseColor.rgb, ((hasLightmap ? 1.0 : 0.0) + (useEnvReflections ? 2.0 : 0.0)) / 3.0);
+    gNormals = vec4(OctEncode(worldNormal), OctEncode(N));
+    gMaterial = vec4(emission, metallicValue);
+    gBaked = vec4(bakedIrradiance, roughnessValue);
+    return;
+#else
+    if (viewMode != 0) {
+        if (viewMode == 2) { fragColor = vec4(0.85, 0.9, 1.0, 1.0); return; }
+        if (viewMode == 3) { fragColor = vec4(0.02, 0.02, 0.03, 1.0); return; }
+        if (viewMode == 4) { fragColor = vec4(worldNormal * 0.5 + 0.5, 1.0); return; }
+        if (viewMode == 5) {
+            float d = length(camPos - worldPos);
+            fragColor = vec4(vec3(1.0 - d / (d + 20.0)), 1.0);
+            return;
+        }
+        if (viewMode == 6) { fragColor = vec4(fract(texCoord), 0.0, 1.0); return; }
+        if (viewMode == 9) {
+            // The lightmap UVs as the bake sees them (atlas placement applied) : a checker shows texel density and
+            // stretching, the colour is the UV itself. Meshes without a lightmap show their raw second UV set, dimmed.
+            vec2 lmUV = hasLightmap ? lightmapUV * lightmapScaleOffset.xy + lightmapScaleOffset.zw : lightmapUV;
+            vec2 cell = floor(lmUV * 64.0);
+            float checker = mod(cell.x + cell.y, 2.0);
+            vec3 col = vec3(fract(lmUV), 0.35) * mix(0.55, 1.0, checker);
+            fragColor = vec4(hasLightmap ? col : col * 0.4, 1.0);
+            return;
+        }
+        if (viewMode == 1) {
+            fragColor = vec4(baseColor.rgb + emission, baseColor.a);
+            return;
+        }
+    }
+
+
+    fragColor = ShadeSurface(baseColor, metallicValue, roughnessValue, worldNormal, hasLightmap, bakedIrradiance, emission, V);
+#endif
+}
+
+#endif

@@ -4,6 +4,7 @@
 
 #include <algorithm>
 #include <cstdio>
+#include <fstream>
 #include <string>
 #include <vector>
 
@@ -21,6 +22,7 @@
 #include "engine/renderer/frontend/renderer.hpp"
 #include "engine/renderer/features/immediate/thumbnail_service.hpp"
 #include "engine/renderer/rhi/gpu_memory.hpp"
+#include "engine/renderer/rhi/capture/renderdoc.hpp"
 #include "engine/platform/hardware/system_info.hpp"
 #include "engine/world/time_manager.hpp"
 #include "engine/world/world.hpp"
@@ -147,6 +149,86 @@ namespace Shard::Engine::Core {
                     m_Context.renderer->SetOcclusionCullingEnabled(on);
                 }
                 return CommandResult{true, std::string("render.occlusion = ") + (m_Context.renderer->IsOcclusionCullingEnabled() ? "on" : "off")};
+            });
+
+        registry.RegisterCommand("render.graph", "render.graph [dot <file>] : the render graph of the last frame (the passes in order, what they read and write, the barriers, the culled passes, the transient memory) ; dot writes it as Graphviz",
+            [this](const std::vector<std::string>& args) {
+                if (!m_Context.renderer)
+                    return CommandResult{false, "no renderer"};
+                if (args.empty()) {
+                    std::string out = m_Context.renderer->GetRenderGraphText();
+                    if (!out.empty() && out.back() == '\n') out.pop_back();
+                    return CommandResult{true, out.empty() ? "No frame rendered yet" : out};
+                }
+                if (args[0] != "dot" || args.size() < 2)
+                    return CommandResult{false, "usage: render.graph [dot <file>]"};
+                std::ofstream file(args[1], std::ios::binary);
+                if (!file)
+                    return CommandResult{false, "cannot write " + args[1]};
+                file << m_Context.renderer->GetRenderGraphDot();
+                return CommandResult{true, "wrote " + args[1] + " (dot -Tsvg " + args[1] + " -o graph.svg)"};
+            });
+
+        registry.RegisterCommand("render.pipeline", "render.pipeline [name] : the render pipeline the frames are built with, or the one picked (`render.pipeline list` shows what there is)",
+            [this](const std::vector<std::string>& args) {
+                if (!m_Context.renderer)
+                    return CommandResult{false, "no renderer"};
+
+                if (!args.empty() && args[0] == "list") {
+                    std::string out;
+                    for (const Rendering::RenderPipelineInfo& info : Rendering::RenderPipelineRegistry::Get().List())
+                        out += info.name + (info.name == m_Context.renderer->GetRenderPipelineName() ? " *" : "") + " (" + info.type + ") : " + info.description + "\n";
+                    if (!out.empty() && out.back() == '\n') out.pop_back();
+                    return CommandResult{true, out};
+                }
+
+                if (!args.empty()) {
+                    if (!Rendering::RenderPipelineRegistry::Get().Has(args[0]))
+                        return CommandResult{false, "unknown render pipeline '" + args[0] + "' (render.pipeline list)"};
+                    m_Context.renderer->SetRenderPipeline(args[0]);
+                }
+
+                const std::string requested = m_Context.renderer->GetRenderPipelineName();
+                const std::string active = m_Context.renderer->GetActiveRenderPipelineName();
+                return CommandResult{true, "render.pipeline = " + requested + (active != requested ? " (drawing with " + active + " for now)" : "")};
+            });
+
+        registry.RegisterCommand("render.dump", "render.dump <directory> : writes the render graph and the picture each pass made into a directory (a capture of the frame that needs no tool)",
+            [this](const std::vector<std::string>& args) {
+                if (args.empty() || !m_Context.renderer)
+                    return CommandResult{false, "usage: render.dump <directory>"};
+                return CommandResult{true, "wrote in " + args[0] + " : " + m_Context.renderer->DumpFrame(args[0])};
+            });
+
+        registry.RegisterCommand("render.capture", "render.capture [frames] : takes a RenderDoc capture of the next frame(s) (start with SHARD_RENDERDOC=1, or from RenderDoc)",
+            [](const std::vector<std::string>& args) {
+                Rendering::RenderDoc& renderDoc = Rendering::RenderDoc::Get();
+                if (!renderDoc.IsAvailable())
+                    return CommandResult{false, "RenderDoc is not attached : start the engine with SHARD_RENDERDOC=1 (or the path of renderdoc.dll), or from RenderDoc"};
+
+                uint32_t frames = 1;
+                if (!args.empty())
+                {
+                    try { frames = static_cast<uint32_t>(std::max(1, std::stoi(args[0]))); } catch (...) { return CommandResult{false, "usage: render.capture [frames]"}; }
+                }
+
+                renderDoc.TriggerCapture(frames);
+                return CommandResult{true, "capturing the next " + std::to_string(frames) + " frame(s) (render.capture.open shows them in RenderDoc)"};
+            });
+
+        registry.RegisterCommand("render.capture.open", "render.capture.open : opens the last RenderDoc capture in the RenderDoc UI",
+            [](const std::vector<std::string>&) {
+                Rendering::RenderDoc& renderDoc = Rendering::RenderDoc::Get();
+                if (!renderDoc.IsAvailable())
+                    return CommandResult{false, "RenderDoc is not attached"};
+
+                const uint32_t count = renderDoc.CaptureCount();
+                if (count == 0)
+                    return CommandResult{false, "no capture yet (render.capture takes one)"};
+
+                const std::string capture = renderDoc.GetCapture(count - 1);
+                renderDoc.OpenReplayUI(capture);
+                return CommandResult{true, "opening " + capture};
             });
 
         registry.RegisterCommand("play", "play on|off : enters / leaves play mode (leaving it reloads the world)",

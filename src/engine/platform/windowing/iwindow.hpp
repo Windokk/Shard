@@ -61,6 +61,13 @@ namespace Shard::Engine::Core::Platform {
         // responsive and shows feedback instead of appearing frozen. No-op by default; only
         // implementations with a UI system available.
         virtual void DrawLoadingFrame(float progress) {}
+
+        /// @brief Vulkan : the instance extensions the window's surface needs (empty for a window that is not a Vulkan one)
+        virtual std::vector<std::string> GetVulkanInstanceExtensions() const { return {}; }
+
+        /// @brief Vulkan : makes the surface of the window on `vulkanInstance` (a VkInstance). The handle of the surface, 0 if there is none.
+        virtual uint64_t CreateVulkanSurface(void* vulkanInstance) const { (void)vulkanInstance; return 0; }
+
         virtual int GetFramebufferWidth() const = 0;
         virtual int GetFramebufferHeight() const = 0;
         virtual int GetBytesPerPixel() const = 0;

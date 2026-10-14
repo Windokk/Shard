@@ -10,6 +10,7 @@
 #include <glm/glm.hpp>
 
 #include "engine/renderer/rhi/renderer_api.hpp"
+#include "engine/renderer/rhi/graph/render_graph.hpp"
 #include "engine/renderer/rhi/resources/framebuffer/framebuffer.hpp"
 #include "engine/renderer/rhi/pipelines/pipeline.hpp"
 #include "engine/renderer/rhi/resources/mesh/mesh.hpp"
@@ -26,6 +27,9 @@ namespace Shard::Engine::Rendering {
         std::map<std::string, uint64_t> customSamplers;
         bool overridePipeline = false;
         std::shared_ptr<Pipeline> customPipeline = nullptr;
+        // The materials of the draw list are drawn with this permutation of their shader (see Shader::GetVariant) : the G-buffer pass of the
+        // deferred pipeline draws the lit shader as `GBUFFER`. Empty : the shader of the material as it is.
+        std::string shaderVariant;
         bool allowResize = true;
         // Opt-in : the pass draws its opaque geometry twice (depth first, then shaded where the depth matches, see
         // RendererAPI::SetDepthSweep). Only for a pass that is the main view's shaded scene.
@@ -59,5 +63,16 @@ namespace Shard::Engine::Rendering {
         std::vector<DrawCommand> drawList = {};
         std::unordered_map<uint64_t, size_t> drawCommandsLookup;
         std::vector<DrawCommand>* externalDrawList = nullptr;
+
+        // What the pass reads and writes besides its target, for the render graph (see RenderGraph) : an attachment it
+        // draws into is a write the graph already knows from `target`, and so is what its dependencies produced (a pass that
+        // comes after another one may read what that one wrote). Only a resource that is neither (a buffer a compute pass
+        // filled, a texture that is not a target) has to be named here.
+        std::vector<PassAccess> graphAccesses;
+        // Never skipped by the graph, even if nothing reads what it draws
+        bool graphSideEffects = false;
+
+        RenderPass& Reads(const std::string& resource, ResourceUsage usage = ResourceUsage::ShaderRead) { graphAccesses.push_back({resource, usage}); return *this; }
+        RenderPass& Writes(const std::string& resource, ResourceUsage usage = ResourceUsage::StorageWrite) { graphAccesses.push_back({resource, usage}); return *this; }
     };
 }

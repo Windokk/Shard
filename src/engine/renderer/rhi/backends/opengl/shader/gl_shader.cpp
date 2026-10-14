@@ -38,8 +38,10 @@ namespace Shard::Engine::Rendering{
         }
     }
 
-    GLShader::GLShader(const Filesystem::Path &vertexPath, const Filesystem::Path &fragmentPath, const Filesystem::Path &geometryPath)
+    GLShader::GLShader(const Filesystem::Path &vertexPath, const Filesystem::Path &fragmentPath, const Filesystem::Path &geometryPath, const std::vector<std::string>& defines)
     {
+        m_Defines = defines;
+
         if (vertexPath.Exists() && !vertexPath.IsDirectory() && fragmentPath.Exists() && !fragmentPath.IsDirectory()) {
 		
             m_VertexFilePath = vertexPath.full;
@@ -48,8 +50,8 @@ namespace Shard::Engine::Rendering{
             // Read vertexFile and fragmentFile, expanding any `#include "..."` directives (see
             // glsl_preprocessor.hpp) before handing the source to the driver - GLSL itself has no
             // include support.
-            std::string vertexCode = ResolveGLSLIncludes(vertexPath);
-            std::string fragmentCode = ResolveGLSLIncludes(fragmentPath);
+            std::string vertexCode = InjectGLSLDefines(ResolveGLSLIncludes(vertexPath), defines);
+            std::string fragmentCode = InjectGLSLDefines(ResolveGLSLIncludes(fragmentPath), defines);
     
             // Convert the shader source strings into character arrays
             const char* vertexSource = vertexCode.c_str();
@@ -78,7 +80,7 @@ namespace Shard::Engine::Rendering{
 
             if (hasGeometry) {
                 m_GeometryFilePath = geometryPath.full;
-                std::string geometryCode = ResolveGLSLIncludes(geometryPath);
+                std::string geometryCode = InjectGLSLDefines(ResolveGLSLIncludes(geometryPath), defines);
                 const char* geometrySource = geometryCode.c_str();
 
                 geometryShader = glCreateShader(GL_GEOMETRY_SHADER);
@@ -275,7 +277,7 @@ namespace Shard::Engine::Rendering{
         if (m_VertexFilePath.empty() || m_FragmentFilePath.empty())
             return false;
 
-        GLShader fresh{ Filesystem::Path(m_VertexFilePath), Filesystem::Path(m_FragmentFilePath), Filesystem::Path(m_GeometryFilePath) };
+        GLShader fresh{ Filesystem::Path(m_VertexFilePath), Filesystem::Path(m_FragmentFilePath), Filesystem::Path(m_GeometryFilePath), m_Defines };
         if (fresh.m_CompileFailed || fresh.m_Program == 0)
             return false;       // `fresh` deletes its broken program, this one keeps running
 

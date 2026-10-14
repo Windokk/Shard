@@ -1,10 +1,10 @@
-# Headless & determinism
+# Headless mode and determinism
 
-The simulation of a project can run **without a window, a GPU or a sound card**, and it can run **the same way twice** : same inputs, same seed, same state, frame after frame, on Windows and on Linux. Both together make three things possible :
+A project's simulation can run without a window, GPU or sound card, and it can run deterministically: same inputs and same seed give the same state every frame, on both Windows and Linux. That gives us:
 
-* a **dedicated server** : the game's simulation, with nothing to draw ;
-* **simulation regression tests** in the CI : a recorded run is played back and every state it passes through is checked ;
-* **replays** : the inputs of a session are a few KB, and are enough to see it again.
+- dedicated servers, running the game simulation with no rendering
+- simulation regression tests in CI, where a recorded run is replayed and its state is checked along the way
+- replays, since a session's inputs only take a few KB
 
 ```
 ShardHeadless --game libGameModule.dll --project example_project.json --replay run.replay
@@ -12,54 +12,54 @@ ShardHeadless --game libGameModule.dll --project example_project.json --replay r
 
 ## ShardHeadless
 
-`ShardHeadless` (`src/apps/headless`) is the player without the screen : the same engine, the same game module, the same simulation code. It boots on the **headless platform** (a window that only has a size and an event queue : SDL is never started) and the **null graphics backend**, and runs the frames.
+`ShardHeadless` (`src/apps/headless`) is basically the player without a screen. Same engine, same game module, same simulation code. It runs on the headless platform (a fake window that only has a size and an event queue, SDL is never initialized) and the null graphics backend.
 
 | Option | |
 |---|---|
-| `--game <module>` `--project <file>` | the game module and the project (required) |
-| `--world <path>` | world to load (default : the replay's, then the project's first) |
-| `--frames <n>` | frames to run (default : the length of the replay, else 600) |
-| `--seed <n\|random>` | seed of the random streams (default : the replay's, else 1) |
-| `--replay <file>` | play a replay back : its inputs are fed to the game, its state checks are verified |
-| `--write-replay <file>` | write the replay of this run : creates one, or re-records the checks of one after a change that is meant to alter the simulation |
-| `--check-every <n>` | a state check every `n` frames (default 60) |
-| `--expect <hash>` | the state after the last frame has to hash to that value |
-| `--require-checks` | with `--replay` : fail if there is nothing to verify |
-| `--print-state` | print the state at every check |
-| `--script <file>` | console commands at given frames, one `<frame> <command>` per line (`60 sim.hash` prints the state hash and the seed) |
-| `--server` | pace the run to the fixed step (real time), until stopped : a dedicated server |
+| `--game <module>` `--project <file>` | game module and project (required) |
+| `--world <path>` | world to load (default: the one from the replay, otherwise the project's first world) |
+| `--frames <n>` | number of frames to run (default: replay length, otherwise 600) |
+| `--seed <n\|random>` | seed for the random streams (default: the replay's, otherwise 1) |
+| `--replay <file>` | plays back a replay, feeding its inputs to the game and verifying its state checks |
+| `--write-replay <file>` | records this run to a replay. Use it to create a new one, or to update the checks after a change that's supposed to affect the simulation |
+| `--check-every <n>` | adds a state check every `n` frames (default 60) |
+| `--expect <hash>` | expected state hash after the last frame |
+| `--require-checks` | with `--replay`, fails if the replay has no checks |
+| `--print-state` | prints the full state at each check |
+| `--script <file>` | runs console commands at given frames, one `<frame> <command>` per line (e.g. `60 sim.hash` prints the state hash and seed) |
+| `--server` | runs in real time at the fixed step until stopped, as a dedicated server |
 
-Exit code : `0` ran (and matched), `1` could not start, `2` diverged. The last line is `[HEADLESS] state <hash> frames <n> ...` : one line a script can read.
+Exit codes: `0` success (and matched), `1` failed to start, `2` diverged. The last line of output is `[HEADLESS] state <hash> frames <n> ...`, easy to parse from a script.
 
-A dedicated server is `ShardHeadless --server` : the loop is the same as everywhere else, it only sleeps until the next fixed step is due instead of running as fast as it can.
+`ShardHeadless --server` is the same loop as everywhere else, it just sleeps until the next fixed step instead of running as fast as possible.
 
-## The null graphics backend
+## Null graphics backend
 
-`RendererAPI::API::Null` (`renderer/rhi/backends/null`) implements the whole RHI : meshes keep their geometry, textures their specifications, materials every parameter they are given, framebuffers have a size and read back black. **Nothing is drawn, but the whole frame runs** : extraction, culling, pass setup, draw lists. The CPU side of the renderer is therefore exercised by headless runs and by the tests (`tests/rendering/null_rhi_tests.cpp`), without a GPU.
+`RendererAPI::API::Null` (`renderer/rhi/backends/null`) implements the whole RHI without drawing anything. Meshes keep their geometry, textures their specs, materials their parameters, and framebuffers have a size and read back as black. The rest of the frame still runs (extraction, culling, pass setup, draw lists), so the CPU side of the renderer gets tested in headless runs and in `tests/rendering/null_rhi_tests.cpp`, no GPU needed.
 
-There is no graphics thread with it : everything runs on the calling thread.
+There's no separate graphics thread with this backend, everything runs on the calling thread.
 
 ## Determinism
 
-`EngineCreationSettings::deterministic` (always on in `ShardHeadless`, and in the player with `--record` / `--replay`) asks for a run that can be repeated :
+`EngineCreationSettings::deterministic` makes runs reproducible. It's always on in `ShardHeadless`, and in the player when using `--record` or `--replay`.
 
 | What | How |
 |---|---|
-| **Fixed step everywhere** | every frame lasts exactly one fixed step of the project (the clock is not read) : one `Run` = one physics step. Scripts see `GetDeltaTime() == fixedStep`. |
-| **Stable system order** | the scheduler runs the systems of a phase in registration order, whatever the number of threads (see `scheduler.hpp`). The scripts of a world and the physics bodies are kept in ordered maps : they update in the order they were added, not in the order of a hash table. |
-| **Seeded RNG in every system** | every random stream derives from one seed (`--seed`, written in the replay) : `GetEngine().MakeRandomStream("name")` gives a system a generator of its own (PCG32 : integers only, the same numbers everywhere). The same name gives the same sequence in every run with that seed, **whatever order the systems start in**. GUIDs are counted from the seed instead of drawn from the OS. `rand()`, `std::random_device` and `std::uniform_*_distribution` (which differs between standard libraries) must not be used by anything that is part of the simulation. |
-| **Jolt deterministic mode** | Jolt is built with `CROSS_PLATFORM_DETERMINISTIC` (CMake option `SHARD_DETERMINISTIC_PHYSICS`, on by default : no fused multiply-add, its own `sin`/`cos`), and the compiler is told not to fuse `a * b + c` on its own (`-ffp-contract=off`). A deterministic run steps physics on **one thread** : Jolt gives the same result on any number of threads, but the order of the contact callbacks (and so of what the scripts do in them) depends on which job ran first. |
-| **Nothing behind its back** | hot reload is off ; no window, so no resize or focus events unless the replay says so. |
+| **Fixed timestep** | Each frame is exactly one fixed step, the clock is never read. One `Run` equals one physics step, and `GetDeltaTime()` returns the fixed step. |
+| **Stable system order** | The scheduler runs systems within a phase in registration order, regardless of thread count (see `scheduler.hpp`). Scripts and physics bodies are stored in ordered maps, so they update in insertion order rather than hash table order. |
+| **Seeded RNG** | All random streams come from a single seed (`--seed`, saved in the replay). `GetEngine().MakeRandomStream("name")` gives a system its own PCG32 generator (integer-only, so it's identical on every platform). A given name always produces the same sequence for a given seed, no matter what order systems start in. GUIDs are generated from the seed instead of the OS. Don't use `rand()`, `std::random_device` or `std::uniform_*_distribution` (implementations differ between standard libraries) in anything that affects the simulation. |
+| **Jolt deterministic mode** | Jolt is built with `CROSS_PLATFORM_DETERMINISTIC` (CMake option `SHARD_DETERMINISTIC_PHYSICS`, on by default), which disables FMA and uses its own `sin`/`cos`. We also pass `-ffp-contract=off` so the compiler doesn't fuse `a * b + c` on its own. Physics runs on a single thread in deterministic mode: Jolt's results don't depend on thread count, but the order of contact callbacks (and therefore what scripts do in them) does. |
+| **No outside interference** | Hot reload is disabled, and since there's no window there are no resize or focus events unless the replay contains them. |
 
-A game that wants to stay replayable has to follow the same rules : take its randomness from `MakeRandomStream`, use `GetDeltaTime()` / the fixed step for time, and avoid `sin` / `cos` / `pow` and friends on values that end up in the state (the C library's last bit differs from one platform to another) : `Core::Random` itself has no such call (`OnUnitSphere` and `OnUnitCircle` use rejection sampling).
+Games that want to support replays need to follow the same rules: use `MakeRandomStream` for randomness, `GetDeltaTime()` or the fixed step for time, and avoid `sin`, `cos`, `pow` and similar functions on anything that ends up in the state (the last bit can differ between C libraries). `Core::Random` doesn't use any of them (`OnUnitSphere` and `OnUnitCircle` use rejection sampling).
 
-### The state hash
+### State hash
 
-`HashSimulationState` (`src/engine/simulation_state.hpp`) condenses the state of the simulation into 64 bits : per world, the position / rotation / scale of every actor, the pose and velocities of every physics body (as Jolt has them), and **every reflected field of every script**, the read-only ones included (those are the runtime state). Everything is visited by id, never in the order of a hash table, and the floats go in as their IEEE bits (`Determinism::StateHasher`), so one flipped bit anywhere changes the hash. It is split in three parts (*transforms*, *physics*, *scripts*) : when a run diverges, the part that differs says where to look.
+`HashSimulationState` (`src/engine/simulation_state.hpp`) reduces the simulation state to 64 bits. For each world it hashes the transform of every actor, the pose and velocities of every physics body (as stored by Jolt), and every reflected field of every script, including read-only ones since those hold runtime state. Everything is visited by id, never in hash table order, and floats are hashed by their raw bits (`Determinism::StateHasher`), so a single flipped bit changes the result. The hash is split into three parts (transforms, physics, scripts) so that when a run diverges you know where to look.
 
 ## Replays
 
-A replay (`platform/replay/input_replay.hpp`) is a text file : the seed, the fixed step, the world, the inputs frame by frame, and **state checks** : "after 60 frames the state hashes to X".
+A replay (`platform/replay/input_replay.hpp`) is a text file containing the seed, fixed step, world, per-frame inputs, and state checks ("after 60 frames the hash should be X").
 
 ```
 shard-replay 1
@@ -73,23 +73,25 @@ check 60 bf7eabc5c5ff73f9 440e665432c876d0 c05a9388c8b98a39 890e766995745921
 @400 mouse-move #43c80000 #42c80000 #40000000 #00000000
 ```
 
-Keys go by name (a replay survives the enum being reordered), floats by bit pattern (a replay reads back exactly what it recorded) ; it is writable by hand (decimals are accepted, `#` starts a comment). An event of frame `F` is delivered just before frame `F` runs, so the scripts of frame `F` see it.
+Keys are stored by name, so reordering the enum doesn't break old replays. Floats are stored as bit patterns so they read back exactly. You can also edit replays by hand: decimal values work, and `#` starts a comment. Events for frame `F` are delivered right before frame `F` runs, so that frame's scripts see them.
 
-**Recording** : `ShardGame --record run.replay` writes the keyboard, mouse and gamepad of a session, and a state check every `--check-every` frames (60). The run is deterministic while it is recorded (every frame is one fixed step). **Playing** : `ShardGame --replay run.replay` shows it again (the keyboard is ignored), `ShardHeadless --replay run.replay` checks it without a window. The same file, played by either, gives the same hashes : the graphics backend and the window do not take part in the simulation.
+To record, run `ShardGame --record run.replay`. It saves keyboard, mouse and gamepad input, plus a state check every `--check-every` frames (60 by default). The run is deterministic while recording.
 
-## The regression test
+To play it back, use `ShardGame --replay run.replay` to watch it (keyboard input is ignored), or `ShardHeadless --replay run.replay` to check it without a window. Both produce the same hashes, since the graphics backend and the window have no effect on the simulation.
 
-`tests/determinism` is a small project (a floor, a wall, bodies that fall and are kicked at random by `RandomKicker` scripts, a `Character` driven by the keyboard) and a replay of it (`golden/determinism.replay`) that walks around with W A S D for 600 frames. CTest runs it (`Determinism.Replay`) with `ShardHeadless` : the CI does, on **Windows and on Linux, on runners without a GPU**, and it fails when the hash of any check differs from what the replay says :
+## Regression test
+
+`tests/determinism` contains a small project (a floor, a wall, some bodies that fall and get randomly kicked by `RandomKicker` scripts, and a keyboard-controlled `Character`) along with a replay (`golden/determinism.replay`) that walks around with WASD for 600 frames. CTest runs it through `ShardHeadless` as `Determinism.Replay`. CI runs it on Windows and Linux, on runners without a GPU, and it fails if any check doesn't match:
 
 ```
 [REPLAY FAILED] the run diverged from the replay after 60 frames : expected state bf7eabc5c5ff73f9, got 5e47b74a8a3edcc4 (differs : transforms)
 ```
 
-When a change is **meant** to alter the simulation (a different physics setting, a new script field), record the replay again and commit it :
+If a change is supposed to affect the simulation (different physics settings, a new script field...), re-record the replay and commit it:
 
 ```
 ShardHeadless --game build/libGameModule.dll --project tests/determinism/project/determinism_project.json \
               --replay tests/determinism/golden/determinism.replay --write-replay tests/determinism/golden/determinism.replay
 ```
 
-When it fails on one platform and passes on the other, something in the simulation depends on the platform : a `sin` / `cos` in the state, an iteration over a hash table, uninitialized memory, a clock. The three parts of the check say which state to look at.
+If it passes on one platform but fails on the other, something in the simulation is platform-dependent: a `sin`/`cos` in the state, iteration over a hash table, uninitialized memory, a clock read. The three parts of the hash tell you which state to look at.

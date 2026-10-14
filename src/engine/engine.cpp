@@ -39,6 +39,7 @@
 #include "engine/physics/physics_manager.hpp"
 #include "engine/physics/physics_body.hpp"
 #include "engine/renderer/frontend/renderer.hpp"
+#include "engine/renderer/rhi/capture/renderdoc.hpp"
 #include "engine/renderer/rhi/render_thread.hpp"
 #include "engine/audio/audio_world_data.hpp"
 #include "engine/physics/physics_world_data.hpp"
@@ -65,6 +66,8 @@ namespace Shard::Engine{
 
             // Draws on a thread of its own : the simulation of the next frame runs while the previous one is drawn
             CVar<bool> cvRenderThread("render.thread", true, "Draw on a dedicated render thread (applies at startup)", CVarFlags::Archive);
+            CVar<bool> cvRenderDoc("render.renderdoc", false, "Load RenderDoc before the graphics API starts, so that `render.capture` can take a capture (applies at startup, SHARD_RENDERDOC=1 does the same)");
+            CVar<bool> cvVulkanValidation("render.vulkan_validation", false, "Vulkan : turn the validation layer on (needs the Vulkan SDK ; applies at startup, SHARD_VULKAN_VALIDATION=1 does the same)");
 
             // Watches the resources on disk : changed textures / shaders / materials are rebuilt in place, new, renamed and
             // deleted files follow in the asset database (applies at startup)
@@ -145,6 +148,14 @@ namespace Shard::Engine{
 
             m_Context.resourcesManager->ConstructGlobalFileIndex(m_Context.currentProject->GetProjectResourcesPath(), m_Context.currentProject->GetAssetDatabasePath());
 
+            // RenderDoc has to be in the process before the graphics API is started : if the engine was started from it, it is there already
+            {
+                const char* renderDocEnvironment = std::getenv("SHARD_RENDERDOC");
+                const bool renderDocWanted = renderDocEnvironment != nullptr || cvRenderDoc.Get();
+                if(Rendering::RenderDoc::Get().Attach(renderDocWanted, (renderDocEnvironment && std::string(renderDocEnvironment) != "1") ? renderDocEnvironment : ""))
+                    Rendering::RenderDoc::Get().SetCapturePrefix((std::filesystem::path(m_Context.currentProject->GetProjectRoot().full) / ".cache" / "captures" / "shard").generic_string());
+            }
+
             m_Context.platform->CreateWindow("Shard", settings.windowWidth, settings.windowHeight, settings.fullscreen, settings.vsync, settings.api);
 
             Projects::PhysicsSettings* physicsSettings = m_Context.currentProject->GetPhysicsSettings();
@@ -158,6 +169,21 @@ namespace Shard::Engine{
             m_RendererSettings->viewportWidth = m_Context.platform->GetWindow()->GetFramebufferWidth();
             m_RendererSettings->viewportHeight = m_Context.platform->GetWindow()->GetFramebufferHeight();
             m_RendererSettings->api = (RendererAPI::API)settings.api;
+
+            // Vulkan presents on a surface of the window : the renderer asks the window for it, it does not know it
+            if(m_RendererSettings->api == RendererAPI::API::Vulkan)
+            {
+                Platform::IWindow* window = m_Context.platform->GetWindow();
+                Rendering::WindowHooks hooks;
+                hooks.vulkanInstanceExtensions = [window] { return window->GetVulkanInstanceExtensions(); };
+                hooks.createVulkanSurface = [window](void* instance) { return window->CreateVulkanSurface(instance); };
+                hooks.width = m_RendererSettings->viewportWidth;
+                hooks.height = m_RendererSettings->viewportHeight;
+                hooks.vsync = settings.vsync != 0;
+                hooks.validation = cvVulkanValidation.Get() || std::getenv("SHARD_VULKAN_VALIDATION") != nullptr;
+                Rendering::RendererAPI::SetWindowHooks(hooks);
+            }
+
             m_Context.renderer->Init(m_RendererSettings);
             // The probe manager lives on the render thread : what it needs from the world or the resources comes through the
             // main thread's queue, and its answers go straight back to it
@@ -195,6 +221,7 @@ namespace Shard::Engine{
             };
             m_Context.renderer->SetOcclusionCullingEnabled(m_Context.currentProject->GetRenderingSettings()->occlusionCulling);
             m_Context.renderer->SetMultisampleCount(m_Context.currentProject->GetRenderingSettings()->msaaSamples);
+            m_Context.renderer->SetRenderPipeline(m_Context.currentProject->GetRenderingSettings()->renderPipeline);
             m_Context.platform->CreateInput();
 
             m_Context.timeManager->Init(physicsSettings->fixedTimeStep, physicsSettings->maxAccumulatedTime);

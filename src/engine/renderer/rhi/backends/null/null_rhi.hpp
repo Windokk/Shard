@@ -72,7 +72,7 @@ namespace Shard::Engine::Rendering::Null {
 
     class NullShader final : public Shader {
     public:
-        NullShader(const Filesystem::Path& vertexPath, const Filesystem::Path& fragmentPath, const Filesystem::Path& geometryPath);
+        NullShader(const Filesystem::Path& vertexPath, const Filesystem::Path& fragmentPath, const Filesystem::Path& geometryPath, const std::vector<std::string>& defines = {});
 
         std::vector<UniformInfo> GetActiveUniforms() override { return {}; }
         const std::unordered_map<std::string, UniformInfo>& GetActiveUniformsMap() override { return m_Uniforms; }

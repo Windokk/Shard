@@ -91,6 +91,9 @@ namespace Shard::Engine::Projects{
 
         /// Samples per pixel of the multisampled viewport targets (2, 4, 8 or 16 ; the GPU clamps it to what it supports).
         uint32_t msaaSamples = 4;
+
+        /// How the frames are built (see RenderPipeline) : the name of a render pipeline asset, or of a type (`forward+`, `deferred`)
+        std::string renderPipeline = "forward+";
     };
 
     class Project{

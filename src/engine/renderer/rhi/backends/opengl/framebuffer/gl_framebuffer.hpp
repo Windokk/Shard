@@ -41,6 +41,7 @@ namespace Shard::Engine::Rendering{
             bool IsValid() const override;
 
             uint32_t GetColorAttachment() const override;
+            uint32_t GetColorAttachmentAt(uint32_t index) const override;
             uint32_t GetDepthAttachment() const override;
 
             uint32_t GetResolveColorAttachment() const override;
@@ -62,6 +63,11 @@ namespace Shard::Engine::Rendering{
             uint32_t m_FBO = 0;
             uint32_t m_ColorAttachment = 0;
             uint32_t m_DepthAttachment = 0;
+            std::vector<uint32_t> m_ExtraColorAttachments;      // colour attachments 1 and on (a G-buffer)
+
+            /// Creates / re-specifies the extra colour attachments at the given size and attaches them (expects m_FBO bound), then sets the draw buffers
+            void CreateExtraColorAttachments(uint32_t width, uint32_t height);
+            void ApplyDrawBuffers();
 
             uint32_t m_ResolveFBO = 0;
             uint32_t m_ResolveColorAttachment = 0;

@@ -1,5 +1,7 @@
 #include "engine/platform/windowing/sdl/sdl_window.hpp"
 
+#include <SDL3/SDL_vulkan.h>
+
 #include "engine/platform/devices/sdl/sdl_keymap.hpp"
 #include "engine/platform/hardware/system_info.hpp"
 #include "engine/platform/replay/input_replay.hpp"
@@ -14,19 +16,25 @@ namespace Shard::Engine::Core::Platform {
         if (!SDL_InitSubSystem(SDL_INIT_VIDEO | SDL_INIT_EVENTS | SDL_INIT_GAMEPAD))
             DEBUG_FATAL("Failed to init SDL : ", SDL_GetError());
 
-        SDL_GL_SetAttribute(SDL_GL_CONTEXT_MAJOR_VERSION, 4);
-        SDL_GL_SetAttribute(SDL_GL_CONTEXT_MINOR_VERSION, 3);
-        SDL_GL_SetAttribute(SDL_GL_CONTEXT_PROFILE_MASK, SDL_GL_CONTEXT_PROFILE_CORE);
-        SDL_GL_SetAttribute(SDL_GL_MULTISAMPLEBUFFERS, 1);
-        SDL_GL_SetAttribute(SDL_GL_MULTISAMPLESAMPLES, 4);
+        // 1 is Vulkan (see RendererAPI::API) : the window has no OpenGL context, the renderer makes its own surface and presents
+        m_Vulkan = api == 1;
 
-        SDL_WindowFlags flags = SDL_WINDOW_OPENGL | SDL_WINDOW_RESIZABLE | SDL_WINDOW_HIGH_PIXEL_DENSITY;
+        if (!m_Vulkan)
+        {
+            SDL_GL_SetAttribute(SDL_GL_CONTEXT_MAJOR_VERSION, 4);
+            SDL_GL_SetAttribute(SDL_GL_CONTEXT_MINOR_VERSION, 6);
+            SDL_GL_SetAttribute(SDL_GL_CONTEXT_PROFILE_MASK, SDL_GL_CONTEXT_PROFILE_CORE);
+            SDL_GL_SetAttribute(SDL_GL_MULTISAMPLEBUFFERS, 1);
+            SDL_GL_SetAttribute(SDL_GL_MULTISAMPLESAMPLES, 4);
+        }
+
+        SDL_WindowFlags flags = (m_Vulkan ? SDL_WINDOW_VULKAN : SDL_WINDOW_OPENGL) | SDL_WINDOW_RESIZABLE | SDL_WINDOW_HIGH_PIXEL_DENSITY;
         if (fullscreen)
             flags |= SDL_WINDOW_FULLSCREEN;
 
         // Fullscreen uses the desktop resolution of the display, whatever the requested size.
         m_Window = SDL_CreateWindow(title.c_str(), width, height, flags);
-        if (!m_Window)
+        if (!m_Window && !m_Vulkan)
         {
             // Some displays (a virtual X server, a software renderer) offer no multisampled visual : retry without MSAA.
             DEBUG_WARNING("Failed to create the SDL window with MSAA (", SDL_GetError(), "), retrying without.");
@@ -39,6 +47,13 @@ namespace Shard::Engine::Core::Platform {
             const std::string error = SDL_GetError();
             SDL_QuitSubSystem(SDL_INIT_VIDEO | SDL_INIT_EVENTS | SDL_INIT_GAMEPAD);
             DEBUG_FATAL("Failed to create SDL window : ", error);
+            return;
+        }
+
+        if (m_Vulkan)
+        {
+            m_SwapInterval = vsync;
+            m_ShouldClose = false;
             return;
         }
 
@@ -184,11 +199,38 @@ namespace Shard::Engine::Core::Platform {
 
     void SDLWindow::SwapBuffers()
     {
-        SDL_GL_SwapWindow(m_Window);
+        if (!m_Vulkan)
+            SDL_GL_SwapWindow(m_Window);
+    }
+
+    std::vector<std::string> SDLWindow::GetVulkanInstanceExtensions() const
+    {
+        std::vector<std::string> extensions;
+        Uint32 count = 0;
+        if (const char* const* names = SDL_Vulkan_GetInstanceExtensions(&count))
+        {
+            for (Uint32 i = 0; i < count; i++)
+                extensions.push_back(names[i]);
+        }
+        return extensions;
+    }
+
+    uint64_t SDLWindow::CreateVulkanSurface(void* vulkanInstance) const
+    {
+        VkSurfaceKHR surface = nullptr;
+        if (!m_Window || !SDL_Vulkan_CreateSurface(m_Window, static_cast<VkInstance>(vulkanInstance), nullptr, &surface))
+        {
+            DEBUG_ERROR("Failed to create the Vulkan surface of the window : ", SDL_GetError());
+            return 0;
+        }
+        return reinterpret_cast<uint64_t>(surface);
     }
 
     bool SDLWindow::MakeContextCurrent(bool current)
     {
+        if (m_Vulkan)
+            return true;       // no context to move : the Vulkan device is used from whichever thread draws
+
         if (!m_Window || !m_GLContext)
             return false;
         if (!SDL_GL_MakeCurrent(m_Window, current ? m_GLContext : nullptr))

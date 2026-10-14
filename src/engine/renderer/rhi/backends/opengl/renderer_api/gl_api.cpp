@@ -134,10 +134,10 @@ namespace Shard::Engine::Rendering{
         glPipeline->Bind();
     }
 
-    void GLRendererAPI::BindMaterial(std::shared_ptr<Material> mat)
+    void GLRendererAPI::BindMaterial(std::shared_ptr<Material> mat, std::shared_ptr<Shader> shader)
     {
         std::shared_ptr<GLMaterial> glMat = std::static_pointer_cast<GLMaterial>(mat);
-        glMat->Bind();
+        glMat->Bind(shader);
     }
 
     void GLRendererAPI::BindPassData(const std::shared_ptr<RenderPass> pass, std::shared_ptr<Pipeline> pipeline)
@@ -376,7 +376,16 @@ namespace Shard::Engine::Rendering{
             if(pass->overridePipeline)
                 pipeline = pass->customPipeline;
             else
+            {
                 pipeline = command.material->GetPipeline();
+
+                // A pass that draws the materials with another permutation of their shader (the G-buffer of the deferred pipeline)
+                if(!pass->shaderVariant.empty())
+                {
+                    if(std::shared_ptr<Pipeline> variant = pipeline->GetVariant(pass->shaderVariant))
+                        pipeline = variant;
+                }
+            }
             BindPipeline(pipeline);
 
             std::shared_ptr<GLShader> glShader = std::static_pointer_cast<GLShader>(pipeline->GetSpecifications().shader);
@@ -439,7 +448,7 @@ namespace Shard::Engine::Rendering{
             else{
                 m_Scene->BindMaterialScene(command.material);
                 BindPassData(pass, command.material);
-                BindMaterial(command.material);
+                BindMaterial(command.material, pipeline->GetSpecifications().shader);
             }
         }
 
@@ -517,6 +526,19 @@ namespace Shard::Engine::Rendering{
         m_ComputeLimitsQueried = true;
 
         return m_ComputeLimits;
+    }
+
+    void GLRendererAPI::PushDebugGroup(const char* name)
+    {
+        // KHR_debug is core since 4.3 : what RenderDoc and the driver's debug output read
+        if (GLAD_GL_VERSION_4_3 || GLAD_GL_KHR_debug)
+            glPushDebugGroup(GL_DEBUG_SOURCE_APPLICATION, 0, -1, name);
+    }
+
+    void GLRendererAPI::PopDebugGroup()
+    {
+        if (GLAD_GL_VERSION_4_3 || GLAD_GL_KHR_debug)
+            glPopDebugGroup();
     }
 
     void GLRendererAPI::MemoryBarrier(MemoryBarrierBit barriers)

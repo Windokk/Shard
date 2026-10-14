@@ -1,62 +1,65 @@
 # Baked lighting (lightmaps)
 
-A lightmap holds the diffuse light a surface receives — the sky, the lights you ask to be baked, and everything they bounce off — computed once with the engine's path tracer and stored in a texture laid over the surface. In the editor and the player the forward pass reads it back, so a baked scene has soft, noise-free shadows, colour bleeding and ambient occlusion at a texel per few centimetres, for nothing per frame.
+A lightmap stores the diffuse light that hits a surface: sky light, the lights you choose to bake, and the light that bounces between surfaces. It's computed once with the engine's path tracer and saved in a texture mapped onto the surface. At runtime, the forward pass just samples it. You get soft, noise-free shadows, color bleeding and ambient occlusion at a few centimeters per texel, and it costs nothing per frame.
 
-It sits on top of the real-time GI probes, not instead of them : the probes keep lighting the models that move, and still give the reflections (what the surroundings reflect) on the baked ones.
+Lightmaps work alongside the real-time GI probes, they don't replace them. Moving models are still lit by the probes, and baked models still get their reflections from them.
 
-## The workflow
+## Workflow
 
-1. **Mark what is static.** Every model has *Static Lighting* (on by default) : it blocks and bounces the light of a bake, and gets a lightmap. Untick it for what moves — a baked shadow does not follow an object, and the lightmap of one baked in place stays behind. A model that is not static is lit by the probes and the real-time lights, and still receives shadows from nothing baked.
-2. **Choose what the lights do.** Every light has a *Bake Mode* :
+1. **Mark static objects.** Every model has a *Static Lighting* option, on by default. Static models block and bounce light during the bake, and get a lightmap. Turn it off for anything that moves, since a baked shadow won't follow the object and its lightmap would stay where it was baked. Non-static models are lit by the probes and the real-time lights.
+
+2. **Set the light modes.** Every light has a *Bake Mode*:
 
     | Mode | Direct light | Bounced light | Use it for |
     |---|---|---|---|
-    | **Dynamic** (default) | real time | not baked | lights that move or change |
-    | **Stationary** | real time (shadow maps, specular highlights) | baked | a light that stays put but should keep its highlights and be tweakable |
-    | **Static** | baked into the lightmaps — not computed again at run time for a lightmapped surface | baked | the key lights of the scene : the cheapest and the best looking |
+    | **Dynamic** (default) | real-time | not baked | lights that move or change |
+    | **Stationary** | real-time (shadow maps, specular highlights) | baked | lights that don't move but need highlights or runtime tweaks |
+    | **Static** | baked (not computed at runtime on lightmapped surfaces) | baked | the main lights of the scene. Cheapest and best-looking option |
 
-    A Static light is still lit in real time on the surfaces that have no lightmap (the moving models), so they match.
+    Static lights are still applied in real time on surfaces without a lightmap (moving models), so everything matches.
 
-    *Source Size* gives a light a real emitter : the radius of the lamp in world units (point and spot lights), or the angular radius of the sun disc in degrees (directional lights, the real sun is 0.27). It turns the hard shadow of an ideal point into a penumbra, in the baker and in the offline raytrace. The real-time shadow maps ignore it.
-3. **Bake.** *World Settings → Rendering → Lightmaps → Bake* (or the console command `lightmaps.bake`). The bake runs a slice per frame, with a progress notification, and the editor stays usable. Save the world afterwards : the world file keeps where each model's lightmap is, and the pages go to `lightmaps/<world>.lightmap` in the project.
-4. **Iterate.** Change a light, move a static model, press *Re-bake*. *Delete* puts the world back on the probes.
+    *Source Size* gives a light a physical size: the lamp radius in world units for point and spot lights, or the sun disc's angular radius in degrees for directional lights (the real sun is 0.27). Larger sources give softer shadows in the baker and in the offline raytracer. Real-time shadow maps ignore it.
 
-## The settings
+3. **Bake.** Go to *World Settings > Rendering > Lightmaps > Bake*, or run `lightmaps.bake` in the console. The bake is spread over several frames with a progress notification, so you can keep using the editor. Save the world when it's done: the world file stores each model's lightmap location, and the pages are written to `lightmaps/<world>.lightmap` in the project.
+
+4. **Iterate.** After changing a light or moving a static model, hit *Re-bake*. *Delete* removes the lightmaps and goes back to probe lighting.
+
+## Settings
 
 | Setting | |
 |---|---|
-| Texels per meter | Sharpness : the lightmap texels one meter of surface gets, on every model. 8 for soft light on large surfaces, 32 for a crisp shadow edge, 64+ for hero props. |
-| Samples | Light paths traced per texel. 256 is a clean result, 1024+ a final one. |
-| Bounces | 1 is the sky and the Static lights' direct light only ; each more adds the light the surfaces throw on each other. |
-| Indirect intensity | A multiplier on everything but a Static light's own direct light (Unreal's "indirect lighting intensity"). 1 is physical ; 2–4 fills the shadows for a brighter, flatter look. |
-| Denoise | An edge aware filter guided by the surfaces and by how noisy each texel is : it flattens the noise of an open wall and leaves a shadow edge alone. |
-| Firefly clamp | Caps the brightness one path may bring back, so a rare very bright one is not a white speck. |
-| Max page size, max resolution per model | The lightmaps are packed into pages (textures) of at most this size, 4 bytes a texel ; one model never gets more than the maximum. A model can also be given its own resolution (*Lightmap Resolution* on the model). |
+| Texels per meter | Lightmap resolution, the same for every model. Around 8 for soft light on large surfaces, 32 for sharp shadow edges, 64 or more for hero props. |
+| Samples | Number of paths traced per texel. 256 looks clean, use 1024+ for final quality. |
+| Bounces | 1 means only sky light and the direct light from Static lights. Each extra bounce adds light reflected between surfaces. |
+| Indirect intensity | Multiplies everything except the direct light of Static lights, like Unreal's "indirect lighting intensity". 1 is physically correct, 2 to 4 brightens the shadows for a flatter look. |
+| Denoise | Edge-aware filter that uses the surface data and the noise level of each texel. It smooths out flat areas and keeps shadow edges sharp. |
+| Firefly clamp | Limits how bright a single path can be, so rare very bright samples don't show up as white dots. |
+| Max page size, max resolution per model | Lightmaps are packed into pages (textures) no bigger than this, at 4 bytes per texel, and a single model never goes above the max resolution. You can also override the resolution per model with *Lightmap Resolution*. |
 
-The settings are stored in the world file, so a re-bake starts from the last one.
+Settings are saved in the world file, so the next bake reuses them.
 
 ## How it works
 
-* **Lightmap coordinates.** Every mesh gets a second set of texture coordinates when it is loaded (`mesh.lightmap_uvs`) : the surface is cut into charts of triangles that face about the same way, each chart is flattened and the charts are packed, all at the same scale, so a meter of surface takes the same number of texels everywhere. The cutting is deterministic, and cached in `<project>/.cache/lightmap_uv` (derived data, safe to delete) : a mesh of millions of triangles is only cut the first time it loads.
-* **Layout.** The lightmaps of all the static models are given a size from the texel density and packed into an atlas (`PlanLightmapLayout`).
-* **Baking.** The CPU draws every page into a G-buffer (the surface point and normal of each texel), the GPU traces paths from each texel (`lightmap_bake.comp`, sharing its path tracer with the offline raytrace) — one cosine weighted path for the indirect light, one shadow ray per Static light to a random point of its emitter —, the sums become a mean and a variance (`lightmap_resolve.comp`) and a five iteration a-trous filter (`lightmap_atrous.comp`) removes the noise. The page is then read back, its gutter filled (so bilinear filtering at the edge of a chart never reads black) and packed to 32 bit shared exponent texels.
-* **Run time.** `lit.frag` reads the page by a bindless handle (every sampler unit is taken) and uses it instead of the probes' diffuse light and the sky's. The page is `GL_RGB9_E5` : half the size of RGBA16F, with no banding on a smooth gradient.
+- **Lightmap UVs.** When a mesh is loaded, it gets a second UV set (`mesh.lightmap_uvs`). The surface is split into charts of triangles facing roughly the same direction, each chart is flattened, and everything is packed at the same scale so texel density is uniform. The process is deterministic and cached in `<project>/.cache/lightmap_uv` (safe to delete), so a huge mesh is only unwrapped the first time.
+- **Layout.** Each static model gets a lightmap size based on the texel density, and they're all packed into an atlas (`PlanLightmapLayout`).
+- **Baking.** The CPU rasterizes each page into a G-buffer holding the position and normal of every texel. The GPU then traces paths from each texel (`lightmap_bake.comp`, which shares its path tracer with the offline raytracer): one cosine-weighted path for indirect light, and one shadow ray per Static light towards a random point on its emitter. The results are turned into a mean and a variance (`lightmap_resolve.comp`), then denoised with five iterations of an à-trous filter (`lightmap_atrous.comp`). Finally the page is read back, its gutters are filled so bilinear filtering never picks up black at chart edges, and it's packed into shared-exponent texels.
+- **Runtime.** `lit.frag` samples the page through a bindless handle (all sampler units are already in use) and uses it instead of the diffuse light from the probes and the sky. Pages are stored as `GL_RGB9_E5`, half the size of RGBA16F and without banding on smooth gradients.
 
 ## Console
 
 | Command | |
 |---|---|
-| `lightmaps.bake [samples] [texels per meter] [bounces] [max page size] [max resolution]` | bakes the first world's static models |
-| `lightmaps.status` | the bake in progress, and the lightmaps the world uses |
+| `lightmaps.bake [samples] [texels per meter] [bounces] [max page size] [max resolution]` | bakes the static models of the first world |
+| `lightmaps.status` | shows the current bake and the lightmaps used by the world |
 | `lightmaps.clear` | deletes the baked lightmaps |
-| `world.save` | writes the first world back to its file |
-| `raytrace.render <file.hdr> [width] [height] [samples] [bounces]` | path traces the world from the active camera into a linear HDR file (with a `.png` preview next to it) |
+| `world.save` | saves the first world to its file |
+| `raytrace.render <file.hdr> [width] [height] [samples] [bounces]` | path traces the world from the active camera to a linear HDR file, plus a `.png` preview |
 
-`mesh.lightmap_uvs` (console variable, default on) turns the generation of the lightmap coordinates off ; a mesh loaded without them keeps the probe lighting.
+The `mesh.lightmap_uvs` console variable (on by default) disables lightmap UV generation. Meshes loaded without them fall back to probe lighting.
 
-## Limits
+## Limitations
 
-* Diffuse only : a Static light's specular highlights are not baked (use Stationary for highlights), and the reflections still come from the probes and the skybox.
-* The light of a baked surface does not react to a change of a light or of the geometry before the next bake, and has no directional response to normal maps (the baked light is the light a smooth surface receives).
-* One page costs `size² × 4` bytes in video memory, and the bake itself needs about `size² × 80` bytes while a page is traced. A level made of one huge mesh (the sample Sponza is 5.7 million triangles) wants a 4096 page ; a level cut into many static meshes bakes more sharply for the same cost.
-* A bake needs the world's static models to have lightmap coordinates, and the world to be loaded. The BVH of the bake is built on the engine's job system : do not bake while a physics simulation runs on a big scene (play mode).
+- Diffuse only. Specular highlights from Static lights aren't baked (use Stationary if you need them), and reflections still come from the probes and the skybox.
+- Baked lighting doesn't update when lights or geometry change until you bake again. It also ignores normal maps, since it stores the light received by a flat surface.
+- A page uses `size² × 4` bytes of VRAM, and baking needs around `size² × 80` bytes while a page is being traced. A level made of one giant mesh (the Sponza sample is 5.7 million triangles) needs a 4096 page. Splitting a level into many static meshes gives sharper results for the same cost.
+- Static models need lightmap UVs and the world has to be loaded before baking. The bake builds its BVH on the engine's job system, so avoid baking a big scene while physics is running (play mode).

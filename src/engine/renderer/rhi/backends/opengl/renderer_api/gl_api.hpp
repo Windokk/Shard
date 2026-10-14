@@ -21,6 +21,9 @@ namespace Shard::Engine::Rendering{
 
             void MemoryBarrier(MemoryBarrierBit barriers) override;
 
+            void PushDebugGroup(const char* name) override;
+            void PopDebugGroup() override;
+
             const ComputeLimits& GetComputeLimits() override;
 
             void ToggleMultisampling(const bool on) override;
@@ -76,7 +79,7 @@ namespace Shard::Engine::Rendering{
 
             void BindPipeline(std::shared_ptr<Pipeline> pipeline);
 
-            void BindMaterial(std::shared_ptr<Material> mat);
+            void BindMaterial(std::shared_ptr<Material> mat, std::shared_ptr<Shader> shader);
 
             void BindPassData(const std::shared_ptr<RenderPass> pass, std::shared_ptr<Pipeline> pipeline);
 

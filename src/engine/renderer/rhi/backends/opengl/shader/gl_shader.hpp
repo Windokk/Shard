@@ -6,7 +6,7 @@ namespace Shard::Engine::Rendering{
 
     class GLShader : public Shader{
         public:
-            GLShader(const Filesystem::Path &vertexPath, const Filesystem::Path &fragmentPath, const Filesystem::Path &geometryPath);
+            GLShader(const Filesystem::Path &vertexPath, const Filesystem::Path &fragmentPath, const Filesystem::Path &geometryPath, const std::vector<std::string>& defines = {});
 
             ~GLShader();
 

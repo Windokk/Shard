@@ -5,6 +5,7 @@
 
 #include "engine/renderer/rhi/backends/opengl/texture/cubemap/gl_cubemap.hpp"
 #include "engine/renderer/rhi/backends/null/null_rhi.hpp"
+#include "engine/renderer/rhi/backends/vulkan/vk_cubemap.hpp"
 
 #include <stb/stb_image.h>
 
@@ -19,6 +20,9 @@ namespace Shard::Engine::Rendering{
         {
             case RendererAPI::API::OpenGL:
                 return OnGraphicsThread([&]() -> std::shared_ptr<Cubemap> { return std::make_shared<GLCubemap>(specs, faces); });
+
+            case RendererAPI::API::Vulkan:
+                return OnGraphicsThread([&]() -> std::shared_ptr<Cubemap> { return std::make_shared<VKCubemap>(specs, faces); });
 
             case RendererAPI::API::Null:
                 return std::make_shared<Null::NullCubemap>(specs);
@@ -86,6 +90,9 @@ namespace Shard::Engine::Rendering{
         {
             case RendererAPI::API::OpenGL:
                 return OnGraphicsThread([&]() -> std::shared_ptr<CubemapArray> { return std::make_shared<GLCubemapArray>(specs, data); });
+
+            case RendererAPI::API::Vulkan:
+                return OnGraphicsThread([&]() -> std::shared_ptr<CubemapArray> { return std::make_shared<VKCubemapArray>(specs, data); });
 
             case RendererAPI::API::Null:
                 return std::make_shared<Null::NullCubemapArray>(specs, static_cast<uint32_t>(data.size()));

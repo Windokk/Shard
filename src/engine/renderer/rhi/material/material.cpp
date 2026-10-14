@@ -6,6 +6,7 @@
 
 #include "engine/renderer/rhi/backends/opengl/material/gl_material.hpp"
 #include "engine/renderer/rhi/backends/null/null_rhi.hpp"
+#include "engine/renderer/rhi/backends/vulkan/vk_material.hpp"
 
 #include "engine/renderer/rhi/shader/shader.hpp"
 #include "engine/renderer/rhi/pipelines/pipeline.hpp"
@@ -16,6 +17,8 @@ namespace Shard::Engine::Rendering{
     {
         if (RendererAPI::Current() && RendererAPI::Current()->GetAPI() == RendererAPI::API::OpenGL)
             GLMaterial::PreloadDefaultTextures();
+        else if (RendererAPI::Current() && RendererAPI::Current()->GetAPI() == RendererAPI::API::Vulkan)
+            VKMaterial::PreloadDefaultTextures();
     }
 
     std::shared_ptr<Material> Material::Create(std::shared_ptr<Shader> shader, std::shared_ptr<Pipeline> pipeline, bool receivesShadows, Opacity opacity)
@@ -34,6 +37,9 @@ namespace Shard::Engine::Rendering{
         {
             case RendererAPI::API::OpenGL:
                 return std::make_shared<GLMaterial>(shader, pipeline, receivesShadows, opacity);
+
+            case RendererAPI::API::Vulkan:
+                return std::make_shared<VKMaterial>(shader, pipeline, receivesShadows, opacity);
 
             case RendererAPI::API::Null:
                 return std::make_shared<Null::NullMaterial>(shader, pipeline, receivesShadows, opacity);

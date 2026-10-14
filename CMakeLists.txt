@@ -52,6 +52,26 @@ set(SDL_EXAMPLES OFF CACHE BOOL "" FORCE)
 set(SDL_INSTALL OFF CACHE BOOL "" FORCE)
 add_subdirectory(submodules/SDL EXCLUDE_FROM_ALL)
 add_subdirectory(submodules/glm)
+
+# glslang : turns the GLSL of the engine into SPIR-V for the Vulkan backend (and reflects it, with SPIRV-Reflect). Nothing but the compiler : no
+# SPIRV-Tools optimizer, no standalone programs. Used by ShardShaderCompiler (the shaderc tool, and the runtime when it has to compile a shader
+# nobody compiled before : hot reload). (Slang does not go through it : slangc compiles those, see shader_compiler.cpp.)
+set(ENABLE_OPT OFF CACHE BOOL "" FORCE)
+set(BUILD_EXTERNAL OFF CACHE BOOL "" FORCE)
+set(ENABLE_GLSLANG_BINARIES OFF CACHE BOOL "" FORCE)
+set(GLSLANG_TESTS OFF CACHE BOOL "" FORCE)
+set(GLSLANG_ENABLE_INSTALL OFF CACHE BOOL "" FORCE)
+set(ENABLE_PCH OFF CACHE BOOL "" FORCE)
+set(ENABLE_HLSL OFF CACHE BOOL "" FORCE)
+add_subdirectory(submodules/glslang EXCLUDE_FROM_ALL)
+
+# Vulkan : the headers, the loader (volk loads vulkan-1.dll / libvulkan.so at run time : nothing links against the SDK) and the
+# bootstrap that picks the device and builds the swapchain. The memory allocator (VMA) is a header, see src/engine/CMakeLists.txt.
+set(VK_BOOTSTRAP_VULKAN_HEADER_DIR "${CMAKE_SOURCE_DIR}/submodules/Vulkan-Headers/include" CACHE FILEPATH "" FORCE)
+set(VK_BOOTSTRAP_TEST OFF CACHE BOOL "" FORCE)
+set(VK_BOOTSTRAP_INSTALL OFF CACHE BOOL "" FORCE)
+set(VK_BOOTSTRAP_DISABLE_WARNINGS ON CACHE BOOL "" FORCE)
+add_subdirectory(submodules/vk-bootstrap EXCLUDE_FROM_ALL)
 # Determinism (see docs, "Headless & determinism") : a replay has to give the same state on Windows and on Linux. Jolt then
 # is built in its cross platform deterministic mode (no fused multiply-add, its own sin/cos... a little slower), and the
 # compiler is told not to fuse a * b + c on its own, which would round differently from one target to the next.
@@ -74,6 +94,7 @@ add_subdirectory(src/apps/tools/reflect)
 
 # Subdirs (Shard)
 add_subdirectory(src/engine)
+add_subdirectory(src/apps/tools/shaderc)
 add_subdirectory(src/apps/game)
 add_subdirectory(src/apps/editor)
 add_subdirectory(src/apps/player)

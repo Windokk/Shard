@@ -131,6 +131,9 @@ namespace Shard::Engine::Serialization{
 
                 if(rendering.contains("msaaSamples") && rendering["msaaSamples"].is_number_unsigned())
                     renderingSettings.msaaSamples = std::clamp<uint32_t>(rendering["msaaSamples"], 2u, 16u);
+
+                if(rendering.contains("renderPipeline") && rendering["renderPipeline"].is_string())
+                    renderingSettings.renderPipeline = rendering["renderPipeline"].get<std::string>();
             }
             else{
                 DEBUG_INFO("No rendering settings for project: "+path.full+", using the defaults");
@@ -181,6 +184,7 @@ namespace Shard::Engine::Serialization{
 
         data["rendering"]["occlusionCulling"] = pro->GetRenderingSettings()->occlusionCulling;
         data["rendering"]["msaaSamples"] = pro->GetRenderingSettings()->msaaSamples;
+        data["rendering"]["renderPipeline"] = pro->GetRenderingSettings()->renderPipeline;
 
         //TODO data["editorPreferences"] = pro->GetEditorPrefs();
 

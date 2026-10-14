@@ -12,6 +12,8 @@
 
 #include "engine/renderer/rhi/render_view.hpp"
 #include "engine/renderer/rhi/render_pass.hpp"
+#include "engine/renderer/rhi/graph/render_graph.hpp"
+#include "engine/renderer/frontend/pipelines/render_pipeline.hpp"
 #include "engine/renderer/rhi/render_context.hpp"
 #include "engine/renderer/rhi/render_thread.hpp"
 #include "engine/renderer/features/immediate/immediate_renderer.hpp"
@@ -128,6 +130,17 @@ bool GetCurrentView(RenderView& out) override;
 
             std::shared_ptr<Framebuffer> GetViewportFramebuffer() const override { return m_ViewportBuffer; }
 
+            /// The HDR target the scene is drawn into (what the pipelines' passes light and draw)
+            std::shared_ptr<Framebuffer> GetSceneFramebuffer() const { return m_SceneBuffer; }
+            glm::ivec2 GetViewportSize() const { return glm::ivec2(m_ViewportBuffer ? m_ViewportBuffer->GetWidth() : 0, m_ViewportBuffer ? m_ViewportBuffer->GetHeight() : 0); }
+
+            /// @brief The render pipeline the frames are built with (see RenderPipeline) : by the name of an asset or of a type. Takes effect at the start of the
+            /// next frame. A name that is not a pipeline leaves the one that is running.
+            void SetRenderPipeline(const std::string& name);
+            std::string GetRenderPipelineName() const { std::lock_guard<std::mutex> lock(m_PipelineSelectMutex); return m_RequestedPipeline; }
+            /// The one that is drawing now : not the requested one while a debug view it cannot draw is on
+            std::string GetActiveRenderPipelineName() const { std::lock_guard<std::mutex> lock(m_PipelineSelectMutex); return m_ActivePipelineName; }
+
             void PresentToScreen(int screenWidth, int screenHeight) { m_ViewportBuffer->BlitToScreen(screenWidth, screenHeight); }
 
             void ToggleMultisampling(const bool on);
@@ -151,6 +164,15 @@ bool GetCurrentView(RenderView& out) override;
             {
                 return BillboardRenderer::Pick(GetSnapshot(), m_BillboardRenderer.GetShowEditorBillboards(), mouseX, mouseY, viewportWidth, viewportHeight);
             }
+
+            /// @brief The render graph as of the last frame (a listing of the passes in order with what they read and write, the barriers,
+            /// the culled passes, the transient memory), or as Graphviz. Safe from any thread.
+            std::string GetRenderGraphText() const { std::lock_guard<std::mutex> lock(m_GraphMutex); return m_GraphText; }
+            std::string GetRenderGraphDot() const { std::lock_guard<std::mutex> lock(m_GraphMutex); return m_GraphDot; }
+
+            /// @brief A capture of the frame the engine can do without any tool : what the render graph looks like (graph.txt, graph.dot) and the picture
+            /// each pass that draws a colour target made (`<n>_<pass>.png`), written in `directory`. Returns what it wrote.
+            std::string DumpFrame(const std::string& directory);
 
             std::string GetDeviceVendor();
             std::string GetRendererName();
@@ -187,7 +209,14 @@ bool GetCurrentView(RenderView& out) override;
             void EndFrame();
 
             void ReorderDrawList();
+
+            /// Declares every registered pass to the render graph and compiles it : the order the passes run in, which of them
+            /// are skipped, and the barrier before each one
             void BuildExecutionOrder();
+            /// Whether what the graph was built from (the passes, their dependencies, which of them are enabled) has changed since
+            uint64_t ComputeGraphSignature() const;
+            /// The resource of the graph a framebuffer is (see BuildExecutionOrder)
+            std::string GraphResourceName(const std::shared_ptr<Framebuffer>& target) const;
 
             void BeginRenderPass(const std::shared_ptr<RenderPass>& pass);
             void ExecuteRenderPass();
@@ -207,7 +236,22 @@ bool GetCurrentView(RenderView& out) override;
             RenderSnapshotBuffer::ReadLease m_FrameLease;
 
             std::unordered_map<std::string, std::shared_ptr<RenderPass>> m_RenderPasses;
-            std::vector<std::string> m_ExecutionOrder;
+            // The pipeline that builds the frame
+            std::unique_ptr<RenderPipeline> m_ActivePipeline;
+            mutable std::mutex m_PipelineSelectMutex;
+            std::string m_RequestedPipeline = "forward+";           // what was asked for
+            std::string m_ActivePipelineName;                       // what runs (the forward pipeline for a debug view the requested one cannot draw)
+            void ActivatePipeline(const std::string& name);
+            void ApplyPipelineForFrame();
+
+            std::vector<std::string> m_ExecutionOrder;              // what the graph runs, in order (culled and disabled passes left out)
+            std::vector<MemoryBarrierBit> m_ExecutionBarriers;      // parallel to m_ExecutionOrder : issued right before the pass
+            RenderGraph m_Graph;
+            CompiledGraph m_CompiledGraph;
+            uint64_t m_GraphSignature = 0;
+            mutable std::mutex m_GraphMutex;                        // the compiled graph is read by the editor's panel and the console
+            std::string m_GraphText;                                // ToText of the last compile
+            std::string m_GraphDot;
             std::shared_ptr<RenderPass> m_CurrentPass;
             std::vector<RenderView> m_ViewStack;
             std::vector<const DrawCommand*> m_VisibleCommands;      // what ExecuteRenderPass() drew : culled once, drawn per sweep

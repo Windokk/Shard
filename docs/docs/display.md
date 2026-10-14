@@ -1,46 +1,46 @@
-# Display : linear light, tonemapping and sRGB
+# Display: linear lighting, tonemapping and sRGB
 
-The renderer computes **light**, and light adds and multiplies only in linear units. A monitor, on the other hand, expects colours in the sRGB transfer curve, and shows nothing brighter than white. The engine therefore works in two spaces and converts between them in exactly two places :
+Lighting math only works in linear space, but monitors expect sRGB and can't show anything brighter than white. So the engine renders the scene in linear HDR and only converts it for display at the end. There are exactly two conversion points:
 
 ```
-sRGB textures ──(decoded by the GPU on sampling)──▶  linear HDR scene  ──(tonemap pass)──▶  8 bit sRGB picture
+sRGB textures --(decoded by the GPU when sampled)--> linear HDR scene --(tonemap pass)--> 8-bit sRGB image
 ```
 
-## What is where
+## Pipeline
 
-| Stage | What happens |
+| Stage | Details |
 |---|---|
-| **Colour textures** (*albedo, diffuse, emissive, basecolor* slots) | Stored as sRGB (`GL_SRGB8_ALPHA8`, BC7 sRGB) : the hardware turns them into linear values when the shader samples them, and filters in linear light. Data textures (normal, metallic, roughness, AO) stay linear. The slot is chosen by the sampler's name (`IsColorTextureSlot`). Mip levels of a colour texture are averaged in linear light, so a distant checkerboard is the right grey instead of a murky dark one. |
-| **Sky** | A Radiance `.hdr` is loaded as floats (`RGB16F`) : a sun keeps being many times brighter than the sky. 8 bit skies and 6 face cubemaps are decoded from sRGB. The environment convolutions (irradiance, prefilter) clamp their samples to 500 so a sun disc cannot overflow the 16 bit format or flicker the diffuse term. |
-| **Scene** | The forward pass draws into an `RGBA16F` multisampled target : lighting values go far above 1 without being clipped. |
-| **Tonemap pass** (`shaders/fb/tonemap.frag`) | Resolves the scene, multiplies it by the exposure, applies the tonemapper, then the sRGB curve (and half a level of dither, against banding in skies and soft shadows), and writes the 8 bit viewport. |
-| **Overlays** | The grid, outlines, billboards and debug shapes are drawn on the viewport after the tonemap, in the colours they are authored in. The depth they are tested against is copied from the scene. |
+| **Color textures** (*albedo, diffuse, emissive, basecolor* slots) | Stored as sRGB (`GL_SRGB8_ALPHA8`, BC7 sRGB), so the GPU converts them to linear when sampling and filters in linear space. Data textures (normal, metallic, roughness, AO) stay linear. The slot type is detected from the sampler name (`IsColorTextureSlot`). Mipmaps of color textures are generated in linear space, so a distant checkerboard averages to the right grey instead of something too dark. |
+| **Sky** | Radiance `.hdr` files are loaded as floats (`RGB16F`), so the sun stays much brighter than the rest of the sky. 8-bit skies and 6-face cubemaps are decoded from sRGB. The irradiance and prefilter convolutions clamp samples to 500, so the sun disc can't overflow 16-bit floats or make the diffuse term flicker. |
+| **Scene** | The forward pass renders to a multisampled `RGBA16F` target, so lighting can go well above 1 without clipping. |
+| **Tonemap pass** (`shaders/fb/tonemap.frag`) | Resolves the scene, applies exposure, the tonemapper and the sRGB curve, adds a bit of dithering to avoid banding in skies and soft shadows, and writes the 8-bit viewport. |
+| **Overlays** | Grid, outlines, billboards and debug shapes are drawn on top of the viewport after tonemapping, using their colors as-is. They depth-test against a copy of the scene depth. |
 
-The viewport (`Renderer::GetViewportTextureHandle`) is still the *picture* : the editor UI, `--screenshot` and the player present it as before.
+The viewport (`Renderer::GetViewportTextureHandle`) is still the final image, used by the editor, `--screenshot` and the player like before.
 
-The studio views of thumbnails and material previews render straight to an 8 bit target : `lit.frag` applies the same transform itself there (`outputDisplayColors`, ACES, no exposure).
+Thumbnails and material previews render directly to an 8-bit target, so `lit.frag` does the conversion itself in that case (`outputDisplayColors`, ACES, no exposure).
 
 ## Settings
 
-*World Settings → Display*, stored in the world file under `display` (only when it differs from the default) :
+In *World Settings > Display*. Saved under `display` in the world file, only if different from the defaults.
 
 | Setting | |
 |---|---|
-| Tonemapper | `aces` (default, the filmic Academy curve), `neutral` (Khronos PBR Neutral : colours below ~0.8 stay what they are, only highlights roll off), `reinhard`, `none` (clamp : everything brighter than white is white). |
-| Exposure (EV) | Stops added before the curve : +1 doubles the light, -1 halves it. |
+| Tonemapper | `aces` (default, filmic curve), `neutral` (Khronos PBR Neutral: colors below ~0.8 are left alone, only highlights are compressed), `reinhard`, or `none` (just clamps, anything above white is white). |
+| Exposure (EV) | Applied before the curve. +1 doubles the light, -1 halves it. |
 
-Debug views choose how the picture is mapped : *Lit* goes through the whole transform ; *Unlit* and *No lighting* are albedo views, so only the sRGB curve is applied ; normals, depth, UVs, AO and wireframe are colours meant to be seen as they are and pass through untouched.
+Debug views handle this differently. *Lit* goes through the full transform. *Unlit* and *No lighting* show albedo, so they only get the sRGB curve. Normals, depth, UVs, AO and wireframe are shown as raw values.
 
-## Offline render and bakes
+## Offline renders and bakes
 
-`raytrace.render` writes the **linear** radiance to its `.hdr` and a `.png` preview that goes through the world's exposure, tonemapper and sRGB curve : what the preview shows is what the viewport shows. Baked lightmaps and probes store linear light and are shown through the same pass as everything else.
+`raytrace.render` writes linear radiance to the `.hdr` file, plus a `.png` preview that uses the world's exposure, tonemapper and sRGB curve, so it looks the same as the viewport. Baked lightmaps and probes store linear values and go through the same tonemap pass as everything else.
 
-## Keeping the C++ and the shader in step
+## Keeping C++ and GLSL in sync
 
-`rhi/display_transform.hpp` is the C++ twin of `shaders/common/tonemap.glsl` (same constants, same formulas), used by the preview and the tests. Change one, change the other.
+`rhi/display_transform.hpp` is a C++ copy of `shaders/common/tonemap.glsl` (same constants and formulas), used for the preview and the tests. If you change one, update the other.
 
-## Authoring consequences
+## Things to keep in mind
 
-* A light that looked right when everything was clamped may now look different : the dark parts are brighter (no more crushed shadows), the highlights roll off instead of clipping. Use *Exposure* first, then the light intensities.
-* A custom shader that outputs to the scene target outputs **linear** light ; it must not apply a gamma itself.
-* Colour textures imported through a slot whose name does not start with *albedo / diffuse / emissive / basecolor* are read as linear data : name the slot accordingly.
+- Scenes lit back when everything was clamped may look different now: shadows are brighter (no more crushed blacks) and highlights roll off instead of clipping. Adjust *Exposure* first, then light intensities.
+- Custom shaders that write to the scene target must output linear values. Don't apply gamma in the shader.
+- Color textures imported through a slot whose name doesn't start with *albedo*, *diffuse*, *emissive* or *basecolor* are treated as linear data, so name your slots accordingly.

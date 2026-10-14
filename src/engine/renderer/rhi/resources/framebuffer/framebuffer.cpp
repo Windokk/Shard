@@ -9,6 +9,7 @@
 
 #include "engine/renderer/rhi/backends/opengl/framebuffer/gl_framebuffer.hpp"
 #include "engine/renderer/rhi/backends/null/null_rhi.hpp"
+#include "engine/renderer/rhi/backends/vulkan/vk_framebuffer.hpp"
 
 namespace Shard::Engine::Rendering{
     std::shared_ptr<Framebuffer> Framebuffer::Create(const FramebufferSpecifications& specs)
@@ -17,6 +18,9 @@ namespace Shard::Engine::Rendering{
         {
             case RendererAPI::API::OpenGL:
                 return OnGraphicsThread([&]() -> std::shared_ptr<Framebuffer> { return std::make_shared<GLFramebuffer>(specs); });
+
+            case RendererAPI::API::Vulkan:
+                return OnGraphicsThread([&]() -> std::shared_ptr<Framebuffer> { return std::make_shared<VKFramebuffer>(specs); });
 
             case RendererAPI::API::Null:
                 return std::make_shared<Null::NullFramebuffer>(specs);

@@ -4,6 +4,7 @@
 
 #include "engine/renderer/rhi/backends/opengl/pipeline/gl_compute_pipeline.hpp"
 #include "engine/renderer/rhi/backends/null/null_rhi.hpp"
+#include "engine/renderer/rhi/backends/vulkan/vk_pipeline.hpp"
 
 #include "engine/renderer/rhi/renderer_api.hpp"
 #include "engine/renderer/rhi/pipelines/pipeline.hpp"
@@ -18,6 +19,9 @@ namespace Shard::Engine::Rendering
         {
             case RendererAPI::API::OpenGL:
                 return std::make_shared<GLComputePipeline>(specs);
+
+            case RendererAPI::API::Vulkan:
+                return std::make_shared<VKComputePipeline>(specs);
 
             case RendererAPI::API::Null:
                 return std::make_shared<Null::NullComputePipeline>(specs);

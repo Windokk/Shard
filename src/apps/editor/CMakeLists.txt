@@ -8,11 +8,13 @@ file(GLOB_RECURSE EDITOR_SOURCES
   ${CMAKE_SOURCE_DIR}/submodules/imgui/imgui_draw.cpp
   ${CMAKE_SOURCE_DIR}/submodules/imgui/backends/imgui_impl_sdl3.cpp
   ${CMAKE_SOURCE_DIR}/submodules/imgui/backends/imgui_impl_opengl3.cpp
+  ${CMAKE_SOURCE_DIR}/submodules/imgui/backends/imgui_impl_vulkan.cpp
 )
 
 add_executable(ShardEditor ${EDITOR_SOURCES})
 
-target_compile_definitions(ShardEditor PRIVATE BUILD_ENGINE BUILD_EDITOR)
+# The interface draws on the Vulkan backend with the entry points volk loaded for the engine (see ShardRHI)
+target_compile_definitions(ShardEditor PRIVATE BUILD_ENGINE BUILD_EDITOR IMGUI_IMPL_VULKAN_USE_VOLK)
 
 target_include_directories(ShardEditor PRIVATE
   ${CMAKE_SOURCE_DIR}/src/

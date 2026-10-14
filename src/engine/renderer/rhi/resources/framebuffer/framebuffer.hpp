@@ -17,6 +17,10 @@ namespace Shard::Engine::Rendering {
         bool hasColor = true;
         bool hasDepth = true;
 
+        /// More colour attachments after the first (a G-buffer : each one a render target of the fragment shader's outputs 1, 2, 3...). Only for a
+        /// framebuffer that is not multisampled ; they are as big as the framebuffer, and never resolved.
+        std::vector<TextureSpecifications> extraColorSpecs;
+
         TextureSpecifications colorSpecs = []{
             TextureSpecifications s;
             s.internalFormat = TextureInternalFormat::RGBA8;
@@ -75,6 +79,9 @@ namespace Shard::Engine::Rendering {
             /// @brief Copies (and rescales, with filtering) this framebuffer's resolved color attachment
             /// into a rectangle of `dst`'s color attachment. `dst` must not be multisampled.
             virtual void BlitColorTo(Framebuffer& dst, uint32_t dstX, uint32_t dstY, uint32_t dstWidth, uint32_t dstHeight) = 0;
+
+            /// The colour attachment `index` of the fragment shader's outputs : 0 is GetColorAttachment(), 1 and on are the extra ones (0 : there is none)
+            virtual uint32_t GetColorAttachmentAt(uint32_t index) const { return index == 0 ? GetColorAttachment() : 0; }
 
             virtual uint32_t GetColorAttachment() const = 0;
             virtual uint32_t GetDepthAttachment() const = 0;

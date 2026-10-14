@@ -30,7 +30,8 @@ namespace Shard::Engine::Rendering{
 
         uint32_t GetTexturesCount() const override;
 
-        void Bind();
+        /// `shader` : the program to bind the material to (a permutation of its own, see RenderPass::shaderVariant), the material's shader if null
+        void Bind(std::shared_ptr<Shader> shader = nullptr);
 
         /// Loads the textures bound to the slots a material leaves empty. Call once, on the thread that uses the resources
         /// manager, before anything is drawn.
