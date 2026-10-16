@@ -35,7 +35,8 @@ namespace Shard::Engine::Assets {
             Filesystem::FileManager* files = nullptr;
             Filesystem::AssetIDManager* ids = nullptr;
             Core::Resources::ResourcesManager* resources = nullptr;
-            Projects::BuildSettings* buildSettings = nullptr;
+            /// A world or a folder was renamed/moved (or deleted : empty new name) : the build list follows (Project::RemapWorlds)
+            std::function<void(const std::string& oldName, const std::string& newName, bool isDirectory)> remapWorlds;
             /// Saves the asset database. Empty when the project is read only.
             std::function<void()> persistDatabase;
             /// A mesh was replaced in the cache by a freshly read one : whatever points at the old one (models) has to follow.

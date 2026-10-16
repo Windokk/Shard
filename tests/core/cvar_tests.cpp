@@ -83,6 +83,23 @@ TEST(CVar, InvalidTextIsRejectedAndKeepsTheValue) {
     EXPECT_TRUE(b.Get());
 }
 
+TEST(CVar, FloatsRejectNanAndInfinity) {
+    CVar<float> f("test.invalid.float", 0.5f, "", CVarFlags::None, 0.0f, 1.0f);
+    EXPECT_FALSE(Registry().Execute("test.invalid.float nan").ok);
+    EXPECT_FALSE(Registry().Execute("test.invalid.float inf").ok);
+    EXPECT_FLOAT_EQ(f.Get(), 0.5f);
+}
+
+TEST(CVar, FloatTextReadsBackAsTheSameValue) {
+    CVar<float> f("test.format.float", 1.0f);
+    for (float v : {1e-7f, 0.1f, 1234567.0f, 3.14159274f, -2.5f}) {
+        f.Set(v);
+        EXPECT_EQ(std::strtof(f.ToString().c_str(), nullptr), v) << f.ToString();
+    }
+    f.Set(0.5f);
+    EXPECT_EQ(f.ToString(), "0.5");
+}
+
 TEST(CVar, NamesAreCaseInsensitive) {
     CVar<int> v("Test.Case.Mixed", 1);
     EXPECT_NE(Registry().Find("test.case.mixed"), nullptr);
@@ -206,6 +223,18 @@ TEST(ConfigFiles, SaveArchiveAndReload) {
     ASSERT_TRUE(loaded);
     EXPECT_EQ(archived.Get(), 77);
     Registry().ClearLayer(ConfigLayer::User);
+    std::remove(path.c_str());
+}
+
+TEST(Console, ExecOfAFileThatExecsItselfStops) {
+    const std::string path = std::string(::testing::TempDir()) + "shard_cvar_exec_self.cfg";
+    {
+        std::ofstream out(path);
+        out << "exec \"" << path << "\"\n";
+    }
+    auto r = Registry().Execute("exec \"" + path + "\"");     // used to overflow the stack
+    EXPECT_FALSE(r.ok);
+    EXPECT_NE(r.output.find("nested too deep"), std::string::npos);
     std::remove(path.c_str());
 }
 

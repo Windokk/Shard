@@ -24,7 +24,8 @@ namespace Shard::Engine::Rendering{
 
     LightManager::~LightManager()
     {
-        m_SSBO->~StorageBuffer();
+        // m_SSBO is a shared_ptr : it destroys the buffer itself (an explicit ~StorageBuffer() here destroyed it twice)
+        m_SSBO.reset();
     }
 
     namespace {
@@ -239,7 +240,6 @@ namespace Shard::Engine::Rendering{
         }
         else if (type == static_cast<int>(LightType::Spot))
         {
-            float orthoSize = 10.0f;
             float fov = glm::degrees(acos(outerCutoff)) * 2.0f;
             fov = glm::clamp(fov, 1.0f, 179.0f);
             float aspect = 1.0f;

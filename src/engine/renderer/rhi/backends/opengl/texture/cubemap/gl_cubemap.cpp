@@ -83,7 +83,7 @@ namespace Shard::Engine::Rendering{
         glPixelStorei(GL_UNPACK_ALIGNMENT, 1);
 
         // Upload each cubemap face
-        for (int cube = 0; cube < m_CubemapCount; cube++)
+        for (uint32_t cube = 0; cube < m_CubemapCount; cube++)
         {
             for (int face = 0; face < 6; face++)
             {

@@ -115,7 +115,7 @@ namespace Shard::Engine::Rendering{
     {
         std::vector<std::array<unsigned char *, 6>> allData;
 
-        for(int k = 0; k < imageFiles.size(); k++){
+        for(size_t k = 0; k < imageFiles.size(); k++){
             std::array<unsigned char*, 6> faces;
 
             int width, height, channels;
@@ -167,7 +167,7 @@ namespace Shard::Engine::Rendering{
     
         auto cubemapArray = CubemapArray::Create(specs, allData);
 
-        for(int k = 0; k < imageFiles.size(); k++){
+        for(size_t k = 0; k < imageFiles.size(); k++){
             for (int i = 0; i < 6; i++){
                 stbi_image_free(allData[k][i]);
             }

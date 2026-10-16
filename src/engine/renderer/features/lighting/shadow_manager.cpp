@@ -20,6 +20,8 @@
 
 namespace Shard::Engine::Rendering{
 
+    static const std::string kPointClearPassName = "PointShadowClearPass";
+
     float ComputeCascadeSplitDistance(int cascadeIndex, float nearPlane, float farPlane, int totalCascades)
     {
         float nd = static_cast<float>(cascadeIndex + 1) / static_cast<float>(totalCascades);
@@ -66,13 +68,13 @@ namespace Shard::Engine::Rendering{
                 // The cascades span the camera's depth range : the camera may have changed (or only appeared) since the light registered
                 if(sm.second.splitCameraNear != cam.nearPlane || sm.second.splitCameraFar != cam.farPlane)
                 {
-                    for (int c = 0; c < CASCADES_PER_LIGHT; ++c)
+                    for (uint32_t c = 0; c < CASCADES_PER_LIGHT; ++c)
                         sm.second.cascadeSplits[c] = ComputeCascadeSplitDistance(c, cam.nearPlane, cam.farPlane, CASCADES_PER_LIGHT);
                     sm.second.splitCameraNear = cam.nearPlane;
                     sm.second.splitCameraFar = cam.farPlane;
                 }
 
-                for (int c = 0; c < CASCADES_PER_LIGHT; ++c)
+                for (uint32_t c = 0; c < CASCADES_PER_LIGHT; ++c)
                 {
                     auto pass = Core::GetEngine().GetRenderContext()->GetRenderPass(sm.second.passes[c]);
 
@@ -141,7 +143,8 @@ namespace Shard::Engine::Rendering{
             std::shared_ptr<RenderPass> pass = std::make_shared<RenderPass>();
             pass->target = sm->framebuffer[0];
             pass->clearColor = false;
-            pass->clearDepth = true;
+            // The target is the whole array, which kPointClearPassName clears once for every point light
+            pass->clearDepth = false;
             pass->customPipeline = pointShadowPassPipeline;
             pass->overridePipeline = true;
 
@@ -212,10 +215,10 @@ namespace Shard::Engine::Rendering{
             sm->splitCameraNear = cam.valid ? cam.nearPlane : -1.0f;
             sm->splitCameraFar = cam.valid ? cam.farPlane : -1.0f;
 
-            for (int c = 0; c < CASCADES_PER_LIGHT; ++c)
+            for (uint32_t c = 0; c < CASCADES_PER_LIGHT; ++c)
                 sm->cascadeSplits[c] = ComputeCascadeSplitDistance(c, camNear, camFar, CASCADES_PER_LIGHT);
 
-            for (int c = 0; c < CASCADES_PER_LIGHT; ++c)
+            for (uint32_t c = 0; c < CASCADES_PER_LIGHT; ++c)
             {
                 std::shared_ptr<RenderPass> pass = std::make_shared<RenderPass>();
                 pass->target = sm->framebuffer[c];
@@ -248,12 +251,16 @@ namespace Shard::Engine::Rendering{
             }
         }
         
-        for(int i = 0; i < passes.size(); i++){
+        for(size_t i = 0; i < passes.size(); i++){
             std::string passName = "ShadowPass_" + std::to_string(lightIndex) + "_" + std::to_string(i);
 
             passes[i]->externalDrawList = Core::GetEngine().GetRenderContext()->GetShadowDrawList();
 
-            Core::GetEngine().GetRenderContext()->AddRenderPass(passes[i], passName, {});
+            std::vector<std::string> dependencies;
+            if (light.type == static_cast<int>(LightType::Point))
+                dependencies.push_back(kPointClearPassName);
+
+            Core::GetEngine().GetRenderContext()->AddRenderPass(passes[i], passName, dependencies);
             
             // Add dependency: ForwardPass depends on this shadow pass
             Core::GetEngine().GetRenderContext()->AddDependencyToPass("ForwardPass", passName);
@@ -265,33 +272,101 @@ namespace Shard::Engine::Rendering{
         if (requiredPointLights <= m_CurrentPointLightCapacity)
             return; // we already have enough layers
 
-        // Delete old array if it exists
-        if(m_CubeArrayTex){
-            if (m_CubeArrayTex->IsValid())
-                m_CubeArrayTex.reset();
+        // Grown geometrically : every growth recreates the array (and re-renders every point light's shadow into it)
+        RecreateCubeArray(std::max(requiredPointLights, m_CurrentPointLightCapacity * 2));
+    }
+
+    void ShadowManager::RecreateCubeArray(int capacity)
+    {
+        m_CubeArrayTex.reset();
+        m_CurrentPointLightCapacity = capacity;
+
+        if (capacity > 0)
+        {
+            TextureSpecifications texSpecs;
+
+            texSpecs.internalFormat = TextureInternalFormat::Depth32F;
+            texSpecs.format = TextureFormat::Depth;
+            texSpecs.compareMode = TextureCompareMode::None;
+            texSpecs.compareFunc = TextureCompareFunc::Less;
+            texSpecs.width = m_PointShadowsResolution;
+            texSpecs.height = m_PointShadowsResolution;
+            texSpecs.minFilter = TextureFilter::Linear;
+            texSpecs.magFilter = TextureFilter::Linear;
+            texSpecs.wrapR = TextureWrap::ClampEdge;
+            texSpecs.wrapS = TextureWrap::ClampEdge;
+            texSpecs.wrapT = TextureWrap::ClampEdge;
+
+            std::vector<std::array<unsigned char *, 6>> emptyData(capacity, {nullptr, nullptr, nullptr, nullptr, nullptr, nullptr});
+            m_CubeArrayTex = CubemapArray::Create(texSpecs, emptyData);
+
+            AddPointClearPass();
+        }
+        else
+        {
+            RemovePointClearPass();
         }
 
-        m_CurrentPointLightCapacity = requiredPointLights;
+        SyncPointShadowTargets();
+    }
 
-        TextureSpecifications texSpecs;
+    void ShadowManager::AddPointClearPass()
+    {
+        if (m_PointClearTarget)
+            return;
 
-        texSpecs.internalFormat = TextureInternalFormat::Depth32F;
-        texSpecs.compareMode = TextureCompareMode::None;
-        texSpecs.compareFunc = TextureCompareFunc::Less;
-        texSpecs.width = m_PointShadowsResolution;
-        texSpecs.height = m_PointShadowsResolution;
-        texSpecs.minFilter = TextureFilter::Linear;
-        texSpecs.magFilter = TextureFilter::Linear;
-        texSpecs.wrapR = TextureWrap::ClampEdge;
-        texSpecs.wrapS = TextureWrap::ClampEdge;
-        texSpecs.wrapT = TextureWrap::ClampEdge;
+        FramebufferSpecifications specs{};
+        specs.width  = m_PointShadowsResolution;
+        specs.height = m_PointShadowsResolution;
+        specs.hasColor = false;
+        specs.hasDepth = false;
+        specs.multisampled = false;
+        specs.depthSpecs.internalFormat = TextureInternalFormat::Depth32F;
+        m_PointClearTarget = Framebuffer::Create(specs);
 
-        std::vector<std::array<unsigned char *, 6>> emptyData;
-        for(int i = 0; i < m_CurrentPointLightCapacity; i++){
-            emptyData.push_back({nullptr, nullptr, nullptr, nullptr, nullptr, nullptr});
+        // Draws nothing : its own (empty) draw list, only the clear of the whole array
+        std::shared_ptr<RenderPass> pass = std::make_shared<RenderPass>();
+        pass->target = m_PointClearTarget;
+        pass->clearColor = false;
+        pass->clearDepth = true;
+        pass->allowResize = false;
+        pass->allowCulling = false;
+
+        Core::GetEngine().GetRenderContext()->AddRenderPass(pass, kPointClearPassName, {});
+    }
+
+    void ShadowManager::RemovePointClearPass()
+    {
+        if (!m_PointClearTarget)
+            return;
+
+        Core::GetEngine().GetRenderContext()->RemoveRenderPass(kPointClearPassName);
+        if (m_PointClearTarget->IsValid())
+            m_PointClearTarget->Destroy();
+        m_PointClearTarget.reset();
+    }
+
+    void ShadowManager::SyncPointShadowTargets()
+    {
+        const uint32_t handle = m_CubeArrayTex ? m_CubeArrayTex->GetHandle() : 0;
+
+        if (m_PointClearTarget && m_PointClearTarget->IsValid())
+            m_PointClearTarget->AttachCubemapArray(handle);
+
+        for (auto& [lightIndex, sm] : m_ShadowMaps)
+        {
+            if (sm.light.type != (int)LightType::Point)
+                continue;
+
+            if (sm.framebuffer[0] && sm.framebuffer[0]->IsValid())
+                sm.framebuffer[0]->AttachCubemapArray(handle);
+
+            if (sm.passes.empty())
+                continue;
+
+            if (std::shared_ptr<RenderPass> pass = Core::GetEngine().GetRenderContext()->GetRenderPass(sm.passes[0]))
+                pass->customUniforms["cubeIndex"] = sm.cubeArrayLayer;
         }
-
-        m_CubeArrayTex = CubemapArray::Create(texSpecs, emptyData);
     }
 
     void ShadowManager::RegisterOrUpdateLight(int lightIndex, std::shared_ptr<LightData> light)
@@ -333,7 +408,7 @@ namespace Shard::Engine::Rendering{
             switch (previousType)
             {
                 case (int)LightType::Directional:
-                    for (int c = 0; c < CASCADES_PER_LIGHT; ++c)
+                    for (uint32_t c = 0; c < CASCADES_PER_LIGHT; ++c)
                         if (sm.framebuffer[c] && sm.framebuffer[c]->IsValid())
                             sm.framebuffer[c]->Destroy();
                     break;
@@ -360,6 +435,7 @@ namespace Shard::Engine::Rendering{
 
                     --m_PointLightCount;
                     TryShrinkCubeArray();
+                    SyncPointShadowTargets();
                     break;
                 }
             }
@@ -428,7 +504,7 @@ namespace Shard::Engine::Rendering{
                     specs.hasColor = false;
                     specs.depthSpecs = dirTextureSpecs;
 
-                    for (int c = 0; c < CASCADES_PER_LIGHT; ++c) {
+                    for (uint32_t c = 0; c < CASCADES_PER_LIGHT; ++c) {
                         sm.framebuffer[c] = Framebuffer::Create(specs);
                     }
                     break;
@@ -476,7 +552,8 @@ namespace Shard::Engine::Rendering{
             switch (sm.light.type)
             {
                 case (int)LightType::Directional:
-                    sm.lightPtr->shadowIndex = dirIndex;
+                    // lit.frag has MAX_DIRECTIONAL_LIGHTS * CASCADES_PER_LIGHT cascade slots : a 4th shadowed sun read past them
+                    sm.lightPtr->shadowIndex = (dirIndex < (int)LightManager::MAX_DIRECTIONAL_LIGHTS) ? dirIndex : -1;
                     ++dirIndex;
                     break;
 
@@ -495,22 +572,8 @@ namespace Shard::Engine::Rendering{
     void ShadowManager::TryShrinkCubeArray()
     {
         if (m_PointLightCount == 0) {
-            m_CurrentPointLightCapacity = 0;
-            if (m_CubeArrayTex && m_CubeArrayTex->IsValid()) {
-
-                for (auto& sm : m_ShadowMaps)
-                {
-                    if (sm.second.light.type == (int)LightType::Point)
-                    {
-                        if (sm.second.framebuffer[0])
-                        {
-                            sm.second.framebuffer[0]->AttachCubemapArray(0);
-                        }
-                    }
-                }
-
-                m_CubeArrayTex.reset();
-            }
+            if (m_CurrentPointLightCapacity != 0 || m_CubeArrayTex)
+                RecreateCubeArray(0);
             return;
         }
 
@@ -518,33 +581,7 @@ namespace Shard::Engine::Rendering{
         if (m_PointLightCount >= m_CurrentPointLightCapacity / 2 || m_CurrentPointLightCapacity <= 4)
             return;
 
-        // Delete old array
-        if(m_CubeArrayTex){
-            if(m_CubeArrayTex->IsValid())
-                m_CubeArrayTex.reset();
-        }
-
-        m_CurrentPointLightCapacity = std::max(4, m_PointLightCount); // never shrink below 4 layers
-
-        TextureSpecifications texSpecs;
-
-        texSpecs.internalFormat = TextureInternalFormat::Depth32F;
-        texSpecs.format = TextureFormat::Depth;
-        texSpecs.compareMode = TextureCompareMode::None;
-        texSpecs.compareFunc = TextureCompareFunc::Less;
-        texSpecs.width = m_PointShadowsResolution;
-        texSpecs.height = m_PointShadowsResolution;
-        texSpecs.minFilter = TextureFilter::Linear;
-        texSpecs.magFilter = TextureFilter::Linear;
-        texSpecs.wrapR = TextureWrap::ClampEdge;
-        texSpecs.wrapS = TextureWrap::ClampEdge;
-        texSpecs.wrapT = TextureWrap::ClampEdge;
-
-        std::vector<std::array<unsigned char *, 6>> emptyData;
-        for(int i = 0; i < m_CurrentPointLightCapacity; i++){
-            emptyData.push_back({nullptr, nullptr, nullptr, nullptr, nullptr, nullptr});
-        }
-        m_CubeArrayTex = CubemapArray::Create(texSpecs, emptyData);
+        RecreateCubeArray(std::max(4, m_PointLightCount)); // never shrink below 4 layers
     }
 
     void ShadowManager::UnregisterLight(int lightIndex)
@@ -558,7 +595,7 @@ namespace Shard::Engine::Rendering{
 
         // ---- Clean up Directional Light Resources (multiple cascades) ----
         if (removedSM.light.type == static_cast<int>(LightType::Directional)) {
-            for (int c = 0; c < CASCADES_PER_LIGHT; ++c) {
+            for (uint32_t c = 0; c < CASCADES_PER_LIGHT; ++c) {
                 if (removedSM.framebuffer[c]->IsValid()){
                     removedSM.framebuffer[c]->Destroy();
                     removedSM.framebuffer[c].reset();
@@ -588,12 +625,14 @@ namespace Shard::Engine::Rendering{
 
             --m_PointLightCount;
 
-            TryShrinkCubeArray();
-
             if (removedSM.framebuffer[0] && removedSM.framebuffer[0]->IsValid()) {
                 removedSM.framebuffer[0]->Destroy();
                 removedSM.framebuffer[0].reset();
             }
+
+            // The remaining point lights' passes must write (and lit.frag read) their shifted layers
+            TryShrinkCubeArray();
+            SyncPointShadowTargets();
         }
 
         for(std::string passName : removedSM.passes){
@@ -637,7 +676,7 @@ namespace Shard::Engine::Rendering{
                 {
                     int base = shadowIndex * CASCADES_PER_LIGHT;
 
-                    for (int c = 0; c < CASCADES_PER_LIGHT; ++c)
+                    for (uint32_t c = 0; c < CASCADES_PER_LIGHT; ++c)
                     {
                         material->SetTextureParameter(
                             "dirShadowMaps[" + std::to_string(base + c) + "]",
@@ -706,7 +745,7 @@ namespace Shard::Engine::Rendering{
             switch (sm.light.type)
             {
                 case (int)LightType::Directional:
-                    for (int c = 0; c < CASCADES_PER_LIGHT; ++c)
+                    for (uint32_t c = 0; c < CASCADES_PER_LIGHT; ++c)
                         if (sm.framebuffer[c] && sm.framebuffer[c]->IsValid())
                             sm.framebuffer[c]->Destroy();
                     break;
@@ -721,6 +760,8 @@ namespace Shard::Engine::Rendering{
 
         m_ShadowMaps.clear();
         m_PreviousLightTypes.clear();
+
+        RemovePointClearPass();
 
         m_PointLightCount = 0;
         m_CurrentPointLightCapacity = 0;

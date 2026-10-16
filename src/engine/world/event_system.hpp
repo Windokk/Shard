@@ -20,7 +20,7 @@ namespace Shard::Engine::Events {
     struct KeyPressedEvent : public Event {
         int keyCode;
         bool repeated;
-        KeyPressedEvent(const int key, const bool rep, Core::ObjectID source) : keyCode(key), repeated(rep), Event(source) {}
+        KeyPressedEvent(const int key, const bool rep, Core::ObjectID source) : Event(source), keyCode(key), repeated(rep) {}
     };
 
     enum WorldChangeType{
@@ -38,7 +38,7 @@ namespace Shard::Engine::Events {
         const WorldChangeType changeType;
         const std::string actorName;
         WorldStructureChangedEvent(
-        const int& worldAssetID, const WorldChangeType changeType, const std::string actorName, Core::ObjectID source) : worldAssetID(worldAssetID), actorName(actorName), changeType(changeType), Event(source) {}
+        const int& worldAssetID, const WorldChangeType changeType, const std::string actorName, Core::ObjectID source) : Event(source), worldAssetID(worldAssetID), changeType(changeType), actorName(actorName) {}
     };
 
     // EventDispatcher

@@ -166,6 +166,28 @@ TEST_F(ActorTest, DestroyingAnActorReleasesItsEntityAndItsChildrens) {
     EXPECT_EQ(ecs->Count(), before - 2);
 }
 
+// Each child takes itself out of its parent's list while it is destroyed : walking that list directly skipped every other one
+TEST_F(ActorTest, DestroyingAnActorDestroysAllOfItsChildren) {
+    auto parent = Object::CreateWithContext<Actor>(&context, std::string("Parent"), &context);
+    std::vector<std::shared_ptr<Actor>> children;
+    for (int i = 0; i < 4; i++) {
+        children.push_back(Object::CreateWithContext<Actor>(&context, "Child " + std::to_string(i), &context));
+        parent->AddChild(children.back());
+    }
+
+    Ecs::Registry* ecs = context.GetEcs();
+    std::vector<Ecs::Entity> entities;
+    for (auto& child : children)
+        entities.push_back(child->GetEntity());
+
+    parent->Destroy();
+
+    for (size_t i = 0; i < children.size(); i++) {
+        EXPECT_FALSE(ecs->IsAlive(entities[i])) << "child " << i;
+        EXPECT_EQ(context.GetObjectIDManager()->GetObjectFromID(children[i]->GetID()), nullptr) << "child " << i;
+    }
+}
+
 TEST_F(ActorTest, TransformChangesAreMirroredOnTheEntity) {
     auto actor = Object::CreateWithContext<Actor>(&context, std::string("Mover"), &context);
     Ecs::Registry* ecs = context.GetEcs();

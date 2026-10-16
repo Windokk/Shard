@@ -52,15 +52,18 @@ namespace Shard::Engine::Debugging{
             // Log() is reachable from background asset-decode worker threads (e.g. ReadFile/stbi/ufbx
             // failure paths during async level loading) as well as the main thread, so the whole body
             // (sinks, std::cout, logFile) needs to be serialized.
-            std::lock_guard<std::mutex> lock(logMutex);
+            {
+                std::lock_guard<std::mutex> lock(logMutex);
 
-            for(auto& sink : sinks){
-                sink(level, output);
+                for(auto& sink : sinks){
+                    sink(level, output);
+                }
+                std::cout << output << std::endl;
+                if (logFile.is_open())
+                    logFile << output << std::endl;
             }
-            std::cout << output << std::endl;
-            if (logFile.is_open())
-                logFile << output << std::endl;
 
+            // Outside the lock : waiting for Enter while holding it blocked every other thread that logs
             if (level == Level::Fatal) {
                 std::cout << "Fatal error! Press Enter to exit..." << std::endl;
                 std::cin.get();

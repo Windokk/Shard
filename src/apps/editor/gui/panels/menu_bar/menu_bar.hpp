@@ -1,6 +1,7 @@
 #pragma once
 
 #include "engine/world/actor.hpp"
+#include "apps/editor/commands/actor_commands.hpp"
 
 namespace Shard::Editor::Core{
 
@@ -36,7 +37,7 @@ namespace Shard::Editor::GUI{
             Core::EditorMainWindow* parent = nullptr;
 
             // Copy/Cut/Paste
-            std::shared_ptr<Engine::Objects::Actor> clipboardActor = nullptr;
+            Commands::ActorClipboard clipboard;
 
             bool openSaveAsPopup = false;
             char saveAsNameBuffer[256] = "NewWorld";

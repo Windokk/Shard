@@ -22,6 +22,15 @@ namespace Shard::Engine::Worlds{
     /// without building the world. Empty if the file can't be parsed.
     std::vector<Core::Resources::ResourceKey> CollectWorldAssetRefs(const Filesystem::Path& filePath);
 
+    class World;
+
+    /// @brief One actor and its subtree, in the form a world file stores it (name, components, children)
+    ordered_json SerializeActorToJson(const std::shared_ptr<Objects::Actor>& actor);
+
+    /// @brief Builds the actor that SerializeActorToJson described (its subtree too) in `world` : under `parent`, or at the root
+    /// of the world when parent is null. The objects get new ids.
+    std::shared_ptr<Objects::Actor> InstantiateActor(World& world, const json& actorData, const std::shared_ptr<Objects::Actor>& parent = nullptr);
+
     class World{
 
         std::unordered_map<Core::ObjectID, std::shared_ptr<Objects::Actor>> rootActors;
@@ -36,17 +45,17 @@ namespace Shard::Engine::Worlds{
         // the "unsaved changes" warning popup shown before the world is replaced/unloaded.
         bool dirty = false;
 
-        int buildIndex = -1;
-
         Filesystem::AssetID assetID;
+
+        // What ResolveAssetID found last, and for which file (it is asked on every actor created or destroyed)
+        int resolvedAssetID = -1;
+        std::string resolvedAssetPath;
 
         public:
             World(std::string name, Filesystem::Path path);
 
             void Deserialize(Filesystem::Path filePath);
             void Serialize(Filesystem::Path filePath);
-
-            void SetBuildIndex(int buildIndex);
 
             void RemoveActorRecursive(Core::ObjectID actorID);
 
@@ -79,7 +88,9 @@ namespace Shard::Engine::Worlds{
                 return this->assetID;
             }
 
-            int GetBuildIndex() { return buildIndex; }
+            /// @brief The ID of the world asset, found from the world's file : what the world structure events carry. Not taken from
+            /// the build list, which Project Settings reorders while the world is open. -1 when the file is not in the asset database.
+            int ResolveAssetID();
 
             bool IsLoaded() { return loaded; }
 

@@ -198,7 +198,7 @@ namespace Shard::Editor::GUI{
 
         auto atlas = EditorResources::Instance().GetIconAtlas();
 
-        for (int i = 0; i < files.size(); i++)
+        for (int i = 0; i < static_cast<int>(files.size()); i++)
         {
             auto file = files[i];
 
@@ -425,7 +425,7 @@ namespace Shard::Editor::GUI{
                 for (int line_idx = clipper.DisplayStart; line_idx < clipper.DisplayEnd; line_idx++)
                 {
                     const int item_min_idx_for_current_line = line_idx * column_count;
-                    const int item_max_idx_for_current_line = IM_MIN((line_idx + 1) * column_count, items.size());
+                    const int item_max_idx_for_current_line = IM_MIN((line_idx + 1) * column_count, static_cast<int>(items.size()));
                     for (int item_idx = item_min_idx_for_current_line; item_idx < item_max_idx_for_current_line; ++item_idx)
                     {
                         Asset* item_data = &items[item_idx];

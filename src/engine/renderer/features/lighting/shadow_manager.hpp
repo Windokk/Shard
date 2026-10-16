@@ -94,11 +94,11 @@ namespace Shard::Engine::Rendering {
         // DO NOT USE
         void ClearAll();
 
-        const int GetShadowMapsCount() const {
-            return m_ShadowMaps.size();
+        int GetShadowMapsCount() const {
+            return static_cast<int>(m_ShadowMaps.size());
         }
 
-        const int GetMaxShadowMapsCount() const {
+        int GetMaxShadowMapsCount() const {
             return 128;
         }
 
@@ -110,6 +110,13 @@ namespace Shard::Engine::Rendering {
         void EnsureCubeArrayCapacity(int requiredPointLights);
         void TryShrinkCubeArray();
 
+        // Replaces the point lights' cube map array with one of `capacity` layers (none when 0), then re-targets every point light at it
+        void RecreateCubeArray(int capacity);
+
+        // Points every point light's framebuffer at the current cube map array and its pass at its current layer : run whenever the
+        // array is recreated or the layers shift (a light removed), else shadow_point.geom writes a deleted texture or another light's layer
+        void SyncPointShadowTargets();
+
         // Recomputes and writes back LightData::shadowIndex for every currently-registered
         // shadow-casting light (directional/spot: ordinal position among same-type shadow casters in
         // ascending light-index order; point: the persistent cubeArrayLayer). Must run after any change
@@ -117,8 +124,14 @@ namespace Shard::Engine::Rendering {
         // callers must ensure LightManager::Update() runs afterward so the new indices reach the GPU.
         void ReassignShadowIndices();
 
+        // Every point light's framebuffer is the whole (layered) cube map array : a pass clearing it would wipe the other lights' layers.
+        // The array is cleared once per frame by this pass instead, and every point light's pass comes after it without clearing.
+        void AddPointClearPass();
+        void RemovePointClearPass();
+
         std::map<int, ShadowMap> m_ShadowMaps;
         std::shared_ptr<CubemapArray> m_CubeArrayTex;
+        std::shared_ptr<Framebuffer> m_PointClearTarget;
         std::shared_ptr<Shader> m_DirShader;
         std::shared_ptr<Shader> m_SpotShader;
         std::shared_ptr<Shader> m_PointShader; 

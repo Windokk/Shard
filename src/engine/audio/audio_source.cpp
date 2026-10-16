@@ -8,6 +8,8 @@
 
 #include "audio_source.reflection.hpp"
 
+#include <cstring>
+
 namespace Shard::Engine::Objects::Components{
     
     AudioSource::AudioSource(std::shared_ptr<Actor> parent, uint32_t local_id) : Component(parent, local_id)
@@ -16,8 +18,10 @@ namespace Shard::Engine::Objects::Components{
 
     void AudioSource::Update()
     {
-        if(audioID.IsValid() && GetEngineContext()->GetAudioIDManager()->GetSoundFromID(audioID) && activated){
-            GetEngineContext()->GetAudioManager()->UpdateSound(audioID, parent->transform->GetWorldPosition(), volume);
+        if(audioID.IsValid() && GetEngineContext()->GetAudioIDManager()->GetSoundFromID(audioID)){
+            // The sound already exists : an inactive source keeps it as is (creating another one here leaked a sound per call)
+            if(activated)
+                GetEngineContext()->GetAudioManager()->UpdateSound(audioID, parent->transform->GetWorldPosition(), volume);
         }
         else{
             if(!pathInProject.empty() && volume != -1.0f){
@@ -55,6 +59,9 @@ namespace Shard::Engine::Objects::Components{
     std::shared_ptr<Component> AudioSource::Clone() const
     {
         auto cloned = Object::Create<AudioSource>(*this);
+
+        // The clone makes its own sound : sharing the original's would let the clone's Destroy() remove it
+        cloned->audioID = Audio::AudioID();
 
         return cloned;
     }
@@ -113,10 +120,10 @@ namespace Shard::Engine::Objects::Components{
 
     void AudioSource::OnFieldChanged(const FieldChangedEvent &event)
     {
-        if(event.field->name == "volume"){
+        if(std::strcmp(event.field->name, "volume") == 0){
             SetVolume(volume);
         }
-        else if(event.field->name == "spatialize"){
+        else if(std::strcmp(event.field->name, "spatialize") == 0){
             if(audioID.IsValid())
                 GetEngineContext()->GetAudioManager()->SetSpatialize(audioID, spatialize);
         }

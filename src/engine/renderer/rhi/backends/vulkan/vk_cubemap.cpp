@@ -80,7 +80,7 @@ namespace Shard::Engine::Rendering {
             image.Transition(cmd, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL);
 
             // Zeros (or the far depth) for what has no pixels
-            VkImageSubresourceRange range{depth ? VK_IMAGE_ASPECT_DEPTH_BIT : image.aspect, 0, image.mips, 0, image.layers};
+            VkImageSubresourceRange range{depth ? VkImageAspectFlags(VK_IMAGE_ASPECT_DEPTH_BIT) : image.aspect, 0, image.mips, 0, image.layers};
             if (depth)
             {
                 VkClearDepthStencilValue value{1.0f, 0};

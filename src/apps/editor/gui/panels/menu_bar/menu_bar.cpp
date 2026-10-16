@@ -18,12 +18,6 @@ namespace Shard::Editor::GUI{
 
     using Engine::Core::GetEngine;
 
-    static void MarkWorldDirty()
-    {
-        if (auto* world = GetEngine().GetWorldManager()->GetWorldAt(0))
-            world->SetDirty(true);
-    }
-
     void MenuBar::SetParentWindow(Core::EditorMainWindow *parent)
     {
         this->parent = parent;
@@ -115,7 +109,6 @@ namespace Shard::Editor::GUI{
         GetEngine().GetBuildSettings()->AddToBuildSettings(path);
 
         auto world = std::make_shared<Engine::Worlds::World>("NewWorld", path);
-        world->SetBuildIndex(GetEngine().GetBuildSettings()->GetWorldBuildIndex(path));
         world->Serialize(path);
 
         GetEngine().GetWorldManager()->LoadWorld(world);
@@ -174,37 +167,37 @@ namespace Shard::Editor::GUI{
 
         auto selected = parent->GetSelectedActor();
 
-        if (ImGui::MenuItem("Undo", "Ctrl+W"))
-            Commands::CommandStack::Get().Undo();
+        auto& history = Commands::CommandStack::Get();
 
-        if (ImGui::MenuItem("Redo", "Ctrl+Y"))
-            Commands::CommandStack::Get().Redo();
+        if (ImGui::MenuItem("Undo", "Ctrl+W", false, history.CanUndo()))
+            history.Undo();
+
+        if (ImGui::MenuItem("Redo", "Ctrl+Y", false, history.CanRedo()))
+            history.Redo();
 
         ImGui::Separator();
 
         if (ImGui::MenuItem("Copy", nullptr, false, selected != nullptr))
-            clipboardActor = selected;
+            clipboard.Copy(selected);
 
         if (ImGui::MenuItem("Cut", nullptr, false, selected != nullptr))
         {
-            clipboardActor = selected->Clone();
-            selected->Destroy();
-            parent->SetSelectedActor(clipboardActor);
-            MarkWorldDirty();
+            parent->SetSelectedActor(nullptr);
+            clipboard.Cut(selected);
         }
 
-        if (ImGui::MenuItem("Paste", nullptr, false, clipboardActor != nullptr))
+        if (ImGui::MenuItem("Paste", nullptr, false, !clipboard.IsEmpty()))
         {
-            parent->SetSelectedActor(clipboardActor->Clone());
-            MarkWorldDirty();
+            if (auto pasted = clipboard.Paste())
+                parent->SetSelectedActor(pasted);
         }
 
         ImGui::Separator();
 
         if (ImGui::MenuItem("Duplicate", nullptr, false, selected != nullptr))
         {
-            parent->SetSelectedActor(selected->Clone());
-            MarkWorldDirty();
+            if (auto copy = Commands::Actions::Duplicate(selected))
+                parent->SetSelectedActor(copy);
         }
 
         if (ImGui::MenuItem("Rename", nullptr, false, selected != nullptr))
@@ -217,9 +210,16 @@ namespace Shard::Editor::GUI{
         if (ImGui::MenuItem("Delete", nullptr, false, selected != nullptr))
         {
             parent->SetSelectedActor(nullptr);
-            selected->Destroy();
-            MarkWorldDirty();
+            Commands::Actions::Delete(selected);
         }
+
+        ImGui::Separator();
+
+        if (ImGui::MenuItem("Project Settings..."))
+            parent->panelVisibility.projectSettings = true;
+
+        if (ImGui::MenuItem("Editor Preferences..."))
+            parent->panelVisibility.editorPreferences = true;
 
         ImGui::EndMenu();
     }
@@ -240,10 +240,7 @@ namespace Shard::Editor::GUI{
             {
                 auto selected = parent->GetSelectedActor();
                 if (selected)
-                {
-                    selected->SetName(renameBuffer);
-                    MarkWorldDirty();
-                }
+                    Commands::Actions::Rename(selected, renameBuffer);
 
                 ImGui::CloseCurrentPopup();
             }
@@ -325,6 +322,11 @@ namespace Shard::Editor::GUI{
         ImGui::MenuItem("Asset Browser", nullptr, &parent->panelVisibility.assetBrowser);
         ImGui::MenuItem("Console", nullptr, &parent->panelVisibility.console);
         ImGui::MenuItem("Profiler", nullptr, &parent->panelVisibility.profiler);
+
+        ImGui::Separator();
+
+        ImGui::MenuItem("Project Settings", nullptr, &parent->panelVisibility.projectSettings);
+        ImGui::MenuItem("Editor Preferences", nullptr, &parent->panelVisibility.editorPreferences);
 
         ImGui::EndMenu();
     }

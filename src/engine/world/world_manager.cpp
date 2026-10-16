@@ -20,10 +20,6 @@ namespace Shard::Engine::Worlds{
         info.load = [](const std::string& pathInProject, const Filesystem::AssetInfos& infos) -> std::shared_ptr<void> {
             const Filesystem::Path& path = infos.baseInfos.path;
             std::shared_ptr<World> world = std::make_shared<World>("unitialized_world", path);
-            int buildIndex = Core::GetEngine().GetBuildSettings()->GetWorldBuildIndex(pathInProject);
-            if(buildIndex != -1){
-                world->SetBuildIndex(buildIndex);
-            }
             world->Deserialize(path);
             return world;
         };
@@ -44,8 +40,7 @@ namespace Shard::Engine::Worlds{
         worldBuffer.push_back(world);
         world->SetLoaded(true);
 
-        int worldBuildIndex = world->GetBuildIndex();
-        int worldAssetID = Core::GetEngine().GetAssetIDManager()->GetIDFromNameInProject(Core::GetEngine().GetBuildSettings()->buildIndex[worldBuildIndex].full).GetAsInt();
+        int worldAssetID = world->ResolveAssetID();
 
         Core::GetEngine().GetEventDispatcher()->emitGlobal(Events::WorldStructureChangedEvent(
                                                     worldAssetID, Events::LOADED, "", Core::ObjectID(-1)));
@@ -154,7 +149,7 @@ namespace Shard::Engine::Worlds{
     }
 
     World* WorldManager::GetWorldAt(int index){
-        if (index >= 0 && index < worldBuffer.size()) {
+        if (index >= 0 && static_cast<size_t>(index) < worldBuffer.size()) {
             return worldBuffer[index].get();
         } else {
             DEBUG_ERROR("Invalid index (out of bounds). Unable to retrieve world.");
@@ -163,7 +158,7 @@ namespace Shard::Engine::Worlds{
     }
 
     void WorldManager::UnloadWorld(int index){
-        if (index >= 0 && index < worldBuffer.size()) {
+        if (index >= 0 && static_cast<size_t>(index) < worldBuffer.size()) {
             worldBuffer[index]->Unload();
             worldBuffer.erase(worldBuffer.begin() + index);
         } else {

@@ -34,11 +34,12 @@ namespace Shard::Engine::Serialization{
                 projectPatchVersion = data["versionPatch"];
             }
             if(projectMajorVersion == -1 || projectMinorVersion == -1 || projectPatchVersion == -1){
-                DEBUG_FATAL("No version specified/Incorrect version format for project: "+path.full);
+                // An error, not a fatal one : Revert reads the file back while the editor runs
+                DEBUG_ERROR("No version specified/Incorrect version format for project: "+path.full);
                 return nullptr;
             }
             else if(projectMajorVersion != VERSION_MAJOR || projectMinorVersion != VERSION_MINOR || projectPatchVersion != VERSION_PATCH){
-                DEBUG_FATAL("Version incompatibility found between engine and project : "+path.full+ "\nProject version : "
+                DEBUG_ERROR("Version incompatibility found between engine and project : "+path.full+ "\nProject version : "
                             + std::to_string(projectMajorVersion)+"."+std::to_string(projectMinorVersion)+"."+std::to_string(projectPatchVersion)+" Engine version : "+std::to_string(VERSION_MAJOR)+"."+std::to_string(VERSION_MINOR)+"."+std::to_string(VERSION_PATCH));
                 return nullptr;
             }
@@ -139,9 +140,7 @@ namespace Shard::Engine::Serialization{
                 DEBUG_INFO("No rendering settings for project: "+path.full+", using the defaults");
             }
 
-            Projects::EditorPreferences editorPrefs = {};
-
-            project = std::make_shared<Projects::Project>(path.GetFilename(false), projectRoot, projectResPath, pluginsPath, buildSettings, editorPrefs, assetDatabasePath);
+            project = std::make_shared<Projects::Project>(path.GetFilename(false), projectRoot, projectResPath, pluginsPath, buildSettings, assetDatabasePath);
 
             *project->GetPhysicsSettings() = physicsSettings;
             *project->GetRenderingSettings() = renderingSettings;
@@ -149,6 +148,8 @@ namespace Shard::Engine::Serialization{
             project->versionMajor = projectMajorVersion;
             project->versionMinor = projectMinorVersion;
             project->versionPatch = projectPatchVersion;
+
+            project->MarkSaved();
 
             return project;
 
@@ -159,6 +160,11 @@ namespace Shard::Engine::Serialization{
     }
 
     void SerializeProject(Projects::Project* pro, const Filesystem::Path path)
+    {
+        path.WriteFile(ProjectToJson(pro).dump());
+    }
+
+    ordered_json ProjectToJson(Projects::Project* pro)
     {
         ordered_json data;
 
@@ -173,6 +179,8 @@ namespace Shard::Engine::Serialization{
         for(auto& world : pro->GetBuildSettings()->buildIndex){
             data["buildSettings"].push_back(world.full);
         }
+        if(!data.contains("buildSettings"))
+            data["buildSettings"] = ordered_json::array();
 
         Projects::PhysicsSettings* physics = pro->GetPhysicsSettings();
 
@@ -186,8 +194,7 @@ namespace Shard::Engine::Serialization{
         data["rendering"]["msaaSamples"] = pro->GetRenderingSettings()->msaaSamples;
         data["rendering"]["renderPipeline"] = pro->GetRenderingSettings()->renderPipeline;
 
-        //TODO data["editorPreferences"] = pro->GetEditorPrefs();
-
-        path.WriteFile(data.dump());
+        // The editor preferences are the user's, not the project's : the editor keeps them in its own file
+        return data;
     }
 }

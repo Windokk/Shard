@@ -33,6 +33,7 @@
 #include "engine/renderer/rhi/material/material.hpp"
 #include "engine/renderer/components/model_component.hpp"
 #include "engine/world/engine.hpp"
+#include "engine/world/world.hpp"
 
 namespace Shard::Editor::Core{
 
@@ -225,6 +226,7 @@ namespace Shard::Editor::Core{
                     model->RemoveFromPass("EditorOutlineMaskPass");
 
         this->selectedActor = newPtr;
+        this->selectedRef = Editor::Commands::ObjectRefs::Get(newPtr);
 
         if(renderPassesInitialized && selectedActor)
             for(auto& comp : selectedActor->GetComponents())
@@ -233,6 +235,18 @@ namespace Shard::Editor::Core{
 
         if(worldTree)
             worldTree->SetSelection(newPtr);
+    }
+
+    void EditorMainWindow::ValidateSelection()
+    {
+        if(!selectedActor)
+            return;
+
+        // Still the object behind its id : alive
+        if(Engine::Core::GetEngine().GetObjectIDManager()->GetObjectFromID(selectedActor->GetID()) == selectedActor)
+            return;
+
+        SetSelectedActor(selectedRef ? selectedRef->Resolve<Engine::Objects::Actor>() : nullptr);
     }
 
     void EditorMainWindow::RequestPlay()
@@ -272,6 +286,7 @@ namespace Shard::Editor::Core{
         // models are not in the outline pass any more, and their components must not be touched, so SetSelectedActor
         // is not used here.
         selectedActor = nullptr;
+        selectedRef = nullptr;
         if(worldTree)
             worldTree->SetSelection(nullptr);
 
@@ -322,7 +337,8 @@ namespace Shard::Editor::Core{
             init.MinImageCount = 2;
             init.ImageCount = info.imageCount;
             init.UseDynamicRendering = true;
-            init.PipelineInfoMain.PipelineRenderingCreateInfo = {VK_STRUCTURE_TYPE_PIPELINE_RENDERING_CREATE_INFO_KHR};
+            init.PipelineInfoMain.PipelineRenderingCreateInfo = {};
+            init.PipelineInfoMain.PipelineRenderingCreateInfo.sType = VK_STRUCTURE_TYPE_PIPELINE_RENDERING_CREATE_INFO_KHR;
             init.PipelineInfoMain.PipelineRenderingCreateInfo.colorAttachmentCount = 1;
             init.PipelineInfoMain.PipelineRenderingCreateInfo.pColorAttachmentFormats = &colorFormat;
             init.CheckVkResultFn = CheckVulkanResult;
@@ -419,7 +435,10 @@ namespace Shard::Editor::Core{
             Rendering::OnGraphicsThread([] { ImGui_ImplOpenGL3_Init(); });
         }
 
-        SetupImGuiStyle();
+        if(!LoadEditorPreferences(GetEditorPreferencesPath(), preferences, &savedPreferencesText))
+            DEBUG_INFO("No editor preferences yet (" + GetEditorPreferencesPath() + ") : using the defaults");
+        Editor::Commands::CommandStack::Get().SetMaxHistory(static_cast<size_t>(preferences.saving.undoHistorySize));
+        ApplyAppearance();
 
         LoadFontFromFile("editor_resources/fonts/OpenSans-Regular.ttf", 16, false);
         LoadFontFromFile("editor_resources/fonts/lucide.ttf", 16, true);
@@ -435,6 +454,8 @@ namespace Shard::Editor::Core{
         worldTree->SetParentWindow(this);
         worldSettingsPanel = new GUI::WorldSettingsPanel();
         projectSettingsPanel = new GUI::ProjectSettingsPanel();
+        editorPreferencesPanel = new GUI::EditorPreferencesPanel();
+        editorPreferencesPanel->SetParentWindow(this);
         viewport = new GUI::ViewportWindow();
         viewport->SetParentWindow(this);
         console = new GUI::Console();
@@ -483,7 +504,6 @@ namespace Shard::Editor::Core{
             // Matches the editor's own blue-teal accent (see ImGuiCol_SliderGrabActive/ButtonHovered in
             // SetupImGuiStyle) so this overlay doesn't look like it belongs to a different app.
             const ImU32 accent = IM_COL32(84, 125, 153, 255);
-            const ImU32 accentBright = IM_COL32(130, 178, 212, 255);
             constexpr float barWidth = 280.0f;
             constexpr float spinnerRadius = 14.0f;
 
@@ -866,6 +886,9 @@ namespace Shard::Editor::Core{
             });
         }
 
+        // Between two frames : a new theme or scale must not change the style halfway through one
+        UpdatePreferences();
+
         // The graphics backend of the UI is set up (and used) by the render thread : only the platform half is here
         ImGui_ImplSDL3_NewFrame();
         ImGui::NewFrame();
@@ -873,7 +896,11 @@ namespace Shard::Editor::Core{
 
         ImGuizmo::BeginFrame();
 
+        // An actor can be destroyed from anywhere (a panel, an undo, a parent being deleted) : the panels below
+        // must not get a dead one. Again after the menu bar, whose items edit the world.
+        ValidateSelection();
         menuBar->Draw();
+        ValidateSelection();
 
         ImGui::DockSpaceOverViewport();
 
@@ -889,6 +916,8 @@ namespace Shard::Editor::Core{
             worldSettingsPanel->Draw();
         if(panelVisibility.projectSettings)
             projectSettingsPanel->Draw(&panelVisibility.projectSettings);
+        if(panelVisibility.editorPreferences)
+            editorPreferencesPanel->Draw(&panelVisibility.editorPreferences);
         if(panelVisibility.console)
             console->Draw();
         if(panelVisibility.profiler)
@@ -901,6 +930,8 @@ namespace Shard::Editor::Core{
 
         UpdateProbeBuildNotification();
         UpdateLightmapBuildNotification();
+        UpdateAutoSave();
+        UpdateCloseRequest();
         GUI::Notifications::RenderFrame();
         GUI::Popups::Draw();
 
@@ -1040,8 +1071,122 @@ namespace Shard::Editor::Core{
         return 50;
     }
 
+    void EditorMainWindow::ApplyAppearance()
+    {
+        ImGuiStyle& style = ImGui::GetStyle();
+
+        // From a clean style every time : the sizes are scaled from their unscaled values, not from the last scale's
+        const float fontSizeBase = style.FontSizeBase;
+        const float fontScaleDpi = style.FontScaleDpi;
+        style = ImGuiStyle();
+        style.FontSizeBase = fontSizeBase;
+        style.FontScaleDpi = fontScaleDpi;
+
+        // Shard's sizes and roundings whatever the theme ; the other themes only bring their colours
+        SetupImGuiStyle();
+        switch(preferences.appearance.theme)
+        {
+            case EditorTheme::Shard:   break;
+            case EditorTheme::Dark:    ImGui::StyleColorsDark(&style); break;
+            case EditorTheme::Light:   ImGui::StyleColorsLight(&style); break;
+            case EditorTheme::Classic: ImGui::StyleColorsClassic(&style); break;
+        }
+
+        const PreferenceRange scaleRange = PREFERENCE_RANGE(AppearancePreferences, uiScale);
+        const float scale = std::clamp(preferences.appearance.uiScale, scaleRange.min, scaleRange.max);
+        style.ScaleAllSizes(scale);
+        style.FontScaleMain = scale;
+
+        appliedAppearance = preferences.appearance;
+    }
+
+    void EditorMainWindow::UpdatePreferences()
+    {
+        if(preferences.appearance.theme != appliedAppearance.theme || preferences.appearance.uiScale != appliedAppearance.uiScale)
+            ApplyAppearance();
+
+        Editor::Commands::CommandStack::Get().SetMaxHistory(static_cast<size_t>(std::max(1, preferences.saving.undoHistorySize)));
+
+        // Written once a second at most, and only when they changed : a slider being dragged does not hit the disk every frame
+        const double now = ImGui::GetTime();
+        if(now < nextPreferencesCheck || Engine::Core::GetEngine().GetSettings().readOnly)
+            return;
+        nextPreferencesCheck = now + 1.0;
+
+        std::string text = SerializeEditorPreferences(preferences);
+        if(text == savedPreferencesText)
+            return;
+
+        // Kept even when the write fails : the error is logged once, not every second
+        SaveEditorPreferences(GetEditorPreferencesPath(), preferences);
+        savedPreferencesText = std::move(text);
+    }
+
+    void EditorMainWindow::UpdateAutoSave()
+    {
+        const double now = ImGui::GetTime();
+        if(!preferences.saving.autoSaveWorld)
+        {
+            // The interval counts from when it is turned on
+            lastAutoSaveTime = now;
+            return;
+        }
+
+        auto& engine = Engine::Core::GetEngine();
+        // Not while playing (the world is the play session's), loading, or in the middle of a gizmo drag
+        if(engine.IsInPlayMode() || engine.GetWorldManager()->IsAsyncLoadInProgress() || Editor::Commands::CommandStack::Get().IsActive())
+            return;
+
+        const double interval = std::max(0.5f, preferences.saving.autoSaveIntervalMinutes) * 60.0;
+        if(now - lastAutoSaveTime < interval)
+            return;
+        lastAutoSaveTime = now;
+
+        Engine::Worlds::World* world = engine.GetWorldManager()->GetWorldAt(0);
+        if(!world || !world->IsDirty())
+            return;
+
+        world->Serialize(world->GetPath());
+        GUI::Notifications::Info("Auto-saved \"%s\"", world->GetName().c_str());
+    }
+
+    bool EditorMainWindow::HasUnsavedProjectSettings() const
+    {
+        return projectSettingsPanel && !Engine::Core::GetEngine().GetSettings().readOnly && projectSettingsPanel->IsDirty();
+    }
+
+    bool EditorMainWindow::ShouldClose() const
+    {
+        return SDLWindow::ShouldClose() && (closeConfirmed || !HasUnsavedProjectSettings());
+    }
+
+    void EditorMainWindow::UpdateCloseRequest()
+    {
+        if(!SDLWindow::ShouldClose() || closeConfirmed || !HasUnsavedProjectSettings())
+            return;
+
+        // The close waits for the answer : Cancel (or Escape) keeps the editor open
+        CancelClose();
+        GUI::Popups::ConfirmUnsavedChanges("Project Settings",
+            [this]{
+                if(!projectSettingsPanel->Save())
+                    return;
+                closeConfirmed = true;
+                RequestClose();
+            },
+            [this]{
+                closeConfirmed = true;
+                RequestClose();
+            });
+    }
+
     void EditorMainWindow::Destroy() const
     {
+        // What changed in the last second (the periodic write did not see it yet)
+        if(imguiInitialized && !Engine::Core::GetEngine().GetSettings().readOnly
+            && SerializeEditorPreferences(preferences) != savedPreferencesText)
+            SaveEditorPreferences(GetEditorPreferencesPath(), preferences);
+
         if(UsesVulkan())
             Rendering::OnGraphicsThread([] {
                 // What the interface recorded may still be running
@@ -1074,9 +1219,8 @@ namespace Shard::Editor::Core{
         if(input->IsKeyDown(Engine::Input::Key::LeftControl)){
         
             if(input->WasKeyPressed(Engine::Input::Key::S)){
-                Engine::Core::GetEngine().GetWorldManager()->GetWorldAt(0)->Serialize(
-                    Engine::Core::GetEngine().GetWorldManager()->GetWorldAt(0)->GetPath()
-                );
+                if(auto* world = Engine::Core::GetEngine().GetWorldManager()->GetWorldAt(0))
+                    world->Serialize(world->GetPath());
                 return;
             }
             else if(input->WasKeyPressed(Engine::Input::Key::W)){

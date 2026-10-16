@@ -347,7 +347,8 @@ namespace Shard::Engine{
                 stats.frameTimeMs = m_Context.timeManager->GetDeltaTime() * 1000;
                 stats.fps = 1000 / stats.frameTimeMs;
 
-                stats.actors = m_Context.worldManager->GetWorldAt(0)->transforms.size();
+                auto* world = m_Context.worldManager->GetWorldAt(0);
+                stats.actors = world ? world->transforms.size() : 0;
             });
 
             m_Context.profiler->AddStatsProvider([](Debugging::MinimalStatistics& stats)
@@ -520,7 +521,8 @@ namespace Shard::Engine{
 
             if(m_PlayMode){
 
-                if(!m_EngineSettings.readOnly)
+                // Play is reachable with no world loaded (editor Play button, `play on`)
+                if(!m_EngineSettings.readOnly && m_Context.worldManager->GetWorldAt(0))
                     m_Context.worldManager->GetWorldAt(0)->Serialize(m_Context.worldManager->GetWorldAt(0)->GetPath());
 
                 for(int i = 0; i < m_Context.worldManager->GetLoadedWorldCount(); i++){
@@ -575,7 +577,7 @@ namespace Shard::Engine{
             StopRenderThread();
 
             if(!m_EngineSettings.readOnly)
-                m_Context.currentProject->Shutdown(m_EngineSettings.project, *m_Context.assetIDManager);
+                m_Context.currentProject->Shutdown(*m_Context.assetIDManager);
             m_Context.profiler->Shutdown();
             Debugging::Profiler::SetActive(nullptr);
             m_Context.platform->GetInput()->Shutdown();
@@ -691,6 +693,9 @@ namespace Shard::Engine{
         void EngineInstance::UpdateWorlds()
         {
             m_Context.worldManager->PumpAsyncLoad();
+
+            if(m_ReloadCurrentWorld && !GetWorldManager()->GetWorldAt(0))
+                m_ReloadCurrentWorld = false;
 
             if(m_ReloadCurrentWorld)
             {
@@ -872,7 +877,10 @@ namespace Shard::Engine{
             config.files = m_Context.fileManager;
             config.ids = m_Context.assetIDManager;
             config.resources = m_Context.resourcesManager;
-            config.buildSettings = GetBuildSettings();
+            config.remapWorlds = [this](const std::string& oldName, const std::string& newName, bool isDirectory){
+                // The project file follows the disk, like the asset database (not in a read-only run)
+                m_Context.currentProject->RemapWorlds(oldName, newName, isDirectory, m_EngineSettings.readOnly ? std::string() : m_EngineSettings.project);
+            };
             config.onMeshReplaced = [this](const std::string& name){
                 Objects::Components::ReloadModelsUsingMesh(*m_Context.worldManager, name);
             };

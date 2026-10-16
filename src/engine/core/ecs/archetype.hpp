@@ -53,6 +53,8 @@ namespace Shard::Engine::Core::Ecs {
         Entity EntityAt(uint32_t row) const { return ChunkEntities(row / m_Capacity)[row % m_Capacity]; }
         /// Address of a component of a row, nullptr if the archetype doesn't have it
         void* ComponentPtr(uint32_t row, ComponentId id) const;
+        /// Bytes of one component `id` (0 if the archetype doesn't have it) : cached in the column, no global registry lookup
+        size_t ComponentSize(ComponentId id) const { const Column* column = FindColumn(id); return column ? column->size : 0; }
 
         /// Copies every component the two archetypes have in common from (src, srcRow) to (this, dstRow)
         void CopyCommon(uint32_t dstRow, const Archetype& src, uint32_t srcRow) const;

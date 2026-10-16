@@ -55,7 +55,7 @@ namespace Shard::Engine::Worlds{
             
             /// @brief Unload all loaded worlds
             void UnloadAllWorlds() {
-                for(int i = 0; i < worldBuffer.size(); i++){
+                for(size_t i = 0; i < worldBuffer.size(); i++){
                     worldBuffer[i]->Unload();
                 }
                 worldBuffer.clear();
@@ -68,7 +68,7 @@ namespace Shard::Engine::Worlds{
         
             /// @brief Destroys all worlds
             void DestroyAllWorlds() {
-                for(int i = 0; i < worldBuffer.size(); i++){
+                for(size_t i = 0; i < worldBuffer.size(); i++){
                     worldBuffer[i]->Unload();
                 }
                 worldBuffer.clear();

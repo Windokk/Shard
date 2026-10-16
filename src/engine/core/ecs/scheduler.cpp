@@ -185,8 +185,13 @@ namespace Shard::Engine::Core::Ecs {
                                   fixed ? m_RunTiming->fixedDeltaTime : m_RunTiming->deltaTime, m_RunTiming->fixedDeltaTime,
                                   m_RunFixedStep, m_RunTiming->fixedSteps, m_Frame};
             system->commands.Clear();
+            // An exclusive system runs alone even in a parallel phase (it conflicts with every other one) : it may change the
+            // registry's structure directly, as it would in a serial phase
+            const bool alone = system->desc.exclusive && m_RunRegistry->IsConcurrent();
+            if (alone) m_RunRegistry->EndConcurrent();
             const auto start = std::chrono::steady_clock::now();
             system->desc.run(context);
+            if (alone) m_RunRegistry->BeginConcurrent();
             system->lastMs = std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - start).count();
             system->averageMs = system->averageMs == 0.0 ? system->lastMs : system->averageMs * 0.95 + system->lastMs * 0.05;
         };
@@ -209,7 +214,11 @@ namespace Shard::Engine::Core::Ecs {
                     for (uint32_t p : graph.predecessors[k]) graph.tasks.DependsOn(graph.taskIds[k], graph.taskIds[p]);
                 graph.tasksBuilt = true;
             }
+            // Systems may now run on several threads : structural changes are refused and DestroyDeferred queues until the
+            // flush below
+            registry.BeginConcurrent();
             graph.tasks.Run(*jobs);
+            registry.EndConcurrent();
         }
 
         // Apply the recorded structural changes, system by system in registration order : same result serial or parallel

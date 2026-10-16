@@ -10,6 +10,7 @@
 #include <typeinfo>
 #include <cxxabi.h>
 #include <memory>
+#include <cstring>
 
 // The generated *.reflection.hpp files (included from the .cpp of each component) name the engine's types
 // unqualified (Filesystem::AssetID, Rendering::LightType...)

@@ -21,6 +21,8 @@
 #include <unordered_map>
 #include <queue>
 #include <mutex>
+#include <memory>
+#include <vector>
 #include <functional>
 
 #include "engine/core/color.hpp"
@@ -36,22 +38,27 @@ using namespace JPH::literals;
 
 using namespace std;
 
-namespace Shard::Engine::Objects::Components{
-    class PhysicsBody;
+namespace Shard::Engine::Objects{
+    class Actor;
 }
 
-static JPH::Quat ToJolt(const glm::quat& q)
+namespace Shard::Engine::Objects::Components{
+    class PhysicsBody;
+    class Script;
+}
+
+inline JPH::Quat ToJolt(const glm::quat& q)
 {
     glm::quat n = glm::normalize(q);
     return JPH::Quat(n.x, n.y, n.z, n.w);
 }
 
-static JPH::RVec3 ToJolt(const glm::vec3& v)
+inline JPH::RVec3 ToJolt(const glm::vec3& v)
 {
     return JPH::RVec3(v.x, v.y, v.z);
 }
 
-static glm::quat ToGLM(const JPH::Quat& q)
+inline glm::quat ToGLM(const JPH::Quat& q)
 {
     return glm::quat(
         q.GetW(),
@@ -61,7 +68,7 @@ static glm::quat ToGLM(const JPH::Quat& q)
     );
 }
 
-static glm::vec3 ToGLM(const JPH::RVec3& v)
+inline glm::vec3 ToGLM(const JPH::RVec3& v)
 {
     return glm::vec3(
         static_cast<float>(v.GetX()),
@@ -80,7 +87,7 @@ namespace Shard::Engine::Physics
         CYLINDER
     };
 
-    static void TraceImpl(const char *inFMT, ...)
+    inline void TraceImpl(const char *inFMT, ...)
     {
         // Format the message
         va_list list;
@@ -96,7 +103,7 @@ namespace Shard::Engine::Physics
     #ifdef JPH_ENABLE_ASSERTS
 
     // Callback for asserts, connect this to your own assert handler if you have one
-    static bool AssertFailedImpl(const char *inExpression, const char *inMessage, const char *inFile, uint inLine)
+    inline bool AssertFailedImpl(const char *inExpression, const char *inMessage, const char *inFile, uint inLine)
     {
         // Print to the TTY
         cout << inFile << ":" << inLine << ": (" << inExpression << ") " << (inMessage != nullptr? inMessage : "") << endl;
@@ -220,9 +227,15 @@ namespace Shard::Engine::Physics
         }
     };
 
+    class PhysicsManager;
+
+    /// Called by Jolt from its jobs (several threads at once, bodies locked) : only records the contacts for its manager, which
+    /// hands them to the scripts once the step is over
     class PhysicsContactListener : public ContactListener
     {
     public:
+        PhysicsManager* owner = nullptr;
+
         virtual ValidateResult OnContactValidate(const Body &inBody1, const Body &inBody2, RVec3Arg inBaseOffset, const CollideShapeResult &inCollisionResult) override;
 
         virtual void OnContactAdded(const Body &inBody1, const Body &inBody2, const ContactManifold &inManifold, ContactSettings &ioSettings) override;
@@ -309,6 +322,8 @@ namespace Shard::Engine::Physics
         void SetGravity(glm::vec3 gravity);
         glm::vec3 GetGravity();
 
+        /// One step, then the contact callbacks of the scripts (OnContactAdded / Persisted / Ended) for what the step found :
+        /// on the calling thread, after Jolt is done, in an order that doesn't depend on which of Jolt's jobs ran first
         void StepSimulation(float deltaTime, bool activateAll);
 
         /// Fixed steps simulated so far : tells a body whether the pose it reads from Jolt is a new one (see PhysicsBody::GetInterpolationOffset)
@@ -333,11 +348,35 @@ namespace Shard::Engine::Physics
         
     private:
 
-        void OnContactAdded(const Body &body1, const Body &body2, const ContactManifold &contactManifold, ContactSettings &contactSettings);
-        void OnContactPersisted(const Body &body1, const Body &body2, const ContactManifold &contactManifold, ContactSettings &contactSettings);
-        void OnContactRemoved(const SubShapeIDPair &pair);
+        /// A contact reported by Jolt during the step, kept until the step is over. The manifold and settings are copies : what a
+        /// script changes in the settings no longer affects the contact (it has already been solved).
+        struct PendingContact {
+            enum class Kind : uint8_t { Added, Persisted, Removed };
+            Kind kind = Kind::Added;
+            JPH::BodyID body1, body2;
+            JPH::SubShapeID subShape1, subShape2;
+            ContactManifold manifold;               // Added / Persisted
+            ContactSettings settings;
+        };
+
+        // From Jolt's jobs : any thread, under m_ContactMutex
+        void QueueContact(PendingContact::Kind kind, const Body &body1, const Body &body2, const ContactManifold &contactManifold, const ContactSettings &contactSettings);
+        void QueueContactRemoved(const SubShapeIDPair &pair);
+
+        /// Hands the contacts of the step that just ended to the scripts of both actors, sorted (kind, body ids, sub-shapes)
+        void DispatchContacts();
+        void DispatchContact(const PendingContact& contact, JPH::BodyID selfID, JPH::BodyID otherID);
+        Objects::Components::PhysicsBody* FindComponent(JPH::BodyID id) const;
+        /// The scripts of an actor, looked up once per dispatch instead of once per contact
+        const std::vector<std::shared_ptr<Objects::Components::Script>>& ScriptsOf(Objects::Actor& actor);
 
         std::unordered_map<JPH::BodyID, Objects::Components::PhysicsBody*> bodyIDToComponentMap;
+
+        std::mutex m_ContactMutex;
+        std::vector<PendingContact> m_PendingContacts;          // filled by Jolt's jobs
+        std::vector<PendingContact> m_DispatchedContacts;       // the ones being handed out (swapped, so both keep their capacity)
+        std::vector<uint32_t> m_DispatchOrder;
+        std::unordered_map<Objects::Actor*, std::vector<std::shared_ptr<Objects::Components::Script>>> m_ScriptCache;
 
         JPH::TempAllocatorImpl* m_tempAllocator;
         JPH::JobSystem* m_jobSystem;

@@ -19,7 +19,7 @@ namespace Shard::Engine::Projects{
 
         int GetWorldBuildIndex(const Filesystem::Path worldPath) {
 
-            for(int i = 0; i < buildIndex.size(); i++){
+            for(int i = 0; i < static_cast<int>(buildIndex.size()); i++){
                 if(buildIndex[i] == worldPath){
                     return i;
                 }
@@ -29,7 +29,7 @@ namespace Shard::Engine::Projects{
 
         void AddToBuildSettings(Filesystem::Path worldPath){
             
-            for(int i = 0; i < buildIndex.size(); i++){
+            for(int i = 0; i < static_cast<int>(buildIndex.size()); i++){
                 if(buildIndex[i] == worldPath){
                     DEBUG_INFO("World already added to build settings, not re-adding it");
                     return;
@@ -60,10 +60,6 @@ namespace Shard::Engine::Projects{
             // Insert the world at the new position
             indexList.insert(indexList.begin() + newBuildIndex, worldPath);
         }
-    };
-
-    struct EditorPreferences{
-        // TODO
     };
 
     struct PhysicsSettings{
@@ -108,10 +104,22 @@ namespace Shard::Engine::Projects{
             Project(std::string name, Filesystem::Path projectRoot,
                     Filesystem::Path projectResourcesRoot,
                     Filesystem::Path pluginsFolder,
-                    BuildSettings buildSettings,
-                    EditorPreferences editorPreferences, Filesystem::Path assetDatabasePath);
+                    BuildSettings buildSettings, Filesystem::Path assetDatabasePath);
 
-            void Shutdown(std::string path, const Filesystem::AssetIDManager& assetIDManager);
+            /// Writes the asset database. The project file is only written by Save : what was not saved is not kept.
+            void Shutdown(const Filesystem::AssetIDManager& assetIDManager);
+
+            /// Writes the project file to `path` ; what is written becomes the saved state. False when the file could not be written.
+            bool Save(const std::string& path);
+            /// The project as it is now is what its file holds (after loading it, or writing it)
+            void MarkSaved();
+            /// The project differs from what its file held when it was last loaded or saved
+            bool HasUnsavedChanges();
+
+            /// @brief Follows a world (or a folder of worlds, `isDirectory`) renamed, moved or deleted (empty `newName`) on disk :
+            /// in the build list, and in the saved project file as well, written to `path` at once (not when `path` is empty).
+            /// The file follows the disk like the asset database does, without taking the changes that were not saved along.
+            void RemapWorlds(const std::string& oldName, const std::string& newName, bool isDirectory, const std::string& path);
 
             Filesystem::Path GetProjectResourcesPath() { return projectResourcesRoot; }
             Filesystem::Path GetProjectRoot() { return projectRoot; }
@@ -124,8 +132,6 @@ namespace Shard::Engine::Projects{
 
             RenderingSettings* GetRenderingSettings() { return &renderingSettings; }
 
-            EditorPreferences GetEditorPrefs() { return editorPreferences; }
-
         private:
             Filesystem::Path projectRoot = Filesystem::Path("");
             Filesystem::Path projectResourcesRoot = Filesystem::Path("");
@@ -134,7 +140,9 @@ namespace Shard::Engine::Projects{
             BuildSettings buildSettings;
             PhysicsSettings physicsSettings;
             RenderingSettings renderingSettings;
-            EditorPreferences editorPreferences;
+
+            /// The project file as it was last loaded or saved (ProjectToJson, dumped)
+            std::string savedState;
     };
 
 }

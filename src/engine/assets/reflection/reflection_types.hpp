@@ -169,7 +169,7 @@ static TypeID GetTypeIDFromString(std::string typeName) {
     return TypeID::Unknown; // fallback if not found
 }
 
-static std::string GetStringFromTypeID(TypeID type) {
+inline std::string GetStringFromTypeID(TypeID type) {
     switch (type) {
         // Invalid / base
         case TypeID::Unknown: return "Unknown";

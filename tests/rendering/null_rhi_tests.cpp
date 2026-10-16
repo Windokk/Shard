@@ -1,10 +1,13 @@
 #include <gtest/gtest.h>
 
 #include <memory>
+#include <unordered_map>
 #include <vector>
 
 #include "engine/renderer/rhi/backends/null/null_rhi.hpp"
 #include "engine/renderer/rhi/material/material.hpp"
+#include "engine/renderer/rhi/pipelines/compute_pipeline.hpp"
+#include "engine/renderer/rhi/pipelines/pipeline.hpp"
 #include "engine/renderer/rhi/renderer_api.hpp"
 #include "engine/renderer/rhi/resources/buffer/storage_buffer.hpp"
 #include "engine/renderer/rhi/resources/framebuffer/framebuffer.hpp"
@@ -147,6 +150,67 @@ TEST_F(NullBackend, AMaterialKeepsEveryParameterItIsGiven) {
     EXPECT_FALSE(material->GetScalarParameter("metallic").has_value());
     EXPECT_EQ(material->GetTexturesCount(), 1u);
     EXPECT_EQ(material->GetTextureParameter("albedo"), 12u);
+}
+
+TEST_F(NullBackend, PipelineCacheKeysOnTheShaderObjectNotItsAssetID) {
+    // Shaders made from files directly (the deferred lighting, the tonemap, every compute shader) all have the AssetID 0
+    std::shared_ptr<Shader> a = Shader::Create(Shard::Engine::Filesystem::Path("a.vert"), Shard::Engine::Filesystem::Path("a.frag"));
+    std::shared_ptr<Shader> b = Shader::Create(Shard::Engine::Filesystem::Path("b.vert"), Shard::Engine::Filesystem::Path("b.frag"));
+    ASSERT_NE(a, nullptr);
+    ASSERT_NE(b, nullptr);
+    ASSERT_EQ(a->GetAssetID().GetAsInt(), b->GetAssetID().GetAsInt());
+
+    PipelineSpecifications specsA;
+    specsA.shader = a;
+    PipelineSpecifications specsB = specsA;
+    specsB.shader = b;
+    PipelineSpecifications specsA2 = specsA;
+
+    EXPECT_FALSE(specsA == specsB) << "two shaders must not share a cached pipeline";
+    EXPECT_TRUE(specsA == specsA2);
+    EXPECT_EQ(PipelineSpecsHash{}(specsA), PipelineSpecsHash{}(specsA2));
+
+    std::unordered_map<PipelineSpecifications, std::shared_ptr<Pipeline>, PipelineSpecsHash> cache;
+    cache.emplace(specsA, std::make_shared<Null::NullPipeline>(specsA));
+    cache.emplace(specsB, std::make_shared<Null::NullPipeline>(specsB));
+    EXPECT_EQ(cache.size(), 2u);
+    EXPECT_EQ(cache.at(specsB)->GetSpecifications().shader, b);
+
+    std::shared_ptr<ComputeShader> c = ComputeShader::Create(Shard::Engine::Filesystem::Path("c.comp"));
+    std::shared_ptr<ComputeShader> d = ComputeShader::Create(Shard::Engine::Filesystem::Path("d.comp"));
+    ASSERT_NE(c, nullptr);
+    ASSERT_NE(d, nullptr);
+    ComputePipelineSpecifications computeC{c};
+    ComputePipelineSpecifications computeC2{c};
+    ComputePipelineSpecifications computeD{d};
+    EXPECT_TRUE(computeC == computeC2) << "the same compute shader asked twice must hit the cache";
+    EXPECT_EQ(ComputePipelineSpecsHash{}(computeC), ComputePipelineSpecsHash{}(computeC2));
+    EXPECT_FALSE(computeC == computeD);
+}
+
+TEST_F(NullBackend, PipelineCachePruneDropsOnlyWhatNothingElseHolds) {
+    std::shared_ptr<Shader> kept = Shader::Create(Shard::Engine::Filesystem::Path("a.vert"), Shard::Engine::Filesystem::Path("a.frag"));
+    std::shared_ptr<Shader> dropped = Shader::Create(Shard::Engine::Filesystem::Path("b.vert"), Shard::Engine::Filesystem::Path("b.frag"));
+    std::weak_ptr<Shader> droppedWatch = dropped;
+
+    PipelineSpecifications keptSpecs;
+    keptSpecs.shader = kept;
+    PipelineSpecifications droppedSpecs;
+    droppedSpecs.shader = dropped;
+
+    std::unordered_map<PipelineSpecifications, std::shared_ptr<Pipeline>, PipelineSpecsHash> cache;
+    std::shared_ptr<Pipeline> inUse = std::make_shared<Null::NullPipeline>(keptSpecs);
+    cache.emplace(keptSpecs, inUse);
+    cache.emplace(droppedSpecs, std::make_shared<Null::NullPipeline>(droppedSpecs));
+    cache.emplace(PipelineSpecifications{}, nullptr); // an entry being filled in
+    droppedSpecs = {};
+    dropped.reset();
+
+    PruneUnusedPipelines(cache);
+
+    EXPECT_EQ(cache.size(), 2u);
+    EXPECT_EQ(cache.count(keptSpecs), 1u);
+    EXPECT_TRUE(droppedWatch.expired()) << "the pruned pipeline released its shader";
 }
 
 TEST_F(NullBackend, HandlesAreNeverZeroAndNeverRepeat) {

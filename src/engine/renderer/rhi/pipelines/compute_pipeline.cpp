@@ -44,17 +44,14 @@ namespace Shard::Engine::Rendering
     {
         std::size_t hash = 0;
 
-        uint64_t shaderID = s.shader ? s.shader->GetAssetID().GetAsInt() : 0;
-        HashCombine(hash, std::hash<uint64_t>()(shaderID));
+        // The shader object, not its AssetID : the compute shaders are made from files directly and all have the ID 0
+        HashCombine(hash, std::hash<const ComputeShader*>()(s.shader.get()));
 
         return hash;
     }
     
     bool ComputePipelineSpecifications::operator==(const ComputePipelineSpecifications &other) const
     {
-        uint64_t idA = shader ? shader->GetAssetID().GetAsInt() : 0;
-        uint64_t idB = other.shader ? other.shader->GetAssetID().GetAsInt() : 0;
-
-        return idA == idB && idA != 0 && idB != 0;
+        return shader == other.shader;
     }
 }

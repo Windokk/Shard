@@ -242,7 +242,9 @@ namespace Shard::Engine::Audio
 
     void AudioManager::Tick()
     {
-        if(int worldCount = Core::GetEngine().GetWorldManager()->GetLoadedWorldCount() > 0){
+        // (Was `if(int worldCount = Count() > 0)` : the comparison bound first, so worldCount was 0 or 1 and only world 0 was heard)
+        const int worldCount = Core::GetEngine().GetWorldManager()->GetLoadedWorldCount();
+        {
             for(int i = 0; i < worldCount; i++){
                 for(auto& [id,source] : Core::GetEngine().GetWorldManager()->GetWorldAt(i)->Ext<AudioWorldData>().sources){
                     source->Update();
@@ -258,7 +260,7 @@ namespace Shard::Engine::Audio
                 }
 
                 if(listener == nullptr)
-                    return;
+                    continue;
 
                 const glm::vec3 position = listener->parent->transform->GetWorldPosition();
                 const glm::vec3 forward = listener->parent->transform->GetWorldForward();

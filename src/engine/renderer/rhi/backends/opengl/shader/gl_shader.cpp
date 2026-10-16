@@ -6,6 +6,8 @@
 
 #include "engine/core/diagnostics/logger.hpp"
 
+#include <cstring>
+
 namespace Shard::Engine::Rendering{
 
     void GLShader::CompileErrors(unsigned int shader, const char* type)
@@ -14,7 +16,7 @@ namespace Shard::Engine::Rendering{
         GLint hasCompiled;
         // Character array to store error message in
         char infoLog[1024];
-        if (type != "PROGRAM")
+        if (std::strcmp(type, "PROGRAM") != 0)
         {
             glGetShaderiv(shader, GL_COMPILE_STATUS, &hasCompiled);
             if (hasCompiled == GL_FALSE)

@@ -31,8 +31,9 @@ namespace Shard::Engine::Core::Ecs {
     ///
     /// Rules :
     ///  * Components are plain data : trivially copyable (memcpy-able, no destructor to run). Behaviour lives in systems.
-    ///  * Structural changes (Create, Destroy, Add, Remove) are refused while a query is running (they return false / a null
-    ///    entity) : use a CommandBuffer and Playback it afterwards. Changing a component VALUE, or the parent, is always allowed.
+    ///  * Structural changes (Create, Destroy, Add, Remove) are refused while a query is running, or while the scheduler runs the
+    ///    systems of a phase in parallel (they return false / a null entity) : use a CommandBuffer and Playback it afterwards, or
+    ///    DestroyDeferred. Changing a component VALUE, or the parent, is always allowed.
     ///  * Several threads may run read-only queries and edit the values of distinct entities at the same time ; any structural
     ///    change needs exclusive access.
     class Registry {
@@ -44,14 +45,14 @@ namespace Shard::Engine::Core::Ecs {
 
         // ------------------------------------------------------------------------------------------ entities
 
-        /// A new entity with no component. Null entity if a query is running.
+        /// A new entity with no component. Null entity if !CanChangeStructure().
         Entity Create();
 
         /// A new entity with these components (one archetype lookup, no intermediate move)
         template <typename... Cs>
         Entity Create(const Cs&... values) {
             static_assert((std::is_trivially_copyable<Cs>::value && ...), "components must be trivially copyable (POD-like)");
-            if (IsIterating()) return kNullEntity;
+            if (!CanChangeStructure()) return kNullEntity;
             ComponentSet signature{ComponentIdOf<Cs>()...};
             Normalize(signature);
             Archetype* archetype = FindOrCreateArchetype(signature);
@@ -63,7 +64,7 @@ namespace Shard::Engine::Core::Ecs {
             return e;
         }
 
-        /// Destroys the entity AND all its descendants. False if it is not alive or a query is running.
+        /// Destroys the entity AND all its descendants. False if it is not alive or !CanChangeStructure().
         bool Destroy(Entity e);
 
         bool IsAlive(Entity e) const;
@@ -88,7 +89,7 @@ namespace Shard::Engine::Core::Ecs {
         template <typename T>
         const T& Get(Entity e) const { const T* p = TryGet<T>(e); assert(p && "entity has no such component"); return *p; }
 
-        /// Adds T to the entity (or overwrites its value if it already has one). False if dead / a query is running
+        /// Adds T to the entity (or overwrites its value if it already has one). False if dead / !CanChangeStructure()
         /// (overwriting an existing value is allowed during a query).
         template <typename T>
         bool Add(Entity e, const T& value) {
@@ -204,8 +205,18 @@ namespace Shard::Engine::Core::Ecs {
 
         bool IsIterating() const { return m_Iterating.load(std::memory_order_acquire) > 0; }
 
-        /// @brief Destroys the entity (and its descendants) now if no query is running, otherwise as soon as it is safe : the
-        /// scheduler calls FlushDeferred at the end of every phase. Callable from any thread, whatever is running.
+        /// @brief Several threads may be using the registry at once : the scheduler brackets the parallel run of a phase's systems
+        /// with these (and lifts it around an exclusive system, which runs alone). Structural changes are refused meanwhile.
+        void BeginConcurrent() { m_Concurrent.fetch_add(1, std::memory_order_acq_rel); }
+        void EndConcurrent() { m_Concurrent.fetch_sub(1, std::memory_order_acq_rel); }
+        bool IsConcurrent() const { return m_Concurrent.load(std::memory_order_acquire) > 0; }
+
+        /// True when a structural change made now is applied : no query is running and no other thread may be using the registry
+        bool CanChangeStructure() const { return !IsIterating() && !IsConcurrent(); }
+
+        /// @brief Destroys the entity (and its descendants) now if CanChangeStructure, otherwise as soon as it is safe : the
+        /// scheduler calls FlushDeferred at the end of every phase. Callable from any thread while a query or a parallel phase
+        /// runs (the request is queued under a lock) ; outside of those, from the thread that owns the registry.
         void DestroyDeferred(Entity e);
         /// Applies the pending DestroyDeferred. Returns how many entities were destroyed. Not while a query runs.
         size_t FlushDeferred();
@@ -294,6 +305,7 @@ namespace Shard::Engine::Core::Ecs {
         size_t m_AliveCount = 0;
         uint64_t m_StructuralVersion = 0;
         std::atomic<int> m_Iterating{0};
+        std::atomic<int> m_Concurrent{0};
         mutable std::mutex m_DeferredMutex;
         std::vector<Entity> m_Deferred;
     };

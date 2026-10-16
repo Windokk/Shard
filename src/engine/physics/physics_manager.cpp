@@ -13,6 +13,9 @@
 #include "engine/world/engine.hpp"
 #include "engine/physics/jolt_job_system.hpp"
 
+#include <algorithm>
+#include <tuple>
+
 namespace Shard::Engine::Physics {
 
     // Constants
@@ -65,6 +68,7 @@ namespace Shard::Engine::Physics {
         
 
         m_physicsSystem.SetBodyActivationListener(&m_activationListener);
+        m_contactListener.owner = this;
         m_physicsSystem.SetContactListener(&m_contactListener);
         m_physicsSystem.SetGravity(JPH::Vec3Arg(gravity.x, gravity.y, gravity.z));
 
@@ -77,6 +81,9 @@ namespace Shard::Engine::Physics {
             return;
 
         bodyIDToComponentMap.clear();
+        m_PendingContacts.clear();
+        m_DispatchedContacts.clear();
+        m_ScriptCache.clear();
 
         delete m_jobSystem;
         m_jobSystem = nullptr;
@@ -151,56 +158,113 @@ namespace Shard::Engine::Physics {
         return result;
     }
 
-    void PhysicsManager::OnContactAdded(const Body &body1, const Body &body2, const ContactManifold &contactManifold, ContactSettings &contactSettings)
-    {   
-        Objects::Components::PhysicsBody* comp1 = bodyIDToComponentMap[body1.GetID()];
-        Objects::Components::PhysicsBody* comp2 = bodyIDToComponentMap[body2.GetID()];
-
-        if(!comp1 || !comp2)
-            return;
-
-        for(auto& script : comp1->parent->GetComponents<Objects::Components::Script>()){
-            script->OnContactAdded(Events::ContactAddedEvent(*comp2, contactManifold, contactSettings, Core::ObjectID(0)));
-        }
-
-        for(auto& script : comp2->parent->GetComponents<Objects::Components::Script>()){
-            script->OnContactAdded(Events::ContactAddedEvent(*comp1, contactManifold, contactSettings, Core::ObjectID(0)));
-        }
+    void PhysicsManager::QueueContact(PendingContact::Kind kind, const Body &body1, const Body &body2, const ContactManifold &contactManifold, const ContactSettings &contactSettings)
+    {
+        // Jolt's jobs report contacts concurrently, with the bodies locked : nothing here may run game code, lock a body or touch
+        // the component map (the main thread is waiting in Update, the scripts run once it returns)
+        std::lock_guard<std::mutex> lock(m_ContactMutex);
+        PendingContact& contact = m_PendingContacts.emplace_back();
+        contact.kind = kind;
+        contact.body1 = body1.GetID();
+        contact.body2 = body2.GetID();
+        contact.subShape1 = contactManifold.mSubShapeID1;
+        contact.subShape2 = contactManifold.mSubShapeID2;
+        contact.manifold = contactManifold;
+        contact.settings = contactSettings;
     }
 
-    void PhysicsManager::OnContactPersisted(const Body &body1, const Body &body2, const ContactManifold &contactManifold, ContactSettings &contactSettings)
+    void PhysicsManager::QueueContactRemoved(const SubShapeIDPair &pair)
     {
-        Objects::Components::PhysicsBody* comp1 = bodyIDToComponentMap[body1.GetID()];
-        Objects::Components::PhysicsBody* comp2 = bodyIDToComponentMap[body2.GetID()];
-
-        if(!comp1 || !comp2)
-            return;
-
-        for(auto& script : comp1->parent->GetComponents<Objects::Components::Script>()){
-            script->OnContactPersisted(Events::ContactPersistedEvent(*comp2, contactManifold, contactSettings, Core::ObjectID(0)));
-        }
-
-        for(auto& script : comp2->parent->GetComponents<Objects::Components::Script>()){
-            script->OnContactPersisted(Events::ContactPersistedEvent(*comp1, contactManifold, contactSettings, Core::ObjectID(0)));
-        }
+        std::lock_guard<std::mutex> lock(m_ContactMutex);
+        PendingContact& contact = m_PendingContacts.emplace_back();
+        contact.kind = PendingContact::Kind::Removed;
+        contact.body1 = pair.GetBody1ID();
+        contact.body2 = pair.GetBody2ID();
+        contact.subShape1 = pair.GetSubShapeID1();
+        contact.subShape2 = pair.GetSubShapeID2();
     }
-    
-    void PhysicsManager::OnContactRemoved(const SubShapeIDPair &pair)
-    {
-        Objects::Components::PhysicsBody* comp1 = bodyIDToComponentMap[pair.GetBody1ID()];
-        Objects::Components::PhysicsBody* comp2 = bodyIDToComponentMap[pair.GetBody2ID()];
 
-        if(!comp1 || !comp2)
+    Objects::Components::PhysicsBody* PhysicsManager::FindComponent(JPH::BodyID id) const
+    {
+        auto it = bodyIDToComponentMap.find(id);
+        return it != bodyIDToComponentMap.end() ? it->second : nullptr;
+    }
+
+    const std::vector<std::shared_ptr<Objects::Components::Script>>& PhysicsManager::ScriptsOf(Objects::Actor& actor)
+    {
+        auto it = m_ScriptCache.find(&actor);
+        if (it == m_ScriptCache.end())
+            it = m_ScriptCache.emplace(&actor, actor.GetComponents<Objects::Components::Script>()).first;
+        return it->second;
+    }
+
+    void PhysicsManager::DispatchContacts()
+    {
+        {
+            std::lock_guard<std::mutex> lock(m_ContactMutex);
+            m_DispatchedContacts.swap(m_PendingContacts);
+        }
+        if (m_DispatchedContacts.empty())
             return;
 
-        for(auto& script : comp1->parent->GetComponents<Objects::Components::Script>()){
-            script->OnContactEnded(Events::ContactRemovedEvent(*comp2, Core::ObjectID(0)));
+        // Jolt's jobs queued them in whatever order they happened to finish : sorted, so the scripts see the same sequence with
+        // one thread or twenty (and a replay stays a replay). Kind first : the step's new contacts, then the lasting ones, then
+        // the ended ones.
+        auto key = [](const PendingContact& c) {
+            return std::make_tuple(static_cast<int>(c.kind), c.body1.GetIndexAndSequenceNumber(), c.body2.GetIndexAndSequenceNumber(),
+                                   c.subShape1.GetValue(), c.subShape2.GetValue());
+        };
+        m_DispatchOrder.resize(m_DispatchedContacts.size());
+        for (uint32_t i = 0; i < m_DispatchOrder.size(); i++)
+            m_DispatchOrder[i] = i;
+        std::stable_sort(m_DispatchOrder.begin(), m_DispatchOrder.end(), [&](uint32_t a, uint32_t b) {
+            return key(m_DispatchedContacts[a]) < key(m_DispatchedContacts[b]);
+        });
+
+        for (uint32_t i : m_DispatchOrder)
+        {
+            const PendingContact& contact = m_DispatchedContacts[i];
+            DispatchContact(contact, contact.body1, contact.body2);
+            DispatchContact(contact, contact.body2, contact.body1);
         }
 
-        for(auto& script : comp2->parent->GetComponents<Objects::Components::Script>()){
-            script->OnContactEnded(Events::ContactRemovedEvent(*comp1, Core::ObjectID(0)));
-        }
+        m_DispatchedContacts.clear();
+        m_ScriptCache.clear();
+    }
 
+    void PhysicsManager::DispatchContact(const PendingContact& contact, JPH::BodyID selfID, JPH::BodyID otherID)
+    {
+        Objects::Components::PhysicsBody* self = FindComponent(selfID);
+        Objects::Components::PhysicsBody* other = FindComponent(otherID);
+        if (!self || !other || !self->parent || !other->parent)
+            return;
+
+        // Held for the duration of the calls : a script may destroy either actor
+        std::shared_ptr<Objects::Actor> selfActor = self->parent;
+        std::shared_ptr<Objects::Actor> otherActor = other->parent;
+
+        // The event's own copy : a script may write to it, the contact was already solved so it changes nothing
+        ContactSettings settings = contact.settings;
+
+        for (const auto& script : ScriptsOf(*selfActor))
+        {
+            // A previous callback (of this contact or an earlier one) removed one of the two bodies : the contact went with it
+            if (FindComponent(selfID) != self || FindComponent(otherID) != other)
+                return;
+
+            switch (contact.kind)
+            {
+                case PendingContact::Kind::Added:
+                    script->OnContactAdded(Events::ContactAddedEvent(*other, contact.manifold, settings, Core::ObjectID(0)));
+                    break;
+                case PendingContact::Kind::Persisted:
+                    script->OnContactPersisted(Events::ContactPersistedEvent(*other, contact.manifold, settings, Core::ObjectID(0)));
+                    break;
+                case PendingContact::Kind::Removed:
+                    script->OnContactEnded(Events::ContactRemovedEvent(*other, Core::ObjectID(0)));
+                    break;
+            }
+        }
     }
 
     void PhysicsManager::StepSimulation(float deltaTime, bool activateAll)
@@ -213,6 +277,9 @@ namespace Shard::Engine::Physics {
 
         m_physicsSystem.Update(deltaTime, 1, m_tempAllocator, m_jobSystem);
         m_StepCount++;
+
+        // Jolt is done with the bodies : the scripts may now read them, move them, destroy their actors
+        DispatchContacts();
     }
  
     void PhysicsManager::TickBodies(float deltaTime){
@@ -263,16 +330,16 @@ namespace Shard::Engine::Physics {
 
     void PhysicsContactListener::OnContactAdded(const Body &inBody1, const Body &inBody2, const ContactManifold &inManifold, ContactSettings &ioSettings)
     {
-        Core::GetEngine().GetPhysicsManager()->OnContactAdded(inBody1, inBody2, inManifold, ioSettings);
+        owner->QueueContact(PhysicsManager::PendingContact::Kind::Added, inBody1, inBody2, inManifold, ioSettings);
     }
 
     void PhysicsContactListener::OnContactPersisted(const Body &inBody1, const Body &inBody2, const ContactManifold &inManifold, ContactSettings &ioSettings)
     {
-        Core::GetEngine().GetPhysicsManager()->OnContactPersisted(inBody1, inBody2, inManifold, ioSettings);
+        owner->QueueContact(PhysicsManager::PendingContact::Kind::Persisted, inBody1, inBody2, inManifold, ioSettings);
     }
 
     void PhysicsContactListener::OnContactRemoved(const SubShapeIDPair &inSubShapePair)
     {
-        Core::GetEngine().GetPhysicsManager()->OnContactRemoved(inSubShapePair);
+        owner->QueueContactRemoved(inSubShapePair);
     }
 }

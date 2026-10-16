@@ -206,6 +206,32 @@ namespace Shard::Engine::Worlds{
         actorsArray->push_back(actor);
     }
 
+    ordered_json SerializeActorToJson(const std::shared_ptr<Objects::Actor>& actor)
+    {
+        ordered_json array = ordered_json::array();
+        if (actor)
+            SerializeActor(actor, &array);
+        return array.empty() ? ordered_json::object() : array[0];
+    }
+
+    std::shared_ptr<Objects::Actor> InstantiateActor(World& world, const json& actorData, const std::shared_ptr<Objects::Actor>& parent)
+    {
+        if (!actorData.is_object() || !actorData.contains("name") || !actorData["name"].is_string())
+            return nullptr;
+
+        Core::IEngineContext* engine = &Core::GetEngine();
+        std::shared_ptr<Objects::Actor> a = Core::Object::CreateWithContext<Objects::Actor>(engine, actorData["name"].get<std::string>(), engine);
+
+        // Placed first, like World::Deserialize does : the components read their parents' world transform while they deserialize
+        if (parent)
+            parent->AddChild(a);
+        else
+            world.AddActor(a);
+
+        DeserializeActor(a, json::object(), actorData);
+        return a;
+    }
+
     void World::Serialize(Filesystem::Path filePath)
     {
         ordered_json actorsArray;
@@ -252,9 +278,21 @@ namespace Shard::Engine::Worlds{
         dirty = false;
     }
 
-    void World::SetBuildIndex(int buildIndex)
+    int World::ResolveAssetID()
     {
-        this->buildIndex = buildIndex;
+        if(resolvedAssetID >= 0 && resolvedAssetPath == path.full)
+            return resolvedAssetID;
+
+        auto& engine = Core::GetEngine();
+        const std::string nameInProject = engine.GetFileManager()->GetFileInfos(path).nameInProject;
+        if(!nameInProject.empty())
+            for(const auto& [id, info] : engine.GetAssetIDManager()->AssetIDMap)
+                if(info && info->baseInfos.nameInProject == nameInProject){
+                    resolvedAssetID = id.GetAsInt();
+                    resolvedAssetPath = path.full;
+                    return resolvedAssetID;
+                }
+        return -1;
     }
 
     void World::RemoveActorRecursive(Core::ObjectID actorID)

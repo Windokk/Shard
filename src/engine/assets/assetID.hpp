@@ -40,7 +40,10 @@ namespace Shard::Engine::Filesystem
             int packed;
     };
 
-    struct FileInfos; 
+    struct FileInfos;
+
+    // Engine resources have IDs up to 500 : the project's start here (see DeserializeAssetDataBase)
+    constexpr int kFirstProjectAssetID = 501;
 
     class AssetIDManager {
         public:
@@ -48,6 +51,8 @@ namespace Shard::Engine::Filesystem
                 m_nextId.store(startID);
                 m_initialized = true;
             }
+
+            int NextID() const { return m_nextId.load(); }
 
             void Reset() {
                 AssetIDMap.clear();

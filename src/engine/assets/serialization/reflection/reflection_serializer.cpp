@@ -1,5 +1,6 @@
 #include "reflection_serializer.hpp"
 
+#include <algorithm>
 #include <cstring>
 #include <string>
 
@@ -328,7 +329,7 @@ namespace Shard::Engine::Serialization
                 else
                     return false;
 
-                std::memcpy(value, &v, field.enumDesc->size < sizeof(int) ? field.enumDesc->size : sizeof(int));
+                std::memcpy(value, &v, std::min<size_t>(field.enumDesc->size, sizeof(int)));
                 return true;
             }
 

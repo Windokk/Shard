@@ -155,7 +155,7 @@ namespace Shard::Engine::Rendering {
 
             virtual ~Mesh() = default;
 
-            const int SubMeshesCount() const { return m_Submeshes.size(); }
+            int SubMeshesCount() const { return static_cast<int>(m_Submeshes.size()); }
             const std::vector<SubMesh>& GetSubMeshes() const { return m_Submeshes; }
 
             /// How many material slots the mesh addresses (what a Model's material list has to match). Not the
@@ -168,8 +168,8 @@ namespace Shard::Engine::Rendering {
                 return slots;
             }
 
-            const size_t GetIndexCount() const { return m_IndexCount; }
-            const size_t GetVertexCount() const { return m_VertexCount; }
+            size_t GetIndexCount() const { return m_IndexCount; }
+            size_t GetVertexCount() const { return m_VertexCount; }
 
             /// @brief The vertices and indices on the CPU side, for the rare code that reads them (building the BVH of the
             /// ray traced GI). Once a mesh is on the GPU only the GPU keeps them - the CPU copy is as big as the buffers, and

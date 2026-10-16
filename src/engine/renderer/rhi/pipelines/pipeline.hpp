@@ -163,6 +163,20 @@ namespace Shard::Engine::Rendering{
         std::size_t operator()(const PipelineSpecifications& s) const;
     };
 
+    /// Drops the entries of a pipeline cache (specs -> shared_ptr pipeline, keyed on the shader object) that nothing outside the cache
+    /// holds any more : their shader is kept alive by the key alone, so a shader made again (not reused) would otherwise pile up forever
+    template<typename Cache>
+    void PruneUnusedPipelines(Cache& cache)
+    {
+        for (auto it = cache.begin(); it != cache.end();)
+        {
+            if (it->second && it->second.use_count() == 1)
+                it = cache.erase(it);
+            else
+                ++it;
+        }
+    }
+
     class Pipeline
     {
         public:

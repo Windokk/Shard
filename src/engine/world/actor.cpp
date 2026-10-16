@@ -134,8 +134,7 @@ namespace Shard::Engine::Objects{
             world->RemoveActor(id);
             
             if(world->IsLoaded()){
-                int worldBuildIndex = world->GetBuildIndex();
-                int worldAssetID = engine->GetAssetIDManager()->GetIDFromNameInProject(engine->GetBuildSettings()->buildIndex[worldBuildIndex].full).GetAsInt();
+                int worldAssetID = world->ResolveAssetID();
 
                 engine->GetEventDispatcher()->emitGlobal(Events::WorldStructureChangedEvent(
                                                         worldAssetID, Events::DESTROYED, name, GetID()));
@@ -225,8 +224,7 @@ namespace Shard::Engine::Objects{
         world->transforms.emplace(GetComponentIDInWorld(transform->GetLocalId()), transform);
 
         if(world->IsLoaded()){
-            int worldBuildIndex = world->GetBuildIndex();
-            int worldAssetID = engine->GetAssetIDManager()->GetIDFromNameInProject(engine->GetBuildSettings()->buildIndex[worldBuildIndex].full).GetAsInt();
+            int worldAssetID = world->ResolveAssetID();
 
             engine->GetEventDispatcher()->emitGlobal(Events::WorldStructureChangedEvent(
                                                     worldAssetID, Events::CREATED, name, GetID()));
@@ -242,8 +240,7 @@ namespace Shard::Engine::Objects{
             component->Activate();
         }
         if(world->IsLoaded()){
-            int worldBuildIndex = world->GetBuildIndex();
-            int worldAssetID = engine->GetAssetIDManager()->GetIDFromNameInProject(engine->GetBuildSettings()->buildIndex[worldBuildIndex].full).GetAsInt();
+            int worldAssetID = world->ResolveAssetID();
 
             engine->GetEventDispatcher()->emitGlobal(Events::WorldStructureChangedEvent(
                                                     worldAssetID, Events::ACTIVATED, name, GetID()));
@@ -259,8 +256,7 @@ namespace Shard::Engine::Objects{
             component->DeActivate();
         }
         if(world->IsLoaded()){
-            int worldBuildIndex = world->GetBuildIndex();
-            int worldAssetID = engine->GetAssetIDManager()->GetIDFromNameInProject(engine->GetBuildSettings()->buildIndex[worldBuildIndex].full).GetAsInt();
+            int worldAssetID = world->ResolveAssetID();
 
             engine->GetEventDispatcher()->emitGlobal(Events::WorldStructureChangedEvent(
                                                     worldAssetID, Events::DEACTIVATED, name, GetID()));
@@ -291,7 +287,7 @@ namespace Shard::Engine::Objects{
             DEBUG_INFO("Cloning : Base actor was not placed in a world, clone won't be placed in a world either");
         }
 
-        for(int i = 0; i < components.size(); i++){
+        for(size_t i = 0; i < components.size(); i++){
 
             std::shared_ptr<Component> comp = components[i];
 

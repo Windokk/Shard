@@ -67,8 +67,8 @@ namespace Shard::Engine::Rendering
     {
         std::size_t hash = 0;
 
-        uint64_t shaderID = s.shader ? s.shader->GetAssetID().GetAsInt() : 0;
-        HashCombine(hash, std::hash<uint64_t>()(shaderID));
+        // The shader object, not its AssetID : the shaders made from files directly (not assets) all have the ID 0
+        HashCombine(hash, std::hash<const Shader*>()(s.shader.get()));
 
         HashCombine(hash, VertexLayoutHash{}(s.vertexLayout));
 
@@ -94,10 +94,7 @@ namespace Shard::Engine::Rendering
     
     bool PipelineSpecifications::operator==(const PipelineSpecifications &other) const
     {
-        uint64_t idA = shader ? shader->GetAssetID().GetAsInt() : 0;
-        uint64_t idB = other.shader ? other.shader->GetAssetID().GetAsInt() : 0;
-
-        return idA == idB &&
+        return shader == other.shader &&
             vertexLayout == other.vertexLayout &&
             topology == other.topology &&
             cullMode == other.cullMode &&

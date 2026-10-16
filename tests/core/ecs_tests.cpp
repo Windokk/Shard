@@ -563,6 +563,109 @@ TEST(EcsRegistry, DeferredDestroyOfAnAlreadyDeadDescendantIsHarmless) {
     EXPECT_EQ(registry.Count(), 0u);
 }
 
+TEST(EcsScheduler, ParallelSystemsDestroyingEntitiesGoThroughTheDeferredQueue) {
+    // Systems that declare nothing don't conflict : they run at the same time. Each destroys its own entities, outside of any
+    // query. Applied on the spot, they would all rewrite the records, the free list and the archetypes at once : the requests
+    // have to be queued, and applied when the phase is over.
+    JobSystemDesc desc; desc.workerCount = 3;
+    JobSystem js(desc);
+    constexpr int kSystems = 4, kPerSystem = 300;
+
+    for (int rep = 0; rep < 10; ++rep) {
+        Registry registry;
+        Scheduler scheduler;
+        std::vector<std::vector<Entity>> owned(kSystems);
+        for (int s = 0; s < kSystems; ++s)
+            for (int i = 0; i < kPerSystem; ++i) owned[s].push_back(registry.Create(Health{i}, Position{float(s), 0, 0}));
+
+        std::atomic<int> started{0};
+        std::atomic<int> destroyedOnTheSpot{0};
+        std::atomic<int> refusedCreates{0};
+        std::atomic<int> sawConcurrent{0};
+        for (int s = 0; s < kSystems; ++s) {
+            SystemDesc d; d.name = "killer" + std::to_string(s); d.phase = Phase::Update;
+            d.run = [&, s](SystemContext& c) {
+                // Wait (bounded) for the others, so the destroys really overlap
+                started.fetch_add(1);
+                const auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(5);
+                while (started.load() < kSystems && std::chrono::steady_clock::now() < deadline) std::this_thread::yield();
+
+                if (c.registry.IsConcurrent()) sawConcurrent.fetch_add(1);
+                if (c.registry.Create().IsNull()) refusedCreates.fetch_add(1);
+                for (Entity e : owned[s]) {
+                    c.registry.DestroyDeferred(e);
+                    if (!c.registry.IsAlive(e)) destroyedOnTheSpot.fetch_add(1);
+                }
+            };
+            scheduler.Add(std::move(d));
+        }
+        scheduler.RunFrame(registry, &js, {});
+
+        EXPECT_EQ(sawConcurrent.load(), kSystems);
+        EXPECT_EQ(refusedCreates.load(), kSystems);                     // structural changes wait for the end of the phase
+        EXPECT_EQ(destroyedOnTheSpot.load(), 0);                        // queued...
+        EXPECT_FALSE(registry.IsConcurrent());
+        EXPECT_EQ(registry.Count(), 0u);                                // ... and flushed when the phase ended
+        EXPECT_EQ(registry.GetStats().pendingDestroys, 0u);
+        for (const auto& list : owned)
+            for (Entity e : list) EXPECT_FALSE(registry.IsAlive(e));
+
+        // The free list came out whole : every slot is handed out again exactly once
+        std::set<uint32_t> indices;
+        for (int i = 0; i < kSystems * kPerSystem; ++i) {
+            const Entity e = registry.Create(Health{i});
+            ASSERT_FALSE(e.IsNull());
+            EXPECT_TRUE(indices.insert(e.Index()).second);
+        }
+        EXPECT_EQ(registry.Count(), size_t(kSystems * kPerSystem));
+        int sum = 0;
+        registry.Each<const Health>([&](const Health& h) { sum += h.value; });
+        EXPECT_EQ(sum, (kSystems * kPerSystem - 1) * kSystems * kPerSystem / 2);
+    }
+}
+
+TEST(EcsScheduler, AnExclusiveSystemOfAParallelPhaseStillChangesTheStructureDirectly) {
+    // The engine's own systems are exclusive : they run alone, on a worker, and spawn / destroy actors on the spot
+    JobSystemDesc desc; desc.workerCount = 3;
+    JobSystem js(desc);
+    Registry registry;
+    Scheduler scheduler;
+    const Entity victim = registry.Create(Health{1});
+
+    bool readerSawConcurrent = false, exclusiveSawConcurrent = true, victimGoneAtOnce = false;
+    Entity spawned;
+    SystemDesc reader; reader.name = "reader"; reader.phase = Phase::Update; reader.Reads<Health>();
+    reader.run = [&](SystemContext& c) { readerSawConcurrent = c.registry.IsConcurrent(); };
+    SystemDesc spawner; spawner.name = "spawner"; spawner.phase = Phase::Update; spawner.Exclusive();
+    spawner.run = [&](SystemContext& c) {
+        exclusiveSawConcurrent = c.registry.IsConcurrent();
+        spawned = c.registry.Create(Health{7});
+        c.registry.DestroyDeferred(victim);
+        victimGoneAtOnce = !c.registry.IsAlive(victim);
+    };
+    SystemDesc other; other.name = "other"; other.phase = Phase::Update; other.Reads<Position>();
+    other.run = [](SystemContext&) {};
+    scheduler.Add(reader); scheduler.Add(spawner); scheduler.Add(other);
+
+    scheduler.RunFrame(registry, &js, {});
+    EXPECT_TRUE(readerSawConcurrent);
+    EXPECT_FALSE(exclusiveSawConcurrent);
+    EXPECT_FALSE(spawned.IsNull());
+    EXPECT_TRUE(victimGoneAtOnce);
+    EXPECT_FALSE(registry.IsConcurrent());
+    EXPECT_EQ(registry.Count(), 1u);
+}
+
+TEST(EcsRegistry, AddOverwritesWithTheColumnSizeAndZeroesWithoutData) {
+    Registry registry;
+    const Entity e = registry.Create(Position{1, 2, 3});
+    EXPECT_TRUE(registry.Add(e, Position{4, 5, 6}));                   // overwrite : not structural
+    EXPECT_EQ(registry.Get<Position>(e).z, 6.0f);
+    EXPECT_TRUE(registry.AddRaw(e, ComponentIdOf<Health>(), nullptr));  // structural, no value : zeroed
+    EXPECT_EQ(registry.Get<Health>(e).value, 0);
+    EXPECT_EQ(registry.Get<Position>(e).x, 4.0f);                      // carried over by the move
+}
+
 TEST(EcsRegistry, StatsAndDescribe) {
     Registry registry;
     for (int i = 0; i < 3; ++i) registry.Create(Health{i});

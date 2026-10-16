@@ -1113,7 +1113,7 @@ namespace Shard::Engine::Rendering::VK {
 
         const VkImageLayout sourceLayout = source.layout;
         source.Transition(cmd, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL);
-        TransitionImageRaw(cmd, target, VK_IMAGE_ASPECT_COLOR_BIT, VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL);
+        TransitionAcquiredImage(cmd, target, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, VK_PIPELINE_STAGE_2_TRANSFER_BIT);
 
         // The picture is stored bottom row first, like OpenGL's : the blit flips it
         VkImageBlit blit{};
@@ -1185,7 +1185,7 @@ namespace Shard::Engine::Rendering::VK {
             return false;
         }
 
-        TransitionImageRaw(cmd, m_SwapchainImages[index], VK_IMAGE_ASPECT_COLOR_BIT, VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL);
+        TransitionAcquiredImage(cmd, m_SwapchainImages[index], VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL, VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT);
 
         VkRenderingAttachmentInfo color{VK_STRUCTURE_TYPE_RENDERING_ATTACHMENT_INFO};
         color.imageView = m_SwapchainViews[index];

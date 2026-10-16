@@ -587,6 +587,12 @@ namespace Shard::Engine::Core {
         RegisterCommand("exec", "exec file : runs the console commands of a file, one per line",
             [this](const std::vector<std::string>& args) -> CommandResult {
                 if (args.empty()) return {false, "usage: exec file"};
+
+                // A file that execs itself (or two that exec each other) recursed until the stack overflowed
+                static thread_local int depth = 0;
+                if (depth >= 16) return {false, "exec " + args[0] + " : nested too deep (does it exec itself ?)"};
+                struct DepthGuard { int& d; DepthGuard(int& d) : d(d) { ++d; } ~DepthGuard() { --d; } } guard(depth);
+
                 std::ifstream file(args[0]);
                 if (!file) return {false, "can't open " + args[0]};
                 std::string line, out;

@@ -1,6 +1,7 @@
 #include "billboard_component.hpp"
 
 #include <algorithm>
+#include <cstring>
 
 #include "engine/core/diagnostics/logger.hpp"
 #include "engine/renderer/features/billboards/billboard_atlas.hpp"
@@ -77,7 +78,7 @@ namespace Shard::Engine::Objects::Components {
 
     void Billboard::OnFieldChanged(const FieldChangedEvent& event)
     {
-        if (event.field->name == "spritePath" || event.field->name == "spritesCount")
+        if (std::strcmp(event.field->name, "spritePath") == 0 || std::strcmp(event.field->name, "spritesCount") == 0)
             ResolveSprite();
     }
 

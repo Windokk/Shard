@@ -14,6 +14,7 @@
 
 #include <algorithm>
 #include <cctype>
+#include <cstring>
 
 using namespace Shard::Engine::Core;
 
@@ -240,37 +241,37 @@ namespace Shard::Engine::Objects::Components{
 
     void Light::OnFieldChanged(const FieldChangedEvent &event)
     {
-        if(event.field->name == "lightType")
+        if(std::strcmp(event.field->name, "lightType") == 0)
         {
             SetType(lightType);
         }
-        if(event.field->name == "intensity"){
+        if(std::strcmp(event.field->name, "intensity") == 0){
             SetIntensity(intensity);
         }
-        if(event.field->name == "radius"){
+        if(std::strcmp(event.field->name, "radius") == 0){
             SetRadius(radius);
         }
-        if(event.field->name == "color")
+        if(std::strcmp(event.field->name, "color") == 0)
         {
             SetColor(glm::vec3(color));
         }
-        if(event.field->name == "outerCutoff")
+        if(std::strcmp(event.field->name, "outerCutoff") == 0)
         {
             SetOuterCutoff(outerCutoff);
         }
-        if(event.field->name == "innerCutoff")
+        if(std::strcmp(event.field->name, "innerCutoff") == 0)
         {
             SetInnerCuttoff(innerCutoff);
         }
-        if(event.field->name == "castShadows")
+        if(std::strcmp(event.field->name, "castShadows") == 0)
         {
             SetCastShadow(castShadows);
         }
-        if(event.field->name == "sourceSize")
+        if(std::strcmp(event.field->name, "sourceSize") == 0)
         {
             SetSourceSize(sourceSize);
         }
-        if(event.field->name == "bakeMode")
+        if(std::strcmp(event.field->name, "bakeMode") == 0)
         {
             SetBakeMode(bakeMode);
         }

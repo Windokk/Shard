@@ -580,7 +580,7 @@ namespace Shard::Engine::Rendering{
         key |= (pipelineID << 48);
         key |= (materialID << 32);
         key |= (meshID << 16);
-        key |= (cmd.modelID + submeshID & 0xFFFF);
+        key |= ((cmd.modelID + submeshID) & 0xFFFF);
 
         return key;
     }
@@ -592,6 +592,9 @@ namespace Shard::Engine::Rendering{
 
         if (inserted)
         {
+            // Keyed on the shader object : a pipeline only the cache still holds belongs to a shader made again since
+            // (the offline raytracer, the deferred pipeline re-activated), and would keep both alive forever
+            PruneUnusedPipelines(m_Pipelines);
             it->second = Pipeline::Create(specs);
         }
 
@@ -605,6 +608,7 @@ namespace Shard::Engine::Rendering{
 
         if (inserted)
         {
+            PruneUnusedPipelines(m_ComputePipelines);
             it->second = ComputePipeline::Create(specs);
         }
 
@@ -656,7 +660,7 @@ namespace Shard::Engine::Rendering{
             auto requested = m_RenderPasses.find(requestedPass);
 
             if(requested != m_RenderPasses.end()){
-                for(int submeshID = 0; submeshID < commands.size(); submeshID++)
+                for(size_t submeshID = 0; submeshID < commands.size(); submeshID++)
                 {
                     auto cmd = commands[submeshID];
 
@@ -725,7 +729,7 @@ namespace Shard::Engine::Rendering{
 
         if(addToShadowDrawList)
         {
-            for(int submeshID = 0; submeshID < commands.size(); submeshID++)
+            for(size_t submeshID = 0; submeshID < commands.size(); submeshID++)
             {
                 auto cmd = commands[submeshID];
                 
@@ -939,7 +943,7 @@ namespace Shard::Engine::Rendering{
         }
 
         // Remove the dependency
-        for(int i = 0; i < m_RenderPassDependencies[passName].size(); i++){
+        for(size_t i = 0; i < m_RenderPassDependencies[passName].size(); i++){
             if(m_RenderPassDependencies[passName][i] == dependencyName)
             {
                 m_RenderPassDependencies[passName].erase(m_RenderPassDependencies[passName].begin() + i);
@@ -964,6 +968,9 @@ namespace Shard::Engine::Rendering{
             if(buffer && (buffer->GetWidth() != uint32_t(newWidth) || buffer->GetHeight() != uint32_t(newHeight)))
                 buffer->Resize(newWidth, newHeight);
         }
+
+        if(m_SSAOManager)
+            m_SSAOManager->RefreshSamplers(this);
 
         if(onViewportResized)
             onViewportResized(newWidth, newHeight);

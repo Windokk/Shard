@@ -269,7 +269,7 @@ namespace Shard::Engine::Objects::Components{
 
         this->materials = std::move(newMaterials);
         materialsID.clear();
-        for(int i = 0; i < materials.size(); i++){
+        for(size_t i = 0; i < materials.size(); i++){
             materialsID.push_back(materials[i]->GetAssetID());
         }
     }

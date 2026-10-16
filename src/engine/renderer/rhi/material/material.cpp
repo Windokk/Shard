@@ -28,7 +28,7 @@ namespace Shard::Engine::Rendering{
             return nullptr;
         }
 
-        if(shader->GetAssetID() != pipeline->GetSpecifications().shader->GetAssetID()){
+        if(shader != pipeline->GetSpecifications().shader){
             DEBUG_ERROR("Tried creating a material with different shaders. Specified shader and specified pipeline's shader are not the same !");
             return nullptr;
         }

@@ -25,8 +25,8 @@ namespace Shard::Engine::Assets {
 
     namespace {
 
-        // Engine resources have IDs up to 500 (see SerializeAssetDataBase) : only project assets are added, renamed, removed.
-        constexpr int kFirstProjectAssetID = 501;
+        // Engine resources have IDs below kFirstProjectAssetID : only project assets are added, renamed, removed.
+        using Filesystem::kFirstProjectAssetID;
 
         std::string LowerExtension(const std::string& path)
         {
@@ -596,8 +596,8 @@ namespace Shard::Engine::Assets {
         }
 
         if(removed > 0){
-            if(m_Config.buildSettings)
-                RemapBuildSettings(*m_Config.buildSettings, m_Config.files->GetProjectResRoot(), name, "", true);
+            if(m_Config.remapWorlds)
+                m_Config.remapWorlds(name, "", true);
             m_DatabaseDirty = true;
             m_Revision++;
         }
@@ -660,8 +660,8 @@ namespace Shard::Engine::Assets {
         }
 
         RewriteAssetReferences(*m_Config.ids, oldName, newName, isDirectory);
-        if(m_Config.buildSettings)
-            RemapBuildSettings(*m_Config.buildSettings, m_Config.files->GetProjectResRoot(), oldName, newName, isDirectory);
+        if(m_Config.remapWorlds)
+            m_Config.remapWorlds(oldName, newName, isDirectory);
         m_Config.resources->RenameResident(oldName, newName, isDirectory);
 
         DEBUG_INFO("[HotReload] Renamed ", oldName, " -> ", newName);

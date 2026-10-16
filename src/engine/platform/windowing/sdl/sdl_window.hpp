@@ -40,6 +40,8 @@ namespace Shard::Engine::Core::Platform {
 
         /// @brief Asks the application to close (ShouldClose becomes true), like the close button would.
         void RequestClose() { m_ShouldClose = true; }
+        /// @brief Drops a close that was asked for (the application asked the user first, who changed their mind).
+        void CancelClose() { m_ShouldClose = false; }
 
         /// @brief Queues an event the window did not get from the OS (a replay playing back) : it is dispatched by the next
         /// PollEvents, after what the OS sent, like an event that came from the keyboard.

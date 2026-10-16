@@ -109,6 +109,29 @@ namespace Shard::Engine::Rendering::VK {
         vkCmdPipelineBarrier2(cmd, &dependency);
     }
 
+    void TransitionAcquiredImage(VkCommandBuffer cmd, VkImage image, VkImageLayout to, VkPipelineStageFlags2 waitStage)
+    {
+        VkImageMemoryBarrier2 barrier{VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER_2};
+
+        // TOP_OF_PIPE (what UNDEFINED gives) would not be chained to the semaphore wait : the transition could run while
+        // the image is still being presented
+        barrier.srcStageMask = waitStage;
+        barrier.srcAccessMask = 0;
+        LayoutAccess(to, barrier.dstStageMask, barrier.dstAccessMask);
+
+        barrier.oldLayout = VK_IMAGE_LAYOUT_UNDEFINED;
+        barrier.newLayout = to;
+        barrier.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+        barrier.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+        barrier.image = image;
+        barrier.subresourceRange = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1};
+
+        VkDependencyInfo dependency{VK_STRUCTURE_TYPE_DEPENDENCY_INFO};
+        dependency.imageMemoryBarrierCount = 1;
+        dependency.pImageMemoryBarriers = &barrier;
+        vkCmdPipelineBarrier2(cmd, &dependency);
+    }
+
     static bool SupportsLinearBlit(VkFormat format)
     {
         VkFormatProperties properties;
@@ -212,7 +235,7 @@ namespace Shard::Engine::Rendering::VK {
             viewInfo.image = image;
             viewInfo.viewType = viewType;
             viewInfo.format = format;
-            viewInfo.subresourceRange = {IsDepth() ? VK_IMAGE_ASPECT_DEPTH_BIT : aspect, 0, mips, 0, layers};
+            viewInfo.subresourceRange = {IsDepth() ? VkImageAspectFlags(VK_IMAGE_ASPECT_DEPTH_BIT) : aspect, 0, mips, 0, layers};
             if (info.swizzleBlueToOne)
                 viewInfo.components.b = VK_COMPONENT_SWIZZLE_ONE;
             if (VK_CHECK(vkCreateImageView(context.GetDevice(), &viewInfo, nullptr, &view)) != VK_SUCCESS)
@@ -272,7 +295,7 @@ namespace Shard::Engine::Rendering::VK {
         viewInfo.image = image;
         viewInfo.viewType = type;
         viewInfo.format = format;
-        viewInfo.subresourceRange = {IsDepth() && !(usage & VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT) ? VK_IMAGE_ASPECT_DEPTH_BIT : aspect, baseMip, mipCount, baseLayer, layerCount};
+        viewInfo.subresourceRange = {IsDepth() && !(usage & VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT) ? VkImageAspectFlags(VK_IMAGE_ASPECT_DEPTH_BIT) : aspect, baseMip, mipCount, baseLayer, layerCount};
 
         VkImageView subView = VK_NULL_HANDLE;
         VK_CHECK(vkCreateImageView(Context::Get().GetDevice(), &viewInfo, nullptr, &subView));

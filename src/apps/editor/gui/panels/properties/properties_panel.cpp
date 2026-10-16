@@ -8,6 +8,7 @@
 #include "apps/editor/gui/main_window.hpp"
 #include "apps/editor/gui/dragdrop/asset_drag_drop.hpp"
 #include "apps/editor/gui/IconsLucide.h"
+#include "apps/editor/commands/command_stack.hpp"
 
 #include <glm/glm.hpp>
 #include <cmath>
@@ -508,13 +509,15 @@ namespace Shard::Editor::GUI{
     {
         ImGui::Begin("Properties");
 
+        drawnActor = actor;
+
         if(actor){
             
             DrawActorInfo(actor);
 
             std::shared_ptr<Component> componentToRemove = nullptr;
 
-            for (int i = 0; i < actor->GetComponents().size(); i++)
+            for (int i = 0; i < static_cast<int>(actor->GetComponents().size()); i++)
             {
                 ImGui::PushID(i);
                 if (DrawComponent(actor->GetComponents()[i]))
@@ -523,10 +526,7 @@ namespace Shard::Editor::GUI{
             }
 
             if (componentToRemove)
-            {
-                actor->RemoveComponent(componentToRemove);
-                MarkWorldDirty();
-            }
+                Commands::Actions::EditActor(actor, "Remove Component", [&]{ actor->RemoveComponent(componentToRemove); });
 
             ImGui::Separator();
 
@@ -558,44 +558,93 @@ namespace Shard::Editor::GUI{
             }
         }
 
+        CommitPendingEdits();
+
+        drawnActor = nullptr;
+
         ImGui::End();
+    }
+
+    void PropertiesPanel::DrawRecordedField(const FieldInfo* field, std::shared_ptr<Component> comp, Commands::FieldOwnerLocator locate)
+    {
+        void* owner = locate ? locate(*comp) : static_cast<void*>(comp.get());
+        if (!owner)
+            return;
+
+        void* valuePtr = FieldRead(*field, owner);
+
+        if (!Commands::CanRecordField(field))
+        {
+            DrawField(field, valuePtr, comp);
+            return;
+        }
+
+        Commands::ValueBuffer old(field);
+        old.Capture(valuePtr);
+
+        DrawField(field, valuePtr, comp);
+
+        if (old.EqualsValue(valuePtr))
+            return;
+
+        // Changed again by the same drag : the value from before the first change is the one to go back to
+        for (const PendingFieldEdit& edit : pendingFieldEdits)
+            if (edit.component == comp && edit.field == field)
+                return;
+
+        pendingFieldEdits.push_back(PendingFieldEdit{ comp, field, std::move(locate), std::move(old) });
+    }
+
+    void PropertiesPanel::CommitPendingEdits()
+    {
+        if (pendingFieldEdits.empty() && !pendingActorEdit)
+            return;
+
+        // Still being edited ; or a gizmo drag is being recorded, which these edits must not end up in
+        auto& history = Commands::CommandStack::Get();
+        if (ImGui::IsAnyItemActive() || history.IsActive())
+            return;
+
+        history.Begin("Edit Properties");
+
+        for (PendingFieldEdit& edit : pendingFieldEdits)
+            history.Add(std::make_unique<Commands::ModifyFieldCommand>(edit.component, edit.field, std::move(edit.before), std::move(edit.locate)));
+        pendingFieldEdits.clear();
+
+        if (pendingActorEdit)
+            history.Add(std::move(pendingActorEdit));
+
+        history.End();
     }
 
     void PropertiesPanel::DrawAddComponentMenu(std::shared_ptr<Actor> actor)
     {
         if (ImGui::MenuItem("Light")) {
-            actor->AddComponent<Engine::Objects::Components::Light>();
-            MarkWorldDirty();
+            Commands::Actions::EditActor(actor, "Add Component", [&]{ actor->AddComponent<Engine::Objects::Components::Light>(); });
         }
 
         if (ImGui::MenuItem("Camera")) {
-            actor->AddComponent<Engine::Objects::Components::Camera>();
-            MarkWorldDirty();
+            Commands::Actions::EditActor(actor, "Add Component", [&]{ actor->AddComponent<Engine::Objects::Components::Camera>(); });
         }
 
         if (ImGui::MenuItem("Audio Source")) {
-            actor->AddComponent<Engine::Objects::Components::AudioSource>();
-            MarkWorldDirty();
+            Commands::Actions::EditActor(actor, "Add Component", [&]{ actor->AddComponent<Engine::Objects::Components::AudioSource>(); });
         }
 
         if (ImGui::MenuItem("Audio Listener")) {
-            actor->AddComponent<Engine::Objects::Components::AudioListener>();
-            MarkWorldDirty();
+            Commands::Actions::EditActor(actor, "Add Component", [&]{ actor->AddComponent<Engine::Objects::Components::AudioListener>(); });
         }
 
         if (ImGui::MenuItem("Physics Body")) {
-            actor->AddComponent<Engine::Objects::Components::PhysicsBody>();
-            MarkWorldDirty();
+            Commands::Actions::EditActor(actor, "Add Component", [&]{ actor->AddComponent<Engine::Objects::Components::PhysicsBody>(); });
         }
 
         if (ImGui::MenuItem("Model")) {
-            actor->AddComponent<Engine::Objects::Components::Model>();
-            MarkWorldDirty();
+            Commands::Actions::EditActor(actor, "Add Component", [&]{ actor->AddComponent<Engine::Objects::Components::Model>(); });
         }
 
         if (ImGui::MenuItem("Probe Volume")) {
-            actor->AddComponent<Engine::Objects::Components::ProbeVolume>();
-            MarkWorldDirty();
+            Commands::Actions::EditActor(actor, "Add Component", [&]{ actor->AddComponent<Engine::Objects::Components::ProbeVolume>(); });
         }
 
         // Everything registered through REGISTER_COMPONENT (game-side custom components, e.g.
@@ -623,8 +672,7 @@ namespace Shard::Editor::GUI{
                     std::shared_ptr<Component> component = GetComponentRegistry().CreateComponentByName(name);
                     if (component)
                     {
-                        actor->AddComponentRaw(component);
-                        MarkWorldDirty();
+                        Commands::Actions::EditActor(actor, "Add Component", [&]{ actor->AddComponentRaw(component); });
                     }
                 }
             }
@@ -640,10 +688,25 @@ namespace Shard::Editor::GUI{
         ImGui::Text("Name");
         ImGui::SameLine();
 
+        const std::string nameBefore = actor->GetName();
+
         if (ImGui::InputText("##ActorName", buffer, sizeof(buffer)))
         {
             actor->SetName(buffer);
             MarkWorldDirty();
+        }
+
+        // One undo step for the whole edit of the box, not one per letter
+        if (ImGui::IsItemActivated())
+        {
+            nameEditActor = actor;
+            nameBeforeEdit = nameBefore;
+        }
+
+        if (ImGui::IsItemDeactivated() && nameEditActor)
+        {
+            Commands::CommandStack::Get().Record(std::make_unique<Commands::RenameActorCommand>(nameEditActor, nameBeforeEdit, nameEditActor->GetName()));
+            nameEditActor = nullptr;
         }
 
         ImGui::Text("Object ID: %d", actor->GetID().GetAsInt());
@@ -663,10 +726,7 @@ namespace Shard::Editor::GUI{
 
         ImGui::AlignTextToFramePadding();
         if (ImGui::Checkbox(id.c_str(), &active))
-        {
-            active ? comp->Activate() : comp->DeActivate();
-            MarkWorldDirty();
-        }
+            Commands::Actions::SetComponentActive(comp, active);
 
         ImGui::SameLine();
 
@@ -718,23 +778,48 @@ namespace Shard::Editor::GUI{
                         uint8_t* base = reinterpret_cast<uint8_t*>(comp.get()) + field->offset;
                         InstancedStruct* structPtr = reinterpret_cast<InstancedStruct*>(base);
 
+                        // Read through the component each time : the undo history may apply the value to a rebuilt one
+                        const uint32_t offset = field->offset;
+                        Commands::FieldOwnerLocator locate = [offset](Component& owner) -> void* {
+                            return reinterpret_cast<InstancedStruct*>(reinterpret_cast<uint8_t*>(&owner) + offset)->data;
+                        };
+
                         for (auto& subField : structPtr->descriptor->fields)
-                        {
-                            void* valuePtr = FieldRead(*subField, structPtr->data);
-                            DrawField(subField, valuePtr, comp);
-                        }
+                            DrawRecordedField(subField, comp, locate);
                     }
                     else
                     {
-                        void* valuePtr = FieldRead(*field, comp.get());
-                        DrawField(field, valuePtr, comp);
+                        DrawRecordedField(field, comp);
                     }
                 }
                 
                 ImGui::EndTable();
             }
 
-            DrawPhysicsBodyShapes(comp);
+            if (comp->IsInstanceOf<PhysicsBody>() && drawnActor)
+            {
+                // The shapes are not reflected fields : an edit of them is undone by rebuilding the actor
+                ordered_json shapesBefore = comp->Serialize();
+                DrawPhysicsBodyShapes(comp);
+
+                if (!pendingActorEdit && comp->Serialize() != shapesBefore)
+                {
+                    Commands::ActorState before = Commands::ActorState::Capture(drawnActor);
+
+                    const auto& components = drawnActor->GetComponents();
+                    const size_t index = std::find(components.begin(), components.end(), comp) - components.begin();
+                    if (before.data["components"].is_array() && index < before.data["components"].size())
+                        before.data["components"][index] = shapesBefore;
+
+                    pendingActorEdit = std::make_unique<Commands::ActorSnapshotCommand>("Edit Physics Shapes", drawnActor, true);
+                    pendingActorEdit->SetBefore(std::move(before));
+                }
+            }
+            else
+            {
+                DrawPhysicsBodyShapes(comp);
+            }
+
             DrawProbeVolumeBake(comp);
         }
 
@@ -743,12 +828,11 @@ namespace Shard::Editor::GUI{
 
     void PropertiesPanel::DrawField(const FieldInfo *field, void *value, std::shared_ptr<Engine::Objects::Components::Component> comp, const Container *container, const int valueIndexInContainer)
     {
-        const char * fieldName = field->name;
+        // A container element is labelled by its index : the string must outlive this function's widgets (a temporary's c_str() dangled)
+        const std::string indexLabel = valueIndexInContainer != -1 ? std::to_string(valueIndexInContainer) : std::string();
+        const char * fieldName = valueIndexInContainer != -1 ? indexLabel.c_str() : field->name;
 
         bool readOnly = (field->flags & ReadOnly) && !(field->flags & Editable);
-
-        if(valueIndexInContainer != -1)
-            fieldName = std::to_string(valueIndexInContainer).c_str();
 
         ImGui::TableNextRow();
 
@@ -756,7 +840,7 @@ namespace Shard::Editor::GUI{
         ImGui::TableSetColumnIndex(0);
 
         ImGui::AlignTextToFramePadding();
-        ImGui::Text(fieldName);
+        ImGui::TextUnformatted(fieldName);
         if(field->tooltip && ImGui::IsItemHovered())
             ImGui::SetTooltip("%s", field->tooltip);
 
@@ -1206,6 +1290,11 @@ namespace Shard::Editor::GUI{
 
                 break;
             }
+
+            case TypeID::Map:
+            case TypeID::Struct:
+            case TypeID::Unknown:
+                break;
         }
 
         if(readOnly)

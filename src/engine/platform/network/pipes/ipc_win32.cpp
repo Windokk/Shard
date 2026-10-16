@@ -4,7 +4,9 @@
 #include "engine/platform/time/clock.hpp"
 
 #define WIN32_LEAN_AND_MEAN
+#ifndef NOMINMAX
 #define NOMINMAX
+#endif
 #include <windows.h>
 
 #include <algorithm>
@@ -54,6 +56,14 @@ namespace Shard::Engine::Core::Platform {
         HANDLE event = nullptr;     // shared by the operations : the pipe is used by one thread at a time
         bool server = false;
         bool connected = false;
+
+        // A server has to DisconnectNamedPipe once its client is gone, or the next ConnectNamedPipe fails with ERROR_NO_DATA
+        void Drop()
+        {
+            if (server)
+                DisconnectNamedPipe(handle);
+            connected = false;
+        }
     };
 
     std::unique_ptr<NamedPipe> NamedPipe::CreateServer(const std::string& name)
@@ -129,7 +139,18 @@ namespace Shard::Engine::Core::Platform {
             return true;
         }
 
-        const DWORD error = GetLastError();
+        DWORD error = GetLastError();
+        if (error == ERROR_NO_DATA)             // the previous client closed its end but the pipe was never disconnected
+        {
+            DisconnectNamedPipe(m_Impl->handle);
+            ResetEvent(m_Impl->event);
+            if (ConnectNamedPipe(m_Impl->handle, &overlapped))
+            {
+                m_Impl->connected = true;
+                return true;
+            }
+            error = GetLastError();
+        }
         if (error == ERROR_PIPE_CONNECTED)      // the client connected before we asked
         {
             m_Impl->connected = true;
@@ -152,9 +173,7 @@ namespace Shard::Engine::Core::Platform {
 
     void NamedPipe::Disconnect()
     {
-        if (m_Impl->server && m_Impl->connected)
-            DisconnectNamedPipe(m_Impl->handle);
-        m_Impl->connected = false;
+        m_Impl->Drop();
     }
 
     IpcStatus NamedPipe::Read(void* buffer, size_t size, size_t* read, int timeoutMs)
@@ -173,7 +192,7 @@ namespace Shard::Engine::Core::Platform {
             error = GetLastError();
             if (error != ERROR_IO_PENDING)
             {
-                if (IsBrokenPipe(error)) { m_Impl->connected = false; return IpcStatus::Closed; }
+                if (IsBrokenPipe(error)) { m_Impl->Drop(); return IpcStatus::Closed; }
                 return IpcStatus::Error;
             }
         }
@@ -182,7 +201,7 @@ namespace Shard::Engine::Core::Platform {
         if (transferred < 0)
         {
             if (error == ERROR_TIMEOUT) return IpcStatus::TimedOut;
-            if (IsBrokenPipe(error)) { m_Impl->connected = false; return IpcStatus::Closed; }
+            if (IsBrokenPipe(error)) { m_Impl->Drop(); return IpcStatus::Closed; }
             return IpcStatus::Error;
         }
         if (read) *read = static_cast<size_t>(transferred);
@@ -207,7 +226,7 @@ namespace Shard::Engine::Core::Platform {
                 error = GetLastError();
                 if (error != ERROR_IO_PENDING)
                 {
-                    if (IsBrokenPipe(error)) { m_Impl->connected = false; return IpcStatus::Closed; }
+                    if (IsBrokenPipe(error)) { m_Impl->Drop(); return IpcStatus::Closed; }
                     return IpcStatus::Error;
                 }
             }
@@ -216,7 +235,7 @@ namespace Shard::Engine::Core::Platform {
             if (transferred < 0)
             {
                 if (error == ERROR_TIMEOUT) return IpcStatus::TimedOut;
-                if (IsBrokenPipe(error)) { m_Impl->connected = false; return IpcStatus::Closed; }
+                if (IsBrokenPipe(error)) { m_Impl->Drop(); return IpcStatus::Closed; }
                 return IpcStatus::Error;
             }
             cursor += transferred;

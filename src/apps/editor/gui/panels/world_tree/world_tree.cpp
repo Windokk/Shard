@@ -5,6 +5,8 @@
 #include "apps/editor/gui/main_window.hpp"
 #include "apps/editor/gui/panels/common.hpp"
 #include "apps/editor/gui/dragdrop/asset_drag_drop.hpp"
+#include "apps/editor/commands/actor_commands.hpp"
+#include "apps/editor/commands/command_stack.hpp"
 
 #include "engine/world/world_manager.hpp"
 #include "engine/renderer/components/model_component.hpp"
@@ -52,6 +54,13 @@ namespace Shard::Editor::GUI{
                 DrawActorNode(rootActor);
         }
 
+        if (pendingEdit)
+        {
+            std::function<void()> edit = std::move(pendingEdit);
+            pendingEdit = nullptr;
+            edit();
+        }
+
         // Whole-window drop zone (rather than per-item) so dropping a mesh anywhere in the outliner -
         // not just precisely on an existing row - spawns it as a new root actor; BeginDragDropTargetCustom
         // registers the window's own rect as a target without submitting an "item", so it doesn't
@@ -61,6 +70,11 @@ namespace Shard::Editor::GUI{
             if (ImGui::BeginDragDropTargetCustom(window->Rect(), window->ID))
             {
                 std::vector<std::string> dropped = DragDrop::AcceptAssetDragDropPayload();
+
+                auto& history = Commands::CommandStack::Get();
+                if (!dropped.empty())
+                    history.Begin("Place Actors");
+
                 for (const auto& nameInProject : dropped)
                 {
                     if (Engine::Filesystem::Path(nameInProject).GetExtensionType() != Engine::Filesystem::Type::T_MODEL)
@@ -78,8 +92,11 @@ namespace Shard::Editor::GUI{
                     if (parent)
                         parent->SetSelectedActor(actor);
 
-                    world->SetDirty(true);
+                    Commands::Actions::RecordCreated(actor, "Place Actor");
                 }
+
+                if (!dropped.empty())
+                    history.End();
 
                 // Dropped on empty space rather than on a specific row -> detach from whatever
                 // actor it was parented under and make it a root actor of the world.
@@ -110,7 +127,7 @@ namespace Shard::Editor::GUI{
                 if (parent)
                     parent->SetSelectedActor(actor);
 
-                world->SetDirty(true);
+                Commands::Actions::RecordCreated(actor);
             }
 
             ImGui::EndPopup();
@@ -191,7 +208,7 @@ namespace Shard::Editor::GUI{
                 auto droppedActor = std::dynamic_pointer_cast<Engine::Objects::Actor>(
                     Engine::Core::GetEngine().GetObjectIDManager()->GetObjectFromID(Engine::Core::ObjectID(droppedIdInt)));
                 if (droppedActor)
-                    ReparentActor(droppedActor, actor);
+                    pendingEdit = [this, droppedActor, actor]{ ReparentActor(droppedActor, actor); };
             }
 
             ImGui::EndDragDropTarget();
@@ -203,38 +220,34 @@ namespace Shard::Editor::GUI{
             if (ImGui::MenuItem("Rename"))
             {
                 renamingActor = actor;
-                strcpy(renameBuffer, actor->GetName().c_str());
+                // Bounded : a name longer than the buffer overflowed it with strcpy
+                snprintf(renameBuffer, sizeof(renameBuffer), "%s", actor->GetName().c_str());
                 openRenamingPopup = true;
             }
 
             if (ImGui::MenuItem("Delete"))
             {
-                if (actor == parent->GetSelectedActor())
-                    parent->SetSelectedActor(nullptr);
-
-                actor->Destroy();
-
-                if (auto* world = GetEngine().GetWorldManager()->GetWorldAt(0))
-                    world->SetDirty(true);
+                // The selection goes too if it is this actor or one of its descendants (see EditorMainWindow::ValidateSelection)
+                pendingEdit = [actor]{ Commands::Actions::Delete(actor); };
             }
 
             if (ImGui::MenuItem("Duplicate"))
             {
-                actor->Clone();
-
-                if (auto* world = GetEngine().GetWorldManager()->GetWorldAt(0))
-                    world->SetDirty(true);
+                pendingEdit = [this, actor]{
+                    if (auto copy = Commands::Actions::Duplicate(actor); copy && parent)
+                        parent->SetSelectedActor(copy);
+                };
             }
 
             ImGui::Separator();
 
             if (ImGui::MenuItem("Create Actor"))
             {
-                auto child = Engine::Core::Object::CreateWithContext<Engine::Objects::Actor>(&Engine::Core::GetEngine(), "New Actor", &Engine::Core::GetEngine());
-                actor->AddChild(child);
-
-                if (auto* world = GetEngine().GetWorldManager()->GetWorldAt(0))
-                    world->SetDirty(true);
+                pendingEdit = [actor]{
+                    auto child = Engine::Core::Object::CreateWithContext<Engine::Objects::Actor>(&Engine::Core::GetEngine(), "New Actor", &Engine::Core::GetEngine());
+                    actor->AddChild(child);
+                    Commands::Actions::RecordCreated(child);
+                };
             }
 
             ImGui::EndPopup();
@@ -253,12 +266,7 @@ namespace Shard::Editor::GUI{
             if (ImGui::Button("OK") || Engine::Core::GetEngine().GetInputManager()->WasKeyReleased(Engine::Input::Key::Enter))
             {
                 if (renamingActor)
-                {
-                    renamingActor->SetName(renameBuffer);
-
-                    if (auto* world = GetEngine().GetWorldManager()->GetWorldAt(0))
-                        world->SetDirty(true);
-                }
+                    Commands::Actions::Rename(renamingActor, renameBuffer);
 
                 renamingActor = nullptr;
                 openRenamingPopup = false;
@@ -296,12 +304,7 @@ namespace Shard::Editor::GUI{
         if (!actor || actor == newParent)
             return;
 
-        // Cycle detection and world-transform preservation ("attach in place") both live in
-        // Actor::SetParent now, shared with any other caller (scripts, etc).
-        actor->SetParent(newParent);
-
-        if (auto* world = GetEngine().GetWorldManager()->GetWorldAt(0))
-            world->SetDirty(true);
+        Commands::Actions::Reparent(actor, newParent);
     }
 }
 

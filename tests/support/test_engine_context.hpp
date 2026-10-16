@@ -46,7 +46,10 @@ namespace Shard::Tests {
             Shard::Engine::Core::Resources::ResourcesManager* GetResourcesManager() const override { Unsupported("GetResourcesManager"); return nullptr; }
             Shard::Engine::Filesystem::FileManager* GetFileManager() const override { Unsupported("GetFileManager"); return nullptr; }
             Shard::Engine::Filesystem::AssetIDManager* GetAssetIDManager() const override { Unsupported("GetAssetIDManager"); return nullptr; }
-            Shard::Engine::Physics::PhysicsManager* GetPhysicsManager() const override { Unsupported("GetPhysicsManager"); return nullptr; }
+            Shard::Engine::Physics::PhysicsManager* GetPhysicsManager() const override {
+                if (!physicsManager) Unsupported("GetPhysicsManager");
+                return physicsManager;
+            }
             Shard::Engine::Worlds::WorldManager* GetWorldManager() const override { Unsupported("GetWorldManager"); return nullptr; }
             Shard::Engine::Audio::AudioManager* GetAudioManager() const override { Unsupported("GetAudioManager"); return nullptr; }
             Shard::Engine::Audio::AudioIDManager* GetAudioIDManager() const override { Unsupported("GetAudioIDManager"); return nullptr; }
@@ -67,6 +70,8 @@ namespace Shard::Tests {
             /// Null by default (code that can run without a job system then runs serially) : a test that wants
             /// parallel work sets it.
             Shard::Engine::Core::JobSystem* jobSystem = nullptr;
+            /// Null by default : a test that simulates bodies sets it (it owns and initializes the manager)
+            Shard::Engine::Physics::PhysicsManager* physicsManager = nullptr;
 
         private:
             static void Unsupported(const char* method) {

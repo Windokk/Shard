@@ -150,6 +150,14 @@ namespace Shard::Editor::GUI {
             }
         }
 
+        // The fly camera's lens is the user's (Editor Preferences > Viewport) ; the orthographic size stays the camera's own
+        if (camera && parent && !Engine::Core::GetEngine().IsInPlayMode())
+        {
+            const Core::CameraPreferences& prefs = parent->preferences.camera;
+            camera->SetNearFarPlanes(prefs.nearPlane, std::max(prefs.farPlane, prefs.nearPlane + 0.01f));
+            camera->SetFOV(prefs.fieldOfView);
+        }
+
         // Dispatches one accumulated sample (or, on the first call after Start(), builds the scene/BVH)
         // per editor frame while a raytrace is active (see Raytracer::Update()'s comments) - called
         // unconditionally, regardless of whether the raytrace settings window is currently open, so the
@@ -161,8 +169,10 @@ namespace Shard::Editor::GUI {
         if (focusAnimating && cameraActor && !Engine::Core::GetEngine().IsInPlayMode())
         {
             float dt = Engine::Core::GetEngine().GetTimeManager()->GetDeltaTime();
+            const float rate = parent ? parent->preferences.camera.focusSpeed : 15.0f;
             glm::vec3 pos = cameraActor->transform->GetPosition();
-            pos = glm::mix(pos, focusTarget, 1.0f - std::exp(-15.0f * dt));
+            // A rate of 0 jumps straight there
+            pos = rate > 0.0f ? glm::mix(pos, focusTarget, 1.0f - std::exp(-rate * dt)) : focusTarget;
 
             if (glm::distance(pos, focusTarget) < 0.001f)
             {
@@ -510,25 +520,13 @@ namespace Shard::Editor::GUI {
             auto& stack = Commands::CommandStack::Get();
             stack.Begin("Transform Object");
 
-            auto id = selected->transform->GetID().GetAsInt();
-
-            auto resolver = [](uint32_t id) -> void*
-            {
-                return Engine::Core::GetEngine().GetObjectIDManager()->GetObjectFromID(Engine::Core::ObjectID(id)).get();
-            };
-
             FieldInfo* positionField = selected->transform->GetDescriptor()->fields[0];
             FieldInfo* rotationField = selected->transform->GetDescriptor()->fields[1];
             FieldInfo* scaleField    = selected->transform->GetDescriptor()->fields[2];
 
-            stack.Add(std::make_unique<Commands::ModifyFieldCommand>(
-                id, resolver, positionField, selected->transform));
-
-            stack.Add(std::make_unique<Commands::ModifyFieldCommand>(
-                id, resolver, rotationField, selected->transform));
-
-            stack.Add(std::make_unique<Commands::ModifyFieldCommand>(
-                id, resolver, scaleField, selected->transform));
+            stack.Add(std::make_unique<Commands::ModifyFieldCommand>(selected->transform, positionField));
+            stack.Add(std::make_unique<Commands::ModifyFieldCommand>(selected->transform, rotationField));
+            stack.Add(std::make_unique<Commands::ModifyFieldCommand>(selected->transform, scaleField));
         }
 
         if (ImGuizmo::IsUsing()) {
@@ -653,13 +651,8 @@ namespace Shard::Editor::GUI {
         auto& stack = Commands::CommandStack::Get();
         stack.Begin("Snap To Floor");
 
-        auto resolver = [](uint32_t id) -> void*
-        {
-            return Engine::Core::GetEngine().GetObjectIDManager()->GetObjectFromID(Engine::Core::ObjectID(id)).get();
-        };
         stack.Add(std::make_unique<Commands::ModifyFieldCommand>(
-            selected->transform->GetID().GetAsInt(), resolver,
-            selected->transform->GetDescriptor()->fields[0], selected->transform));
+            selected->transform, selected->transform->GetDescriptor()->fields[0]));
 
         glm::mat4 worldMatrix = selected->transform->GetWorldMatrix();
         worldMatrix[3].y -= drop;
@@ -696,6 +689,9 @@ namespace Shard::Editor::GUI {
 
                 std::shared_ptr<Engine::Objects::Actor> lastSpawned;
 
+                auto& history = Commands::CommandStack::Get();
+                history.Begin("Place Actors");
+
                 for (const auto& nameInProject : dropped)
                 {
                     // Only static meshes can be dropped directly into the scene this way - other asset
@@ -717,7 +713,10 @@ namespace Shard::Editor::GUI {
                         model->SetMesh(nameInProject);
 
                     lastSpawned = actor;
+                    Commands::Actions::RecordCreated(actor, "Place Actor");
                 }
+
+                history.End();
 
                 if (lastSpawned && parent)
                     parent->SetSelectedActor(lastSpawned);
@@ -781,13 +780,24 @@ namespace Shard::Editor::GUI {
 
         ImGui::Separator();
 
-        ImGui::SliderFloat("Camera speed", &speed, 0, 100);
-        ImGui::SliderFloat("Mouse sensitivity", &mouseSensitivity, 0, 10);
+        // The same values as Editor Preferences > Viewport : kept for the next sessions
+        Core::CameraPreferences& prefs = parent->preferences.camera;
+
+        // With the ranges of the preferences themselves (FIELD range=), like Editor Preferences and the file
+        const Core::PreferenceRange speedRange = PREFERENCE_RANGE(Core::CameraPreferences, speed);
+        const Core::PreferenceRange sensitivityRange = PREFERENCE_RANGE(Core::CameraPreferences, mouseSensitivity);
+        const Core::PreferenceRange nearRange = PREFERENCE_RANGE(Core::CameraPreferences, nearPlane);
+        const Core::PreferenceRange farRange = PREFERENCE_RANGE(Core::CameraPreferences, farPlane);
+        const Core::PreferenceRange fovRange = PREFERENCE_RANGE(Core::CameraPreferences, fieldOfView);
+
+        ImGui::DragFloat("Camera speed", &prefs.speed, 0.1f, speedRange.min, speedRange.max, "%.1f", ImGuiSliderFlags_AlwaysClamp);
+        ImGui::DragFloat("Mouse sensitivity", &prefs.mouseSensitivity, 0.002f, sensitivityRange.min, sensitivityRange.max, "%.3f", ImGuiSliderFlags_AlwaysClamp);
 
         ImGui::Separator();
 
-        ImGui::SliderFloat("Near plane", &cam->nearPlane, 0.01f, 1000);
-        ImGui::SliderFloat("Far plane", &cam->farPlane, cam->nearPlane + 1, 1000);
+        ImGui::DragFloat("Near plane", &prefs.nearPlane, 0.005f, nearRange.min, nearRange.max, "%.3f", ImGuiSliderFlags_AlwaysClamp);
+        ImGui::DragFloat("Far plane", &prefs.farPlane, 1.0f, farRange.min, farRange.max, "%.0f", ImGuiSliderFlags_AlwaysClamp);
+        prefs.farPlane = std::max(prefs.farPlane, prefs.nearPlane + 0.01f);
 
         ImGui::Checkbox("Ortho ?", &cam->orthographic);
 
@@ -795,7 +805,7 @@ namespace Shard::Editor::GUI {
             ImGui::SliderFloat("Ortho size", cam->GetOrthoSize(), 1.0f, 100.0f);
         }
         else{
-            ImGui::SliderFloat("FOV", cam->GetFOV(), 1.0f, 150.0f);
+            ImGui::SliderFloat("FOV", &prefs.fieldOfView, fovRange.min, fovRange.max, "%.0f deg", ImGuiSliderFlags_AlwaysClamp);
         }
 
         ImGui::End();
@@ -1071,6 +1081,9 @@ namespace Shard::Editor::GUI {
 
         Engine::Time::TimeManager* time = Engine::Core::GetEngine().GetTimeManager();
 
+        const Core::CameraPreferences& cameraPrefs = parent->preferences.camera;
+        const float cameraSpeed = cameraPrefs.speed;
+
         // Any manual camera move takes over from a running focus glide
         if (input->IsKeyDown(Engine::Input::Key::W) || input->IsKeyDown(Engine::Input::Key::A) ||
             input->IsKeyDown(Engine::Input::Key::S) || input->IsKeyDown(Engine::Input::Key::D) ||
@@ -1078,16 +1091,16 @@ namespace Shard::Editor::GUI {
             focusAnimating = false;
 
         if(input->IsKeyDown(Engine::Input::Key::W)){
-            cameraActor->transform->Translate(cameraActor->transform->GetForward() * speed * time->GetDeltaTime());
+            cameraActor->transform->Translate(cameraActor->transform->GetForward() * cameraSpeed * time->GetDeltaTime());
         }
         if(input->IsKeyDown(Engine::Input::Key::A)){
-            cameraActor->transform->Translate(glm::normalize(glm::cross(cameraActor->transform->GetForward(), cameraActor->transform->GetUp())) * -speed * time->GetDeltaTime());
+            cameraActor->transform->Translate(glm::normalize(glm::cross(cameraActor->transform->GetForward(), cameraActor->transform->GetUp())) * -cameraSpeed * time->GetDeltaTime());
         }
         if(input->IsKeyDown(Engine::Input::Key::S)){
-            cameraActor->transform->Translate(cameraActor->transform->GetForward() * -speed * time->GetDeltaTime());
+            cameraActor->transform->Translate(cameraActor->transform->GetForward() * -cameraSpeed * time->GetDeltaTime());
         }
         if(input->IsKeyDown(Engine::Input::Key::D)){
-            cameraActor->transform->Translate(glm::normalize(glm::cross(cameraActor->transform->GetForward(), cameraActor->transform->GetUp())) * speed * time->GetDeltaTime());
+            cameraActor->transform->Translate(glm::normalize(glm::cross(cameraActor->transform->GetForward(), cameraActor->transform->GetUp())) * cameraSpeed * time->GetDeltaTime());
         }
         
         if (input->IsMouseDown(Engine::Input::MouseButton::Left))
@@ -1109,8 +1122,8 @@ namespace Shard::Editor::GUI {
             lockedMouseX = mouseX;
             lockedMouseY = mouseY;
 
-            pitch += deltaY * mouseSensitivity;
-            yaw   -= deltaX * mouseSensitivity;
+            pitch += deltaY * cameraPrefs.mouseSensitivity * (cameraPrefs.invertY ? -1.0f : 1.0f);
+            yaw   -= deltaX * cameraPrefs.mouseSensitivity;
 
             // Clamp pitch to avoid flipping
             pitch = glm::clamp(pitch, -90.0f, 90.0f);

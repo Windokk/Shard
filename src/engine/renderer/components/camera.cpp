@@ -94,8 +94,6 @@ namespace Shard::Engine::Objects::Components {
         std::shared_ptr<Transform> tr = parent->transform;
 
         glm::vec3 position = tr->GetWorldPosition();
-        glm::vec3 forward  = tr->GetWorldForward();
-        glm::vec3 up       = tr->GetWorldUp();
 
         // View matrix
         glm::mat4 rot = glm::mat4_cast(tr->GetWorldRotationQuat());

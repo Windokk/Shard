@@ -8,9 +8,6 @@ void TextEllipsis(const char *text)
     if (window->SkipItems)
         return;
 
-    ImGuiContext& g = *ImGui::GetCurrentContext();
-    const ImGuiStyle& style = g.Style;
-
     ImVec2 pos = window->DC.CursorPos;
     float width = ImGui::GetContentRegionAvail().x;
     float height = ImGui::GetTextLineHeight();
@@ -42,9 +39,6 @@ void TextEllipsisCentered(const char* text, float parentWidth)
     ImGuiWindow* window = ImGui::GetCurrentWindow();
     if (window->SkipItems)
         return;
-
-    ImGuiContext& g = *ImGui::GetCurrentContext();
-    const ImGuiStyle& style = g.Style;
 
     ImVec2 pos = window->DC.CursorPos;
     float width = ImGui::GetContentRegionAvail().x;

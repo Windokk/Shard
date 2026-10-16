@@ -263,7 +263,7 @@ namespace Shard::Engine::Rendering {
             static RendererAPI* Current();
             static void SetCurrent(RendererAPI* api);
 
-            const API GetAPI() const { return api; }
+            API GetAPI() const { return api; }
 
             virtual void SetViewport(uint32_t x, uint32_t y, uint32_t width, uint32_t height) = 0;
 

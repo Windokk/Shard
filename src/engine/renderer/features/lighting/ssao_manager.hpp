@@ -51,6 +51,10 @@ namespace Shard::Engine::Rendering {
             // ShadowManager::BindShadowMaps - called once per regular forward-pass draw.
             void BindSSAOTexture(std::shared_ptr<Material> material);
 
+            // Points the raw/blur passes' samplers at the current attachments : a resize recreates them, and
+            // with them their handles (Vulkan) - called after Renderer::RescaleFramebuffers and every Update().
+            void RefreshSamplers(IRenderContext* renderer);
+
         private:
             void BuildKernelAndNoise();
 

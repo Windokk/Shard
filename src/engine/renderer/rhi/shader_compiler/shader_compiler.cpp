@@ -123,7 +123,7 @@ namespace Shard::Engine::Rendering::ShaderCompiler {
 
         // ---- Source preparation ------------------------------------------------------------------------------------------------
 
-        std::string ReplaceAll(std::string text, const std::string& from, const std::string& to)
+        [[maybe_unused]] std::string ReplaceAll(std::string text, const std::string& from, const std::string& to)
         {
             size_t at = 0;
             while ((at = text.find(from, at)) != std::string::npos)
@@ -619,9 +619,9 @@ namespace Shard::Engine::Rendering::ShaderCompiler {
             if (std::filesystem::exists(candidate, ec))
                 return candidate;
 
-            const std::filesystem::path unix = std::filesystem::path(sdk) / "bin" / kName;
-            if (std::filesystem::exists(unix, ec))
-                return unix;
+            const std::filesystem::path lowercaseBin = std::filesystem::path(sdk) / "bin" / kName;
+            if (std::filesystem::exists(lowercaseBin, ec))
+                return lowercaseBin;
         }
 
         if (const char* path = std::getenv("PATH"))

@@ -38,7 +38,7 @@ namespace {
         return names;
     }
 
-    int PositionOf(const std::vector<std::string>& order, const std::string& name)
+    [[maybe_unused]] int PositionOf(const std::vector<std::string>& order, const std::string& name)
     {
         auto it = std::find(order.begin(), order.end(), name);
         return it == order.end() ? -1 : static_cast<int>(it - order.begin());

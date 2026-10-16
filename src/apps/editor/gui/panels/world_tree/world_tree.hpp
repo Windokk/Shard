@@ -3,6 +3,7 @@
 #include "engine/world/world.hpp"
 #include "engine/world/actor.hpp"
 
+#include <functional>
 #include <typeinfo>
 
 namespace Shard::Editor::Core{
@@ -31,6 +32,10 @@ namespace Shard::Editor::GUI{
 
             Core::EditorMainWindow* parent = nullptr;
             Engine::Core::ObjectID selectedID;
+
+            // An edit asked for while the actors are being drawn, run once they are : destroying or moving an actor
+            // changes the lists being walked
+            std::function<void()> pendingEdit;
             char renameBuffer[256];
             std::shared_ptr<Engine::Objects::Actor> renamingActor = nullptr;
             bool openRenamingPopup = false;

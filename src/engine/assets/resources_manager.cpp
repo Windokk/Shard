@@ -38,7 +38,7 @@ namespace Shard::Engine::Core::Resources{
 
         Serialization::DeserializeAssetDataBase(files->GetEngineResRoot(), engineDataBasePath, *files, *ids);
 
-        Serialization::DeserializeAssetDataBase(projectResDir, projectDatabasePath, *files, *ids);
+        Serialization::DeserializeAssetDataBase(projectResDir, projectDatabasePath, *files, *ids, Filesystem::kFirstProjectAssetID);
     }
 
     // ---------------------------------------------------------------------------------------------
@@ -405,13 +405,13 @@ namespace Shard::Engine::Core::Resources{
         if(UseCount(key) != 1)
             return false;
 
-        // Engine resources (IDs <= 500, see SerializeAssetDataBase) back the renderer itself and are
+        // Engine resources (IDs below kFirstProjectAssetID) back the renderer itself and are
         // used by materials without being listed anywhere : always resident.
         const std::string assetName = key.path + info->nameSuffix;
 
         Filesystem::AssetID id = ids->GetIDFromNameInProject(assetName);
         auto assetInfos = ids->GetAssetFromID(id);
-        return assetInfos && assetInfos->baseInfos.nameInProject == assetName && id.GetAsInt() > 500;
+        return assetInfos && assetInfos->baseInfos.nameInProject == assetName && id.GetAsInt() >= Filesystem::kFirstProjectAssetID;
     }
 
     void ResourcesManager::Evict(const ResourceKey &key)

@@ -15,7 +15,7 @@
 
 namespace Shard::Engine::Rendering{
 
-    static GLenum ShaderSamplerTypeToOpenGL(ShaderSamplerType type)
+    [[maybe_unused]] static GLenum ShaderSamplerTypeToOpenGL(ShaderSamplerType type)
     {
         switch(type)
         {
@@ -68,6 +68,7 @@ namespace Shard::Engine::Rendering{
             case Opacity::Masked:{
                 SetScalarParameter("masked", true);
                 m_Pipeline->GetSpecifications().blending = false;
+                break;
             }
             case Opacity::Translucent:{
                 m_Pipeline->GetSpecifications().blending = true;

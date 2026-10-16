@@ -38,7 +38,7 @@ namespace Shard::Engine::Objects{
             virtual void AddChild(std::shared_ptr<WorldObject> o);
 
             void DeleteChildRef(Core::ObjectID child){
-                for(int i = 0; i < children.size(); i++){
+                for(size_t i = 0; i < children.size(); i++){
                     if(children[i].GetAsInt() == child.GetAsInt()){
                         children.erase(children.begin()+i);
                     }

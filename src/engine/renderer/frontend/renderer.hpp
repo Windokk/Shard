@@ -177,10 +177,10 @@ bool GetCurrentView(RenderView& out) override;
             std::string GetDeviceVendor();
             std::string GetRendererName();
             std::string GetDriverVersion();
-            const uint32_t GetPassesCount() const { return m_PublishedPassCount; }
-            const uint32_t GetDrawCallsCount() const { return m_DrawCallsCount; }
-            const uint32_t GetPrimitivesCount() const { return m_PrimitivesCount; }
-            const uint32_t GetVerticesCount() const { return m_VerticesCount; }
+            uint32_t GetPassesCount() const { return m_PublishedPassCount; }
+            uint32_t GetDrawCallsCount() const { return m_DrawCallsCount; }
+            uint32_t GetPrimitivesCount() const { return m_PrimitivesCount; }
+            uint32_t GetVerticesCount() const { return m_VerticesCount; }
             
             RendererAPI* GetRendererAPI() const override
             {

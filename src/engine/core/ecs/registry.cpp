@@ -122,7 +122,7 @@ namespace Shard::Engine::Core::Ecs {
     }
 
     Entity Registry::Create() {
-        if (IsIterating()) return kNullEntity;
+        if (!CanChangeStructure()) return kNullEntity;
         const Entity e = AllocateEntity();
         Record& record = m_Records[e.Index()];
         record.archetype = m_EmptyArchetype;
@@ -147,7 +147,7 @@ namespace Shard::Engine::Core::Ecs {
     }
 
     bool Registry::Destroy(Entity e) {
-        if (IsIterating() || !IsAlive(e)) return false;
+        if (!CanChangeStructure() || !IsAlive(e)) return false;
 
         std::vector<Entity> doomed{e};
         ForEachDescendant(e, [&doomed](Entity d) { doomed.push_back(d); });
@@ -187,24 +187,22 @@ namespace Shard::Engine::Core::Ecs {
     bool Registry::AddRaw(Entity e, ComponentId id, const void* data) {
         Record* record = RecordOf(e);
         if (!record) return false;
-        const size_t size = ComponentRegistry::Global().Info(id).size;
 
-        if (record->archetype->Has(id)) {                           // not structural : just a new value
-            std::memcpy(record->archetype->ComponentPtr(record->row, id), data, size);
-            return true;
-        }
-        if (IsIterating()) return false;
-
-        MoveTo(e, ArchetypeWith(record->archetype, id));
-        record = RecordOf(e);
+        // The size comes from the archetype's column : no trip through the (locked) global component registry per Add
+        if (!record->archetype->Has(id)) {
+            if (!CanChangeStructure()) return false;
+            MoveTo(e, ArchetypeWith(record->archetype, id));
+            record = RecordOf(e);
+        }                                                           // else not structural : just a new value
         void* slot = record->archetype->ComponentPtr(record->row, id);
+        const size_t size = record->archetype->ComponentSize(id);
         if (data) std::memcpy(slot, data, size); else std::memset(slot, 0, size);
         return true;
     }
 
     bool Registry::RemoveRaw(Entity e, ComponentId id) {
         Record* record = RecordOf(e);
-        if (!record || IsIterating() || !record->archetype->Has(id)) return false;
+        if (!record || !CanChangeStructure() || !record->archetype->Has(id)) return false;
         MoveTo(e, ArchetypeWithout(record->archetype, id));
         return true;
     }
@@ -256,13 +254,18 @@ namespace Shard::Engine::Core::Ecs {
     // ---------------------------------------------------------------------------------- deferred destruction, stats
 
     void Registry::DestroyDeferred(Entity e) {
-        if (!IsIterating() && Destroy(e)) return;
+        // Alone with the registry : now. Otherwise another thread may be iterating or changing it (two systems of a parallel
+        // phase destroying actors at the same time) : queued, applied by the next FlushDeferred.
+        if (CanChangeStructure()) {
+            Destroy(e);
+            return;
+        }
         std::lock_guard<std::mutex> lock(m_DeferredMutex);
         m_Deferred.push_back(e);
     }
 
     size_t Registry::FlushDeferred() {
-        if (IsIterating()) return 0;
+        if (!CanChangeStructure()) return 0;
         std::vector<Entity> pending;
         {
             std::lock_guard<std::mutex> lock(m_DeferredMutex);
@@ -304,7 +307,7 @@ namespace Shard::Engine::Core::Ecs {
 
     Registry::PlaybackResult Registry::Playback(CommandBuffer& buffer) {
         PlaybackResult result;
-        if (IsIterating()) {
+        if (!CanChangeStructure()) {
             result.skipped = buffer.m_Commands.size();
             return result;
         }

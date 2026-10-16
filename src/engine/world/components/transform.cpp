@@ -295,7 +295,7 @@ namespace Shard::Engine::Objects::Components{
 		
 		localMatrix[3] = glm::vec4(0, 0, 0, localMatrix[3].w);
 
-		glm::vec3 Row[3], Pdum3;
+		glm::vec3 Row[3];
 
 		for (glm::length_t i = 0; i < 3; ++i)
 			for (glm::length_t j = 0; j < 3; ++j)

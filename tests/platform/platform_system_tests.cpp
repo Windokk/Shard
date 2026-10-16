@@ -543,6 +543,34 @@ TEST(PlatformIpc, NamedPipeCarriesBytesBothWays)
     EXPECT_EQ(server->Read(buffer, sizeof(buffer), &read, 2000), IpcStatus::Closed);
 }
 
+TEST(PlatformIpc, NamedPipeAcceptsANewClientAfterTheFirstLeaves)
+{
+    const std::string name = "shard_test_pipe_reconnect_" + std::to_string(CurrentProcessId());
+    auto server = NamedPipe::CreateServer(name);
+    ASSERT_NE(server, nullptr);
+
+    char buffer[32] = {};
+    size_t read = 0;
+    for (int round = 0; round < 3; round++)
+    {
+        std::unique_ptr<NamedPipe> client;
+        std::thread connector([&] { client = NamedPipe::Connect(name, 2000); });
+        ASSERT_TRUE(server->WaitForClient(2000)) << "round " << round;
+        connector.join();
+        ASSERT_NE(client, nullptr) << "round " << round;
+
+        const char hello[] = "hello";
+        ASSERT_EQ(client->Write(hello, sizeof(hello)), IpcStatus::Ok);
+        ASSERT_EQ(server->Read(buffer, sizeof(buffer), &read, 2000), IpcStatus::Ok);
+        EXPECT_EQ(std::string(buffer), "hello");
+
+        // The server only learns the client left through the read (no explicit Disconnect)
+        client.reset();
+        ASSERT_EQ(server->Read(buffer, sizeof(buffer), &read, 2000), IpcStatus::Closed);
+        EXPECT_FALSE(server->IsConnected());
+    }
+}
+
 TEST(PlatformIpc, ConnectToAMissingServerFails)
 {
     EXPECT_EQ(NamedPipe::Connect("shard_test_no_such_pipe", 0), nullptr);

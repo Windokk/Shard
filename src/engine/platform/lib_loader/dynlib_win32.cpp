@@ -3,7 +3,9 @@
 #include "engine/platform/lib_loader/dynlib.hpp"
 
 #define WIN32_LEAN_AND_MEAN
+#ifndef NOMINMAX
 #define NOMINMAX
+#endif
 #include <windows.h>
 
 namespace Shard::Engine::Core::Platform {

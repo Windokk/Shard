@@ -172,8 +172,11 @@ namespace Shard::Engine::Rendering{
                 return nullptr;
             }
 
-            glGenFramebuffers(1, &captureFBO);
-            glGenRenderbuffers(1, &captureRBO);
+            // Made once and reused : every skybox load used to leak a framebuffer and a renderbuffer
+            if (captureFBO == 0)
+                glGenFramebuffers(1, &captureFBO);
+            if (captureRBO == 0)
+                glGenRenderbuffers(1, &captureRBO);
 
             glBindFramebuffer(GL_FRAMEBUFFER, captureFBO);
             glBindRenderbuffer(GL_RENDERBUFFER, captureRBO);

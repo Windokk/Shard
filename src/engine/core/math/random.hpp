@@ -47,7 +47,12 @@ namespace Shard::Engine::Core {
             return (xorShifted >> rotation) | (xorShifted << ((~rotation + 1u) & 31u));
         }
 
-        constexpr uint64_t NextU64() { return (uint64_t(Next()) << 32) | Next(); }
+        constexpr uint64_t NextU64() {
+            // Two statements : the operands of | have no defined evaluation order, so the halves could swap between compilers
+            const uint64_t hi = Next();
+            const uint64_t lo = Next();
+            return (hi << 32) | lo;
+        }
 
         /// @brief Uniform in [0, bound), without modulo bias. bound == 0 returns 0.
         constexpr uint32_t Below(uint32_t bound) {

@@ -56,7 +56,7 @@ namespace Shard::Engine::Rendering {
         TextureCubeArrayShadow
     };
 
-    static uint32_t ShaderDataTypeSize(ShaderDataType type)
+    inline uint32_t ShaderDataTypeSize(ShaderDataType type)
     {
         switch(type)
         {
@@ -74,12 +74,13 @@ namespace Shard::Engine::Rendering {
 
             case ShaderDataType::UInt:  return sizeof(uint32_t);
             case ShaderDataType::UVec2: return sizeof(glm::uvec2);
+            case ShaderDataType::None:  break;
         }
 
         return 0;
     }
 
-    static uint32_t ShaderDataTypeComponentCount(ShaderDataType type)
+    inline uint32_t ShaderDataTypeComponentCount(ShaderDataType type)
     {
         switch(type)
         {
@@ -97,6 +98,7 @@ namespace Shard::Engine::Rendering {
 
             case ShaderDataType::UInt:  return 1;
             case ShaderDataType::UVec2: return 2;
+            case ShaderDataType::None:  break;
         }
 
         return 0;

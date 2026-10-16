@@ -76,6 +76,10 @@ namespace Shard::Engine::Rendering::VK {
 
     void TransitionImageRaw(VkCommandBuffer cmd, VkImage image, VkImageAspectFlags aspect, VkImageLayout from, VkImageLayout to, uint32_t baseMip = 0, uint32_t mipCount = VK_REMAINING_MIP_LEVELS, uint32_t baseLayer = 0, uint32_t layerCount = VK_REMAINING_ARRAY_LAYERS);
 
+    /// UNDEFINED -> `to` for a swapchain image just acquired : the barrier starts at `waitStage`, the stage the submit waits for
+    /// the acquire semaphore at, so the transition is chained after the presentation engine has let the image go
+    void TransitionAcquiredImage(VkCommandBuffer cmd, VkImage image, VkImageLayout to, VkPipelineStageFlags2 waitStage);
+
     /// @brief What shaders sample : an image, the way it is sampled, and the number it goes by. Textures, the attachments of a framebuffer and
     /// the cubemaps are all one : the rest of the engine only ever holds the number (the `GetHandle()` of the rhi), which is
     /// also the texture's place in the array of bindless textures.

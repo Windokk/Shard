@@ -20,13 +20,20 @@ namespace Shard::Engine::Objects{
     void WorldObject::Destroy()
     {
         if(parent.GetAsInt() != -1){
-            GetParent()->DeleteChildRef(id);
+            if(auto parentObject = GetParent())
+                parentObject->DeleteChildRef(id);
         }
-        for(auto& child : children)
-        { 
-            GetChild(child)->Destroy(); 
-        }
+
+        // Taken out first : each child removes itself from this list while it is destroyed (DeleteChildRef above),
+        // which skipped every other child when it was iterated directly - they were left alive, hanging off a dead parent
+        std::vector<Core::ObjectID> ownChildren = std::move(children);
         children.clear();
+        for(auto& childID : ownChildren)
+        {
+            auto child = std::dynamic_pointer_cast<WorldObject>(Core::GetEngine().GetObjectIDManager()->GetObjectFromID(childID));
+            if(child)
+                child->Destroy();
+        }
 
         Object::Destroy();
     }

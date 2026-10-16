@@ -25,8 +25,8 @@ namespace Shard::Editor::GUI::AssetOperations
 
     namespace {
 
-        // Engine resources have IDs up to 500 (see SerializeAssetDataBase) : never touched here.
-        constexpr int kFirstProjectAssetID = 501;
+        // Engine resources have IDs below kFirstProjectAssetID : never touched here.
+        using Engine::Filesystem::kFirstProjectAssetID;
 
         fs::path ProjectRoot()
         {
@@ -106,8 +106,10 @@ namespace Shard::Editor::GUI::AssetOperations
 
         void RemapBuildSettings(const std::string& oldName, const std::string& newName, bool isDirectory)
         {
-            Engine::Assets::RemapBuildSettings(*Engine::Core::GetEngine().GetBuildSettings(),
-                Engine::Core::GetEngine().GetCurrentProject()->GetProjectResourcesPath(), oldName, newName, isDirectory);
+            // The project file follows the files on disk at once (Project::RemapWorlds)
+            auto& engine = Engine::Core::GetEngine();
+            engine.GetCurrentProject()->RemapWorlds(oldName, newName, isDirectory,
+                engine.GetSettings().readOnly ? std::string() : engine.GetSettings().project);
         }
 
         Result Fail(const std::string& message)

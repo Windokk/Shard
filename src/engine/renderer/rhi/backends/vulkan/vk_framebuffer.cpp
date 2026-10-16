@@ -421,6 +421,24 @@ namespace Shard::Engine::Rendering {
         context.EnsureOutsideRendering();
         context.Flush();
 
+        switch (image->format)
+        {
+            case VK_FORMAT_R8_UNORM:
+            case VK_FORMAT_R8G8_UNORM:
+            case VK_FORMAT_R8G8B8A8_UNORM:
+            case VK_FORMAT_R8G8B8A8_SRGB:
+            case VK_FORMAT_B8G8R8A8_UNORM:
+            case VK_FORMAT_R16_SFLOAT:
+            case VK_FORMAT_R16G16_SFLOAT:
+            case VK_FORMAT_R16G16B16A16_SFLOAT:
+            case VK_FORMAT_R32_SFLOAT:
+            case VK_FORMAT_R32G32B32A32_SFLOAT:
+                break;
+            default:
+                DEBUG_WARNING("Framebuffer::ReadPixelsRGBA8 does not support this color format : nothing was read.");
+                return false;
+        }
+
         const uint32_t width = image->width;
         const uint32_t height = image->height;
         const uint32_t texel = TexelSize(image->format);
@@ -459,29 +477,64 @@ namespace Shard::Engine::Rendering {
         const size_t rowBytes = size_t(width) * 4;
         outPixels.resize(rowBytes * height);
 
+        const auto toByte = [](float value) {
+            return static_cast<uint8_t>(std::clamp(value, 0.0f, 1.0f) * 255.0f + 0.5f);
+        };
+
         for (uint32_t y = 0; y < height; y++)
         {
             uint8_t* destination = outPixels.data() + size_t(y) * rowBytes;
             const uint8_t* row = gpu + size_t(height - 1 - y) * width * texel;
 
-            if (image->format == VK_FORMAT_R16G16B16A16_SFLOAT)
+            if (image->format == VK_FORMAT_R8G8B8A8_UNORM || image->format == VK_FORMAT_R8G8B8A8_SRGB)
             {
-                const uint16_t* halves = reinterpret_cast<const uint16_t*>(row);
-                for (uint32_t x = 0; x < width * 4; x++)
-                    destination[x] = static_cast<uint8_t>(std::clamp(HalfToFloat(halves[x]), 0.0f, 1.0f) * 255.0f + 0.5f);
+                std::memcpy(destination, row, rowBytes);
+                continue;
             }
-            else if (image->format == VK_FORMAT_B8G8R8A8_UNORM)
+
+            // The channels the target does not have read as 0, alpha as 1 (what glReadPixels gives)
+            for (uint32_t x = 0; x < width; x++)
             {
-                for (uint32_t x = 0; x < width; x++)
+                uint8_t* out = destination + size_t(x) * 4;
+                const uint8_t* in = row + size_t(x) * texel;
+                out[0] = 0; out[1] = 0; out[2] = 0; out[3] = 255;
+
+                switch (image->format)
                 {
-                    destination[x * 4 + 0] = row[x * 4 + 2];
-                    destination[x * 4 + 1] = row[x * 4 + 1];
-                    destination[x * 4 + 2] = row[x * 4 + 0];
-                    destination[x * 4 + 3] = row[x * 4 + 3];
+                    case VK_FORMAT_R8_UNORM:
+                        out[0] = in[0];
+                        break;
+                    case VK_FORMAT_R8G8_UNORM:
+                        out[0] = in[0]; out[1] = in[1];
+                        break;
+                    case VK_FORMAT_B8G8R8A8_UNORM:
+                        out[0] = in[2]; out[1] = in[1]; out[2] = in[0]; out[3] = in[3];
+                        break;
+                    case VK_FORMAT_R16_SFLOAT:
+                    case VK_FORMAT_R16G16_SFLOAT:
+                    case VK_FORMAT_R16G16B16A16_SFLOAT:
+                    {
+                        const uint32_t channels = texel / 2;
+                        uint16_t halves[4];
+                        std::memcpy(halves, in, texel);
+                        for (uint32_t c = 0; c < channels; c++)
+                            out[c] = toByte(HalfToFloat(halves[c]));
+                        break;
+                    }
+                    case VK_FORMAT_R32_SFLOAT:
+                    case VK_FORMAT_R32G32B32A32_SFLOAT:
+                    {
+                        const uint32_t channels = texel / 4;
+                        float floats[4];
+                        std::memcpy(floats, in, texel);
+                        for (uint32_t c = 0; c < channels; c++)
+                            out[c] = toByte(floats[c]);
+                        break;
+                    }
+                    default:
+                        break;
                 }
             }
-            else
-                std::memcpy(destination, row, rowBytes);
         }
 
         vmaDestroyBuffer(context.GetAllocator(), readback, allocation);

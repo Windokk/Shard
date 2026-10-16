@@ -14,8 +14,8 @@ namespace Shard::Engine::Assets
 
     namespace {
 
-        // Engine resources have IDs up to 500 (see SerializeAssetDataBase) : never touched here.
-        constexpr int kFirstProjectAssetID = 501;
+        // Engine resources have IDs below kFirstProjectAssetID : never touched here.
+        using Filesystem::kFirstProjectAssetID;
 
         bool ReadFileBinary(const fs::path& p, std::string& out)
         {

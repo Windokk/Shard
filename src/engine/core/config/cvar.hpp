@@ -5,7 +5,9 @@
 #include <atomic>
 #include <cctype>
 #include <cerrno>
+#include <cmath>
 #include <cstdint>
+#include <cstdio>
 #include <cstdlib>
 #include <functional>
 #include <limits>
@@ -107,12 +109,14 @@ namespace Shard::Engine::Core {
         template <> struct CVarTraits<float> {
             static constexpr const char* kName = "float";
             static std::string Format(float v) {
-                std::string s = std::to_string(v);                    // 6 decimals : trim the zeros ("0.500000" -> "0.5")
-                if (s.find('.') != std::string::npos) {
-                    while (s.back() == '0') s.pop_back();
-                    if (s.back() == '.') s.pop_back();
+                // The shortest text that reads back as the same float ("0.5", "1e-07") : std::to_string's 6 fixed decimals
+                // saved 1e-7 as "0", and IsDefault() / the archive compare these strings
+                char buffer[32];
+                for (int precision = 6; precision <= 9; ++precision) {
+                    std::snprintf(buffer, sizeof(buffer), "%.*g", precision, static_cast<double>(v));
+                    if (std::strtof(buffer, nullptr) == v) break;
                 }
-                return s;
+                return buffer;
             }
             static bool Parse(std::string_view text, float& out) {
                 const std::string s(text);
@@ -120,7 +124,8 @@ namespace Shard::Engine::Core {
                 char* end = nullptr;
                 errno = 0;
                 const float v = std::strtof(s.c_str(), &end);
-                if (errno == ERANGE || end != s.c_str() + s.size()) return false;
+                // strtof takes "nan" / "inf", which std::clamp lets through the cvar's range
+                if (errno == ERANGE || end != s.c_str() + s.size() || !std::isfinite(v)) return false;
                 out = v;
                 return true;
             }

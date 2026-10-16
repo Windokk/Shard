@@ -5,6 +5,7 @@
 #include "engine/world/event_system.hpp"
 
 #include "apps/editor/commands/command_stack.hpp"
+#include "apps/editor/commands/actor_commands.hpp"
 
 #include "engine/renderer/features/raytracing/raytracer.hpp"
 #include "engine/renderer/components/camera.hpp"
@@ -68,10 +69,9 @@ namespace Shard::Editor::GUI {
 
             std::shared_ptr<Engine::Objects::Components::Camera> camera;
 
-            float speed = 20.0f;
+            // Speed, sensitivity and lens : the editor's preferences (EditorPreferences::camera)
             float pitch = 0.0f;
             float yaw = 0.0f;
-            float mouseSensitivity = 0.1f;
 
             bool firstClick = true;
             double lockedMouseX = 0.0;

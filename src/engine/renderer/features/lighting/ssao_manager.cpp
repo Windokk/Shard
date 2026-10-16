@@ -150,6 +150,20 @@ namespace Shard::Engine::Rendering {
         renderer->AddOrUpdateCommands({blurCmd}, {"SSAOBlurPass"}, false);
     }
 
+    void SSAOManager::RefreshSamplers(IRenderContext* renderer)
+    {
+        if (auto rawPass = renderer->GetRenderPass("SSAORawPass"))
+        {
+            rawPass->customSamplers["gDepth"] = m_PrepassFramebuffer->GetDepthAttachment();
+            rawPass->customSamplers["gNormal"] = m_PrepassFramebuffer->GetColorAttachment();
+        }
+        if (auto blurPass = renderer->GetRenderPass("SSAOBlurPass"))
+        {
+            blurPass->customSamplers["ssaoInput"] = m_RawAOFramebuffer->GetColorAttachment();
+            blurPass->customSamplers["gDepth"] = m_PrepassFramebuffer->GetDepthAttachment();
+        }
+    }
+
     void SSAOManager::BuildKernelAndNoise()
     {
         std::uniform_real_distribution<float> unit(0.0f, 1.0f);
@@ -203,6 +217,10 @@ namespace Shard::Engine::Rendering {
                 pass->enabled = environment.ssaoEnabled;
         }
 
+        RefreshSamplers(renderer);
+        auto rawPass = renderer->GetRenderPass("SSAORawPass");
+        auto blurPass = renderer->GetRenderPass("SSAOBlurPass");
+
         if (!snapshot.camera.valid)
             return;
 
@@ -213,12 +231,11 @@ namespace Shard::Engine::Rendering {
         prepass->customUniforms["view"] = view;
         prepass->customUniforms["projection"] = projection;
 
-        auto rawPass = renderer->GetRenderPass("SSAORawPass");
         rawPass->customUniforms["projection"] = projection;
         rawPass->customUniforms["radius"] = environment.ssaoRadius;
         rawPass->customUniforms["bias"] = environment.ssaoBias;
         rawPass->customUniforms["power"] = environment.ssaoPower;
-        renderer->GetRenderPass("SSAOBlurPass")->customUniforms["projection"] = projection;
+        blurPass->customUniforms["projection"] = projection;
 
         rawPass->customUniforms["noiseScale"] = glm::vec2(
             float(m_PrepassFramebuffer->GetWidth()) / float(kNoiseTileSize),
