@@ -1069,8 +1069,11 @@ namespace Shard::Editor::GUI{
             }
             case TypeID::Enum:
             {
-                int current;
+                // Zeroed first : an enum can be narrower than int (uint8_t), memcpy would leave the upper bytes as garbage
+                int current = 0;
                 memcpy(&current, value, field->enumDesc->size);
+                if (current < 0 || current >= (int)field->enumDesc->values.size())
+                    current = 0;
 
                 std::vector<const char*> items;
                 for (auto& e : field->enumDesc->values)

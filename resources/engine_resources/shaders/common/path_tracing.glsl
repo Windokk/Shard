@@ -39,6 +39,17 @@ uniform float uAmbientIntensity;
 // feature would otherwise be a white speck that no amount of averaging gets rid of. 0 : no limit.
 uniform float uFireflyClamp;
 
+// Direct sampling of the emissive surfaces (next event estimation), for the includer that defines SHARD_EMISSIVE_NEE and declares
+//     layout(std430, binding = N) readonly buffer EmissiveTriangles { EmissiveTriangle emissiveTris[]; };
+// before this file. A small bright emitter (a ceiling panel) is found by a path that bounces off a surface only by chance, which is
+// a lot of noise ; sampling a point of it from every surface the path touches, with a shadow ray, makes that light as smooth as
+// a Static light's. A path that finds the emitter by chance anyway is weighted against that sampling (multiple importance
+// sampling, balance heuristic), so the light is not counted twice.
+#ifdef SHARD_EMISSIVE_NEE
+uniform int   uEmissiveCount;   // triangles on the list (0 : nothing is sampled, every emitter is left to the paths)
+uniform float uEmissivePower;   // sum over the list of (luminance of the emission * area)
+#endif
+
 // ---------------------------------------------------------------------------
 // RNG - PCG hash, seeded per-pixel per-sample so every dispatch draws an
 // independent stream of pseudo-random numbers.
@@ -199,11 +210,88 @@ vec3 GetSkyColor(vec3 rd)
 // The path
 // ---------------------------------------------------------------------------
 
+#ifdef SHARD_EMISSIVE_NEE
+// Whether a triangle of this material is on the CPU's list of emitters (RaytraceScene::emissiveTriangles) : the two have to agree
+bool EmissiveIsSampled(GPUMaterial mat, float area)
+{
+    return (mat.textureFlags & TEX_EMISSIVE_BIT) == 0u && dot(mat.emissive.rgb, vec3(0.2126, 0.7152, 0.0722)) > 0.0 && area > 1e-10;
+}
+
+// One sample of the emitters as seen from `pos` : the radiance that arrives from a random point of a random emitter, times the cosine
+// at `pos` and the MIS weight, over the pdf of the sample - what the caller multiplies by the BRDF. `n` is the shading normal,
+// `lobeProb` the probability with which the path's own sampling would have drawn a direction in the diffuse cosine lobe (the
+// other strategy of the MIS). Zero when the emitter is behind the surface or something is in the way.
+vec3 EmissiveDirect(vec3 pos, vec3 ng, vec3 n, float lobeProb)
+{
+    if (uEmissiveCount <= 0 || uEmissivePower <= 0.0)
+        return vec3(0.0);
+
+    // The emitter, by binary search on the CDF of the power
+    float pick = RandomFloat();
+    int lo = 0;
+    int hi = uEmissiveCount - 1;
+    while (lo < hi)
+    {
+        int mid = (lo + hi) >> 1;
+        if (emissiveTris[mid].cdf >= pick)
+            hi = mid;
+        else
+            lo = mid + 1;
+    }
+
+    uint triIndex = emissiveTris[lo].tri;
+    TrianglePos t = triPos[triIndex];
+
+    // A point of it, uniformly by area
+    vec2 r = RandomVec2();
+    float s = sqrt(r.x);
+    float b1 = 1.0 - s;
+    float b2 = r.y * s;
+    vec3 p = t.v0.xyz * (1.0 - b1 - b2) + t.v1.xyz * b1 + t.v2.xyz * b2;
+
+    vec3 emitterNormal = cross(t.v1.xyz - t.v0.xyz, t.v2.xyz - t.v0.xyz);
+    float doubleArea = length(emitterNormal);
+    if (doubleArea < 2e-10)
+        return vec3(0.0);
+    emitterNormal /= doubleArea;
+
+    vec3 d = p - pos;
+    float dist2 = dot(d, d);
+    if (dist2 < 1e-8)
+        return vec3(0.0);
+    float dist = sqrt(dist2);
+    vec3 wi = d / dist;
+
+    float NdotL = dot(n, wi);
+    float cosEmitter = abs(dot(emitterNormal, wi));      // an emissive surface sends its light from both sides, like the paths see it
+    if (NdotL <= 0.0 || dot(ng, wi) <= 0.0 || cosEmitter < 1e-4)
+        return vec3(0.0);
+
+    vec3 Le = materials[uint(triAttrib[triIndex].uvMatID.w)].emissive.rgb;
+    float lum = dot(Le, vec3(0.2126, 0.7152, 0.0722));
+
+    // pdf, per solid angle : (power / total) of picking the triangle, 1 / area of the point on it, then the change of measure
+    float pdfLight = lum * dist2 / (uEmissivePower * cosEmitter);
+    float pdfBsdf = lobeProb * NdotL / PI;
+
+    if (TraceRayAny(pos + ng * 1e-3, wi, dist * 0.999 - 2e-3))
+        return vec3(0.0);
+
+    return Le * NdotL / (pdfLight + pdfBsdf);       // = Le * NdotL / pdfLight * (pdfLight / (pdfLight + pdfBsdf))
+}
+#endif
+
 // Radiance that reaches `ro` along the ray `rd` (pointing away from `ro`), after at most uMaxBounces bounces.
-vec3 TracePath(vec3 ro, vec3 rd)
+//
+// With SHARD_EMISSIVE_NEE, `firstLobe` and `firstNormal` say how the ray was drawn : with probability `firstLobe` per unit of
+// cosine weighted solid angle around `firstNormal` (the lightmap baker draws its first ray so : 1.0), which the emission it finds
+// is weighted against. 0 : it is not weighted, the ray was not drawn from a diffuse lobe that the caller samples the emitters for.
+vec3 TracePathMIS(vec3 ro, vec3 rd, vec3 firstNormal, float firstLobe)
 {
     vec3 radiance = vec3(0.0);
     vec3 throughput = vec3(1.0);
+    vec3 prevNormal = firstNormal;
+    float prevLobe = firstLobe;
 
     for (int bounce = 0; bounce < uMaxBounces; bounce++)
     {
@@ -226,7 +314,9 @@ vec3 TracePath(vec3 ro, vec3 rd)
         // (interpolated, then perturbed by a normal map) can lean far enough from the flat triangle for such a ray to start
         // below it.
         TrianglePos tri = triPos[hit.triIndex];
-        vec3 ng = normalize(cross(tri.v1.xyz - tri.v0.xyz, tri.v2.xyz - tri.v0.xyz));
+        vec3 ngRaw = cross(tri.v1.xyz - tri.v0.xyz, tri.v2.xyz - tri.v0.xyz);
+        float hitArea = 0.5 * length(ngRaw);
+        vec3 ng = normalize(ngRaw);
 
         // Shade whichever side the ray actually came from (double-sided geometry)
         if (dot(ng, rd) > 0.0)
@@ -273,6 +363,18 @@ vec3 TracePath(vec3 ro, vec3 rd)
             }
         }
 
+#ifdef SHARD_EMISSIVE_NEE
+        if (prevLobe > 0.0 && EmissiveIsSampled(mat, hitArea))
+        {
+            // An emitter the previous surface sampled directly : this path found it too, the two estimates share the light
+            float lum = dot(emission, vec3(0.2126, 0.7152, 0.0722));
+            float cosEmitter = max(abs(dot(ng, rd)), 1e-4);
+            float pdfLight = lum * hit.t * hit.t / (uEmissivePower * cosEmitter);
+            float pdfBsdf = prevLobe * max(dot(rd, prevNormal), 0.0) / PI;
+            radiance += throughput * emission * (pdfBsdf / max(pdfBsdf + pdfLight, 1e-12));
+        }
+        else
+#endif
         radiance += throughput * emission;
 
         // The world's flat ambient floor, on the surface the ray starts from only (see uAmbientIntensity)
@@ -281,6 +383,15 @@ vec3 TracePath(vec3 ro, vec3 rd)
 
         vec3 viewDir = normalize(-rd);
         vec3 F0 = mix(vec3(0.04), albedo, metallic);
+        float specProb = clamp(mix(0.04, 1.0, metallic), 0.04, 0.95);
+
+#ifdef SHARD_EMISSIVE_NEE
+        // The emitters, sampled directly for the diffuse lobe (the specular lobe finds them by its own sampling, unweighted)
+        {
+            vec3 kdDirect = (vec3(1.0) - F0) * (1.0 - metallic);
+            radiance += throughput * (kdDirect * albedo / PI) * EmissiveDirect(hitPos, ng, n, 1.0 - specProb);
+        }
+#endif
 
         // ---- Next event estimation : sample one light directly, with a shadow ray ----
         if (uLightCount > 0)
@@ -312,12 +423,12 @@ vec3 TracePath(vec3 ro, vec3 rd)
         }
 
         // ---- Continue the path : stochastically pick a lobe and sample a bounce direction ----
-        float specProb = clamp(mix(0.04, 1.0, metallic), 0.04, 0.95);
         vec3 newDir;
         vec3 lobeWeight;
 
         if (RandomFloat() < specProb)
         {
+            prevLobe = 0.0;     // not a diffuse draw : an emitter it finds counts whole
             vec3 h = SampleGGX(n, roughness);
             newDir = reflect(rd, h);
             if (dot(newDir, n) <= 0.0 || dot(newDir, ng) <= 0.0)
@@ -344,6 +455,8 @@ vec3 TracePath(vec3 ro, vec3 rd)
             // Cosine-weighted hemisphere pdf (cosTheta / PI) cancels the BRDF's NdotL / PI exactly,
             // leaving just the diffuse albedo term, divided by the probability of picking this lobe.
             lobeWeight = kd * albedo / max(1.0 - specProb, 1e-4);
+            prevLobe = 1.0 - specProb;
+            prevNormal = n;
         }
 
         throughput *= lobeWeight;
@@ -362,6 +475,11 @@ vec3 TracePath(vec3 ro, vec3 rd)
     }
 
     return radiance;
+}
+
+vec3 TracePath(vec3 ro, vec3 rd)
+{
+    return TracePathMIS(ro, rd, vec3(0.0, 1.0, 0.0), 0.0);
 }
 
 // Scales a sample of light down so its luminance does not exceed uFireflyClamp (see there)

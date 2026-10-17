@@ -61,6 +61,15 @@ const uint TEX_ROUGHNESS_BIT = 4u;
 const uint TEX_NORMAL_BIT    = 8u;
 const uint TEX_EMISSIVE_BIT  = 16u;
 
+// A triangle that emits light, picked by binary search on `cdf` (see GPUEmissiveTriangle in raytrace_scene.hpp)
+struct EmissiveTriangle
+{
+    uint tri;
+    float cdf;
+    float padding0;
+    float padding1;
+};
+
 struct HitInfo
 {
     float t;

@@ -39,10 +39,7 @@ namespace Shard::Engine::Rendering {
         constexpr uint32_t kMaterialsBinding = 11;
         constexpr uint32_t kLightsBinding = 12;
         constexpr uint32_t kTexelsBinding = 13;
-
-        // How many standard deviations of noise a difference of luminance may be and still be blended away by the denoiser
-        constexpr float kDenoiseLuminanceSigma = 4.0f;
-        constexpr int kDenoiseIterations = 5;
+        constexpr uint32_t kEmissiveBinding = 16;     // the emissive triangles the paths sample directly (lightmap_bake.comp)
 
         bool FindElementOffset(const VertexLayout& layout, const char* name, uint32_t& offset)
         {
@@ -450,6 +447,10 @@ namespace Shard::Engine::Rendering {
         job.attribBuffer = upload(scene.triangleAttribs.data(), scene.triangleAttribs.size() * sizeof(Raytracing::GPUTriangleAttrib));
         job.matBuffer = upload(scene.materials.data(), scene.materials.size() * sizeof(Raytracing::GPUMaterial));
         job.lightBuffer = upload(job.lights.data(), job.lights.size() * sizeof(LightData));
+
+        job.emissiveBuffer = upload(scene.emissiveTriangles.data(), scene.emissiveTriangles.size() * sizeof(Raytracing::GPUEmissiveTriangle));
+        job.emissiveCount = int(scene.emissiveTriangles.size());
+        job.emissivePower = scene.emissivePower;
     }
 
     void LightmapManager::StartPage(BakeJob& job)
@@ -537,6 +538,7 @@ namespace Shard::Engine::Rendering {
             job.matBuffer->Bind(kMaterialsBinding);
             job.lightBuffer->Bind(kLightsBinding);
             job.texelBuffer->Bind(kTexelsBinding);
+            job.emissiveBuffer->Bind(kEmissiveBinding);
 
             const bool hasSky = job.sky != nullptr;
             if (hasSky)
@@ -544,6 +546,8 @@ namespace Shard::Engine::Rendering {
 
             m_BakeShader->SetInt("uLightCount", int(job.lights.size()));
             m_BakeShader->SetInt("uMaxBounces", int(job.settings.maxBounces));
+            m_BakeShader->SetInt("uEmissiveCount", job.emissiveCount);
+            m_BakeShader->SetFloat("uEmissivePower", job.emissivePower);
             m_BakeShader->SetBool("uHasSky", hasSky);
             m_BakeShader->SetVec3("uSkyColor", glm::vec3(0.0f));
             m_BakeShader->SetFloat("uAmbientIntensity", 0.0f);     // the forward pass adds the world's flat ambient at run time
@@ -602,7 +606,8 @@ namespace Shard::Engine::Rendering {
 
         if (job.settings.denoise)
         {
-            for (int i = 0; i < kDenoiseIterations; i++)
+            const int iterations = int(std::clamp<uint32_t>(job.settings.denoiseIterations, 1u, 8u));
+            for (int i = 0; i < iterations; i++)
             {
                 const std::shared_ptr<Texture2D>& in = (i % 2 == 0) ? job.denoiseA : job.denoiseB;
                 const std::shared_ptr<Texture2D>& out = (i % 2 == 0) ? job.denoiseB : job.denoiseA;
@@ -614,7 +619,9 @@ namespace Shard::Engine::Rendering {
                 job.gNormal->BindImage(3, TextureAccess::ReadOnly);
                 m_AtrousShader->SetInt("uSize", int(size));
                 m_AtrousShader->SetInt("uStep", 1 << i);
-                m_AtrousShader->SetFloat("uLuminanceSigma", kDenoiseLuminanceSigma);
+                m_AtrousShader->SetFloat("uLuminanceSigma", job.settings.denoiseLuminanceSigma);
+                m_AtrousShader->SetFloat("uNormalPower", job.settings.denoiseNormalPower);
+                m_AtrousShader->SetFloat("uPlaneSigma", job.settings.denoisePlaneSigma);
                 renderer->DispatchCompute(m_AtrousPipeline, groups, groups, 1, MemoryBarrierBit::ImageAccess);
 
                 job.result = out;

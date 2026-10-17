@@ -109,8 +109,8 @@ EngineCreationSettings ComputeEngineSettings(int argc, char* argv[]) {
         else if (strcmp(argv[i], "--fullscreen") == 0) {
             settings.fullscreen = true;
         }
-        else if (strcmp(argv[i], "--vsync") == 0) {
-            settings.vsync = false;
+        else if (strcmp(argv[i], "--vsync") == 0 && i + 1 < argc) {
+            settings.vsync = atoi(argv[++i]) != 0;
         }
         else if (strcmp(argv[i], "--project") == 0 && i + 1 < argc) {
             settings.project = argv[++i];

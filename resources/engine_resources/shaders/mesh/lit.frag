@@ -93,10 +93,22 @@ uniform mat4 spotLightSpaceMatrices[10];
 uniform float pointLightFarPlanes[10];
 
 #ifdef SHARD_DEFERRED_LIGHTING
-layout(binding = 0) uniform sampler2D gAlbedoTex;
-layout(binding = 1) uniform sampler2D gNormalsTex;
-layout(binding = 2) uniform sampler2D gMaterialTex;
-layout(binding = 3) uniform sampler2D gBakedTex;
+// SHARD_GBUFFER_MS : the G-buffer is multisampled. Reading one of its samples with gl_SampleID makes the whole lighting run once per
+// sample (sample shading), into the multisampled scene target : every sample of an edge pixel is lit with the surface it covers, and
+// the resolve of the scene does the anti-aliasing, like for the forward pipelines.
+#ifdef SHARD_GBUFFER_MS
+#define GBUFFER_SAMPLER sampler2DMS
+#define GBUFFER_FETCH(tex, pixel) texelFetch(tex, pixel, gl_SampleID)
+#define GBUFFER_SIZE(tex) textureSize(tex)
+#else
+#define GBUFFER_SAMPLER sampler2D
+#define GBUFFER_FETCH(tex, pixel) texelFetch(tex, pixel, 0)
+#define GBUFFER_SIZE(tex) textureSize(tex, 0)
+#endif
+layout(binding = 0) uniform GBUFFER_SAMPLER gAlbedoTex;
+layout(binding = 1) uniform GBUFFER_SAMPLER gNormalsTex;
+layout(binding = 2) uniform GBUFFER_SAMPLER gMaterialTex;
+layout(binding = 3) uniform GBUFFER_SAMPLER gBakedTex;
 #else
 layout(binding = 0) uniform sampler2D albedo;
 layout(binding = 1) uniform sampler2D metallicMap;
@@ -164,7 +176,7 @@ layout(binding = 30) uniform samplerCubeArray pointShadowMapArray;
 // above, so there is NO free unit left - a new sampler means freeing one first (e.g. shrinking the
 // cascade/spot/point shadow ranges), not just picking a number.
 #ifdef SHARD_DEFERRED_LIGHTING
-layout(binding = 31) uniform sampler2D gDepthTex;
+layout(binding = 31) uniform GBUFFER_SAMPLER gDepthTex;
 #else
 layout(binding = 31) uniform sampler2D emissiveMap;
 #endif
@@ -784,6 +796,17 @@ vec4 ShadeSurface(vec4 baseColor, float metallicValue, float roughnessValue, vec
     vec3 ambientDiffuse = vec3(0.0);
     vec3 specularIBL = vec3(0.0);
 
+    // The skybox reflection knows nothing of walls : indoors it would light a lightmapped surface from a sky it cannot see, most
+    // visibly as a bright rim at grazing angles (Fresnel) along edges and junctions. The lightmap says how much of the sky
+    // the surface actually gets : its light against the light an unoccluded surface facing this way would receive.
+    float skySpecularOcclusion = 1.0;
+    if (hasLightmap && useEnvReflections) {
+        float bakedLum = dot(bakedIrradiance, vec3(0.2126, 0.7152, 0.0722));
+        float skyLum = dot(texture(ibl_irradianceMap, giNormal).rgb, vec3(0.2126, 0.7152, 0.0722));
+        skySpecularOcclusion = clamp(bakedLum / max(skyLum, 1e-3), 0.0, 1.0);
+        skySpecularOcclusion *= skySpecularOcclusion;
+    }
+
     int ddgiVolume = ddgi_enabled ? DDGI_PickVolume(worldPos) : -1;
 
     if (ddgiVolume >= 0) {
@@ -807,14 +830,14 @@ vec4 ShadeSurface(vec4 baseColor, float metallicValue, float roughnessValue, vec
         // means a material that happens to have it off silently gets no indirect specular anywhere.
         vec3 probeSpecular = DDGI_Specular(probeRadiance, giNormal, V, baseColor.rgb, metallicValue, roughnessValue);
         if (useEnvReflections)
-            specularIBL = mix(IBL_Specular(giNormal, V, baseColor.rgb, metallicValue, roughnessValue), probeSpecular, roughnessValue);
+            specularIBL = mix(IBL_Specular(giNormal, V, baseColor.rgb, metallicValue, roughnessValue) * skySpecularOcclusion, probeSpecular, roughnessValue);
         else
             specularIBL = probeSpecular;
     }
     else if (useEnvReflections) {
         ambientDiffuse = hasLightmap ? DDGI_Diffuse(bakedIrradiance, baseColor.rgb, metallicValue)
                                      : IBL_Diffuse(giNormal, baseColor.rgb, metallicValue);
-        specularIBL = IBL_Specular(giNormal, V, baseColor.rgb, metallicValue, roughnessValue);
+        specularIBL = IBL_Specular(giNormal, V, baseColor.rgb, metallicValue, roughnessValue) * skySpecularOcclusion;
     }
     else if (hasLightmap) {
         ambientDiffuse = DDGI_Diffuse(bakedIrradiance, baseColor.rgb, metallicValue);
@@ -873,19 +896,20 @@ vec4 ShadeSurface(vec4 baseColor, float metallicValue, float roughnessValue, vec
 void main() {
     ivec2 pixel = ivec2(gl_FragCoord.xy);
 
-    float depth = texelFetch(gDepthTex, pixel, 0).r;
+    float depth = GBUFFER_FETCH(gDepthTex, pixel).r;
     if (depth >= 1.0)
         discard;        // nothing was drawn here : the background (the sky, drawn after the lighting) is not lit
 
-    // The world position, from the depth the G-buffer pass wrote (OpenGL's window depth : 0..1, clip space z -1..1)
-    vec4 clip = vec4(gl_FragCoord.xy / vec2(textureSize(gDepthTex, 0)) * 2.0 - 1.0, depth * 2.0 - 1.0, 1.0);
+    // The world position, from the depth the G-buffer pass wrote (OpenGL's window depth : 0..1, clip space z -1..1).
+    // With sample shading gl_FragCoord is the position of the sample, which is where that depth was written
+    vec4 clip = vec4(gl_FragCoord.xy / vec2(GBUFFER_SIZE(gDepthTex)) * 2.0 - 1.0, depth * 2.0 - 1.0, 1.0);
     vec4 world = uInvViewProjection * clip;
     worldPos = world.xyz / world.w;
 
-    vec4 albedoRaw = texelFetch(gAlbedoTex, pixel, 0);
-    vec4 normals = texelFetch(gNormalsTex, pixel, 0);
-    vec4 material = texelFetch(gMaterialTex, pixel, 0);
-    vec4 baked = texelFetch(gBakedTex, pixel, 0);
+    vec4 albedoRaw = GBUFFER_FETCH(gAlbedoTex, pixel);
+    vec4 normals = GBUFFER_FETCH(gNormalsTex, pixel);
+    vec4 material = GBUFFER_FETCH(gMaterialTex, pixel);
+    vec4 baked = GBUFFER_FETCH(gBakedTex, pixel);
 
     int flags = int(albedoRaw.a * 3.0 + 0.5);
     useEnvReflections = (flags & 2) != 0;

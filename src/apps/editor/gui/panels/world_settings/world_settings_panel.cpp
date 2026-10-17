@@ -278,7 +278,46 @@ namespace Shard::Editor::GUI{
         if (ImGui::IsItemHovered())
             ImGui::SetTooltip("Filters the noise of the bake with an edge aware filter that follows the surfaces and the shadows.");
 
-        ImGui::SameLine();
+        // The denoiser's own settings : a filter run once, at the end of the bake of every page
+        if (ImGui::TreeNode("Denoiser settings"))
+        {
+            ImGui::BeginDisabled(!settings.denoise);
+
+            int passes = int(settings.denoiseIterations);
+            if (ImGui::SliderInt("Passes", &passes, 1, 8))
+            {
+                settings.denoiseIterations = uint32_t(std::max(passes, 1));
+                changed = true;
+            }
+            if (ImGui::IsItemHovered())
+                ImGui::SetTooltip("Filter passes. Each one doubles the reach (taps 1, 2, 4... texels apart), so more passes smooth wider blotches\nof noise, and cost a little more. 5 is the default.");
+
+            changed |= ImGui::SliderFloat("Light tolerance", &settings.denoiseLuminanceSigma, 0.5f, 16.0f, "%.1f");
+            if (ImGui::IsItemHovered())
+                ImGui::SetTooltip("How many standard deviations of noise a difference of light may be and still be averaged away.\nHigher : smoother, but soft shadow edges and small bright details blur. Lower : sharper, noisier. Default 4.");
+
+            changed |= ImGui::SliderFloat("Normal sharpness", &settings.denoiseNormalPower, 1.0f, 256.0f, "%.0f", ImGuiSliderFlags_Logarithmic);
+            if (ImGui::IsItemHovered())
+                ImGui::SetTooltip("How fast a neighbour on a surface facing another way stops counting (exponent of the dot product of the normals).\nHigher keeps corners and creases crisp ; lower lets light mix across them. Default 48.");
+
+            changed |= ImGui::SliderFloat("Plane tolerance", &settings.denoisePlaneSigma, 0.25f, 8.0f, "%.2f texels");
+            if (ImGui::IsItemHovered())
+                ImGui::SetTooltip("How far, in texels, a neighbour may stand from the surface's plane and still count. Default 2.");
+
+            if (ImGui::Button("Reset denoiser"))
+            {
+                const Rendering::LightmapSettings defaults;
+                settings.denoiseIterations = defaults.denoiseIterations;
+                settings.denoiseLuminanceSigma = defaults.denoiseLuminanceSigma;
+                settings.denoiseNormalPower = defaults.denoiseNormalPower;
+                settings.denoisePlaneSigma = defaults.denoisePlaneSigma;
+                changed = true;
+            }
+
+            ImGui::EndDisabled();
+            ImGui::TreePop();
+        }
+
         ImGui::SetNextItemWidth(120.0f);
         changed |= ImGui::DragFloat("Firefly clamp", &settings.fireflyClamp, 0.5f, 0.0f, 1000.0f, settings.fireflyClamp > 0.0f ? "%.1f" : "off");
         if (ImGui::IsItemHovered())

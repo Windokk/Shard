@@ -231,7 +231,7 @@ namespace Shard::Engine{
             DEBUG_INFO("===== System infos =====");
             DEBUG_INFO("GPU Vendor : " + infos.gpu_vendor);
             DEBUG_INFO("GPU Renderer : " + infos.gpu_renderer);
-            DEBUG_INFO("OpenGL Version : " + infos.gl_version);
+            DEBUG_INFO("Driver Version : " + infos.driver_version);
             DEBUG_INFO("Using Host : " + std::string(infos.windowHost == Platform::WindowHost::QT ? "QT" : infos.windowHost == Platform::WindowHost::Headless ? "none (headless)" : "SDL3") + " with version : " + infos.windowHostVersion);
             DEBUG_INFO("CPU : " + infos.cpuBrand + " (" + std::to_string(infos.cpuLogicalCores) + " threads)");
             DEBUG_INFO("RAM : " + std::to_string(infos.totalRamMB) + " MB");
@@ -624,6 +624,8 @@ namespace Shard::Engine{
 
         bool EngineInstance::Run() {
 
+            const auto frameStart = std::chrono::steady_clock::now();
+
             RunScriptedCommands();
             m_FrameCount++;
 
@@ -651,7 +653,9 @@ namespace Shard::Engine{
 
             Present();
 
-            m_Context.profiler->EndFrameSampling(m_Context.timeManager->GetDeltaTime() * 1000.0f);
+            // The duration of this frame, which is what the categories sampled above add up to. The simulation's delta is the
+            // previous frame's (it is read at the start of this one), so it would be shown against the wrong frame's breakdown.
+            m_Context.profiler->EndFrameSampling(std::chrono::duration<float, std::milli>(std::chrono::steady_clock::now() - frameStart).count(), m_FrameCount);
 
             if(m_Context.platform->GetInput()->WasKeyPressed(Key::Escape))
             {
@@ -727,7 +731,12 @@ namespace Shard::Engine{
             // Handed to the render thread : the frame draws from the snapshot Extract just published, while this thread
             // goes on with the next one. Without a render thread it simply runs here.
             Rendering::Renderer* renderer = m_Context.renderer;
-            Rendering::RenderThread::Get().SubmitFrame([renderer] {
+            Debugging::Profiler* profiler = m_Context.profiler;
+            const uint64_t frame = m_FrameCount;
+            Rendering::RenderThread::Get().SubmitFrame([renderer, profiler, frame] {
+                // The render thread's samples from here on (this frame, its UI, its swap) belong to the simulation's frame `frame`
+                if(profiler)
+                    profiler->BeginRenderFrame(frame);
                 SHARD_PROFILE_SCOPE(Debugging::ProfileCategory::Rendering);
                 renderer->Render();
             });
@@ -744,10 +753,6 @@ namespace Shard::Engine{
 
             Rendering::RenderThread& thread = Rendering::RenderThread::Get();
             thread.SetMaxFramesInFlight(cvFramesInFlight.Get());
-            thread.onFrameFinished = [this] {
-                if(m_Context.profiler)
-                    m_Context.profiler->PublishRenderThread();
-            };
 
             const bool started = thread.Start(
                 [window] { window->MakeContextCurrent(false); },

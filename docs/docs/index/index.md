@@ -25,26 +25,24 @@
   });
 </script>
 
-Welcome to the official documentation for **Shard Engine**, a modular, modern **3D game engine** built to give developers full control over their game/interactive experience.
-
-Whether you're building a fast-paced action game, a simulation or a multiplayer-voxel-space exploration-roguelike-open-world game, Shard gives you the tools and the architecture to make it happen.
+Shard is a 3D game engine written in C++17 for Windows and Linux (desktop only). It is split into separate modules, so a project only pulls in what it uses, and the whole source is open.
 
 ---
 
-## What is Shard Engine?
+## What is Shard?
 
-**Shard Engine** is a modular, cross-platform (desktop only: Windows and Linux) 3D game engine written in C++17, focused on:
+The engine is built around three ideas:
 
-- 🧩 **Modularity**: use only what you need: rendering, physics, audio, input and more.
-- 🖥️ **High performance**: designed for demanding real-time applications.
-- 🔧 **Customizability**: open-source, extensible, and built for developers who want full control.
+- **Modular**: rendering, physics, audio and input are separate modules.
+- **Fast**: aimed at real-time games and simulations.
+- **Open**: the source is available and meant to be modified.
 
 !!! warning "Alpha release notice"
     **Shard Engine** is in **active development**. An alpha version is expected in **November 2026**. Contributions, feedback and testing are welcome.
 
 ---
 
-## ✨ Features
+## Features
 
 | Area                       | Highlights                                                                                                            |
 |----------------------------|-----------------------------------------------------------------------------------------------------------------------|
@@ -56,7 +54,7 @@ Whether you're building a fast-paced action game, a simulation or a multiplayer-
 | **Platform**               | A dedicated [Platform Abstraction Layer](../platform.md): windowing, filesystem, threads, networking, crash reporting |
 | **Editor**                 | An ImGui editor with scene hierarchy, gizmos and thumbnails, plus a hot-loadable game module                          |
 
-## 🚀 Quick start
+## Quick start
 
 **Requirements:** CMake 3.28.2+, a C++17 compiler (GCC MinGW recommended on Windows) and the FMOD Core API 2.03.14.
 
@@ -72,23 +70,23 @@ The full setup (fonts, FMOD, resource folders, Linux packages) is described in [
 
 ---
 
-## 📚 Documentation overview
+## Documentation overview
 
-- [Getting Started](getting-started.md): Install the engine and build your first game.
-- [Core Concepts](../core-concepts.md): objects, scene management, inputs, rendering and more.
-- [Modules](../modules.md): How rendering, audio, physics and scripting work.
-- [Platform Abstraction Layer](../platform.md): OS and window system abstractions, gamepads, Linux build notes.
-- [API Reference](../API-reference.md): Detailed documentation of public classes and methods.
-- [Tutorials](../tutorials.md): Step-by-step guides for common gameplay mechanics.
-- [Contributing](../contributing.md): How to contribute to the engine itself.
+- [Getting Started](getting-started.md): install the engine and build a first game.
+- [Core Concepts](../core-concepts.md): objects, scene management, input, rendering.
+- [Modules](../modules.md): how rendering, audio, physics and scripting work.
+- [Platform Abstraction Layer](../platform.md): OS and window system code, gamepads, Linux build notes.
+- [API Reference](../API-reference.md): public classes and methods.
+- [Tutorials](../tutorials.md): step-by-step guides for common gameplay mechanics.
+- [Contributing](../contributing.md): how to contribute to the engine.
 
 ---
 
-## 🧭 Navigation tips
+## Navigation
 
-Use the navigation bar to jump between topics and the search bar at the top to find anything quickly.
+Use the sidebar to browse topics or the search bar to find a page.
 
-Need help or found a bug? Open an issue on [GitHub](https://github.com/Windokk/Shard/issues).
+Found a bug or need help? Open an issue on [GitHub](https://github.com/Windokk/Shard/issues).
 
 ---
 

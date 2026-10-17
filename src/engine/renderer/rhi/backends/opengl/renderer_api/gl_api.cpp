@@ -195,12 +195,19 @@ namespace Shard::Engine::Rendering{
 
     void GLRendererAPI::BindPassData(const std::shared_ptr<RenderPass> pass, std::shared_ptr<Material> material)
     {
+        // A pass gives its parameters to every material drawn in it, whose shaders do not all read them (the sky in the deferred lighting
+        // pass has no G-buffer) : the ones a shader does not have are skipped, not reported
+        const auto& samplers = material->GetShader()->GetActiveSamplersMap();
+        const auto& uniforms = material->GetShader()->GetActiveUniformsMap();
+
         for (auto& [name, texture] : pass->customSamplers){
-            material->SetTextureParameter(name, texture);
+            if (samplers.find(name) != samplers.end())
+                material->SetTextureParameter(name, texture);
         }
 
         for (auto& [name, value] : pass->customUniforms){
-            material->SetScalarParameter(name, value);
+            if (uniforms.find(name) != uniforms.end())
+                material->SetScalarParameter(name, value);
         }
     }
 

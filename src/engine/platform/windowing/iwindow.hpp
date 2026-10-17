@@ -26,7 +26,7 @@ namespace Shard::Engine::Core::Platform {
     struct SystemInfos{
         std::string gpu_vendor;
         std::string gpu_renderer;
-        std::string gl_version;
+        std::string driver_version;
         int connectedMonitorsCount = 0;
         std::vector<MonitorInfos> monitors;
         WindowHost windowHost = SDL3;

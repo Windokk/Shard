@@ -6,6 +6,7 @@
 #include "engine/core/diagnostics/logger.hpp"
 #include "engine/renderer/frontend/renderer.hpp"
 #include "engine/renderer/rhi/material/material.hpp"
+#include "engine/renderer/rhi/renderer_api.hpp"
 #include "engine/renderer/rhi/resources/framebuffer/framebuffer.hpp"
 #include "engine/renderer/rhi/resources/mesh/mesh.hpp"
 #include "engine/renderer/rhi/shader/shader.hpp"
@@ -52,7 +53,9 @@ namespace Shard::Engine::Rendering {
         /// no longer depends on how many layers of geometry overlap, and the cost of a material is paid once. The forward pass still runs afterwards, for
         /// what a G-buffer cannot hold : the translucent geometry, and the sky.
         ///
-        /// The G-buffer is not multisampled : the geometry edges are not anti-aliased by this pipeline.
+        /// The G-buffer has the sample count of the scene target (the project's MSAA setting) : the lighting pass runs once per sample (the
+        /// SHARD_GBUFFER_MS permutation of the lit shader), so the geometry edges are anti-aliased like the forward pipelines' - at the price of lighting
+        /// every sample of every pixel, edges or not.
         class DeferredPipeline final : public RenderPipeline
         {
             public:
@@ -69,7 +72,11 @@ namespace Shard::Engine::Rendering {
                     specs.height = size.y;
                     specs.hasColor = true;
                     specs.hasDepth = true;
-                    specs.multisampled = false;
+
+                    const FramebufferSpecifications sceneSpecs = renderer.GetSceneFramebuffer()->GetSpecifications();
+                    m_Multisampled = sceneSpecs.multisampled && sceneSpecs.samplesCount > 1;
+                    specs.multisampled = m_Multisampled;
+                    specs.samplesCount = sceneSpecs.samplesCount;
 
                     auto nearest = [](TextureInternalFormat format) {
                         TextureSpecifications t;
@@ -98,7 +105,10 @@ namespace Shard::Engine::Rendering {
                     // The lighting : a quad over the whole screen drawn with the lit shader's deferred permutation (a mesh, not a fullscreen triangle :
                     // the draws of meshes are the ones that get the scene's lights, shadows and probes bound)
                     const Filesystem::Path directory = Core::GetEngine().GetFileManager()->GetEngineResRoot() / "shaders/mesh";
-                    std::shared_ptr<Shader> shader = Shader::Create(directory / "deferred_lighting.vert", directory / "lit.frag", Filesystem::Path(""), {"SHARD_DEFERRED_LIGHTING"});
+                    std::vector<std::string> defines = {"SHARD_DEFERRED_LIGHTING"};
+                    if (m_Multisampled)
+                        defines.push_back("SHARD_GBUFFER_MS");
+                    std::shared_ptr<Shader> shader = Shader::Create(directory / "deferred_lighting.vert", directory / "lit.frag", Filesystem::Path(""), defines);
                     if (!shader)
                     {
                         DEBUG_ERROR("The deferred lighting shader could not be loaded : the deferred pipeline draws nothing.");
@@ -155,6 +165,15 @@ namespace Shard::Engine::Rendering {
                     std::shared_ptr<RenderPass> pass = renderer.GetRenderPass(kLightingPass);
                     if (!pass || !m_GBuffer)
                         return;
+
+                    // The project's sample count can change after the pipeline was activated : the G-buffer follows the scene target, the lighting pass
+                    // reads one G-buffer sample per sample of the target
+                    if (m_Multisampled)
+                    {
+                        const uint32_t sceneSamples = renderer.GetSceneFramebuffer()->GetSpecifications().samplesCount;
+                        if (m_GBuffer->GetSpecifications().samplesCount != sceneSamples)
+                            m_GBuffer->SetSamplesCount(sceneSamples);
+                    }
 
                     // The camera's matrices come with the draw (the camera state) ; what the shader needs on top is where a pixel is in the world
                     pass->customUniforms["uInvViewProjection"] = glm::inverse(snapshot.camera.viewProjection);
@@ -233,6 +252,7 @@ namespace Shard::Engine::Rendering {
 
                 std::shared_ptr<Framebuffer> m_GBuffer;
                 std::shared_ptr<Material> m_Material;
+                bool m_Multisampled = false;
         };
     }
 

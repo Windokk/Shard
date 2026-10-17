@@ -47,7 +47,7 @@ namespace Shard::Engine::Core::Platform {
         SystemInfos info{};
         info.gpu_vendor = "none";
         info.gpu_renderer = "none (headless)";
-        info.gl_version = "none";
+        info.driver_version = "none";
         info.windowHost = WindowHost::Headless;
         info.windowHostVersion = "-";
         info.connectedMonitorsCount = 0;

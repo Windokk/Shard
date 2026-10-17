@@ -41,6 +41,15 @@ namespace Shard::Engine::Rendering {
         /// Filters the noise of the bake (an edge aware filter guided by the surface's position and normal)
         bool denoise = true;
 
+        /// How the denoiser trades noise for detail (see lightmap_atrous.comp). Passes : each one doubles the reach of the filter (1, 2, 4... texels
+        /// between taps), so more of them smooth wider noise. Luminance sigma : how many standard deviations of noise a difference of light may be
+        /// and still be averaged - higher blurs shadow edges, lower keeps detail and noise. Normal power : how fast a tap on a surface that
+        /// faces another way stops counting. Plane sigma : the distance to the surface's plane, in texels, past which a tap stops counting.
+        uint32_t denoiseIterations = 5;
+        float denoiseLuminanceSigma = 4.0f;
+        float denoiseNormalPower = 48.0f;
+        float denoisePlaneSigma = 2.0f;
+
         /// A path that brings back more light than this (luminance) is scaled down to it : the rare very bright one is a
         /// white speck in a lightmap, which no number of samples removes. 0 : no limit.
         float fireflyClamp = 32.0f;
@@ -49,7 +58,8 @@ namespace Shard::Engine::Rendering {
         {
             return texelsPerMeter == o.texelsPerMeter && minResolution == o.minResolution && maxResolution == o.maxResolution &&
                    maxPageSize == o.maxPageSize && samples == o.samples && maxBounces == o.maxBounces && denoise == o.denoise &&
-                   fireflyClamp == o.fireflyClamp && indirectIntensity == o.indirectIntensity;
+                   fireflyClamp == o.fireflyClamp && indirectIntensity == o.indirectIntensity && denoiseIterations == o.denoiseIterations &&
+                   denoiseLuminanceSigma == o.denoiseLuminanceSigma && denoiseNormalPower == o.denoiseNormalPower && denoisePlaneSigma == o.denoisePlaneSigma;
         }
     };
 

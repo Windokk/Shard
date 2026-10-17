@@ -119,6 +119,10 @@ namespace Shard::Engine::Rendering{
             readUInt("maxBounces", lightmapSettings.maxBounces);
             readFloat("fireflyClamp", lightmapSettings.fireflyClamp);
             readFloat("indirectIntensity", lightmapSettings.indirectIntensity);
+            readUInt("denoiseIterations", lightmapSettings.denoiseIterations);
+            readFloat("denoiseLuminanceSigma", lightmapSettings.denoiseLuminanceSigma);
+            readFloat("denoiseNormalPower", lightmapSettings.denoiseNormalPower);
+            readFloat("denoisePlaneSigma", lightmapSettings.denoisePlaneSigma);
             if(lightmaps.contains("denoise") && lightmaps["denoise"].is_boolean())
                 lightmapSettings.denoise = lightmaps["denoise"].get<bool>();
 
@@ -160,6 +164,10 @@ namespace Shard::Engine::Rendering{
             lightmaps["denoise"] = lightmapSettings.denoise;
             lightmaps["fireflyClamp"] = lightmapSettings.fireflyClamp;
             lightmaps["indirectIntensity"] = lightmapSettings.indirectIntensity;
+            lightmaps["denoiseIterations"] = lightmapSettings.denoiseIterations;
+            lightmaps["denoiseLuminanceSigma"] = lightmapSettings.denoiseLuminanceSigma;
+            lightmaps["denoiseNormalPower"] = lightmapSettings.denoiseNormalPower;
+            lightmaps["denoisePlaneSigma"] = lightmapSettings.denoisePlaneSigma;
             if(!lightmapData.empty())
                 lightmaps["data"] = lightmapData;
         }

@@ -106,11 +106,12 @@ namespace Shard::Engine::Rendering {
         if (specs.hasDepth)
             make(m_Depth, specs.depthSpecs, true, multisampled ? samples : VK_SAMPLE_COUNT_1_BIT, "Framebuffer depth");
 
-        if (specs.hasColor && !multisampled)
+        if (specs.hasColor)
         {
+            // The extra outputs have the sample count of the colour : one draw writes all of them. They are never resolved, a G-buffer is read sample by sample
             m_ExtraColors.resize(specs.extraColorSpecs.size());
             for (size_t i = 0; i < specs.extraColorSpecs.size(); i++)
-                make(m_ExtraColors[i], specs.extraColorSpecs[i], false, VK_SAMPLE_COUNT_1_BIT, "Framebuffer extra color");
+                make(m_ExtraColors[i], specs.extraColorSpecs[i], false, multisampled ? samples : VK_SAMPLE_COUNT_1_BIT, "Framebuffer extra color");
         }
 
         if (multisampled)

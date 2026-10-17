@@ -73,12 +73,29 @@ namespace Shard::Engine::Rendering::Raytracing {
         GPUMaterialTexEmissive  = 1u << 4,
     };
 
+    // A triangle that sends light on its own, for the paths that sample the emitters directly (next event estimation, see
+    // path_tracing.glsl). The list is the CDF of the emitters' power, so a binary search on a random number picks one with a
+    // probability proportional to it. std430 : a 16 byte struct.
+    struct GPUEmissiveTriangle
+    {
+        uint32_t triangle = 0;  // index in trianglePositions / triangleAttribs
+        float cdf = 0.0f;       // sum of the power of this triangle and of every one before it, over the total (the last is 1)
+        float padding0 = 0.0f;
+        float padding1 = 0.0f;
+    };
+    static_assert(sizeof(GPUEmissiveTriangle) == 16, "GPUEmissiveTriangle must match the std430 stride of its GLSL twin");
+
     struct RaytraceScene
     {
         std::vector<BVHNode> bvhNodes;
         std::vector<GPUTrianglePos> trianglePositions;
         std::vector<GPUTriangleAttrib> triangleAttribs;
         std::vector<GPUMaterial> materials;
+
+        // The triangles whose material emits light with a constant colour (an emissive texture is left to the paths that happen to
+        // hit it) : power = luminance of the emission * area, `emissivePower` is the sum of it
+        std::vector<GPUEmissiveTriangle> emissiveTriangles;
+        float emissivePower = 0.0f;
     };
 
     // Per-model data needed to flatten its triangles, captured up front on the main thread so the

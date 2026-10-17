@@ -46,8 +46,24 @@ namespace Shard::Editor::GUI{
         ImGui::SetNextItemWidth(150.0f);
         ImGui::SliderFloat("Refresh interval", &refreshIntervalSeconds, 0.05f, 2.0f, "%.2f s");
 
-        float fps = displayedFrame.totalMs > 0.0f ? 1000.0f / displayedFrame.totalMs : 0.0f;
-        ImGui::Text("Frame: %.2f ms (%.1f FPS)", displayedFrame.totalMs, fps);
+        ImGui::Text("Frame time: %.2f ms", displayedFrame.frameMs);
+        if (ImGui::IsItemHovered())
+            ImGui::SetTooltip("From the start of the frame on the main thread to the end of its swap on the render thread.");
+
+        // One frame says little : with the render thread a frame behind, they alternate between a cheap one and one that waits
+        // for the display. The average over the history is the rate that is actually sustained.
+        {
+            const auto& history = profiler->GetProfileHistory();
+            const size_t count = profiler->GetProfileHistoryCount();
+            float sum = 0.0f;
+            for (size_t i = 0; i < count; i++)
+                sum += history[i].totalMs;
+            if (count > 0 && sum > 0.0f)
+            {
+                const float average = sum / static_cast<float>(count);
+                ImGui::Text("Average (last %zu frames): %.2f ms (%.1f FPS)", count, average, 1000.0f / average);
+            }
+        }
 
         ImGui::Separator();
         ImGui::TextUnformatted("Breakdown (last frame)");
@@ -72,6 +88,15 @@ namespace Shard::Editor::GUI{
             return a.ms > b.ms;
         });
 
+        // The render thread runs in parallel and a frame or so behind : what it spent (the render itself, and above all the present, which
+        // blocks on vsync / the GPU) can add up to more than the simulation thread's frame it is shown against. The shares are taken of
+        // the larger of the two, so they add up to 100% and the bar stays in its box.
+        float categorySum = 0.0f;
+        for (const Entry& entry : entries)
+            categorySum += entry.ms;
+        const float denominator = std::max(frame.totalMs, categorySum);
+        const bool overBudget = categorySum > frame.totalMs * 1.001f;
+
         // Single bar showing how the frame is split between subsystems, in descending order.
         ImVec2 barPos = ImGui::GetCursorScreenPos();
         ImVec2 barSize = ImVec2(ImGui::GetContentRegionAvail().x, 20.0f);
@@ -81,10 +106,10 @@ namespace Shard::Editor::GUI{
         float x = barPos.x;
         for (const Entry& entry : entries)
         {
-            if (frame.totalMs <= 0.0f || entry.ms <= 0.0f)
+            if (denominator <= 0.0f || entry.ms <= 0.0f)
                 continue;
 
-            float w = (entry.ms / frame.totalMs) * barSize.x;
+            float w = (entry.ms / denominator) * barSize.x;
             draw->AddRectFilled(ImVec2(x, barPos.y), ImVec2(x + w, barPos.y + barSize.y), CategoryColor(entry.category));
             x += w;
         }
@@ -95,7 +120,7 @@ namespace Shard::Editor::GUI{
         for (size_t i = 0; i < entries.size(); i++)
         {
             const Entry& entry = entries[i];
-            float pct = frame.totalMs > 0.0f ? (entry.ms / frame.totalMs) * 100.0f : 0.0f;
+            float pct = denominator > 0.0f ? (entry.ms / denominator) * 100.0f : 0.0f;
             int categoryIndex = static_cast<int>(entry.category);
             bool isSelected = (selectedCategory == categoryIndex);
 
@@ -122,6 +147,8 @@ namespace Shard::Editor::GUI{
 
             if (entry.category == ProfileCategory::Waiting && ImGui::IsItemHovered())
                 ImGui::SetTooltip("The simulation thread is idle, waiting for the render thread (vsync / GPU pacing).\nNot work : a frame made of this is limited by the display or the GPU.");
+            else if (entry.category == ProfileCategory::Presentation && ImGui::IsItemHovered())
+                ImGui::SetTooltip("Handing the picture to the display : it blocks on vsync / the swapchain / the GPU, so it is waiting more than work.\nTaken on the render thread, a frame or so behind : a hitch (a resize, a swapchain rebuild) shows here against a later, shorter frame.");
             else if (entry.category == ProfileCategory::Rendering && ImGui::IsItemHovered())
                 ImGui::SetTooltip("Snapshot extraction (simulation thread) plus the render thread's frame.\nThe render thread runs in parallel : this can exceed what the simulation thread's frame leaves for it.");
 

@@ -67,7 +67,8 @@ namespace Shard::Engine::Rendering{
 
             /// Creates / re-specifies the extra colour attachments at the given size and attaches them (expects m_FBO bound), then sets the draw buffers
             void CreateExtraColorAttachments(uint32_t width, uint32_t height);
-            void ApplyDrawBuffers();
+            // The draw buffers of the framebuffer that is bound : `withExtras` is false for the resolve framebuffer of a multisampled one, which has no extra attachments
+            void ApplyDrawBuffers(bool withExtras = true);
 
             uint32_t m_ResolveFBO = 0;
             uint32_t m_ResolveColorAttachment = 0;

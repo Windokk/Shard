@@ -958,7 +958,11 @@ namespace Shard::Editor::Core{
             ImGui_ImplOpenGL3_NewFrame();
             ImGui_ImplOpenGL3_RenderDrawData(drawData);
         });
-        Rendering::RenderThread::Get().Post([this] { SDLWindow::SwapBuffers(); });
+        Rendering::RenderThread::Get().Post([this] {
+            // Sampled on the render thread : it blocks on the vsync, and belongs to the frame whose picture it presents
+            SHARD_PROFILE_SCOPE(Engine::Debugging::ProfileCategory::Presentation);
+            SDLWindow::SwapBuffers();
+        });
     }
 
     void EditorMainWindow::UpdateLightmapBuildNotification()
@@ -1248,7 +1252,7 @@ namespace Shard::Editor::Core{
 
         ret.gpu_vendor   = Engine::Core::GetEngine().GetRenderer()->GetDeviceVendor();
         ret.gpu_renderer = Engine::Core::GetEngine().GetRenderer()->GetRendererName();
-        ret.gl_version   = Engine::Core::GetEngine().GetRenderer()->GetDriverVersion();
+        ret.driver_version = Engine::Core::GetEngine().GetRenderer()->GetDriverVersion();
 
         return ret;
     }

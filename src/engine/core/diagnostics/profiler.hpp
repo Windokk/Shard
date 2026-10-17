@@ -8,6 +8,8 @@
 #include <atomic>
 #include <functional>
 #include <mutex>
+#include <map>
+#include <deque>
 
 namespace Shard::Engine::Debugging{
 
@@ -87,6 +89,12 @@ namespace Shard::Engine::Debugging{
         std::array<float, kProfileCategoryCount> categoryMs{};
         std::array<float, kRenderSubSampleCount> renderSubMs{};
         float totalMs = 0.0f;
+        // The render thread's own time for this same frame : from when it began it to the end of its swap (0 : no render thread).
+        // totalMs is the simulation thread's time for the frame. The two overlap, they are not summed.
+        float renderMs = 0.0f;
+        // The frame from end to end : from its start on the simulation thread to the end of its swap on the render thread (both
+        // threads' parts of it, overlap included). Equals totalMs when there is no render thread.
+        float frameMs = 0.0f;
     };
 
     struct MinimalStatistics {
@@ -226,18 +234,22 @@ namespace Shard::Engine::Debugging{
             void EndRenderSubSample(RenderSubSample sample);
 
             // The thread that draws calls this once, when it starts (and Unmark when it ends) : the samples it takes are then
-            // kept apart from the ones of the simulation (they run at the same time) and handed over by PublishRenderThread(),
-            // which the render thread calls after each frame. The next EndFrameSampling() adds what was published to the
-            // frame it closes. While a render thread samples, its categories (Rendering, Presentation) are time of another
+            // kept apart from the ones of the simulation (they run at the same time). The render thread calls BeginRenderFrame(n)
+            // when it starts the frame the simulation numbered `n` : everything it samples from then on (the frame, its UI, its
+            // swap) belongs to `n`, until it begins the next one. A simulation frame is therefore only closed once the render
+            // thread has moved on to a later frame (see EndFrameSampling) : the profile of frame `n` holds both threads' time
+            // for that same frame. While a render thread samples, its categories (Rendering, Presentation) are time of another
             // thread : they do not count in what the frame's own thread accounted for when "Other" is derived.
             static void MarkRenderThread();
             static void UnmarkRenderThread();
-            void PublishRenderThread();
+            void BeginRenderFrame(uint64_t frame);
 
-            // Closes the current frame : derives the "Other" bucket, pushes the frame into the
-            // history ring buffer, and resets the accumulator for the next frame. Call once per
-            // frame, after all tracked subsystems have run. frameMs is the frame's total duration.
-            void EndFrameSampling(float frameMs);
+            // Ends the simulation thread's part of frame `frame` (numbered like the one given to BeginRenderFrame). The frame
+            // is kept aside until the render thread has finished its own part of it, which is one frame later or so : only then
+            // are the two merged, the "Other" bucket derived and the result pushed into the history ring buffer (and
+            // GetLastFrameProfile). So what is shown runs a frame behind, and is the same frame on both threads. Call once per
+            // frame, after all tracked subsystems have run. frameMs is the frame's total duration on this thread.
+            void EndFrameSampling(float frameMs, uint64_t frame);
 
             const FrameProfile& GetLastFrameProfile() const { return m_LastFrame; }
             const std::array<FrameProfile, kHistoryLength>& GetProfileHistory() const { return m_History; }
@@ -263,12 +275,29 @@ namespace Shard::Engine::Debugging{
                 std::array<float, kProfileCategoryCount> categoryMs{};
                 std::array<float, kRenderSubSampleCount> renderSubMs{};
                 uint32_t subSampleCount = 0;
+                ProfileClock::time_point frameStart{};   // when the render thread began the frame
+                ProfileClock::time_point swapEnd{};      // when the last Presentation sample ended (the swap)
                 std::array<ProfileClock::time_point, kProfileCategoryCount> sampleStart{};
                 std::array<ProfileClock::time_point, kRenderSubSampleCount> subSampleStart{};
             };
             RenderSide m_RenderLocal;
-            RenderSide m_RenderPublished;
+            uint64_t m_RenderFrame = 0;                  // the frame m_RenderLocal belongs to (render thread only)
+            bool m_RenderFrameValid = false;
             std::mutex m_RenderMutex;
+            std::map<uint64_t, RenderSide> m_RenderDone; // finished frames' render side, until their simulation frame takes it
+            uint64_t m_RenderStarted = 0;                // the latest frame the render thread began
+            bool m_RenderStartedValid = false;
+
+            // Simulation side of the frames that wait for the render thread's part
+            struct PendingFrame {
+                uint64_t frame = 0;
+                FrameProfile profile;
+                uint32_t subSampleCount = 0;
+                ProfileClock::time_point start{};
+            };
+            std::deque<PendingFrame> m_Pending;
+
+            void FinalizeFrame(PendingFrame& pending, const RenderSide* render);
 
             static inline thread_local bool t_RenderSide = false;
             static inline std::atomic<bool> s_RenderThreadSampling{false};

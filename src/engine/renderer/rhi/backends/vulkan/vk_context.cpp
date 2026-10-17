@@ -136,6 +136,7 @@ namespace Shard::Engine::Rendering::VK {
         features.imageCubeArray = VK_TRUE;
         features.fragmentStoresAndAtomics = VK_TRUE;
         features.vertexPipelineStoresAndAtomics = VK_TRUE;
+        features.sampleRateShading = VK_TRUE;                     // gl_SampleID : the deferred lighting runs once per sample of a multisampled G-buffer
 
         VkPhysicalDeviceVulkan11Features features11{VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_1_FEATURES};
         features11.shaderDrawParameters = VK_TRUE;
@@ -865,6 +866,11 @@ namespace Shard::Engine::Rendering::VK {
 
     bool Context::AllocUniform(uint32_t size, uint32_t& offset, void*& mapped)
     {
+        // A slot that has not begun its frame still holds what it used 4 frames ago (and the GPU may still read it) : BeginSlot, which
+        // waits for that and starts the ring over, runs on the first Cmd(). Allocating before it hands out space that is given out again
+        // right after
+        Cmd();
+
         Slot& slot = m_Slots[m_Current];
         const uint32_t align = m_Caps.uniformAlignment;
         const uint32_t start = (slot.uniformUsed + align - 1) / align * align;
@@ -880,6 +886,10 @@ namespace Shard::Engine::Rendering::VK {
 
     bool Context::AllocStaging(VkDeviceSize size, VkBuffer& buffer, VkDeviceSize& offset, void*& mapped)
     {
+        // See AllocUniform : the slot has to have begun its frame, or the first buffers staged after a submit overlap the next ones
+        // (a scene uploaded buffer by buffer right after a readback came out as a mix of its buffers)
+        Cmd();
+
         Slot& slot = m_Slots[m_Current];
         const VkDeviceSize start = (slot.stagingUsed + 255) / 256 * 256;
 

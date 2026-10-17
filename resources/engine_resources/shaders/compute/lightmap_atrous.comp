@@ -22,6 +22,8 @@ layout(rgba16f, binding = 3) readonly uniform image2D uGNormal;
 uniform int uSize;
 uniform int uStep;
 uniform float uLuminanceSigma;      // how many standard deviations of noise a luminance difference may be and still blend
+uniform float uNormalPower;         // exponent of the normals' dot product : higher stops a tap on a surface that faces another way sooner
+uniform float uPlaneSigma;          // distance to the centre texel's plane past which a tap stops counting, in texels of the surface
 
 float Luminance(vec3 c)
 {
@@ -44,7 +46,7 @@ void main()
 
     float texelWorld = centerPos.w;
     float luminanceSigma = uLuminanceSigma * sqrt(max(centerColor.a, 0.0)) + 1e-4;
-    float planeSigma = 2.0 * texelWorld;
+    float planeSigma = max(uPlaneSigma, 0.01) * texelWorld;
     float lateralSigma = texelWorld * float(uStep) * 1.5;
 
     const float kernel[3] = float[](3.0 / 8.0, 1.0 / 4.0, 1.0 / 16.0);
@@ -72,7 +74,7 @@ void main()
             float planeDistance = dot(centerNormal, offset);
 
             float weight = kernel[abs(dx)] * kernel[abs(dy)];
-            weight *= pow(max(dot(centerNormal, tapNormal), 0.0), 48.0);
+            weight *= pow(max(dot(centerNormal, tapNormal), 0.0), uNormalPower);
             weight *= exp(-(planeDistance * planeDistance) / (2.0 * planeSigma * planeSigma));
             weight *= exp(-dot(offset, offset) / (2.0 * lateralSigma * lateralSigma + 1e-12));
             weight *= exp(-abs(centerLuminance - Luminance(tapColor.rgb)) / luminanceSigma);

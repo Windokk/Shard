@@ -18,7 +18,7 @@ namespace Shard::Engine::Rendering {
         bool hasDepth = true;
 
         /// More colour attachments after the first (a G-buffer : each one a render target of the fragment shader's outputs 1, 2, 3...). Only for a
-        /// framebuffer that is not multisampled ; they are as big as the framebuffer, and never resolved.
+        /// framebuffer ; they are as big as the framebuffer, have its sample count when it is multisampled, and are never resolved.
         std::vector<TextureSpecifications> extraColorSpecs;
 
         TextureSpecifications colorSpecs = []{

@@ -681,11 +681,21 @@ namespace Shard::Engine::Rendering {
 
     void VKRendererAPI::BindPassData(const std::shared_ptr<RenderPass> pass, std::shared_ptr<Material> material)
     {
+        // The parameters of the pass a material's shader does not read are skipped, not reported
+        const auto& samplers = material->GetShader()->GetActiveSamplersMap();
+        const auto& uniforms = material->GetShader()->GetActiveUniformsMap();
+
         for (auto& [name, texture] : pass->customSamplers)
-            material->SetTextureParameter(name, texture);
+        {
+            if (samplers.find(name) != samplers.end())
+                material->SetTextureParameter(name, texture);
+        }
 
         for (auto& [name, value] : pass->customUniforms)
-            material->SetScalarParameter(name, value);
+        {
+            if (uniforms.find(name) != uniforms.end())
+                material->SetScalarParameter(name, value);
+        }
     }
 
     void VKRendererAPI::BindLightmap(const DrawCommand& command, const std::shared_ptr<Shader>& shader)

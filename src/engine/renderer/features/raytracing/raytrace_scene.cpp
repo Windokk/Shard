@@ -499,6 +499,44 @@ namespace Shard::Engine::Rendering::Raytracing {
             }
         });
 
+        // ---- The emitters, for the paths that sample them directly. The test is the one of path_tracing.glsl (EmissiveIsSampled) : the
+        // two have to agree on which triangles are on the list.
+        {
+            std::vector<double> cumulative;
+            double total = 0.0;
+            for (size_t i = 0; i < scene.triangleAttribs.size(); i++)
+            {
+                const uint32_t materialIndex = uint32_t(scene.triangleAttribs[i].uvMatID.w);
+                if (materialIndex >= scene.materials.size())
+                    continue;
+
+                const GPUMaterial& material = scene.materials[materialIndex];
+                if (material.textureFlags & GPUMaterialTexEmissive)
+                    continue;
+
+                const float luminance = glm::dot(glm::vec3(material.emissive), glm::vec3(0.2126f, 0.7152f, 0.0722f));
+                if (luminance <= 0.0f)
+                    continue;
+
+                const GPUTrianglePos& tri = scene.trianglePositions[i];
+                const float area = 0.5f * glm::length(glm::cross(glm::vec3(tri.v1) - glm::vec3(tri.v0), glm::vec3(tri.v2) - glm::vec3(tri.v0)));
+                if (area <= 1e-10f)
+                    continue;
+
+                total += double(luminance) * double(area);
+                cumulative.push_back(total);
+                GPUEmissiveTriangle emissive;
+                emissive.triangle = uint32_t(i);
+                scene.emissiveTriangles.push_back(emissive);
+            }
+
+            for (size_t i = 0; i < scene.emissiveTriangles.size(); i++)
+                scene.emissiveTriangles[i].cdf = float(cumulative[i] / total);
+            if (!scene.emissiveTriangles.empty())
+                scene.emissiveTriangles.back().cdf = 1.0f;
+            scene.emissivePower = float(total);
+        }
+
         report(1.0f, "Building BVH");
         return scene;
     }

@@ -4,6 +4,7 @@
 
 #include "engine/renderer/frontend/renderer.hpp"
 #include "engine/renderer/rhi/render_thread.hpp"
+#include "engine/core/diagnostics/profiler.hpp"
 
 #include "engine/renderer/rhi/backends/glad/include/glad/gl.h"
 #include "engine/renderer/rhi/backends/glad/include/glad/vulkan.h"
@@ -36,6 +37,7 @@ namespace Shard::Game::Core::Platform{
         const int height = GetFramebufferHeight();
         Engine::Rendering::RenderThread::Get().Post([this, width, height] {
             Engine::Core::GetEngine().GetRenderer()->PresentToScreen(width, height);
+            SHARD_PROFILE_SCOPE(Engine::Debugging::ProfileCategory::Presentation);
             SDLWindow::SwapBuffers();
         });
     }
@@ -46,7 +48,7 @@ namespace Shard::Game::Core::Platform{
 
         ret.gpu_vendor   = Engine::Core::GetEngine().GetRenderer()->GetDeviceVendor();
         ret.gpu_renderer = Engine::Core::GetEngine().GetRenderer()->GetRendererName();
-        ret.gl_version   = Engine::Core::GetEngine().GetRenderer()->GetDriverVersion();
+        ret.driver_version = Engine::Core::GetEngine().GetRenderer()->GetDriverVersion();
 
         return ret;
     }

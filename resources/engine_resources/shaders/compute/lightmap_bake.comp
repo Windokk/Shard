@@ -35,6 +35,11 @@ layout(std430, binding = 11) readonly buffer Materials         { GPUMaterial mat
 layout(std430, binding = 12) readonly buffer Lights            { Light lights[]; };
 layout(std430, binding = 13) readonly buffer TexelList         { uint texelList[]; };    // (y << 16) | x of every texel to bake
 
+// The emissive surfaces are sampled directly (see path_tracing.glsl, SHARD_EMISSIVE_NEE). Binding 16 : below the 20-24 that the
+// culling and the billboards own, above the 14 and 15 of the probe states of the forward pass
+#define SHARD_EMISSIVE_NEE
+layout(std430, binding = 16) readonly buffer EmissiveTriangles { EmissiveTriangle emissiveTris[]; };
+
 #include "../common/raytracing_trace.glsl"
 #include "../common/path_tracing.glsl"
 
@@ -106,7 +111,10 @@ void main()
         if (aboveGeometry < 0.05)
             rd = normalize(rd + ng * (0.05 - aboveGeometry));
 
-        vec3 sampleRadiance = ClampFirefly(TracePath(origin, rd)) * uIndirectScale + DirectStaticLight(pos, ns, ng);
+        // The first ray is drawn in the cosine lobe around the shading normal : the emission it finds is weighted against the direct
+        // sample of the emitters taken from the texel itself (the same quantity as the indirect samples, E / PI)
+        vec3 indirect = TracePathMIS(origin, rd, ns, 1.0) + EmissiveDirect(pos, ng, ns, 1.0) / PI;
+        vec3 sampleRadiance = ClampFirefly(indirect) * uIndirectScale + DirectStaticLight(pos, ns, ng);
 
         float lum = dot(sampleRadiance, vec3(0.2126, 0.7152, 0.0722));
         acc += vec4(sampleRadiance, lum * lum);

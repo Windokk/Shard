@@ -89,6 +89,15 @@ namespace Shard::Engine::Rendering{
             if (m_ExtraColorAttachments[i] == 0)
                 glGenTextures(1, &m_ExtraColorAttachments[i]);
 
+            if (m_Specifications.multisampled)
+            {
+                // Same sample count as the colour attachment, so that one draw writes all of them ; a multisampled texture has no filter or wrap
+                glBindTexture(GL_TEXTURE_2D_MULTISAMPLE, m_ExtraColorAttachments[i]);
+                glTexImage2DMultisample(GL_TEXTURE_2D_MULTISAMPLE, m_Specifications.samplesCount, specs.internalFormat, width, height, GL_TRUE);
+                glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT1 + static_cast<GLenum>(i), GL_TEXTURE_2D_MULTISAMPLE, m_ExtraColorAttachments[i], 0);
+                continue;
+            }
+
             glBindTexture(GL_TEXTURE_2D, m_ExtraColorAttachments[i]);
             glTexImage2D(GL_TEXTURE_2D, 0, specs.internalFormat, width, height, 0, specs.format, specs.type, nullptr);
             glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, specs.minFilter);
@@ -99,13 +108,16 @@ namespace Shard::Engine::Rendering{
         }
     }
 
-    void GLFramebuffer::ApplyDrawBuffers()
+    void GLFramebuffer::ApplyDrawBuffers(bool withExtras)
     {
         if (m_Specifications.hasColor)
         {
             std::vector<GLenum> drawBuffers = { GL_COLOR_ATTACHMENT0 };
-            for (size_t i = 0; i < m_ExtraColorAttachments.size(); i++)
-                drawBuffers.push_back(GL_COLOR_ATTACHMENT1 + static_cast<GLenum>(i));
+            if (withExtras)
+            {
+                for (size_t i = 0; i < m_ExtraColorAttachments.size(); i++)
+                    drawBuffers.push_back(GL_COLOR_ATTACHMENT1 + static_cast<GLenum>(i));
+            }
             glDrawBuffers(static_cast<GLsizei>(drawBuffers.size()), drawBuffers.data());
         }
         else
@@ -139,6 +151,14 @@ namespace Shard::Engine::Rendering{
                 glBindTexture(GL_TEXTURE_2D_MULTISAMPLE, m_DepthAttachment);
                 glTexImage2DMultisample(GL_TEXTURE_2D_MULTISAMPLE, spec.samplesCount, GL_DEPTH_COMPONENT24, spec.width, spec.height, GL_TRUE);
                 glFramebufferTexture2D(GL_FRAMEBUFFER, GL_DEPTH_ATTACHMENT, GL_TEXTURE_2D_MULTISAMPLE, m_DepthAttachment, 0);
+            }
+
+            // A G-buffer : the extra outputs are multisampled too (m_FBO is the bound one, the resolve framebuffer below has none of them)
+            if (spec.hasColor && !spec.extraColorSpecs.empty())
+            {
+                CreateExtraColorAttachments(spec.width, spec.height);
+                ApplyDrawBuffers();
+                CheckFBStatus();
             }
 
             glBindFramebuffer(GL_FRAMEBUFFER, 0);
@@ -211,7 +231,8 @@ namespace Shard::Engine::Rendering{
         if (!spec.multisampled && spec.hasColor)
             CreateExtraColorAttachments(spec.width, spec.height);
 
-        ApplyDrawBuffers();
+        // What is bound here is the resolve framebuffer when multisampled : the extra outputs belong to m_FBO, set above
+        ApplyDrawBuffers(!spec.multisampled);
 
         CheckFBStatus();
 
@@ -548,7 +569,7 @@ namespace Shard::Engine::Rendering{
             }
         }
 
-        if (!m_Specifications.multisampled && m_Specifications.hasColor)
+        if (m_Specifications.hasColor)
             CreateExtraColorAttachments(width, height);
 
         ApplyDrawBuffers();

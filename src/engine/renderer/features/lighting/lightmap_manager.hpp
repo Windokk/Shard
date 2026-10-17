@@ -141,7 +141,11 @@ namespace Shard::Engine::Rendering {
 
                 std::future<Raytracing::RaytraceScene> sceneFuture;
 
-                std::shared_ptr<StorageBuffer> bvhBuffer, posBuffer, attribBuffer, matBuffer, lightBuffer, texelBuffer;
+                std::shared_ptr<StorageBuffer> bvhBuffer, posBuffer, attribBuffer, matBuffer, lightBuffer, texelBuffer, emissiveBuffer;
+
+                // The emissive triangles the paths sample directly (RaytraceScene::emissiveTriangles) : how many, and their total power
+                int emissiveCount = 0;
+                float emissivePower = 0.0f;
 
                 // The page being baked
                 uint32_t page = 0;
