@@ -100,7 +100,8 @@ namespace Shard::Engine::Worlds{
 
             void SetDirty(bool dirty) { this->dirty = dirty; }
 
-            float ambientIntensity = 0.3f;
+            /// The flat ambient light every surface gets (scaled by its albedo), added on top of the lighting. HDR : a component can exceed 1.
+            glm::vec3 ambientColor = glm::vec3(0.3f);
 
             // Screen-space ambient occlusion (see SSAOManager). Off by default since it darkens every
             // scene's ambient term - the 3 SSAO render passes themselves always run regardless (turning

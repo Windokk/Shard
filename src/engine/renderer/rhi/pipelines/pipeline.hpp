@@ -148,6 +148,11 @@ namespace Shard::Engine::Rendering{
         bool depthWrite = true;
         DepthCompareOp depthCompare = DepthCompareOp::Less;
 
+        /// Every pixel a triangle touches is drawn, not only the ones whose centre it covers : what a shadow map needs so a gap thinner
+        /// than a texel is closed instead of being lost between the texel centres. Honoured by OpenGL when the GPU has
+        /// GL_NV_conservative_raster ; ignored elsewhere.
+        bool conservativeRaster = false;
+
         bool blending = false;
         BlendFactor srcBlend = BlendFactor::SrcAlpha;
         BlendFactor dstBlend = BlendFactor::OneMinusSrcAlpha;

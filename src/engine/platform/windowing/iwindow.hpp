@@ -52,6 +52,10 @@ namespace Shard::Engine::Core::Platform {
 
         virtual void SwapBuffers() = 0;
 
+        /// @brief Turns the vertical sync on or off while the window lives. Applied by the thread that presents, at its next frame.
+        /// Nothing for a window with no display to wait for.
+        virtual void SetVSync(bool enabled) { (void)enabled; }
+
         /// @brief Makes the window graphics context current on the calling thread, or releases it from there. The context
         /// belongs to one thread at a time : it moves to the render thread when that starts, and back when it stops.
         virtual bool MakeContextCurrent(bool current) { (void)current; return true; }

@@ -72,6 +72,10 @@ namespace Shard::Engine::Rendering {
             /// @return false if there is no color attachment to read
             virtual bool ReadPixelsRGBA8(std::vector<uint8_t>& outPixels) = 0;
 
+            /// @brief Blocking readback of the depth attachment as floats (0..1), top row first : what a capture of a shadow map needs.
+            /// @return false when there is no depth attachment to read, or the backend cannot read it
+            virtual bool ReadDepthFloat(std::vector<float>& outDepth) { (void)outDepth; return false; }
+
             /// @brief Writes tightly packed RGBA8 pixels, top row first (the layout ReadPixelsRGBA8 produces),
             /// into a rectangle of this framebuffer's color attachment. Must not be multisampled.
             virtual void UploadColorRegion(uint32_t x, uint32_t y, uint32_t width, uint32_t height, const uint8_t* rgba) = 0;

@@ -148,10 +148,14 @@ namespace Shard::Engine::Worlds{
                 for(auto& [type, extension] : extensions)
                     extension->DeserializeSettings(*this, settings);
             
-                if(settings.contains("ambient_intensity")){
-                    auto& intensity = settings["ambient_intensity"];
-                    if(intensity.is_number()){
-                        ambientIntensity = intensity;
+                // "ambient_intensity" (a single number) is what worlds saved before the ambient had a color hold
+                if(settings.contains("ambient_intensity") && settings["ambient_intensity"].is_number()){
+                    ambientColor = glm::vec3(settings["ambient_intensity"].get<float>());
+                }
+                if(settings.contains("ambient_color")){
+                    auto& color = settings["ambient_color"];
+                    if(color.is_array() && color.size() == 3 && color[0].is_number() && color[1].is_number() && color[2].is_number()){
+                        ambientColor = glm::vec3(color[0].get<float>(), color[1].get<float>(), color[2].get<float>());
                     }
                 }
 
@@ -260,7 +264,7 @@ namespace Shard::Engine::Worlds{
         for(auto& [type, extension] : extensions)
             extension->SerializeSettings(*this, full["settings"]);
 
-        full["settings"]["ambient_intensity"] = ambientIntensity;
+        full["settings"]["ambient_color"] = { ambientColor.x, ambientColor.y, ambientColor.z };
         full["settings"]["ssao"]["enabled"] = ssaoEnabled;
         full["settings"]["ssao"]["intensity"] = ssaoIntensity;
         full["settings"]["ssao"]["bias"] = ssaoBias;

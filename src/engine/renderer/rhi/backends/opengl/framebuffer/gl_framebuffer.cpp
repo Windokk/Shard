@@ -420,6 +420,29 @@ namespace Shard::Engine::Rendering{
         return true;
     }
 
+    bool GLFramebuffer::ReadDepthFloat(std::vector<float>& outDepth)
+    {
+        SHARD_ASSERT_GRAPHICS_THREAD();
+        if (!m_Specifications.hasDepth || m_Specifications.multisampled)
+            return false;
+
+        const uint32_t width = m_Specifications.width;
+        const uint32_t height = m_Specifications.height;
+
+        std::vector<float> bottomUp(size_t(width) * height);
+
+        glBindFramebuffer(GL_READ_FRAMEBUFFER, m_FBO);
+        glPixelStorei(GL_PACK_ALIGNMENT, 1);
+        glReadPixels(0, 0, width, height, GL_DEPTH_COMPONENT, GL_FLOAT, bottomUp.data());
+        glBindFramebuffer(GL_FRAMEBUFFER, 0);
+
+        outDepth.resize(bottomUp.size());
+        for (uint32_t y = 0; y < height; ++y)
+            memcpy(outDepth.data() + size_t(y) * width, bottomUp.data() + size_t(height - 1 - y) * width, size_t(width) * sizeof(float));
+
+        return true;
+    }
+
     void GLFramebuffer::UploadColorRegion(uint32_t x, uint32_t y, uint32_t width, uint32_t height, const uint8_t* rgba)
     {
         SHARD_ASSERT_GRAPHICS_THREAD();

@@ -79,6 +79,7 @@ namespace Shard::Engine::Rendering
         HashCombine(hash, s.depthTest);
         HashCombine(hash, s.depthWrite);
         HashCombine(hash, (int)s.depthCompare);
+        HashCombine(hash, s.conservativeRaster);
 
         HashCombine(hash, s.blending);
 
@@ -102,6 +103,7 @@ namespace Shard::Engine::Rendering
             depthTest == other.depthTest &&
             depthWrite == other.depthWrite &&
             depthCompare == other.depthCompare &&
+            conservativeRaster == other.conservativeRaster &&
             blending == other.blending &&
             srcBlend == other.srcBlend &&
             dstBlend == other.dstBlend &&

@@ -42,6 +42,11 @@ void main()
 
     vec3 centerNormal = normalize(imageLoad(uGNormal, center).xyz);
     vec4 centerColor = imageLoad(uIn, center);
+    if (centerColor.a < 0.0)
+    {
+        imageStore(uOut, center, centerColor);      // given up by the baker (a negative variance) : stays marked, nothing is mixed into it
+        return;
+    }
     float centerLuminance = Luminance(centerColor.rgb);
 
     float texelWorld = centerPos.w;
@@ -69,6 +74,8 @@ void main()
 
             vec3 tapNormal = normalize(imageLoad(uGNormal, tap).xyz);
             vec4 tapColor = imageLoad(uIn, tap);
+            if (tapColor.a < 0.0)
+                continue;
 
             vec3 offset = tapPos.xyz - centerPos.xyz;
             float planeDistance = dot(centerNormal, offset);

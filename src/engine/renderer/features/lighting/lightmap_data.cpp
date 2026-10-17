@@ -192,9 +192,13 @@ namespace Shard::Engine::Rendering {
         const size_t texelCount = size_t(width) * height;
         std::vector<float> color(texelCount * 3);
         std::vector<uint8_t> covered(texelCount);
+        std::vector<uint8_t> hole(texelCount);      // on a surface, given up by the baker : filled from the neighbours, whatever the distance
+        size_t holes = 0;
         for (size_t i = 0; i < texelCount; i++)
         {
             covered[i] = rgba[i * 4 + 3] > 0.5f ? 1 : 0;
+            hole[i] = (!covered[i] && rgba[i * 4 + 3] > 0.1f) ? 1 : 0;
+            holes += hole[i];
             for (int c = 0; c < 3; c++)
             {
                 const float v = rgba[i * 4 + c];
@@ -205,8 +209,10 @@ namespace Shard::Engine::Rendering {
         // The gutter : each pass gives the texels next to a covered one the average of the covered ones around them
         std::vector<float> nextColor;
         std::vector<uint8_t> nextCovered;
-        for (int pass = 0; pass < gutterPasses; pass++)
+        constexpr int kMaxHolePasses = 64;
+        for (int pass = 0; pass < std::max(gutterPasses, holes ? kMaxHolePasses : 0); pass++)
         {
+            const bool gutterPass = pass < gutterPasses;
             nextColor = color;
             nextCovered = covered;
             bool grew = false;
@@ -216,7 +222,8 @@ namespace Shard::Engine::Rendering {
                 for (uint32_t x = 0; x < width; x++)
                 {
                     const size_t index = size_t(y) * width + x;
-                    if (covered[index])
+                    // Past the gutter's rings only the holes go on filling
+                    if (covered[index] || (!gutterPass && !hole[index]))
                         continue;
 
                     float sum[3] = { 0.0f, 0.0f, 0.0f };
@@ -242,6 +249,8 @@ namespace Shard::Engine::Rendering {
                         for (int c = 0; c < 3; c++)
                             nextColor[index * 3 + c] = sum[c] / float(neighbours);
                         nextCovered[index] = 1;
+                        if (hole[index])
+                            holes--;
                         grew = true;
                     }
                 }
@@ -249,7 +258,7 @@ namespace Shard::Engine::Rendering {
 
             color.swap(nextColor);
             covered.swap(nextCovered);
-            if (!grew)
+            if (!grew || (pass + 1 >= gutterPasses && holes == 0))
                 break;
         }
 

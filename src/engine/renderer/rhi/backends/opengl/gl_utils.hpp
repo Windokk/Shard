@@ -201,7 +201,7 @@ namespace Shard::Engine::Rendering{
                 s_PolygonModeValid = true;
             }
 
-            // Camera/light uniforms (uProjection, uView, camPos, lightNB, ambientIntensity, skybox
+            // Camera/light uniforms (uProjection, uView, camPos, lightNB, ambientColor, skybox
             // IBL textures) are constant for every draw call in a pass and are set directly on the
             // currently bound GL program (glUniform*/texture-unit binds), so they only need
             // reapplying the first time a given program is used since the last Reset() (once per

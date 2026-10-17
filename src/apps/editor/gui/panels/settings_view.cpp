@@ -146,6 +146,8 @@ namespace Shard::Editor::GUI{
         FlushPendingHeaders();
         m_RowsDrawn++;
 
+        // Scoped by section too : two sections may each have a "Filter Radius"
+        ImGui::PushID(m_CurrentSection ? m_CurrentSection : "");
         ImGui::PushID(label);
 
         const float startX = ImGui::GetCursorPosX();
@@ -174,7 +176,13 @@ namespace Shard::Editor::GUI{
         ImGui::SetNextItemWidth(-FLT_MIN);
 
         ImGui::PopID();
+        ImGui::PopID();
         return true;
+    }
+
+    std::string SettingsView::WidgetId(const char* label) const
+    {
+        return std::string("##") + (m_CurrentSection ? m_CurrentSection : "") + "/" + label;
     }
 
     bool SettingsView::BeginBlock(const char* keywords)
@@ -195,7 +203,7 @@ namespace Shard::Editor::GUI{
         if (reset)
             value = defaultValue;
 
-        const std::string id = std::string("##") + label;
+        const std::string id = WidgetId(label);
         return ImGui::Checkbox(id.c_str(), &value) || reset;
     }
 
@@ -208,7 +216,7 @@ namespace Shard::Editor::GUI{
         if (reset)
             value = defaultValue;
 
-        const std::string id = std::string("##") + label;
+        const std::string id = WidgetId(label);
         return ImGui::DragFloat(id.c_str(), &value, speed, min, max, format, ImGuiSliderFlags_AlwaysClamp) || reset;
     }
 
@@ -221,7 +229,7 @@ namespace Shard::Editor::GUI{
         if (reset)
             value = defaultValue;
 
-        const std::string id = std::string("##") + label;
+        const std::string id = WidgetId(label);
         return ImGui::SliderFloat(id.c_str(), &value, min, max, format, ImGuiSliderFlags_AlwaysClamp) || reset;
     }
 
@@ -234,7 +242,7 @@ namespace Shard::Editor::GUI{
         if (reset)
             value = defaultValue;
 
-        const std::string id = std::string("##") + label;
+        const std::string id = WidgetId(label);
         return ImGui::DragInt(id.c_str(), &value, speed, min, max, format, ImGuiSliderFlags_AlwaysClamp) || reset;
     }
 
@@ -246,7 +254,7 @@ namespace Shard::Editor::GUI{
         if (reset)
             value = defaultValue;
 
-        const std::string id = std::string("##") + label;
+        const std::string id = WidgetId(label);
         return ImGui::Combo(id.c_str(), &value, items, count) || reset;
     }
 }

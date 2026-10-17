@@ -104,14 +104,24 @@ namespace Shard::Engine::Rendering{
 
         auto shadows = Core::GetEngine().GetRenderContext()->GetShadowManager();
 
+        const std::vector<uint64_t> oldKeys = std::move(m_Keys);
+
         m_Lights = std::move(lights);
         m_Keys = std::move(keys);
         m_ByKey = std::move(byKey);
 
         if (!appendOnly) {
-            shadows->ClearAll();
+            // Only the shadow maps whose index now holds another light (or none) are torn down : the lights before a removed one keep theirs
+            for (size_t i = 0; i < oldKeys.size(); i++)
+                if (shadows->HasShadowMap(static_cast<int>(i)) && (i >= m_Keys.size() || m_Keys[i] != oldKeys[i]))
+                    shadows->UnregisterLight(static_cast<int>(i));
+
+            std::vector<bool> isDirty(m_Lights.size(), false);
+            for (size_t i : dirty)
+                isDirty[i] = true;
+
             for (size_t i = 0; i < m_Lights.size(); i++)
-                if (m_Lights[i]->castShadow)
+                if (isDirty[i] || (m_Lights[i]->castShadow && !shadows->HasShadowMap(static_cast<int>(i))))
                     shadows->RegisterOrUpdateLight(static_cast<int>(i), m_Lights[i]);
         } else {
             // Registering assigns the shadow slot (LightData::shadowIndex), which the upload below has to carry
@@ -174,7 +184,7 @@ namespace Shard::Engine::Rendering{
 
     /// @brief Getter for lights matrices
     /// @return The view-projection matrix from the light's point of view
-    glm::mat4 LightData::GetLightMatrix(const glm::mat4& cameraView, const float fov, const float aspectRatio, const float cascadeNear, const float cascadeFar, const float dirShadowRes, const float outerCutoff)
+    glm::mat4 LightData::GetLightMatrix(const glm::mat4& cameraView, const float fov, const float aspectRatio, const float cascadeNear, const float cascadeFar, const float dirShadowRes, const float outerCutoff, const bool stabilizeCascade, const float casterRange)
     {
         if (type == static_cast<int>(LightType::Directional) && cascadeFar != -1 && fov != -1 && aspectRatio != -1 && cascadeFar != -1)
         {
@@ -205,7 +215,10 @@ namespace Shard::Engine::Rendering{
                 ? glm::vec3(1,0,0)
                 : glm::vec3(0,1,0);
 
-            float backoff = radius * 2.0f;
+            // The box has to reach every caster between the sun and the cascade, not only the ones within two radii : a close cascade
+            // is small, and a ceiling or the top of a wall beyond its near plane would be clipped and cast no shadow (the light leaks
+            // through, in a bright line along walls and around shadowed areas)
+            float backoff = std::max(radius * 2.0f, casterRange);
 
             // Build light view
             glm::vec3 lightPos = center - lightDir * backoff;
@@ -232,8 +245,11 @@ namespace Shard::Engine::Rendering{
             glm::vec2 roundedOrigin = glm::round(shadowOrigin);
             glm::vec2 offset = (roundedOrigin - shadowOrigin) * (2.0f / dirShadowRes);
 
-            lightProj[3][0] += offset.x;
-            lightProj[3][1] += offset.y;
+            if (stabilizeCascade)
+            {
+                lightProj[3][0] += offset.x;
+                lightProj[3][1] += offset.y;
+            }
 
             // Final matrix
             return lightProj * lightView;

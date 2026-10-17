@@ -186,7 +186,7 @@ namespace Shard::Engine::Rendering {
         EnvironmentProxy MakeEnvironmentProxy(Worlds::World& world)
         {
             EnvironmentProxy env;
-            env.ambientIntensity = world.ambientIntensity;
+            env.ambientColor = world.ambientColor;
             env.ssaoEnabled = world.ssaoEnabled;
             env.ssaoRadius = world.ssaoRadius;
             env.ssaoBias = world.ssaoBias;

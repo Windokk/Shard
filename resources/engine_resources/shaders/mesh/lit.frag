@@ -79,11 +79,30 @@ uniform int viewMode;
 uniform bool showLighting;
 uniform bool showShadows;
 
+// The project's shadow settings (see ShadowSettings) : set per draw by Renderer::BindWorldState
+uniform bool shadowsEnabled;
+uniform int dirShadowFilterRadius;          // the filter takes (2 * radius + 1)^2 taps
+uniform float dirShadowFilterSpread;        // distance between two taps, in texels of the map
+uniform float dirShadowNormalBias;          // in texels
+uniform float dirShadowDepthBias;           // in texels
+uniform float dirShadowSlopeBias;           // scale of the receiver plane bias
+uniform int spotShadowFilterRadius;
+uniform float spotShadowFilterSpread;
+uniform float spotShadowDepthBias;
+uniform float spotShadowMinDepthBias;
+uniform int pointShadowFilterSamples;       // 1 to 20
+uniform float pointShadowFilterRadius;
+uniform float pointShadowDepthBias;
+
 // Shadow maps
 
 #define MAX_DIRECTIONAL_LIGHTS 3
-#define CASCADES_PER_LIGHT 3
-#define NUM_CASCADES (MAX_DIRECTIONAL_LIGHTS * CASCADES_PER_LIGHT)
+#define MAX_CASCADES_PER_LIGHT 6
+#define NUM_CASCADES (MAX_DIRECTIONAL_LIGHTS * 3)
+
+// Cascades per sun (the project's setting) : sun k reads the slots k * dirCascadeCount ... (k + 1) * dirCascadeCount - 1
+uniform int dirCascadeCount;
+uniform vec3 dirCascadeColors[MAX_CASCADES_PER_LIGHT];
 
 uniform mat4 dirLightSpaceMatrices[NUM_CASCADES];
 uniform float dirCascadeSplits[NUM_CASCADES];
@@ -185,7 +204,7 @@ layout(binding = 31) uniform sampler2D emissiveMap;
 const float PI = 3.141592653589793;
 uniform float metallic;
 uniform float roughness;
-uniform float ambientIntensity;
+uniform vec3 ambientColor;
 
 // Self-illumination, glTF-style : emissiveMap.rgb * emissive, so `emissive` is the colour/intensity factor
 // (values above 1 are fine - the scene is HDR) and an unset material stays non-emissive (factor 0). The
@@ -254,14 +273,14 @@ int selectCascade(int lightIndex){
     vec4 viewPos = viewMatrix * vec4(worldPos, 1.0);
     float depth = abs(viewPos.z);
 
-    int base = lightIndex * CASCADES_PER_LIGHT;
+    int base = lightIndex * dirCascadeCount;
 
-    for (int i = 0; i < CASCADES_PER_LIGHT; ++i) {
+    for (int i = 0; i < dirCascadeCount; ++i) {
         if (depth < dirCascadeSplits[base + i])
             return base + i;
     }
 
-    return base + CASCADES_PER_LIGHT - 1;
+    return base + dirCascadeCount - 1;
 }
 
 // worldNormal must be the GEOMETRIC (interpolated vertex) normal, not the normal-mapped one : the bias below is a statement about
@@ -283,7 +302,7 @@ float ShadowCalculationDir(sampler2DShadow shadowMap, mat4 lightSpaceMatrix, vec
     float sinTheta = sqrt(max(1.0 - NdotL * NdotL, 0.0));
 
     // ----- Normal offset : look the surface up from slightly above it, more the more it grazes the light -----
-    vec3 biasedPos = worldPos + n * (texelWorld * 2.0 * sinTheta);
+    vec3 biasedPos = worldPos + n * (texelWorld * dirShadowNormalBias * sinTheta);
 
     vec4 fragLS = lightSpaceMatrix * vec4(biasedPos, 1.0);
     vec3 proj = fragLS.xyz / fragLS.w;
@@ -303,23 +322,25 @@ float ShadowCalculationDir(sampler2DShadow shadowMap, mat4 lightSpaceMatrix, vec
     vec3 nLS = transpose(inverse(M)) * n;
     vec2 depthSlope = vec2(0.0);
     if (abs(nLS.z) > 1e-4)
-        depthSlope = clamp(-nLS.xy / nLS.z, vec2(-8.0), vec2(8.0));     // clamped : a surface edge on to the light must not explode
+        depthSlope = clamp(-nLS.xy / nLS.z, vec2(-8.0), vec2(8.0)) * dirShadowSlopeBias;     // clamped : a surface edge on to the light must not explode
 
-    float constBias = texelWorld * 0.75 * zPerWorld;
+    float constBias = texelWorld * dirShadowDepthBias * zPerWorld;
 
     vec2 texelSize = 1.0 / mapSize;
 
     float visibility = 0.0;
 
-    for (int x = -2; x <= 2; ++x) {
-        for (int y = -2; y <= 2; ++y) {
-            vec2 offset = vec2(x, y) * texelSize;
+    int radius = clamp(dirShadowFilterRadius, 0, 4);
+    for (int x = -radius; x <= radius; ++x) {
+        for (int y = -radius; y <= radius; ++y) {
+            vec2 offset = vec2(x, y) * texelSize * dirShadowFilterSpread;
             float planeDepth = dot(depthSlope, offset);
             visibility += texture(shadowMap, vec3(proj.xy + offset, proj.z + planeDepth - constBias));
         }
     }
 
-    return visibility / 25.0;
+    float taps = float(2 * radius + 1);
+    return visibility / (taps * taps);
 }
 
 float ShadowCalculationSpot(sampler2D shadowMap, vec3 lightDir, mat4 lightSpaceMatrix, vec3 worldNormal) {
@@ -333,19 +354,21 @@ float ShadowCalculationSpot(sampler2D shadowMap, vec3 lightDir, mat4 lightSpaceM
         projCoords.z > 1.0 || projCoords.z < 0.0)
         return 1.0;
 
-    float bias = max(0.0005 * (1.0 - dot(normalize(worldNormal), lightDir)), 0.00005);
+    float bias = max(spotShadowDepthBias * (1.0 - dot(normalize(worldNormal), lightDir)), spotShadowMinDepthBias);
 
     float shadow = 0.0;
     vec2 texelSize = 1.0 / vec2(textureSize(shadowMap, 0));
 
-    for (int x = -2; x <= 2; ++x) {
-        for (int y = -2; y <= 2; ++y) {
-            float closestDepth = texture(shadowMap, projCoords.xy + vec2(x, y) * texelSize).r;
+    int radius = clamp(spotShadowFilterRadius, 0, 4);
+    for (int x = -radius; x <= radius; ++x) {
+        for (int y = -radius; y <= radius; ++y) {
+            float closestDepth = texture(shadowMap, projCoords.xy + vec2(x, y) * texelSize * spotShadowFilterSpread).r;
             shadow += (projCoords.z - bias) < closestDepth ? 1.0 : 0.0;
         }
     }
 
-    return shadow / 25.0;
+    float taps = float(2 * radius + 1);
+    return shadow / (taps * taps);
 }
 
 // Flattened index into LightGrid/LightIndexList for the cluster this fragment sits in - must match
@@ -367,13 +390,15 @@ float ShadowCalculationPoint(int index,vec3 lightPos,vec3 fragPos,float farPlane
     float currentDepth = length(fragToLight);
 
     float shadow = 0.0;
-    float bias   = 0.15;
-    int samples  = 20;
+    float bias   = pointShadowDepthBias;
+    int samples  = clamp(pointShadowFilterSamples, 1, 20);
     float viewDistance = length(camPos - fragPos);
-    float diskRadius = 0.05;
+    float diskRadius = pointShadowFilterRadius;
     for(int i = 0; i < samples; ++i)
     {
-        float closestDepth = texture(pointShadowMapArray, vec4(fragToLight + sampleOffsetDirections[i] * diskRadius, index)).r;
+        // One tap is the lookup direction itself
+        vec3 tapOffset = samples > 1 ? sampleOffsetDirections[i] * diskRadius : vec3(0.0);
+        float closestDepth = texture(pointShadowMapArray, vec4(fragToLight + tapOffset, index)).r;
         closestDepth *= farPlane;   // undo mapping [0;1]
         if(currentDepth - bias > closestDepth)
             shadow += 1.0;
@@ -694,6 +719,28 @@ vec4 ShadeSurface(vec4 baseColor, float metallicValue, float roughnessValue, vec
 {
     vec3 result = vec3(0.0);
 
+    // Debug view 10 : the cascade each pixel reads (its color in the project's cascade settings) darkened by the sun's shadow there, white where the
+    // pixel falls outside the cascade's map (which counts as lit), magenta when no directional light casts shadows
+    if (viewMode == 10) {
+        for (int i = 0; i < lightNB; ++i) {
+            Light l = lights[i];
+            if (l.type != 0 || l.castShadow != 1 || l.shadowIndex < 0)
+                continue;
+
+            int cascadeIdx = selectCascade(l.shadowIndex);
+            vec3 L = -normalize(l.direction.xyz);
+            float visibility = ShadowCalculationDir(dirShadowMaps[cascadeIdx], dirLightSpaceMatrices[cascadeIdx], L, worldPos, normalize(N));
+
+            vec4 ls = dirLightSpaceMatrices[cascadeIdx] * vec4(worldPos, 1.0);
+            vec3 proj = ls.xyz / ls.w * 0.5 + 0.5;
+            if (proj.x < 0.0 || proj.x > 1.0 || proj.y < 0.0 || proj.y > 1.0 || proj.z > 1.0)
+                return vec4(1.0);
+
+            return vec4(dirCascadeColors[cascadeIdx - l.shadowIndex * dirCascadeCount] * (0.15 + 0.85 * visibility), 1.0);
+        }
+        return vec4(1.0, 0.0, 1.0, 1.0);
+    }
+
     if (!showLighting) {
         float facing = 0.25 + 0.75 * max(dot(worldNormal, V), 0.0);
         return vec4(baseColor.rgb * facing + emission, baseColor.a);
@@ -713,7 +760,7 @@ vec4 ShadeSurface(vec4 baseColor, float metallicValue, float roughnessValue, vec
         vec3 L = -normalize(l.direction.xyz);
         float visibility = 1.0;
 
-        if (showShadows && l.castShadow == 1 && l.shadowIndex >= 0) {
+        if (showShadows && shadowsEnabled && l.castShadow == 1 && l.shadowIndex >= 0) {
             int cascadeIdx = selectCascade(l.shadowIndex);
             visibility = ShadowCalculationDir(dirShadowMaps[cascadeIdx], dirLightSpaceMatrices[cascadeIdx], L, worldPos, normalize(N));
         }
@@ -750,7 +797,7 @@ vec4 ShadeSurface(vec4 baseColor, float metallicValue, float roughnessValue, vec
             float falloff = clamp(1.0 - dist / l.radius, 0.0, 1.0);
             attenuation *= falloff * falloff;
 
-            if (showShadows && l.castShadow == 1 && l.shadowIndex >= 0){
+            if (showShadows && shadowsEnabled && l.castShadow == 1 && l.shadowIndex >= 0){
                 visibility = ShadowCalculationPoint(l.shadowIndex, l.position.xyz, worldPos, pointLightFarPlanes[l.shadowIndex], worldNormal);
             }
         }
@@ -775,7 +822,7 @@ vec4 ShadeSurface(vec4 baseColor, float metallicValue, float roughnessValue, vec
 
             attenuation *= spotIntensity;
 
-            if (showShadows && l.castShadow == 1 && l.shadowIndex >= 0) {
+            if (showShadows && shadowsEnabled && l.castShadow == 1 && l.shadowIndex >= 0) {
                 visibility = ShadowCalculationSpot(spotShadowMaps[l.shadowIndex], L, spotLightSpaceMatrices[l.shadowIndex], worldNormal);
             }
         }
@@ -845,22 +892,22 @@ vec4 ShadeSurface(vec4 baseColor, float metallicValue, float roughnessValue, vec
 
     // Flat ambient floor, ADDED on top of whatever DDGI/IBL/direct lighting already computed above
     // (not multiplied into it, and not gated behind "no DDGI and no IBL" the way this used to be) : this
-    // is what makes ambientIntensity mean "light that's there even when the scene has no lights at all"
+    // is what makes ambientColor mean "light that's there even when the scene has no lights at all"
     // - a real light source can't do that (zero lights = zero direct contribution, always), only a flat
     // additive term can. Being additive rather than a multiplier also means it still does something in
     // a spot DDGI/IBL computes near-zero for (a probe-starved corner, geometry outside every volume's
-    // grid), instead of just scaling an already-dark result to a still-dark one. Level::ambientIntensity
+    // grid), instead of just scaling an already-dark result to a still-dark one. Level::ambientColor
     // defaults to 0.0 - DDGI/IBL are real, computed lighting and don't need a fake floor propping them
     // up by default, so this stays a no-op unless a level explicitly wants unlit corners not to be pure
     // black, or a material overrides it for a cheap self-lit look (light_bulb.mat : 4.0, useEnvReflections
     // = false, so this term is the ENTIRE reason it's visibly bright at all - see GLRendererAPI::
     // BindLevelState for how a level default vs. a per-material override of this uniform interact).
-    ambientDiffuse += baseColor.rgb * ambientIntensity;
+    ambientDiffuse += baseColor.rgb * ambientColor;
 
     // Screen-space ambient occlusion (see SampleSSAO above / SSAOManager) - darkens ambient/indirect
     // light in creases/corners/contact points, not `result` (direct lighting) or `specularIBL` : that's
     // the standard, well-understood scope for SSAO, and it composes naturally with the additive floor
-    // just above (a level with SSAO on but zero real lights/DDGI/IBL still gets its ambientIntensity
+    // just above (a level with SSAO on but zero real lights/DDGI/IBL still gets its ambientColor
     // floor darkened in contact points, which is correct - occlusion blocks that flat "always there"
     // light too, physically). The 3 SSAO passes always run (see SSAOManager::Init) - ssaoEnabled is
     // purely a lit.frag-side gate, off is a no-op.

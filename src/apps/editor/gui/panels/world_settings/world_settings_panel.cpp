@@ -394,11 +394,11 @@ namespace Shard::Editor::GUI{
 
         DrawSkyboxSection(world);
 
-        // Ambient - see the comment on World::ambientIntensity/lit.frag's SampleSSAO for the exact
+        // Ambient - see the comment on World::ambientColor/lit.frag's SampleSSAO for the exact
         // semantics : an additive light floor always present, even with zero real lights/DDGI/IBL.
         if (ImGui::TreeNodeEx("Ambient", ImGuiTreeNodeFlags_DefaultOpen | ImGuiTreeNodeFlags_Framed))
         {
-            if (ImGui::DragFloat("Intensity", &world->ambientIntensity, 0.01f, 0.0f, 10.0f))
+            if (ImGui::ColorEdit3("Color", &world->ambientColor.x, ImGuiColorEditFlags_HDR | ImGuiColorEditFlags_Float))
                 world->SetDirty(true);
             ImGui::TreePop();
         }

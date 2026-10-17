@@ -628,9 +628,11 @@ namespace Shard::Engine::Rendering{
     {
         auto sortAndReindex = [](std::vector<DrawCommand>& drawList, std::unordered_map<uint64_t, size_t>& lookup)
         {
-            std::sort(drawList.begin(), drawList.end(), [](const DrawCommand& a, const DrawCommand& b){
-                return a.sortKey < b.sortKey;
-            });
+            auto byKey = [](const DrawCommand& a, const DrawCommand& b){ return a.sortKey < b.sortKey; };
+
+            // Most frames nothing moved : the list is still in order, only the lookup is refreshed
+            if (!std::is_sorted(drawList.begin(), drawList.end(), byKey))
+                std::sort(drawList.begin(), drawList.end(), byKey);
 
             for (size_t i = 0; i < drawList.size(); i++)
                 lookup[drawList[i].commandID] = i;
@@ -993,6 +995,13 @@ namespace Shard::Engine::Rendering{
                 buffer->SetSamplesCount(samples);
     }
 
+    void Renderer::SetShadowSettings(const Projects::ShadowSettings& settings)
+    {
+        SHARD_FORWARD_TO_GRAPHICS_THREAD(SetShadowSettings(settings))
+
+        m_ShadowManager->Configure(settings);
+    }
+
     std::string Renderer::DumpFrame(const std::string& directory)
     {
         return OnGraphicsThread([&]() -> std::string {
@@ -1029,6 +1038,34 @@ namespace Shard::Engine::Rendering{
                     report += " " + file;
             };
 
+            // The shadow maps have no colour : their depth, stretched between the nearest and the farthest texel that holds geometry
+            // (white is the cleared depth, nothing drawn). A cascade that comes out empty, cut or striped says what the lit pass compares to.
+            auto dumpDepth = [&](const std::string& name, const std::shared_ptr<Framebuffer>& target) {
+                if (!target || target->GetSpecifications().hasColor || !target->GetSpecifications().hasDepth || !written.insert(target.get()).second)
+                    return;
+
+                std::vector<float> depth;
+                if (!target->ReadDepthFloat(depth) || depth.empty())
+                    return;
+
+                float low = 1.0f, high = 0.0f;
+                for (float d : depth)
+                    if (d < 0.9999f) { low = std::min(low, d); high = std::max(high, d); }
+                const float range = std::max(high - low, 1e-9f);
+
+                std::vector<uint8_t> pixels(depth.size() * 4);
+                for (size_t i = 0; i < depth.size(); i++)
+                {
+                    const uint8_t v = depth[i] >= 0.9999f ? 255 : uint8_t(std::clamp((depth[i] - low) / range, 0.0f, 1.0f) * 220.0f);
+                    pixels[i * 4 + 0] = pixels[i * 4 + 1] = pixels[i * 4 + 2] = v;
+                    pixels[i * 4 + 3] = 255;
+                }
+
+                const std::string file = name + "_depth.png";
+                if (ImageExport::WritePNG(Filesystem::Path(directory + "/" + file), target->GetWidth(), target->GetHeight(), 4, pixels.data()))
+                    report += " " + file + " (depth " + std::to_string(low) + " .. " + std::to_string(high) + ")";
+            };
+
             dump("Viewport", m_ViewportBuffer);
             dump("SceneHDR", m_SceneBuffer);
 
@@ -1036,7 +1073,10 @@ namespace Shard::Engine::Rendering{
             {
                 auto it = m_RenderPasses.find(name);
                 if (it != m_RenderPasses.end())
+                {
                     dump(name, it->second->target);
+                    dumpDepth(name, it->second->target);
+                }
             }
 
             return report;
@@ -1418,6 +1458,7 @@ namespace Shard::Engine::Rendering{
                     case ViewMode::GlobalIllumination:
                     case ViewMode::SSAO:
                     case ViewMode::LightmapUVs:
+                    case ViewMode::ShadowCascades:
                         m_SkipFullscreenCommands = true;
                         m_RendererAPI->SetDebugView(state);
                         ExecuteRenderPass();

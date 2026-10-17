@@ -24,7 +24,40 @@ void main()
         return;
 
     vec4 acc = imageLoad(uAccum, texel);
+    if (acc.a < 0.0)
+    {
+        imageStore(uOut, texel, vec4(0.0, 0.0, 0.0, -1.0));     // given up by the baker : stays marked
+        return;
+    }
     vec3 mean = acc.rgb / uSampleCount;
+
+    // A few rare, very bright paths (fireflies) survive the per sample clamp, which has to stay high not to dim real highlights : in a
+    // dark scene one of them alone outshines the whole mean of its texel, and the denoiser only spreads it. A texel much brighter than
+    // every one of its neighbours is such a spike (a real edge of light has a bright neighbour on its side) : it is brought down to them.
+    float neighbourMax = -1.0;
+    for (int dy = -1; dy <= 1; dy++)
+    {
+        for (int dx = -1; dx <= 1; dx++)
+        {
+            ivec2 tap = texel + ivec2(dx, dy);
+            if ((dx == 0 && dy == 0) || tap.x < 0 || tap.y < 0 || tap.x >= uSize || tap.y >= uSize)
+                continue;
+            if (imageLoad(uGPos, tap).w <= 0.0)
+                continue;
+            vec4 tapAcc = imageLoad(uAccum, tap);
+            if (tapAcc.a < 0.0)
+                continue;
+            neighbourMax = max(neighbourMax, dot(tapAcc.rgb, vec3(0.2126, 0.7152, 0.0722)) / uSampleCount);
+        }
+    }
+    if (neighbourMax >= 0.0)
+    {
+        const float kSpikeRatio = 2.5;      // how much brighter than its brightest neighbour a texel may be
+        float spikeLimit = neighbourMax * kSpikeRatio + 0.005;
+        float meanLuminance = dot(mean, vec3(0.2126, 0.7152, 0.0722));
+        if (meanLuminance > spikeLimit)
+            mean *= spikeLimit / meanLuminance;
+    }
 
     float lumMean = dot(mean, vec3(0.2126, 0.7152, 0.0722));
     float lumSquares = acc.a / uSampleCount;

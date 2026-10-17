@@ -34,7 +34,7 @@ Lightmaps work next to the real-time GI probes and don't replace them. Moving mo
 | Indirect intensity | Multiplies everything except the direct light of Static lights, like Unreal's "indirect lighting intensity". 1 is physically correct, 2 to 4 brightens the shadows for a flatter look. |
 | Denoise | Edge-aware filter using the surface data and each texel's noise level. It smooths flat areas and keeps shadow edges sharp. |
 | Denoiser settings | Under *Denoise*. **Passes** (each one doubles the filter's reach), **Light tolerance** (how much light difference still counts as noise; higher is smoother but blurs soft shadows), **Normal sharpness** (how fast surfaces facing different ways stop mixing) and **Plane tolerance** (how far from the surface's plane a neighbour may be, in texels). Applied at the next bake. |
-| Firefly clamp | Caps how bright a single path can be, so rare very bright samples don't show up as white dots. |
+| Firefly clamp | Caps how bright a single path can be, so rare very bright samples don't show up as white dots. In addition, before denoising, a texel more than 2.5 times brighter than its brightest neighbour is brought down to that limit : a lone bright dot is a spike, a real edge of light always has a bright neighbour. If dots remain in a dark scene, lower the clamp (4 to 8). |
 | Max page size, max resolution per model | Lightmaps are packed into pages (textures) no larger than this, at 4 bytes per texel, and no model goes above the max resolution. You can also override the resolution per model with *Lightmap Resolution*. |
 
 Settings are saved in the world file, so the next bake reuses them.

@@ -205,6 +205,29 @@ TEST(LightmapEncode, TheGutterTakesTheLightOfTheSurfaceNextToIt) {
     EXPECT_NEAR(texel(2, 1), (2.0f + 4.0f + 4.0f) / 3.0f, 0.05f);
 }
 
+TEST(LightmapEncode, AHoleTakesTheLightAroundItHoweverWideItIs) {
+    // 12 x 12 page : a lit surface (3.0), with a 6 x 6 block of texels the baker gave up in the middle
+    const uint32_t n = 12;
+    std::vector<float> rgba(size_t(n) * n * 4, 0.0f);
+    for (uint32_t y = 0; y < n; y++)
+        for (uint32_t x = 0; x < n; x++)
+        {
+            const size_t i = (size_t(y) * n + x) * 4;
+            const bool hole = x >= 3 && x < 9 && y >= 3 && y < 9;
+            rgba[i] = rgba[i + 1] = rgba[i + 2] = hole ? 0.0f : 3.0f;
+            rgba[i + 3] = hole ? kLightmapHole : 1.0f;
+        }
+
+    const LightmapPageData page = EncodeLightmapPage(n, n, rgba.data(), 1);
+    for (uint32_t y = 0; y < n; y++)
+        for (uint32_t x = 0; x < n; x++)
+        {
+            float r, g, b;
+            UnpackRGB9E5(page.texels[size_t(y) * n + x], r, g, b);
+            EXPECT_NEAR(r, 3.0f, 0.05f) << x << "," << y;
+        }
+}
+
 TEST(LightmapEncode, NonFiniteLightDoesNotPoisonTheNeighbours) {
     std::vector<float> rgba(4 * 4 * 4, 0.0f);
     auto set = [&](uint32_t x, uint32_t y, float v) {

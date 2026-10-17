@@ -20,6 +20,7 @@
 #include "engine/renderer/features/immediate/thumbnail_service.hpp"
 #include "engine/renderer/features/culling/occlusion_culling_manager.hpp"
 #include "engine/renderer/features/billboards/billboard_renderer.hpp"
+#include "engine/assets/project/project.hpp"
 
 #include <atomic>
 #include <functional>
@@ -147,6 +148,9 @@ bool GetCurrentView(RenderView& out) override;
 
             /// @brief Samples per pixel of the viewport's multisampled targets (the GPU's maximum caps it).
             void SetMultisampleCount(uint32_t samples);
+
+            /// @brief How the shadows are made (see ShadowManager::Configure) : resolutions, cascades, filtering and biases of the project's rendering settings.
+            void SetShadowSettings(const Projects::ShadowSettings& settings);
 
             /// @brief GPU occlusion culling of the main camera's geometry passes (see OcclusionCullingManager).
             /// On by default; it only ever skips geometry that is hidden, so toggling it never changes the image.

@@ -90,8 +90,12 @@ namespace Shard::Engine::Rendering {
     /// file is missing, truncated, from another format version, or internally inconsistent.
     std::shared_ptr<LightmapData> DecodeLightmapFile(const Filesystem::Path& path);
 
+    /// The alpha of a texel that is on a surface but that the baker gave up (it sits inside a solid, see lightmap_bake.comp) : its
+    /// light is taken from the baked texels around it, as far as it takes (a gutter of `gutterPasses` rings only goes round the charts)
+    constexpr float kLightmapHole = 0.25f;
+
     /// @brief Turns a baked page into what is stored and uploaded. `rgba` is width * height RGBA32F texels, bottom row first,
-    /// its alpha the coverage : above 0.5 a texel was baked, below it belongs to no surface. The texels next to a covered
+    /// its alpha the coverage : above 0.5 a texel was baked, kLightmapHole it is on a surface but was given up, 0 it belongs to no surface. The texels next to a covered
     /// one take its light (`gutterPasses` rings of them), so that the bilinear filter at the edge of a chart blends the
     /// light of the surface instead of the black around it ; the others stay black.
     LightmapPageData EncodeLightmapPage(uint32_t width, uint32_t height, const float* rgba, int gutterPasses = 4);

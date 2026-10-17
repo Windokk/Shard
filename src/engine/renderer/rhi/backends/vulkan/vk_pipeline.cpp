@@ -233,7 +233,7 @@ namespace Shard::Engine::Rendering {
         info.layout = program.GetPipelineLayout();
 
         VkPipeline pipeline = VK_NULL_HANDLE;
-        if (VK_CHECK(vkCreateGraphicsPipelines(Context::Get().GetDevice(), VK_NULL_HANDLE, 1, &info, nullptr, &pipeline)) != VK_SUCCESS)
+        if (VK_CHECK(vkCreateGraphicsPipelines(Context::Get().GetDevice(), Context::Get().GetPipelineCache(), 1, &info, nullptr, &pipeline)) != VK_SUCCESS)
         {
             DEBUG_ERROR("Could not create the pipeline '", s.debugName, "' for the shader ", program.GetName());
             return VK_NULL_HANDLE;
@@ -280,7 +280,7 @@ namespace Shard::Engine::Rendering {
         info.stage.pName = "main";
         info.layout = program.GetPipelineLayout();
 
-        if (VK_CHECK(vkCreateComputePipelines(Context::Get().GetDevice(), VK_NULL_HANDLE, 1, &info, nullptr, &m_Pipeline)) != VK_SUCCESS)
+        if (VK_CHECK(vkCreateComputePipelines(Context::Get().GetDevice(), Context::Get().GetPipelineCache(), 1, &info, nullptr, &m_Pipeline)) != VK_SUCCESS)
         {
             DEBUG_ERROR("Could not create the compute pipeline for the shader ", program.GetName());
             m_Pipeline = VK_NULL_HANDLE;

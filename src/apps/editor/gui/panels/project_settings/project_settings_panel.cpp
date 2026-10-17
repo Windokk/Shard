@@ -91,8 +91,18 @@ namespace Shard::Editor::GUI{
         auto project = GetEngine().GetCurrentProject();
         if (!project)
             return false;
-        // Compared with what the file holds : a change made anywhere (a world added to the build from the menu) counts too
-        return m_CVarsDirty || project->HasUnsavedChanges();
+        if (m_CVarsDirty)
+            return true;
+
+        // Compared with what the file holds : a change made anywhere (a world added to the build from the menu) counts too.
+        // That serializes the whole project, so not on every frame : a few times a second is plenty for a "unsaved" label
+        const double now = ImGui::GetTime();
+        if (now - m_LastDirtyCheck >= 0.25)
+        {
+            m_ProjectDirty = project->HasUnsavedChanges();
+            m_LastDirtyCheck = now;
+        }
+        return m_ProjectDirty;
     }
 
     std::string ProjectSettingsPanel::GetProjectConfigPath() const
@@ -164,12 +174,14 @@ namespace Shard::Editor::GUI{
 
         GetEngine().GetRenderer()->SetOcclusionCullingEnabled(rendering->occlusionCulling);
         GetEngine().GetRenderer()->SetMultisampleCount(rendering->msaaSamples);
+        GetEngine().GetRenderer()->SetShadowSettings(rendering->shadows);
         GetEngine().GetRenderer()->SetRenderPipeline(rendering->renderPipeline);
     }
 
     void ProjectSettingsPanel::Revert()
     {
         auto project = GetEngine().GetCurrentProject();
+        m_LastDirtyCheck = -1.0;
         if (!project)
             return;
 
@@ -192,6 +204,7 @@ namespace Shard::Editor::GUI{
             registry.LoadFile(ConfigLayer::Project, GetProjectConfigPath());
 
         project->MarkSaved();
+        m_LastDirtyCheck = -1.0;
         m_CVarsDirty = false;
         Notifications::Info("Project settings reverted to the saved ones");
     }
@@ -615,6 +628,264 @@ namespace Shard::Editor::GUI{
                 ImGui::EndCombo();
             }
         }
+
+        // ---- Shadows ----
+
+        Projects::ShadowSettings& shadows = rendering->shadows;
+        const Projects::ShadowSettings& shadowDefaults = defaults.shadows;
+        auto applyShadows = [&] { renderer->SetShadowSettings(shadows); };
+
+        // The side of a shadow map : a power of two from 512, the cost grows with its square
+        static const char* const resolutionLabels[] = { "512", "1024", "2048", "4096" };
+        static const uint32_t resolutions[] = { 512, 1024, 2048, 4096 };
+        auto resolutionRow = [&](const char* label, const char* tooltip, uint32_t& value, uint32_t defaultValue) {
+            auto indexOf = [](uint32_t v) {
+                int best = 0;
+                for (int i = 0; i < 4; i++)
+                    if (resolutions[i] <= v)
+                        best = i;
+                return best;
+            };
+            int index = indexOf(value);
+            if (m_View.Combo(label, tooltip, index, indexOf(defaultValue), resolutionLabels, 4))
+            {
+                value = resolutions[index];
+                applyShadows();
+            }
+        };
+        auto floatRow = [&](const char* label, const char* tooltip, float& value, float defaultValue, float speed, float min, float max, const char* format = "%.3f") {
+            if (m_View.DragFloat(label, tooltip, value, defaultValue, speed, min, max, format))
+                applyShadows();
+        };
+        auto countRow = [&](const char* label, const char* tooltip, uint32_t& value, uint32_t defaultValue, int min, int max) {
+            int v = int(value);
+            if (m_View.DragInt(label, tooltip, v, int(defaultValue), 0.1f, min, max))
+            {
+                value = uint32_t(std::clamp(v, min, max));
+                applyShadows();
+            }
+        };
+        auto boolRow = [&](const char* label, const char* tooltip, bool& value, bool defaultValue) {
+            if (m_View.Checkbox(label, tooltip, value, defaultValue))
+                applyShadows();
+        };
+
+        m_View.Section("Shadows");
+
+        boolRow("Enable Shadows", "Draws the shadows of the lights. Off, every light is unshadowed (the shadow maps are still rendered : this is for comparing).",
+                shadows.enabled, shadowDefaults.enabled);
+
+        m_View.Section("Directional Shadows");
+
+        resolutionRow("Resolution", "Side, in texels, of each cascade shadow map of a directional light (a sun). Higher is sharper, and costs one such map per cascade in video memory.",
+                      shadows.directionalResolution, shadowDefaults.directionalResolution);
+        floatRow("Distance", "How far from the camera the sun's shadows reach, in world units. 0 follows the camera's far plane. The cascades are fitted to this range : a shorter one gives sharper shadows near the camera, and nothing beyond it is shadowed.",
+                 shadows.directionalDistance, shadowDefaults.directionalDistance, 1.0f, 0.0f, 100000.0f, "%.1f");
+        if (DrawCascadeEditor(shadows, shadowDefaults))
+            applyShadows();
+        boolRow("Stabilize Cascades", "Snaps each cascade to the texels of its map so the shadows do not shimmer when the camera moves, at the cost of a slightly looser fit.",
+                shadows.stabilizeCascades, shadowDefaults.stabilizeCascades);
+        floatRow("Caster Range", "How far from a cascade, towards the sun, the shadow casters are still drawn, in world units. A caster further than this casts no shadow on it (a high ceiling over a close cascade).",
+                 shadows.casterRange, shadowDefaults.casterRange, 5.0f, 1.0f, 100000.0f, "%.0f");
+        boolRow("Double-sided Casters", "Draws both faces of the geometry into the sun's shadow maps. Levels are rarely made of closed volumes (a roof or a wall is often one surface) : drawing only the faces turned away from the sun lets its light through the edges of such surfaces, as a bright line along a wall or around a shadow. Turn it off for a little less cost on closed meshes.",
+                shadows.directionalDoubleSided, shadowDefaults.directionalDoubleSided);
+        boolRow("Conservative Rasterization", "Draws every texel a caster touches into the sun's shadow maps, not only the ones whose centre it covers. A gap thinner than a texel (the joint between two pieces of a model, like the cubies of the Rubik's cube) would otherwise let a thin line of light through. Needs OpenGL and a GPU with GL_NV_conservative_raster ; ignored otherwise.",
+                shadows.directionalConservativeRaster, shadowDefaults.directionalConservativeRaster);
+        floatRow("Normal Bias", "How far the lit point is moved along the surface's normal before it is looked up in the map, in texels (more on a surface that grazes the light). Fights shadow acne ; too high detaches the shadow from its caster.",
+                 shadows.directionalNormalBias, shadowDefaults.directionalNormalBias, 0.01f, 0.0f, 16.0f, "%.2f");
+        floatRow("Depth Bias", "Constant depth offset of the comparison, in texels. Fights shadow acne ; too high lets light leak at contact points.",
+                 shadows.directionalDepthBias, shadowDefaults.directionalDepthBias, 0.01f, 0.0f, 16.0f, "%.2f");
+        floatRow("Slope Bias", "Scale of the receiver plane bias, which follows the slope of the surface across the filter (0 : none, 1 : exact). Keeps a wide filter from shadowing slanted surfaces with themselves.",
+                 shadows.directionalSlopeBias, shadowDefaults.directionalSlopeBias, 0.01f, 0.0f, 4.0f, "%.2f");
+        countRow("Filter Radius", "The filter takes (2 * radius + 1)^2 taps : 0 is a single hardware filtered tap, 2 a 5 x 5 kernel. More taps give softer edges and cost more.",
+                 shadows.directionalFilterRadius, shadowDefaults.directionalFilterRadius, 0, 4);
+        floatRow("Filter Spread", "Distance between two taps of the filter, in texels. Wider gives softer edges, and visible bands when the taps are far apart.",
+                 shadows.directionalFilterSpread, shadowDefaults.directionalFilterSpread, 0.01f, 0.1f, 8.0f, "%.2f");
+
+        m_View.Section("Spot Shadows");
+
+        resolutionRow("Resolution", "Side, in texels, of the shadow map of a spot light.", shadows.spotResolution, shadowDefaults.spotResolution);
+        floatRow("Depth Bias", "Depth bias that grows with the slope of the surface to the light, in depth units of the map.",
+                 shadows.spotDepthBias, shadowDefaults.spotDepthBias, 0.00001f, 0.0f, 0.1f, "%.5f");
+        floatRow("Minimum Depth Bias", "Smallest depth bias, on a surface that faces the light.",
+                 shadows.spotMinDepthBias, shadowDefaults.spotMinDepthBias, 0.000005f, 0.0f, 0.1f, "%.6f");
+        countRow("Filter Radius", "The filter takes (2 * radius + 1)^2 taps : 0 is a single tap, 2 a 5 x 5 kernel.",
+                 shadows.spotFilterRadius, shadowDefaults.spotFilterRadius, 0, 4);
+        floatRow("Filter Spread", "Distance between two taps of the filter, in texels.",
+                 shadows.spotFilterSpread, shadowDefaults.spotFilterSpread, 0.01f, 0.1f, 8.0f, "%.2f");
+
+        m_View.Section("Point Shadows");
+
+        resolutionRow("Resolution", "Side, in texels, of each of the six faces of the cube shadow map of a point light.", shadows.pointResolution, shadowDefaults.pointResolution);
+        floatRow("Depth Bias", "Depth bias, in world units. Fights shadow acne ; too high lets light leak at contact points.",
+                 shadows.pointDepthBias, shadowDefaults.pointDepthBias, 0.005f, 0.0f, 5.0f, "%.3f");
+        countRow("Filter Samples", "Taps of the filter (1 to 20), spread on a disc around the lookup direction. 1 is a hard edge.",
+                 shadows.pointFilterSamples, shadowDefaults.pointFilterSamples, 1, 20);
+        floatRow("Filter Radius", "Radius of that disc, in world units at the surface : the softness of the shadow's edge.",
+                 shadows.pointFilterRadius, shadowDefaults.pointFilterRadius, 0.005f, 0.0f, 2.0f, "%.3f");
+    }
+
+    bool ProjectSettingsPanel::DrawCascadeEditor(Projects::ShadowSettings& shadows, const Projects::ShadowSettings& defaults)
+    {
+        bool changed = false;
+        bool reset = false;
+        const bool modified = shadows.cascadeSplits != defaults.cascadeSplits || shadows.cascadeColors != defaults.cascadeColors;
+        if (!m_View.BeginRow("Cascades", "How the range of the sun's shadows is cut into cascades, nearest to the camera on the left. Drag a handle to move the split between two cascades, right-click one to merge its two cascades. Each cascade has a color in the \"Shadow Cascades\" debug view (click a cascade to edit it). Fewer cascades are cheaper, more give sharper shadows ; each sun takes one shadow map slot per cascade, and the slots are limited, so with more cascades fewer suns can cast shadows.",
+                             modified, &reset))
+            return false;
+
+        if (reset)
+        {
+            shadows.cascadeSplits = defaults.cascadeSplits;
+            shadows.cascadeColors = defaults.cascadeColors;
+            changed = true;
+        }
+        shadows.SanitizeCascades();
+
+        int count = int(shadows.CascadeCount());
+        m_SelectedCascade = std::clamp(m_SelectedCascade, 0, count - 1);
+
+        ImGui::PushID("CascadeEditor");
+
+        ImDrawList* draw = ImGui::GetWindowDrawList();
+        const ImVec2 origin = ImGui::GetCursorScreenPos();
+        const float width = std::max(ImGui::GetContentRegionAvail().x, 60.0f);
+        const float height = ImGui::GetFrameHeight() * 1.5f;
+        const float handleHalfWidth = 5.0f;
+
+        auto boundary = [&](int i) { return i <= 0 ? 0.0f : (i >= count ? 1.0f : shadows.cascadeSplits[i - 1]); };
+        auto toColor = [](const glm::vec3& c, float alpha = 1.0f) {
+            return ImGui::ColorConvertFloat4ToU32(ImVec4(c.x, c.y, c.z, alpha));
+        };
+
+        // The cascades : a click selects one
+        for (int c = 0; c < count; c++)
+        {
+            const float x0 = origin.x + boundary(c) * width;
+            const float x1 = origin.x + boundary(c + 1) * width;
+            ImGui::SetCursorScreenPos(ImVec2(x0, origin.y));
+            ImGui::PushID(c);
+            // The handles are drawn over the cascades : without this the cascade under the cursor keeps the hover and a handle never gets it
+            ImGui::SetNextItemAllowOverlap();
+            if (ImGui::InvisibleButton("##Cascade", ImVec2(std::max(x1 - x0, 1.0f), height)))
+                m_SelectedCascade = c;
+            ImGui::PopID();
+
+            draw->AddRectFilled(ImVec2(x0, origin.y), ImVec2(x1, origin.y + height), toColor(shadows.cascadeColors[c]));
+
+            char label[16];
+            std::snprintf(label, sizeof(label), "%d", c + 1);
+            const ImVec2 textSize = ImGui::CalcTextSize(label);
+            if (x1 - x0 > textSize.x + 4.0f)
+            {
+                // Dark or light, whichever reads on the color
+                const glm::vec3& color = shadows.cascadeColors[c];
+                const float luma = 0.299f * color.r + 0.587f * color.g + 0.114f * color.b;
+                draw->AddText(ImVec2((x0 + x1 - textSize.x) * 0.5f, origin.y + (height - textSize.y) * 0.5f),
+                              luma > 0.55f ? IM_COL32(0, 0, 0, 220) : IM_COL32(255, 255, 255, 230), label);
+            }
+        }
+
+        // The selection is outlined
+        draw->AddRect(ImVec2(origin.x + boundary(m_SelectedCascade) * width, origin.y),
+                      ImVec2(origin.x + boundary(m_SelectedCascade + 1) * width, origin.y + height), IM_COL32(255, 255, 255, 255), 0.0f, 0, 2.0f);
+
+        // The splits : a handle each, over the cascades
+        int removeSplit = -1;
+        for (int i = 0; i + 1 < count; i++)
+        {
+            const float x = origin.x + shadows.cascadeSplits[i] * width;
+            ImGui::SetCursorScreenPos(ImVec2(x - handleHalfWidth, origin.y));
+            ImGui::PushID(1000 + i);
+            ImGui::InvisibleButton("##Split", ImVec2(handleHalfWidth * 2.0f, height));
+            const bool hovered = ImGui::IsItemHovered();
+            const bool active = ImGui::IsItemActive();
+            ImGui::PopID();
+
+            if (hovered || active)
+                ImGui::SetMouseCursor(ImGuiMouseCursor_ResizeEW);
+
+            if (active)
+            {
+                const float minGap = 0.001f;
+                const float low = boundary(i) + minGap;
+                const float high = boundary(i + 2) - minGap;
+                const float value = std::clamp((ImGui::GetIO().MousePos.x - origin.x) / width, low, std::max(low, high));
+                if (value != shadows.cascadeSplits[i])
+                {
+                    shadows.cascadeSplits[i] = value;
+                    changed = true;
+                }
+            }
+            if (hovered && ImGui::IsMouseClicked(ImGuiMouseButton_Right))
+                removeSplit = i;
+            if (hovered || active)
+            {
+                ImGui::BeginTooltip();
+                ImGui::Text("Cascade %d ends at %.1f%% of the range", i + 1, shadows.cascadeSplits[i] * 100.0f);
+                ImGui::EndTooltip();
+            }
+
+            const ImU32 handleColor = (hovered || active) ? IM_COL32(255, 220, 120, 255) : IM_COL32(255, 255, 255, 255);
+            draw->AddLine(ImVec2(x, origin.y), ImVec2(x, origin.y + height), IM_COL32(0, 0, 0, 255), 4.0f);
+            draw->AddLine(ImVec2(x, origin.y), ImVec2(x, origin.y + height), handleColor, 2.0f);
+            draw->AddTriangleFilled(ImVec2(x - handleHalfWidth, origin.y + height), ImVec2(x + handleHalfWidth, origin.y + height),
+                                    ImVec2(x, origin.y + height - handleHalfWidth * 1.6f), handleColor);
+        }
+
+        if (removeSplit >= 0)
+        {
+            shadows.cascadeSplits.erase(shadows.cascadeSplits.begin() + removeSplit);
+            shadows.cascadeColors.erase(shadows.cascadeColors.begin() + removeSplit + 1);
+            changed = true;
+        }
+
+        // Under the bar : the selected cascade, and the buttons that add or merge cascades
+        ImGui::SetCursorScreenPos(ImVec2(origin.x, origin.y + height + ImGui::GetStyle().ItemSpacing.y));
+        count = int(shadows.CascadeCount());
+        m_SelectedCascade = std::clamp(m_SelectedCascade, 0, count - 1);
+
+        auto selectedBoundary = [&](int i) { return i <= 0 ? 0.0f : (i >= count ? 1.0f : shadows.cascadeSplits[i - 1]); };
+        if (ImGui::ColorEdit3("##CascadeColor", &shadows.cascadeColors[m_SelectedCascade].x, ImGuiColorEditFlags_NoInputs | ImGuiColorEditFlags_NoLabel))
+            changed = true;
+        if (ImGui::IsItemHovered())
+            Tooltip("Color of the selected cascade in the \"Shadow Cascades\" debug view.");
+        ImGui::SameLine();
+        ImGui::Text("Cascade %d of %d : %.1f%% to %.1f%%", m_SelectedCascade + 1, count,
+                    selectedBoundary(m_SelectedCascade) * 100.0f, selectedBoundary(m_SelectedCascade + 1) * 100.0f);
+
+        ImGui::BeginDisabled(uint32_t(count) >= Projects::ShadowSettings::MaxCascades);
+        if (ImGui::Button("Split"))
+        {
+            // The selected cascade becomes two halves
+            const float middle = (selectedBoundary(m_SelectedCascade) + selectedBoundary(m_SelectedCascade + 1)) * 0.5f;
+            shadows.cascadeSplits.insert(shadows.cascadeSplits.begin() + m_SelectedCascade, middle);
+            shadows.cascadeColors.insert(shadows.cascadeColors.begin() + m_SelectedCascade + 1, shadows.cascadeColors[m_SelectedCascade]);
+            changed = true;
+        }
+        ImGui::EndDisabled();
+        if (ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled))
+            Tooltip("Cuts the selected cascade in two.");
+
+        ImGui::SameLine();
+        ImGui::BeginDisabled(count <= 1);
+        if (ImGui::Button("Remove"))
+        {
+            // Its range goes to the next cascade (to the previous one for the last)
+            const int splitIndex = m_SelectedCascade < count - 1 ? m_SelectedCascade : m_SelectedCascade - 1;
+            shadows.cascadeSplits.erase(shadows.cascadeSplits.begin() + splitIndex);
+            shadows.cascadeColors.erase(shadows.cascadeColors.begin() + m_SelectedCascade);
+            changed = true;
+        }
+        ImGui::EndDisabled();
+        if (ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled))
+            Tooltip("Removes the selected cascade : its range goes to its neighbour.");
+
+        ImGui::PopID();
+
+        if (changed)
+            shadows.SanitizeCascades();
+        return changed;
     }
 
     // ---- Console variables ----

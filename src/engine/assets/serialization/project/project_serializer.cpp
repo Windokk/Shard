@@ -135,6 +135,59 @@ namespace Shard::Engine::Serialization{
 
                 if(rendering.contains("renderPipeline") && rendering["renderPipeline"].is_string())
                     renderingSettings.renderPipeline = rendering["renderPipeline"].get<std::string>();
+
+                if(rendering.contains("shadows") && rendering["shadows"].is_object()){
+                    const json& shadows = rendering["shadows"];
+                    Projects::ShadowSettings& out = renderingSettings.shadows;
+
+                    auto readBool = [&](const char* key, bool& value) {
+                        if(shadows.contains(key) && shadows[key].is_boolean())
+                            value = shadows[key];
+                    };
+                    auto readFloat = [&](const char* key, float& value, float min, float max) {
+                        if(shadows.contains(key) && shadows[key].is_number())
+                            value = std::clamp(shadows[key].get<float>(), min, max);
+                    };
+                    auto readUint = [&](const char* key, uint32_t& value, uint32_t min, uint32_t max) {
+                        if(shadows.contains(key) && shadows[key].is_number_unsigned())
+                            value = std::clamp<uint32_t>(shadows[key], min, max);
+                    };
+
+                    readBool("enabled", out.enabled);
+                    readUint("directionalResolution", out.directionalResolution, 256u, 8192u);
+                    readFloat("directionalDistance", out.directionalDistance, 0.0f, 100000.0f);
+                    if(shadows.contains("cascadeSplits") && shadows["cascadeSplits"].is_array()){
+                        out.cascadeSplits.clear();
+                        for(const json& split : shadows["cascadeSplits"])
+                            if(split.is_number())
+                                out.cascadeSplits.push_back(split.get<float>());
+                    }
+                    if(shadows.contains("cascadeColors") && shadows["cascadeColors"].is_array()){
+                        out.cascadeColors.clear();
+                        for(const json& color : shadows["cascadeColors"])
+                            if(color.is_array() && color.size() == 3)
+                                out.cascadeColors.emplace_back(color[0].get<float>(), color[1].get<float>(), color[2].get<float>());
+                    }
+                    out.SanitizeCascades();
+                    readBool("stabilizeCascades", out.stabilizeCascades);
+                    readFloat("casterRange", out.casterRange, 1.0f, 100000.0f);
+                    readBool("directionalDoubleSided", out.directionalDoubleSided);
+                    readBool("directionalConservativeRaster", out.directionalConservativeRaster);
+                    readFloat("directionalNormalBias", out.directionalNormalBias, 0.0f, 16.0f);
+                    readFloat("directionalDepthBias", out.directionalDepthBias, 0.0f, 16.0f);
+                    readFloat("directionalSlopeBias", out.directionalSlopeBias, 0.0f, 4.0f);
+                    readUint("directionalFilterRadius", out.directionalFilterRadius, 0u, 4u);
+                    readFloat("directionalFilterSpread", out.directionalFilterSpread, 0.1f, 8.0f);
+                    readUint("spotResolution", out.spotResolution, 256u, 8192u);
+                    readFloat("spotDepthBias", out.spotDepthBias, 0.0f, 0.1f);
+                    readFloat("spotMinDepthBias", out.spotMinDepthBias, 0.0f, 0.1f);
+                    readUint("spotFilterRadius", out.spotFilterRadius, 0u, 4u);
+                    readFloat("spotFilterSpread", out.spotFilterSpread, 0.1f, 8.0f);
+                    readUint("pointResolution", out.pointResolution, 256u, 4096u);
+                    readFloat("pointDepthBias", out.pointDepthBias, 0.0f, 5.0f);
+                    readUint("pointFilterSamples", out.pointFilterSamples, 1u, 20u);
+                    readFloat("pointFilterRadius", out.pointFilterRadius, 0.0f, 2.0f);
+                }
             }
             else{
                 DEBUG_INFO("No rendering settings for project: "+path.full+", using the defaults");
@@ -193,6 +246,36 @@ namespace Shard::Engine::Serialization{
         data["rendering"]["occlusionCulling"] = pro->GetRenderingSettings()->occlusionCulling;
         data["rendering"]["msaaSamples"] = pro->GetRenderingSettings()->msaaSamples;
         data["rendering"]["renderPipeline"] = pro->GetRenderingSettings()->renderPipeline;
+        {
+            const Projects::ShadowSettings& shadows = pro->GetRenderingSettings()->shadows;
+            json out = json::object();
+            out["enabled"] = shadows.enabled;
+            out["directionalResolution"] = shadows.directionalResolution;
+            out["directionalDistance"] = shadows.directionalDistance;
+            out["cascadeSplits"] = shadows.cascadeSplits;
+            out["cascadeColors"] = json::array();
+            for(const glm::vec3& color : shadows.cascadeColors)
+                out["cascadeColors"].push_back({ color.x, color.y, color.z });
+            out["stabilizeCascades"] = shadows.stabilizeCascades;
+            out["casterRange"] = shadows.casterRange;
+            out["directionalDoubleSided"] = shadows.directionalDoubleSided;
+            out["directionalConservativeRaster"] = shadows.directionalConservativeRaster;
+            out["directionalNormalBias"] = shadows.directionalNormalBias;
+            out["directionalDepthBias"] = shadows.directionalDepthBias;
+            out["directionalSlopeBias"] = shadows.directionalSlopeBias;
+            out["directionalFilterRadius"] = shadows.directionalFilterRadius;
+            out["directionalFilterSpread"] = shadows.directionalFilterSpread;
+            out["spotResolution"] = shadows.spotResolution;
+            out["spotDepthBias"] = shadows.spotDepthBias;
+            out["spotMinDepthBias"] = shadows.spotMinDepthBias;
+            out["spotFilterRadius"] = shadows.spotFilterRadius;
+            out["spotFilterSpread"] = shadows.spotFilterSpread;
+            out["pointResolution"] = shadows.pointResolution;
+            out["pointDepthBias"] = shadows.pointDepthBias;
+            out["pointFilterSamples"] = shadows.pointFilterSamples;
+            out["pointFilterRadius"] = shadows.pointFilterRadius;
+            data["rendering"]["shadows"] = out;
+        }
 
         // The editor preferences are the user's, not the project's : the editor keeps them in its own file
         return data;

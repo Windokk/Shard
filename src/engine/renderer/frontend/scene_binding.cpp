@@ -33,6 +33,28 @@ namespace Shard::Engine::Rendering{
             shader->SetBool("showShadows", studioView || dv.showShadows);
         }
 
+        // How the shadows are filtered and biased (the project's rendering settings)
+        if (m_ShadowManager)
+        {
+            const Projects::ShadowSettings& shadows = m_ShadowManager->GetSettings();
+            shader->SetBool("shadowsEnabled", shadows.enabled);
+            shader->SetInt("dirShadowFilterRadius", int(shadows.directionalFilterRadius));
+            shader->SetFloat("dirShadowFilterSpread", shadows.directionalFilterSpread);
+            shader->SetFloat("dirShadowNormalBias", shadows.directionalNormalBias);
+            shader->SetFloat("dirShadowDepthBias", shadows.directionalDepthBias);
+            shader->SetFloat("dirShadowSlopeBias", shadows.directionalSlopeBias);
+            shader->SetInt("dirCascadeCount", int(shadows.CascadeCount()));
+            for (uint32_t c = 0; c < shadows.CascadeCount(); ++c)
+                shader->SetVec3("dirCascadeColors[" + std::to_string(c) + "]", shadows.cascadeColors[c]);
+            shader->SetInt("spotShadowFilterRadius", int(shadows.spotFilterRadius));
+            shader->SetFloat("spotShadowFilterSpread", shadows.spotFilterSpread);
+            shader->SetFloat("spotShadowDepthBias", shadows.spotDepthBias);
+            shader->SetFloat("spotShadowMinDepthBias", shadows.spotMinDepthBias);
+            shader->SetInt("pointShadowFilterSamples", int(shadows.pointFilterSamples));
+            shader->SetFloat("pointShadowFilterRadius", shadows.pointFilterRadius);
+            shader->SetFloat("pointShadowDepthBias", shadows.pointDepthBias);
+        }
+
         const EnvironmentProxy& environment = GetSnapshot().environment;
 
         RenderView currentView;
@@ -46,12 +68,12 @@ namespace Shard::Engine::Rendering{
         {
             // Fixed studio look : none of the world's lighting settings apply, and SSAO's texture is
             // the main viewport's (screen-space), which would be meaningless for another view.
-            shader->SetFloat("ambientIntensity", currentView.studioAmbient);
+            shader->SetVec3("ambientColor", glm::vec3(currentView.studioAmbient));
             shader->SetBool("ssaoEnabled", false);
         }
         else
         {
-            shader->SetFloat("ambientIntensity", environment.ambientIntensity);
+            shader->SetVec3("ambientColor", environment.ambientColor);
 
             shader->SetBool("ssaoEnabled", environment.ssaoEnabled);
             shader->SetFloat("ssaoIntensity", environment.ssaoIntensity);

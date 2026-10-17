@@ -31,9 +31,9 @@ uniform vec3  uSkyColor;
 // raw Bind() that GLStateCache does not know about
 layout(binding = 45) uniform samplerCube uSkyCube;
 
-// lit.frag adds `albedo * ambientIntensity` to every surface, light or not (the world's flat ambient floor) : the offline
+// lit.frag adds `albedo * ambientColor` to every surface, light or not (the world's flat ambient floor) : the offline
 // render applies the same to the surface the camera sees. Left at 0 when baking, the forward pass adds it at run time.
-uniform float uAmbientIntensity;
+uniform vec3 uAmbientColor;
 
 // A sample of indirect light brighter than this (luminance) is scaled down to it : one lucky path through a small, bright
 // feature would otherwise be a white speck that no amount of averaging gets rid of. 0 : no limit.
@@ -377,9 +377,9 @@ vec3 TracePathMIS(vec3 ro, vec3 rd, vec3 firstNormal, float firstLobe)
 #endif
         radiance += throughput * emission;
 
-        // The world's flat ambient floor, on the surface the ray starts from only (see uAmbientIntensity)
+        // The world's flat ambient floor, on the surface the ray starts from only (see uAmbientColor)
         if (bounce == 0)
-            radiance += throughput * albedo * uAmbientIntensity;
+            radiance += throughput * albedo * uAmbientColor;
 
         vec3 viewDir = normalize(-rd);
         vec3 F0 = mix(vec3(0.04), albedo, metallic);

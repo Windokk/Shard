@@ -101,6 +101,43 @@ void main()
 
     vec4 acc = uSampleStart == 0 ? vec4(0.0) : imageLoad(uAccum, texel);
 
+    // A texel inside a solid (under an object that sits on the floor, in a wall, on a surface whose normal faces into the
+    // geometry) sees the back of the surfaces around it : what it would bake is the dark of the inside, which then spreads over its
+    // neighbours through the bilinear filter and the denoiser. Such a texel is given up (a negative variance marks it), and its light is taken
+    // from the valid texels around it when the page is encoded.
+    if (uSampleStart == 0)
+    {
+        const int kProbes = 16;
+        int backfaces = 0;
+        for (int i = 0; i < kProbes; i++)
+        {
+            rngState = PcgHash(PcgHash(uint(texel.x) * 2909u + uint(texel.y) * 6971u + uint(uSeed) * 4057u) + uint(i) * 40503u + 977u);
+            vec3 rd = CosineSampleHemisphere(ns);
+            float above = dot(rd, ng);
+            if (above < 0.05)
+                rd = normalize(rd + ng * (0.05 - above));
+
+            HitInfo hit;
+            if (TraceRay(origin, rd, 2.0, hit))
+            {
+                // The side is told by the vertex normals (the way the path tracer shades it), not by the winding, which a mesh does not always keep
+                TriangleAttrib attrib = triAttrib[hit.triIndex];
+                float w0 = 1.0 - hit.bary.x - hit.bary.y;
+                vec3 hitNormal = attrib.n0.xyz * w0 + attrib.n1.xyz * hit.bary.x + attrib.n2.xyz * hit.bary.y;
+                if (dot(hitNormal, rd) > 0.0)
+                    backfaces++;
+            }
+        }
+
+        if (backfaces * 2 > kProbes)
+        {
+            imageStore(uAccum, texel, vec4(0.0, 0.0, 0.0, -1.0));
+            return;
+        }
+    }
+    else if (acc.a < 0.0)
+        return;
+
     for (int i = 0; i < uSamples; i++)
     {
         rngState = PcgHash(PcgHash(uint(texel.x) * 1973u + uint(texel.y) * 9277u + uint(uSeed) * 7919u) + uint(uSampleStart + i) * 26699u + 1u);

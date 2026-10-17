@@ -32,12 +32,15 @@ target_include_directories(ShardReflect SYSTEM PRIVATE ${LLVM_INCLUDE_DIRS})
 separate_arguments(SHARD_REFLECT_LLVM_DEFINITIONS NATIVE_COMMAND "${LLVM_DEFINITIONS}")
 target_compile_options(ShardReflect PRIVATE ${SHARD_REFLECT_LLVM_DEFINITIONS})
 
+# Some distros (Arch, Fedora...) only ship the monolithic libclang-cpp.so, not the per-component static libs
+if(CLANG_LINK_CLANG_DYLIB)
+    set(SHARD_REFLECT_CLANG_LIBS clang-cpp)
+else()
+    set(SHARD_REFLECT_CLANG_LIBS clangTooling clangASTMatchers clangAST clangBasic clangFrontend)
+endif()
+
 target_link_libraries(ShardReflect PRIVATE
-    clangTooling
-    clangASTMatchers
-    clangAST
-    clangBasic
-    clangFrontend
+    ${SHARD_REFLECT_CLANG_LIBS}
     ${SHARD_REFLECT_LLVM_LIBS}
 )
 

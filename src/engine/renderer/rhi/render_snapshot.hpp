@@ -154,7 +154,7 @@ namespace Shard::Engine::Rendering {
 
     /// Everything that is not an object of the scene : the world's ambient, SSAO and sky settings.
     struct EnvironmentProxy {
-        float ambientIntensity = 0.3f;
+        glm::vec3 ambientColor = glm::vec3(0.3f);
         bool ssaoEnabled = true;
         float ssaoRadius = 0.5f;
         float ssaoBias = 0.025f;

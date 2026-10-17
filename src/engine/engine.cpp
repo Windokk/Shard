@@ -4,6 +4,7 @@
 #include <fstream>
 #include <iostream>
 #include <string>
+#include <chrono>
 #include <thread>
 
 #include "engine/assets/resources_manager.hpp"
@@ -66,6 +67,25 @@ namespace Shard::Engine{
 
             // Draws on a thread of its own : the simulation of the next frame runs while the previous one is drawn
             CVar<bool> cvRenderThread("render.thread", true, "Draw on a dedicated render thread (applies at startup)", CVarFlags::Archive);
+            // Waits for the display to draw a picture (no tearing) or presents as soon as it can. Takes effect at the next frame.
+            CVar<bool> cvVsync("render.vsync", true, "Vertical sync : wait for the display before showing a frame", CVarFlags::Archive);
+            // Frame rate limits, by sleeping. Useful with the vsync off, where nothing else paces the loops.
+            // engine.maxFPS paces the whole frame on the main thread (simulation included, the render thread follows it) ;
+            // render.maxFPS paces the drawing alone, on the render thread, the simulation keeps its own rate.
+            CVar<int> cvEngineMaxFPS("engine.maxFPS", 0, "Global frame rate limit, main thread included, 0 : unlimited", CVarFlags::Archive, 0, 10000);
+            CVar<int> cvMaxFPS("render.maxFPS", 0, "Frame rate limit of the render thread alone, 0 : unlimited (the vsync, when on, limits it to the display's rate anyway)", CVarFlags::Archive, 0, 10000);
+
+            // Holds the calling thread until `fps` frames per second means this frame is over. The last millisecond is spun on, a sleep overshoots by about that much
+            void HoldUntil(std::chrono::steady_clock::time_point frameStart, int fps)
+            {
+                SHARD_PROFILE_SCOPE(Debugging::ProfileCategory::Waiting);
+                const auto target = frameStart + std::chrono::duration_cast<std::chrono::steady_clock::duration>(std::chrono::duration<double>(1.0 / fps));
+                const auto spinMargin = std::chrono::milliseconds(1);
+                if(std::chrono::steady_clock::now() + spinMargin < target)
+                    std::this_thread::sleep_until(target - spinMargin);
+                while(std::chrono::steady_clock::now() < target)
+                    std::this_thread::yield();
+            }
             CVar<bool> cvRenderDoc("render.renderdoc", false, "Load RenderDoc before the graphics API starts, so that `render.capture` can take a capture (applies at startup, SHARD_RENDERDOC=1 does the same)");
             CVar<bool> cvVulkanValidation("render.vulkan_validation", false, "Vulkan : turn the validation layer on (needs the Vulkan SDK ; applies at startup, SHARD_VULKAN_VALIDATION=1 does the same)");
 
@@ -156,7 +176,16 @@ namespace Shard::Engine{
                     Rendering::RenderDoc::Get().SetCapturePrefix((std::filesystem::path(m_Context.currentProject->GetProjectRoot().full) / ".cache" / "captures" / "shard").generic_string());
             }
 
+            // The command line (--vsync) and the cvar both can turn it off ; the cvar says what is in force afterwards
+            settings.vsync = settings.vsync && cvVsync.Get();
+            cvVsync.ForceSet(settings.vsync);
+
             m_Context.platform->CreateWindow("Shard", settings.windowWidth, settings.windowHeight, settings.fullscreen, settings.vsync, settings.api);
+            {
+                Platform::IWindow* window = m_Context.platform->GetWindow();
+                if(window)
+                    cvVsync.AddOnChange([window](const CVarBase&) { window->SetVSync(cvVsync.Get()); });
+            }
 
             Projects::PhysicsSettings* physicsSettings = m_Context.currentProject->GetPhysicsSettings();
 
@@ -180,6 +209,7 @@ namespace Shard::Engine{
                 hooks.width = m_RendererSettings->viewportWidth;
                 hooks.height = m_RendererSettings->viewportHeight;
                 hooks.vsync = settings.vsync != 0;
+                hooks.vsyncWanted = [] { return cvVsync.Get(); };
                 hooks.validation = cvVulkanValidation.Get() || std::getenv("SHARD_VULKAN_VALIDATION") != nullptr;
                 Rendering::RendererAPI::SetWindowHooks(hooks);
             }
@@ -221,6 +251,7 @@ namespace Shard::Engine{
             };
             m_Context.renderer->SetOcclusionCullingEnabled(m_Context.currentProject->GetRenderingSettings()->occlusionCulling);
             m_Context.renderer->SetMultisampleCount(m_Context.currentProject->GetRenderingSettings()->msaaSamples);
+            m_Context.renderer->SetShadowSettings(m_Context.currentProject->GetRenderingSettings()->shadows);
             m_Context.renderer->SetRenderPipeline(m_Context.currentProject->GetRenderingSettings()->renderPipeline);
             m_Context.platform->CreateInput();
 
@@ -653,6 +684,9 @@ namespace Shard::Engine{
 
             Present();
 
+            if(const int maxFPS = cvEngineMaxFPS.Get(); maxFPS > 0)
+                HoldUntil(frameStart, maxFPS);
+
             // The duration of this frame, which is what the categories sampled above add up to. The simulation's delta is the
             // previous frame's (it is read at the start of this one), so it would be shown against the wrong frame's breakdown.
             m_Context.profiler->EndFrameSampling(std::chrono::duration<float, std::milli>(std::chrono::steady_clock::now() - frameStart).count(), m_FrameCount);
@@ -734,6 +768,12 @@ namespace Shard::Engine{
             Debugging::Profiler* profiler = m_Context.profiler;
             const uint64_t frame = m_FrameCount;
             Rendering::RenderThread::Get().SubmitFrame([renderer, profiler, frame] {
+                // Only this thread touches it : the start of the previous frame is what the limit is counted from
+                static std::chrono::steady_clock::time_point lastStart = std::chrono::steady_clock::now();
+                if(const int maxFPS = cvMaxFPS.Get(); maxFPS > 0)
+                    HoldUntil(lastStart, maxFPS);
+                lastStart = std::chrono::steady_clock::now();
+
                 // The render thread's samples from here on (this frame, its UI, its swap) belong to the simulation's frame `frame`
                 if(profiler)
                     profiler->BeginRenderFrame(frame);
@@ -917,7 +957,7 @@ namespace Shard::Engine{
 
         void EngineInstance::Present()
         {
-            SHARD_PROFILE_SCOPE(Debugging::ProfileCategory::Presentation);
+            // Not sampled here : this thread only hands the frame over. Presentation is the render thread's own timer, taken where it presents
             m_Context.platform->GetWindow()->SwapBuffers();
         }
 

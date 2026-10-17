@@ -259,6 +259,11 @@ namespace Shard::Engine::Rendering::VK {
         if (VK_CHECK(vmaCreateAllocator(&allocatorInfo, &m_Allocator)) != VK_SUCCESS)
             return false;
 
+        // Pipelines rebuilt for another state (a resize, a reloaded shader) reuse what the driver already compiled
+        VkPipelineCacheCreateInfo cacheInfo{VK_STRUCTURE_TYPE_PIPELINE_CACHE_CREATE_INFO};
+        if (VK_CHECK(vkCreatePipelineCache(m_Device, &cacheInfo, nullptr, &m_PipelineCache)) != VK_SUCCESS)
+            m_PipelineCache = VK_NULL_HANDLE;                              // not fatal : VK_NULL_HANDLE is a valid "no cache"
+
         return true;
     }
 
@@ -537,6 +542,7 @@ namespace Shard::Engine::Rendering::VK {
             return false;
         }
 
+        m_VsyncWanted = info.vsyncWanted;
         if (m_Surface && !CreateSwapchain(info.width, info.height, info.vsync))
             DEBUG_WARNING("The swapchain could not be created : the picture will only be available through readbacks.");
 
@@ -630,6 +636,10 @@ namespace Shard::Engine::Rendering::VK {
             m_ImmediateFence = VK_NULL_HANDLE;
             m_ImmediatePool = VK_NULL_HANDLE;
         }
+
+        if (m_PipelineCache)
+            vkDestroyPipelineCache(m_Device, m_PipelineCache, nullptr);
+        m_PipelineCache = VK_NULL_HANDLE;
 
         if (m_Allocator)
             vmaDestroyAllocator(m_Allocator);
@@ -1092,10 +1102,11 @@ namespace Shard::Engine::Rendering::VK {
                 return false;
         }
 
-        if (m_SwapchainDirty || width != m_SwapchainExtent.width || height != m_SwapchainExtent.height)
+        const bool vsyncWanted = m_VsyncWanted ? m_VsyncWanted() : m_Vsync;
+        if (m_SwapchainDirty || vsyncWanted != m_Vsync || width != m_SwapchainExtent.width || height != m_SwapchainExtent.height)
         {
             Flush();
-            if (!CreateSwapchain(static_cast<int>(width), static_cast<int>(height), m_Vsync))
+            if (!CreateSwapchain(static_cast<int>(width), static_cast<int>(height), vsyncWanted))
                 return false;
         }
 
@@ -1170,10 +1181,11 @@ namespace Shard::Engine::Rendering::VK {
                 return false;
         }
 
-        if (m_SwapchainDirty || width != m_SwapchainExtent.width || height != m_SwapchainExtent.height)
+        const bool vsyncWanted = m_VsyncWanted ? m_VsyncWanted() : m_Vsync;
+        if (m_SwapchainDirty || vsyncWanted != m_Vsync || width != m_SwapchainExtent.width || height != m_SwapchainExtent.height)
         {
             Flush();
-            if (!CreateSwapchain(static_cast<int>(width), static_cast<int>(height), m_Vsync))
+            if (!CreateSwapchain(static_cast<int>(width), static_cast<int>(height), vsyncWanted))
                 return false;
         }
 

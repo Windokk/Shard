@@ -61,6 +61,43 @@ A render pipeline asset defines how a frame is built. They live in `resources/en
 
 To add one, implement `RenderPipeline` and register it with `RenderPipelineRegistry`.
 
+## Shadows
+
+The shadow settings are in *Project Settings > Rendering*, in the *Shadows*, *Directional Shadows*, *Spot Shadows* and *Point Shadows* groups. They are saved in `rendering.shadows` in the project file and applied at once (the shadow maps are rebuilt when a resolution, the number of cascades, *Double-sided Casters* or *Conservative Rasterization* changes; everything else takes effect on the next frame).
+
+The suns share 9 cascade map slots, and each takes one per cascade : with 3 cascades 3 suns cast shadows, with 4 or 5 only 2, with 6 only 1. The suns beyond that are unshadowed.
+
+Resolutions are the side of a square map in texels. A sun has one map per cascade (three by default), so its memory is the number of cascades times the square of its resolution.
+
+| Setting | Key | Default | |
+|---|---|---|---|
+| Enable Shadows | `enabled` | on | Off, every light is unshadowed. |
+| **Directional** | | | |
+| Resolution | `directionalResolution` | 2048 | Side of each cascade's map. |
+| Distance | `directionalDistance` | 0 | How far from the camera the sun's shadows reach, in world units. 0 follows the camera's far plane. |
+| Cascades | `cascadeSplits`, `cascadeColors` | 3 cascades (splits 0.27, 0.54; red, green, blue) | Edited as a bar : drag a handle to move the split between two cascades, right-click it to merge them, *Split* / *Remove* add or drop one. `cascadeSplits` holds where each cascade but the last ends, as a fraction (0 to 1, ascending) of the range from the camera's near plane to *Distance* ; `cascadeColors` holds one `[r, g, b]` per cascade, shown in the Shadow Cascades debug view. 1 to 6 cascades. |
+| Stabilize Cascades | `stabilizeCascades` | on | Snaps each cascade to its texels so shadows don't shimmer when the camera moves. |
+| Caster Range | `casterRange` | 500 | How far from a cascade, towards the sun, casters are still drawn. A caster further than this casts no shadow on it. |
+| Double-sided Casters | `directionalDoubleSided` | on | Draws both faces into the sun's maps. With it off, only the faces turned away from the sun are drawn, which lets light through the edges of single-surface roofs and walls. |
+| Conservative Rasterization | `directionalConservativeRaster` | on | Draws every texel a caster touches, so a gap thinner than a texel (the joints of a model) doesn't let a line of light through. OpenGL with `GL_NV_conservative_raster` only. |
+| Normal Bias | `directionalNormalBias` | 2 | Texels the lit point is moved along the normal before the lookup, more on a surface that grazes the light. |
+| Depth Bias | `directionalDepthBias` | 0.75 | Constant depth offset, in texels. |
+| Slope Bias | `directionalSlopeBias` | 1 | Scale of the receiver plane bias that follows the surface's slope across the filter. |
+| Filter Radius | `directionalFilterRadius` | 2 | The filter takes (2 × radius + 1)² taps. 0 is a single hardware filtered tap. |
+| Filter Spread | `directionalFilterSpread` | 1 | Distance between two taps, in texels. |
+| **Spot** | | | |
+| Resolution | `spotResolution` | 1024 | Side of a spot light's map. |
+| Depth Bias / Minimum Depth Bias | `spotDepthBias` / `spotMinDepthBias` | 0.0005 / 0.00005 | Slope scaled bias and its floor, in depth units of the map. |
+| Filter Radius / Spread | `spotFilterRadius` / `spotFilterSpread` | 2 / 1 | Same as the sun's filter. |
+| **Point** | | | |
+| Resolution | `pointResolution` | 1024 | Side of each of the six faces of a point light's cube map. |
+| Depth Bias | `pointDepthBias` | 0.15 | In world units. |
+| Filter Samples / Radius | `pointFilterSamples` / `pointFilterRadius` | 20 / 0.05 | Taps (1 to 20) spread on a disc of that radius, in world units at the surface. 1 is a hard edge. |
+
+## Ambient
+
+*World Settings > Ambient* sets `ambient_color` in the world file : an HDR `[r, g, b]` (a component can exceed 1) added to every surface, scaled by its albedo, on top of the lighting. Worlds saved with the older single number `ambient_intensity` load it as a grey. A material can override it with an `ambientColor` uniform (`[r, g, b]`).
+
 ## Debugging
 
 - Passes are labelled for RenderDoc with `DebugScope`. When RenderDoc is attached, the engine uses its in-app API (`render.renderdoc`, `render.capture`).

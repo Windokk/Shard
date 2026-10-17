@@ -19,11 +19,11 @@
 namespace Shard::Engine::Physics {
 
     // Constants
-    static constexpr uint cMaxBodies = 1024;
+    static constexpr uint cMaxBodies = 65536;
     static constexpr uint cNumBodyMutexes = 0;
-    static constexpr uint cMaxBodyPairs = 1024;
-    static constexpr uint cMaxContactConstraints = 1024;
-    static constexpr uint cTempAllocatorSize = 10 * 1024 * 1024;
+    static constexpr uint cMaxBodyPairs = 65536;
+    static constexpr uint cMaxContactConstraints = 16384;
+    static constexpr uint cTempAllocatorSize = 64 * 1024 * 1024;   // scales with the body limits (Jolt sizes its per-step buffers from them)
 
     void PhysicsManager::Init(glm::vec3 gravity, bool deterministic)
     {
@@ -275,6 +275,13 @@ namespace Shard::Engine::Physics {
             m_physicsSystem.GetBodyInterface().ActivateBodies(bodies.data(), bodies.size());
         }
 
+        // Many bodies added since the last step : rebuild the broadphase tree once, rather than query a degraded one
+        if (m_bodiesAddedSinceOptimize >= 32)
+        {
+            m_physicsSystem.OptimizeBroadPhase();
+            m_bodiesAddedSinceOptimize = 0;
+        }
+
         m_physicsSystem.Update(deltaTime, 1, m_tempAllocator, m_jobSystem);
         m_StepCount++;
 
@@ -312,6 +319,7 @@ namespace Shard::Engine::Physics {
         // Add to worlds
         bodyInterface.AddBody(body->GetID(), activation);
         bodyIDToComponentMap[body->GetID()] = component;
+        m_bodiesAddedSinceOptimize++;
         return body->GetID();
     }
 

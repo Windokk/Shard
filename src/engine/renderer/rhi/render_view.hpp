@@ -35,7 +35,7 @@ namespace Shard::Engine::Rendering {
         ViewLighting lighting = ViewLighting::Scene;
 
         /// Only read when lighting == Studio : number of lights in the rig bound at light buffer slot 0,
-        /// and the flat ambient intensity that replaces World::ambientIntensity.
+        /// and the flat ambient intensity (grey) that replaces World::ambientColor.
         int studioLightCount = 0;
         float studioAmbient = 0.0f;
         /// Image-based lighting used in place of the world's skybox. May be null (no IBL bound).

@@ -98,6 +98,7 @@ namespace Shard::Engine::Rendering {
         info.width = hooks.width;
         info.height = hooks.height;
         info.vsync = hooks.vsync;
+        info.vsyncWanted = hooks.vsyncWanted;
 
         if (hooks.createVulkanSurface)
         {
@@ -1086,12 +1087,15 @@ namespace Shard::Engine::Rendering {
         // ---- Set 0 : the textures, from the texture units ----
         {
             uint64_t key = HashCombine64(reinterpret_cast<uint64_t>(program.GetSetLayout(BindingSets::Textures)), 0x7E87);
-            std::vector<VkDescriptorImageInfo> infos;
-            std::vector<VkWriteDescriptorSet> writes;
+            static thread_local std::vector<VkDescriptorImageInfo> infos;
+            infos.clear();
+            static thread_local std::vector<VkWriteDescriptorSet> writes;
+            writes.clear();
             infos.reserve(64);
 
             struct Pending { const ReflectedBinding* binding; size_t first; };
-            std::vector<Pending> pending;
+            static thread_local std::vector<Pending> pending;
+            pending.clear();
 
             for (const ReflectedBinding& binding : reflection.bindings)
             {
@@ -1159,8 +1163,10 @@ namespace Shard::Engine::Rendering {
         // ---- Set 1 : the storage buffers ----
         {
             uint64_t key = HashCombine64(reinterpret_cast<uint64_t>(program.GetSetLayout(BindingSets::StorageBuffers)), 0x5B0);
-            std::vector<VkDescriptorBufferInfo> infos;
-            std::vector<const ReflectedBinding*> bindings;
+            static thread_local std::vector<VkDescriptorBufferInfo> infos;
+            infos.clear();
+            static thread_local std::vector<const ReflectedBinding*> bindings;
+            bindings.clear();
             infos.reserve(16);
 
             for (const ReflectedBinding& binding : reflection.bindings)
@@ -1196,7 +1202,8 @@ namespace Shard::Engine::Rendering {
                     set = context.AllocateSet(program.GetSetLayout(BindingSets::StorageBuffers));
                     if (set != VK_NULL_HANDLE)
                     {
-                        std::vector<VkWriteDescriptorSet> writes;
+                        static thread_local std::vector<VkWriteDescriptorSet> writes;
+                        writes.clear();
                         for (size_t i = 0; i < bindings.size(); i++)
                         {
                             VkWriteDescriptorSet write{VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET};
@@ -1218,8 +1225,10 @@ namespace Shard::Engine::Rendering {
         // ---- Set 2 : the images the shader loads from and stores to ----
         {
             uint64_t key = HashCombine64(reinterpret_cast<uint64_t>(program.GetSetLayout(BindingSets::StorageImages)), 0x1A6E);
-            std::vector<VkDescriptorImageInfo> infos;
-            std::vector<const ReflectedBinding*> bindings;
+            static thread_local std::vector<VkDescriptorImageInfo> infos;
+            infos.clear();
+            static thread_local std::vector<const ReflectedBinding*> bindings;
+            bindings.clear();
             infos.reserve(8);
             bool complete = true;
 
@@ -1257,7 +1266,8 @@ namespace Shard::Engine::Rendering {
                     set = context.AllocateSet(program.GetSetLayout(BindingSets::StorageImages));
                     if (set != VK_NULL_HANDLE)
                     {
-                        std::vector<VkWriteDescriptorSet> writes;
+                        static thread_local std::vector<VkWriteDescriptorSet> writes;
+                        writes.clear();
                         for (size_t i = 0; i < bindings.size(); i++)
                         {
                             VkWriteDescriptorSet write{VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET};

@@ -201,7 +201,7 @@ namespace Shard::Editor::Core {
         Read(viewport, "showGridY", v.showGridY);
         Read(viewport, "showGridZ", v.showGridZ);
         int viewMode = static_cast<int>(v.viewMode);
-        Read(viewport, "viewMode", viewMode, 0, static_cast<int>(Engine::Rendering::ViewMode::LightmapUVs));
+        Read(viewport, "viewMode", viewMode, 0, static_cast<int>(Engine::Rendering::ViewMode::ShadowCascades));
         v.viewMode = static_cast<Engine::Rendering::ViewMode>(viewMode);
         Read(viewport, "snapLocation", v.snapLocation);
         Read(viewport, "snapRotation", v.snapRotation);

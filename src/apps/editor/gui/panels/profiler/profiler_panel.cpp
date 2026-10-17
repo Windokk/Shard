@@ -47,6 +47,7 @@ namespace Shard::Editor::GUI{
         ImGui::SliderFloat("Refresh interval", &refreshIntervalSeconds, 0.05f, 2.0f, "%.2f s");
 
         ImGui::Text("Frame time: %.2f ms", displayedFrame.frameMs);
+        ImGui::Text("Render thread time: %.2f ms", displayedFrame.renderMs);
         if (ImGui::IsItemHovered())
             ImGui::SetTooltip("From the start of the frame on the main thread to the end of its swap on the render thread.");
 
@@ -188,8 +189,15 @@ namespace Shard::Editor::GUI{
 
         // 60 FPS frame budget kept as a floor so the graph doesn't over-zoom on a few cheap frames.
         float maxMs = 16.6f;
+        // The stack is the sum of the categories, which the render thread's time can push past the frame's total : it is that
+        // sum that has to fit.
         for (size_t i = 0; i < count; i++)
-            maxMs = std::max(maxMs, history[i].totalMs);
+        {
+            float stack = 0.0f;
+            for (size_t c = 0; c < kProfileCategoryCount; c++)
+                stack += history[i].categoryMs[c];
+            maxMs = std::max(maxMs, std::max(history[i].totalMs, stack));
+        }
         maxMs *= 1.1f;
 
         ImVec2 size = ImVec2(ImGui::GetContentRegionAvail().x, 120.0f);
@@ -198,6 +206,7 @@ namespace Shard::Editor::GUI{
 
         ImDrawList* draw = ImGui::GetWindowDrawList();
         draw->AddRectFilled(p0, p1, IM_COL32(20, 20, 20, 255));
+        draw->PushClipRect(p0, p1, true);
 
         float colWidth = size.x / static_cast<float>(Profiler::kHistoryLength);
 
@@ -216,7 +225,7 @@ namespace Shard::Editor::GUI{
                 if (h <= 0.0f)
                     continue;
 
-                float yTop = yBase - h;
+                float yTop = std::max(yBase - h, p0.y);
                 draw->AddRectFilled(ImVec2(x0, yTop), ImVec2(x1, yBase), CategoryColor(static_cast<ProfileCategory>(c)));
                 yBase = yTop;
             }
@@ -225,6 +234,8 @@ namespace Shard::Editor::GUI{
         // 60 FPS reference line.
         float y60 = p1.y - (16.6f / maxMs) * size.y;
         draw->AddLine(ImVec2(p0.x, y60), ImVec2(p1.x, y60), IM_COL32(255, 255, 255, 130), 3.0f);
+
+        draw->PopClipRect();
 
         ImGui::Dummy(size);
         ImGui::TextDisabled("White line = 16.6 ms (60 FPS budget)");

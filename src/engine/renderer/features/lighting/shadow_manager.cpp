@@ -1,5 +1,7 @@
 #include "shadow_manager.hpp"
 
+#include <algorithm>
+
 
 #include "engine/renderer/rhi/shader/shader.hpp"
 #include "engine/renderer/rhi/material/material.hpp"
@@ -22,18 +24,12 @@ namespace Shard::Engine::Rendering{
 
     static const std::string kPointClearPassName = "PointShadowClearPass";
 
-    float ComputeCascadeSplitDistance(int cascadeIndex, float nearPlane, float farPlane, int totalCascades)
+    void ShadowManager::ComputeCascadeSplits(float* out, float cameraNear, float shadowFar) const
     {
-        float nd = static_cast<float>(cascadeIndex + 1) / static_cast<float>(totalCascades);
-
-        // Uniform split
-        float logSplit = nearPlane * std::pow(farPlane / nearPlane, nd);
-
-        float uniformSplit = nearPlane + (farPlane - nearPlane) * nd;
-
-        float splitDist = 0.2f * logSplit + (1 - 0.2f) * uniformSplit;
-
-        return splitDist;
+        const uint32_t count = m_Settings.CascadeCount();
+        for (uint32_t c = 0; c + 1 < count; ++c)
+            out[c] = cameraNear + m_Settings.cascadeSplits[c] * (shadowFar - cameraNear);
+        out[count - 1] = shadowFar;
     }
 
     void ShadowManager::Init(int pointShadowsResolution, int spotShadowsResolution, int dirShadowsResolution)
@@ -48,6 +44,46 @@ namespace Shard::Engine::Rendering{
         m_ShadowMaps.clear();
         m_PointLightCount = 0;
         m_CurrentPointLightCapacity = 0;
+    }
+
+    float ShadowManager::GetDirectionalShadowFar(float cameraNear, float cameraFar) const
+    {
+        if (m_Settings.directionalDistance <= 0.0f)
+            return cameraFar;
+        return std::clamp(m_Settings.directionalDistance, cameraNear + 0.1f, std::max(cameraFar, cameraNear + 0.1f));
+    }
+
+    void ShadowManager::Configure(const Projects::ShadowSettings& settings)
+    {
+        const bool rebuild = int(settings.pointResolution) != m_PointShadowsResolution || int(settings.spotResolution) != m_SpotShadowsResolution ||
+                             int(settings.directionalResolution) != m_DirShadowsResolution || settings.directionalDoubleSided != m_Settings.directionalDoubleSided ||
+                             settings.directionalConservativeRaster != m_Settings.directionalConservativeRaster ||
+                             settings.CascadeCount() != m_Settings.CascadeCount();
+
+        m_Settings = settings;
+        m_Settings.SanitizeCascades();
+        m_PointShadowsResolution = int(settings.pointResolution);
+        m_SpotShadowsResolution = int(settings.spotResolution);
+        m_DirShadowsResolution = int(settings.directionalResolution);
+
+        // The cascades follow the distance and the split on the next UpdatePassUniforms : the splits no longer match
+        for (auto& sm : m_ShadowMaps)
+            sm.second.splitCameraFar = -1.0f;
+
+        if (!rebuild)
+            return;
+
+        // The maps (and the pipeline of the sun's pass, which holds the face culling) are made when a light registers : every light
+        // registers again
+        std::vector<std::pair<int, std::shared_ptr<LightData>>> lights;
+        for (const auto& sm : m_ShadowMaps)
+            if (sm.second.lightPtr)
+                lights.emplace_back(sm.first, sm.second.lightPtr);
+
+        for (const auto& light : lights)
+            UnregisterLight(light.first);
+        for (const auto& light : lights)
+            RegisterOrUpdateLight(light.first, light.second);
     }
 
     void ShadowManager::UpdatePassUniforms()
@@ -66,21 +102,21 @@ namespace Shard::Engine::Rendering{
             if(sm.second.light.type == static_cast<int>(LightType::Directional))
             {
                 // The cascades span the camera's depth range : the camera may have changed (or only appeared) since the light registered
-                if(sm.second.splitCameraNear != cam.nearPlane || sm.second.splitCameraFar != cam.farPlane)
+                const float shadowFar = GetDirectionalShadowFar(cam.nearPlane, cam.farPlane);
+                if(sm.second.splitCameraNear != cam.nearPlane || sm.second.splitCameraFar != shadowFar)
                 {
-                    for (uint32_t c = 0; c < CASCADES_PER_LIGHT; ++c)
-                        sm.second.cascadeSplits[c] = ComputeCascadeSplitDistance(c, cam.nearPlane, cam.farPlane, CASCADES_PER_LIGHT);
+                    ComputeCascadeSplits(sm.second.cascadeSplits, cam.nearPlane, shadowFar);
                     sm.second.splitCameraNear = cam.nearPlane;
-                    sm.second.splitCameraFar = cam.farPlane;
+                    sm.second.splitCameraFar = shadowFar;
                 }
 
-                for (uint32_t c = 0; c < CASCADES_PER_LIGHT; ++c)
+                for (uint32_t c = 0; c < sm.second.cascadeCount; ++c)
                 {
                     auto pass = Core::GetEngine().GetRenderContext()->GetRenderPass(sm.second.passes[c]);
 
                     float splitNear = c == 0 ? cam.nearPlane : sm.second.cascadeSplits[c - 1];
                     float splitFar  = sm.second.cascadeSplits[c];
-                    sm.second.lightMatrix[c] = sm.second.light.GetLightMatrix(cam.view, cam.fovDegrees, cam.AspectRatio(), splitNear, splitFar, m_DirShadowsResolution);
+                    sm.second.lightMatrix[c] = sm.second.light.GetLightMatrix(cam.view, cam.fovDegrees, cam.AspectRatio(), splitNear, splitFar, m_DirShadowsResolution, -1.0f, m_Settings.stabilizeCascades, m_Settings.casterRange);
 
                     pass->customUniforms["lightSpaceMatrix"] = sm.second.lightMatrix[c];
                 }
@@ -105,8 +141,10 @@ namespace Shard::Engine::Rendering{
                 
                 auto pass = Core::GetEngine().GetRenderContext()->GetRenderPass(sm.second.passes[0]);
 
+                static const std::string kShadowMatrixNames[6] = {"shadowMatrices[0]", "shadowMatrices[1]", "shadowMatrices[2]",
+                                                                  "shadowMatrices[3]", "shadowMatrices[4]", "shadowMatrices[5]"};
                 for(int i = 0; i < 6; i++)
-                    pass->customUniforms["shadowMatrices[" + std::to_string(i) + "]"] = sm.second.shadowMatrices[i];
+                    pass->customUniforms[kShadowMatrixNames[i]] = sm.second.shadowMatrices[i];
 
                 pass->customUniforms["farPlane"] = sm.second.light.radius;
                 pass->customUniforms["lightPos"] = sm.second.light.position;
@@ -198,7 +236,10 @@ namespace Shard::Engine::Rendering{
         {
             PipelineSpecifications dirSpecs;
             dirSpecs.blending = false;
-            dirSpecs.cullMode = CullMode::Front;
+            // Both faces by default : a level is not made of closed volumes (a ceiling, a roof, a wall are often a single surface), and
+            // drawing only the faces turned away from the sun leaves the edges of such surfaces open to it
+            dirSpecs.cullMode = m_Settings.directionalDoubleSided ? CullMode::None : CullMode::Front;
+            dirSpecs.conservativeRaster = m_Settings.directionalConservativeRaster;
             dirSpecs.depthTest = true;
             dirSpecs.polygonMode = PolygonMode::Fill;
             dirSpecs.topology = PrimitiveTopology::Triangles;
@@ -211,14 +252,13 @@ namespace Shard::Engine::Rendering{
             // the editor builds its viewport camera after boot): fall back to Camera's default planes,
             // and leave the light matrices to UpdatePassUniforms() once a camera exists.
             const float camNear = cam.valid ? cam.nearPlane : 0.1f;
-            const float camFar  = cam.valid ? cam.farPlane  : 100.0f;
+            const float camFar  = GetDirectionalShadowFar(camNear, cam.valid ? cam.farPlane : 100.0f);
             sm->splitCameraNear = cam.valid ? cam.nearPlane : -1.0f;
-            sm->splitCameraFar = cam.valid ? cam.farPlane : -1.0f;
+            sm->splitCameraFar = cam.valid ? camFar : -1.0f;
 
-            for (uint32_t c = 0; c < CASCADES_PER_LIGHT; ++c)
-                sm->cascadeSplits[c] = ComputeCascadeSplitDistance(c, camNear, camFar, CASCADES_PER_LIGHT);
+            ComputeCascadeSplits(sm->cascadeSplits, camNear, camFar);
 
-            for (uint32_t c = 0; c < CASCADES_PER_LIGHT; ++c)
+            for (uint32_t c = 0; c < sm->cascadeCount; ++c)
             {
                 std::shared_ptr<RenderPass> pass = std::make_shared<RenderPass>();
                 pass->target = sm->framebuffer[c];
@@ -230,7 +270,7 @@ namespace Shard::Engine::Rendering{
                 if(cam.valid){
                     float splitNear = c == 0 ? cam.nearPlane : sm->cascadeSplits[c - 1];
                     float splitFar  = sm->cascadeSplits[c];
-                    sm->lightMatrix[c] = light.GetLightMatrix(cam.view, cam.fovDegrees, cam.AspectRatio(), splitNear, splitFar, m_DirShadowsResolution);
+                    sm->lightMatrix[c] = light.GetLightMatrix(cam.view, cam.fovDegrees, cam.AspectRatio(), splitNear, splitFar, m_DirShadowsResolution, -1.0f, m_Settings.stabilizeCascades, m_Settings.casterRange);
                 }
                 else{
                     sm->lightMatrix[c] = glm::mat4(1.0f);
@@ -408,7 +448,7 @@ namespace Shard::Engine::Rendering{
             switch (previousType)
             {
                 case (int)LightType::Directional:
-                    for (uint32_t c = 0; c < CASCADES_PER_LIGHT; ++c)
+                    for (uint32_t c = 0; c < sm.cascadeCount; ++c)
                         if (sm.framebuffer[c] && sm.framebuffer[c]->IsValid())
                             sm.framebuffer[c]->Destroy();
                     break;
@@ -504,7 +544,8 @@ namespace Shard::Engine::Rendering{
                     specs.hasColor = false;
                     specs.depthSpecs = dirTextureSpecs;
 
-                    for (uint32_t c = 0; c < CASCADES_PER_LIGHT; ++c) {
+                    sm.cascadeCount = m_Settings.CascadeCount();
+                    for (uint32_t c = 0; c < sm.cascadeCount; ++c) {
                         sm.framebuffer[c] = Framebuffer::Create(specs);
                     }
                     break;
@@ -552,8 +593,8 @@ namespace Shard::Engine::Rendering{
             switch (sm.light.type)
             {
                 case (int)LightType::Directional:
-                    // lit.frag has MAX_DIRECTIONAL_LIGHTS * CASCADES_PER_LIGHT cascade slots : a 4th shadowed sun read past them
-                    sm.lightPtr->shadowIndex = (dirIndex < (int)LightManager::MAX_DIRECTIONAL_LIGHTS) ? dirIndex : -1;
+                    // lit.frag has NUM_CASCADES cascade slots, each sun takes one per cascade : a sun beyond them would read past
+                    sm.lightPtr->shadowIndex = (uint32_t(dirIndex + 1) * m_Settings.CascadeCount() <= NUM_CASCADES) ? dirIndex : -1;
                     ++dirIndex;
                     break;
 
@@ -595,8 +636,8 @@ namespace Shard::Engine::Rendering{
 
         // ---- Clean up Directional Light Resources (multiple cascades) ----
         if (removedSM.light.type == static_cast<int>(LightType::Directional)) {
-            for (uint32_t c = 0; c < CASCADES_PER_LIGHT; ++c) {
-                if (removedSM.framebuffer[c]->IsValid()){
+            for (uint32_t c = 0; c < removedSM.cascadeCount; ++c) {
+                if (removedSM.framebuffer[c] && removedSM.framebuffer[c]->IsValid()){
                     removedSM.framebuffer[c]->Destroy();
                     removedSM.framebuffer[c].reset();
                 }
@@ -674,9 +715,9 @@ namespace Shard::Engine::Rendering{
             {
                 if (!sm.second.passes.empty())
                 {
-                    int base = shadowIndex * CASCADES_PER_LIGHT;
+                    int base = shadowIndex * int(sm.second.cascadeCount);
 
-                    for (uint32_t c = 0; c < CASCADES_PER_LIGHT; ++c)
+                    for (uint32_t c = 0; c < sm.second.cascadeCount; ++c)
                     {
                         material->SetTextureParameter(
                             "dirShadowMaps[" + std::to_string(base + c) + "]",
@@ -745,7 +786,7 @@ namespace Shard::Engine::Rendering{
             switch (sm.light.type)
             {
                 case (int)LightType::Directional:
-                    for (uint32_t c = 0; c < CASCADES_PER_LIGHT; ++c)
+                    for (uint32_t c = 0; c < sm.cascadeCount; ++c)
                         if (sm.framebuffer[c] && sm.framebuffer[c]->IsValid())
                             sm.framebuffer[c]->Destroy();
                     break;

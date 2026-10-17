@@ -5,6 +5,8 @@
 #include <string>
 #include <vector>
 
+namespace Shard::Engine::Projects{ struct ShadowSettings; }
+
 namespace Shard::Editor::GUI{
 
     /// @brief Unreal-style "Project Settings" window : what the project file (and its project.cfg) holds, by category, with
@@ -30,6 +32,10 @@ namespace Shard::Editor::GUI{
             void DrawRenderingCategory();
             void DrawConsoleVariablesCategory();
 
+            /// The row that edits the sun's cascades : a bar with a handle per split and the color of each cascade in the debug view.
+            /// True when something changed.
+            bool DrawCascadeEditor(Engine::Projects::ShadowSettings& shadows, const Engine::Projects::ShadowSettings& defaults);
+
             /// One read-only path, with a button that shows it in the file explorer
             void PathRow(const char* label, const std::string& path, const char* tooltip);
 
@@ -41,9 +47,16 @@ namespace Shard::Editor::GUI{
 
             SettingsView m_View;
 
+            /// The cascade the cascade editor edits the color of
+            int m_SelectedCascade = 0;
+
             /// The project layer of the console variables was changed since project.cfg was last written or read
             /// (the project file keeps its own saved state : Project::HasUnsavedChanges)
             bool m_CVarsDirty = false;
+
+            /// Project::HasUnsavedChanges serializes the project : its answer is kept for a moment (see IsDirty)
+            mutable bool m_ProjectDirty = false;
+            mutable double m_LastDirtyCheck = -1.0;
 
             // Build : the world assets of the project, gathered once per frame the category is drawn
             std::vector<std::string> m_WorldAssets;

@@ -7,6 +7,6 @@
         {"metallic":0.0},
         {"roughness":0.4},
         {"useEnvReflections":false},
-        {"ambientIntensity":4.0}
+        {"ambientColor":[4.0, 4.0, 4.0]}
     ]
 }

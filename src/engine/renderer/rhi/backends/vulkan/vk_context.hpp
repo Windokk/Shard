@@ -31,6 +31,7 @@ namespace Shard::Engine::Rendering::VK {
         int width = 1280;
         int height = 720;
         bool vsync = true;
+        std::function<bool()> vsyncWanted;      // polled each frame : the present mode follows it
     };
 
     struct SamplerKey
@@ -99,6 +100,7 @@ namespace Shard::Engine::Rendering::VK {
             VkQueue GetQueue() const { return m_Queue; }
             uint32_t GetQueueFamily() const { return m_QueueFamily; }
             VmaAllocator GetAllocator() const { return m_Allocator; }
+            VkPipelineCache GetPipelineCache() const { return m_PipelineCache; }
             const VkPhysicalDeviceProperties& GetProperties() const { return m_Properties; }
             const VkPhysicalDeviceLimits& GetLimits() const { return m_Properties.limits; }
             const Capabilities& GetCaps() const { return m_Caps; }
@@ -229,6 +231,7 @@ namespace Shard::Engine::Rendering::VK {
             uint32_t m_QueueFamily = 0;
             VkSurfaceKHR m_Surface = VK_NULL_HANDLE;
             VmaAllocator m_Allocator = nullptr;
+            VkPipelineCache m_PipelineCache = VK_NULL_HANDLE;
             VkPhysicalDeviceProperties m_Properties{};
             Capabilities m_Caps;
 
@@ -274,6 +277,7 @@ namespace Shard::Engine::Rendering::VK {
             VkExtent2D m_SwapchainExtent{};
             VkFormat m_SwapchainFormat = VK_FORMAT_B8G8R8A8_UNORM;
             bool m_Vsync = true;
+            std::function<bool()> m_VsyncWanted;
             bool m_SwapchainDirty = false;
             uint32_t m_AcquireIndex = 0;
     };

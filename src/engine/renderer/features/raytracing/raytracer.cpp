@@ -63,7 +63,7 @@ namespace Shard::Engine::Rendering::Raytracing {
 
         // The world's own sky and flat ambient, so a ray that leaves the scene sees what the viewport draws
         skyCube = sceneSnapshot.environment.skybox ? sceneSnapshot.environment.skybox->GetCubemap() : nullptr;
-        ambientIntensity = sceneSnapshot.environment.ambientIntensity;
+        ambientColor = sceneSnapshot.environment.ambientColor;
         display = sceneSnapshot.environment.display;
 
         RaytraceScene scene = SceneBuilder::Build(sceneSnapshot);
@@ -195,7 +195,7 @@ namespace Shard::Engine::Rendering::Raytracing {
         if (useSky)
             skyCube->Bind(45);
         shader->SetBool("uHasSky", useSky);
-        shader->SetFloat("uAmbientIntensity", ambientIntensity);
+        shader->SetVec3("uAmbientColor", ambientColor);
         shader->SetFloat("uFireflyClamp", settings.fireflyClamp);
 
         shader->SetVec3("uCameraPos", camPos);

@@ -1,12 +1,23 @@
 {
-    "recievesShadows":false,
+    "doubleSided": false,
+    "recievesShadows": false,
     "renderMode": "masked",
-    "shader":"shaders/mesh/lit",
-    "uniforms":[
-        {"albedo":"textures/sponza/dirt_decal_01.png"},
-        {"metallic":0.0},
-        {"roughness":1.0},
-        {"masked":true},
-        {"useEnvReflections":false}
+    "shader": "shaders/mesh/lit",
+    "uniforms": [
+        {
+            "albedo": "textures/sponza/dirt_decal_01.png"
+        },
+        {
+            "metallic": 0.0
+        },
+        {
+            "roughness": 1.0
+        },
+        {
+            "masked": true
+        },
+        {
+            "useEnvReflections": false
+        }
     ]
 }

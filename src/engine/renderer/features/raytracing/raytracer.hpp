@@ -124,7 +124,7 @@ namespace Shard::Engine::Rendering::Raytracing {
 
             // The world's sky and ambient, taken from the snapshot with the scene (see BuildScene)
             std::shared_ptr<Cubemap> skyCube;
-            float ambientIntensity = 0.0f;
+            glm::vec3 ambientColor = glm::vec3(0.0f);
             DisplaySettings display;                    // how the world is shown, for the preview
 
             uint32_t currentSample = 0;

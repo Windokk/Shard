@@ -3,6 +3,7 @@
 #include <string>
 #include <atomic>
 #include <unordered_set>
+#include <unordered_map>
 #include <map>
 #include <memory>
 #include <engine/core/diagnostics/logger.hpp>
@@ -56,6 +57,7 @@ namespace Shard::Engine::Filesystem
 
             void Reset() {
                 AssetIDMap.clear();
+                m_nameCache.clear();
                 availableIDs.clear();
                 m_initialized = false;
                 m_nextId.store(0);
@@ -83,7 +85,7 @@ namespace Shard::Engine::Filesystem
             void AssignID(AssetID id, std::shared_ptr<AssetInfos> info);
 
             std::shared_ptr<AssetInfos> GetAssetFromID(AssetID id);
-            AssetID GetIDFromNameInProject(const std::string nameInProject);
+            AssetID GetIDFromNameInProject(const std::string& nameInProject);
 
             std::map<AssetID, std::shared_ptr<AssetInfos>> AssetIDMap;
 
@@ -91,5 +93,7 @@ namespace Shard::Engine::Filesystem
             std::atomic<int>  m_nextId{0};
             bool m_initialized = false;
             std::unordered_set<int> availableIDs;
+            // Name -> ID cache, validated on every hit (names can change under us, AssetIDMap is public)
+            std::unordered_map<std::string, AssetID> m_nameCache;
     };
 }

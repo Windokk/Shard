@@ -53,6 +53,7 @@ namespace Shard::Engine::Core::Platform {
         if (m_Vulkan)
         {
             m_SwapInterval = vsync;
+            m_RequestedSwapInterval = vsync;
             m_ShouldClose = false;
             return;
         }
@@ -70,6 +71,7 @@ namespace Shard::Engine::Core::Platform {
 
         SDL_GL_MakeCurrent(m_Window, m_GLContext);
         m_SwapInterval = vsync;
+        m_RequestedSwapInterval = vsync;
         SDL_GL_SetSwapInterval(vsync);
         m_ShouldClose = false;
     }
@@ -199,8 +201,22 @@ namespace Shard::Engine::Core::Platform {
 
     void SDLWindow::SwapBuffers()
     {
-        if (!m_Vulkan)
-            SDL_GL_SwapWindow(m_Window);
+        if (m_Vulkan)
+            return;
+
+        // The interval belongs to the context of the thread that swaps : a change asked from elsewhere is made here
+        const int requested = m_RequestedSwapInterval;
+        if (requested != m_SwapInterval)
+        {
+            SDL_GL_SetSwapInterval(requested);
+            m_SwapInterval = requested;
+        }
+        SDL_GL_SwapWindow(m_Window);
+    }
+
+    void SDLWindow::SetVSync(bool enabled)
+    {
+        m_RequestedSwapInterval = enabled ? 1 : 0;
     }
 
     std::vector<std::string> SDLWindow::GetVulkanInstanceExtensions() const
@@ -239,6 +255,7 @@ namespace Shard::Engine::Core::Platform {
             return false;
         }
         if (current)
+            m_SwapInterval = m_RequestedSwapInterval.load();
             SDL_GL_SetSwapInterval(m_SwapInterval);    // the interval belongs to the context of the thread that swaps
         return true;
     }

@@ -24,11 +24,21 @@ namespace Shard::Engine::Filesystem{
         return nullptr;
     }
 
-    AssetID AssetIDManager::GetIDFromNameInProject(const std::string nameInProject)
+    AssetID AssetIDManager::GetIDFromNameInProject(const std::string& nameInProject)
     {
+        auto cached = m_nameCache.find(nameInProject);
+        if (cached != m_nameCache.end())
+        {
+            auto it = AssetIDMap.find(cached->second);
+            if (it != AssetIDMap.end() && it->second->baseInfos.nameInProject == nameInProject)
+                return cached->second;
+            m_nameCache.erase(cached);
+        }
+
         for (const auto& [id, info] : AssetIDMap)
         {
             if(info->baseInfos.nameInProject == nameInProject){
+                m_nameCache[nameInProject] = id;
                 return id;
             }
         }

@@ -1,4 +1,5 @@
 #pragma once
+#include <atomic>
 
 #include "engine/platform/windowing/iwindow.hpp"
 
@@ -23,6 +24,7 @@ namespace Shard::Engine::Core::Platform {
         bool ShouldClose() const override { return m_ShouldClose; }
 
         void SwapBuffers() override;
+        void SetVSync(bool enabled) override;
         bool MakeContextCurrent(bool current) override;
 
         int GetFramebufferWidth() const override;
@@ -73,6 +75,7 @@ namespace Shard::Engine::Core::Platform {
         bool m_ShouldClose = false;
         std::deque<OSEvent> m_Posted;
         bool m_SuppressOSInput = false;
-        int m_SwapInterval = 0;     // the vertical sync the window was created with, set again whenever the context moves
+        std::atomic<int> m_SwapInterval{0};          // the vertical sync the context has, set again whenever the context moves
+        std::atomic<int> m_RequestedSwapInterval{0}; // the one asked for (SetVSync), taken by the thread that swaps
     };
 }

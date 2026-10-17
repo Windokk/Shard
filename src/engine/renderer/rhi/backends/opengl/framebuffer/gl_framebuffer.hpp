@@ -21,6 +21,7 @@ namespace Shard::Engine::Rendering{
             void BlitToScreen(uint32_t screenWidth, uint32_t screenHeight) override;
 
             bool ReadPixelsRGBA8(std::vector<uint8_t>& outPixels) override;
+            bool ReadDepthFloat(std::vector<float>& outDepth) override;
 
             void UploadColorRegion(uint32_t x, uint32_t y, uint32_t width, uint32_t height, const uint8_t* rgba) override;
 

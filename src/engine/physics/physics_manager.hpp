@@ -382,6 +382,7 @@ namespace Shard::Engine::Physics
         JPH::JobSystem* m_jobSystem;
 
         JPH::PhysicsSystem m_physicsSystem;
+        uint m_bodiesAddedSinceOptimize = 0;
 
         ObjectLayerPairFilterImpl m_objectLayerFilter;
         ObjectVsBroadPhaseLayerFilterImpl m_objectVsBroadphase;

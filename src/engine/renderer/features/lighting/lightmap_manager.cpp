@@ -550,7 +550,7 @@ namespace Shard::Engine::Rendering {
             m_BakeShader->SetFloat("uEmissivePower", job.emissivePower);
             m_BakeShader->SetBool("uHasSky", hasSky);
             m_BakeShader->SetVec3("uSkyColor", glm::vec3(0.0f));
-            m_BakeShader->SetFloat("uAmbientIntensity", 0.0f);     // the forward pass adds the world's flat ambient at run time
+            m_BakeShader->SetVec3("uAmbientColor", glm::vec3(0.0f));     // the forward pass adds the world's flat ambient at run time
             m_BakeShader->SetFloat("uFireflyClamp", job.settings.fireflyClamp);
             m_BakeShader->SetInt("uSeed", int(job.page));
             m_BakeShader->SetFloat("uIndirectScale", job.settings.indirectIntensity);
@@ -653,7 +653,7 @@ namespace Shard::Engine::Rendering {
         // The gutter and the shared exponent encoding are per texel work for the CPU : off the render thread
         job.encodeFuture = RunInBackground([pixels = std::move(pixels), raster = job.raster, size]() mutable {
             for (size_t i = 0; i < size_t(size) * size; i++)
-                pixels[i * 4 + 3] = raster->position[i * 4 + 3] > 0.0f ? 1.0f : 0.0f;
+                pixels[i * 4 + 3] = raster->position[i * 4 + 3] > 0.0f ? (pixels[i * 4 + 3] < 0.0f ? kLightmapHole : 1.0f) : 0.0f;
             return EncodeLightmapPage(size, size, pixels.data());
         });
         job.phase = Phase::Encoding;

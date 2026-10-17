@@ -97,7 +97,8 @@ namespace Shard::Engine::Rendering {
         UVs = 6,
         GlobalIllumination = 7,
         SSAO = 8,
-        LightmapUVs = 9
+        LightmapUVs = 9,
+        ShadowCascades = 10
     };
 
     struct DebugViewState
@@ -150,6 +151,9 @@ namespace Shard::Engine::Rendering {
         int height = 720;
         bool vsync = true;
         bool validation = false;
+
+        /// Whether the vertical sync is wanted right now (Vulkan : polled each frame, the swapchain is rebuilt when it changes). Empty : `vsync` stays.
+        std::function<bool()> vsyncWanted;
     };
 
     /// @brief What an application that draws its own user interface on the Vulkan backend (the editor : Dear ImGui) needs to set its renderer up.

@@ -1,4 +1,5 @@
 {
+    "doubleSided": false,
     "recievesShadows": true,
     "renderMode": "opaque",
     "shader": "shaders/mesh/lit",

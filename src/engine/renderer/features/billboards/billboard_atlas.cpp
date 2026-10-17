@@ -169,8 +169,10 @@ namespace Shard::Engine::Rendering {
 
     BillboardAtlas& BillboardAtlas::Get()
     {
-        static BillboardAtlas atlas;
-        return atlas;
+        // Intentionally leaked : a static would destroy its GL texture at process exit, after the GL context (and the driver's
+        // function pointers) are gone, which crashes. The OS reclaims everything anyway.
+        static BillboardAtlas* atlas = new BillboardAtlas();
+        return *atlas;
     }
 
     BillboardAtlas::BillboardAtlas()

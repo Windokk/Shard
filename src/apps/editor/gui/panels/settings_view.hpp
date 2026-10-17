@@ -66,6 +66,8 @@ namespace Shard::Editor::GUI{
             bool Combo(const char* label, const char* tooltip, int& value, int defaultValue, const char* const items[], int count);
 
         private:
+            /// The ImGui id of a row's widget : the label alone is not unique, two sections can share it
+            std::string WidgetId(const char* label) const;
             void FlushPendingHeaders();
             void DrawCategory(size_t index);
 
