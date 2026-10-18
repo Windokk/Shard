@@ -75,6 +75,7 @@ set(VK_BOOTSTRAP_TEST OFF CACHE BOOL "" FORCE)
 set(VK_BOOTSTRAP_INSTALL OFF CACHE BOOL "" FORCE)
 set(VK_BOOTSTRAP_DISABLE_WARNINGS ON CACHE BOOL "" FORCE)
 add_subdirectory(submodules/vk-bootstrap EXCLUDE_FROM_ALL SYSTEM)
+set_target_properties(vk-bootstrap PROPERTIES POSITION_INDEPENDENT_CODE ON)
 # Determinism (see docs, "Headless & determinism") : a replay has to give the same state on Windows and on Linux. Jolt then
 # is built in its cross platform deterministic mode (no fused multiply-add, its own sin/cos... a little slower), and the
 # compiler is told not to fuse a * b + c on its own, which would round differently from one target to the next.

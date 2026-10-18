@@ -1,4 +1,5 @@
 {
+    "doubleSided": false,
     "recievesShadows": true,
     "renderMode": "opaque",
     "shader": "shaders/mesh/lit",
@@ -7,10 +8,10 @@
             "albedo": "textures/generic/red.png"
         },
         {
-            "metallic": 0.0
+            "metallic": 0.5
         },
         {
-            "roughness": 1.0
+            "roughness": 0.5
         },
         {
             "useEnvReflections": false

@@ -5,10 +5,10 @@
 
 // Reflection for class Model
 
-inline FieldInfo Model_meshID_info = {
-    "meshID",
+inline FieldInfo Model_mesh_info = {
+    "mesh",
     TypeID::Asset,
-    offsetof(Shard::Engine::Objects::Components::Model, meshID),
+    offsetof(Shard::Engine::Objects::Components::Model, mesh),
     Editable,
     0, 0,
     "The mesh to draw",
@@ -20,16 +20,16 @@ inline FieldInfo Model_meshID_info = {
     &Equals<Filesystem::AssetID>
 };
 
-static Container Model_materialsID_container = MakeVectorContainer<Shard::Engine::Filesystem::AssetID>();
+static Container Model_materials_container = MakeVectorContainer<Shard::Engine::Filesystem::AssetID>();
 
-inline FieldInfo Model_materialsID_info = {
-    "materialsID",
+inline FieldInfo Model_materials_info = {
+    "materials",
     TypeID::Vector,
-    offsetof(Shard::Engine::Objects::Components::Model, materialsID),
+    offsetof(Shard::Engine::Objects::Components::Model, materials),
     Editable,
     0, 0,
     "One material per submesh",
-    &Model_materialsID_container,
+    &Model_materials_container,
     nullptr,
     &CopyConstruct<std::vector<Filesystem::AssetID>>,
     &Assign<std::vector<Filesystem::AssetID>>,
@@ -70,8 +70,8 @@ inline FieldInfo Model_lightmapResolution_info = {
 inline ClassDescriptor Shard::Engine::Objects::Components::Model::descriptor = {
     "Model",
     {
-        &Model_meshID_info,
-        &Model_materialsID_info,
+        &Model_mesh_info,
+        &Model_materials_info,
         &Model_staticLighting_info,
         &Model_lightmapResolution_info,
     }

@@ -1,0 +1,20 @@
+{
+    "doubleSided": false,
+    "recievesShadows": true,
+    "renderMode": "opaque",
+    "shader": "shaders/mesh/lit",
+    "uniforms": [
+        {
+            "albedo": "textures/bullet.png"
+        },
+        {
+            "metallic": 0.5
+        },
+        {
+            "roughness": 0.14000000059604645
+        },
+        {
+            "useEnvReflections": false
+        }
+    ]
+}

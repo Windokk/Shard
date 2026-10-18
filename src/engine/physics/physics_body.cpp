@@ -211,6 +211,10 @@ namespace Shard::Engine::Objects::Components{
         if (!m_Shape)
             return;
 
+        // The body is built from the shapes as they are now : a rebuild asked earlier (SetShapeType...) would only
+        // replace it at the next Tick, and drop what was done to it since (an impulse, a velocity)
+        shouldUpdateShape = false;
+
         motionType = newMotionType;
 
         // Jolt only ever simulates in world space, regardless of motion type, so bodies are always

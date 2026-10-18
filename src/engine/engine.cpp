@@ -23,6 +23,7 @@
 #include "engine/renderer/components/model_component.hpp"
 #include "engine/assets/asset_database_serializer.hpp"
 #include "engine/world/world_manager.hpp"
+#include "engine/world/event_system.hpp"
 #include "engine/core/diagnostics/profiler.hpp"
 #include "engine/platform/windowing/iplatform.hpp"
 #include "engine/platform/hardware/system_info.hpp"
@@ -256,6 +257,11 @@ namespace Shard::Engine{
             m_Context.renderer->SetShadowSettings(m_Context.currentProject->GetRenderingSettings()->shadows);
             m_Context.renderer->SetRenderPipeline(m_Context.currentProject->GetRenderingSettings()->renderPipeline);
             m_Context.platform->CreateInput();
+
+            // After the input's own listener (registered by CreateInput) : the input state is up to date when a handler runs
+            m_InputEventListener = GetWindow()->AddEventListener([this](const Platform::OSEvent& event) {
+                Events::TranslateInputEvent(event, *m_Context.eventDispatcher);
+            });
 
             m_Context.timeManager->Init(physicsSettings->fixedTimeStep, physicsSettings->maxAccumulatedTime);
 
@@ -618,6 +624,11 @@ namespace Shard::Engine{
                 m_Context.currentProject->Shutdown(*m_Context.assetIDManager);
             m_Context.profiler->Shutdown();
             Debugging::Profiler::SetActive(nullptr);
+            if(m_InputEventListener != 0)
+            {
+                GetWindow()->RemoveEventListener(m_InputEventListener);
+                m_InputEventListener = 0;
+            }
             m_Context.platform->GetInput()->Shutdown();
             m_Context.audioManager->Shutdown();
             m_Context.physicsManager->Shutdown();

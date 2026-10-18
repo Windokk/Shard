@@ -356,6 +356,9 @@ namespace Shard::Engine{
 
                 Assets::HotReloader* m_HotReloader = nullptr;
 
+                // Turns the OS input events into engine events (Events::TranslateInputEvent), 0 : not listening
+                uint32_t m_InputEventListener = 0;
+
                 EngineCreationSettings m_EngineSettings;
 
                 bool m_PlayMode = false;

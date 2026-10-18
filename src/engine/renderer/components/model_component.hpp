@@ -26,20 +26,20 @@ namespace Shard::Engine::Objects::Components
             ordered_json Serialize() override;
             
             void SetMesh(std::string meshPath);
-            void SetMesh(Filesystem::AssetID meshID);
+            void SetMesh(Filesystem::AssetID mesh);
             void UpdateReferenceInWorld();
 
             void OnTransformChanged(uint8_t changes) override;
             void SetMaterials(std::vector<std::shared_ptr<Rendering::Material>> &&materials);
 
-            std::shared_ptr<Rendering::Mesh> GetMesh() { return mesh; }
-            std::vector<std::shared_ptr<Rendering::Material>> GetMaterials() { return materials; }
+            std::shared_ptr<Rendering::Mesh> GetMesh() { return loadedMesh; }
+            std::vector<std::shared_ptr<Rendering::Material>> GetMaterials() { return loadedMaterials; }
 
             // Without the copies, for the Extract stage which looks at every model every frame
-            const std::shared_ptr<Rendering::Mesh>& MeshRef() const { return mesh; }
-            const std::vector<std::shared_ptr<Rendering::Material>>& MaterialList() const { return materials; }
+            const std::shared_ptr<Rendering::Mesh>& MeshRef() const { return loadedMesh; }
+            const std::vector<std::shared_ptr<Rendering::Material>>& MaterialList() const { return loadedMaterials; }
 
-            int GetMaterialsCount() { return materials.size(); }
+            int GetMaterialsCount() { return loadedMaterials.size(); }
 
             // The model is drawn by the renderer from the snapshot of the Extract stage (see MeshProxy) : nothing here
             // submits draw commands any more, a change to the mesh, the materials or the transform is picked up by the
@@ -56,10 +56,10 @@ namespace Shard::Engine::Objects::Components
             std::shared_ptr<Component> Clone() const override;
             
             FIELD(Editable, tooltip=The mesh to draw)
-            Filesystem::AssetID meshID;
+            Filesystem::AssetID mesh;
 
             FIELD(Editable, tooltip=One material per submesh)
-            std::vector<Filesystem::AssetID> materialsID;
+            std::vector<Filesystem::AssetID> materials;
 
             // ---- Baked lighting (see LightmapManager) ----
             // Whether the model is part of the baked lighting : it blocks and bounces the light of a bake, and gets a lightmap
@@ -87,8 +87,8 @@ namespace Shard::Engine::Objects::Components
         
         private:
 
-            std::shared_ptr<Rendering::Mesh> mesh;
-            std::vector<std::shared_ptr<Rendering::Material>> materials;
+            std::shared_ptr<Rendering::Mesh> loadedMesh;
+            std::vector<std::shared_ptr<Rendering::Material>> loadedMaterials;
 
             // Extra passes asked for via AddToPass (e.g. the editor's EditorOutlineMaskPass for the selected actor)
             std::vector<std::string> extraPasses;

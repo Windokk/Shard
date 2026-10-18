@@ -31,19 +31,31 @@ namespace Shard::Engine::Objects::Components{
 
         json data = componentData;
 
-        // Levels saved before the serialization went through the reflection : "mesh" was the mesh's name and
-        // "materials" an object of material names by slot ({"0": "...", "2": "..."}), where the fields are
-        // "meshID" and "materialsID" (an array, in slot order)
+        // Older levels : the fields were saved as "meshID" and "materialsID", and before the serialization went through the
+        // reflection "materials" was an object of material names by slot ({"0": "...", "2": "..."}), where the field is
+        // now "materials" (an array, in slot order)
         if (data.is_object())
         {
-            if (!data.contains("meshID") && data.contains("mesh"))
-                data["meshID"] = data["mesh"];
+            if (data.contains("meshID"))
+            {
+                if (!data.contains("mesh"))
+                    data["mesh"] = data["meshID"];
+                data.erase("meshID");
+            }
 
-            if (!data.contains("materialsID") && data.contains("materials"))
+            if (data.contains("materialsID"))
+            {
+                if (!data.contains("materials"))
+                    data["materials"] = data["materialsID"];
+                data.erase("materialsID");
+            }
+
+            if (data.contains("materials") && !data["materials"].is_array())
             {
                 if (!data["materials"].is_object())
                 {
                     DEBUG_ERROR("Model has an invalid 'materials' block (not an object)");
+                    data.erase("materials");
                 }
                 else
                 {
@@ -83,7 +95,7 @@ namespace Shard::Engine::Objects::Components{
                         for (int slot = 0; slot <= bySlot.rbegin()->first; ++slot)
                             ids.push_back(bySlot.count(slot) ? bySlot[slot] : json(""));
                     }
-                    data["materialsID"] = std::move(ids);
+                    data["materials"] = std::move(ids);
                 }
             }
         }
@@ -101,9 +113,9 @@ namespace Shard::Engine::Objects::Components{
 
         // ---------------- MESH ----------------
         // Taken before SetMesh/SetMaterials rewrite the ID fields
-        const std::vector<Filesystem::AssetID> savedMaterials = materialsID;
+        const std::vector<Filesystem::AssetID> savedMaterials = materials;
 
-        const std::string meshName = nameOf(meshID);
+        const std::string meshName = nameOf(mesh);
         if (!meshName.empty())
             SetMesh(meshName);
 
@@ -155,12 +167,12 @@ namespace Shard::Engine::Objects::Components{
     ordered_json Model::Serialize()
     {
         // The model's state is its mesh and materials, the ID fields follow them
-        if (mesh)
-            meshID = mesh->GetAssetID();
+        if (loadedMesh)
+            mesh = loadedMesh->GetAssetID();
 
-        materialsID.clear();
-        for (const auto& material : materials)
-            materialsID.push_back(material ? material->GetAssetID() : Filesystem::AssetID());
+        materials.clear();
+        for (const auto& material : loadedMaterials)
+            materials.push_back(material ? material->GetAssetID() : Filesystem::AssetID());
 
         ordered_json component = SerializeReflected("model");
 
@@ -181,16 +193,16 @@ namespace Shard::Engine::Objects::Components{
         std::shared_ptr<Rendering::Mesh> newMesh = GetEngineContext()->GetResourcesManager()->Get<Rendering::Mesh>(Core::Resources::AssetKind::Mesh, meshPath);
 
         if(newMesh){
-            this->mesh = newMesh;
-            this->meshID = mesh->GetAssetID();
+            this->loadedMesh = newMesh;
+            this->mesh = loadedMesh->GetAssetID();
             lightmapPage = -1;      // the lightmap was laid on the other mesh
 
-            size_t submeshCount = mesh->GetMaterialSlotCount();
-            if(materials.size() != submeshCount)
+            size_t submeshCount = loadedMesh->GetMaterialSlotCount();
+            if(loadedMaterials.size() != submeshCount)
             {
                 std::vector<std::shared_ptr<Rendering::Material>> resized(submeshCount, nullptr);
-                for(size_t i = 0; i < submeshCount && i < materials.size(); i++)
-                    resized[i] = materials[i];
+                for(size_t i = 0; i < submeshCount && i < loadedMaterials.size(); i++)
+                    resized[i] = loadedMaterials[i];
 
                 std::shared_ptr<Rendering::Material> defaultMaterial =
                     GetEngineContext()->GetResourcesManager()->Get<Rendering::Material>(Core::Resources::AssetKind::Material, "materials/default.mat");
@@ -211,26 +223,26 @@ namespace Shard::Engine::Objects::Components{
         }
     }
 
-    void Model::SetMesh(Filesystem::AssetID meshID)
+    void Model::SetMesh(Filesystem::AssetID mesh)
     {
         if(!activated)
             return;
 
-        std::shared_ptr<Filesystem::AssetInfos> asset = GetEngineContext()->GetAssetIDManager()->GetAssetFromID(meshID);
+        std::shared_ptr<Filesystem::AssetInfos> asset = GetEngineContext()->GetAssetIDManager()->GetAssetFromID(mesh);
         
         if(asset){
             std::string name = asset->baseInfos.nameInProject;
 
-            this->mesh = GetEngineContext()->GetResourcesManager()->Get<Rendering::Mesh>(Core::Resources::AssetKind::Mesh, name);
-            this->meshID = mesh->GetAssetID();
+            this->loadedMesh = GetEngineContext()->GetResourcesManager()->Get<Rendering::Mesh>(Core::Resources::AssetKind::Mesh, name);
+            this->mesh = loadedMesh->GetAssetID();
             lightmapPage = -1;      // the lightmap was laid on the other mesh
 
-            size_t submeshCount = mesh->GetMaterialSlotCount();
-            if(materials.size() != submeshCount)
+            size_t submeshCount = loadedMesh->GetMaterialSlotCount();
+            if(loadedMaterials.size() != submeshCount)
             {
                 std::vector<std::shared_ptr<Rendering::Material>> resized(submeshCount, nullptr);
-                for(size_t i = 0; i < submeshCount && i < materials.size(); i++)
-                    resized[i] = materials[i];
+                for(size_t i = 0; i < submeshCount && i < loadedMaterials.size(); i++)
+                    resized[i] = loadedMaterials[i];
 
                 std::shared_ptr<Rendering::Material> defaultMaterial =
                     GetEngineContext()->GetResourcesManager()->Get<Rendering::Material>(Core::Resources::AssetKind::Material, "materials/default.mat");
@@ -255,11 +267,11 @@ namespace Shard::Engine::Objects::Components{
 
     void Model::UpdateReferenceInWorld()
     {
-        if (!parent || !parent->world || !mesh || !activated)
+        if (!parent || !parent->world || !loadedMesh || !activated)
         {
             return;
         }
-        parent->world->Ext<Rendering::RenderWorldData>().meshes[parent->GetComponentIDInWorld(local_id)] = { parent->transform->GetWorldMatrix(), mesh.get() };
+        parent->world->Ext<Rendering::RenderWorldData>().meshes[parent->GetComponentIDInWorld(local_id)] = { parent->transform->GetWorldMatrix(), loadedMesh.get() };
     }
 
     void Model::SetMaterials(std::vector<std::shared_ptr<Rendering::Material>>&& newMaterials)
@@ -268,16 +280,16 @@ namespace Shard::Engine::Objects::Components{
             return;
 
         // A slot can be null (unresolved asset) : keep its ID so the selection is not lost
-        std::vector<decltype(materialsID)::value_type> previousIDs = materialsID;
-        this->materials = std::move(newMaterials);
-        materialsID.clear();
-        for(size_t i = 0; i < materials.size(); i++){
-            if(materials[i])
-                materialsID.push_back(materials[i]->GetAssetID());
+        std::vector<decltype(materials)::value_type> previousIDs = materials;
+        this->loadedMaterials = std::move(newMaterials);
+        materials.clear();
+        for(size_t i = 0; i < loadedMaterials.size(); i++){
+            if(loadedMaterials[i])
+                materials.push_back(loadedMaterials[i]->GetAssetID());
             else if(i < previousIDs.size())
-                materialsID.push_back(previousIDs[i]);
+                materials.push_back(previousIDs[i]);
             else
-                materialsID.push_back({});
+                materials.push_back({});
         }
     }
 
@@ -317,9 +329,9 @@ namespace Shard::Engine::Objects::Components{
             auto* resources = GetEngineContext()->GetResourcesManager();
             auto fallback = [&]{ return resources->Get<Rendering::Material>(Core::Resources::AssetKind::Material, "materials/default.mat"); };
 
-            for(size_t slot = 0; slot < materialsID.size(); slot++){
+            for(size_t slot = 0; slot < materials.size(); slot++){
                 // A freshly added slot has no valid asset ID yet : it draws with the default material until one is picked
-                auto info = GetEngineContext()->GetAssetIDManager()->GetAssetFromID(materialsID[slot]);
+                auto info = GetEngineContext()->GetAssetIDManager()->GetAssetFromID(materials[slot]);
                 std::shared_ptr<Rendering::Material> material;
                 if(!info){
                     DEBUG_WARNING("Model material slot " + std::to_string(slot) + " has no asset for its ID, using the default material");
@@ -336,7 +348,7 @@ namespace Shard::Engine::Objects::Components{
         
         //Mesh
         else if(event.field->type == TypeID::Asset){
-            SetMesh(meshID);
+            SetMesh(mesh);
         }
     }
 
