@@ -10,6 +10,7 @@
 #include <glm/gtc/type_ptr.hpp>
 
 #include "engine/world/components/component.hpp"
+#include "engine/core/math/reference_frame.hpp"
 
 #include "engine/assets/reflection/attributes.hpp"
 
@@ -48,6 +49,7 @@ namespace Shard::Engine::Objects::Components
             Transform(std::shared_ptr<Actor> parent, uint32_t local_id);
 
             ordered_json Serialize() override;
+            void Deserialize(const json componentData) override;
 
             const glm::vec3& GetPosition() const { return position; }
             const glm::vec3 GetRotation() const { return glm::degrees(glm::eulerAngles(rotation)); }
@@ -116,6 +118,37 @@ namespace Shard::Engine::Objects::Components
             /// @brief Copies the local fields to the LocalTransform of the actor's entity (done by MarkWorldMatrixDirty)
             void SyncEntity();
 
+            // ---- Large worlds. The position / rotation / scale above are small numbers measured in the actor's reference frame (see
+            // Core::ReferenceFrameTree, owned by the World) ; these give the same pose in the root frame, in double.
+            // The frame of a hierarchy is the one set on its root actor : children are relative to their parent whatever their own value.
+
+            /// @brief The reference frame this actor's hierarchy lives in (kRootFrame when the world has no such frame)
+            Core::FrameId GetFrame();
+
+            /// @brief The frames of the world this actor is in (null for an actor that is in none)
+            const Core::ReferenceFrameTree* GetFrameTree() const;
+
+            /// @brief World position in the root frame, as an exact (cell + local) position
+            Core::WorldPosition GetWorldCoords();
+
+            /// @brief World position in the root frame as a plain double (exact to the double's precision at that distance)
+            glm::dvec3 GetWorldPositionD();
+
+            /// @brief World rotation in the root frame (the frame's own rotation included)
+            glm::dquat GetWorldRotationD();
+
+            /// @brief Moves the actor to a position of the root frame (converted into its frame, then into its parent's space)
+            void SetWorldPositionD(const glm::dvec3& rootPosition, bool updateDirty = true);
+            void SetWorldCoords(const Core::WorldPosition& rootPosition, bool updateDirty = true);
+
+            /// @brief Like SetWorldCoords, but also picks the frame : a root actor keeps its frame while it stays near that frame's origin,
+            /// else moves to a frame near `rootPosition` (an existing automatic one, or a new one). Its numbers stay small wherever it is.
+            void PlaceAt(const Core::WorldPosition& rootPosition, bool updateDirty = true);
+
+            /// @brief A point / a rotation of the root frame, turned into the actor's frame (the space its world matrix lives in)
+            glm::vec3 RootToFramePosition(const glm::dvec3& rootPosition);
+            glm::quat RootToFrameRotation(const glm::dquat& rootRotation);
+
             bool operator !=(Transform const& b) const {
                 return position != b.position || rotation != b.rotation || scale != b.scale;
             }
@@ -143,6 +176,10 @@ namespace Shard::Engine::Objects::Components
 
             FIELD(Editable, tooltip=Scale relative to the parent actor) 
             glm::vec3 scale = glm::vec3(1);
+
+            /// The reference frame the position is measured in (read on the root actor of a hierarchy). Not a field : frames are managed
+            /// by the engine (see PlaceAt), nobody picks one by hand. Saved with the transform.
+            uint32_t frame = 0;
 
         private:
 

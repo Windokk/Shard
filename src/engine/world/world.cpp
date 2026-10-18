@@ -125,6 +125,66 @@ namespace Shard::Engine::Worlds{
         return refs;
     }
 
+    namespace {
+        ordered_json SerializeFrames(const Core::ReferenceFrameTree& tree)
+        {
+            ordered_json array = ordered_json::array();
+            for (const Core::ReferenceFrame& f : tree.GetFrames()) {
+                if (f.id == Core::kRootFrame)
+                    continue;
+                ordered_json frame;
+                frame["id"] = f.id;
+                frame["name"] = f.name;
+                frame["parent"] = f.parent;
+                frame["cell"] = { f.origin.cell.x, f.origin.cell.y, f.origin.cell.z };
+                frame["local"] = { f.origin.local.x, f.origin.local.y, f.origin.local.z };
+                frame["rotation"] = { f.rotation.w, f.rotation.x, f.rotation.y, f.rotation.z };
+                array.push_back(frame);
+            }
+            return array;
+        }
+
+        void DeserializeFrames(Core::ReferenceFrameTree& tree, const json& array)
+        {
+            tree.Clear();
+            if (!array.is_array())
+                return;
+
+            // A frame can name a parent that comes later in the file : insert until nothing more can be
+            std::vector<const json*> pending;
+            for (const json& frame : array)
+                pending.push_back(&frame);
+
+            bool progress = true;
+            while (!pending.empty() && progress) {
+                progress = false;
+                for (auto it = pending.begin(); it != pending.end();) {
+                    const json& f = **it;
+                    const Core::FrameId parent = f.value("parent", Core::kRootFrame);
+                    if (!tree.Exists(parent)) {
+                        ++it;
+                        continue;
+                    }
+
+                    Core::CellCoord cell;
+                    glm::dvec3 local(0.0);
+                    glm::dquat rotation(1.0, 0.0, 0.0, 0.0);
+                    if (f.contains("cell") && f["cell"].is_array() && f["cell"].size() == 3)
+                        cell = { f["cell"][0].get<int64_t>(), f["cell"][1].get<int64_t>(), f["cell"][2].get<int64_t>() };
+                    if (f.contains("local") && f["local"].is_array() && f["local"].size() == 3)
+                        local = glm::dvec3(f["local"][0].get<double>(), f["local"][1].get<double>(), f["local"][2].get<double>());
+                    if (f.contains("rotation") && f["rotation"].is_array() && f["rotation"].size() == 4)
+                        rotation = glm::dquat(f["rotation"][0].get<double>(), f["rotation"][1].get<double>(), f["rotation"][2].get<double>(), f["rotation"][3].get<double>());
+
+                    tree.CreateWithId(f.value("id", Core::kInvalidFrame), f.value("name", std::string()), parent,
+                                      Core::WorldPosition(cell, local), rotation);
+                    it = pending.erase(it);
+                    progress = true;
+                }
+            }
+        }
+    }
+
     void World::Deserialize(Filesystem::Path filePath)
     {
         std::string src = filePath.ReadFile();
@@ -133,6 +193,12 @@ namespace Shard::Engine::Worlds{
             json data = json::parse(src);
 
             name = data["name"];
+
+            // Before the actors : a transform names its frame by id
+            if(data.contains("frames"))
+                DeserializeFrames(frames, data["frames"]);
+            else
+                frames.Clear();
 
             Core::IEngineContext* engine = &Core::GetEngine();
             for(auto& actor : data["actors"])
@@ -248,6 +314,9 @@ namespace Shard::Engine::Worlds{
 
         full["name"] = name;
 
+        if(frames.Count() > 1)
+            full["frames"] = SerializeFrames(frames);
+
         std::vector<std::pair<Core::ObjectID, std::shared_ptr<Objects::Actor>>> sortedActors(
             rootActors.begin(), rootActors.end()
         );
@@ -334,6 +403,8 @@ namespace Shard::Engine::Worlds{
 
         for (Core::ObjectID id : rootIDs)
             RemoveActorRecursive(id);
+
+        frames.Clear();
     }
 
     void World::OnLoad()

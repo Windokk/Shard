@@ -92,6 +92,11 @@ namespace Shard::Engine::Worlds{
             /// the build list, which Project Settings reorders while the world is open. -1 when the file is not in the asset database.
             int ResolveAssetID();
 
+            /// @brief The nested reference frames of this world (floating origins : planets, ships, streaming cells...).
+            /// The root frame is always there ; an actor says which frame it lives in with Transform::frame.
+            Core::ReferenceFrameTree& GetFrames() { return frames; }
+            const Core::ReferenceFrameTree& GetFrames() const { return frames; }
+
             bool IsLoaded() { return loaded; }
 
             void SetLoaded(bool loaded) { this->loaded = loaded; }
@@ -144,6 +149,7 @@ namespace Shard::Engine::Worlds{
 
         private:
 
+            Core::ReferenceFrameTree frames;
             std::vector<std::pair<std::type_index, std::unique_ptr<IWorldExtension>>> extensions;
     };
 

@@ -86,6 +86,14 @@ if(SHARD_DETERMINISTIC_PHYSICS)
     endif()
 endif()
 
+# Large worlds (see docs, "Large world") : Jolt keeps the positions of its bodies in double. A float is exact to a millimetre
+# only within ~10 km of the origin ; the double build (JPH::RVec3 = 3 doubles, sizes and velocities stay float) simulates
+# a planet's worth of space. JPH_DOUBLE_PRECISION is exported by the Jolt target, so every user of Jolt sees the same layout.
+option(SHARD_DOUBLE_PRECISION_PHYSICS "Build Jolt with double precision positions (large worlds)" ON)
+if(SHARD_DOUBLE_PRECISION_PHYSICS)
+    set(DOUBLE_PRECISION ON CACHE BOOL "Use double precision math" FORCE)
+endif()
+
 # Jolt with RTTI, like the rest of the engine. Without it libJolt has no typeinfo for the Jolt classes that define a
 # virtual function out of line (JobSystemWithBarrier...), and a class of ours deriving from one (JoltJobSystem) fails to
 # link on Linux ("undefined reference to typeinfo for JPH::JobSystemWithBarrier").

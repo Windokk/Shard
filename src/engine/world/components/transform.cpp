@@ -8,6 +8,7 @@
 #include "engine/world/engine.hpp"
 #include "engine/core/ecs/registry.hpp"
 #include "engine/world/ecs_components.hpp"
+#include "engine/world/world_manager.hpp"
 
 #include "transform.reflection.hpp"
 
@@ -37,7 +38,17 @@ namespace Shard::Engine::Objects::Components{
 
     ordered_json Transform::Serialize()
     {
-        return SerializeReflected("transform");
+        ordered_json data = SerializeReflected("transform");
+        if (frame != Core::kRootFrame)
+            data["frame"] = frame;
+        return data;
+    }
+
+    void Transform::Deserialize(const json componentData)
+    {
+        Component::Deserialize(componentData);
+        frame = componentData.contains("frame") && componentData["frame"].is_number_unsigned() ? componentData["frame"].get<uint32_t>() : Core::kRootFrame;
+        MarkWorldMatrixDirty();
     }
 
     void Transform::SetPosition(glm::vec3 position, bool updateDirty)
@@ -223,6 +234,135 @@ namespace Shard::Engine::Objects::Components{
             glm::length(glm::vec3(m[1])),
             glm::length(glm::vec3(m[2]))
         );
+    }
+
+    const Core::ReferenceFrameTree* Transform::GetFrameTree() const
+    {
+        if (!parent)
+            return nullptr;
+        if (parent->world)
+            return &parent->world->GetFrames();
+
+        // An actor that belongs to no world (the editor's camera) lives in the frames of the world that is being shown
+        Core::IEngineContext* engine = parent->GetEngineContext();
+        Worlds::WorldManager* worlds = engine ? engine->GetWorldManager() : nullptr;
+        Worlds::World* shown = worlds ? worlds->GetWorldAt(0) : nullptr;
+        return shown ? &shown->GetFrames() : nullptr;
+    }
+
+    Core::FrameId Transform::GetFrame()
+    {
+        const Core::ReferenceFrameTree* tree = GetFrameTree();
+        if (!tree)
+            return Core::kRootFrame;
+
+        const Transform* root = this;
+        std::shared_ptr<Transform> up = GetParentTransform();
+        while (up) {
+            root = up.get();
+            up = root->GetParentTransform();
+        }
+        return tree->Exists(root->frame) ? root->frame : Core::kRootFrame;
+    }
+
+    Core::WorldPosition Transform::GetWorldCoords()
+    {
+        const glm::dvec3 inFrame = glm::dvec3(GetWorldPosition());
+        const Core::ReferenceFrameTree* tree = GetFrameTree();
+        const Core::FrameId frameId = GetFrame();
+        if (!tree || frameId == Core::kRootFrame)
+            return Core::WorldPosition::FromDVec3(inFrame);
+        return tree->ToRoot(frameId, inFrame);
+    }
+
+    glm::dvec3 Transform::GetWorldPositionD()
+    {
+        return GetWorldCoords().ToDVec3();
+    }
+
+    glm::dquat Transform::GetWorldRotationD()
+    {
+        const glm::dquat inFrame = glm::dquat(GetWorldRotationQuat());
+        const Core::ReferenceFrameTree* tree = GetFrameTree();
+        const Core::FrameId frameId = GetFrame();
+        if (!tree || frameId == Core::kRootFrame)
+            return inFrame;
+        return glm::normalize(tree->GetRotationInRoot(frameId) * inFrame);
+    }
+
+    glm::vec3 Transform::RootToFramePosition(const glm::dvec3& rootPosition)
+    {
+        const Core::ReferenceFrameTree* tree = GetFrameTree();
+        const Core::FrameId frameId = GetFrame();
+        if (!tree || frameId == Core::kRootFrame)
+            return glm::vec3(rootPosition);
+        return glm::vec3(tree->FromRoot(frameId, Core::WorldPosition::FromDVec3(rootPosition)));
+    }
+
+    glm::quat Transform::RootToFrameRotation(const glm::dquat& rootRotation)
+    {
+        const Core::ReferenceFrameTree* tree = GetFrameTree();
+        const Core::FrameId frameId = GetFrame();
+        if (!tree || frameId == Core::kRootFrame)
+            return glm::quat(rootRotation);
+        return glm::quat(glm::normalize(glm::inverse(tree->GetRotationInRoot(frameId)) * rootRotation));
+    }
+
+    void Transform::SetWorldCoords(const Core::WorldPosition& rootPosition, bool updateDirty)
+    {
+        const Core::ReferenceFrameTree* tree = GetFrameTree();
+        const Core::FrameId frameId = GetFrame();
+
+        // The point in the frame : converted from the exact root position, so a far position keeps what the frame can hold
+        glm::vec3 inFrame;
+        if (!tree || frameId == Core::kRootFrame)
+            inFrame = glm::vec3(rootPosition.ToDVec3());
+        else
+            inFrame = glm::vec3(tree->FromRoot(frameId, rootPosition));
+
+        std::shared_ptr<Transform> parentTransform = GetParentTransform();
+        if (parentTransform)
+            inFrame = glm::vec3(glm::inverse(parentTransform->GetWorldMatrix()) * glm::vec4(inFrame, 1.0f));
+
+        SetPosition(inFrame, updateDirty);
+    }
+
+    void Transform::PlaceAt(const Core::WorldPosition& rootPosition, bool updateDirty)
+    {
+        Core::ReferenceFrameTree* tree = const_cast<Core::ReferenceFrameTree*>(GetFrameTree());
+        if (tree && !GetParentTransform()) {
+            // A float is exact to a millimetre within ~10 km : an actor farther than this from its frame's origin gets a nearer one
+            constexpr double kReach = 8192.0;
+            const auto near = [&](Core::FrameId id) {
+                const glm::dvec3 d = Core::WorldPosition::Offset(rootPosition, tree->GetOriginInRoot(id));
+                return std::abs(d.x) < kReach && std::abs(d.y) < kReach && std::abs(d.z) < kReach;
+            };
+
+            Core::FrameId chosen = Core::kInvalidFrame;
+            if (tree->Exists(frame) && near(frame))
+                chosen = frame;
+            else if (near(Core::kRootFrame))
+                chosen = Core::kRootFrame;
+            else {
+                for (const Core::ReferenceFrame& f : tree->GetFrames())
+                    if (f.id != Core::kRootFrame && f.name.rfind("Auto ", 0) == 0 && near(f.id)) {
+                        chosen = f.id;
+                        break;
+                    }
+            }
+            if (chosen == Core::kInvalidFrame) {
+                const Core::WorldPosition origin = rootPosition.InCellRange() ? Core::WorldPosition(rootPosition.cell, glm::dvec3(0.0)) : rootPosition;
+                chosen = tree->Create("Auto " + std::to_string(tree->Count()), Core::kRootFrame, origin);
+            }
+            if (chosen != Core::kInvalidFrame)
+                frame = chosen;
+        }
+        SetWorldCoords(rootPosition, updateDirty);
+    }
+
+    void Transform::SetWorldPositionD(const glm::dvec3& rootPosition, bool updateDirty)
+    {
+        SetWorldCoords(Core::WorldPosition::FromDVec3(rootPosition), updateDirty);
     }
 
     void Transform::SyncEntity()

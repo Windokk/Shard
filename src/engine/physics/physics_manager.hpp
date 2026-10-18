@@ -53,9 +53,10 @@ inline JPH::Quat ToJolt(const glm::quat& q)
     return JPH::Quat(n.x, n.y, n.z, n.w);
 }
 
-inline JPH::RVec3 ToJolt(const glm::vec3& v)
+/// A vector (a size, an offset, a velocity, a force, an impulse) : Jolt keeps these in float, whatever the precision of positions
+inline JPH::Vec3 ToJolt(const glm::vec3& v)
 {
-    return JPH::RVec3(v.x, v.y, v.z);
+    return JPH::Vec3(v.x, v.y, v.z);
 }
 
 inline glm::quat ToGLM(const JPH::Quat& q)
@@ -68,6 +69,29 @@ inline glm::quat ToGLM(const JPH::Quat& q)
     );
 }
 
+/// Jolt's positions are doubles (JPH_DOUBLE_PRECISION, large worlds) : these keep all of them
+inline JPH::RVec3 ToJolt(const glm::dvec3& v)
+{
+    return JPH::RVec3(v.x, v.y, v.z);
+}
+
+inline JPH::Quat ToJolt(const glm::dquat& q)
+{
+    const glm::dquat n = glm::normalize(q);
+    return JPH::Quat(float(n.x), float(n.y), float(n.z), float(n.w));
+}
+
+inline glm::dvec3 ToGLMD(const JPH::RVec3& v)
+{
+    return glm::dvec3(double(v.GetX()), double(v.GetY()), double(v.GetZ()));
+}
+
+inline glm::vec3 ToGLM(const JPH::Vec3& v)
+{
+    return glm::vec3(v.GetX(), v.GetY(), v.GetZ());
+}
+
+#ifdef JPH_DOUBLE_PRECISION
 inline glm::vec3 ToGLM(const JPH::RVec3& v)
 {
     return glm::vec3(
@@ -76,6 +100,7 @@ inline glm::vec3 ToGLM(const JPH::RVec3& v)
         static_cast<float>(v.GetZ())
     );
 }
+#endif
 
 namespace Shard::Engine::Physics
 {

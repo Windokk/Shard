@@ -78,7 +78,14 @@ TEST_F(NullBackend, AMeshKeepsItsGeometryAndBounds) {
     EXPECT_EQ(copy->indices, (std::vector<uint32_t>{0, 1, 2}));
 
     // The draw commands of a mesh work as they do on a GPU
-    EXPECT_EQ(mesh->CreateDrawCommands(glm::mat4(1.0f), 1, 1, {nullptr}).size(), 1u);
+    std::shared_ptr<Shader> shader = Shader::Create(Shard::Engine::Filesystem::Path("a.vert"), Shard::Engine::Filesystem::Path("a.frag"));
+    PipelineSpecifications specs;
+    specs.shader = shader;
+    std::shared_ptr<Material> material = Material::Create(shader, std::make_shared<Null::NullPipeline>(specs));
+    EXPECT_EQ(mesh->CreateDrawCommands(glm::mat4(1.0f), 1, 1, {material}).size(), 1u);
+
+    // An unresolved material slot draws nothing
+    EXPECT_TRUE(mesh->CreateDrawCommands(glm::mat4(1.0f), 1, 1, {nullptr}).empty());
 }
 
 TEST_F(NullBackend, TexturesFramebuffersAndBuffersExist) {

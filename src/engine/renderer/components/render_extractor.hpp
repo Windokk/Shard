@@ -2,11 +2,14 @@
 
 #include <cstdint>
 #include <functional>
+#include <map>
 #include <unordered_map>
 #include <vector>
 
 #include <glm/glm.hpp>
 
+#include "engine/core/math/large_world.hpp"
+#include "engine/renderer/components/render_space.hpp"
 #include "engine/renderer/rhi/render_snapshot.hpp"
 
 namespace Shard::Engine::Core {
@@ -16,6 +19,10 @@ namespace Shard::Engine::Core {
 namespace Shard::Engine::Worlds {
     class World;
     class WorldManager;
+}
+
+namespace Shard::Engine::Objects {
+    class Actor;
 }
 
 namespace Shard::Engine::Objects::Components {
@@ -65,6 +72,15 @@ namespace Shard::Engine::Rendering {
         /// @brief The corrections to apply to the next Extract() calls (null or empty : none). Not copied : it must outlive them.
         void SetPoseOffsets(const PoseOffsets* offsets) { m_PoseOffsets = offsets; }
 
+        /// @brief How far the camera may get from the render origin before the origin is moved to it (meters). Render space is
+        /// float, relative to that origin, so this bounds the precision loss : at 4096 m a float still resolves half a millimetre.
+        /// 0 : the origin is always exactly the camera (strict camera-relative rendering).
+        void SetRebaseDistance(double meters) { m_RebaseDistance = meters; }
+        double GetRebaseDistance() const { return m_RebaseDistance; }
+
+        /// @brief The point of the root frame the last snapshot is relative to
+        const Core::WorldPosition& GetRenderOrigin() const { return m_RenderOrigin; }
+
         void AddBillboardProvider(BillboardProvider provider) { m_BillboardProviders.push_back(std::move(provider)); }
 
         /// @brief Builds the next snapshot from `worlds` and publishes it to `renderer`.
@@ -83,12 +99,18 @@ namespace Shard::Engine::Rendering {
             Objects::Components::Model* model;
         };
 
+        /// The placement of the actor's frame in render space, kept for the frame being extracted (meshes share a few frames)
+        const FrameToRender& SpaceOfCached(const RenderSnapshot& snapshot, Objects::Actor* actor);
+
         void ExtractMeshes(Worlds::WorldManager& worlds, const RenderSnapshot& previous, RenderSnapshot& next, Core::JobSystem* jobs);
 
         std::vector<MeshSource> m_Sources;              // scratch, kept between frames
         std::vector<int> m_PreviousIndex;
         std::vector<BillboardProvider> m_BillboardProviders;
         const PoseOffsets* m_PoseOffsets = nullptr;
+        Core::WorldPosition m_RenderOrigin;
+        double m_RebaseDistance = 4096.0;
+        std::map<std::pair<const void*, Core::FrameId>, FrameToRender> m_SpaceCache;
         Stats m_Stats;
     };
 

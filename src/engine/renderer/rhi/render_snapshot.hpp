@@ -9,6 +9,7 @@
 
 #include <glm/glm.hpp>
 
+#include "engine/core/math/large_world.hpp"
 #include "engine/renderer/rhi/render_view.hpp"
 #include "engine/renderer/rhi/display_transform.hpp"
 #include "engine/renderer/rhi/ssr_settings.hpp"
@@ -189,6 +190,15 @@ namespace Shard::Engine::Rendering {
         int viewportWidth = 0;
         int viewportHeight = 0;
 
+        /// Large worlds : every position, matrix and view of this snapshot is in float, RELATIVE to this point of the root frame
+        /// (the render origin, which follows the camera : see RenderExtractor). The renderer never needs to know : it draws what the
+        /// snapshot holds. Only something that carries a position from one frame to the next (temporal history, a baked cache keyed by
+        /// position) has to look at it : when the origin moves, `originShift` is where the previous origin is, seen from the new one,
+        /// so a stored render-space position p becomes p + originShift. Zero while the camera stays near the origin (every scene that fits
+        /// in a few kilometres : then render space IS the root frame).
+        Core::WorldPosition renderOrigin;
+        glm::dvec3 originShift = glm::dvec3(0.0);
+
         CameraProxy camera;                             // the main camera
         EnvironmentProxy environment;
         std::vector<MeshProxy> meshes;
@@ -201,6 +211,8 @@ namespace Shard::Engine::Rendering {
         void Reset()
         {
             frame = 0;
+            renderOrigin = Core::WorldPosition();
+            originShift = glm::dvec3(0.0);
             camera = CameraProxy();
             environment = EnvironmentProxy();
             meshes.clear();

@@ -135,7 +135,7 @@ namespace Shard::Engine::Physics {
         request.direction *= request.maxDistance;
 
         JPH::RVec3 origin(request.origin.x, request.origin.y, request.origin.z);
-        JPH::RVec3 direction(request.direction.x, request.direction.y, request.direction.z);
+        JPH::Vec3 direction(request.direction.x, request.direction.y, request.direction.z);
 
         JPH::RRayCast ray(origin, direction);
 

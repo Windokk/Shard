@@ -220,8 +220,8 @@ namespace Shard::Engine::Objects::Components{
         // a one-time snapshot that goes stale if the parent later moves.
         JPH::BodyCreationSettings settings(
             m_Shape,
-            ToJolt(parent->transform->GetWorldPosition()),
-            ToJolt(parent->transform->GetWorldRotationQuat()),
+            ToJolt(parent->transform->GetWorldPositionD()),
+            ToJolt(parent->transform->GetWorldRotationD()),
             motionType,
             motionType == EMotionType::Static
                 ? Physics::Layers::NON_MOVING
@@ -257,8 +257,8 @@ namespace Shard::Engine::Objects::Components{
         {
             bi.MoveKinematic(
                 m_BodyID,
-                ToJolt(parent->transform->GetWorldPosition()),
-                ToJolt(parent->transform->GetWorldRotationQuat()),
+                ToJolt(parent->transform->GetWorldPositionD()),
+                ToJolt(parent->transform->GetWorldRotationD()),
                 dt
             );
         }
@@ -266,8 +266,8 @@ namespace Shard::Engine::Objects::Components{
         {
             bi.SetPositionAndRotation(
                 m_BodyID,
-                ToJolt(parent->transform->GetWorldPosition()),
-                ToJolt(parent->transform->GetWorldRotationQuat()),
+                ToJolt(parent->transform->GetWorldPositionD()),
+                ToJolt(parent->transform->GetWorldRotationD()),
                 JPH::EActivation::Activate
             );
         }
@@ -283,8 +283,11 @@ namespace Shard::Engine::Objects::Components{
         // around the center of mass) doesn't leak into where the "origin" of the body is. Using
         // GetCenterOfMassPosition() here would drag the actor's transform towards the shape's COM
         // instead of its own origin whenever a shape has an offset or there's more than one shape.
-        glm::vec3 worldPos = ToGLM(bi.GetPosition(m_BodyID));
-        glm::quat worldRot = ToGLM(bi.GetRotation(m_BodyID));
+        //
+        // Jolt works in the root frame, in double : the result is brought into the actor's reference frame (small float numbers) here,
+        // which is the space the transform, its world matrix and the pose interpolation all live in.
+        glm::vec3 worldPos = parent->transform->RootToFramePosition(ToGLMD(bi.GetPosition(m_BodyID)));
+        glm::quat worldRot = parent->transform->RootToFrameRotation(glm::dquat(ToGLM(bi.GetRotation(m_BodyID))));
 
         RecordPose(worldPos, worldRot);
 
@@ -406,6 +409,11 @@ namespace Shard::Engine::Objects::Components{
     }
 
     void PhysicsBody::SetPosition(glm::vec3 newPos)
+    {
+        SetPositionD(glm::dvec3(newPos));
+    }
+
+    void PhysicsBody::SetPositionD(const glm::dvec3& newPos)
     {
         if (m_BodyID.IsInvalid() || !activated)
             return;
@@ -702,6 +710,14 @@ namespace Shard::Engine::Objects::Components{
         return ToGLM(GetEngineContext()->GetPhysicsManager()->GetBodyInterface().GetPosition(m_BodyID));
     }
 
+    glm::dvec3 PhysicsBody::GetPositionD() const
+    {
+        if (m_BodyID.IsInvalid())
+            return parent ? parent->transform->GetWorldPositionD() : glm::dvec3(0.0);
+
+        return ToGLMD(GetEngineContext()->GetPhysicsManager()->GetBodyInterface().GetPosition(m_BodyID));
+    }
+
     glm::quat PhysicsBody::GetRotation() const
     {
         if (m_BodyID.IsInvalid())
@@ -763,7 +779,7 @@ namespace Shard::Engine::Objects::Components{
         if (m_BodyID.IsInvalid() || !activated)
             return;
 
-        GetEngineContext()->GetPhysicsManager()->GetBodyInterface().AddForce(m_BodyID, ToJolt(force), ToJolt(point));
+        GetEngineContext()->GetPhysicsManager()->GetBodyInterface().AddForce(m_BodyID, ToJolt(force), ToJolt(glm::dvec3(point)));
     }
 
     void PhysicsBody::AddTorque(glm::vec3 torque)
@@ -787,7 +803,7 @@ namespace Shard::Engine::Objects::Components{
         if (m_BodyID.IsInvalid() || !activated)
             return;
 
-        GetEngineContext()->GetPhysicsManager()->GetBodyInterface().AddImpulse(m_BodyID, ToJolt(impulse), ToJolt(point));
+        GetEngineContext()->GetPhysicsManager()->GetBodyInterface().AddImpulse(m_BodyID, ToJolt(impulse), ToJolt(glm::dvec3(point)));
     }
 
     void PhysicsBody::AddAngularImpulse(glm::vec3 impulse)

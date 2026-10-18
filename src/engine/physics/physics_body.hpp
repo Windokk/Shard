@@ -128,6 +128,8 @@ namespace Shard::Engine::Objects::Components
             void Tick(float dt);
 
             void SetPosition(glm::vec3 newPos);
+            /// @brief Same, in double : a position of the root frame (large worlds)
+            void SetPositionD(const glm::dvec3& newPos);
 
             void SetRotation(glm::vec3 newRot);
 
@@ -183,6 +185,8 @@ namespace Shard::Engine::Objects::Components
             // ---------------- Runtime transform / motion API ----------------
 
             glm::vec3 GetPosition() const;
+            /// @brief The body's position in the root frame, in double
+            glm::dvec3 GetPositionD() const;
             glm::quat GetRotation() const;
             glm::vec3 GetCenterOfMassPosition() const;
 

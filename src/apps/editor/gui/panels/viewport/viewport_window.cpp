@@ -174,7 +174,9 @@ namespace Shard::Editor::GUI {
             // A rate of 0 jumps straight there
             pos = rate > 0.0f ? glm::mix(pos, focusTarget, 1.0f - std::exp(-rate * dt)) : focusTarget;
 
-            if (glm::distance(pos, focusTarget) < 0.001f)
+            // Relative tolerance : far from the origin a float step is far bigger than a millimetre and the glide would never end
+            const float tolerance = std::max(0.001f, glm::length(focusTarget) * 1.0e-6f);
+            if (!(glm::distance(pos, focusTarget) >= tolerance))
             {
                 pos = focusTarget;
                 focusAnimating = false;
@@ -457,6 +459,11 @@ namespace Shard::Editor::GUI {
         auto selected = parent->GetSelectedActor();
         if (!selected)
             return;
+
+        // Not in the frame the camera is in : the two sets of numbers do not share an origin, there is nothing sensible to draw or
+        // drag (F brings the camera into the object's frame)
+        if (cameraActor && cameraActor->transform && selected->transform->GetFrame() != cameraActor->transform->GetFrame())
+            return;
             
         auto cam = Engine::Core::GetEngine().GetCameraManager()->GetActiveCamera();
 
@@ -480,6 +487,17 @@ namespace Shard::Editor::GUI {
         // ImGuizmo manipulates in world space (it's driven by the camera's world-space view matrix) -
         // so hand it the actor's world matrix, and convert back to local when writing the result back.
         glm::mat4 transform = selected->transform->GetWorldMatrix();
+
+        // Far from the origin the translations of the view and of the object are huge floats that nearly cancel, and the gizmo
+        // jumps around. Hand ImGuizmo a camera at the origin and the object relative to it (the subtraction in double, then
+        // the camera's position is added back to what comes out).
+        glm::dvec3 gizmoOffset(0.0);
+        if (cameraActor && cameraActor->transform)
+        {
+            gizmoOffset = glm::dvec3(cameraActor->transform->GetWorldPosition());
+            view[3] = glm::vec4(0.0f, 0.0f, 0.0f, 1.0f);
+            transform[3] = glm::vec4(glm::vec3(glm::dvec3(transform[3]) - gizmoOffset), transform[3].w);
+        }
 
         // Only the active mode's increment is handed to ImGuizmo (nullptr = free movement). Translate
         // reads one step per axis, rotate (degrees) and scale only read the first component.
@@ -530,6 +548,7 @@ namespace Shard::Editor::GUI {
         }
 
         if (ImGuizmo::IsUsing()) {
+            transform[3] = glm::vec4(glm::vec3(glm::dvec3(transform[3]) + gizmoOffset), transform[3].w);
             selected->transform->SetFromWorldMatrix(transform);
         }
 
@@ -548,6 +567,32 @@ namespace Shard::Editor::GUI {
         auto* world = Engine::Core::GetEngine().GetWorldManager()->GetWorldAt(0);
         if (!selected || !world || !cameraActor)
             return;
+
+        bool jumpToTarget = false;
+
+        // Far from the origin a float cannot say where in a metre it is (at 1e30 its step is 1e23 m) : the camera could not stand next
+        // to the object, it would land inside it. A root actor is placed in a frame near it (automatic : see Transform::PlaceAt), so that
+        // its numbers, and the camera's, are small. Its place in the world does not change.
+        if (!std::dynamic_pointer_cast<Engine::Objects::Actor>(selected->GetParent()))
+        {
+            const Engine::Core::WorldPosition where = selected->transform->GetWorldCoords();
+            selected->transform->PlaceAt(where);
+            world->SetDirty(true);
+        }
+
+        // The camera works in the frame of what it looks at, keeping where it is in the world
+        {
+            const Engine::Core::FrameId objectFrame = selected->transform->GetFrame();
+            if (cameraActor->transform->GetFrame() != objectFrame)
+            {
+                const Engine::Core::WorldPosition where = cameraActor->transform->GetWorldCoords();
+                cameraActor->transform->frame = objectFrame;
+                cameraActor->transform->SetWorldCoords(where);
+                // Where it was means nothing in the new frame when that is far from it : it jumps to the target instead of gliding
+                const glm::vec3 now = cameraActor->transform->GetPosition();
+                jumpToTarget = !std::isfinite(now.x) || glm::length(now) > 1.0e6f;
+            }
+        }
 
         glm::vec3 boundsMin, boundsMax;
         glm::vec3 center = selected->transform->GetWorldPosition();
@@ -575,8 +620,16 @@ namespace Shard::Editor::GUI {
             distance = radius / std::sin(std::min(halfV, halfH)) * 1.1f;
         }
 
-        focusTarget = center - cameraActor->transform->GetForward() * distance;
-        focusAnimating = true;
+        const glm::vec3 target = center - cameraActor->transform->GetForward() * distance;
+        // Bounds / positions that overflowed (an actor placed near FLT_MAX) give an infinity or a NaN : moving the camera there
+        // would leave it, and the view with it, unusable for good
+        if (!std::isfinite(target.x) || !std::isfinite(target.y) || !std::isfinite(target.z) || !std::isfinite(radius))
+            return;
+
+        focusTarget = target;
+        focusAnimating = !jumpToTarget;
+        if (jumpToTarget)
+            cameraActor->transform->SetPosition(target);
     }
 
     void ViewportWindow::SnapSelectedToFloor()
@@ -1170,7 +1223,15 @@ namespace Shard::Editor::GUI {
                 glm::vec3 dir = glm::normalize(farPoint - nearPoint);
                 glm::vec3 origin = nearPoint;
 
-                Engine::Physics::RaycastResult result = Engine::Core::GetEngine().GetPhysicsManager()->RayCast({origin, dir, 10000.0f});
+                // The ray is in the camera's frame. Physics works in the root frame (and its ray starts from a float) : it can only be asked
+                // when the camera is there. From another frame every model, physics body or not, goes through the bounds test below.
+                const Engine::Core::ReferenceFrameTree* frames = cameraActor && cameraActor->transform ? cameraActor->transform->GetFrameTree() : nullptr;
+                const Engine::Core::FrameId cameraFrame = cameraActor && cameraActor->transform ? cameraActor->transform->GetFrame() : Engine::Core::kRootFrame;
+                const bool cameraInRoot = cameraFrame == Engine::Core::kRootFrame;
+
+                Engine::Physics::RaycastResult result;
+                if (cameraInRoot)
+                    result = Engine::Core::GetEngine().GetPhysicsManager()->RayCast({origin, dir, 10000.0f});
 
                 std::shared_ptr<Engine::Objects::Actor> pickedActor = nullptr;
                 float pickedDistance = result.hit ? result.hitDistance : 10000.0f;
@@ -1191,7 +1252,7 @@ namespace Shard::Editor::GUI {
                         if (!modelComp || !modelComp->parent)
                             continue;
 
-                        if (modelComp->parent->HasComponent<Engine::Objects::Components::PhysicsBody>())
+                        if (cameraInRoot && modelComp->parent->HasComponent<Engine::Objects::Components::PhysicsBody>())
                             continue;
 
                         auto mesh = modelComp->GetMesh();
@@ -1204,6 +1265,12 @@ namespace Shard::Editor::GUI {
                             continue;
 
                         glm::mat4 worldMatrix = modelComp->parent->transform->GetWorldMatrix();
+
+                        // The actor's frame is not the camera's : its matrix is brought into the camera's frame, where the ray is (the offset
+                        // between the frames is exact, so an actor that is near the camera stays precise whatever their distance from the root)
+                        const Engine::Core::FrameId modelFrame = modelComp->parent->transform->GetFrame();
+                        if (frames && modelFrame != cameraFrame)
+                            worldMatrix = glm::mat4(frames->GetRelativePose(modelFrame, cameraFrame).ToMatrix()) * worldMatrix;
 
                         glm::vec3 worldMin, worldMax;
                         ComputeWorldBounds(boundsMin, boundsMax, worldMatrix, worldMin, worldMax);

@@ -50,7 +50,8 @@ namespace Shard::Tests {
                 if (!physicsManager) Unsupported("GetPhysicsManager");
                 return physicsManager;
             }
-            Shard::Engine::Worlds::WorldManager* GetWorldManager() const override { Unsupported("GetWorldManager"); return nullptr; }
+            // No world is ever loaded in a test context : actors that belong to no world look for the frames of the shown one (Transform::GetFrameTree)
+            Shard::Engine::Worlds::WorldManager* GetWorldManager() const override { return nullptr; }
             Shard::Engine::Audio::AudioManager* GetAudioManager() const override { Unsupported("GetAudioManager"); return nullptr; }
             Shard::Engine::Audio::AudioIDManager* GetAudioIDManager() const override { Unsupported("GetAudioIDManager"); return nullptr; }
             Shard::Engine::Time::TimeManager* GetTimeManager() const override { Unsupported("GetTimeManager"); return nullptr; }

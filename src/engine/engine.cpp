@@ -102,6 +102,7 @@ namespace Shard::Engine{
             // The simulation steps at a fixed rate, the frames do not : with this on, what a physics body drives is drawn between
             // its last two steps (by how far the frame is into the next one) instead of at the last one, which is what keeps the
             // motion even when the frame rate is not a multiple of the physics rate
+            CVar<float> cvRebaseDistance("render.rebase_distance", 4096.0f, "Large worlds : meters the camera may get from the render origin before the origin moves to it (0 : always at the camera)", CVarFlags::Archive, 0.0f, 1.0e9f);
             CVar<bool> cvPhysicsInterpolate("physics.interpolate", true, "Draw physics bodies between their last two steps (smooth motion at any frame rate)", CVarFlags::Archive);
 
             // Per-frame scratch memory budget, read when the engine starts (a change applies at the next start)
@@ -432,6 +433,7 @@ namespace Shard::Engine{
             auto poseOffsets = std::make_shared<Rendering::RenderExtractor::PoseOffsets>();
             extractor->SetPoseOffsets(poseOffsets.get());
             add("Render.Extract", Phase::Extract, [this, extractor, poseOffsets](SystemContext& c){
+                extractor->SetRebaseDistance(double(cvRebaseDistance.Get()));
                 // The pacing : the simulation does not get further ahead of the drawn frames than the limit
                 {
                     SHARD_PROFILE_SCOPE(Debugging::ProfileCategory::Waiting);

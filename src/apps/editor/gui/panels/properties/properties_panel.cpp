@@ -622,6 +622,99 @@ namespace Shard::Editor::GUI{
         ImGui::End();
     }
 
+    namespace
+    {
+        /// The position of a root actor is shown (and typed) as an absolute position in the world, in double : the frame it is stored in
+        /// is the engine's business. A child's position stays relative to its parent.
+        bool IsAbsolutePosition(const FieldInfo* field, const std::shared_ptr<Component>& comp, const Container* container)
+        {
+            if (container || !field || std::string(field->name) != "position")
+                return false;
+            auto transform = std::dynamic_pointer_cast<Transform>(comp);
+            return transform && transform->parent && !std::dynamic_pointer_cast<Engine::Objects::Actor>(transform->parent->GetParent());
+        }
+
+        /// Where a transform was and where it is : the frame and the numbers in it
+        struct PlacementState
+        {
+            uint32_t frame = 0;
+            glm::vec3 position = glm::vec3(0.0f);
+        };
+
+        class PlaceCommand final : public Commands::Command
+        {
+        public:
+            PlaceCommand(const std::shared_ptr<Transform>& t, PlacementState from, PlacementState to) : transform(t), before(from), after(to) {}
+
+            void Undo() override { Apply(before); }
+            void Redo() override { Apply(after); }
+            bool IsValid() const override { return before.frame != after.frame || before.position != after.position; }
+            const std::string& GetName() const override { return name; }
+
+        private:
+            void Apply(const PlacementState& state)
+            {
+                if (auto t = transform.lock()) {
+                    t->frame = state.frame;
+                    t->SetPosition(state.position);
+                }
+            }
+
+            std::weak_ptr<Transform> transform;
+            PlacementState before, after;
+            std::string name = "position";
+        };
+
+        /// Three double fields for the absolute position. Returns true when it changed.
+        bool InputAbsolutePosition(const char* id, const std::shared_ptr<Transform>& transform)
+        {
+            static PlacementState beforeEdit;
+            static bool editing = false;
+
+            glm::dvec3 value = transform->GetWorldCoords().ToDVec3();
+            bool changed = false;
+
+            const ImU32 colors[3] = { IM_COL32(220, 50, 50, 255), IM_COL32(50, 200, 70, 255), IM_COL32(80, 120, 255, 255) };
+            const float lineHeight = ImGui::GetFrameHeight();
+            const float width = ImGui::GetContentRegionAvail().x / 3.0f - 4.0f;
+
+            ImGui::PushID(id);
+            for (int i = 0; i < 3; i++)
+            {
+                ImGui::PushID(i);
+                const ImVec2 cursor = ImGui::GetCursorScreenPos();
+                ImGui::GetWindowDrawList()->AddRectFilled(cursor, ImVec2(cursor.x + 3.0f, cursor.y + lineHeight), colors[i]);
+                ImGui::SetCursorScreenPos(ImVec2(cursor.x + 4.0f, cursor.y));
+                ImGui::SetNextItemWidth(width - 4.0f);
+
+                glm::dvec3 edited = value;
+                const bool dragged = ImGui::DragScalar("##v", ImGuiDataType_Double, &edited[i], 0.1f, nullptr, nullptr, "%.2e");
+                if (ImGui::IsItemActivated() && !editing) {
+                    beforeEdit = { transform->frame, transform->position };
+                    editing = true;
+                }
+                if (dragged && std::isfinite(edited[i])) {
+                    value = edited;
+                    transform->PlaceAt(Engine::Core::WorldPosition::FromDVec3(value));
+                    changed = true;
+                }
+                if (ImGui::IsItemDeactivatedAfterEdit() && editing) {
+                    editing = false;
+                    Commands::CommandStack::Get().Record(std::make_unique<PlaceCommand>(
+                        transform, beforeEdit, PlacementState{ transform->frame, transform->position }));
+                }
+                else if (ImGui::IsItemDeactivated())
+                    editing = false;
+
+                if (i < 2)
+                    ImGui::SameLine();
+                ImGui::PopID();
+            }
+            ImGui::PopID();
+            return changed;
+        }
+    }
+
     void PropertiesPanel::DrawRecordedField(const FieldInfo* field, std::shared_ptr<Component> comp, Commands::FieldOwnerLocator locate)
     {
         void* owner = locate ? locate(*comp) : static_cast<void*>(comp.get());
@@ -630,7 +723,8 @@ namespace Shard::Editor::GUI{
 
         void* valuePtr = FieldRead(*field, owner);
 
-        if (!Commands::CanRecordField(field))
+        // Its undo is a PlaceCommand, recorded by the widget (the frame is not a field)
+        if (!Commands::CanRecordField(field) || IsAbsolutePosition(field, comp, nullptr))
         {
             DrawField(field, valuePtr, comp);
             return;
@@ -1304,6 +1398,15 @@ namespace Shard::Editor::GUI{
             } 
             case TypeID::Vec3:
             {
+                if (IsAbsolutePosition(field, comp, container))
+                {
+                    if (InputAbsolutePosition(id.c_str(), std::static_pointer_cast<Transform>(comp)))
+                    {
+                        MarkWorldDirty();
+                    }
+                    break;
+                }
+
                 glm::vec3* vec = static_cast<glm::vec3*>(value);
 
                 if (InputVector3<float>(fieldName, &vec->x, 0.1f, field->min, field->max))
