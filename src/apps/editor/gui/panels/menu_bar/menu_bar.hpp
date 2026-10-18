@@ -26,7 +26,6 @@ namespace Shard::Editor::GUI{
             void DrawHelpMenu();
 
             void DrawSaveAsPopup();
-            void DrawRenamePopup();
             void DrawAboutPopup();
 
             // Shared by "New World" and "Exit", both of which need to warn about (and optionally
@@ -36,14 +35,8 @@ namespace Shard::Editor::GUI{
 
             Core::EditorMainWindow* parent = nullptr;
 
-            // Copy/Cut/Paste
-            Commands::ActorClipboard clipboard;
-
             bool openSaveAsPopup = false;
             char saveAsNameBuffer[256] = "NewWorld";
-
-            bool openRenamingPopup = false;
-            char renameBuffer[256] = "";
 
             bool openAboutPopup = false;
     };

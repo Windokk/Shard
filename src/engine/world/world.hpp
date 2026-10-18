@@ -47,6 +47,8 @@ namespace Shard::Engine::Worlds{
 
         Filesystem::AssetID assetID;
 
+        std::vector<std::string> folders;
+
         // What ResolveAssetID found last, and for which file (it is asked on every actor created or destroyed)
         int resolvedAssetID = -1;
         std::string resolvedAssetPath;
@@ -77,6 +79,11 @@ namespace Shard::Engine::Worlds{
 
             const std::string& GetName() const;
             void SetName(const std::string& name);
+
+            /// @brief The outliner folders the editor made ("Lights", "Lights/Indoor"...), the empty ones included : the ones that hold
+            /// actors are known from the actors (Actor::GetFolder). Saved with the world.
+            std::vector<std::string>& GetFolders() { return folders; }
+            const std::vector<std::string>& GetFolders() const { return folders; }
             
             void RemoveComponent(const int idInWorld, const std::shared_ptr<Objects::Components::Component> compPtr);
 

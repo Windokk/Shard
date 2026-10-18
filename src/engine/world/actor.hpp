@@ -23,6 +23,7 @@ namespace Shard::Engine::Objects{
         
         std::vector<std::shared_ptr<Component>> components;
         std::string name;
+        std::string folder;
         Core::IEngineContext* engine = nullptr;
         Core::Ecs::Entity entity;
         public:
@@ -72,6 +73,11 @@ namespace Shard::Engine::Objects{
             
             std::string GetName() { return name; }
             void SetName(std::string name) { this->name = name; }
+
+            /// @brief The outliner folder of a root actor ("Lights/Indoor"), empty : at the top. It only organizes the editor's
+            /// outliner (saved with the world), the actor's place in the hierarchy and in the world is not affected.
+            const std::string& GetFolder() const { return folder; }
+            void SetFolder(std::string path) { folder = std::move(path); }
 
             void AddChild(std::shared_ptr<WorldObject> o) override;
 

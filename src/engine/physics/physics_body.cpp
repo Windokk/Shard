@@ -242,6 +242,9 @@ namespace Shard::Engine::Objects::Components{
 
         m_BodyID = GetEngineContext()->GetPhysicsManager()->CreateBody(settings, this);
         m_PoseValid = false;
+
+        if (!m_BodyID.IsInvalid())
+            GetEngineContext()->GetPhysicsManager()->SetBodyGravity(m_BodyID, gravityMode, customGravity);
     }
 
     void PhysicsBody::ApplyTransformToPhysics(float dt)
@@ -940,6 +943,35 @@ namespace Shard::Engine::Objects::Components{
         return GetEngineContext()->GetPhysicsManager()->GetBodyInterface().GetGravityFactor(m_BodyID);
     }
 
+    void PhysicsBody::SetGravityMode(Physics::GravityMode mode)
+    {
+        gravityMode = mode;
+
+        if (m_BodyID.IsInvalid())
+            return;
+
+        GetEngineContext()->GetPhysicsManager()->SetBodyGravity(m_BodyID, gravityMode, customGravity);
+
+        // A body asleep on the old gravity would stay there until something else woke it. Not one that was put to sleep on purpose.
+        if (activated && motionType == EMotionType::Dynamic)
+            GetEngineContext()->GetPhysicsManager()->GetBodyInterface().ActivateBody(m_BodyID);
+    }
+
+    void PhysicsBody::SetCustomGravity(glm::vec3 gravity)
+    {
+        customGravity = gravity;
+        SetGravityMode(Physics::GravityMode::Custom);
+    }
+
+    glm::vec3 PhysicsBody::GetGravity() const
+    {
+        auto physics = GetEngineContext() ? GetEngineContext()->GetPhysicsManager() : nullptr;
+        if (m_BodyID.IsInvalid() || !physics)
+            return glm::vec3(0.0f);
+
+        return physics->GetBodyGravity(m_BodyID) * GetGravityFactor();
+    }
+
     void PhysicsBody::SetFriction(float newFriction)
     {
         friction = newFriction;
@@ -998,6 +1030,10 @@ namespace Shard::Engine::Objects::Components{
         else if (strcmp(name, "gravityFactor") == 0)
         {
             SetGravityFactor(gravityFactor);
+        }
+        else if (strcmp(name, "gravityMode") == 0 || strcmp(name, "customGravity") == 0)
+        {
+            SetGravityMode(gravityMode);
         }
         else if (strcmp(name, "friction") == 0)
         {

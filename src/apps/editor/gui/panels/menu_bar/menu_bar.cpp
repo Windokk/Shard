@@ -38,7 +38,6 @@ namespace Shard::Editor::GUI{
         ImGui::EndMainMenuBar();
 
         DrawSaveAsPopup();
-        DrawRenamePopup();
         DrawAboutPopup();
     }
 
@@ -165,7 +164,7 @@ namespace Shard::Editor::GUI{
         if (!ImGui::BeginMenu("Edit"))
             return;
 
-        auto selected = parent->GetSelectedActor();
+        const bool hasSelection = parent->HasSelection();
 
         auto& history = Commands::CommandStack::Get();
 
@@ -177,41 +176,29 @@ namespace Shard::Editor::GUI{
 
         ImGui::Separator();
 
-        if (ImGui::MenuItem("Copy", nullptr, false, selected != nullptr))
-            clipboard.Copy(selected);
+        // Shortcuts : the ones of the outliner and the viewport, whichever has the focus
+        if (ImGui::MenuItem("Copy", "Ctrl+C", false, hasSelection))
+            parent->CopySelection();
 
-        if (ImGui::MenuItem("Cut", nullptr, false, selected != nullptr))
-        {
-            parent->SetSelectedActor(nullptr);
-            clipboard.Cut(selected);
-        }
+        if (ImGui::MenuItem("Cut", "Ctrl+X", false, hasSelection))
+            parent->CutSelection();
 
-        if (ImGui::MenuItem("Paste", nullptr, false, !clipboard.IsEmpty()))
-        {
-            if (auto pasted = clipboard.Paste())
-                parent->SetSelectedActor(pasted);
-        }
+        if (ImGui::MenuItem("Paste", "Ctrl+V", false, parent->CanPaste()))
+            parent->PasteClipboard();
 
         ImGui::Separator();
 
-        if (ImGui::MenuItem("Duplicate", nullptr, false, selected != nullptr))
-        {
-            if (auto copy = Commands::Actions::Duplicate(selected))
-                parent->SetSelectedActor(copy);
-        }
+        if (ImGui::MenuItem("Duplicate", "Ctrl+D", false, hasSelection))
+            parent->DuplicateSelection();
 
-        if (ImGui::MenuItem("Rename", nullptr, false, selected != nullptr))
-        {
-            strncpy(renameBuffer, selected->GetName().c_str(), sizeof(renameBuffer) - 1);
-            renameBuffer[sizeof(renameBuffer) - 1] = '\0';
-            openRenamingPopup = true;
-        }
+        if (ImGui::MenuItem("Rename", "F2", false, hasSelection))
+            parent->RenameSelection();
 
-        if (ImGui::MenuItem("Delete", nullptr, false, selected != nullptr))
-        {
-            parent->SetSelectedActor(nullptr);
-            Commands::Actions::Delete(selected);
-        }
+        if (ImGui::MenuItem("Group", "Ctrl+G", false, hasSelection))
+            parent->GroupSelection();
+
+        if (ImGui::MenuItem("Delete", "Del", false, hasSelection))
+            parent->DeleteSelection();
 
         ImGui::Separator();
 
@@ -224,43 +211,24 @@ namespace Shard::Editor::GUI{
         ImGui::EndMenu();
     }
 
-    void MenuBar::DrawRenamePopup()
-    {
-        if (openRenamingPopup)
-        {
-            ImGui::OpenPopup("Rename Actor##MenuBar");
-            openRenamingPopup = false;
-        }
-
-        if (ImGui::BeginPopup("Rename Actor##MenuBar"))
-        {
-            ImGui::InputText("##RenameActor", renameBuffer, sizeof(renameBuffer));
-
-            if (ImGui::Button("OK"))
-            {
-                auto selected = parent->GetSelectedActor();
-                if (selected)
-                    Commands::Actions::Rename(selected, renameBuffer);
-
-                ImGui::CloseCurrentPopup();
-            }
-
-            ImGui::SameLine();
-
-            if (ImGui::Button("Cancel"))
-                ImGui::CloseCurrentPopup();
-
-            ImGui::EndPopup();
-        }
-    }
-
     void MenuBar::DrawSelectMenu()
     {
         if (!ImGui::BeginMenu("Select"))
             return;
 
-        if (ImGui::MenuItem("Deselect All", nullptr, false, parent->GetSelectedActor() != nullptr))
-            parent->SetSelectedActor(nullptr);
+        const bool hasSelection = parent->HasSelection();
+
+        if (ImGui::MenuItem("Select All", "Ctrl+A"))
+            parent->SelectAll();
+
+        if (ImGui::MenuItem("Deselect All", "Esc", false, hasSelection))
+            parent->ClearSelection();
+
+        if (ImGui::MenuItem("Invert Selection"))
+            parent->InvertSelection();
+
+        if (ImGui::MenuItem("Select Children", nullptr, false, hasSelection))
+            parent->SelectChildren();
 
         ImGui::EndMenu();
     }
@@ -283,7 +251,7 @@ namespace Shard::Editor::GUI{
 
         ImGui::Separator();
 
-        bool hasSelection = parent->GetSelectedActor() != nullptr;
+        bool hasSelection = parent->HasSelection();
 
         if (ImGui::MenuItem("Focus Selected", "F", false, hasSelection))
             parent->viewport->FocusSelected();

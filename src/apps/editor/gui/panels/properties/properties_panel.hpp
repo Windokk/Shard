@@ -22,7 +22,8 @@ namespace Shard::Editor::GUI{
     class PropertiesPanel
     {
         public:
-            void Draw(std::shared_ptr<Engine::Objects::Actor> actor);
+            /// @param selectionCount How many actors are selected : the panel edits the primary one (`actor`) and says so when there are more
+            void Draw(std::shared_ptr<Engine::Objects::Actor> actor, int selectionCount = 1);
 
             /// The browser the asset fields take the selected asset from / navigate to
             void SetAssetBrowser(AssetBrowser* browser) { assetBrowser = browser; }

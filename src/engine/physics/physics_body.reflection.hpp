@@ -268,13 +268,53 @@ inline FieldInfo PhysicsBody_gravityFactor_info = {
     offsetof(Shard::Engine::Objects::Components::PhysicsBody, gravityFactor),
     Editable,
     -10.0f, 10.0f,
-    "Multiplier on the world gravity, 0 floats and a negative value falls upwards",
+    "Multiplier on the gravity the body feels, 0 floats and a negative value falls upwards",
     nullptr,
     nullptr,
     &CopyConstruct<float>,
     &Assign<float>,
     &Destroy<float>,
     &Equals<float>
+};
+
+static EnumDescriptor GravityMode_descriptor = {
+    "GravityMode",
+    {
+        { 0, "Fields" },
+        { 1, "World" },
+        { 2, "Custom" },
+    },
+    sizeof(Physics::GravityMode)
+};
+
+inline FieldInfo PhysicsBody_gravityMode_info = {
+    "gravityMode",
+    TypeID::Enum,
+    offsetof(Shard::Engine::Objects::Components::PhysicsBody, gravityMode),
+    Editable,
+    0, 0,
+    "Where the gravity comes from : Fields is the world gravity changed by the gravity fields around, World ignores the fields, Custom is the gravity below",
+    nullptr,
+    &GravityMode_descriptor,
+    &CopyConstruct<Physics::GravityMode>,
+    &Assign<Physics::GravityMode>,
+    &Destroy<Physics::GravityMode>,
+    &Equals<Physics::GravityMode>
+};
+
+inline FieldInfo PhysicsBody_customGravity_info = {
+    "customGravity",
+    TypeID::Vec3,
+    offsetof(Shard::Engine::Objects::Components::PhysicsBody, customGravity),
+    Editable,
+    0, 0,
+    "Custom mode only : the acceleration of the body in world units per second squared",
+    nullptr,
+    nullptr,
+    &CopyConstruct<glm::vec3>,
+    &Assign<glm::vec3>,
+    &Destroy<glm::vec3>,
+    &Equals<glm::vec3>
 };
 
 inline FieldInfo PhysicsBody_friction_info = {
@@ -316,6 +356,8 @@ inline ClassDescriptor Shard::Engine::Objects::Components::PhysicsBody::descript
         &PhysicsBody_linearDamping_info,
         &PhysicsBody_angularDamping_info,
         &PhysicsBody_gravityFactor_info,
+        &PhysicsBody_gravityMode_info,
+        &PhysicsBody_customGravity_info,
         &PhysicsBody_friction_info,
         &PhysicsBody_restitution_info,
     }

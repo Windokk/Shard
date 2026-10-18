@@ -23,6 +23,7 @@
 #include "apps/editor/debug/editor_debug_draw.hpp"
 #include "apps/editor/preferences/editor_preferences.hpp"
 #include "apps/editor/commands/object_ref.hpp"
+#include "apps/editor/commands/actor_commands.hpp"
 
 #include "imgui/imgui.h"
 #include "imgui/imgui_internal.h"
@@ -30,6 +31,8 @@
 #include "imgui/backends/imgui_impl_opengl3.h"
 
 #include <cstdint>
+#include <unordered_set>
+#include <vector>
 
 namespace Shard::Editor::Core {
 
@@ -62,17 +65,55 @@ namespace Shard::Editor::Core {
 
         void ProcessInputs() const override;
 
+        /// Selects this actor alone (null : nothing selected)
         void SetSelectedActor(std::shared_ptr<Engine::Objects::Actor> newPtr);
 
         void RequestPlay();
 
-        std::shared_ptr<Engine::Objects::Actor> GetSelectedActor(){
-            return selectedActor;
+        /// The primary actor of the selection : the last one selected. It is the one the properties panel shows and the one
+        /// the gizmo sits on.
+        std::shared_ptr<Engine::Objects::Actor> GetSelectedActor() const {
+            return selectedActors.empty() ? nullptr : selectedActors.back();
         }
 
-        /// Drops the selection if its actor was destroyed (with its parent, by an undo...), or moves it to the
-        /// actor that an undo or a redo rebuilt in its place
+        /// Every selected actor, the primary one last
+        const std::vector<std::shared_ptr<Engine::Objects::Actor>>& GetSelectedActors() const {
+            return selectedActors;
+        }
+
+        size_t GetSelectionCount() const { return selectedActors.size(); }
+        bool HasSelection() const { return !selectedActors.empty(); }
+        bool IsSelected(const std::shared_ptr<Engine::Objects::Actor>& actor) const;
+
+        /// Replaces the selection (the last of the list becomes the primary actor)
+        void SetSelectedActors(std::vector<std::shared_ptr<Engine::Objects::Actor>> actors);
+        /// Adds the actor to the selection, as the primary one
+        void AddToSelection(const std::shared_ptr<Engine::Objects::Actor>& actor);
+        void RemoveFromSelection(const std::shared_ptr<Engine::Objects::Actor>& actor);
+        /// Ctrl+click : selects the actor if it was not, deselects it if it was
+        void ToggleSelection(const std::shared_ptr<Engine::Objects::Actor>& actor);
+        void ClearSelection() { SetSelectedActors({}); }
+        void SelectAll();
+        /// Every actor of the world : the root ones in the order they were made, each followed by its descendants
+        std::vector<std::shared_ptr<Engine::Objects::Actor>> GetAllActors() const;
+        void InvertSelection();
+        /// Adds the descendants of the selected actors
+        void SelectChildren();
+
+        /// Drops from the selection the actors that were destroyed (with their parent, by an undo...), or moves them to the
+        /// actors that an undo or a redo rebuilt in their place
         void ValidateSelection();
+
+        // What Edit does on the selection : the menu bar, the outliner and the viewport share it
+        void CopySelection();
+        void CutSelection();
+        void PasteClipboard();
+        bool CanPaste() const { return !actorClipboard.IsEmpty(); }
+        void DuplicateSelection();
+        void DeleteSelection();
+        void GroupSelection();
+        /// Asks the outliner to rename the primary actor in place
+        void RenameSelection();
 
         Engine::Core::Platform::SystemInfos GetSystemInfos() const override;
 
@@ -132,9 +173,19 @@ namespace Shard::Editor::Core {
         Debug::EditorDebugDraw debugDraw;
 
         // User data
-        std::shared_ptr<Engine::Objects::Actor> selectedActor = nullptr;
-        // Follows the selected actor through the undo history, which destroys and rebuilds actors
-        std::shared_ptr<Editor::Commands::ObjectRef> selectedRef = nullptr;
+        // Applies a new selection : the outline of the actors that left it is removed, the one of the new ones added
+        void ApplySelection(std::vector<std::shared_ptr<Engine::Objects::Actor>> actors);
+        void SetOutlined(const std::shared_ptr<Engine::Objects::Actor>& actor, bool outlined);
+
+        // The selected actors, the primary one last
+        std::vector<std::shared_ptr<Engine::Objects::Actor>> selectedActors;
+        // Their ids, for the panels to ask about every row they draw
+        std::unordered_set<int> selectedIds;
+        // Follow the selected actors through the undo history, which destroys and rebuilds actors
+        std::vector<std::shared_ptr<Editor::Commands::ObjectRef>> selectedRefs;
+
+        // Copy / Cut / Paste
+        Commands::ActorClipboard actorClipboard;
 
         // Preferences : the text last written to the file, what the interface was last styled with, the auto-save clock
         std::string savedPreferencesText;

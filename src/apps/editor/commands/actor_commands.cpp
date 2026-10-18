@@ -5,6 +5,12 @@
 #include "engine/world/engine.hpp"
 #include "engine/world/world_manager.hpp"
 
+#include <glm/gtc/matrix_transform.hpp>
+
+#include <algorithm>
+#include <set>
+#include <unordered_set>
+
 namespace Shard::Editor::Commands{
 
     using Engine::Objects::Actor;
@@ -142,7 +148,48 @@ namespace Shard::Editor::Commands{
         a->SetParent(p);
     }
 
+    void SetWorldFoldersCommand::Apply(const std::vector<std::string>& folders)
+    {
+        if (auto* world = CurrentWorld())
+            world->GetFolders() = folders;
+    }
+
     namespace Actions {
+
+        namespace {
+
+            // Every folder the outliner shows : the ones the world lists and the ones its root actors are in
+            std::set<std::string> AllFolders(Engine::Worlds::World* world)
+            {
+                std::set<std::string> folders;
+                for (const auto& f : world->GetFolders())
+                    folders.insert(f);
+                for (const auto& [id, actor] : world->GetRootActors())
+                    if (actor && !actor->GetFolder().empty())
+                        folders.insert(actor->GetFolder());
+                return folders;
+            }
+
+            std::string ParentFolder(const std::string& path)
+            {
+                const size_t slash = path.rfind('/');
+                return slash == std::string::npos ? std::string() : path.substr(0, slash);
+            }
+
+            std::string JoinFolder(const std::string& base, const std::string& rest)
+            {
+                if (base.empty())
+                    return rest;
+                return rest.empty() ? base : base + "/" + rest;
+            }
+
+            // `path` with its leading `from` replaced by `to` (path is in the folder `from`)
+            std::string ReplacePrefix(const std::string& path, const std::string& from, const std::string& to)
+            {
+                std::string rest = path.size() > from.size() ? path.substr(from.size() + 1) : std::string();
+                return JoinFolder(to, rest);
+            }
+        }
 
         void MarkWorldDirty()
         {
@@ -245,42 +292,378 @@ namespace Shard::Editor::Commands{
         }
     }
 
-    void ActorClipboard::Copy(const std::shared_ptr<Actor>& actor)
-    {
-        if (!actor)
-            return;
+    namespace Actions {
 
-        data = Engine::Worlds::SerializeActorToJson(actor);
-        worldMatrix = actor->transform ? actor->transform->GetWorldMatrix() : glm::mat4(1.0f);
-        parent = ObjectRefs::Get(ParentOf(actor));
+        std::vector<std::shared_ptr<Actor>> TopLevel(const std::vector<std::shared_ptr<Actor>>& actors)
+        {
+            std::unordered_set<int> listed;
+            for (const auto& a : actors)
+                if (a)
+                    listed.insert(a->GetID().GetAsInt());
+
+            std::vector<std::shared_ptr<Actor>> result;
+            std::unordered_set<int> added;
+            for (const auto& a : actors)
+            {
+                if (!a || !added.insert(a->GetID().GetAsInt()).second)
+                    continue;
+
+                bool carried = false;
+                for (auto p = ParentOf(a); p && !carried; p = ParentOf(p))
+                    carried = listed.count(p->GetID().GetAsInt()) > 0;
+
+                if (!carried)
+                    result.push_back(a);
+            }
+            return result;
+        }
+
+        bool IsSelfOrAncestor(const std::shared_ptr<Actor>& ancestor, const std::shared_ptr<Actor>& actor)
+        {
+            for (auto a = actor; a; a = ParentOf(a))
+                if (a == ancestor)
+                    return true;
+            return false;
+        }
+
+        std::shared_ptr<Actor> CreateActor(const std::shared_ptr<Actor>& parent, const std::string& name, const std::string& folder)
+        {
+            Engine::Worlds::World* world = CurrentWorld();
+            if (!world)
+                return nullptr;
+
+            auto actor = Engine::Core::Object::CreateWithContext<Actor>(&Engine::Core::GetEngine(), name, &Engine::Core::GetEngine());
+            if (parent)
+                parent->AddChild(actor);
+            else
+            {
+                world->AddActor(actor);
+                actor->SetFolder(folder);
+            }
+
+            RecordCreated(actor);
+            return actor;
+        }
+
+        void DeleteMany(const std::vector<std::shared_ptr<Actor>>& actors, const std::string& label)
+        {
+            const auto top = TopLevel(actors);
+            if (top.empty())
+                return;
+
+            auto& stack = CommandStack::Get();
+            stack.Begin(label);
+            for (const auto& actor : top)
+                Delete(actor, label);
+            stack.End();
+        }
+
+        std::vector<std::shared_ptr<Actor>> DuplicateMany(const std::vector<std::shared_ptr<Actor>>& actors)
+        {
+            std::vector<std::shared_ptr<Actor>> copies;
+
+            const auto top = TopLevel(actors);
+            if (top.empty())
+                return copies;
+
+            auto& stack = CommandStack::Get();
+            stack.Begin("Duplicate Actors");
+            for (const auto& actor : top)
+                if (auto copy = Duplicate(actor))
+                    copies.push_back(copy);
+            stack.End();
+
+            return copies;
+        }
+
+        int ReparentMany(const std::vector<std::shared_ptr<Actor>>& actors, const std::shared_ptr<Actor>& newParent)
+        {
+            int moved = 0;
+
+            auto& stack = CommandStack::Get();
+            stack.Begin("Reparent Actors");
+            for (const auto& actor : TopLevel(actors))
+            {
+                // Under itself or its own subtree : refused
+                if (newParent && IsSelfOrAncestor(actor, newParent))
+                    continue;
+
+                if (Reparent(actor, newParent))
+                    ++moved;
+            }
+            stack.End();
+
+            return moved;
+        }
+
+        void MoveToFolder(const std::vector<std::shared_ptr<Actor>>& actors, const std::string& folder)
+        {
+            const std::string target = NormalizeFolderPath(folder);
+            const auto top = TopLevel(actors);
+            if (top.empty())
+                return;
+
+            auto& stack = CommandStack::Get();
+            stack.Begin("Move To Folder");
+
+            // A folder holds root actors
+            for (const auto& actor : top)
+                if (ParentOf(actor))
+                    Reparent(actor, nullptr);
+
+            auto command = std::make_unique<SetFolderCommand>("Move To Folder");
+            for (const auto& actor : top)
+                command->AddActor(actor, target);
+            for (const auto& actor : top)
+                actor->SetFolder(target);
+            stack.Record(std::move(command));
+
+            stack.End();
+            MarkWorldDirty();
+        }
+
+        std::shared_ptr<Actor> GroupActors(const std::vector<std::shared_ptr<Actor>>& actors, const std::string& name)
+        {
+            const auto top = TopLevel(actors);
+            if (top.empty())
+                return nullptr;
+
+            auto& stack = CommandStack::Get();
+            stack.Begin("Group Actors");
+
+            // Its own step first : the snapshot of the new actor is taken when this group of commands ends, before the
+            // actors are put under it (else a redo would build them a second time)
+            stack.Begin("Create Group");
+            const auto firstParent = ParentOf(top[0]);
+            auto group = CreateActor(firstParent, name, firstParent ? std::string() : top[0]->GetFolder());
+            if (group && group->transform)
+            {
+                glm::vec3 center(0.0f);
+                for (const auto& actor : top)
+                    center += actor->transform->GetWorldPosition();
+                center /= static_cast<float>(top.size());
+                group->transform->SetFromWorldMatrix(glm::translate(glm::mat4(1.0f), center));
+            }
+            stack.End();
+
+            if (group)
+                for (const auto& actor : top)
+                    Reparent(actor, group);
+
+            stack.End();
+            return group;
+        }
+
+        std::string NormalizeFolderPath(const std::string& path)
+        {
+            std::string result;
+            std::string part;
+            auto flush = [&]{
+                // Spaces around a part are not a name
+                const size_t first = part.find_first_not_of(' ');
+                if (first != std::string::npos)
+                {
+                    if (!result.empty())
+                        result += '/';
+                    result += part.substr(first, part.find_last_not_of(' ') - first + 1);
+                }
+                part.clear();
+            };
+
+            for (char c : path)
+            {
+                if (c == '/' || c == '\\')
+                    flush();
+                else
+                    part += c;
+            }
+            flush();
+
+            return result;
+        }
+
+        bool IsInFolder(const std::string& path, const std::string& folder)
+        {
+            if (folder.empty())
+                return true;
+            return path == folder || (path.size() > folder.size() && path.compare(0, folder.size(), folder) == 0 && path[folder.size()] == '/');
+        }
+
+        std::string CreateFolder(const std::string& path)
+        {
+            Engine::Worlds::World* world = CurrentWorld();
+            std::string wanted = NormalizeFolderPath(path);
+            if (!world || wanted.empty())
+                return std::string();
+
+            const auto existing = AllFolders(world);
+            std::string unique = wanted;
+            for (int n = 2; existing.count(unique); ++n)
+                unique = wanted + " " + std::to_string(n);
+
+            std::vector<std::string> before = world->GetFolders();
+            std::vector<std::string> after = before;
+            after.push_back(unique);
+
+            world->GetFolders() = after;
+            CommandStack::Get().Record(std::make_unique<SetWorldFoldersCommand>("Create Folder", std::move(before), std::move(after)));
+            MarkWorldDirty();
+            return unique;
+        }
+
+        bool RenameFolder(const std::string& path, const std::string& newPath)
+        {
+            Engine::Worlds::World* world = CurrentWorld();
+            const std::string from = NormalizeFolderPath(path);
+            const std::string to = NormalizeFolderPath(newPath);
+            if (!world || from.empty() || to.empty() || from == to || IsInFolder(to, from))
+                return false;
+
+            // Moving a folder onto another one would merge them, which is not what a typo in a name should do
+            if (AllFolders(world).count(to))
+                return false;
+
+            auto& stack = CommandStack::Get();
+            stack.Begin("Rename Folder");
+
+            auto command = std::make_unique<SetFolderCommand>("Rename Folder");
+            std::vector<std::shared_ptr<Actor>> inside;
+            for (const auto& [id, actor] : world->GetRootActors())
+                if (actor && IsInFolder(actor->GetFolder(), from))
+                    inside.push_back(actor);
+
+            for (const auto& actor : inside)
+                command->AddActor(actor, ReplacePrefix(actor->GetFolder(), from, to));
+            for (const auto& actor : inside)
+                actor->SetFolder(ReplacePrefix(actor->GetFolder(), from, to));
+            stack.Record(std::move(command));
+
+            std::vector<std::string> before = world->GetFolders();
+            std::vector<std::string> after = before;
+            for (auto& f : after)
+                if (IsInFolder(f, from))
+                    f = ReplacePrefix(f, from, to);
+            // A folder only the actors in it made is still a folder once they are gone
+            if (std::find(after.begin(), after.end(), to) == after.end())
+                after.push_back(to);
+            world->GetFolders() = after;
+            stack.Record(std::make_unique<SetWorldFoldersCommand>("Rename Folder", std::move(before), std::move(after)));
+
+            stack.End();
+            MarkWorldDirty();
+            return true;
+        }
+
+        void DeleteFolder(const std::string& path, bool deleteActors)
+        {
+            Engine::Worlds::World* world = CurrentWorld();
+            const std::string folder = NormalizeFolderPath(path);
+            if (!world || folder.empty())
+                return;
+
+            std::vector<std::shared_ptr<Actor>> inside;
+            for (const auto& [id, actor] : world->GetRootActors())
+                if (actor && IsInFolder(actor->GetFolder(), folder))
+                    inside.push_back(actor);
+
+            auto& stack = CommandStack::Get();
+            stack.Begin("Delete Folder");
+
+            if (deleteActors)
+            {
+                DeleteMany(inside, "Delete Actors");
+            }
+            else
+            {
+                // They move up to the folder around this one, with the sub folders they were in
+                const std::string up = ParentFolder(folder);
+                auto command = std::make_unique<SetFolderCommand>("Delete Folder");
+                for (const auto& actor : inside)
+                    command->AddActor(actor, ReplacePrefix(actor->GetFolder(), folder, up));
+                for (const auto& actor : inside)
+                    actor->SetFolder(ReplacePrefix(actor->GetFolder(), folder, up));
+                stack.Record(std::move(command));
+            }
+
+            std::vector<std::string> before = world->GetFolders();
+            std::vector<std::string> after;
+            for (const auto& f : before)
+            {
+                if (f == folder)
+                    continue;
+                if (IsInFolder(f, folder))
+                {
+                    if (deleteActors)
+                        continue;
+                    after.push_back(ReplacePrefix(f, folder, ParentFolder(folder)));
+                }
+                else
+                {
+                    after.push_back(f);
+                }
+            }
+            world->GetFolders() = after;
+            stack.Record(std::make_unique<SetWorldFoldersCommand>("Delete Folder", std::move(before), std::move(after)));
+
+            stack.End();
+            MarkWorldDirty();
+        }
     }
 
-    void ActorClipboard::Cut(const std::shared_ptr<Actor>& actor)
+    void ActorClipboard::Copy(const std::vector<std::shared_ptr<Actor>>& actors)
     {
-        if (!actor)
+        const auto top = Actions::TopLevel(actors);
+        if (top.empty())
             return;
 
-        Copy(actor);
-        Actions::Delete(actor, "Cut Actor");
+        entries.clear();
+        for (const auto& actor : top)
+        {
+            Entry entry;
+            entry.data = Engine::Worlds::SerializeActorToJson(actor);
+            entry.worldMatrix = actor->transform ? actor->transform->GetWorldMatrix() : glm::mat4(1.0f);
+            entry.parent = ObjectRefs::Get(ParentOf(actor));
+            entries.push_back(std::move(entry));
+        }
     }
 
-    std::shared_ptr<Actor> ActorClipboard::Paste()
+    void ActorClipboard::Cut(const std::vector<std::shared_ptr<Actor>>& actors)
     {
+        if (actors.empty())
+            return;
+
+        Copy(actors);
+        Actions::DeleteMany(actors, "Cut Actors");
+    }
+
+    std::vector<std::shared_ptr<Actor>> ActorClipboard::Paste()
+    {
+        std::vector<std::shared_ptr<Actor>> pasted;
+
         Engine::Worlds::World* world = CurrentWorld();
         if (IsEmpty() || !world)
-            return nullptr;
+            return pasted;
 
-        std::shared_ptr<Actor> parentActor = parent ? parent->Resolve<Actor>() : nullptr;
+        auto& stack = CommandStack::Get();
+        stack.Begin("Paste Actors");
 
-        std::shared_ptr<Actor> actor = Engine::Worlds::InstantiateActor(*world, data, parentActor);
-        if (!actor)
-            return nullptr;
+        for (const auto& entry : entries)
+        {
+            std::shared_ptr<Actor> parentActor = entry.parent ? entry.parent->Resolve<Actor>() : nullptr;
 
-        // Its transform is relative to the parent it was copied from, which may not be the one it lands under
-        if (actor->transform)
-            actor->transform->SetFromWorldMatrix(worldMatrix);
+            std::shared_ptr<Actor> actor = Engine::Worlds::InstantiateActor(*world, entry.data, parentActor);
+            if (!actor)
+                continue;
 
-        Actions::RecordCreated(actor, "Paste Actor");
-        return actor;
+            // Its transform is relative to the parent it was copied from, which may not be the one it lands under
+            if (actor->transform)
+                actor->transform->SetFromWorldMatrix(entry.worldMatrix);
+
+            Actions::RecordCreated(actor, "Paste Actor");
+            pasted.push_back(actor);
+        }
+
+        stack.End();
+        return pasted;
     }
 }

@@ -65,6 +65,9 @@ namespace Shard::Engine::Worlds{
         // wrong place until something (e.g. moving it manually) recomputed its world transform.
         DeserializeComponents(a, actor);
 
+        if (actor.contains("folder") && actor["folder"].is_string())
+            a->SetFolder(actor["folder"].get<std::string>());
+
         if (actor.contains("children") && actor["children"].is_array() && !actor["children"].empty()) {
             Core::IEngineContext* engine = &Core::GetEngine();
             for (auto& child : actor["children"]) {
@@ -194,6 +197,12 @@ namespace Shard::Engine::Worlds{
 
             name = data["name"];
 
+            folders.clear();
+            if(data.contains("folders") && data["folders"].is_array())
+                for(auto& folder : data["folders"])
+                    if(folder.is_string())
+                        folders.push_back(folder.get<std::string>());
+
             // Before the actors : a transform names its frame by id
             if(data.contains("frames"))
                 DeserializeFrames(frames, data["frames"]);
@@ -263,6 +272,9 @@ namespace Shard::Engine::Worlds{
 
         actor["name"] = a->GetName();
 
+        if(!a->GetFolder().empty())
+            actor["folder"] = a->GetFolder();
+
         for(auto& childrenID : a->GetChildrenID(false)){
             auto child = a->GetChild(childrenID);
             SerializeActor(std::dynamic_pointer_cast<Objects::Actor>(child), &actor["children"]);
@@ -316,6 +328,9 @@ namespace Shard::Engine::Worlds{
 
         if(frames.Count() > 1)
             full["frames"] = SerializeFrames(frames);
+
+        if(!folders.empty())
+            full["folders"] = folders;
 
         std::vector<std::pair<Core::ObjectID, std::shared_ptr<Objects::Actor>>> sortedActors(
             rootActors.begin(), rootActors.end()
@@ -405,6 +420,7 @@ namespace Shard::Engine::Worlds{
             RemoveActorRecursive(id);
 
         frames.Clear();
+        folders.clear();
     }
 
     void World::OnLoad()

@@ -7,6 +7,9 @@
 #include "engine/physics/physics_body.hpp"
 #include "engine/physics/physics_events.hpp"
 #include "engine/physics/physics_world_data.hpp"
+#include "engine/physics/gravity_field.hpp"
+
+#include <Jolt/Physics/Body/BodyLock.h>
 
 #include "engine/world/actor.hpp"
 
@@ -84,6 +87,10 @@ namespace Shard::Engine::Physics {
         m_PendingContacts.clear();
         m_DispatchedContacts.clear();
         m_ScriptCache.clear();
+        m_GravityFields.clear();
+        m_BodyGravity.clear();
+        m_AppliedGravity.clear();
+        m_ActiveBodies.clear();
 
         delete m_jobSystem;
         m_jobSystem = nullptr;
@@ -123,6 +130,180 @@ namespace Shard::Engine::Physics {
 
         JPH::Vec3 gravity = m_physicsSystem.GetGravity();
         return glm::vec3(gravity.GetX(), gravity.GetY(), gravity.GetZ());
+    }
+
+    void PhysicsManager::SetGravityFields(std::vector<GravityFieldData> fields)
+    {
+        SortGravityFields(fields);
+
+        if (fields == m_GravityFields)
+            return;
+
+        m_GravityFields = std::move(fields);
+        m_GravityFieldsChanged = true;
+    }
+
+    void PhysicsManager::CollectGravityFields()
+    {
+        std::vector<GravityFieldData> fields;
+
+        Worlds::WorldManager* worlds = Core::GetEngine().GetWorldManager();
+        const int worldCount = worlds ? worlds->GetLoadedWorldCount() : 0;
+        uint32_t order = 0;
+        for (int i = 0; i < worldCount; i++)
+        {
+            Worlds::World* world = worlds->GetWorldAt(i);
+            if (!world)
+                continue;
+
+            // Ordered by id in the world : the same fields always make the same list, whatever the platform
+            for (auto& [id, field] : world->Ext<PhysicsWorldData>().gravityFields)
+            {
+                if (!field || !field->Active())
+                    continue;
+
+                GravityFieldData data = field->BuildData();
+                data.order = order++;
+                fields.push_back(data);
+            }
+        }
+
+        SetGravityFields(std::move(fields));
+    }
+
+    glm::vec3 PhysicsManager::GetGravityAt(const glm::dvec3& position)
+    {
+        return SampleGravityFields(m_GravityFields, position, GetGravity());
+    }
+
+    void PhysicsManager::SetBodyGravity(JPH::BodyID id, GravityMode mode, glm::vec3 custom)
+    {
+        if (id.IsInvalid())
+            return;
+
+        if (mode == GravityMode::Fields)
+            m_BodyGravity.erase(id);
+        else
+            m_BodyGravity[id] = BodyGravity{ mode, custom };
+
+        // Whatever it felt before has nothing to do with the new mode
+        m_AppliedGravity.erase(id);
+    }
+
+    glm::vec3 PhysicsManager::BodyGravityAt(JPH::BodyID id, const glm::dvec3& position, const glm::vec3& world) const
+    {
+        auto it = m_BodyGravity.find(id);
+        return ResolveBodyGravity(m_GravityFields, it != m_BodyGravity.end() ? it->second : BodyGravity{}, position, world);
+    }
+
+    glm::vec3 PhysicsManager::GetBodyGravity(JPH::BodyID id)
+    {
+        const glm::vec3 world = GetGravity();
+
+        JPH::BodyLockRead lock(m_physicsSystem.GetBodyLockInterface(), id);
+        if (!lock.Succeeded())
+            return world;
+
+        return BodyGravityAt(id, ToGLMD(lock.GetBody().GetCenterOfMassPosition()), world);
+    }
+
+    void PhysicsManager::WakeBodiesOfChangedGravity()
+    {
+        const glm::vec3 world = GetGravity();
+
+        std::vector<JPH::BodyID> toWake;
+        for (const auto& [id, component] : bodyIDToComponentMap)
+        {
+            // Its own gravity does not depend on the fields. A body whose component is off was put to sleep on purpose
+            if (m_BodyGravity.find(id) != m_BodyGravity.end() || (component && !component->Active()))
+                continue;
+
+            JPH::BodyLockRead lock(m_physicsSystem.GetBodyLockInterface(), id);
+            if (!lock.Succeeded())
+                continue;
+
+            const JPH::Body& body = lock.GetBody();
+            if (!body.IsDynamic() || body.IsActive())
+                continue;
+
+            const glm::vec3 now = SampleGravityFields(m_GravityFields, ToGLMD(body.GetCenterOfMassPosition()), world);
+            auto it = m_AppliedGravity.find(id);
+            const glm::vec3 before = it != m_AppliedGravity.end() ? it->second : world;
+
+            if (glm::length(now - before) > 1e-3f + 1e-4f * glm::length(before))
+                toWake.push_back(id);
+        }
+
+        if (toWake.empty())
+            return;
+
+        // The map is in no particular order, and the order the bodies are woken in is the order they are simulated in
+        std::sort(toWake.begin(), toWake.end(), [](JPH::BodyID a, JPH::BodyID b) {
+            return a.GetIndexAndSequenceNumber() < b.GetIndexAndSequenceNumber();
+        });
+        m_physicsSystem.GetBodyInterface().ActivateBodies(toWake.data(), (int)toWake.size());
+    }
+
+    void PhysicsManager::ApplyGravityFields()
+    {
+        // The forces are consumed by the one collision step of the Update that follows (Jolt clears them at the end of each one), which
+        // is what StepSimulation runs. With several collision steps per Update the first would take them all.
+
+        if (m_GravityFieldsChanged)
+        {
+            WakeBodiesOfChangedGravity();
+            m_GravityFieldsChanged = false;
+        }
+
+        if (m_GravityFields.empty() && m_BodyGravity.empty())
+        {
+            m_AppliedGravity.clear();
+            return;
+        }
+
+        const glm::vec3 world = GetGravity();
+
+        auto apply = [&](JPH::BodyID id) {
+            JPH::BodyLockWrite lock(m_physicsSystem.GetBodyLockInterface(), id);
+            if (!lock.Succeeded())
+                return;
+
+            JPH::Body& body = lock.GetBody();
+            if (!body.IsDynamic() || !body.IsActive())
+                return;
+
+            JPH::MotionProperties* motion = body.GetMotionProperties();
+            const float inverseMass = motion->GetInverseMassUnchecked();
+            if (inverseMass <= 0.0f)
+                return;
+
+            const glm::vec3 gravity = BodyGravityAt(id, ToGLMD(body.GetCenterOfMassPosition()), world);
+            if (m_BodyGravity.find(id) == m_BodyGravity.end())
+                m_AppliedGravity[id] = gravity;
+
+            // Jolt adds `gravityFactor * world` itself : what is missing, as a force (a = F / m), is the difference
+            const glm::vec3 missing = gravity - world;
+            if (glm::dot(missing, missing) <= 1e-12f)
+                return;
+
+            body.AddForce(ToJolt(missing * (motion->GetGravityFactor() / inverseMass)));
+        };
+
+        if (m_GravityFields.empty())
+        {
+            // Only the bodies that have a gravity of their own are concerned
+            std::vector<JPH::BodyID> ids;
+            ids.reserve(m_BodyGravity.size());
+            for (const auto& [id, gravity] : m_BodyGravity)
+                ids.push_back(id);
+            for (JPH::BodyID id : ids)
+                apply(id);
+            return;
+        }
+
+        m_physicsSystem.GetActiveBodies(JPH::EBodyType::RigidBody, m_ActiveBodies);
+        for (JPH::BodyID id : m_ActiveBodies)
+            apply(id);
     }
 
     RaycastResult PhysicsManager::RayCast(RaycastRequest request)
@@ -282,6 +463,8 @@ namespace Shard::Engine::Physics {
             m_bodiesAddedSinceOptimize = 0;
         }
 
+        ApplyGravityFields();
+
         m_physicsSystem.Update(deltaTime, 1, m_tempAllocator, m_jobSystem);
         m_StepCount++;
 
@@ -329,6 +512,8 @@ namespace Shard::Engine::Physics {
         bodyInterface.RemoveBody(id);
         bodyInterface.DestroyBody(id);
         bodyIDToComponentMap.erase(id);
+        m_BodyGravity.erase(id);
+        m_AppliedGravity.erase(id);
     }
 
     ValidateResult PhysicsContactListener::OnContactValidate(const Body &inBody1, const Body &inBody2, RVec3Arg inBaseOffset, const CollideShapeResult &inCollisionResult)

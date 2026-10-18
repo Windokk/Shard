@@ -106,6 +106,64 @@ namespace Shard::Editor::Commands{
             std::string newName;
     };
 
+    /// Actors moved into other outliner folders (see Actor::GetFolder)
+    class SetFolderCommand final : public Command {
+        public:
+            explicit SetFolderCommand(std::string label) : name(std::move(label)) {}
+
+            void AddActor(const std::shared_ptr<Engine::Objects::Actor>& actor, std::string newFolder) {
+                entries.push_back({ ObjectRefs::Get(actor), actor->GetFolder(), std::move(newFolder) });
+            }
+
+            bool IsValid() const override {
+                for (const auto& e : entries)
+                    if (e.before != e.after)
+                        return true;
+                return false;
+            }
+
+            void Undo() override { for (const auto& e : entries) Apply(e.actor, e.before); }
+            void Redo() override { for (const auto& e : entries) Apply(e.actor, e.after); }
+
+            const std::string& GetName() const override { return name; }
+
+        private:
+            struct Entry {
+                std::shared_ptr<ObjectRef> actor;
+                std::string before;
+                std::string after;
+            };
+
+            static void Apply(const std::shared_ptr<ObjectRef>& ref, const std::string& folder) {
+                if (auto a = ref ? ref->Resolve<Engine::Objects::Actor>() : nullptr)
+                    a->SetFolder(folder);
+            }
+
+            std::string name;
+            std::vector<Entry> entries;
+    };
+
+    /// The list of folders of the world (the empty ones included) before and after an edit
+    class SetWorldFoldersCommand final : public Command {
+        public:
+            SetWorldFoldersCommand(std::string label, std::vector<std::string> before, std::vector<std::string> after)
+                : name(std::move(label)), before(std::move(before)), after(std::move(after)) {}
+
+            bool IsValid() const override { return before != after; }
+
+            void Undo() override { Apply(before); }
+            void Redo() override { Apply(after); }
+
+            const std::string& GetName() const override { return name; }
+
+        private:
+            static void Apply(const std::vector<std::string>& folders);
+
+            std::string name;
+            std::vector<std::string> before;
+            std::vector<std::string> after;
+    };
+
     class SetComponentActiveCommand final : public Command {
         public:
             SetComponentActiveCommand(const std::shared_ptr<Component>& component, bool active)
@@ -152,26 +210,70 @@ namespace Shard::Editor::Commands{
         void EditActor(const std::shared_ptr<Engine::Objects::Actor>& actor, const std::string& label, const std::function<void()>& edit);
 
         void MarkWorldDirty();
+
+        /// What the edits of several actors work on : the actors that have no ancestor in the list (an actor carries its
+        /// children with it), without duplicates, in the order they were given
+        std::vector<std::shared_ptr<Engine::Objects::Actor>> TopLevel(const std::vector<std::shared_ptr<Engine::Objects::Actor>>& actors);
+
+        /// Whether `ancestor` is `actor` or one of its ancestors
+        bool IsSelfOrAncestor(const std::shared_ptr<Engine::Objects::Actor>& ancestor, const std::shared_ptr<Engine::Objects::Actor>& actor);
+
+        /// A new actor under `parent` (null : the root of the world, in `folder`), recorded in the undo history
+        std::shared_ptr<Engine::Objects::Actor> CreateActor(const std::shared_ptr<Engine::Objects::Actor>& parent, const std::string& name = "New Actor",
+                                                            const std::string& folder = "");
+
+        /// Deletes the actors (and their subtrees) as one step of the history
+        void DeleteMany(const std::vector<std::shared_ptr<Engine::Objects::Actor>>& actors, const std::string& label = "Delete Actors");
+
+        /// Copies of the actors, each next to its original : one step of the history
+        std::vector<std::shared_ptr<Engine::Objects::Actor>> DuplicateMany(const std::vector<std::shared_ptr<Engine::Objects::Actor>>& actors);
+
+        /// Moves the actors under newParent (null : the root of the world) : one step of the history. The ones that cannot be
+        /// moved there (the parent itself, one of its ancestors) stay where they are.
+        /// @return How many moved
+        int ReparentMany(const std::vector<std::shared_ptr<Engine::Objects::Actor>>& actors, const std::shared_ptr<Engine::Objects::Actor>& newParent);
+
+        /// Puts the actors in an outliner folder (empty : the top). A folder holds root actors : the ones that have a parent are
+        /// detached from it first, keeping where they are in the world.
+        void MoveToFolder(const std::vector<std::shared_ptr<Engine::Objects::Actor>>& actors, const std::string& folder);
+
+        /// A new empty actor that takes the actors as its children, at their center. The group sits where the first of them was.
+        std::shared_ptr<Engine::Objects::Actor> GroupActors(const std::vector<std::shared_ptr<Engine::Objects::Actor>>& actors, const std::string& name = "Group");
+
+        /// The folder operations ; a folder is its path ("Lights/Indoor"), the sub folders follow it
+        std::string NormalizeFolderPath(const std::string& path);
+        /// Whether `path` is `folder` or inside it
+        bool IsInFolder(const std::string& path, const std::string& folder);
+        /// @return The path actually made (the name is made unique among the folders around it), empty if refused
+        std::string CreateFolder(const std::string& path);
+        /// @return false if the new path is taken, empty, or inside the folder itself
+        bool RenameFolder(const std::string& path, const std::string& newPath);
+        /// @param deleteActors The actors inside are deleted too ; else they move up to the parent folder
+        void DeleteFolder(const std::string& path, bool deleteActors);
     }
 
-    /// @brief What Copy and Cut take : a description of the actor (not the actor itself, which can change or be
-    /// destroyed before the paste), where it was in the world and under which parent.
+    /// @brief What Copy and Cut take : a description of the actors (not the actors themselves, which can change or be
+    /// destroyed before the paste), where each was in the world and under which parent.
     class ActorClipboard {
         public:
-            void Copy(const std::shared_ptr<Engine::Objects::Actor>& actor);
+            /// Takes the place of what was copied before. The actors inside another listed actor go with it.
+            void Copy(const std::vector<std::shared_ptr<Engine::Objects::Actor>>& actors);
 
-            /// Copies the actor and deletes it
-            void Cut(const std::shared_ptr<Engine::Objects::Actor>& actor);
+            /// Copies the actors and deletes them
+            void Cut(const std::vector<std::shared_ptr<Engine::Objects::Actor>>& actors);
 
-            /// A new actor built from what was copied, at the same place in the world, under the same parent if it is
-            /// still there (else at the root of the world). Null if there is nothing to paste.
-            std::shared_ptr<Engine::Objects::Actor> Paste();
+            /// New actors built from what was copied, at the same place in the world, under the same parent if it is
+            /// still there (else at the root of the world). Empty if there is nothing to paste.
+            std::vector<std::shared_ptr<Engine::Objects::Actor>> Paste();
 
-            bool IsEmpty() const { return data.is_null(); }
+            bool IsEmpty() const { return entries.empty(); }
 
         private:
-            ordered_json data;
-            glm::mat4 worldMatrix = glm::mat4(1.0f);
-            std::shared_ptr<ObjectRef> parent;
+            struct Entry {
+                ordered_json data;
+                glm::mat4 worldMatrix = glm::mat4(1.0f);
+                std::shared_ptr<ObjectRef> parent;
+            };
+            std::vector<Entry> entries;
     };
 }

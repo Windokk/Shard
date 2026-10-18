@@ -201,7 +201,8 @@ public:
 
 private:
     std::map<std::string, std::vector<std::string>> perFileGenerated;
-    
+    std::set<std::string> emittedEnums;     // "file|enum" : the enum descriptors already written (see handleField)
+
     /// Whether the class declares the static `descriptor` that DECLARE_DESCRIPTOR() adds. An annotated class without
     /// it (the abstract Volume : its GetDescriptor() stays pure virtual) has no descriptor to define, its fields are
     /// reflected by the classes derived from it.
@@ -440,15 +441,20 @@ private:
             const EnumDecl* E = fieldType->getAs<EnumType>()->getDecl();
             enumDescVar = E->getNameAsString() + "_descriptor";
 
-            out << "static EnumDescriptor " << enumDescVar << " = {\n";
-            out << "    \"" << E->getNameAsString() << "\",\n    {\n";
-            for (const auto* it : E->enumerators()) {
-                out << "        { " << it->getInitVal().getSExtValue()
-                    << ", ""\"" << it->getNameAsString() << "\" },\n";
+            // Once per generated file : the classes of a header that share an enum (or inherit a field of that type from the same
+            // base) all reference the one descriptor, defining it again would not compile
+            const std::string enumKey = SM.getFilename(Parent->getLocation()).str() + "|" + E->getQualifiedNameAsString();
+            if (emittedEnums.insert(enumKey).second) {
+                out << "static EnumDescriptor " << enumDescVar << " = {\n";
+                out << "    \"" << E->getNameAsString() << "\",\n    {\n";
+                for (const auto* it : E->enumerators()) {
+                    out << "        { " << it->getInitVal().getSExtValue()
+                        << ", ""\"" << it->getNameAsString() << "\" },\n";
+                }
+                out << "    },\n";
+                out << "    sizeof(" << fieldType.getAsString(policy) << ")\n";
+                out << "};\n\n";
             }
-            out << "    },\n";
-            out << "    sizeof(" << fieldType.getAsString(policy) << ")\n";
-            out << "};\n\n";
 
             typeName = "enum";
         }

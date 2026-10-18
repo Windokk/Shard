@@ -227,8 +227,21 @@ namespace Shard::Editor::GUI {
 
         HandleAssetDrop();
 
+        HandleShortcuts();
+
         if(parent && parent->GetSelectedActor() && parent->settings.showGizmos)
             DrawObjectGizmo();
+
+        if(marqueeActive)
+        {
+            ImDrawList* drawList = ImGui::GetWindowDrawList();
+            const ImVec2 low(std::min(marqueeStart.x, marqueeEnd.x), std::min(marqueeStart.y, marqueeEnd.y));
+            const ImVec2 high(std::max(marqueeStart.x, marqueeEnd.x), std::max(marqueeStart.y, marqueeEnd.y));
+            drawList->PushClipRect(viewportImageMin, viewportImageMax, true);
+            drawList->AddRectFilled(low, high, IM_COL32(90, 150, 255, 40));
+            drawList->AddRect(low, high, IM_COL32(120, 175, 255, 220));
+            drawList->PopClipRect();
+        }
 
         viewportPos = ImGui::GetWindowPos();
 
@@ -487,6 +500,7 @@ namespace Shard::Editor::GUI {
         // ImGuizmo manipulates in world space (it's driven by the camera's world-space view matrix) -
         // so hand it the actor's world matrix, and convert back to local when writing the result back.
         glm::mat4 transform = selected->transform->GetWorldMatrix();
+        const glm::mat4 transformBefore = transform;
 
         // Far from the origin the translations of the view and of the object are huge floats that nearly cancel, and the gizmo
         // jumps around. Hand ImGuizmo a camera at the origin and the object relative to it (the subtraction in double, then
@@ -536,25 +550,65 @@ namespace Shard::Editor::GUI {
             gizmoActive = true;
 
             auto& stack = Commands::CommandStack::Get();
-            stack.Begin("Transform Object");
 
-            FieldInfo* positionField = selected->transform->GetDescriptor()->fields[0];
-            FieldInfo* rotationField = selected->transform->GetDescriptor()->fields[1];
-            FieldInfo* scaleField    = selected->transform->GetDescriptor()->fields[2];
+            // The selected actors that move with the gizmo : the ones that have no selected ancestor (they carry their
+            // children), in the frame the gizmo is in (the others have no common coordinates with it)
+            gizmoTargets.clear();
+            for (const auto& actor : Commands::Actions::TopLevel(parent->GetSelectedActors()))
+            {
+                if (!actor->transform || actor->transform->GetFrame() != selected->transform->GetFrame())
+                    continue;
+                gizmoTargets.push_back({ actor, actor->transform->GetWorldMatrix() });
+            }
 
-            stack.Add(std::make_unique<Commands::ModifyFieldCommand>(selected->transform, positionField));
-            stack.Add(std::make_unique<Commands::ModifyFieldCommand>(selected->transform, rotationField));
-            stack.Add(std::make_unique<Commands::ModifyFieldCommand>(selected->transform, scaleField));
+            // Where the gizmo was when the drag began (relative to the camera, like the matrix ImGuizmo works on)
+            gizmoStartMatrix = transformBefore;
+            gizmoStartMatrix[3] = glm::vec4(glm::vec3(glm::dvec3(gizmoStartMatrix[3]) - gizmoOffset), gizmoStartMatrix[3].w);
+
+            stack.Begin(gizmoTargets.size() > 1 ? "Transform Objects" : "Transform Object");
+
+            for (const auto& target : gizmoTargets)
+            {
+                FieldInfo* positionField = target.actor->transform->GetDescriptor()->fields[0];
+                FieldInfo* rotationField = target.actor->transform->GetDescriptor()->fields[1];
+                FieldInfo* scaleField    = target.actor->transform->GetDescriptor()->fields[2];
+
+                stack.Add(std::make_unique<Commands::ModifyFieldCommand>(target.actor->transform, positionField));
+                stack.Add(std::make_unique<Commands::ModifyFieldCommand>(target.actor->transform, rotationField));
+                stack.Add(std::make_unique<Commands::ModifyFieldCommand>(target.actor->transform, scaleField));
+            }
         }
 
         if (ImGuizmo::IsUsing()) {
-            transform[3] = glm::vec4(glm::vec3(glm::dvec3(transform[3]) + gizmoOffset), transform[3].w);
-            selected->transform->SetFromWorldMatrix(transform);
+            const bool onlyPrimary = gizmoTargets.size() == 1 && gizmoTargets[0].actor == selected;
+
+            if (onlyPrimary)
+            {
+                transform[3] = glm::vec4(glm::vec3(glm::dvec3(transform[3]) + gizmoOffset), transform[3].w);
+                selected->transform->SetFromWorldMatrix(transform);
+            }
+            else
+            {
+                // What the gizmo did since the drag began, applied to every selected actor from where it was (they turn and
+                // scale around the gizmo, as a group)
+                const glm::mat4 delta = transform * glm::inverse(gizmoStartMatrix);
+
+                for (const auto& target : gizmoTargets)
+                {
+                    glm::mat4 relative = target.startWorld;
+                    relative[3] = glm::vec4(glm::vec3(glm::dvec3(relative[3]) - gizmoOffset), relative[3].w);
+
+                    glm::mat4 moved = delta * relative;
+                    moved[3] = glm::vec4(glm::vec3(glm::dvec3(moved[3]) + gizmoOffset), moved[3].w);
+                    target.actor->transform->SetFromWorldMatrix(moved);
+                }
+            }
         }
 
         if (!ImGuizmo::IsUsing() && gizmoActive) {
             Commands::CommandStack::Get().End();
             gizmoActive = false;
+            gizmoTargets.clear();
 
             if (auto* world = Engine::Core::GetEngine().GetWorldManager()->GetWorldAt(0))
                 world->SetDirty(true);
@@ -594,11 +648,25 @@ namespace Shard::Editor::GUI {
             }
         }
 
+        // Everything that is selected, each actor with its descendants
+        std::unordered_set<uint32_t> focusIds;
+        glm::vec3 center(0.0f);
+        int focusCount = 0;
+        for (const auto& actor : Commands::Actions::TopLevel(parent->GetSelectedActors()))
+        {
+            if (!actor->transform)
+                continue;
+            const auto hierarchy = CollectHierarchyIDs(actor);
+            focusIds.insert(hierarchy.begin(), hierarchy.end());
+            center += actor->transform->GetWorldPosition();
+            ++focusCount;
+        }
+        center = focusCount > 0 ? center / static_cast<float>(focusCount) : selected->transform->GetWorldPosition();
+
         glm::vec3 boundsMin, boundsMax;
-        glm::vec3 center = selected->transform->GetWorldPosition();
         float radius = 1.0f;
 
-        if (ComputeHierarchyBounds(world, CollectHierarchyIDs(selected), boundsMin, boundsMax))
+        if (ComputeHierarchyBounds(world, focusIds, boundsMin, boundsMax))
         {
             center = (boundsMin + boundsMax) * 0.5f;
             radius = std::max(glm::length(boundsMax - boundsMin) * 0.5f, 0.1f);
@@ -639,22 +707,19 @@ namespace Shard::Editor::GUI {
         if (!selected || !world)
             return;
 
-        auto ids = CollectHierarchyIDs(selected);
+        const auto actors = Commands::Actions::TopLevel(parent->GetSelectedActors());
 
-        glm::vec3 boundsMin, boundsMax;
-        glm::vec3 origin = selected->transform->GetWorldPosition();
-        if (ComputeHierarchyBounds(world, ids, boundsMin, boundsMax))
-            origin = glm::vec3((boundsMin.x + boundsMax.x) * 0.5f, boundsMin.y, (boundsMin.z + boundsMax.z) * 0.5f);
+        // None of the selected hierarchies counts as "the floor" for another one (nor for itself)
+        std::unordered_set<uint32_t> allIds;
+        for (const auto& actor : actors)
+        {
+            const auto hierarchy = CollectHierarchyIDs(actor);
+            allIds.insert(hierarchy.begin(), hierarchy.end());
+        }
 
-        // Start a hair above the bottom so an object already resting on the floor still finds it
-        const float startOffset = 0.01f;
-        const float maxDistance = 10000.0f;
-        origin.y += startOffset;
-
-        // The hierarchy's own colliders must not count as "the floor"
         JPH::IgnoreMultipleBodiesFilter ignoreSelf;
         auto* idManager = Engine::Core::GetEngine().GetObjectIDManager();
-        for (uint32_t id : ids)
+        for (uint32_t id : allIds)
         {
             auto actor = std::dynamic_pointer_cast<Engine::Objects::Actor>(idManager->GetObjectFromID(Engine::Core::ObjectID(id)));
             if (!actor)
@@ -664,52 +729,71 @@ namespace Shard::Editor::GUI {
                     ignoreSelf.IgnoreBody(body->GetBodyID());
         }
 
-        Engine::Physics::RaycastRequest request{origin, glm::vec3(0, -1, 0), maxDistance};
-        request.bodyFilter = &ignoreSelf;
-        Engine::Physics::RaycastResult hit = Engine::Core::GetEngine().GetPhysicsManager()->RayCast(request);
-        float floorDistance = hit.hit ? hit.hitDistance : FLT_MAX;
-
-        // Same fallback as picking : physics-less models are only known by their mesh bounds,
-        // so the ray "lands" on the top face of any AABB lying straight underneath.
-        for (auto& modelEntry : world->Ext<Engine::Rendering::RenderWorldData>().models)
-        {
-            auto& modelComp = modelEntry.second;
-            if (!modelComp || !modelComp->parent || ids.count(modelComp->parent->GetID().GetAsInt()))
-                continue;
-            if (modelComp->parent->HasComponent<Engine::Objects::Components::PhysicsBody>())
-                continue;
-
-            auto mesh = modelComp->GetMesh();
-            if (!mesh || mesh->GetBoundsMin().x > mesh->GetBoundsMax().x)
-                continue;
-
-            glm::vec3 worldMin, worldMax;
-            ComputeWorldBounds(mesh->GetBoundsMin(), mesh->GetBoundsMax(),
-                               modelComp->parent->transform->GetWorldMatrix(), worldMin, worldMax);
-
-            bool underneath = origin.x >= worldMin.x && origin.x <= worldMax.x &&
-                              origin.z >= worldMin.z && origin.z <= worldMax.z &&
-                              worldMax.y <= origin.y;
-            if (underneath)
-                floorDistance = std::min(floorDistance, origin.y - worldMax.y);
-        }
-
-        if (floorDistance > maxDistance)
-            return;
-
-        float drop = floorDistance - startOffset;
-        if (std::abs(drop) < 1e-5f)
-            return;
+        // Start a hair above the bottom so an object already resting on the floor still finds it
+        const float startOffset = 0.01f;
+        const float maxDistance = 10000.0f;
 
         auto& stack = Commands::CommandStack::Get();
         stack.Begin("Snap To Floor");
 
-        stack.Add(std::make_unique<Commands::ModifyFieldCommand>(
-            selected->transform, selected->transform->GetDescriptor()->fields[0]));
+        for (const auto& actor : actors)
+        {
+            if (!actor->transform)
+                continue;
 
-        glm::mat4 worldMatrix = selected->transform->GetWorldMatrix();
-        worldMatrix[3].y -= drop;
-        selected->transform->SetFromWorldMatrix(worldMatrix);
+            auto ids = CollectHierarchyIDs(actor);
+
+            glm::vec3 boundsMin, boundsMax;
+            glm::vec3 origin = actor->transform->GetWorldPosition();
+            if (ComputeHierarchyBounds(world, ids, boundsMin, boundsMax))
+                origin = glm::vec3((boundsMin.x + boundsMax.x) * 0.5f, boundsMin.y, (boundsMin.z + boundsMax.z) * 0.5f);
+
+            origin.y += startOffset;
+
+            Engine::Physics::RaycastRequest request{origin, glm::vec3(0, -1, 0), maxDistance};
+            request.bodyFilter = &ignoreSelf;
+            Engine::Physics::RaycastResult hit = Engine::Core::GetEngine().GetPhysicsManager()->RayCast(request);
+            float floorDistance = hit.hit ? hit.hitDistance : FLT_MAX;
+
+            // Same fallback as picking : physics-less models are only known by their mesh bounds,
+            // so the ray "lands" on the top face of any AABB lying straight underneath.
+            for (auto& modelEntry : world->Ext<Engine::Rendering::RenderWorldData>().models)
+            {
+                auto& modelComp = modelEntry.second;
+                if (!modelComp || !modelComp->parent || allIds.count(modelComp->parent->GetID().GetAsInt()))
+                    continue;
+                if (modelComp->parent->HasComponent<Engine::Objects::Components::PhysicsBody>())
+                    continue;
+
+                auto mesh = modelComp->GetMesh();
+                if (!mesh || mesh->GetBoundsMin().x > mesh->GetBoundsMax().x)
+                    continue;
+
+                glm::vec3 worldMin, worldMax;
+                ComputeWorldBounds(mesh->GetBoundsMin(), mesh->GetBoundsMax(),
+                                   modelComp->parent->transform->GetWorldMatrix(), worldMin, worldMax);
+
+                bool underneath = origin.x >= worldMin.x && origin.x <= worldMax.x &&
+                                  origin.z >= worldMin.z && origin.z <= worldMax.z &&
+                                  worldMax.y <= origin.y;
+                if (underneath)
+                    floorDistance = std::min(floorDistance, origin.y - worldMax.y);
+            }
+
+            if (floorDistance > maxDistance)
+                continue;
+
+            float drop = floorDistance - startOffset;
+            if (std::abs(drop) < 1e-5f)
+                continue;
+
+            stack.Add(std::make_unique<Commands::ModifyFieldCommand>(
+                actor->transform, actor->transform->GetDescriptor()->fields[0]));
+
+            glm::mat4 worldMatrix = actor->transform->GetWorldMatrix();
+            worldMatrix[3].y -= drop;
+            actor->transform->SetFromWorldMatrix(worldMatrix);
+        }
 
         stack.End();
         world->SetDirty(true);
@@ -1130,6 +1214,10 @@ namespace Shard::Editor::GUI {
 
         bool canStartInteraction = cameraActor && viewportHovered && !uiHovered && !ImGuizmo::IsUsing() && !isUsingViewGizmo;
 
+        // Ctrl / Shift + button : a selection rectangle, not the camera
+        if (HandleMarquee(canStartInteraction && !isDragging))
+            return;
+
         if (!cameraActor || (!isDragging && !canStartInteraction))
             return;
 
@@ -1144,16 +1232,19 @@ namespace Shard::Editor::GUI {
             input->IsMouseDown(Engine::Input::MouseButton::Left))
             focusAnimating = false;
 
-        if(input->IsKeyDown(Engine::Input::Key::W)){
+        // Ctrl+key is a shortcut (Ctrl+D duplicates), not a move
+        const bool moveKeys = !ImGui::GetIO().KeyCtrl;
+
+        if(moveKeys && input->IsKeyDown(Engine::Input::Key::W)){
             cameraActor->transform->Translate(cameraActor->transform->GetForward() * cameraSpeed * time->GetDeltaTime());
         }
-        if(input->IsKeyDown(Engine::Input::Key::A)){
+        if(moveKeys && input->IsKeyDown(Engine::Input::Key::A)){
             cameraActor->transform->Translate(glm::normalize(glm::cross(cameraActor->transform->GetForward(), cameraActor->transform->GetUp())) * -cameraSpeed * time->GetDeltaTime());
         }
-        if(input->IsKeyDown(Engine::Input::Key::S)){
+        if(moveKeys && input->IsKeyDown(Engine::Input::Key::S)){
             cameraActor->transform->Translate(cameraActor->transform->GetForward() * -cameraSpeed * time->GetDeltaTime());
         }
-        if(input->IsKeyDown(Engine::Input::Key::D)){
+        if(moveKeys && input->IsKeyDown(Engine::Input::Key::D)){
             cameraActor->transform->Translate(glm::normalize(glm::cross(cameraActor->transform->GetForward(), cameraActor->transform->GetUp())) * cameraSpeed * time->GetDeltaTime());
         }
         
@@ -1203,8 +1294,6 @@ namespace Shard::Editor::GUI {
                 return;
             }
 
-            Engine::Core::IEngineContext* engine = &Engine::Core::GetEngine();
-
             ImVec2 mouse = ImGui::GetMousePos();
 
             glm::vec2 max = camera->GetSize();
@@ -1217,104 +1306,317 @@ namespace Shard::Editor::GUI {
                 float localX = mouse.x - viewportImageMin.x;
                 float localY = mouse.y - viewportImageMin.y;
 
-                glm::vec3 nearPoint = camera->ScreenToWorld(localX, localY, 0.0f);
-                glm::vec3 farPoint  = camera->ScreenToWorld(localX, localY, 1.0f);
-
-                glm::vec3 dir = glm::normalize(farPoint - nearPoint);
-                glm::vec3 origin = nearPoint;
-
-                // The ray is in the camera's frame. Physics works in the root frame (and its ray starts from a float) : it can only be asked
-                // when the camera is there. From another frame every model, physics body or not, goes through the bounds test below.
-                const Engine::Core::ReferenceFrameTree* frames = cameraActor && cameraActor->transform ? cameraActor->transform->GetFrameTree() : nullptr;
-                const Engine::Core::FrameId cameraFrame = cameraActor && cameraActor->transform ? cameraActor->transform->GetFrame() : Engine::Core::kRootFrame;
-                const bool cameraInRoot = cameraFrame == Engine::Core::kRootFrame;
-
-                Engine::Physics::RaycastResult result;
-                if (cameraInRoot)
-                    result = Engine::Core::GetEngine().GetPhysicsManager()->RayCast({origin, dir, 10000.0f});
-
-                std::shared_ptr<Engine::Objects::Actor> pickedActor = nullptr;
-                float pickedDistance = result.hit ? result.hitDistance : 10000.0f;
-
-                if (result.hit)
-                    pickedActor = result.hitBody->parent;
-
-                // Physics-less actors (a bare Model with no PhysicsBody) aren't visible to the
-                // raycast above at all, so fall back to a CPU ray-vs-mesh-AABB test for them.
-                // Actors that do have a PhysicsBody are skipped here - the raycast already tests
-                // their real collider shape, which is more accurate than their mesh bounds.
-                if (auto* world = engine->GetWorldManager()->GetWorldAt(0))
-                {
-                    for (auto& modelEntry : world->Ext<Engine::Rendering::RenderWorldData>().models)
-                    {
-                        auto& modelComp = modelEntry.second;
-
-                        if (!modelComp || !modelComp->parent)
-                            continue;
-
-                        if (cameraInRoot && modelComp->parent->HasComponent<Engine::Objects::Components::PhysicsBody>())
-                            continue;
-
-                        auto mesh = modelComp->GetMesh();
-                        if (!mesh)
-                            continue;
-
-                        glm::vec3 boundsMin = mesh->GetBoundsMin();
-                        glm::vec3 boundsMax = mesh->GetBoundsMax();
-                        if (boundsMin.x > boundsMax.x)
-                            continue;
-
-                        glm::mat4 worldMatrix = modelComp->parent->transform->GetWorldMatrix();
-
-                        // The actor's frame is not the camera's : its matrix is brought into the camera's frame, where the ray is (the offset
-                        // between the frames is exact, so an actor that is near the camera stays precise whatever their distance from the root)
-                        const Engine::Core::FrameId modelFrame = modelComp->parent->transform->GetFrame();
-                        if (frames && modelFrame != cameraFrame)
-                            worldMatrix = glm::mat4(frames->GetRelativePose(modelFrame, cameraFrame).ToMatrix()) * worldMatrix;
-
-                        glm::vec3 worldMin, worldMax;
-                        ComputeWorldBounds(boundsMin, boundsMax, worldMatrix, worldMin, worldMax);
-
-                        // If the camera is inside this actor's bounds, the slab test's tMin
-                        // clamps to 0 and it would spuriously win as the "closest" hit no matter
-                        // where the click landed - skip it instead (e.g. camera inside a room
-                        // shell or other large enclosing mesh).
-                        bool cameraInside =
-                            origin.x >= worldMin.x && origin.x <= worldMax.x &&
-                            origin.y >= worldMin.y && origin.y <= worldMax.y &&
-                            origin.z >= worldMin.z && origin.z <= worldMax.z;
-                        if (cameraInside)
-                            continue;
-
-                        float t;
-                        if (RayIntersectsAABB(origin, dir, worldMin, worldMax, pickedDistance, t) && t < pickedDistance)
-                        {
-                            pickedDistance = t;
-                            pickedActor = modelComp->parent;
-                        }
-                    }
-                }
-
-                // The icons (lights, cameras, probe volumes, billboards) : one in front of what the ray hit wins
-                {
-                    const Engine::Rendering::BillboardPick icon = Engine::Rendering::BillboardRenderer::Pick(
-                        engine->GetRenderContext()->GetSnapshot(), parent->settings.showBillboards, localX, localY, camera->GetSize().x, camera->GetSize().y);
-
-                    if (icon.hit && icon.distance < pickedDistance)
-                    {
-                        auto iconActor = std::dynamic_pointer_cast<Engine::Objects::Actor>(
-                            engine->GetObjectIDManager()->GetObjectFromID(Engine::Core::ObjectID(icon.objectId)));
-                        if (iconActor)
-                            pickedActor = iconActor;
-                    }
-                }
-
-                parent->SetSelectedActor(pickedActor);
+                ApplyPick(PickActor(localX, localY));
             }
         }
 
     }
     
+
+    std::shared_ptr<Engine::Objects::Actor> ViewportWindow::PickActor(float localX, float localY)
+    {
+        Engine::Core::IEngineContext* engine = &Engine::Core::GetEngine();
+
+        glm::vec3 nearPoint = camera->ScreenToWorld(localX, localY, 0.0f);
+        glm::vec3 farPoint  = camera->ScreenToWorld(localX, localY, 1.0f);
+
+        glm::vec3 dir = glm::normalize(farPoint - nearPoint);
+        glm::vec3 origin = nearPoint;
+
+        // The ray is in the camera's frame. Physics works in the root frame (and its ray starts from a float) : it can only be asked
+        // when the camera is there. From another frame every model, physics body or not, goes through the bounds test below.
+        const Engine::Core::ReferenceFrameTree* frames = cameraActor && cameraActor->transform ? cameraActor->transform->GetFrameTree() : nullptr;
+        const Engine::Core::FrameId cameraFrame = cameraActor && cameraActor->transform ? cameraActor->transform->GetFrame() : Engine::Core::kRootFrame;
+        const bool cameraInRoot = cameraFrame == Engine::Core::kRootFrame;
+
+        Engine::Physics::RaycastResult result;
+        if (cameraInRoot)
+            result = Engine::Core::GetEngine().GetPhysicsManager()->RayCast({origin, dir, 10000.0f});
+
+        std::shared_ptr<Engine::Objects::Actor> pickedActor = nullptr;
+        float pickedDistance = result.hit ? result.hitDistance : 10000.0f;
+
+        if (result.hit)
+            pickedActor = result.hitBody->parent;
+
+        // Physics-less actors (a bare Model with no PhysicsBody) aren't visible to the
+        // raycast above at all, so fall back to a CPU ray-vs-mesh-AABB test for them.
+        // Actors that do have a PhysicsBody are skipped here - the raycast already tests
+        // their real collider shape, which is more accurate than their mesh bounds.
+        if (auto* world = engine->GetWorldManager()->GetWorldAt(0))
+        {
+            for (auto& modelEntry : world->Ext<Engine::Rendering::RenderWorldData>().models)
+            {
+                auto& modelComp = modelEntry.second;
+
+                if (!modelComp || !modelComp->parent)
+                    continue;
+
+                if (cameraInRoot && modelComp->parent->HasComponent<Engine::Objects::Components::PhysicsBody>())
+                    continue;
+
+                auto mesh = modelComp->GetMesh();
+                if (!mesh)
+                    continue;
+
+                glm::vec3 boundsMin = mesh->GetBoundsMin();
+                glm::vec3 boundsMax = mesh->GetBoundsMax();
+                if (boundsMin.x > boundsMax.x)
+                    continue;
+
+                glm::mat4 worldMatrix = modelComp->parent->transform->GetWorldMatrix();
+
+                // The actor's frame is not the camera's : its matrix is brought into the camera's frame, where the ray is (the offset
+                // between the frames is exact, so an actor that is near the camera stays precise whatever their distance from the root)
+                const Engine::Core::FrameId modelFrame = modelComp->parent->transform->GetFrame();
+                if (frames && modelFrame != cameraFrame)
+                    worldMatrix = glm::mat4(frames->GetRelativePose(modelFrame, cameraFrame).ToMatrix()) * worldMatrix;
+
+                glm::vec3 worldMin, worldMax;
+                ComputeWorldBounds(boundsMin, boundsMax, worldMatrix, worldMin, worldMax);
+
+                // If the camera is inside this actor's bounds, the slab test's tMin
+                // clamps to 0 and it would spuriously win as the "closest" hit no matter
+                // where the click landed - skip it instead (e.g. camera inside a room
+                // shell or other large enclosing mesh).
+                bool cameraInside =
+                    origin.x >= worldMin.x && origin.x <= worldMax.x &&
+                    origin.y >= worldMin.y && origin.y <= worldMax.y &&
+                    origin.z >= worldMin.z && origin.z <= worldMax.z;
+                if (cameraInside)
+                    continue;
+
+                float t;
+                if (RayIntersectsAABB(origin, dir, worldMin, worldMax, pickedDistance, t) && t < pickedDistance)
+                {
+                    pickedDistance = t;
+                    pickedActor = modelComp->parent;
+                }
+            }
+        }
+
+        // The icons (lights, cameras, probe volumes, billboards) : one in front of what the ray hit wins
+        {
+            const Engine::Rendering::BillboardPick icon = Engine::Rendering::BillboardRenderer::Pick(
+                engine->GetRenderContext()->GetSnapshot(), parent->settings.showBillboards, localX, localY, camera->GetSize().x, camera->GetSize().y);
+
+            if (icon.hit && icon.distance < pickedDistance)
+            {
+                auto iconActor = std::dynamic_pointer_cast<Engine::Objects::Actor>(
+                    engine->GetObjectIDManager()->GetObjectFromID(Engine::Core::ObjectID(icon.objectId)));
+                if (iconActor)
+                    pickedActor = iconActor;
+            }
+        }
+
+        return pickedActor;
+    }
+
+    void ViewportWindow::ApplyPick(const std::shared_ptr<Engine::Objects::Actor>& actor)
+    {
+        const ImGuiIO& io = ImGui::GetIO();
+
+        if (io.KeyCtrl)
+        {
+            if (actor)
+                parent->ToggleSelection(actor);
+        }
+        else if (io.KeyShift)
+        {
+            if (actor)
+                parent->AddToSelection(actor);
+        }
+        else
+        {
+            parent->SetSelectedActor(actor);
+        }
+    }
+
+    bool ViewportWindow::HandleMarquee(bool canStart)
+    {
+        const ImGuiIO& io = ImGui::GetIO();
+        const ImVec2 mouse = ImGui::GetMousePos();
+
+        if (!marqueePending)
+        {
+            if (canStart && firstClick && (io.KeyCtrl || io.KeyShift) && ImGui::IsMouseClicked(ImGuiMouseButton_Left))
+            {
+                marqueePending = true;
+                marqueeActive = false;
+                marqueeStart = mouse;
+                marqueeEnd = mouse;
+                return true;
+            }
+            return false;
+        }
+
+        if (ImGui::IsMouseDown(ImGuiMouseButton_Left))
+        {
+            marqueeEnd = mouse;
+
+            const float dx = mouse.x - marqueeStart.x;
+            const float dy = mouse.y - marqueeStart.y;
+            if (!marqueeActive && dx * dx + dy * dy > 16.0f)
+                marqueeActive = true;
+            return true;
+        }
+
+        // Released : a rectangle selects what it covers, a click without moving picks what is under the cursor
+        marqueePending = false;
+
+        if (marqueeActive)
+        {
+            marqueeActive = false;
+            SelectInRect(marqueeStart, mouse, io.KeyCtrl);
+        }
+        else if (camera && mouse.x >= viewportImageMin.x && mouse.x <= viewportImageMax.x &&
+                 mouse.y >= viewportImageMin.y && mouse.y <= viewportImageMax.y)
+        {
+            ApplyPick(PickActor(mouse.x - viewportImageMin.x, mouse.y - viewportImageMin.y));
+        }
+
+        return true;
+    }
+
+    void ViewportWindow::SelectInRect(const ImVec2& a, const ImVec2& b, bool toggle)
+    {
+        if (!camera || !cameraActor || !cameraActor->transform)
+            return;
+
+        const ImVec2 low(std::min(a.x, b.x), std::min(a.y, b.y));
+        const ImVec2 high(std::max(a.x, b.x), std::max(a.y, b.y));
+
+        const glm::mat4 viewProjection = camera->GetProjection() * camera->GetView();
+        const ImVec2 size(viewportImageMax.x - viewportImageMin.x, viewportImageMax.y - viewportImageMin.y);
+        const Engine::Core::FrameId cameraFrame = cameraActor->transform->GetFrame();
+
+        // The pixel a point of the world is at ; false if it is behind the camera
+        auto project = [&](const glm::vec3& point, ImVec2& out){
+            const glm::vec4 clip = viewProjection * glm::vec4(point, 1.0f);
+            if (clip.w <= 1.0e-5f)
+                return false;
+            out = ImVec2(viewportImageMin.x + (clip.x / clip.w * 0.5f + 0.5f) * size.x,
+                         viewportImageMin.y + (1.0f - (clip.y / clip.w * 0.5f + 0.5f)) * size.y);
+            return true;
+        };
+
+        std::vector<std::shared_ptr<Engine::Objects::Actor>> covered;
+
+        for (const auto& actor : parent->GetAllActors())
+        {
+            // Another frame than the camera's has other coordinates : it cannot be placed on this screen
+            if (!actor->transform || actor->transform->GetFrame() != cameraFrame)
+                continue;
+
+            bool hit = false;
+            bool hasMesh = false;
+
+            // What has a mesh is its box on the screen, the rest is its pivot
+            for (const auto& model : actor->GetComponents<Engine::Objects::Components::Model>())
+            {
+                auto mesh = model->GetMesh();
+                if (!mesh || mesh->GetBoundsMin().x > mesh->GetBoundsMax().x)
+                    continue;
+
+                hasMesh = true;
+                const glm::mat4 world = actor->transform->GetWorldMatrix();
+                ImVec2 boxLow(FLT_MAX, FLT_MAX), boxHigh(-FLT_MAX, -FLT_MAX);
+                bool any = false;
+
+                for (int corner = 0; corner < 8; ++corner)
+                {
+                    const glm::vec3 local(
+                        (corner & 1) ? mesh->GetBoundsMax().x : mesh->GetBoundsMin().x,
+                        (corner & 2) ? mesh->GetBoundsMax().y : mesh->GetBoundsMin().y,
+                        (corner & 4) ? mesh->GetBoundsMax().z : mesh->GetBoundsMin().z);
+
+                    ImVec2 pixel;
+                    if (!project(glm::vec3(world * glm::vec4(local, 1.0f)), pixel))
+                        continue;
+
+                    boxLow = ImVec2(std::min(boxLow.x, pixel.x), std::min(boxLow.y, pixel.y));
+                    boxHigh = ImVec2(std::max(boxHigh.x, pixel.x), std::max(boxHigh.y, pixel.y));
+                    any = true;
+                }
+
+                if (any && boxLow.x <= high.x && boxHigh.x >= low.x && boxLow.y <= high.y && boxHigh.y >= low.y)
+                {
+                    hit = true;
+                    break;
+                }
+            }
+
+            if (!hasMesh)
+            {
+                ImVec2 pixel;
+                hit = project(actor->transform->GetWorldPosition(), pixel) &&
+                      pixel.x >= low.x && pixel.x <= high.x && pixel.y >= low.y && pixel.y <= high.y;
+            }
+
+            if (hit)
+                covered.push_back(actor);
+        }
+
+        std::vector<std::shared_ptr<Engine::Objects::Actor>> selection = parent->GetSelectedActors();
+
+        if (toggle)
+        {
+            // What was selected leaves it, what was not joins it
+            std::unordered_set<int> coveredIds;
+            for (const auto& actor : covered)
+                coveredIds.insert(actor->GetID().GetAsInt());
+
+            selection.erase(std::remove_if(selection.begin(), selection.end(), [&](const auto& actor){
+                return coveredIds.count(actor->GetID().GetAsInt()) > 0;
+            }), selection.end());
+
+            for (const auto& actor : covered)
+                if (!parent->IsSelected(actor))
+                    selection.push_back(actor);
+        }
+        else
+        {
+            selection.insert(selection.end(), covered.begin(), covered.end());
+        }
+
+        parent->SetSelectedActors(std::move(selection));
+    }
+
+    void ViewportWindow::HandleShortcuts()
+    {
+        if (!parent || Engine::Core::GetEngine().IsInPlayMode())
+            return;
+
+        const ImGuiIO& io = ImGui::GetIO();
+        if (!ImGui::IsWindowFocused(ImGuiFocusedFlags_RootAndChildWindows) || io.WantTextInput || ImGuizmo::IsUsing())
+            return;
+
+        auto pressed = [&](ImGuiKey key, bool ctrl = false){
+            return io.KeyCtrl == ctrl && !io.KeyShift && !io.KeyAlt && ImGui::IsKeyPressed(key, false);
+        };
+
+        const bool hasSelection = parent->HasSelection();
+
+        if (pressed(ImGuiKey_Delete) && hasSelection)
+            parent->DeleteSelection();
+        else if (pressed(ImGuiKey_C, true) && hasSelection)
+            parent->CopySelection();
+        else if (pressed(ImGuiKey_X, true) && hasSelection)
+            parent->CutSelection();
+        else if (pressed(ImGuiKey_V, true) && parent->CanPaste())
+            parent->PasteClipboard();
+        else if (pressed(ImGuiKey_D, true) && hasSelection)
+            parent->DuplicateSelection();
+        else if (pressed(ImGuiKey_A, true))
+            parent->SelectAll();
+        else if (pressed(ImGuiKey_G, true) && hasSelection)
+            parent->GroupSelection();
+        else if (pressed(ImGuiKey_F2) && hasSelection)
+            parent->RenameSelection();
+        else if (pressed(ImGuiKey_Escape) && hasSelection)
+            parent->ClearSelection();
+    }
+
     ViewportWindow::ViewportWindow() {}
 
     ViewportWindow::~ViewportWindow() = default;

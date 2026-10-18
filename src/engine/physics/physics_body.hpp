@@ -12,6 +12,7 @@
 #include <Jolt/Physics/Body/Body.h>
 
 #include "engine/physics/physics_manager.hpp"
+#include "engine/physics/gravity.hpp"
 
 #include "engine/world/components/component.hpp"
 
@@ -215,6 +216,19 @@ namespace Shard::Engine::Objects::Components
             void SetGravityFactor(float factor);
             float GetGravityFactor() const;
 
+            void SetGravityMode(Physics::GravityMode mode);
+            Physics::GravityMode GetGravityMode() const { return gravityMode; }
+
+            /// @brief Gives the body a gravity of its own and switches it to GravityMode::Custom (the world's gravity and the gravity
+            /// fields no longer reach it)
+            void SetCustomGravity(glm::vec3 gravity);
+            glm::vec3 GetCustomGravity() const { return customGravity; }
+
+            /// @brief The acceleration the body falls with now, gravity factor included, from its mode : the world's gravity and the
+            /// gravity fields where its center of mass is, or its custom gravity. Its opposite is the "up" of the body (a character
+            /// standing on a planet), zero when nothing pulls it.
+            glm::vec3 GetGravity() const;
+
             void SetFriction(float newFriction);
             float GetFriction() const;
 
@@ -236,8 +250,14 @@ namespace Shard::Engine::Objects::Components
             FIELD(Editable, range=0.0f|1.0f, tooltip=How fast the body loses its spin, 0 keeps it forever)
             float angularDamping = 0.05f;
 
-            FIELD(Editable, range=-10.0f|10.0f, tooltip=Multiplier on the world gravity, 0 floats and a negative value falls upwards)
+            FIELD(Editable, range=-10.0f|10.0f, tooltip=Multiplier on the gravity the body feels, 0 floats and a negative value falls upwards)
             float gravityFactor = 1.0f;
+
+            FIELD(Editable, tooltip=Where the gravity comes from : Fields is the world gravity changed by the gravity fields around, World ignores the fields, Custom is the gravity below)
+            Physics::GravityMode gravityMode = Physics::GravityMode::Fields;
+
+            FIELD(Editable, tooltip=Custom mode only : the acceleration of the body in world units per second squared)
+            glm::vec3 customGravity = glm::vec3(0.0f, -9.81f, 0.0f);
 
             FIELD(Editable, range=0.0f|1.0f, tooltip=Resistance when sliding on another body, 0 is ice and 1 is very grippy)
             float friction = 0.2f;

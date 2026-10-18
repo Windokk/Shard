@@ -10,6 +10,8 @@
 #include "engine/world/event_system.hpp"
 
 #include <algorithm>
+#include <map>
+#include <unordered_set>
 #include <cmath>
 #include <fstream>
 #include <vector>
@@ -78,43 +80,43 @@ namespace Shard::Editor::Core{
         colors[ImGuiCol_TextDisabled]           = ImVec4(0.50f, 0.50f, 0.50f, 1.00f);
         colors[ImGuiCol_WindowBg]               = ImVec4(0.06f, 0.06f, 0.06f, 1.00f);
         colors[ImGuiCol_ChildBg]                = ImVec4(1.00f, 1.00f, 1.00f, 0.00f);
-        colors[ImGuiCol_PopupBg]                = ImVec4(0.08f, 0.08f, 0.08f, 1.00f);
-        colors[ImGuiCol_Border]                 = ImVec4(0.36f, 0.43f, 0.53f, 1.00f);
-        colors[ImGuiCol_BorderShadow]           = ImVec4(0.00f, 0.00f, 0.00f, 0.05f);
-        colors[ImGuiCol_FrameBg]                = ImVec4(0.20f, 0.21f, 0.22f, 1.00f);
-        colors[ImGuiCol_FrameBgHovered]         = ImVec4(0.33f, 0.49f, 0.60f, 1.00f);
-        colors[ImGuiCol_FrameBgActive]          = ImVec4(0.18f, 0.18f, 0.18f, 1.00f);
+        colors[ImGuiCol_PopupBg]                = ImVec4(0.08f, 0.08f, 0.08f, 0.94f);
+        colors[ImGuiCol_Border]                 = ImVec4(0.36f, 0.43f, 0.53f, 0.50f);
+        colors[ImGuiCol_BorderShadow]           = ImVec4(0.00f, 0.00f, 0.00f, 0.00f);
+        colors[ImGuiCol_FrameBg]                = ImVec4(0.20f, 0.21f, 0.22f, 0.54f);
+        colors[ImGuiCol_FrameBgHovered]         = ImVec4(0.33f, 0.49f, 0.60f, 0.62f);
+        colors[ImGuiCol_FrameBgActive]          = ImVec4(0.18f, 0.18f, 0.18f, 0.67f);
         colors[ImGuiCol_TitleBg]                = ImVec4(0.04f, 0.04f, 0.04f, 1.00f);
         colors[ImGuiCol_TitleBgActive]          = ImVec4(0.29f, 0.29f, 0.29f, 1.00f);
-        colors[ImGuiCol_TitleBgCollapsed]       = ImVec4(0.00f, 0.00f, 0.00f, 1.00f);
+        colors[ImGuiCol_TitleBgCollapsed]       = ImVec4(0.00f, 0.00f, 0.00f, 0.51f);
         colors[ImGuiCol_MenuBarBg]              = ImVec4(0.14f, 0.14f, 0.14f, 1.00f);
-        colors[ImGuiCol_ScrollbarBg]            = ImVec4(0.02f, 0.02f, 0.02f, 1.00f);
+        colors[ImGuiCol_ScrollbarBg]            = ImVec4(0.02f, 0.02f, 0.02f, 0.53f);
         colors[ImGuiCol_ScrollbarGrab]          = ImVec4(0.31f, 0.31f, 0.31f, 1.00f);
         colors[ImGuiCol_ScrollbarGrabHovered]   = ImVec4(0.41f, 0.41f, 0.41f, 1.00f);
         colors[ImGuiCol_ScrollbarGrabActive]    = ImVec4(0.51f, 0.51f, 0.51f, 1.00f);
         colors[ImGuiCol_CheckMark]              = ImVec4(0.94f, 0.94f, 0.94f, 1.00f);
         colors[ImGuiCol_SliderGrab]             = ImVec4(0.34f, 0.42f, 0.48f, 1.00f);
         colors[ImGuiCol_SliderGrabActive]       = ImVec4(0.33f, 0.49f, 0.60f, 1.00f);
-        colors[ImGuiCol_Button]                 = ImVec4(0.44f, 0.44f, 0.44f, 1.00f);
+        colors[ImGuiCol_Button]                 = ImVec4(0.44f, 0.44f, 0.44f, 0.40f);
         colors[ImGuiCol_ButtonHovered]          = ImVec4(0.33f, 0.49f, 0.60f, 1.00f);
         colors[ImGuiCol_ButtonActive]           = ImVec4(0.42f, 0.42f, 0.42f, 1.00f);
-        colors[ImGuiCol_Header]                 = ImVec4(0.35f, 0.35f, 0.35f, 1.00f);
-        colors[ImGuiCol_HeaderHovered]          = ImVec4(0.25f, 0.34f, 0.40f, 1.00f);
+        colors[ImGuiCol_Header]                 = ImVec4(0.35f, 0.35f, 0.35f, 0.31f);
+        colors[ImGuiCol_HeaderHovered]          = ImVec4(0.25f, 0.34f, 0.40f, 0.80f);
         colors[ImGuiCol_HeaderActive]           = ImVec4(0.48f, 0.50f, 0.52f, 1.00f);
-        colors[ImGuiCol_Separator]              = ImVec4(0.43f, 0.43f, 0.50f, 1.00f);
-        colors[ImGuiCol_SeparatorHovered]       = ImVec4(0.72f, 0.72f, 0.72f, 1.00f);
+        colors[ImGuiCol_Separator]              = ImVec4(0.43f, 0.43f, 0.50f, 0.50f);
+        colors[ImGuiCol_SeparatorHovered]       = ImVec4(0.72f, 0.72f, 0.72f, 0.78f);
         colors[ImGuiCol_SeparatorActive]        = ImVec4(0.51f, 0.51f, 0.51f, 1.00f);
-        colors[ImGuiCol_ResizeGrip]             = ImVec4(0.91f, 0.91f, 0.91f, 1.00f);
-        colors[ImGuiCol_ResizeGripHovered]      = ImVec4(0.81f, 0.81f, 0.81f, 1.00f);
-        colors[ImGuiCol_ResizeGripActive]       = ImVec4(0.46f, 0.46f, 0.46f, 1.00f);
+        colors[ImGuiCol_ResizeGrip]             = ImVec4(0.91f, 0.91f, 0.91f, 0.25f);
+        colors[ImGuiCol_ResizeGripHovered]      = ImVec4(0.81f, 0.81f, 0.81f, 0.67f);
+        colors[ImGuiCol_ResizeGripActive]       = ImVec4(0.46f, 0.46f, 0.46f, 0.95f);
         colors[ImGuiCol_InputTextCursor]        = ImVec4(1.00f, 1.00f, 1.00f, 1.00f);
         colors[ImGuiCol_TabHovered]             = ImVec4(0.28f, 0.34f, 0.40f, 1.00f);
-        colors[ImGuiCol_Tab]                    = ImVec4(0.20f, 0.26f, 0.31f, 1.00f);
+        colors[ImGuiCol_Tab]                    = ImVec4(0.20f, 0.26f, 0.31f, 0.86f);
         colors[ImGuiCol_TabSelected]            = ImVec4(0.33f, 0.49f, 0.60f, 1.00f);
         colors[ImGuiCol_TabSelectedOverline]    = ImVec4(0.31f, 0.37f, 0.45f, 1.00f);
-        colors[ImGuiCol_TabDimmed]              = ImVec4(0.15f, 0.20f, 0.25f, 1.00f);
+        colors[ImGuiCol_TabDimmed]              = ImVec4(0.15f, 0.20f, 0.25f, 0.97f);
         colors[ImGuiCol_TabDimmedSelected]      = ImVec4(0.23f, 0.26f, 0.30f, 1.00f);
-        colors[ImGuiCol_TabDimmedSelectedOverline] = ImVec4(0.50f, 0.50f, 0.50f, 0.00f);
+        colors[ImGuiCol_TabDimmedSelectedOverline]  = ImVec4(0.50f, 0.50f, 0.50f, 0.00f);
         colors[ImGuiCol_DockingPreview]         = ImVec4(0.20f, 0.26f, 0.31f, 0.86f);
         colors[ImGuiCol_DockingEmptyBg]         = ImVec4(0.20f, 0.20f, 0.20f, 1.00f);
         colors[ImGuiCol_PlotLines]              = ImVec4(0.53f, 0.53f, 0.53f, 1.00f);
@@ -133,9 +135,9 @@ namespace Shard::Editor::Core{
         colors[ImGuiCol_DragDropTargetBg]       = ImVec4(0.00f, 0.00f, 0.00f, 0.00f);
         colors[ImGuiCol_UnsavedMarker]          = ImVec4(1.00f, 1.00f, 1.00f, 1.00f);
         colors[ImGuiCol_NavCursor]              = ImVec4(0.39f, 0.61f, 0.78f, 1.00f);
-        colors[ImGuiCol_NavWindowingHighlight]  = ImVec4(1.00f, 1.00f, 1.00f, 1.00f);
-        colors[ImGuiCol_NavWindowingDimBg]      = ImVec4(0.80f, 0.80f, 0.80f, 1.00f);
-        colors[ImGuiCol_ModalWindowDimBg]       = ImVec4(0.80f, 0.80f, 0.80f, 1.00f);
+        colors[ImGuiCol_NavWindowingHighlight]  = ImVec4(1.00f, 1.00f, 1.00f, 0.7f);
+        colors[ImGuiCol_NavWindowingDimBg]      = ImVec4(0.80f, 0.80f, 0.80f, 0.20f);
+        colors[ImGuiCol_ModalWindowDimBg]       = ImVec4(0.80f, 0.80f, 0.80f, 0.35f);
     }
 
     ImFont* LoadFontFromFile(const std::string& filePath, float fontSize, bool icons)
@@ -215,39 +217,227 @@ namespace Shard::Editor::Core{
         return font;
     }
 
+    void EditorMainWindow::SetOutlined(const std::shared_ptr<Engine::Objects::Actor>& actor, bool outlined)
+    {
+        // EditorOutlineMaskPass only ever contains the selected actors' own model(s) (see the matching comment where the
+        // pass is created in SwapBuffers) - changing the selection means pulling the old actors' draw commands out and
+        // pushing the new ones' in, rather than drawing the whole scene and sorting it out per-fragment with an objID compare.
+        if(!renderPassesInitialized || !actor)
+            return;
+
+        for(auto& comp : actor->GetComponents())
+            if(auto model = std::dynamic_pointer_cast<Engine::Objects::Components::Model>(comp)){
+                if(outlined)
+                    model->AddToPass("EditorOutlineMaskPass");
+                else
+                    model->RemoveFromPass("EditorOutlineMaskPass");
+            }
+    }
+
+    void EditorMainWindow::ApplySelection(std::vector<std::shared_ptr<Engine::Objects::Actor>> actors)
+    {
+        // No nulls, no actor twice (the last occurrence stays : it is the one that ends up primary)
+        std::vector<std::shared_ptr<Engine::Objects::Actor>> unique;
+        std::unordered_set<int> seen;
+        for(auto it = actors.rbegin(); it != actors.rend(); ++it)
+            if(*it && seen.insert((*it)->GetID().GetAsInt()).second)
+                unique.push_back(*it);
+        std::reverse(unique.begin(), unique.end());
+
+        for(auto& old : selectedActors)
+            if(!seen.count(old->GetID().GetAsInt()))
+                SetOutlined(old, false);
+
+        for(auto& actor : unique)
+            if(!selectedIds.count(actor->GetID().GetAsInt()))
+                SetOutlined(actor, true);
+
+        selectedActors = std::move(unique);
+        selectedIds = std::move(seen);
+
+        selectedRefs.clear();
+        for(auto& actor : selectedActors)
+            selectedRefs.push_back(Editor::Commands::ObjectRefs::Get(actor));
+    }
+
     void EditorMainWindow::SetSelectedActor(std::shared_ptr<Engine::Objects::Actor> newPtr)
     {
-        // EditorOutlineMaskPass only ever contains the currently selected actor's own model(s) (see the
-        // matching comment where the pass is created in SwapBuffers) - swapping the selection means
-        // pulling the old actor's draw commands out and pushing the new one's in, rather than drawing
-        // the whole scene and sorting it out per-fragment with an objID compare.
-        if(renderPassesInitialized && selectedActor)
-            for(auto& comp : selectedActor->GetComponents())
-                if(auto model = std::dynamic_pointer_cast<Engine::Objects::Components::Model>(comp))
-                    model->RemoveFromPass("EditorOutlineMaskPass");
+        ApplySelection({ newPtr });
+    }
 
-        this->selectedActor = newPtr;
-        this->selectedRef = Editor::Commands::ObjectRefs::Get(newPtr);
+    void EditorMainWindow::SetSelectedActors(std::vector<std::shared_ptr<Engine::Objects::Actor>> actors)
+    {
+        ApplySelection(std::move(actors));
+    }
 
-        if(renderPassesInitialized && selectedActor)
-            for(auto& comp : selectedActor->GetComponents())
-                if(auto model = std::dynamic_pointer_cast<Engine::Objects::Components::Model>(comp))
-                    model->AddToPass("EditorOutlineMaskPass");
+    bool EditorMainWindow::IsSelected(const std::shared_ptr<Engine::Objects::Actor>& actor) const
+    {
+        return actor && selectedIds.count(actor->GetID().GetAsInt()) > 0;
+    }
 
-        if(worldTree)
-            worldTree->SetSelection(newPtr);
+    void EditorMainWindow::AddToSelection(const std::shared_ptr<Engine::Objects::Actor>& actor)
+    {
+        if(!actor)
+            return;
+
+        auto actors = selectedActors;
+        actors.push_back(actor);
+        ApplySelection(std::move(actors));
+    }
+
+    void EditorMainWindow::RemoveFromSelection(const std::shared_ptr<Engine::Objects::Actor>& actor)
+    {
+        if(!IsSelected(actor))
+            return;
+
+        auto actors = selectedActors;
+        actors.erase(std::remove(actors.begin(), actors.end(), actor), actors.end());
+        ApplySelection(std::move(actors));
+    }
+
+    void EditorMainWindow::ToggleSelection(const std::shared_ptr<Engine::Objects::Actor>& actor)
+    {
+        if(IsSelected(actor))
+            RemoveFromSelection(actor);
+        else
+            AddToSelection(actor);
+    }
+
+    namespace {
+
+        // Every actor of the world, the roots first then their descendants, depth first
+        void CollectActors(const std::shared_ptr<Engine::Objects::Actor>& actor, std::vector<std::shared_ptr<Engine::Objects::Actor>>& out)
+        {
+            out.push_back(actor);
+            for(auto childID : actor->GetChildrenID(false))
+                if(auto child = std::dynamic_pointer_cast<Engine::Objects::Actor>(actor->GetChild(childID)))
+                    CollectActors(child, out);
+        }
+
+    }
+
+    std::vector<std::shared_ptr<Engine::Objects::Actor>> EditorMainWindow::GetAllActors() const
+    {
+        std::vector<std::shared_ptr<Engine::Objects::Actor>> all;
+        if(auto* world = Engine::Core::GetEngine().GetWorldManager()->GetWorldAt(0)){
+            // By id : the same order every time
+            std::map<int, std::shared_ptr<Engine::Objects::Actor>> roots;
+            for(auto& [id, actor] : world->GetRootActors())
+                if(actor)
+                    roots[id.GetAsInt()] = actor;
+            for(auto& [id, actor] : roots)
+                CollectActors(actor, all);
+        }
+        return all;
+    }
+
+    void EditorMainWindow::SelectAll()
+    {
+        SetSelectedActors(GetAllActors());
+    }
+
+    void EditorMainWindow::InvertSelection()
+    {
+        std::vector<std::shared_ptr<Engine::Objects::Actor>> inverted;
+        for(auto& actor : GetAllActors())
+            if(!IsSelected(actor))
+                inverted.push_back(actor);
+        SetSelectedActors(std::move(inverted));
+    }
+
+    void EditorMainWindow::SelectChildren()
+    {
+        auto actors = selectedActors;
+        for(auto& actor : selectedActors)
+            for(auto childID : actor->GetChildrenID(true))
+                if(auto child = std::dynamic_pointer_cast<Engine::Objects::Actor>(
+                        Engine::Core::GetEngine().GetObjectIDManager()->GetObjectFromID(childID)))
+                    if(!IsSelected(child))
+                        actors.insert(actors.begin(), child);
+        // The primary actor stays the primary one
+        SetSelectedActors(std::move(actors));
     }
 
     void EditorMainWindow::ValidateSelection()
     {
-        if(!selectedActor)
+        if(selectedActors.empty())
             return;
 
-        // Still the object behind its id : alive
-        if(Engine::Core::GetEngine().GetObjectIDManager()->GetObjectFromID(selectedActor->GetID()) == selectedActor)
+        auto* ids = Engine::Core::GetEngine().GetObjectIDManager();
+
+        bool allAlive = true;
+        for(auto& actor : selectedActors)
+            if(ids->GetObjectFromID(actor->GetID()) != actor){
+                allAlive = false;
+                break;
+            }
+        if(allAlive)
             return;
 
-        SetSelectedActor(selectedRef ? selectedRef->Resolve<Engine::Objects::Actor>() : nullptr);
+        // The dead ones are replaced by what an undo or a redo rebuilt in their place, if anything
+        std::vector<std::shared_ptr<Engine::Objects::Actor>> actors;
+        for(size_t i = 0; i < selectedActors.size(); i++){
+            if(ids->GetObjectFromID(selectedActors[i]->GetID()) == selectedActors[i])
+                actors.push_back(selectedActors[i]);
+            else if(i < selectedRefs.size() && selectedRefs[i])
+                if(auto rebuilt = selectedRefs[i]->Resolve<Engine::Objects::Actor>())
+                    actors.push_back(rebuilt);
+        }
+        ApplySelection(std::move(actors));
+    }
+
+    void EditorMainWindow::CopySelection()
+    {
+        actorClipboard.Copy(selectedActors);
+    }
+
+    void EditorMainWindow::CutSelection()
+    {
+        if(selectedActors.empty())
+            return;
+
+        auto actors = selectedActors;
+        ClearSelection();
+        actorClipboard.Cut(actors);
+    }
+
+    void EditorMainWindow::PasteClipboard()
+    {
+        auto pasted = actorClipboard.Paste();
+        if(!pasted.empty())
+            SetSelectedActors(std::move(pasted));
+    }
+
+    void EditorMainWindow::DuplicateSelection()
+    {
+        auto copies = Editor::Commands::Actions::DuplicateMany(selectedActors);
+        if(!copies.empty())
+            SetSelectedActors(std::move(copies));
+    }
+
+    void EditorMainWindow::DeleteSelection()
+    {
+        if(selectedActors.empty())
+            return;
+
+        auto actors = selectedActors;
+        ClearSelection();
+        Editor::Commands::Actions::DeleteMany(actors);
+    }
+
+    void EditorMainWindow::GroupSelection()
+    {
+        if(selectedActors.empty())
+            return;
+
+        if(auto group = Editor::Commands::Actions::GroupActors(selectedActors))
+            SetSelectedActor(group);
+    }
+
+    void EditorMainWindow::RenameSelection()
+    {
+        if(worldTree && GetSelectedActor())
+            worldTree->BeginRename(GetSelectedActor());
     }
 
     void EditorMainWindow::RequestPlay()
@@ -257,7 +447,7 @@ namespace Shard::Editor::Core{
             return;
 
         auto startPlay = [this]{
-            SetSelectedActor(nullptr);
+            ClearSelection();
             Engine::Core::GetEngine().SetPlayMode(true);
         };
 
@@ -286,10 +476,9 @@ namespace Shard::Editor::Core{
         // The previous world's draw lists were cleared before the load (Renderer::ClearPassesContent) : the old actor's
         // models are not in the outline pass any more, and their components must not be touched, so SetSelectedActor
         // is not used here.
-        selectedActor = nullptr;
-        selectedRef = nullptr;
-        if(worldTree)
-            worldTree->SetSelection(nullptr);
+        selectedActors.clear();
+        selectedIds.clear();
+        selectedRefs.clear();
 
         Editor::Commands::CommandStack::Get().Clear();
     }
@@ -642,8 +831,8 @@ namespace Shard::Editor::Core{
             // comparing objID, and the pass only ever rasterizes the one object that matters instead of
             // the whole scene. If a selection was already made before this pass existed (e.g. selecting
             // something while the viewport panel was still settling its size), register it retroactively.
-            if(selectedActor)
-                for(auto& comp : selectedActor->GetComponents())
+            for(auto& actor : selectedActors)
+                for(auto& comp : actor->GetComponents())
                     if(auto model = std::dynamic_pointer_cast<Engine::Objects::Components::Model>(comp))
                         model->AddToPass("EditorOutlineMaskPass");
 
@@ -854,8 +1043,8 @@ namespace Shard::Editor::Core{
             // whatever position/rotation/scale it had at the moment it got selected, going stale the
             // instant it's moved by a gizmo drag, a script, or physics. AddOrUpdateCommands treats this
             // as a cheap update-in-place (matching commandID) rather than a fresh registration.
-            if(selectedActor)
-                for(auto& comp : selectedActor->GetComponents())
+            for(auto& actor : selectedActors)
+                for(auto& comp : actor->GetComponents())
                     if(auto model = std::dynamic_pointer_cast<Engine::Objects::Components::Model>(comp))
                         model->AddToPass("EditorOutlineMaskPass");
 
@@ -931,7 +1120,7 @@ namespace Shard::Editor::Core{
         if(panelVisibility.viewport)
             viewport->Draw();
         if(panelVisibility.properties)
-            propertiesPanel->Draw(selectedActor);
+            propertiesPanel->Draw(GetSelectedActor(), static_cast<int>(selectedActors.size()));
         if(panelVisibility.worldTree)
             worldTree->Draw();
         if(panelVisibility.worldSettings)

@@ -716,6 +716,8 @@ namespace Shard::Engine{
             if(step > 0)
                 m_Context.physicsManager->TickBodies(fixedDeltaTime);
 
+            // The fields move with their actors (and scripts change them) : read again for every step
+            m_Context.physicsManager->CollectGravityFields();
             m_Context.physicsManager->StepSimulation(fixedDeltaTime, m_ActivateAllPhysics);
 
             // Cleared here rather than once per frame: the first frames of play mode can

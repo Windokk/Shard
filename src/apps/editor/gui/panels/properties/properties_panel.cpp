@@ -27,6 +27,7 @@
 #include "engine/renderer/components/probe_volume.hpp"
 #include "engine/renderer/components/reflection_probe.hpp"
 #include "engine/physics/physics_body.hpp"
+#include "engine/physics/gravity_field.hpp"
 #include "engine/world/components/registry/component_registry.hpp"
 #include "engine/renderer/frontend/renderer.hpp"
 #include "engine/renderer/features/lighting/probe_manager.hpp"
@@ -562,14 +563,17 @@ namespace Shard::Editor::GUI{
         }
     }
 
-    void PropertiesPanel::Draw(std::shared_ptr<Actor> actor)
+    void PropertiesPanel::Draw(std::shared_ptr<Actor> actor, int selectionCount)
     {
         ImGui::Begin("Properties");
 
         drawnActor = actor;
 
         if(actor){
-            
+
+            if(selectionCount > 1)
+                ImGui::TextDisabled("%d actors selected - editing \"%s\" (the last one selected)", selectionCount, actor->GetName().c_str());
+
             DrawActorInfo(actor);
 
             std::shared_ptr<Component> componentToRemove = nullptr;
@@ -688,7 +692,9 @@ namespace Shard::Editor::GUI{
                 ImGui::SetNextItemWidth(width - 4.0f);
 
                 glm::dvec3 edited = value;
-                const bool dragged = ImGui::DragScalar("##v", ImGuiDataType_Double, &edited[i], 0.1f, nullptr, nullptr, "%.2e");
+                // Scientific notation only for what would not fit otherwise (a planet far from the origin) : 10 reads "10.000", not "1.00e+01"
+                const char* format = std::abs(value[i]) >= 1.0e7 ? "%.3e" : "%.3f";
+                const bool dragged = ImGui::DragScalar("##v", ImGuiDataType_Double, &edited[i], 0.1f, nullptr, nullptr, format);
                 if (ImGui::IsItemActivated() && !editing) {
                     beforeEdit = { transform->frame, transform->position };
                     editing = true;
@@ -770,37 +776,42 @@ namespace Shard::Editor::GUI{
 
     void PropertiesPanel::DrawAddComponentMenu(std::shared_ptr<Actor> actor)
     {
-        if (ImGui::MenuItem("Light")) {
-            Commands::Actions::EditActor(actor, "Add Component", [&]{ actor->AddComponent<Engine::Objects::Components::Light>(); });
+        namespace C = Engine::Objects::Components;
+
+        // One entry of the menu : adds a component of type C::Type to the actor (undoable)
+        #define SHARD_ADD_ITEM(label, Type) \
+            if (ImGui::MenuItem(label)) \
+                Commands::Actions::EditActor(actor, "Add Component", [&]{ actor->AddComponent<C::Type>(); })
+
+        if (ImGui::BeginMenu("Rendering")) {
+            SHARD_ADD_ITEM("Model", Model);
+            SHARD_ADD_ITEM("Light", Light);
+            SHARD_ADD_ITEM("Camera", Camera);
+            ImGui::Separator();
+            SHARD_ADD_ITEM("Probe Volume", ProbeVolume);
+            SHARD_ADD_ITEM("Reflection Probe", ReflectionProbe);
+            ImGui::EndMenu();
         }
 
-        if (ImGui::MenuItem("Camera")) {
-            Commands::Actions::EditActor(actor, "Add Component", [&]{ actor->AddComponent<Engine::Objects::Components::Camera>(); });
+        if (ImGui::BeginMenu("Physics")) {
+            SHARD_ADD_ITEM("Physics Body", PhysicsBody);
+            if (ImGui::BeginMenu("Gravity Field")) {
+                SHARD_ADD_ITEM("Uniform", UniformGravityField);
+                SHARD_ADD_ITEM("Point", PointGravityField);
+                SHARD_ADD_ITEM("Radial (Planet)", RadialGravityField);
+                SHARD_ADD_ITEM("Volume", GravityVolume);
+                ImGui::EndMenu();
+            }
+            ImGui::EndMenu();
         }
 
-        if (ImGui::MenuItem("Audio Source")) {
-            Commands::Actions::EditActor(actor, "Add Component", [&]{ actor->AddComponent<Engine::Objects::Components::AudioSource>(); });
+        if (ImGui::BeginMenu("Audio")) {
+            SHARD_ADD_ITEM("Audio Source", AudioSource);
+            SHARD_ADD_ITEM("Audio Listener", AudioListener);
+            ImGui::EndMenu();
         }
 
-        if (ImGui::MenuItem("Audio Listener")) {
-            Commands::Actions::EditActor(actor, "Add Component", [&]{ actor->AddComponent<Engine::Objects::Components::AudioListener>(); });
-        }
-
-        if (ImGui::MenuItem("Physics Body")) {
-            Commands::Actions::EditActor(actor, "Add Component", [&]{ actor->AddComponent<Engine::Objects::Components::PhysicsBody>(); });
-        }
-
-        if (ImGui::MenuItem("Model")) {
-            Commands::Actions::EditActor(actor, "Add Component", [&]{ actor->AddComponent<Engine::Objects::Components::Model>(); });
-        }
-
-        if (ImGui::MenuItem("Probe Volume")) {
-            Commands::Actions::EditActor(actor, "Add Component", [&]{ actor->AddComponent<Engine::Objects::Components::ProbeVolume>(); });
-        }
-
-        if (ImGui::MenuItem("Reflection Probe")) {
-            Commands::Actions::EditActor(actor, "Add Component", [&]{ actor->AddComponent<Engine::Objects::Components::ReflectionProbe>(); });
-        }
+        #undef SHARD_ADD_ITEM
 
         // Everything registered through REGISTER_COMPONENT (game-side custom components, e.g.
         // scripts) - these aren't special-cased engine types like the ones above, so the registry is
@@ -808,10 +819,8 @@ namespace Shard::Editor::GUI{
         // for world files). CreateComponentByName hands back a parent-less component (see
         // DECLARE_COMPONENT); AddComponentRaw is what wires it into this actor/world.
         const auto& customComponents = GetComponentRegistry().GetAll();
-        if (!customComponents.empty())
+        if (!customComponents.empty() && ImGui::BeginMenu("Scripts"))
         {
-            ImGui::Separator();
-
             // Sorted so the menu has a stable order instead of reshuffling with the registry's
             // internal (unordered_map) iteration order.
             std::vector<std::string> names;
@@ -831,6 +840,7 @@ namespace Shard::Editor::GUI{
                     }
                 }
             }
+            ImGui::EndMenu();
         }
     }
 

@@ -30,6 +30,8 @@
 
 #include "engine/core/diagnostics/logger.hpp"
 
+#include "engine/physics/gravity.hpp"
+
 
 
 using namespace JPH;
@@ -347,6 +349,30 @@ namespace Shard::Engine::Physics
         void SetGravity(glm::vec3 gravity);
         glm::vec3 GetGravity();
 
+        // ---------------- Gravity fields ----------------
+        // Jolt has one gravity for the whole system. The fields and the per-body gravity are done on top of it : before every step each
+        // active dynamic body gets, as a force, the difference between the gravity it should feel and the one Jolt will give it
+        // (see ApplyGravityFields). A project without fields and with every body on the world's gravity pays nothing for it.
+
+        /// Replaces the gravity fields the steps solve : plain numbers, whoever made them (see GravityField::BuildData). Their `order`
+        /// breaks the ties between two of the same priority. A sleeping body is woken when the new fields change its gravity.
+        void SetGravityFields(std::vector<GravityFieldData> fields);
+
+        /// SetGravityFields with the active gravity fields of the loaded worlds. The engine runs it before every step.
+        void CollectGravityFields();
+
+        const std::vector<GravityFieldData>& GetGravityFields() const { return m_GravityFields; }
+
+        /// The gravity a body of the default mode (see GravityMode::Fields) feels at `position` of the root frame : the fields and the
+        /// gravity of the world, before any gravity factor
+        glm::vec3 GetGravityAt(const glm::dvec3& position);
+
+        /// Where the gravity of a body comes from. The default (GravityMode::Fields) is not kept. Wakes the body up.
+        void SetBodyGravity(JPH::BodyID id, GravityMode mode, glm::vec3 custom);
+
+        /// The gravity a body feels now : by its mode, at its center of mass, before its gravity factor
+        glm::vec3 GetBodyGravity(JPH::BodyID id);
+
         /// One step, then the contact callbacks of the scripts (OnContactAdded / Persisted / Ended) for what the step found :
         /// on the calling thread, after Jolt is done, in an order that doesn't depend on which of Jolt's jobs ran first
         void StepSimulation(float deltaTime, bool activateAll);
@@ -384,6 +410,15 @@ namespace Shard::Engine::Physics
             ContactSettings settings;
         };
 
+        /// Adds to every active dynamic body the force that makes the gravity it feels (see GetBodyGravity) what Jolt does not give it
+        void ApplyGravityFields();
+
+        /// Wakes the sleeping bodies whose gravity is not the one they fell asleep in, after the fields changed
+        void WakeBodiesOfChangedGravity();
+
+        /// The gravity of a body at the position of its center of mass
+        glm::vec3 BodyGravityAt(JPH::BodyID id, const glm::dvec3& position, const glm::vec3& world) const;
+
         // From Jolt's jobs : any thread, under m_ContactMutex
         void QueueContact(PendingContact::Kind kind, const Body &body1, const Body &body2, const ContactManifold &contactManifold, const ContactSettings &contactSettings);
         void QueueContactRemoved(const SubShapeIDPair &pair);
@@ -396,6 +431,12 @@ namespace Shard::Engine::Physics
         const std::vector<std::shared_ptr<Objects::Components::Script>>& ScriptsOf(Objects::Actor& actor);
 
         std::unordered_map<JPH::BodyID, Objects::Components::PhysicsBody*> bodyIDToComponentMap;
+
+        std::vector<GravityFieldData> m_GravityFields;      // sorted (SortGravityFields)
+        bool m_GravityFieldsChanged = false;                // since the last step
+        std::unordered_map<JPH::BodyID, BodyGravity> m_BodyGravity;         // the bodies that are not on GravityMode::Fields
+        std::unordered_map<JPH::BodyID, glm::vec3> m_AppliedGravity;        // the gravity a body felt the last step it was active in
+        JPH::BodyIDVector m_ActiveBodies;                   // scratch, kept for its capacity
 
         std::mutex m_ContactMutex;
         std::vector<PendingContact> m_PendingContacts;          // filled by Jolt's jobs

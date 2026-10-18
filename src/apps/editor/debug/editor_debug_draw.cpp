@@ -1,12 +1,16 @@
 #include "editor_debug_draw.hpp"
 
+#define GLM_ENABLE_EXPERIMENTAL
+
 #include <cmath>
 
 #include <glm/gtc/matrix_transform.hpp>
 #include <glm/gtc/quaternion.hpp>
+#include <glm/gtx/quaternion.hpp>
 
 #include "engine/assets/assetID.hpp"
 #include "engine/assets/resources_manager.hpp"
+#include "engine/physics/gravity_field.hpp"
 #include "engine/physics/physics_body.hpp"
 #include "engine/renderer/components/probe_volume.hpp"
 #include "engine/renderer/components/reflection_probe.hpp"
@@ -40,6 +44,8 @@ namespace Shard::Editor::Debug{
         // has its box and its probes)
         constexpr uint32_t kVolumeBoxSlot = 0;
         constexpr uint32_t kVolumeProbesSlot = 1;
+        constexpr uint32_t kGravityOuterSlot = 1;       // a gravity field's second outline (the edge of its reach, its direction)
+        constexpr uint32_t kGravityFadeSlot = 2;        // and the third (where it starts to fade)
         constexpr uint64_t kSlotBits = 20;
 
         // The layout of the vertices of the meshes DebugShape builds
@@ -51,6 +57,17 @@ namespace Shard::Editor::Debug{
         };
 
         const COL_RGBA kWireframeColor = COL_RGBA(0.0f, 1.0f, 1.0f, 1.0f);
+        // The arrow standing for the direction of a gravity : a cone whose tip points where it does
+        const glm::vec3 kGravityArrowHalfExtent = glm::vec3(0.3f, 0.6f, 0.3f);
+
+        glm::mat4 GravityArrowPose(const glm::vec3& position, const glm::vec3& direction)
+        {
+            const float length = glm::length(direction);
+            const glm::vec3 dir = length > 1e-6f ? direction / length : glm::vec3(0.0f, -1.0f, 0.0f);
+            // The cone narrows toward +Y
+            return glm::translate(glm::mat4(1.0f), position) * glm::mat4_cast(glm::rotation(glm::vec3(0.0f, 1.0f, 0.0f), dir));
+        }
+
         const COL_RGBA kProbeColor = COL_RGBA(1.0f, 1.0f, 1.0f, 1.0f);
         constexpr float kProbeRadius = 0.08f;
     }
@@ -263,6 +280,73 @@ namespace Shard::Editor::Debug{
                         const glm::mat4 localOffset = glm::translate(glm::mat4(1.0f), body->GetShapeOffset(i)) * glm::mat4_cast(body->GetShapeRotation(i));
 
                         Show(DebugLayer::Physics, ownerID, (uint32_t)i, objectID, spec, world * localOffset);
+                    }
+                }
+                else if(std::dynamic_pointer_cast<Components::GravityField>(comp))
+                {
+                    const glm::vec3 position = actor.transform->GetWorldPosition();
+                    const glm::quat rotation = actor.transform->GetWorldRotationQuat();
+
+                    auto sphere = [](float radius) {
+                        ShapeSpec spec;
+                        spec.kind = ShapeKind::Sphere;
+                        spec.radius = radius;
+                        return spec;
+                    };
+                    const glm::mat4 atActor = glm::translate(glm::mat4(1.0f), position);
+
+                    if(auto uniform = std::dynamic_pointer_cast<Components::UniformGravityField>(comp))
+                    {
+                        ShapeSpec arrow;
+                        arrow.kind = ShapeKind::VolumeCone;
+                        arrow.halfExtent = kGravityArrowHalfExtent;
+                        // Pointing where the strength pulls : the other way when it is negative
+                        const glm::vec3 direction = rotation * uniform->direction * (uniform->strength < 0.0f ? -1.0f : 1.0f);
+                        Show(DebugLayer::Volumes, ownerID, kVolumeBoxSlot, objectID, arrow, GravityArrowPose(position, direction));
+                    }
+                    else if(auto point = std::dynamic_pointer_cast<Components::PointGravityField>(comp))
+                    {
+                        // An unlimited field has no edge to show : only the position of the source
+                        const float radius = point->radius > 0.0f ? point->radius : 0.5f;
+                        Show(DebugLayer::Volumes, ownerID, kVolumeBoxSlot, objectID, sphere(radius), atActor);
+
+                        if(point->radius > 0.0f && point->fadeDistance > 0.0f && point->fadeDistance < point->radius)
+                            Show(DebugLayer::Volumes, ownerID, kGravityFadeSlot, objectID, sphere(point->radius - point->fadeDistance), atActor);
+                    }
+                    else if(auto radial = std::dynamic_pointer_cast<Components::RadialGravityField>(comp))
+                    {
+                        Show(DebugLayer::Volumes, ownerID, kVolumeBoxSlot, objectID, sphere(radial->radius), atActor);
+
+                        if(radial->reach > 0.0f)
+                        {
+                            Show(DebugLayer::Volumes, ownerID, kGravityOuterSlot, objectID, sphere(radial->radius + radial->reach), atActor);
+
+                            if(radial->fadeDistance > 0.0f && radial->fadeDistance < radial->reach)
+                                Show(DebugLayer::Volumes, ownerID, kGravityFadeSlot, objectID, sphere(radial->radius + radial->reach - radial->fadeDistance), atActor);
+                        }
+                    }
+                    else if(auto region = std::dynamic_pointer_cast<Components::GravityVolume>(comp))
+                    {
+                        ShapeSpec box;
+                        box.halfExtent = region->halfExtent;
+                        switch(region->shape)
+                        {
+                            case Engine::Physics::GravityVolumeShape::Sphere:   box.kind = ShapeKind::VolumeSphere; break;
+                            case Engine::Physics::GravityVolumeShape::Cylinder: box.kind = ShapeKind::VolumeCylinder; break;
+                            default:                                            box.kind = ShapeKind::Box; break;
+                        }
+
+                        // The region follows the whole transform of the actor, like the generic volumes
+                        Show(DebugLayer::Volumes, ownerID, kVolumeBoxSlot, objectID, box, actor.transform->GetWorldMatrix());
+
+                        if(region->directionMode == Engine::Physics::GravityVolumeDirection::Fixed)
+                        {
+                            ShapeSpec arrow;
+                            arrow.kind = ShapeKind::VolumeCone;
+                            arrow.halfExtent = kGravityArrowHalfExtent;
+                            const glm::vec3 direction = rotation * region->direction * (region->strength < 0.0f ? -1.0f : 1.0f);
+                            Show(DebugLayer::Volumes, ownerID, kGravityOuterSlot, objectID, arrow, GravityArrowPose(position, direction));
+                        }
                     }
                 }
                 else if(auto volume = std::dynamic_pointer_cast<Components::Volume>(comp))

@@ -56,6 +56,17 @@ namespace Shard::Editor::GUI {
             void ShowViewportVisSettings();
             void ShowRaytraceSettings();
 
+            /// Delete, Ctrl+C / X / V / D / A / G, F2 and Escape on the selection, while the viewport has the focus
+            void HandleShortcuts();
+            /// Ctrl or Shift + left button drags a selection rectangle (a click without moving picks). Returns true while it
+            /// uses the mouse (the camera does not look around then).
+            bool HandleMarquee(bool canStart);
+            void SelectInRect(const ImVec2& a, const ImVec2& b, bool toggle);
+            /// What the click that picked this actor does to the selection (Ctrl toggles it, Shift adds it, else it replaces it)
+            void ApplyPick(const std::shared_ptr<Engine::Objects::Actor>& actor);
+            /// The actor under the pixel (relative to the viewport image), null if none
+            std::shared_ptr<Engine::Objects::Actor> PickActor(float localX, float localY);
+
 
             Core::EditorMainWindow* parent = nullptr;
 
@@ -103,6 +114,21 @@ namespace Shard::Editor::GUI {
             std::unique_ptr<Commands::CompositeCommand> gizmoCommand;
 
             bool isUsingViewGizmo = false;
+
+            // Selection rectangle (screen coordinates)
+            bool marqueePending = false;
+            bool marqueeActive = false;
+            ImVec2 marqueeStart = ImVec2(0, 0);
+            ImVec2 marqueeEnd = ImVec2(0, 0);
+
+            // The gizmo drags the primary actor ; with several selected the others follow, each from where it was
+            // when the drag began
+            struct GizmoTarget {
+                std::shared_ptr<Engine::Objects::Actor> actor;
+                glm::mat4 startWorld;
+            };
+            std::vector<GizmoTarget> gizmoTargets;
+            glm::mat4 gizmoStartMatrix = glm::mat4(1.0f);
 
             ImVec2 viewportImageMin;
             ImVec2 viewportImageMax;
