@@ -55,6 +55,10 @@ namespace Shard::Engine::Rendering {
             // with them their handles (Vulkan) - called after Renderer::RescaleFramebuffers and every Update().
             void RefreshSamplers(IRenderContext* renderer);
 
+            // The depth + view-space normal prepass' target : the screen-space reflections read the same picture of the scene's geometry
+            // (SSRManager), so the prepass runs for them as well, whether or not the AO is on.
+            std::shared_ptr<Framebuffer> GetPrepassFramebuffer() const { return m_PrepassFramebuffer; }
+
         private:
             void BuildKernelAndNoise();
 

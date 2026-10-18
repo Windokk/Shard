@@ -652,7 +652,6 @@ namespace ImGui
             // comment above) - SetNextWindowBgAlpha() below still overrides just the alpha channel of
             // this pushed color, so the fade in/out animation keeps working unchanged, it just fades a
             // solid dark card instead of the default toast background.
-            if (hasProgressBar)
             {
                 PushStyleColor(ImGuiCol_WindowBg, ImVec4(0.09f, 0.10f, 0.11f, 1.0f));
                 PushStyleColor(ImGuiCol_Border, ImVec4(0.30f, 0.34f, 0.38f, 1.0f));
@@ -812,7 +811,6 @@ namespace ImGui
             // End
             End();
 
-            if (hasProgressBar)
             {
                 PopStyleVar(3);
                 PopStyleColor(2);

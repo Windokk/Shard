@@ -11,6 +11,7 @@
 
 #include "engine/renderer/rhi/render_view.hpp"
 #include "engine/renderer/rhi/display_transform.hpp"
+#include "engine/renderer/rhi/ssr_settings.hpp"
 
 namespace Shard::Engine::Rendering {
 
@@ -152,6 +153,20 @@ namespace Shard::Engine::Rendering {
         glm::vec3 GridOrigin() const { return ProbeGridOrigin(volume.center, volume.halfExtent, probeCounts); }
     };
 
+    /// The shape of the region a reflection probe covers, inscribed in its box (the volume's half extent). Cylinder and cone stand along Y,
+    /// the cone and the pyramid narrow toward +Y.
+    enum class ReflectionProbeShape : int { Box = 0, Sphere, Cylinder, Cone, Pyramid };
+
+    /// A baked picture of the surroundings of a point, which the surfaces in its box reflect (see ReflectionProbe)
+    struct ReflectionProbeProxy {
+        VolumeProxy volume;
+        ReflectionProbeShape shape = ReflectionProbeShape::Box;
+        float intensity = 1.0f;
+        float blendDistance = 1.0f;
+        bool boxProjection = true;
+        std::shared_ptr<EnvironmentMap> environment;    // the baked picture, null while there is none (the probe then does nothing)
+    };
+
     /// Everything that is not an object of the scene : the world's ambient, SSAO and sky settings.
     struct EnvironmentProxy {
         glm::vec3 ambientColor = glm::vec3(0.3f);
@@ -161,6 +176,7 @@ namespace Shard::Engine::Rendering {
         float ssaoIntensity = 1.0f;
         float ssaoPower = 2.0f;
         DisplaySettings display;                        // how the scene's light is turned into the picture : tonemapper and exposure
+        SSRSettings ssr;                                // the screen-space reflections (see SSRManager)
         std::string lightmapData;                       // path in the project of the baked lightmap pages, empty if none
         std::shared_ptr<EnvironmentMap> skybox;         // null : no sky
         std::shared_ptr<Material> skyboxMaterial;       // what draws it : a fullscreen triangle, set up by the world's skybox
@@ -178,6 +194,7 @@ namespace Shard::Engine::Rendering {
         std::vector<MeshProxy> meshes;
         std::vector<LightProxy> lights;
         std::vector<ProbeVolumeProxy> probeVolumes;
+        std::vector<ReflectionProbeProxy> reflectionProbes;
         std::vector<BillboardProxy> billboards;
 
         /// Empties the lists but keeps their memory : the next extraction refills the same buffers.
@@ -189,6 +206,7 @@ namespace Shard::Engine::Rendering {
             meshes.clear();
             lights.clear();
             probeVolumes.clear();
+            reflectionProbes.clear();
             billboards.clear();
         }
 

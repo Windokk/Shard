@@ -9,6 +9,7 @@
 #include "engine/renderer/features/lighting/shadow_manager.hpp"
 #include "engine/renderer/features/lighting/probe_manager.hpp"
 #include "engine/renderer/features/lighting/ssao_manager.hpp"
+#include "engine/renderer/features/lighting/ssr_manager.hpp"
 #include "engine/renderer/features/lighting/light_culling_manager.hpp"
 
 // The Renderer's side of ISceneBinding : what the backend asks for while it issues a draw.
@@ -168,6 +169,50 @@ namespace Shard::Engine::Rendering{
             shader->SetInt("ddgi_volumeCount", volumeCount);
         }
 
+        // Reflection probe : the one nearest to the view among those that have a baked picture (the camera inside a box is at distance 0, the
+        // smaller box among those). One at a time : lit.frag has no sampler unit left for a second. A studio view brings its own environment,
+        // so it never reflects the world's probes.
+        {
+            const ReflectionProbeProxy* best = nullptr;
+            float bestDistance = 0.0f;
+            float bestVolume = 0.0f;
+
+            if (!studio)
+            {
+                for (const ReflectionProbeProxy& probe : GetSnapshot().reflectionProbes)
+                {
+                    if (!probe.volume.active || !probe.environment || !probe.environment->GetPrefilter())
+                        continue;
+
+                    const glm::vec3 outside = glm::max(glm::abs(currentView.position - probe.volume.center) - probe.volume.halfExtent, glm::vec3(0.0f));
+                    const float distance = glm::length(outside);
+                    const float volume = probe.volume.halfExtent.x * probe.volume.halfExtent.y * probe.volume.halfExtent.z;
+
+                    if (!best || distance < bestDistance || (distance == bestDistance && volume < bestVolume))
+                    {
+                        best = &probe;
+                        bestDistance = distance;
+                        bestVolume = volume;
+                    }
+                }
+            }
+
+            shader->SetBool("rp_enabled", best != nullptr);
+
+            if (best)
+            {
+                const auto& samplers = shader->GetActiveSamplersMap();
+                auto sampler = samplers.find("rp_prefilter");
+                if (sampler != samplers.end())
+                    api.BindTextureUnit(sampler->second.binding, best->environment->GetPrefilter()->GetHandle());
+
+                shader->SetVec3("rp_center", best->volume.center);
+                shader->SetVec3("rp_halfExtent", best->volume.halfExtent);
+                shader->SetInt("rp_shape", (int)best->shape);
+                shader->SetVec3("rp_params", glm::vec3(best->intensity, best->blendDistance, best->boxProjection ? 1.0f : 0.0f));
+            }
+        }
+
         shader->SetInt("lightNB", studio ? currentView.studioLightCount : GetLightManager()->GetLightsCount());
         shader->SetVec3("camPos", currentView.position);
         auto lightCullingManager = GetLightCullingManager();
@@ -192,5 +237,15 @@ namespace Shard::Engine::Rendering{
         if(material->GetRecieveShadows())
             GetShadowManager()->BindShadowMaps(material);
         GetSSAOManager()->BindSSAOTexture(material);
+
+        // The studio views are drawn from another point of view than the screen's : the reflections, which are screen-space, mean nothing there
+        bool screenSpaceView = true;
+        if (HasViewOverride())
+        {
+            RenderView currentView;
+            if (GetCurrentView(currentView))
+                screenSpaceView = currentView.lighting != ViewLighting::Studio;
+        }
+        GetSSRManager()->BindSSR(material, screenSpaceView);
     }
 }

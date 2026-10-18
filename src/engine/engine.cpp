@@ -32,6 +32,7 @@
 #include "engine/renderer/features/lighting/probe_manager.hpp"
 #include "engine/renderer/features/lighting/lightmap_manager.hpp"
 #include "engine/renderer/components/probe_volume.hpp"
+#include "engine/renderer/components/reflection_probe.hpp"
 #include "engine/world/actor.hpp"
 #include "engine/renderer/rhi/resources/texture/texture_compression.hpp"
 #include "engine/renderer/rhi/resources/mesh/lightmap_uv.hpp"
@@ -419,6 +420,10 @@ namespace Shard::Engine{
 
             add("Audio.Tick", Phase::Update, [this](SystemContext&){ if(m_PlayMode) TickAudio(); });
             add("Scripts.Tick", Phase::Update, [this](SystemContext&){ if(m_PlayMode) TickScripts(); });
+
+            // Loads the pictures the reflection probes reflect and advances the bake that is running : not gated by the play mode, a probe is
+            // baked from the editor
+            add("ReflectionProbes.Tick", Phase::Update, [](SystemContext&){ Objects::Components::ReflectionProbe::TickAll(); }, true);
 
             // After the scripts moved things : kinematic targets go to Jolt, dynamic results come back to the transforms
             add("Physics.Sync", Phase::Late, [this](SystemContext& c){ SyncPhysicsBodies(c.fixedDeltaTime); });

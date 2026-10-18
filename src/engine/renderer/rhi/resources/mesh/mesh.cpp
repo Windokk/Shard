@@ -712,6 +712,10 @@ namespace Shard::Engine::Rendering{
             if (slot >= mats.size())
                 slot = (uint32_t)mats.size() - 1;
 
+            // An unresolved material slot draws nothing rather than crashing the renderer
+            if (!mats[slot])
+                continue;
+
             cmd.mesh        = shared_from_this();
             cmd.material    = mats[slot];
             cmd.modelMatrix = worldMatrix;

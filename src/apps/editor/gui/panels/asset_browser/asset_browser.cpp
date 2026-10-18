@@ -13,6 +13,7 @@
 
 #include "apps/editor/gui/panels/asset_editor_registry.hpp"
 #include "apps/editor/gui/dragdrop/asset_drag_drop.hpp"
+#include "apps/editor/gui/IconsLucide.h"
 #include "apps/editor/gui/popups.hpp"
 #include "apps/editor/gui/notifications.hpp"
 #include "apps/editor/gui/panels/asset_browser/asset_operations.hpp"
@@ -189,20 +190,34 @@ namespace Shard::Editor::GUI{
 
         auto* fileManager = Engine::Core::GetEngine().GetFileManager();
 
+        const bool searching = searchBuffer[0] != '\0';
+
         auto files = fileManager->ListDirectory(
             currentPath,
             allowedTypes,
             true,
-            false
+            searching && searchSubfolders
         );
+
+        // Only a change of folder / search leaves the folder structure as it was
+        if (!navigationOnly)
+            treeDirty = true;
+        navigationOnly = false;
+
+        auto lower = [](std::string v) { std::transform(v.begin(), v.end(), v.begin(), ::tolower); return v; };
+        const std::string needle = lower(searchBuffer);
 
         auto atlas = EditorResources::Instance().GetIconAtlas();
 
-        for (int i = 0; i < static_cast<int>(files.size()); i++)
-        {
-            auto file = files[i];
+        visibleItemCount = static_cast<int>(files.size());
+        items.reserve(files.size());
 
-            items.push_back(Asset(
+        for (const auto& file : files)
+        {
+            if (file.isDirectory ? !showFolders : typeHidden[(int)file.type])
+                continue;
+
+            Asset asset(
                 ImHashStr(file.path.full.c_str()),
                 file.path,
                 file.type,
@@ -210,10 +225,55 @@ namespace Shard::Editor::GUI{
                 &atlas->GetRegion(file.isDirectory ? Engine::Filesystem::Type::T_DIRECTORY : file.type),
                 file.nameInProject,
                 file.size
-            ));
+            );
+
+            // A search matches the name or the kind of asset ("material", "texture"...)
+            if (searching
+                && asset.lowerName.find(needle) == std::string::npos
+                && lower(GetTypeDisplayName(file.type, file.isDirectory)).find(needle) == std::string::npos)
+                continue;
+
+            items.push_back(std::move(asset));
         }
 
+        // Folders first, then the chosen order, the name settling ties
+        const SortKey key = sortKey;
+        const bool ascending = sortAscending;
+        std::stable_sort(items.begin(), items.end(), [key, ascending](const Asset& a, const Asset& b)
+        {
+            if (a.isDirectory != b.isDirectory)
+                return a.isDirectory;
+
+            int delta = 0;
+            if (key == SortKey::Type && !a.isDirectory)
+                delta = (int)a.type - (int)b.type;
+            else if (key == SortKey::Size && !a.isDirectory)
+                delta = a.size < b.size ? -1 : (a.size > b.size ? 1 : 0);
+
+            if (delta != 0)
+                return ascending ? delta < 0 : delta > 0;
+
+            int byName = a.lowerName.compare(b.lowerName);
+            return ascending ? byName < 0 : byName > 0;
+        });
+
         dirty = false;
+
+        // RevealAsset : select the asset once its folder is listed
+        if (!pendingRevealPath.empty())
+        {
+            selection.Clear();
+            for (int i = 0; i < static_cast<int>(items.size()); i++)
+            {
+                if (items[i].path.full == pendingRevealPath)
+                {
+                    selection.SetItemSelected(items[i].id, true);
+                    pendingScrollItem = i;
+                    break;
+                }
+            }
+            pendingRevealPath.clear();
+        }
     }
 
     void AssetBrowser::Draw()
@@ -230,7 +290,7 @@ namespace Shard::Editor::GUI{
             if (hotReloader->GetRevision() != hotReloadRevision)
             {
                 hotReloadRevision = hotReloader->GetRevision();
-                dirty = true;
+                dirty = true; navigationOnly = false;
             }
         }
 
@@ -255,8 +315,57 @@ namespace Shard::Editor::GUI{
 
         ImGui::Begin("Asset Browser");
 
+        // Mouse back / forward buttons and Backspace, like a file explorer
+        if (ImGui::IsWindowHovered(ImGuiHoveredFlags_ChildWindows))
+        {
+            if (ImGui::IsMouseClicked(3))
+                NavigateHistory(-1);
+            else if (ImGui::IsMouseClicked(4))
+                NavigateHistory(+1);
+        }
+        if (ImGui::IsWindowFocused(ImGuiFocusedFlags_ChildWindows))
+        {
+            const ImGuiIO& io = ImGui::GetIO();
+
+            if (io.KeyAlt)
+            {
+                if (ImGui::IsKeyPressed(ImGuiKey_LeftArrow))
+                    NavigateHistory(-1);
+                else if (ImGui::IsKeyPressed(ImGuiKey_RightArrow))
+                    NavigateHistory(+1);
+                else if (ImGui::IsKeyPressed(ImGuiKey_UpArrow))
+                    GoUp();
+            }
+
+            if (io.KeyCtrl && !io.KeyAlt)
+            {
+                if (ImGui::IsKeyPressed(ImGuiKey_F, false))
+                    focusSearch = true;
+                if (!io.WantTextInput)
+                {
+                    if (ImGui::IsKeyPressed(ImGuiKey_B, false))
+                        showSidebar = !showSidebar;
+                    if (ImGui::IsKeyPressed(ImGuiKey_Equal) || ImGui::IsKeyPressed(ImGuiKey_KeypadAdd))
+                        SetZoom(thumbnailSize * 1.15f);
+                    if (ImGui::IsKeyPressed(ImGuiKey_Minus) || ImGui::IsKeyPressed(ImGuiKey_KeypadSubtract))
+                        SetZoom(thumbnailSize / 1.15f);
+                    if (ImGui::IsKeyPressed(ImGuiKey_0, false) || ImGui::IsKeyPressed(ImGuiKey_Keypad0, false))
+                        SetZoom(80.0f);
+                    if (io.KeyShift && ImGui::IsKeyPressed(ImGuiKey_N, false))
+                        pendingAction = Action::NewFolder;
+                }
+            }
+
+            if (!io.WantTextInput && !io.KeyCtrl && !io.KeyAlt && ImGui::IsKeyPressed(ImGuiKey_Backspace))
+                GoUp();
+        }
+
+        ImGui::Dummy(ImVec2(0.0f, 2.0f));
         DrawBreadcrumb();
-        ImGui::Separator();
+        ImGui::Dummy(ImVec2(0.0f, 4.0f));
+
+        if (showSidebar)
+            DrawSidebar(ImGui::GetContentRegionAvail().y - ImGui::GetTextLineHeightWithSpacing());
 
         DrawAssets();
 
@@ -269,6 +378,7 @@ namespace Shard::Editor::GUI{
     void AssetBrowser::DrawBreadcrumb()
     {
         auto& engine = Engine::Core::GetEngine();
+        const ImGuiStyle& style = ImGui::GetStyle();
 
         Engine::Filesystem::Path projectRoot = engine.GetCurrentProject()->GetProjectResourcesPath();
 
@@ -278,15 +388,128 @@ namespace Shard::Editor::GUI{
         if (relative == ".")
             relative.clear();
 
-        std::vector<std::string> segments;
-        if (!relative.empty())
+        // Back / forward / up
+        {
+            const bool canBack = historyIndex > 0;
+            const bool canForward = historyIndex + 1 < (int)history.size();
+            const bool canUp = !relative.empty();
+
+            ImGui::BeginDisabled(!canBack);
+            if (ImGui::Button(ICON_LC_ARROW_LEFT "##Back"))
+                NavigateHistory(-1);
+            ImGui::EndDisabled();
+            if (ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled)) ImGui::SetTooltip("Back (Alt+Left)");
+
+            ImGui::SameLine();
+            ImGui::BeginDisabled(!canForward);
+            if (ImGui::Button(ICON_LC_ARROW_RIGHT "##Forward"))
+                NavigateHistory(+1);
+            ImGui::EndDisabled();
+            if (ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled)) ImGui::SetTooltip("Forward (Alt+Right)");
+
+            ImGui::SameLine();
+            ImGui::BeginDisabled(!canUp);
+            if (ImGui::Button(ICON_LC_ARROW_UP "##Up"))
+                GoUp();
+            ImGui::EndDisabled();
+            if (ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled)) ImGui::SetTooltip("Parent folder (Alt+Up)");
+
+            ImGui::SameLine();
+        }
+
+        const float breadcrumbStartX = ImGui::GetCursorPosX();
+        const float rowY = ImGui::GetCursorPosY();
+
+        // Right side : sidebar toggle, filters, view options, search
+        const float frameHeight = ImGui::GetFrameHeight();
+        const float spacing = style.ItemSpacing.x;
+        const float filterWidth = 96.0f;
+        const float searchWidth = 170.0f;
+        const float clusterWidth = frameHeight + spacing + filterWidth + spacing + frameHeight + spacing + searchWidth;
+        const float clusterX = breadcrumbStartX + ImGui::GetContentRegionAvail().x - clusterWidth;
+
+        ImGui::SetCursorPos(ImVec2(clusterX, rowY));
+
+        {
+            const bool sidebarOn = showSidebar;
+            if (sidebarOn)
+                ImGui::PushStyleColor(ImGuiCol_Button, ImGui::GetStyleColorVec4(ImGuiCol_ButtonActive));
+            if (ImGui::Button(ICON_LC_PANEL_LEFT "##Sidebar", ImVec2(frameHeight, 0.0f)))
+                showSidebar = !showSidebar;
+            if (sidebarOn)
+                ImGui::PopStyleColor();
+            if (ImGui::IsItemHovered()) ImGui::SetTooltip("Folder tree (Ctrl+B)");
+        }
+
+        ImGui::SameLine();
+        {
+            const int active = ActiveFilterCount();
+            if (active > 0)
+                ImGui::PushStyleColor(ImGuiCol_Button, ImGui::GetStyleColorVec4(ImGuiCol_ButtonActive));
+            std::string filterLabel = std::string(ICON_LC_LIST_FILTER) + (active > 0 ? " Filters (" + std::to_string(active) + ")" : " Filters") + "##Filters";
+            if (ImGui::Button(filterLabel.c_str(), ImVec2(filterWidth, 0.0f)))
+                ImGui::OpenPopup("##FilterPopup");
+            if (active > 0)
+                ImGui::PopStyleColor();
+            DrawFilterPopup();
+        }
+
+        ImGui::SameLine();
+        if (ImGui::Button(ICON_LC_SLIDERS_HORIZONTAL "##View", ImVec2(frameHeight, 0.0f)))
+            ImGui::OpenPopup("##ViewPopup");
+        if (ImGui::IsItemHovered()) ImGui::SetTooltip("View options");
+        DrawViewPopup();
+
+        ImGui::SameLine();
+        if (focusSearch)
+        {
+            ImGui::SetKeyboardFocusHere();
+            focusSearch = false;
+        }
+        ImGui::SetNextItemWidth(searchWidth);
+        if (ImGui::InputTextWithHint("##AssetSearch", ICON_LC_SEARCH "  Search (Ctrl+F)", searchBuffer, sizeof(searchBuffer)))
+            RequestRelist();
+        if (ImGui::IsItemFocused() && ImGui::IsKeyPressed(ImGuiKey_Escape) && searchBuffer[0] != '\0')
+        {
+            searchBuffer[0] = '\0';
+            RequestRelist();
+        }
+
+        // Left side : the breadcrumb, its leftmost folders folded in a "..." when it does not fit
+        ImGui::SetCursorPos(ImVec2(breadcrumbStartX, rowY));
+
+        struct Crumb { std::string label; Engine::Filesystem::Path path; };
+        std::vector<Crumb> crumbs;
+        crumbs.push_back({ projectRoot.GetFilename(), projectRoot });
         {
             std::stringstream ss(relative);
             std::string segment;
+            Engine::Filesystem::Path accum = projectRoot;
             while (std::getline(ss, segment, '/'))
-                if (!segment.empty())
-                    segments.push_back(segment);
+            {
+                if (segment.empty())
+                    continue;
+                accum = accum / segment;
+                crumbs.push_back({ segment, accum });
+            }
         }
+
+        const float separatorWidth = ImGui::CalcTextSize(">").x;
+        const float available = clusterX - breadcrumbStartX - spacing;
+        auto crumbWidth = [&](const std::string& label) { return ImGui::CalcTextSize(label.c_str()).x + 12.0f; };
+
+        size_t first = 0;
+        auto totalWidth = [&]()
+        {
+            float total = 0.0f;
+            if (first > 0)
+                total += crumbWidth("...") + separatorWidth;
+            for (size_t i = first; i < crumbs.size(); i++)
+                total += crumbWidth(crumbs[i].label) + (i > first ? separatorWidth : 0.0f);
+            return total;
+        };
+        while (first + 1 < crumbs.size() && totalWidth() > available)
+            first++;
 
         ImGui::PushStyleVar(ImGuiStyleVar_ItemSpacing, ImVec2(0, 0));
         ImGui::PushStyleVar(ImGuiStyleVar_FramePadding, ImVec2(6, 4));
@@ -302,7 +525,7 @@ namespace Shard::Editor::GUI{
             ImGui::SameLine();
         };
 
-        auto drawCrumb = [&](int id, const std::string& label, bool isCurrent, const std::function<void()>& onClick)
+        auto drawCrumb = [&](int id, const std::string& label, bool isCurrent, const Engine::Filesystem::Path& target)
         {
             ImGui::PushID(id);
 
@@ -318,43 +541,264 @@ namespace Shard::Editor::GUI{
             {
                 ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(1.0f, 1.0f, 1.0f, 0.65f));
                 if (ImGui::Button(label.c_str()))
-                    onClick();
+                    NavigateTo(target.full);
                 ImGui::PopStyleColor();
+
+                // Dropping assets on a parent folder moves them there
+                if (ImGui::BeginDragDropTarget())
+                {
+                    std::vector<std::string> dropped = DragDrop::AcceptAssetDragDropPayload();
+                    if (!dropped.empty())
+                        MoveItemsInto(dropped, target);
+                    ImGui::EndDragDropTarget();
+                }
             }
 
             ImGui::PopID();
         };
 
-        drawCrumb(0, engine.GetCurrentProject()->GetProjectResourcesPath().GetFilename(),
-            segments.empty(),
-            [&]() { NavigateTo(projectRoot.full); });
-
-        Engine::Filesystem::Path accum = projectRoot;
-
-        for (size_t i = 0; i < segments.size(); i++)
+        if (first > 0)
         {
-            drawSeparator();
+            drawCrumb(-1, "...", false, crumbs[first - 1].path);
+            if (ImGui::IsItemHovered()) ImGui::SetTooltip("%s", crumbs[first - 1].path.full.c_str());
+        }
 
-            accum = accum / segments[i];
-            bool isCurrent = (i == segments.size() - 1);
-
-            drawCrumb((int)i + 1, segments[i], isCurrent, [&, accum]() { NavigateTo(accum.full); });
+        for (size_t i = first; i < crumbs.size(); i++)
+        {
+            if (i > first || first > 0)
+                drawSeparator();
+            drawCrumb((int)i, crumbs[i].label, i == crumbs.size() - 1, crumbs[i].path);
         }
 
         ImGui::PopStyleColor(3);
         ImGui::PopStyleVar(3);
     }
 
+    int AssetBrowser::ActiveFilterCount() const
+    {
+        int count = showFolders ? 0 : 1;
+        for (int i = 0; i < 13; i++)
+            if (typeHidden[i])
+                count++;
+        return count;
+    }
+
+    void AssetBrowser::DrawFilterPopup()
+    {
+        if (!ImGui::BeginPopup("##FilterPopup"))
+            return;
+
+        bool changed = false;
+
+        ImGui::TextDisabled("Show");
+        changed |= ImGui::Checkbox("Folders", &showFolders);
+        ImGui::Separator();
+
+        using Engine::Filesystem::Type;
+        static const Type kTypes[] = {
+            Type::T_MODEL, Type::T_MATERIAL, Type::T_IMAGE, Type::T_SOUND, Type::T_WORLD, Type::T_SCRIPT, Type::T_SHADER,
+            Type::T_COMPUTE_SHADER, Type::T_FONT, Type::T_PROBES, Type::T_LIGHTMAP, Type::T_TEXT, Type::T_CONFIG
+        };
+
+        for (Type type : kTypes)
+        {
+            bool shown = !typeHidden[(int)type];
+
+            ImGui::PushID((int)type);
+            ImGui::PushStyleColor(ImGuiCol_CheckMark, ImGui::ColorConvertU32ToFloat4(GetTypeAccentColor(type, false)));
+            if (ImGui::Checkbox(GetTypeDisplayName(type, false), &shown))
+            {
+                typeHidden[(int)type] = !shown;
+                changed = true;
+            }
+            ImGui::PopStyleColor();
+            ImGui::PopID();
+        }
+
+        ImGui::Separator();
+        if (ImGui::Button("All", ImVec2(60.0f, 0.0f)))
+        {
+            std::fill(std::begin(typeHidden), std::end(typeHidden), false);
+            showFolders = true;
+            changed = true;
+        }
+        ImGui::SameLine();
+        if (ImGui::Button("None", ImVec2(60.0f, 0.0f)))
+        {
+            for (Type type : kTypes)
+                typeHidden[(int)type] = true;
+            changed = true;
+        }
+
+        ImGui::Separator();
+        changed |= ImGui::Checkbox("Search in sub folders", &searchSubfolders);
+
+        if (changed)
+            RequestRelist();
+
+        ImGui::EndPopup();
+    }
+
+    void AssetBrowser::DrawViewPopup()
+    {
+        if (!ImGui::BeginPopup("##ViewPopup"))
+            return;
+
+        ImGui::TextDisabled("View");
+        if (ImGui::RadioButton(ICON_LC_LAYOUT_GRID "  Tiles", !listView))
+            listView = false;
+        if (ImGui::RadioButton(ICON_LC_LIST "  List", listView))
+            listView = true;
+
+        ImGui::Separator();
+        ImGui::TextDisabled("Sort by");
+
+        bool resort = false;
+        resort |= ImGui::RadioButton("Name", sortKey == SortKey::Name) && (sortKey = SortKey::Name, true);
+        resort |= ImGui::RadioButton("Type", sortKey == SortKey::Type) && (sortKey = SortKey::Type, true);
+        resort |= ImGui::RadioButton("Size", sortKey == SortKey::Size) && (sortKey = SortKey::Size, true);
+        resort |= ImGui::Checkbox("Ascending", &sortAscending);
+        if (resort)
+            RequestRelist();
+
+        ImGui::Separator();
+        float zoom = thumbnailSize;
+        ImGui::SetNextItemWidth(160.0f);
+        if (ImGui::SliderFloat("##Zoom", &zoom, 40.0f, 160.0f, "Size %.0f"))
+            SetZoom(zoom);
+
+        ImGui::Checkbox("Folder tree", &showSidebar);
+
+        ImGui::EndPopup();
+    }
+
+    void AssetBrowser::SetZoom(float size)
+    {
+        thumbnailSize = IM_CLAMP(size, 40.0f, 160.0f);
+    }
+
+    void AssetBrowser::RebuildFolderTree()
+    {
+        namespace fs = std::filesystem;
+        treeDirty = false;
+
+        const Engine::Filesystem::Path root = Engine::Core::GetEngine().GetCurrentProject()->GetProjectResourcesPath();
+
+        folderTree = FolderNode{};
+        folderTree.name = root.GetFilename();
+        folderTree.path = root.full;
+
+        auto lower = [](std::string v) { std::transform(v.begin(), v.end(), v.begin(), ::tolower); return v; };
+
+        std::function<void(FolderNode&, int)> fill = [&](FolderNode& node, int depth)
+        {
+            if (depth > 16)
+                return;
+
+            std::error_code ec;
+            for (fs::directory_iterator it(node.path, fs::directory_options::skip_permission_denied, ec), end; !ec && it != end; it.increment(ec))
+            {
+                if (!it->is_directory(ec))
+                    continue;
+
+                const std::string name = it->path().filename().string();
+                if (name.empty() || name[0] == '.')
+                    continue;
+
+                FolderNode child;
+                child.name = name;
+                child.path = it->path().string();
+                node.children.push_back(std::move(child));
+            }
+
+            std::sort(node.children.begin(), node.children.end(), [&](const FolderNode& a, const FolderNode& b) { return lower(a.name) < lower(b.name); });
+
+            for (FolderNode& child : node.children)
+                fill(child, depth + 1);
+        };
+
+        fill(folderTree, 0);
+    }
+
+    void AssetBrowser::DrawFolderNode(const FolderNode& node, bool isRoot)
+    {
+        const bool isCurrent = node.path == currentPath.full;
+        const bool isAncestor = currentPath.full.size() > node.path.size() && currentPath.full.compare(0, node.path.size(), node.path) == 0 && currentPath.full[node.path.size()] == '/';
+
+        ImGuiTreeNodeFlags flags = ImGuiTreeNodeFlags_OpenOnArrow | ImGuiTreeNodeFlags_OpenOnDoubleClick | ImGuiTreeNodeFlags_SpanAvailWidth | ImGuiTreeNodeFlags_FramePadding;
+        if (node.children.empty())
+            flags |= ImGuiTreeNodeFlags_Leaf;
+        if (isCurrent)
+            flags |= ImGuiTreeNodeFlags_Selected;
+        if (isRoot)
+            flags |= ImGuiTreeNodeFlags_DefaultOpen;
+
+        if (treeRevealCurrent && isAncestor)
+            ImGui::SetNextItemOpen(true);
+
+        const bool wasOpen = ImGui::TreeNodeGetOpen(ImGui::GetID(("###" + node.path).c_str()));
+        const std::string label = std::string(wasOpen && !node.children.empty() ? ICON_LC_FOLDER_OPEN : ICON_LC_FOLDER) + "  " + node.name + "###" + node.path;
+
+        ImGui::PushStyleVar(ImGuiStyleVar_FramePadding, ImVec2(4.0f, 2.0f));
+        const bool open = ImGui::TreeNodeEx(label.c_str(), flags);
+        ImGui::PopStyleVar();
+
+        if (ImGui::IsItemClicked(ImGuiMouseButton_Left) && !ImGui::IsItemToggledOpen())
+            NavigateTo(node.path);
+
+        if (ImGui::BeginDragDropTarget())
+        {
+            std::vector<std::string> dropped = DragDrop::AcceptAssetDragDropPayload();
+            if (!dropped.empty())
+                MoveItemsInto(dropped, Engine::Filesystem::Path(node.path));
+            ImGui::EndDragDropTarget();
+        }
+
+        if (open)
+        {
+            for (const FolderNode& child : node.children)
+                DrawFolderNode(child, false);
+            ImGui::TreePop();
+        }
+    }
+
+    void AssetBrowser::DrawSidebar(float height)
+    {
+        if (treeDirty)
+            RebuildFolderTree();
+
+        ImGui::BeginChild("##FolderTree", ImVec2(sidebarWidth, height), ImGuiChildFlags_Borders);
+        DrawFolderNode(folderTree, true);
+        treeRevealCurrent = false;
+        ImGui::EndChild();
+
+        // Splitter
+        ImGui::SameLine(0.0f, 0.0f);
+        ImGui::InvisibleButton("##SidebarSplitter", ImVec2(6.0f, height));
+        if (ImGui::IsItemHovered() || ImGui::IsItemActive())
+            ImGui::SetMouseCursor(ImGuiMouseCursor_ResizeEW);
+        if (ImGui::IsItemActive())
+            sidebarWidth = IM_CLAMP(sidebarWidth + ImGui::GetIO().MouseDelta.x, 120.0f, 500.0f);
+        ImGui::SameLine(0.0f, 0.0f);
+    }
+
     void AssetBrowser::DrawAssets()
     {
         ImGuiIO& io = ImGui::GetIO();
-        ImGui::SetNextWindowContentSize(ImVec2(0.0f, LayoutOuterPadding + LayoutLineCount * (LayoutItemSize.y + LayoutItemSpacing)));
+        ImGui::SetNextWindowContentSize(ImVec2(0.0f, LayoutOuterPadding + LayoutLineCount * LayoutItemStep.y));
         if (ImGui::BeginChild("Assets", ImVec2(0.0f, -ImGui::GetTextLineHeightWithSpacing()), ImGuiChildFlags_Borders, ImGuiWindowFlags_NoMove))
         {
             ImDrawList* draw_list = ImGui::GetWindowDrawList();
 
             const float avail_width = ImGui::GetContentRegionAvail().x;
             UpdateLayoutSizes(avail_width);
+
+            if (pendingScrollItem >= 0)
+            {
+                const float line = (float)(pendingScrollItem / LayoutColumnCount);
+                ImGui::SetScrollY(IM_MAX(line * LayoutItemStep.y - LayoutItemStep.y, 0.0f));
+                pendingScrollItem = -1;
+            }
 
             // Calculate and store start position.
             ImVec2 start_pos = ImGui::GetCursorScreenPos();
@@ -400,6 +844,8 @@ namespace Shard::Editor::GUI{
                 pendingAction = Action::Rename;
             else if (ImGui::Shortcut(ImGuiKey_F5))
                 pendingAction = Action::Refresh;
+            else if ((ImGui::Shortcut(ImGuiKey_Enter) || ImGui::Shortcut(ImGuiKey_KeypadEnter)) && selection.Size >= 1)
+                pendingAction = Action::Open;
 
             const int item_curr_idx_to_focus = -1;
 
@@ -538,6 +984,15 @@ namespace Shard::Editor::GUI{
                             ImGui::EndDragDropSource();
                         }
 
+                        // Dropping assets on a folder moves them into it
+                        if (item_data->isDirectory && ImGui::BeginDragDropTarget())
+                        {
+                            std::vector<std::string> dropped = DragDrop::AcceptAssetDragDropPayload();
+                            if (!dropped.empty())
+                                MoveItemsInto(dropped, item_data->path);
+                            ImGui::EndDragDropTarget();
+                        }
+
                         // Render icon/thumbnail, Unreal-Content-Browser-style: a type-tinted tile,
                         // a real texture preview for images (falling back to the atlas icon for
                         // everything else), a solid color-coded accent bar under the thumbnail, and
@@ -550,42 +1005,58 @@ namespace Shard::Editor::GUI{
                             ImU32 accent = GetTypeAccentColor(item_data->type, item_data->isDirectory);
                             ImVec4 accentF = ImGui::ColorConvertU32ToFloat4(accent);
 
-                            // Base tile background subtly tinted towards the type's accent color,
-                            // brightened a touch on hover.
-                            ImVec4 baseBg = item_hovered ? ImVec4(0.205f, 0.205f, 0.220f, 0.92f) : ImVec4(0.149f, 0.149f, 0.161f, 0.86f);
-                            const float tintWeight = 0.10f;
-                            ImU32 tileBg = ImGui::ColorConvertFloat4ToU32(ImVec4(
-                                baseBg.x * (1.0f - tintWeight) + accentF.x * tintWeight,
-                                baseBg.y * (1.0f - tintWeight) + accentF.y * tintWeight,
-                                baseBg.z * (1.0f - tintWeight) + accentF.z * tintWeight,
-                                baseBg.w
-                            ));
+                            ImVec2 icon_min, icon_max;
 
-                            draw_list->AddRectFilled(box_min, box_max, tileBg, 4.0f);
+                            if (listView)
+                            {
+                                const float rowHeight = LayoutItemSize.y;
 
-                            if (item_is_selected)
-                                draw_list->AddRect(box_min, box_max, IM_COL32(35, 154, 255, 255), 4.0f, 0, 2.0f);
-                            else if (item_hovered)
-                                draw_list->AddRect(box_min, box_max, IM_COL32(255, 255, 255, 90), 4.0f, 0, 1.0f);
+                                if (item_idx & 1)
+                                    draw_list->AddRectFilled(pos, ImVec2(pos.x + LayoutItemSize.x, pos.y + rowHeight), IM_COL32(255, 255, 255, 6));
+                                draw_list->AddRectFilled(ImVec2(pos.x, pos.y + 3), ImVec2(pos.x + 3, pos.y + rowHeight - 3), accent, 1.5f);
 
-                            // Icon sits at a fixed distance from the top of the tile (horizontally
-                            // centered) rather than centered across the full tile height, so its
-                            // position - and the accent bar right under it - stay put regardless of
-                            // how tall the label below ends up being (one vs two lines).
-                            ImVec2 icon_offset = ImVec2(
-                                (LayoutItemSize.x - ThumbnailSize.x) * 0.5f,
-                                IconTopPadding
-                            );
+                                icon_min = ImVec2(pos.x + 10.0f, pos.y + (rowHeight - ThumbnailSize.y) * 0.5f);
+                                icon_max = ImVec2(icon_min.x + ThumbnailSize.x, icon_min.y + ThumbnailSize.y);
+                            }
+                            else
+                            {
+                                // Base tile background subtly tinted towards the type's accent color,
+                                // brightened a touch on hover.
+                                ImVec4 baseBg = item_hovered ? ImVec4(0.205f, 0.205f, 0.220f, 0.92f) : ImVec4(0.149f, 0.149f, 0.161f, 0.86f);
+                                const float tintWeight = 0.10f;
+                                ImU32 tileBg = ImGui::ColorConvertFloat4ToU32(ImVec4(
+                                    baseBg.x * (1.0f - tintWeight) + accentF.x * tintWeight,
+                                    baseBg.y * (1.0f - tintWeight) + accentF.y * tintWeight,
+                                    baseBg.z * (1.0f - tintWeight) + accentF.z * tintWeight,
+                                    baseBg.w
+                                ));
 
-                            ImVec2 icon_min = ImVec2(
-                                box_min.x + icon_offset.x,
-                                box_min.y + icon_offset.y
-                            );
+                                draw_list->AddRectFilled(box_min, box_max, tileBg, 4.0f);
 
-                            ImVec2 icon_max = ImVec2(
-                                icon_min.x + ThumbnailSize.x,
-                                icon_min.y + ThumbnailSize.y
-                            );
+                                if (item_is_selected)
+                                    draw_list->AddRect(box_min, box_max, IM_COL32(35, 154, 255, 255), 4.0f, 0, 2.0f);
+                                else if (item_hovered)
+                                    draw_list->AddRect(box_min, box_max, IM_COL32(255, 255, 255, 90), 4.0f, 0, 1.0f);
+
+                                // Icon sits at a fixed distance from the top of the tile (horizontally
+                                // centered) rather than centered across the full tile height, so its
+                                // position - and the accent bar right under it - stay put regardless of
+                                // how tall the label below ends up being (one vs two lines).
+                                ImVec2 icon_offset = ImVec2(
+                                    (LayoutItemSize.x - ThumbnailSize.x) * 0.5f,
+                                    IconTopPadding
+                                );
+
+                                icon_min = ImVec2(
+                                    box_min.x + icon_offset.x,
+                                    box_min.y + icon_offset.y
+                                );
+
+                                icon_max = ImVec2(
+                                    icon_min.x + ThumbnailSize.x,
+                                    icon_min.y + ThumbnailSize.y
+                                );
+                            }
 
                             // Real preview for images, meshes, materials and sounds; every other type
                             // falls back to its atlas icon. Images sample their own already-loaded
@@ -635,48 +1106,83 @@ namespace Shard::Editor::GUI{
                                 );
                             }
 
-                            // Type-color accent bar, sitting right under the thumbnail - the main
-                            // "what kind of asset is this" cue, at a glance, across the whole grid.
-                            ImVec2 bar_min(box_min.x + 3, icon_max.y + 4);
-                            ImVec2 bar_max(box_max.x - 3, bar_min.y + 3);
-                            draw_list->AddRectFilled(bar_min, bar_max, accent, 1.5f);
-
-                            if (display_label)
+                            if (listView)
                             {
-                                std::string filename = item_data->path.GetFilename();
-
-                                const float labelMaxWidth = (box_max.x - box_min.x) - 8.0f;
-                                std::string line1, line2;
-                                WrapLabelToLines(filename, labelMaxWidth, line1, line2);
-
+                                const float rowHeight = LayoutItemSize.y;
                                 const float fontSize = ImGui::GetFontSize();
-                                const bool hasSecondLine = !line2.empty();
-
-                                // The label block is always reserved at its full two-line height,
-                                // even for names that only need one line - so the strip, and every
-                                // line of text across the whole grid, lines up at the same height
-                                // regardless of which tiles happen to need wrapping.
-                                float stripTop = box_max.y - (fontSize * 2.0f + 2.0f) - 4.0f;
-                                draw_list->AddRectFilled(
-                                    ImVec2(box_min.x + 2, stripTop),
-                                    ImVec2(box_max.x - 2, box_max.y - 2),
-                                    IM_COL32(15, 15, 17, 180),
-                                    3.0f
-                                );
+                                const float textY = pos.y + (rowHeight - fontSize) * 0.5f;
+                                const float nameX = icon_max.x + 10.0f;
+                                const float right = pos.x + LayoutItemSize.x - 10.0f;
+                                const float sizeColumn = 80.0f;
+                                const float typeColumn = 140.0f;
+                                const float typeX = right - sizeColumn - typeColumn;
+                                const bool showColumns = typeX > nameX + 140.0f;
 
                                 ImU32 label_col = ImGui::GetColorU32(item_is_selected ? ImGuiCol_Text : ImGuiCol_TextDisabled);
 
-                                float line1Width = ImGui::CalcTextSize(line1.c_str()).x;
-                                float line1Y = box_max.y - fontSize * 2.0f - 3.0f;
-                                ImVec2 line1Pos(box_min.x + (box_max.x - box_min.x) * 0.5f - line1Width / 2, line1Y);
-                                draw_list->AddText(line1Pos, label_col, line1.c_str());
+                                draw_list->PushClipRect(ImVec2(nameX, pos.y), ImVec2(showColumns ? typeX - 8.0f : right, pos.y + rowHeight), true);
+                                draw_list->AddText(ImVec2(nameX, textY), label_col, item_data->filename.c_str());
+                                draw_list->PopClipRect();
 
-                                if (hasSecondLine)
+                                if (showColumns)
                                 {
-                                    float line2Width = ImGui::CalcTextSize(line2.c_str()).x;
-                                    float line2Y = box_max.y - fontSize - 3.0f;
-                                    ImVec2 line2Pos(box_min.x + (box_max.x - box_min.x) * 0.5f - line2Width / 2, line2Y);
-                                    draw_list->AddText(line2Pos, label_col, line2.c_str());
+                                    draw_list->AddText(ImVec2(typeX, textY), accent, GetTypeDisplayName(item_data->type, item_data->isDirectory));
+
+                                    if (!item_data->isDirectory)
+                                    {
+                                        std::string sizeText = FormatFileSize(item_data->size);
+                                        draw_list->AddText(ImVec2(right - ImGui::CalcTextSize(sizeText.c_str()).x, textY), ImGui::GetColorU32(ImGuiCol_TextDisabled), sizeText.c_str());
+                                    }
+                                }
+                            }
+                            else
+                            {
+                                // Type-color accent bar, sitting right under the thumbnail - the main
+                                // "what kind of asset is this" cue, at a glance, across the whole grid.
+                                ImVec2 bar_min(box_min.x + 3, icon_max.y + 4);
+                                ImVec2 bar_max(box_max.x - 3, bar_min.y + 3);
+                                draw_list->AddRectFilled(bar_min, bar_max, accent, 1.5f);
+
+                                if (display_label)
+                                {
+                                    const float labelMaxWidth = (box_max.x - box_min.x) - 8.0f;
+                                    if (item_data->wrapWidth != labelMaxWidth)
+                                    {
+                                        WrapLabelToLines(item_data->filename, labelMaxWidth, item_data->line1, item_data->line2);
+                                        item_data->wrapWidth = labelMaxWidth;
+                                    }
+                                    const std::string& line1 = item_data->line1;
+                                    const std::string& line2 = item_data->line2;
+
+                                    const float fontSize = ImGui::GetFontSize();
+                                    const bool hasSecondLine = !line2.empty();
+
+                                    // The label block is always reserved at its full two-line height,
+                                    // even for names that only need one line - so the strip, and every
+                                    // line of text across the whole grid, lines up at the same height
+                                    // regardless of which tiles happen to need wrapping.
+                                    float stripTop = box_max.y - (fontSize * 2.0f + 2.0f) - 4.0f;
+                                    draw_list->AddRectFilled(
+                                        ImVec2(box_min.x + 2, stripTop),
+                                        ImVec2(box_max.x - 2, box_max.y - 2),
+                                        IM_COL32(15, 15, 17, 180),
+                                        3.0f
+                                    );
+
+                                    ImU32 label_col = ImGui::GetColorU32(item_is_selected ? ImGuiCol_Text : ImGuiCol_TextDisabled);
+
+                                    float line1Width = ImGui::CalcTextSize(line1.c_str()).x;
+                                    float line1Y = box_max.y - fontSize * 2.0f - 3.0f;
+                                    ImVec2 line1Pos(box_min.x + (box_max.x - box_min.x) * 0.5f - line1Width / 2, line1Y);
+                                    draw_list->AddText(line1Pos, label_col, line1.c_str());
+
+                                    if (hasSecondLine)
+                                    {
+                                        float line2Width = ImGui::CalcTextSize(line2.c_str()).x;
+                                        float line2Y = box_max.y - fontSize - 3.0f;
+                                        ImVec2 line2Pos(box_min.x + (box_max.x - box_min.x) * 0.5f - line2Width / 2, line2Y);
+                                        draw_list->AddText(line2Pos, label_col, line2.c_str());
+                                    }
                                 }
                             }
                         }
@@ -709,7 +1215,7 @@ namespace Shard::Editor::GUI{
             // Zooming with CTRL+Wheel
             if (ImGui::IsWindowAppearing())
                 zoomWheelAccum = 0.0f;
-            if (ImGui::IsWindowHovered() && io.MouseWheel != 0.0f && ImGui::IsKeyDown(ImGuiMod_Ctrl) && ImGui::IsAnyItemActive() == false)
+            if (!listView && ImGui::IsWindowHovered() && io.MouseWheel != 0.0f && ImGui::IsKeyDown(ImGuiMod_Ctrl) && ImGui::IsAnyItemActive() == false)
             {
                 zoomWheelAccum += io.MouseWheel;
                 if (fabsf(zoomWheelAccum) >= 1.0f)
@@ -722,8 +1228,7 @@ namespace Shard::Editor::GUI{
                     //ImGui::SetTooltip("%f,%f -> item %d", hovered_item_nx, hovered_item_ny, hovered_item_idx); // Move those 4 lines in block above for easy debugging
 
                     // Zoom
-                    thumbnailSize *= powf(1.1f, (float)(int)zoomWheelAccum);
-                    thumbnailSize = IM_CLAMP(thumbnailSize, 16.0f, 128.0f);
+                    SetZoom(thumbnailSize * powf(1.1f, (float)(int)zoomWheelAccum));
                     zoomWheelAccum -= (int)zoomWheelAccum;
                     UpdateLayoutSizes(avail_width);
 
@@ -738,10 +1243,65 @@ namespace Shard::Editor::GUI{
             }
         }
         ImGui::EndChild();
+
+        // Status line
+        if (searchBuffer[0] != '\0')
+            ImGui::TextDisabled("%d of %d items", (int)items.size(), visibleItemCount);
+        else
+            ImGui::TextDisabled("%d items", (int)items.size());
+        if (selection.Size > 0)
+        {
+            ImGui::SameLine();
+            ImGui::TextDisabled("(%d selected)", (int)selection.Size);
+        }
+
+        // Zoom and view mode, pinned to the right
+        {
+            const ImGuiStyle& style = ImGui::GetStyle();
+            const float frameHeight = ImGui::GetFrameHeight();
+            const float sliderWidth = listView ? 0.0f : 110.0f;
+            const float totalWidth = frameHeight * 2.0f + style.ItemSpacing.x + (listView ? 0.0f : sliderWidth + style.ItemSpacing.x);
+
+            ImGui::SameLine(ImGui::GetWindowContentRegionMax().x - totalWidth);
+
+            ImGui::PushStyleVar(ImGuiStyleVar_FramePadding, ImVec2(style.FramePadding.x, 0.0f));
+            if (!listView)
+            {
+                float zoom = thumbnailSize;
+                ImGui::SetNextItemWidth(sliderWidth);
+                if (ImGui::SliderFloat("##StatusZoom", &zoom, 40.0f, 160.0f, ""))
+                    SetZoom(zoom);
+                if (ImGui::IsItemHovered()) ImGui::SetTooltip("Thumbnail size (Ctrl+Wheel)");
+                ImGui::SameLine();
+            }
+
+            if (ImGui::Selectable(ICON_LC_LAYOUT_GRID "##Tiles", !listView, 0, ImVec2(frameHeight, 0.0f)))
+                listView = false;
+            if (ImGui::IsItemHovered()) ImGui::SetTooltip("Tiles");
+            ImGui::SameLine();
+            if (ImGui::Selectable(ICON_LC_LIST "##List", listView, 0, ImVec2(frameHeight, 0.0f)))
+                listView = true;
+            if (ImGui::IsItemHovered()) ImGui::SetTooltip("List");
+            ImGui::PopStyleVar();
+        }
     }
-    
+
     void AssetBrowser::UpdateLayoutSizes(float avail_width)
     {
+        if (listView)
+        {
+            ThumbnailSize = ImVec2(20.0f, 20.0f);
+            Spacing = ImVec2(8.0f, 2.0f);
+            ItemSize = ImVec2(IM_MAX(avail_width - Spacing.x, 100.0f), 26.0f);
+        }
+        else
+        {
+            ThumbnailSize = ImVec2(thumbnailSize, thumbnailSize);
+            const float gap = IM_CLAMP(thumbnailSize * 0.2f, 8.0f, 20.0f);
+            Spacing = ImVec2(gap, gap);
+            ItemSize = ImVec2(thumbnailSize + 10.0f, thumbnailSize + 58.0f);
+        }
+
         LayoutItemSize = ItemSize;
 
         // Number of columns
@@ -839,8 +1399,11 @@ namespace Shard::Editor::GUI{
 
         if (onItem)
         {
-            if (single && ImGui::MenuItem("Open"))
+            if (ImGui::MenuItem("Open", "Enter"))
                 pendingAction = Action::Open;
+            if (single && std::filesystem::path(target->path.full).parent_path() != std::filesystem::path(currentPath.full)
+                && ImGui::MenuItem("Show in Folder"))
+                pendingAction = Action::ShowInFolder;
             if (ImGui::MenuItem("Show in Explorer"))
                 pendingAction = Action::Reveal;
 
@@ -882,7 +1445,7 @@ namespace Shard::Editor::GUI{
         {
             if (ImGui::BeginMenu("Create"))
             {
-                if (ImGui::MenuItem("Folder"))
+                if (ImGui::MenuItem("Folder", "Ctrl+Shift+N"))
                     pendingAction = Action::NewFolder;
                 if (ImGui::MenuItem("Material"))
                     pendingAction = Action::NewMaterial;
@@ -943,8 +1506,22 @@ namespace Shard::Editor::GUI{
         switch (action)
         {
             case Action::Open:
+                // A folder is entered, the rest is opened in its editor (a few at most, a whole selection is not meant to be opened)
+                if (selected.size() == 1 || (selected.size() <= 5 && std::none_of(selected.begin(), selected.end(), [](const Asset* a) { return a->isDirectory || a->type == Engine::Filesystem::Type::T_WORLD; })))
+                {
+                    for (const Asset* item : selected)
+                        OpenItem(*item);
+                }
+                break;
+
+            case Action::ShowInFolder:
                 if (selected.size() == 1)
-                    OpenItem(*selected[0]);
+                {
+                    const std::string full = selected[0]->path.full;
+                    searchBuffer[0] = '\0';
+                    NavigateTo(std::filesystem::path(full).parent_path().string());
+                    pendingRevealPath = full;
+                }
                 break;
 
             case Action::Cut:
@@ -1067,7 +1644,7 @@ namespace Shard::Editor::GUI{
         if (changed)
         {
             selection.Clear();
-            dirty = true;
+            dirty = true; navigationOnly = false;
         }
 
         ReportFailures("Asset Browser", failures);
@@ -1125,7 +1702,7 @@ namespace Shard::Editor::GUI{
                         if (!r.ok) failures.push_back(r.message);
                     }
                     selection.Clear();
-                    dirty = true;
+                    dirty = true; navigationOnly = false;
                     ReportFailures("Delete", failures);
                 } },
             { "Cancel", nullptr }
@@ -1177,7 +1754,7 @@ namespace Shard::Editor::GUI{
             Popups::Show(Popups::PopupType::Error, "Rename", r.message);
 
         selection.Clear();
-        dirty = true;
+        dirty = true; navigationOnly = false;
     }
 
     void AssetBrowser::DrawDialogs()
@@ -1225,7 +1802,127 @@ namespace Shard::Editor::GUI{
         if (!target.Exists() || !target.IsDirectory())
             return;
 
+        if (!navigatingHistory && !(historyIndex >= 0 && history[historyIndex] == target.full))
+        {
+            // A new destination drops whatever "forward" had
+            history.resize(historyIndex + 1);
+            history.push_back(target.full);
+            historyIndex = (int)history.size() - 1;
+        }
+
         currentPath = target;
-        dirty = true; // mark for refresh
+        selection.Clear();
+        treeRevealCurrent = true;
+        RequestRelist(); // mark for refresh
+    }
+
+    void AssetBrowser::NavigateHistory(int direction)
+    {
+        const int index = historyIndex + direction;
+        if (index < 0 || index >= (int)history.size())
+            return;
+
+        navigatingHistory = true;
+        const int previous = historyIndex;
+        historyIndex = index;
+        NavigateTo(history[index]);
+        navigatingHistory = false;
+
+        // The folder is gone : stay where we were
+        if (currentPath.full != history[index])
+            historyIndex = previous;
+    }
+
+    void AssetBrowser::GoUp()
+    {
+        auto project = Engine::Core::GetEngine().GetCurrentProject();
+        const Engine::Filesystem::Path root = project->GetProjectResourcesPath();
+        if (currentPath.full == root.full)
+            return;
+
+        std::filesystem::path parent = std::filesystem::path(currentPath.full).parent_path();
+        // Never above the project's resources
+        if (parent.string().size() < root.full.size())
+            return;
+        NavigateTo(parent.string());
+    }
+
+    void AssetBrowser::MoveItemsInto(const std::vector<std::string>& namesInProject, const Engine::Filesystem::Path& folder)
+    {
+        namespace fs = std::filesystem;
+
+        std::vector<std::string> failures;
+        bool moved = false;
+
+        for (const std::string& name : namesInProject)
+        {
+            // Dragged from this folder's listing
+            auto found = std::find_if(items.begin(), items.end(), [&](const Asset& a) { return a.nameInProject == name; });
+            if (found == items.end())
+                continue;
+
+            fs::path source(found->path.full);
+            fs::path destination = fs::path(folder.full) / source.filename();
+
+            std::error_code ec;
+            if (fs::equivalent(source, fs::path(folder.full), ec)                        // a folder onto itself
+                || fs::equivalent(source.parent_path(), fs::path(folder.full), ec)       // already there
+                || fs::path(folder.full).string().rfind(source.string() + "/", 0) == 0)  // a folder into its own child
+                continue;
+
+            AssetOperations::Result r = AssetOperations::Move(found->path, Engine::Filesystem::Path(destination.string()));
+            if (!r.ok)
+                failures.push_back(r.message);
+            else
+                moved = true;
+        }
+
+        if (moved)
+        {
+            selection.Clear();
+            dirty = true; navigationOnly = false;
+        }
+
+        ReportFailures("Move", failures);
+    }
+
+    std::string AssetBrowser::GetSelectedAssetName() const
+    {
+        if (selection.Size != 1)
+            return "";
+
+        for (const Asset& item : items)
+        {
+            if (selection.Contains(item.id))
+                return item.isDirectory ? "" : item.nameInProject;
+        }
+        return "";
+    }
+
+    void AssetBrowser::RevealAsset(const std::string& nameInProject)
+    {
+        auto* assetIDs = Engine::Core::GetEngine().GetAssetIDManager();
+        auto info = assetIDs->GetAssetFromID(assetIDs->GetIDFromNameInProject(nameInProject));
+        if (!info || info->baseInfos.nameInProject != nameInProject)
+            return;
+
+        const Engine::Filesystem::Path root = Engine::Core::GetEngine().GetCurrentProject()->GetProjectResourcesPath();
+        const std::string full = info->baseInfos.path.full;
+
+        // Engine resources live outside the project, there is no folder of the browser to show them in
+        if (full.rfind(root.full, 0) != 0)
+        {
+            Notifications::Info("\"%s\" is an engine resource, it is not in the project's content", nameInProject.c_str());
+            return;
+        }
+
+        std::filesystem::path folder = std::filesystem::path(full).parent_path();
+        searchBuffer[0] = '\0'; // a search could hide it
+
+        NavigateTo(folder.string());
+        pendingRevealPath = full;
+        RequestRelist();
+
+        ImGui::SetWindowFocus("Asset Browser");
     }
 }

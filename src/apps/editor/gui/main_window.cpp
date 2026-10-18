@@ -471,6 +471,7 @@ namespace Shard::Editor::Core{
         materialEditorPanel = new GUI::MaterialEditorPanel();
         GUI::AssetEditorRegistry::Instance().Register(Engine::Filesystem::Type::T_MATERIAL, materialEditorPanel);
         propertiesPanel = new GUI::PropertiesPanel();
+        propertiesPanel->SetAssetBrowser(assetBrowser);
         worldTree = new GUI::WorldTree();
         worldTree->SetParentWindow(this);
         worldSettingsPanel = new GUI::WorldSettingsPanel();

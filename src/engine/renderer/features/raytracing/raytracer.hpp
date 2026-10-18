@@ -39,6 +39,10 @@ namespace Shard::Engine::Rendering::Raytracing {
         // a white speck that averaging never removes. 0 : no limit.
         float fireflyClamp = 0.0f;
 
+        // Renders the whole sphere around the camera's position as an equirectangular picture (the camera's direction and field of
+        // view are not used), laid out as an environment map reads it : what a reflection probe bakes
+        bool panoramic = false;
+
         // Also writes the picture as an 8 bit PNG next to the .hdr (same name), shown the way the viewport shows the world :
         // the world's exposure and tonemapper, then the sRGB curve (the .hdr itself stays linear light), so the two can be
         // compared directly

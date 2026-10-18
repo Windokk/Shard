@@ -25,7 +25,7 @@ namespace Shard::Engine::Rendering {
 
         bool IsGlobalSampler(const std::string& name)
         {
-            return StartsWith(name, "ibl_") || StartsWith(name, "ddgi_");
+            return StartsWith(name, "ibl_") || StartsWith(name, "ddgi_") || StartsWith(name, "rp_");
         }
     }
 

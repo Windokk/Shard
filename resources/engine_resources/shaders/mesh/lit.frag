@@ -137,7 +137,6 @@ layout(binding = 3) uniform sampler2D normalMap;
 
 layout(binding = 4) uniform samplerCube ibl_irradianceMap;
 layout(binding = 5) uniform samplerCube ibl_prefilteredEnvMap;
-layout(binding = 6) uniform sampler2D ibl_brdfLUT;
 
 // Real-time diffuse GI (see ProbeManager) - falls back to the static IBL diffuse term below when no
 // probe volume's grid contains the shading point (DDGI_PickVolume returns -1). Up to this many
@@ -162,6 +161,17 @@ layout(binding = 7)  uniform sampler2D ddgi_irradianceAtlas0;
 layout(binding = 8)  uniform sampler2D ddgi_irradianceAtlas1;
 layout(binding = 9)  uniform sampler2D ddgi_distanceAtlas0;
 layout(binding = 19) uniform sampler2D ddgi_distanceAtlas1;
+
+// Reflection probe (see ReflectionProbe) : a baked picture of the surroundings of a point, prefiltered by roughness the way the skybox's is,
+// which the surfaces inside the probe's box reflect instead of the sky. ONE probe at a time (the one nearest to the camera, picked by
+// scene_binding.cpp) : this shader sits exactly on the 32 samplers some drivers allow a fragment stage, and the only unit it could free is
+// the BRDF table's (binding 6, see IBL_Specular), which the probe's cubemap takes.
+layout(binding = 6) uniform samplerCube rp_prefilter;
+uniform bool rp_enabled;
+uniform vec3 rp_center;                // where the picture was taken, and the centre of the box
+uniform vec3 rp_halfExtent;
+uniform int rp_shape;                  // 0 box, 1 sphere, 2 cylinder, 3 cone, 4 pyramid (see ReflectionProbeShape) - inscribed in the box
+uniform vec3 rp_params;                // x : intensity, y : blend distance, z : box projection (0 or 1)
 
 uniform bool ddgi_enabled;
 uniform int  ddgi_volumeCount;                     // ready volumes actually filled in below, <= MAX_PROBE_VOLUMES
@@ -236,6 +246,43 @@ vec3 SampleSSAO(vec3 ambient) {
     // once the blend factor exceeds 1) - clamp so an aggressive value can't overshoot into
     // negative/relighting territory.
     return ambient * clamp(mix(1.0, ao, ssaoIntensity), 0.0, 1.0);
+}
+
+// Screen-space reflections (see SSRManager). Two bindless texture handles, for the same reason as ssaoTextureHandle's :
+//   ssrHitHandle     per pixel of the screen, xy where the reflected ray landed in the last frame's picture (uv), z how many pixels wide a unit of
+//                    tangent of the specular lobe is at the hit, w the confidence (0 : the ray found nothing on the screen)
+//   ssrColorHandle   the last frame's HDR picture, with the mips that blur it
+// The trace is the mirror ray, it does not know the roughness : it is applied here, by the level of the pyramid the colour is read at, and by
+// fading the reflection out of the surfaces too rough for it.
+uniform bool ssrEnabled;
+uniform float ssrIntensity;
+uniform float ssrMaxRoughness;
+uniform float ssrRoughnessBlur;
+uniform float ssrMaxLod;
+uniform uvec2 ssrHitHandle;
+uniform uvec2 ssrColorHandle;
+
+// The light that comes from the reflected direction as the screen shows it (rgb), and how much of the specular light it replaces (a)
+vec4 SampleSSR(float roughnessValue)
+{
+    if (!ssrEnabled || ssrHitHandle == uvec2(0) || ssrColorHandle == uvec2(0))
+        return vec4(0.0);
+
+    float roughnessFade = 1.0 - smoothstep(0.6 * ssrMaxRoughness, ssrMaxRoughness, roughnessValue);
+    if (roughnessFade <= 0.0)
+        return vec4(0.0);
+
+    // As with the AO, the sampler is made where it is read (a Vulkan build cannot keep it in a variable)
+    vec4 hit = textureLod(sampler2D(ssrHitHandle), gl_FragCoord.xy / vec2(textureSize(sampler2D(ssrHitHandle), 0)), 0.0);
+    if (hit.w <= 0.0)
+        return vec4(0.0);
+
+    // The specular lobe is about roughness^2 wide (its tangent) : at the hit, that many pixels across is the blur to read the colour with
+    float lobePixels = 2.0 * hit.z * roughnessValue * roughnessValue * ssrRoughnessBlur;
+    float lod = clamp(log2(max(lobePixels, 1.0)), 0.0, ssrMaxLod);
+
+    vec3 color = textureLod(sampler2D(ssrColorHandle), hit.xy, lod).rgb;
+    return vec4(color, hit.w * roughnessFade * clamp(ssrIntensity, 0.0, 1.0));
 }
 
 vec3 sampleOffsetDirections[20] = vec3[]
@@ -597,9 +644,8 @@ vec3 DDGI_Diffuse(vec3 irradiance, vec3 albedo, float metallic) {
     return irradiance * albedo * kD;
 }
 
-// Split-sum environment BRDF, Karis' analytic fit instead of a lookup into ibl_brdfLUT. The LUT is only
-// bound when the level actually has a skybox (see GLRendererAPI::BindLevelState), and probe-lit
-// reflections have to work in a room that has none at all - a sealed Cornell box being the obvious case,
+// Split-sum environment BRDF, Karis' analytic fit instead of a lookup into a table (there is none : a BRDF table was only
+// bound when the level had a skybox, and probe-lit reflections have to work in a room that has none at all - a sealed Cornell box being the obvious case,
 // where the entire point is that the reflections come from the red and green walls and not from a sky.
 vec3 EnvBRDFApprox(vec3 F0, float roughness, float NdotV) {
     const vec4 c0 = vec4(-1.0, -0.0275, -0.572, 0.022);
@@ -632,22 +678,77 @@ vec3 DDGI_Specular(vec3 radiance, vec3 N, vec3 V, vec3 albedo, float metallic, f
     return radiance * EnvBRDFApprox(F0, roughness, max(dot(N, V), 0.0));
 }
 
+// How much the probe reflects at P : 1 deeper inside its box than the blend distance, fading to 0 at the edge of the box, 0 outside
+float RP_Weight(vec3 P) {
+    vec3 d = P - rp_center;
+    vec3 inside = rp_halfExtent - abs(d);                       // distance to the face along each axis, negative outside
+    float depth = min(inside.x, min(inside.y, inside.z));
+    float minXZ = min(rp_halfExtent.x, rp_halfExtent.z);
+
+    // Distance to the surface of the shape, roughly (exact for the box) : how far the point is inside in units of the box, along the
+    // normalised coordinates the shape is the unit one in
+    if (rp_shape == 1) {
+        depth = (1.0 - length(d / rp_halfExtent)) * min(minXZ, rp_halfExtent.y);
+    } else if (rp_shape == 2) {
+        depth = min((1.0 - length(d.xz / rp_halfExtent.xz)) * minXZ, inside.y);
+    } else if (rp_shape >= 3) {
+        // Narrows from the full base at the bottom to a point at the top
+        float narrow = 1.0 - (d.y + rp_halfExtent.y) / (2.0 * rp_halfExtent.y);
+        float radial = rp_shape == 3 ? length(d.xz / rp_halfExtent.xz) : max(abs(d.x) / rp_halfExtent.x, abs(d.z) / rp_halfExtent.z);
+        depth = min((narrow - radial) * minXZ, inside.y);
+    }
+    return clamp(depth / max(rp_params.y, 1e-3), 0.0, 1.0);
+}
+
+// The direction to look the picture up in so that what is reflected lands where the box's walls are, not infinitely far : the ray from P
+// along R is intersected with the box, and the picture (taken at the centre) is read toward the point it hits
+vec3 RP_BoxProject(vec3 P, vec3 R) {
+    if (rp_shape == 1) {
+        // The ellipsoid : the unit sphere once the space is divided by the half extent
+        vec3 o = (P - rp_center) / rp_halfExtent;
+        vec3 r = R / rp_halfExtent;
+        float a = dot(r, r);
+        float b = dot(o, r);
+        float disc = max(b * b - a * (dot(o, o) - 1.0), 0.0);
+        float t = (-b + sqrt(disc)) / max(a, 1e-8);
+        return normalize(P + R * max(t, 0.0) - rp_center);
+    }
+    vec3 safeR = mix(R, vec3(1e-5), lessThan(abs(R), vec3(1e-5)));
+    vec3 toMax = (rp_center + rp_halfExtent - P) / safeR;
+    vec3 toMin = (rp_center - rp_halfExtent - P) / safeR;
+    float t = min(min(max(toMax.x, toMin.x), max(toMax.y, toMin.y)), max(toMax.z, toMin.z));
+    return normalize(P + R * max(t, 0.0) - rp_center);
+}
+
+// Specular indirect from the reflection probe, with how much of it applies (0 : P is outside the probe's box, the caller keeps the sky's
+// reflection). The split-sum scale is the analytic fit : the probe has no BRDF table of its own.
+vec3 RP_Specular(vec3 P, vec3 N, vec3 V, vec3 albedo, float metallic, float roughness, out float weight) {
+    weight = RP_Weight(P);
+    if (weight <= 0.0)
+        return vec3(0.0);
+
+    vec3 R = reflect(-V, N);
+    vec3 dir = rp_params.z > 0.5 ? RP_BoxProject(P, R) : R;
+
+    const float MAX_REFLECTION_LOD = 5.0;
+    vec3 prefiltered = textureLod(rp_prefilter, dir, roughness * MAX_REFLECTION_LOD).rgb * rp_params.x;
+
+    vec3 F0 = mix(vec3(0.04), albedo, metallic);
+    return prefiltered * EnvBRDFApprox(F0, roughness, max(dot(N, V), 0.0));
+}
+
 vec3 IBL_Specular(vec3 N, vec3 V, vec3 albedo, float metallic, float roughness){
     vec3 R = reflect(-V, N);
     vec3 F0 = mix(vec3(0.04), albedo, metallic);
 
-    // Sample BRDF LUT (NdotV, roughness)
     float NdotV = max(dot(N, V), 0.0);
-    vec2 brdf = texture(ibl_brdfLUT, vec2(NdotV, roughness)).rg;
 
     // Sample prefiltered env map using roughness mip level
     const float MAX_REFLECTION_LOD = 5.0;
     vec3 prefilteredColor = textureLod(ibl_prefilteredEnvMap, R, roughness * MAX_REFLECTION_LOD).rgb;
 
-    // Fresnel-Schlick for IBL  
-    vec3 F = F0 + (1.0 - F0) * pow(clamp(1.0 - NdotV, 0.0, 1.0), 5.0);
-
-    return prefilteredColor * (F * brdf.x + brdf.y);
+    // Split-sum scale and bias, the analytic fit rather than a table : the table's sampler unit is the reflection probe's. Fresnel is part of it.
+    return prefilteredColor * EnvBRDFApprox(F0, roughness, NdotV);
 }
 
 vec3 ComputeLightDisney(Light light, vec3 L, vec3 V, vec3 N, vec3 baseColor, float roughness, float metallic, float visibility, float attenuation) {
@@ -888,6 +989,25 @@ vec4 ShadeSurface(vec4 baseColor, float metallicValue, float roughnessValue, vec
     }
     else if (hasLightmap) {
         ambientDiffuse = DDGI_Diffuse(bakedIrradiance, baseColor.rgb, metallicValue);
+    }
+
+    // Reflection probe : what the room around this point reflects, in place of the sky's reflection (and of the probe grid's coarse one) by the
+    // probe's weight - 1 inside its box, fading to the sky's at its edge. Gated by useEnvReflections like the skybox reflection it replaces.
+    if (useEnvReflections && rp_enabled) {
+        float rpWeight;
+        vec3 rpSpecular = RP_Specular(worldPos, giNormal, V, baseColor.rgb, metallicValue, roughnessValue, rpWeight);
+        specularIBL = mix(specularIBL, rpSpecular, rpWeight);
+    }
+
+    // Screen-space reflection : what the screen shows where the mirror ray lands replaces the probe's / the sky's reflection, by how sure the
+    // trace is of it. Where it found nothing the weight is 0 and the reflection above is what there is. Same gate as the reflections it replaces.
+    if (useEnvReflections && ssrEnabled) {
+        vec4 ssr = SampleSSR(roughnessValue);
+        if (ssr.a > 0.0) {
+            vec3 ssrF0 = mix(vec3(0.04), baseColor.rgb, metallicValue);
+            vec3 ssrSpecular = ssr.rgb * EnvBRDFApprox(ssrF0, roughnessValue, max(dot(giNormal, V), 0.0));
+            specularIBL = mix(specularIBL, ssrSpecular, ssr.a);
+        }
     }
 
     // Flat ambient floor, ADDED on top of whatever DDGI/IBL/direct lighting already computed above

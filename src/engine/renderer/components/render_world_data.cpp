@@ -16,6 +16,7 @@
 #include "engine/renderer/components/light_component.hpp"
 #include "engine/renderer/components/model_component.hpp"
 #include "engine/renderer/components/probe_volume.hpp"
+#include "engine/renderer/components/reflection_probe.hpp"
 #include "engine/renderer/components/camera_manager.hpp"
 #include "engine/renderer/rhi/render_context.hpp"
 #include "engine/renderer/components/render_extractor.hpp"
@@ -44,6 +45,9 @@ namespace Shard::Engine::Rendering{
         else if(auto volume = std::dynamic_pointer_cast<ProbeVolume>(component)){
             probeVolumes.emplace(idInWorld, volume);
         }
+        else if(auto reflectionProbe = std::dynamic_pointer_cast<ReflectionProbe>(component)){
+            reflectionProbes.emplace(idInWorld, reflectionProbe);
+        }
         else if(auto camera = std::dynamic_pointer_cast<Camera>(component)){
             cameras.emplace(idInWorld, camera);
             camera->AddToCameraManager();
@@ -68,6 +72,9 @@ namespace Shard::Engine::Rendering{
         else if(component->IsInstanceOf<ProbeVolume>()){
             probeVolumes.erase(idInWorld);
         }
+        else if(component->IsInstanceOf<ReflectionProbe>()){
+            reflectionProbes.erase(idInWorld);
+        }
         else if(component->IsInstanceOf<Billboard>()){
             billboards.erase(idInWorld);
         }
@@ -89,6 +96,7 @@ namespace Shard::Engine::Rendering{
         lightmapData.clear();
         lightmapSettings = LightmapSettings{};
         display = DisplaySettings{};
+        ssr = SSRSettings{};
 
         if(settings.contains("display") && settings["display"].is_object()){
             const auto& displayJson = settings["display"];
@@ -103,6 +111,35 @@ namespace Shard::Engine::Rendering{
 
             if(displayJson.contains("exposure") && displayJson["exposure"].is_number())
                 display.exposure = displayJson["exposure"].get<float>();
+        }
+
+        if(settings.contains("ssr") && settings["ssr"].is_object()){
+            const auto& ssrJson = settings["ssr"];
+
+            auto readFloat = [&](const char* key, float& out){ if(ssrJson.contains(key) && ssrJson[key].is_number()) out = ssrJson[key].get<float>(); };
+            auto readInt = [&](const char* key, int& out){ if(ssrJson.contains(key) && ssrJson[key].is_number_integer()) out = ssrJson[key].get<int>(); };
+            auto readBool = [&](const char* key, bool& out){ if(ssrJson.contains(key) && ssrJson[key].is_boolean()) out = ssrJson[key].get<bool>(); };
+
+            // The preset first : the cost knobs after it are what the world really has (they may differ from the preset's, that is Custom)
+            if(ssrJson.contains("quality") && ssrJson["quality"].is_string()){
+                SSRQuality parsed;
+                if(ParseSSRQuality(ssrJson["quality"].get<std::string>(), parsed))
+                    ssr.ApplyQuality(parsed);
+                else
+                    DEBUG_WARNING("Unknown SSR quality \"" + ssrJson["quality"].get<std::string>() + "\" : using " + SSRQualityName(ssr.quality));
+            }
+
+            readBool("enabled", ssr.enabled);
+            readFloat("intensity", ssr.intensity);
+            readFloat("maxDistance", ssr.maxDistance);
+            readFloat("thickness", ssr.thickness);
+            readFloat("maxRoughness", ssr.maxRoughness);
+            readFloat("roughnessBlur", ssr.roughnessBlur);
+            readFloat("edgeFade", ssr.edgeFade);
+            readInt("maxSteps", ssr.maxSteps);
+            readInt("resolutionDivisor", ssr.resolutionDivisor);
+            readBool("temporal", ssr.temporal);
+            readFloat("temporalBlend", ssr.temporalBlend);
         }
 
         if(settings.contains("lightmaps") && settings["lightmaps"].is_object()){
@@ -150,6 +187,23 @@ namespace Shard::Engine::Rendering{
         if(display != DisplaySettings{}){
             settings["display"]["tonemapper"] = TonemapperName(display.tonemapper);
             settings["display"]["exposure"] = display.exposure;
+        }
+
+        // Same for the reflections : only a world that turned them on, or tuned them, carries them
+        if(ssr != SSRSettings{}){
+            auto& ssrJson = settings["ssr"];
+            ssrJson["enabled"] = ssr.enabled;
+            ssrJson["quality"] = SSRQualityName(ssr.quality);
+            ssrJson["intensity"] = ssr.intensity;
+            ssrJson["maxDistance"] = ssr.maxDistance;
+            ssrJson["thickness"] = ssr.thickness;
+            ssrJson["maxRoughness"] = ssr.maxRoughness;
+            ssrJson["roughnessBlur"] = ssr.roughnessBlur;
+            ssrJson["edgeFade"] = ssr.edgeFade;
+            ssrJson["maxSteps"] = ssr.maxSteps;
+            ssrJson["resolutionDivisor"] = ssr.resolutionDivisor;
+            ssrJson["temporal"] = ssr.temporal;
+            ssrJson["temporalBlend"] = ssr.temporalBlend;
         }
 
         // Only a world that was baked, or whose bake settings were touched, carries them
@@ -382,6 +436,12 @@ namespace Shard::Engine::Rendering{
             [](const nlohmann::json& component, std::vector<ResourceKey>& out){
                 if (component.contains("bakedData") && component["bakedData"].is_string() && !component["bakedData"].get<std::string>().empty())
                     out.push_back({AssetKind::ProbeBake, component["bakedData"].get<std::string>()});
+            });
+
+        registry.RegisterBuiltinComponent<ReflectionProbe>("reflectionProbe",
+            [](const nlohmann::json& component, std::vector<ResourceKey>& out){
+                if (component.contains("bakedData") && component["bakedData"].is_string() && !component["bakedData"].get<std::string>().empty())
+                    out.push_back({AssetKind::EnvMap, component["bakedData"].get<std::string>()});
             });
 
         Worlds::RegisterWorldExtension<RenderWorldData>();

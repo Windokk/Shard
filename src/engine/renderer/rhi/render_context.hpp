@@ -21,6 +21,7 @@ namespace Shard::Engine::Rendering {
     class ProbeManager;
     class LightmapManager;
     class SSAOManager;
+    class SSRManager;
     class LightCullingManager;
     class ImmediateRenderer;
     class ThumbnailService;

@@ -1,14 +1,29 @@
 {
-    "recievesShadows":true,
+    "doubleSided": false,
+    "recievesShadows": true,
     "renderMode": "opaque",
-    "shader":"shaders/mesh/lit",
-    "uniforms":[
-        {"albedo":"textures/rubiks_cube/rubik_base_color.png"},
-        {"metallicMap":"textures/rubiks_cube/rubik_metallic.png"},
-        {"roughnessMap":"textures/rubiks_cube/rubik_roughness.png"},
-        {"normalMap":"textures/rubiks_cube/rubik_normal.png"},
-        {"metallic":1.0},
-        {"roughness":1.0},
-        {"useEnvReflections":false}
+    "shader": "shaders/mesh/lit",
+    "uniforms": [
+        {
+            "albedo": "textures/rubiks_cube/rubik_base_color.png"
+        },
+        {
+            "metallicMap": "textures/rubiks_cube/rubik_metallic.png"
+        },
+        {
+            "roughnessMap": "textures/rubiks_cube/rubik_roughness.png"
+        },
+        {
+            "normalMap": "textures/rubiks_cube/rubik_normal.png"
+        },
+        {
+            "metallic": 1.0
+        },
+        {
+            "roughness": 0.0
+        },
+        {
+            "useEnvReflections": true
+        }
     ]
 }

@@ -19,6 +19,7 @@ namespace Shard::Editor::GUI{
             void DrawSkyboxSection(Engine::Worlds::World* world);
             void DrawLightmapsSection(Engine::Worlds::World* world);
             void DrawDisplaySection(Engine::Worlds::World* world);
+            void DrawReflectionsSection(Engine::Worlds::World* world);
 
             void ApplySkybox(Engine::Worlds::World* world, const std::string& pathInProject);
 

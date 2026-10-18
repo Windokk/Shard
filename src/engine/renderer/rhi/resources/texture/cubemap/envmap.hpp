@@ -4,7 +4,9 @@
 
 namespace Shard::Engine::Rendering{
 
-    
+    /// Levels of an environment map's prefiltered cubemap that hold a distinct roughness : level n is the environment filtered for a roughness of
+    /// n / (kPrefilterRoughnessLevels - 1). lit.frag picks the level with roughness * MAX_REFLECTION_LOD, which is this minus one : keep them equal.
+    constexpr uint32_t kPrefilterRoughnessLevels = 6;
 
     class EnvironmentMap
     {

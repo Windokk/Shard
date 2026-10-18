@@ -225,6 +225,139 @@ namespace Shard::Editor::GUI{
         ImGui::TreePop();
     }
 
+    void WorldSettingsPanel::DrawReflectionsSection(Worlds::World* world)
+    {
+        if (!ImGui::TreeNodeEx("Screen-Space Reflections", ImGuiTreeNodeFlags_DefaultOpen | ImGuiTreeNodeFlags_Framed))
+            return;
+
+        Rendering::SSRSettings& ssr = world->Ext<Rendering::RenderWorldData>().ssr;
+        bool changed = false;
+
+        changed |= ImGui::Checkbox("Enabled", &ssr.enabled);
+        if (ImGui::IsItemHovered())
+            ImGui::SetTooltip("What the screen shows is reflected by the shiny surfaces, in place of the probe's / the sky's reflection.\nOnly what is on the screen can be reflected : the rest falls back to the probes and the sky.");
+
+        if (!ssr.enabled)
+            ImGui::BeginDisabled();
+
+        // ---- Quality : the cost knobs, as a preset or by hand ----
+        struct QualityEntry { Rendering::SSRQuality quality; const char* label; };
+        static const QualityEntry kQualities[] = {
+            { Rendering::SSRQuality::Low, "Low" },
+            { Rendering::SSRQuality::Medium, "Medium" },
+            { Rendering::SSRQuality::High, "High" },
+            { Rendering::SSRQuality::Ultra, "Ultra" },
+            { Rendering::SSRQuality::Custom, "Custom" },
+        };
+
+        int currentQuality = 4;
+        for (int i = 0; i < 5; i++)
+            if (kQualities[i].quality == ssr.quality)
+                currentQuality = i;
+
+        if (ImGui::BeginCombo("Quality", kQualities[currentQuality].label))
+        {
+            for (int i = 0; i < 5; i++)
+            {
+                if (ImGui::Selectable(kQualities[i].label, i == currentQuality))
+                {
+                    ssr.ApplyQuality(kQualities[i].quality);
+                    changed = true;
+                }
+            }
+            ImGui::EndCombo();
+        }
+        if (ImGui::IsItemHovered())
+            ImGui::SetTooltip("A preset of the cost knobs below (steps, resolution, temporal).\nLow : a quarter of the screen. Ultra : the whole screen, 96 steps.");
+
+        // A cost knob touched by hand makes the quality Custom
+        bool costChanged = false;
+        costChanged |= ImGui::SliderInt("Max steps", &ssr.maxSteps, 8, 128);
+        if (ImGui::IsItemHovered())
+            ImGui::SetTooltip("Iterations of the depth march, at most. A ray that has not found anything by then is a miss.");
+
+        static const int kDivisors[] = { 1, 2, 4 };
+        static const char* kDivisorLabels[] = { "Full", "Half", "Quarter" };
+        int divisorIndex = ssr.resolutionDivisor >= 4 ? 2 : (ssr.resolutionDivisor >= 2 ? 1 : 0);
+        if (ImGui::BeginCombo("Resolution", kDivisorLabels[divisorIndex]))
+        {
+            for (int i = 0; i < 3; i++)
+            {
+                if (ImGui::Selectable(kDivisorLabels[i], i == divisorIndex))
+                {
+                    ssr.resolutionDivisor = kDivisors[i];
+                    costChanged = true;
+                }
+            }
+            ImGui::EndCombo();
+        }
+        if (ImGui::IsItemHovered())
+            ImGui::SetTooltip("The size of the trace relative to the screen (1, 1/2, 1/4 of each side). The result is upsampled, aware of the edges.");
+
+        costChanged |= ImGui::Checkbox("Temporal", &ssr.temporal);
+        if (ImGui::IsItemHovered())
+            ImGui::SetTooltip("Blends the hit of a pixel with the one of the frame before : steadier edges, especially on a small trace.");
+
+        if (!ssr.temporal)
+            ImGui::BeginDisabled();
+        changed |= ImGui::SliderFloat("Temporal blend", &ssr.temporalBlend, 0.0f, 0.98f);
+        if (ImGui::IsItemHovered())
+            ImGui::SetTooltip("How much of the previous frame stays. It is lowered by itself while the camera moves.");
+        if (!ssr.temporal)
+            ImGui::EndDisabled();
+
+        if (costChanged)
+        {
+            ssr.quality = Rendering::SSRQuality::Custom;
+            changed = true;
+        }
+
+        ImGui::Separator();
+
+        // ---- Look ----
+        changed |= ImGui::SliderFloat("Intensity", &ssr.intensity, 0.0f, 1.0f);
+        if (ImGui::IsItemHovered())
+            ImGui::SetTooltip("How much of the screen-space reflection replaces the probe / sky reflection where a ray found something.");
+
+        changed |= ImGui::DragFloat("Max distance", &ssr.maxDistance, 0.5f, 1.0f, 500.0f, "%.1f");
+        if (ImGui::IsItemHovered())
+            ImGui::SetTooltip("How far a reflected ray travels, in world units.");
+
+        changed |= ImGui::DragFloat("Thickness", &ssr.thickness, 0.005f, 0.01f, 5.0f, "%.3f");
+        if (ImGui::IsItemHovered())
+            ImGui::SetTooltip("How far behind a surface of the depth buffer a ray may pass and still hit it : the buffer has no back of things.\nToo small : rays slip behind thin objects. Too big : objects smear into the reflections behind them.");
+
+        changed |= ImGui::SliderFloat("Max roughness", &ssr.maxRoughness, 0.05f, 1.0f);
+        if (ImGui::IsItemHovered())
+            ImGui::SetTooltip("Beyond this roughness a surface is left to the probes and the sky. The reflection fades out from 60%% of it.");
+
+        changed |= ImGui::SliderFloat("Roughness blur", &ssr.roughnessBlur, 0.0f, 4.0f);
+        if (ImGui::IsItemHovered())
+            ImGui::SetTooltip("Scales how much a rough surface blurs what it reflects (1 : the width of its specular lobe).");
+
+        changed |= ImGui::SliderFloat("Edge fade", &ssr.edgeFade, 0.0f, 0.5f);
+        if (ImGui::IsItemHovered())
+            ImGui::SetTooltip("Fraction of the screen, from its edges, over which a reflection fades out : what it reflected is leaving the screen.");
+
+        if (ImGui::Button("Reset##SSR"))
+        {
+            const bool wasEnabled = ssr.enabled;
+            ssr = Rendering::SSRSettings{};
+            ssr.enabled = wasEnabled;
+            changed = true;
+        }
+
+        if (!ssr.enabled)
+            ImGui::EndDisabled();
+
+        if (changed)
+            world->SetDirty(true);
+
+        ImGui::TextDisabled("Traced against the depth of the view, lit from the previous frame's picture.");
+
+        ImGui::TreePop();
+    }
+
     void WorldSettingsPanel::DrawLightmapsSection(Worlds::World* world)
     {
         if (!ImGui::TreeNodeEx("Lightmaps", ImGuiTreeNodeFlags_DefaultOpen | ImGuiTreeNodeFlags_Framed))
@@ -425,6 +558,8 @@ namespace Shard::Editor::GUI{
 
             ImGui::TreePop();
         }
+
+        DrawReflectionsSection(world);
 
         DrawDisplaySection(world);
 

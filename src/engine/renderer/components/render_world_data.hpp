@@ -11,6 +11,7 @@
 #include "engine/renderer/components/skybox.hpp"
 #include "engine/renderer/features/lighting/lightmap_data.hpp"
 #include "engine/renderer/rhi/display_transform.hpp"
+#include "engine/renderer/rhi/ssr_settings.hpp"
 
 namespace Shard::Engine::Objects::Components{
     class Light;
@@ -18,6 +19,7 @@ namespace Shard::Engine::Objects::Components{
     class Billboard;
     class Model;
     class ProbeVolume;
+    class ReflectionProbe;
 }
 
 namespace Shard::Engine::Rendering{
@@ -32,6 +34,7 @@ namespace Shard::Engine::Rendering{
 
             // These are maps for fast lookup (key: id IN WORLD, value: ptr to the comp)
             std::unordered_map<int, std::shared_ptr<Objects::Components::ProbeVolume>> probeVolumes;
+            std::unordered_map<int, std::shared_ptr<Objects::Components::ReflectionProbe>> reflectionProbes;
             std::unordered_map<int, std::shared_ptr<Objects::Components::Light>> lightComps;
             std::unordered_map<int, std::shared_ptr<Objects::Components::Model>> models;
             std::unordered_map<int, std::shared_ptr<Objects::Components::Camera>> cameras;
@@ -67,6 +70,11 @@ namespace Shard::Engine::Rendering{
 
             /// How the light of the scene becomes the picture : the tonemapper and the exposure (see display_transform.hpp)
             DisplaySettings display;
+
+            // ---- Screen-space reflections ----
+
+            /// How the world's screen-space reflections are traced and mixed into the specular light (see SSRManager)
+            SSRSettings ssr;
 
             /// @brief Bakes the lightmaps of this world's static models (asynchronously, see LightmapManager::BeginBake), into
             /// the project's "lightmaps" folder (or over the file the world already has). Needs the world to be loaded.

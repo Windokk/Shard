@@ -394,7 +394,7 @@ namespace Shard::Editor::GUI{
                 "ssaoEnabled", "ssaoIntensity", "ssaoTextureHandle",
             };
             static const char* kPrefixes[] = {
-                "ddgi_", "ibl_", "dirLight", "dirCascade", "dirShadow", "spotLight", "spotShadow",
+                "ddgi_", "ibl_", "rp_", "dirLight", "dirCascade", "dirShadow", "spotLight", "spotShadow",
                 "pointLight", "pointShadow", "shadow", "cluster", "light",
             };
 

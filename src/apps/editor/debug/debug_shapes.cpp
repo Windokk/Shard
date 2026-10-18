@@ -289,6 +289,112 @@ namespace Shard::Editor::Debug {
         }, sizeof(Vertex)});
     }
 
+    void DebugVolumeShape::Generate(Kind kind, glm::vec3 h, COL_RGBA color)
+    {
+        constexpr int segments = 32;
+
+        std::vector<Vertex> vertices;
+        std::vector<uint32_t> indices;
+
+        auto addPoint = [&](const glm::vec3& p) -> uint32_t {
+            Vertex v;
+            v.position = p;
+            v.normal = glm::vec3(0.0f, 1.0f, 0.0f);
+            v.color = color;
+            v.texCoord = glm::vec2(0.0f);
+            vertices.push_back(v);
+            return (uint32_t)vertices.size() - 1;
+        };
+
+        // A closed loop of points, each joined to the next
+        auto addLoop = [&](const std::vector<glm::vec3>& points) {
+            const uint32_t first = (uint32_t)vertices.size();
+            for (const glm::vec3& p : points)
+                addPoint(p);
+            for (uint32_t i = 0; i < points.size(); i++)
+            {
+                indices.push_back(first + i);
+                indices.push_back(first + (i + 1) % (uint32_t)points.size());
+            }
+        };
+
+        auto addLine = [&](const glm::vec3& a, const glm::vec3& b) {
+            indices.push_back(addPoint(a));
+            indices.push_back(addPoint(b));
+        };
+
+        // A circle of the given radii (x, z) at height y, or the rectangle of the pyramid's base
+        auto ring = [&](float rx, float rz, float y) {
+            std::vector<glm::vec3> points;
+            for (int i = 0; i < segments; i++)
+            {
+                const float a = glm::two_pi<float>() * (float)i / (float)segments;
+                points.push_back({ std::cos(a) * rx, y, std::sin(a) * rz });
+            }
+            return points;
+        };
+
+        switch (kind)
+        {
+            case Kind::Sphere:
+                // The three great circles
+                for (int axis = 0; axis < 3; axis++)
+                {
+                    std::vector<glm::vec3> points;
+                    for (int i = 0; i < segments; i++)
+                    {
+                        const float a = glm::two_pi<float>() * (float)i / (float)segments;
+                        const float c = std::cos(a), s = std::sin(a);
+                        points.push_back(axis == 0 ? glm::vec3(0.0f, c * h.y, s * h.z)
+                                       : axis == 1 ? glm::vec3(c * h.x, 0.0f, s * h.z)
+                                                   : glm::vec3(c * h.x, s * h.y, 0.0f));
+                    }
+                    addLoop(points);
+                }
+                break;
+
+            case Kind::Cylinder:
+                addLoop(ring(h.x, h.z, -h.y));
+                addLoop(ring(h.x, h.z, h.y));
+                for (int i = 0; i < 4; i++)
+                {
+                    const float a = glm::half_pi<float>() * (float)i;
+                    addLine({ std::cos(a) * h.x, -h.y, std::sin(a) * h.z }, { std::cos(a) * h.x, h.y, std::sin(a) * h.z });
+                }
+                break;
+
+            case Kind::Cone:
+                addLoop(ring(h.x, h.z, -h.y));
+                for (int i = 0; i < 4; i++)
+                {
+                    const float a = glm::half_pi<float>() * (float)i;
+                    addLine({ std::cos(a) * h.x, -h.y, std::sin(a) * h.z }, { 0.0f, h.y, 0.0f });
+                }
+                break;
+
+            case Kind::Pyramid:
+            {
+                const glm::vec3 corners[4] = { {-h.x, -h.y, -h.z}, {h.x, -h.y, -h.z}, {h.x, -h.y, h.z}, {-h.x, -h.y, h.z} };
+                addLoop({ corners[0], corners[1], corners[2], corners[3] });
+                for (const glm::vec3& c : corners)
+                    addLine(c, { 0.0f, h.y, 0.0f });
+                break;
+            }
+        }
+
+        std::vector<uint8_t> vertexBuffer;
+        vertexBuffer.resize(vertices.size() * sizeof(Vertex));
+        memcpy(vertexBuffer.data(), vertices.data(), vertexBuffer.size());
+
+        m_Mesh = Mesh::Create();
+        m_Mesh->Create(vertexBuffer, indices, {{
+            {"aPos",     ShaderDataType::Vec3, 0, offsetof(Vertex, position)},
+            {"aTexCoord",ShaderDataType::Vec2, 1, offsetof(Vertex, texCoord)},
+            {"aNormal",  ShaderDataType::Vec3, 2, offsetof(Vertex, normal)},
+            {"aColor",   ShaderDataType::Vec4, 3, offsetof(Vertex, color)},
+        }, sizeof(Vertex)});
+    }
+
     void DebugMultiSphere::GenerateMultiSphere(const std::vector<glm::vec3>& centers, float radius, COL_RGBA color)
     {
         // Fewer segments than DebugSphere's 32 - these are meant to be small, cheap markers, and there

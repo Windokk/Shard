@@ -210,12 +210,15 @@ namespace Shard::Engine::Rendering {
         const EnvironmentProxy& environment = snapshot.environment;
 
         // lit.frag never samples the AO texture while SSAO is off (ssaoEnabled gate), so the whole chain -
-        // the depth+normal prepass re-draws every mesh - is pure waste then : skip all three passes.
-        for (const char* passName : { "SSAODepthNormalPass", "SSAORawPass", "SSAOBlurPass" })
+        // the depth+normal prepass re-draws every mesh - is pure waste then : skip all three passes. The prepass alone
+        // is also what the screen-space reflections march through, so it stays while they are on.
+        for (const char* passName : { "SSAORawPass", "SSAOBlurPass" })
         {
             if (auto pass = renderer->GetRenderPass(passName))
                 pass->enabled = environment.ssaoEnabled;
         }
+        if (auto pass = renderer->GetRenderPass("SSAODepthNormalPass"))
+            pass->enabled = environment.ssaoEnabled || environment.ssr.enabled;
 
         RefreshSamplers(renderer);
         auto rawPass = renderer->GetRenderPass("SSAORawPass");

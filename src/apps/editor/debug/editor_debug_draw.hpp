@@ -57,14 +57,14 @@ namespace Shard::Editor::Debug{
 
         private:
 
-            enum class ShapeKind { Sphere, Box, Capsule, Cylinder, ProbeGrid };
+            enum class ShapeKind { Sphere, Box, Capsule, Cylinder, ProbeGrid, VolumeSphere, VolumeCylinder, VolumeCone, VolumePyramid };
 
             /// Everything the mesh of a shape depends on : a drawing is rebuilt when it changes
             struct ShapeSpec{
                 ShapeKind kind = ShapeKind::Box;
                 float radius = 0.0f;           // sphere, capsule, cylinder
                 float halfHeight = 0.0f;       // capsule, cylinder
-                glm::vec3 halfExtent = glm::vec3(0.0f); // box, probe grid
+                glm::vec3 halfExtent = glm::vec3(0.0f); // box, probe grid, volume shapes
                 glm::ivec3 probeCounts = glm::ivec3(0); // probe grid
 
                 bool operator==(const ShapeSpec& other) const

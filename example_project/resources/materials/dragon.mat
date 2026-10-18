@@ -8,10 +8,10 @@
             "normalMap": "textures/dragon_normal.png"
         },
         {
-            "metallic": 0.20000000298023224
+            "metallic": 1.0
         },
         {
-            "roughness": 0.800000011920929
+            "roughness": 0.8999999761581421
         },
         {
             "useEnvReflections": false

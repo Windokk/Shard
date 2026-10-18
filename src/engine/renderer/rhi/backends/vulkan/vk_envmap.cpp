@@ -2,6 +2,8 @@
 
 #include <stb/stb_image.h>
 
+#include <algorithm>
+
 #include "vk_api.hpp"
 #include "vk_cubemap.hpp"
 #include "vk_pipeline.hpp"
@@ -178,18 +180,22 @@ namespace Shard::Engine::Rendering {
         else
             DEBUG_ERROR("Cubemap irradiance map couldn't be created because shader \"shaders/ibl/irradiance\" is not loaded !");
 
-        // ---- Prefilter : the first two levels, as the OpenGL generator does ----
+        // ---- Prefilter : one roughness per level, as the OpenGL generator does ----
         texSpecs.generateMips = true;
+        // Trilinear : the lighting picks a level by lod, which a plain Linear sampler would clamp to the first one
+        texSpecs.minFilter = TextureFilter::LinearMipmapLinear;
         texSpecs.width = 128;
         texSpecs.height = 128;
         prefilter = Cubemap::Create(texSpecs, noData);
+        texSpecs.minFilter = TextureFilter::Linear;
 
         if (std::shared_ptr<Shader> shader = LoadShader("shaders/ibl/prefilter"))
         {
-            const uint32_t levels = 2;
+            // Every level of the chain is drawn : the last ones, which the lighting never reads, are all fully rough
+            const uint32_t levels = ImageOf(prefilter).mips;
             for (uint32_t mip = 0; mip < levels; mip++)
             {
-                const float roughness = static_cast<float>(mip) / static_cast<float>(levels - 1);
+                const float roughness = std::min(1.0f, static_cast<float>(mip) / static_cast<float>(kPrefilterRoughnessLevels - 1));
                 for (uint32_t face = 0; face < 6; face++)
                     DrawCubeFace(shader, "uEnvironmentMap", cubemap->GetHandle(), prefilter, mip, face, false, roughness);
             }
@@ -234,8 +240,6 @@ namespace Shard::Engine::Rendering {
         }
         else
             DEBUG_ERROR("Cubemap brdf lookup table couldn't be created because shader \"shaders/ibl/brdf\" is not loaded !");
-
-        RegenerateMips(ImageOf(prefilter));
     }
 
     std::shared_ptr<EnvironmentMap> VKEnvironmentMapGenerator::GenerateFromFiles(TextureSpecifications& specs, const std::vector<Filesystem::Path> imageFiles)
@@ -301,6 +305,8 @@ namespace Shard::Engine::Rendering {
         specs.internalFormat = TextureInternalFormat::RGB16F;       // the sky keeps its dynamic range
         specs.width = 512;
         specs.height = 512;
+        // The prefilter samples this cubemap at a lod chosen from the sample's solid angle : it needs a mip filter to read anything but the first level
+        specs.minFilter = TextureFilter::LinearMipmapLinear;
         std::shared_ptr<Cubemap> cubemap = Cubemap::Create(specs, noData);
 
         for (uint32_t face = 0; face < 6; face++)

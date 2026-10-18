@@ -1,0 +1,130 @@
+#version 430 core
+
+// Screen-space reflections, the resolve (see SSRManager) : from the trace's grid (which may be smaller than the screen) to one entry per pixel of
+// the screen, in the form lit.frag reads :
+//   x, y  where the hit is in the PREVIOUS frame's picture, in uv. The colour pyramid is that picture, and the hit was found on the depth of this
+//         frame : a surface that moved on the screen since (the camera moved) is looked up where it was
+//   z     how many pixels wide a unit of tangent of the specular lobe is at the hit (distance of the hit from the surface x focal length / depth
+//         of the hit) : lit.frag turns it into a blur radius with the roughness, and so a level of the pyramid
+//   w     the confidence (0 : no reflection)
+//
+// A pixel takes the hit of one of the four trace texels around it, the one that is the most on its surface (depth and normal alike, and close).
+// The hit is a point of the world, so what changes from one pixel to the other is the distance and the direction it is seen in : both are
+// recomputed for this pixel, and the confidence drops where the point is not on this pixel's mirror ray (the neighbour's hit on a curved surface).
+
+layout(local_size_x = 8, local_size_y = 8) in;
+
+layout(binding = 50) uniform sampler2D uHiZ;
+layout(binding = 51) uniform sampler2D uNormal;
+layout(binding = 52) uniform sampler2D uTrace;
+layout(rgba16f, binding = 0) writeonly uniform image2D uResult;
+
+uniform mat4 uProjection;
+uniform mat4 uInvProjection;
+uniform mat4 uView;
+uniform mat4 uPrevViewProj;
+
+uniform int uFullSizeX;
+uniform int uFullSizeY;
+#define uFullSize ivec2(uFullSizeX, uFullSizeY)
+uniform int uTraceSizeX;
+uniform int uTraceSizeY;
+#define uTraceSize ivec2(uTraceSizeX, uTraceSizeY)
+uniform int uDivisor;
+
+vec3 ViewPos(vec2 uv, float depth)
+{
+    vec4 v = uInvProjection * vec4(uv * 2.0 - 1.0, depth * 2.0 - 1.0, 1.0);
+    return v.xyz / v.w;
+}
+
+void main()
+{
+    ivec2 p = ivec2(gl_GlobalInvocationID.xy);
+    if (p.x >= uFullSize.x || p.y >= uFullSize.y)
+        return;
+
+    float depth = texelFetch(uHiZ, p, 0).r;
+    if (depth >= 1.0)
+    {
+        imageStore(uResult, p, vec4(0.0));
+        return;
+    }
+
+    vec3 P = ViewPos((vec2(p) + 0.5) / vec2(uFullSize), depth);
+    vec3 N = normalize(texelFetch(uNormal, p, 0).xyz);
+
+    // The four trace texels around the pixel : their centres stand at (texel * divisor + divisor / 2) on the screen
+    vec2 gridPos = (vec2(p) - float(uDivisor / 2)) / float(uDivisor);   // in trace texels, whole numbers at the texels' centres
+    ivec2 base = ivec2(floor(gridPos));
+    vec2 frac = gridPos - vec2(base);
+    float tolerance = max(0.05, 0.02 * -P.z);
+
+    float bestWeight = -1.0;
+    ivec2 best = clamp(base, ivec2(0), uTraceSize - 1);
+    for (int j = 0; j < 2; j++)
+    {
+        for (int i = 0; i < 2; i++)
+        {
+            ivec2 tp = clamp(base + ivec2(i, j), ivec2(0), uTraceSize - 1);
+            ivec2 rep = min(tp * uDivisor + uDivisor / 2, uFullSize - 1);
+
+            float repDepth = texelFetch(uHiZ, rep, 0).r;
+            if (repDepth >= 1.0)
+                continue;
+            vec3 repPos = ViewPos((vec2(rep) + 0.5) / vec2(uFullSize), repDepth);
+            vec3 repNormal = normalize(texelFetch(uNormal, rep, 0).xyz);
+
+            float dz = (repPos.z - P.z) / tolerance;
+            float wBilinear = (i == 0 ? 1.0 - frac.x : frac.x) * (j == 0 ? 1.0 - frac.y : frac.y);
+            float w = (wBilinear + 0.01) * exp(-dz * dz) * pow(max(dot(N, repNormal), 0.0), 8.0);
+
+            if (w > bestWeight)
+            {
+                bestWeight = w;
+                best = tp;
+            }
+        }
+    }
+
+    vec4 hit = texelFetch(uTrace, best, 0);
+    if (hit.w <= 0.0)
+    {
+        imageStore(uResult, p, vec4(0.0));
+        return;
+    }
+
+    vec3 H = (uView * vec4(hit.xyz, 1.0)).xyz;
+    vec3 toHit = H - P;
+    float hitDistance = length(toHit);
+    if (hitDistance < 1e-4 || H.z >= 0.0)
+    {
+        imageStore(uResult, p, vec4(0.0));
+        return;
+    }
+
+    float confidence = hit.w;
+
+    // Is the point on this pixel's own mirror ray ? (it is its own hit when the trace is not reduced, a neighbour's otherwise)
+    vec3 R = reflect(normalize(P), N);
+    confidence *= smoothstep(0.85, 0.97, dot(toHit / hitDistance, R));
+
+    // Where the point was in the last picture
+    vec4 prevClip = uPrevViewProj * vec4(hit.xyz, 1.0);
+    if (prevClip.w <= 0.0)
+    {
+        imageStore(uResult, p, vec4(0.0));
+        return;
+    }
+    vec2 prevUV = prevClip.xy / prevClip.w * 0.5 + 0.5;
+    if (any(lessThan(prevUV, vec2(0.0))) || any(greaterThanEqual(prevUV, vec2(1.0))))
+    {
+        imageStore(uResult, p, vec4(0.0));
+        return;
+    }
+
+    float focalPixels = uProjection[1][1] * 0.5 * float(uFullSize.y);
+    float coneScale = hitDistance * focalPixels / max(-H.z, 0.01);
+
+    imageStore(uResult, p, vec4(prevUV, coneScale, confidence));
+}

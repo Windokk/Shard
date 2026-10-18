@@ -3,6 +3,7 @@
 #include <algorithm>
 
 #include "vk_vma.hpp"
+#include "engine/renderer/rhi/resources/texture/texture_filtering.hpp"
 
 namespace Shard::Engine::Rendering::VK {
 
@@ -416,7 +417,7 @@ namespace Shard::Engine::Rendering::VK {
         key.maxLod = mipped ? static_cast<float>(mipLevels - 1) : 0.0f;
 
         // Anisotropy on top of trilinear : what the GL backend asks for whenever there are mips
-        key.anisotropy = mipLevels > 1 ? std::min(8.0f, Context::Get().GetCaps().maxAnisotropy) : 1.0f;
+        key.anisotropy = mipLevels > 1 ? std::min(RequestedAnisotropy(), Context::Get().GetCaps().maxAnisotropy) : 1.0f;
 
         // GL takes any border colour, Vulkan three : the closest one
         COL_RGBA border = specs.borderColor;

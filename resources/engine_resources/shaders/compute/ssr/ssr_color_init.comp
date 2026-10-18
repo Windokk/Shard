@@ -1,0 +1,29 @@
+#version 430 core
+
+// Level 0 of the colour pyramid the reflections are read from (see SSRManager) : the HDR scene of the frame before, as it was resolved. The
+// reflection of a rough surface is a blurred picture of what it reflects, which the mips of this pyramid are : lit.frag picks the level from
+// the roughness and the distance of the hit.
+
+layout(local_size_x = 8, local_size_y = 8) in;
+
+layout(binding = 49) uniform sampler2D uScene;
+layout(rgba16f, binding = 0) writeonly uniform image2D uPyramid0;
+
+uniform int uSizeX;
+uniform int uSizeY;
+#define uSize ivec2(uSizeX, uSizeY)
+
+void main()
+{
+    ivec2 p = ivec2(gl_GlobalInvocationID.xy);
+    if (p.x >= uSize.x || p.y >= uSize.y)
+        return;
+
+    vec3 c = texelFetch(uScene, p, 0).rgb;
+    // One non finite or huge texel would be spread over the whole pyramid by the mips
+    if (any(isnan(c)) || any(isinf(c)))
+        c = vec3(0.0);
+    c = clamp(c, vec3(0.0), vec3(60000.0));
+
+    imageStore(uPyramid0, p, vec4(c, 1.0));
+}

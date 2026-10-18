@@ -17,11 +17,15 @@
 namespace Shard::Editor::GUI{
 
     class EditorMainWindow;
+    class AssetBrowser;
 
     class PropertiesPanel
     {
         public:
             void Draw(std::shared_ptr<Engine::Objects::Actor> actor);
+
+            /// The browser the asset fields take the selected asset from / navigate to
+            void SetAssetBrowser(AssetBrowser* browser) { assetBrowser = browser; }
 
         private:
             void DrawActorInfo(std::shared_ptr<Engine::Objects::Actor> actor);
@@ -37,6 +41,8 @@ namespace Shard::Editor::GUI{
 
             /// The edits noted while the widgets were being used go into the undo history once none is
             void CommitPendingEdits();
+
+            AssetBrowser* assetBrowser = nullptr;
 
             // The actor being drawn
             std::shared_ptr<Engine::Objects::Actor> drawnActor;

@@ -25,6 +25,7 @@
 #include "engine/renderer/components/model_component.hpp"
 #include "engine/renderer/components/light_component.hpp"
 #include "engine/renderer/components/probe_volume.hpp"
+#include "engine/renderer/components/reflection_probe.hpp"
 #include "engine/physics/physics_body.hpp"
 #include "engine/world/components/registry/component_registry.hpp"
 #include "engine/renderer/frontend/renderer.hpp"
@@ -505,6 +506,62 @@ namespace Shard::Editor::GUI{
         }
     }
 
+    void DrawReflectionProbeBake(std::shared_ptr<Component> comp)
+    {
+        auto probe = std::dynamic_pointer_cast<ReflectionProbe>(comp);
+        if (!probe)
+            return;
+
+        ImGui::Separator();
+        ImGui::Text("Baked reflection");
+
+        const float progress = probe->GetBakeProgress();
+        const bool bakingThis = progress >= 0.0f;
+        const bool hasFile = !probe->bakedData.empty();
+
+        if (bakingThis)
+        {
+            ImGui::ProgressBar(progress, ImVec2(-FLT_MIN, 0.0f));
+        }
+        else if (hasFile)
+        {
+            ImGui::TextDisabled("Baked : %s", probe->bakedData.c_str());
+            ImGui::TextDisabled("Static - re-bake to pick up lighting or geometry changes.");
+        }
+        else
+        {
+            ImGui::TextDisabled("Not baked - this probe reflects nothing yet.");
+        }
+
+        // Only an active probe in the loaded world can be baked, and only one bake runs at a time
+        ImGui::BeginDisabled(bakingThis || !probe->Active());
+        if (ImGui::Button((std::string(hasFile ? "Re-bake" : "Bake") + "##ReflectionProbeBake").c_str()))
+            probe->Bake();
+        ImGui::EndDisabled();
+
+        if (ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled))
+            ImGui::SetTooltip("Path traces the whole sphere around this actor and saves it in the project's reflection_probes folder.\nThe surfaces inside the box reflect that picture.");
+
+        if (bakingThis)
+        {
+            ImGui::SameLine();
+            if (ImGui::Button("Cancel##ReflectionProbeBake"))
+                probe->CancelBake();
+        }
+        else if (hasFile)
+        {
+            ImGui::SameLine();
+            if (ImGui::Button("Delete Bake##ReflectionProbeBake"))
+            {
+                probe->ClearBake();
+                MarkWorldDirty();
+            }
+
+            if (ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled))
+                ImGui::SetTooltip("Deletes the baked file : the probe reflects nothing again.");
+        }
+    }
+
     void PropertiesPanel::Draw(std::shared_ptr<Actor> actor)
     {
         ImGui::Begin("Properties");
@@ -645,6 +702,10 @@ namespace Shard::Editor::GUI{
 
         if (ImGui::MenuItem("Probe Volume")) {
             Commands::Actions::EditActor(actor, "Add Component", [&]{ actor->AddComponent<Engine::Objects::Components::ProbeVolume>(); });
+        }
+
+        if (ImGui::MenuItem("Reflection Probe")) {
+            Commands::Actions::EditActor(actor, "Add Component", [&]{ actor->AddComponent<Engine::Objects::Components::ReflectionProbe>(); });
         }
 
         // Everything registered through REGISTER_COMPONENT (game-side custom components, e.g.
@@ -821,9 +882,173 @@ namespace Shard::Editor::GUI{
             }
 
             DrawProbeVolumeBake(comp);
+            DrawReflectionProbeBake(comp);
         }
 
         return removeRequested;
+    }
+
+    // The asset a field points at, Unreal-style : a button showing it (click = pick another from a list, drop = assign the
+    // asset dragged from the browser), then "use the asset selected in the browser", "show it in the browser" and "clear".
+    // A field already holding an asset only takes assets of the same type (a mesh field is not given a texture).
+    static bool DrawAssetField(const std::string& id, Filesystem::AssetID& value, AssetBrowser* browser)
+    {
+        auto* manager = Engine::Core::GetEngine().GetAssetIDManager();
+        if (!manager)
+            return false;
+
+        std::shared_ptr<Filesystem::AssetInfos> current = manager->GetAssetFromID(value);
+        const std::string currentName = current ? current->baseInfos.nameInProject : std::string();
+
+        // Resolves a nameInProject to an assignable asset, nullptr if it is not one this field accepts
+        auto resolve = [&](const std::string& name) -> std::shared_ptr<Filesystem::AssetInfos>
+        {
+            if (name.empty())
+                return nullptr;
+            auto info = manager->GetAssetFromID(manager->GetIDFromNameInProject(name));
+            if (!info || info->baseInfos.nameInProject != name || info->baseInfos.isDirectory)
+                return nullptr;
+            if (current && info->baseInfos.type != current->baseInfos.type)
+                return nullptr;
+            return info;
+        };
+
+        bool changed = false;
+        auto assign = [&](const std::shared_ptr<Filesystem::AssetInfos>& info)
+        {
+            // The ID the manager knows the asset under (the key of its table), which is what every lookup goes through
+            const Filesystem::AssetID newValue = info ? manager->GetIDFromNameInProject(info->baseInfos.nameInProject) : Filesystem::AssetID();
+            DEBUG_INFO("Asset field " + id + " assign : " + (info ? info->baseInfos.nameInProject : std::string("<none>")) + " id " + std::to_string(newValue.GetAsInt()) + " / baseInfos.ID " + (info ? std::to_string(info->baseInfos.ID.GetAsInt()) : std::string("-")) + " (was " + currentName + ")");
+            if (newValue != value)
+            {
+                value = newValue;
+                changed = true;
+            }
+        };
+
+        const ImGuiStyle& style = ImGui::GetStyle();
+        const float buttonSize = ImGui::GetFrameHeight();
+        const float fieldWidth = ImGui::GetContentRegionAvail().x - 3.0f * (buttonSize + style.ItemInnerSpacing.x);
+
+        // ---- The field
+        const std::string label = (current ? currentName : std::string("None")) + id;
+        ImGui::PushStyleVar(ImGuiStyleVar_ButtonTextAlign, ImVec2(0.0f, 0.5f));
+        if (!current)
+            ImGui::PushStyleColor(ImGuiCol_Text, ImGui::GetStyleColorVec4(ImGuiCol_TextDisabled));
+        if (ImGui::Button(label.c_str(), ImVec2(fieldWidth, 0.0f)))
+            ImGui::OpenPopup("##AssetPicker");
+        if (!current)
+            ImGui::PopStyleColor();
+        ImGui::PopStyleVar();
+
+        if (ImGui::IsItemHovered(ImGuiHoveredFlags_ForTooltip))
+            ImGui::SetTooltip("%s\nClick to pick an asset, or drop one from the browser", current ? currentName.c_str() : "No asset");
+
+        // A compatible asset dragged over the field is highlighted, an incompatible one is refused
+        if (ImGui::BeginDragDropTarget())
+        {
+            std::vector<std::string> dropped = DragDrop::AcceptAssetDragDropPayload();
+            if (!dropped.empty())
+                assign(resolve(dropped[0]));
+            ImGui::EndDragDropTarget();
+        }
+
+        // ---- Picker
+        ImGui::SetNextWindowSizeConstraints(ImVec2(280.0f, 120.0f), ImVec2(FLT_MAX, 420.0f));
+        if (ImGui::BeginPopup("##AssetPicker"))
+        {
+            static char filter[128] = "";
+            if (ImGui::IsWindowAppearing())
+            {
+                filter[0] = '\0';
+                ImGui::SetKeyboardFocusHere();
+            }
+
+            ImGui::SetNextItemWidth(-FLT_MIN);
+            ImGui::InputTextWithHint("##PickerFilter", ICON_LC_SEARCH "  Search...", filter, sizeof(filter));
+            ImGui::Separator();
+
+            if (ImGui::Selectable("None", !current))
+            {
+                assign(nullptr);
+                ImGui::CloseCurrentPopup();
+            }
+
+            auto lower = [](std::string v) { std::transform(v.begin(), v.end(), v.begin(), ::tolower); return v; };
+            const std::string needle = lower(filter);
+
+            std::vector<std::shared_ptr<Filesystem::AssetInfos>> candidates;
+            for (const auto& [assetId, info] : manager->AssetIDMap)
+            {
+                if (!info || info->baseInfos.isDirectory || info->baseInfos.nameInProject.empty())
+                    continue;
+                if (current && info->baseInfos.type != current->baseInfos.type)
+                    continue;
+                if (!needle.empty() && lower(info->baseInfos.nameInProject).find(needle) == std::string::npos)
+                    continue;
+                candidates.push_back(info);
+            }
+            std::sort(candidates.begin(), candidates.end(), [](const auto& l, const auto& r) { return l->baseInfos.nameInProject < r->baseInfos.nameInProject; });
+
+            ImGui::BeginChild("##PickerList", ImVec2(0.0f, 260.0f));
+            ImGuiListClipper clipper;
+            clipper.Begin((int)candidates.size());
+            while (clipper.Step())
+            {
+                for (int i = clipper.DisplayStart; i < clipper.DisplayEnd; i++)
+                {
+                    const auto& info = candidates[i];
+                    const bool selected = info->baseInfos.ID == value;
+                    if (ImGui::Selectable(info->baseInfos.nameInProject.c_str(), selected))
+                    {
+                        assign(info);
+                        ImGui::CloseCurrentPopup();
+                    }
+                    if (selected && ImGui::IsWindowAppearing())
+                        ImGui::SetScrollHereY();
+                }
+            }
+            ImGui::EndChild();
+            ImGui::EndPopup();
+        }
+
+        // ---- Use the asset selected in the browser
+        ImGui::SameLine(0.0f, style.ItemInnerSpacing.x);
+        const std::string selectedName = browser ? browser->GetSelectedAssetName() : std::string();
+        const auto selectedInfo = resolve(selectedName);
+        ImGui::BeginDisabled(!selectedInfo);
+        if (ImGui::Button((std::string(ICON_LC_CIRCLE_ARROW_LEFT) + id + "Use").c_str(), ImVec2(buttonSize, buttonSize)))
+            assign(selectedInfo);
+        ImGui::EndDisabled();
+        if (ImGui::IsItemHovered(ImGuiHoveredFlags_ForTooltip | ImGuiHoveredFlags_AllowWhenDisabled))
+        {
+            if (selectedInfo)
+                ImGui::SetTooltip("Use the asset selected in the browser\n%s", selectedName.c_str());
+            else if (!selectedName.empty())
+                ImGui::SetTooltip("The asset selected in the browser is not the type this field takes");
+            else
+                ImGui::SetTooltip("Select an asset in the browser to use it here");
+        }
+
+        // ---- Show it in the browser
+        ImGui::SameLine(0.0f, style.ItemInnerSpacing.x);
+        ImGui::BeginDisabled(!current || !browser);
+        if (ImGui::Button((std::string(ICON_LC_FOLDER_SEARCH) + id + "Browse").c_str(), ImVec2(buttonSize, buttonSize)))
+            browser->RevealAsset(currentName);
+        ImGui::EndDisabled();
+        if (ImGui::IsItemHovered(ImGuiHoveredFlags_ForTooltip | ImGuiHoveredFlags_AllowWhenDisabled))
+            ImGui::SetTooltip("Browse to the asset in the Asset Browser");
+
+        // ---- Clear
+        ImGui::SameLine(0.0f, style.ItemInnerSpacing.x);
+        ImGui::BeginDisabled(!current);
+        if (ImGui::Button((std::string(ICON_LC_X) + id + "Clear").c_str(), ImVec2(buttonSize, buttonSize)))
+            assign(nullptr);
+        ImGui::EndDisabled();
+        if (ImGui::IsItemHovered(ImGuiHoveredFlags_ForTooltip | ImGuiHoveredFlags_AllowWhenDisabled))
+            ImGui::SetTooltip("Clear");
+
+        return changed;
     }
 
     void PropertiesPanel::DrawField(const FieldInfo *field, void *value, std::shared_ptr<Engine::Objects::Components::Component> comp, const Container *container, const int valueIndexInContainer)
@@ -984,56 +1209,10 @@ namespace Shard::Editor::GUI{
             case TypeID::Asset:
             {
                 Filesystem::AssetID* asset = static_cast<Filesystem::AssetID*>(value);
-
-                static char buffer[256] = "";
-
-                auto* manager = Engine::Core::GetEngine().GetAssetIDManager();
-
-                if (asset)
+                if (asset && DrawAssetField(id, *asset, assetBrowser))
                 {
-                    if (manager)
-                    {
-                        auto assetPtr = manager->GetAssetFromID(*asset);
-                        if (assetPtr)
-                        {
-                            const std::string& name = assetPtr->baseInfos.nameInProject;
-
-                            if (!name.empty())
-                            {
-                                strncpy(buffer, name.c_str(), sizeof(buffer) - 1);
-                                buffer[sizeof(buffer) - 1] = '\0'; // enforce null-termination
-                            }
-                        }
-                    }
-                }
-
-                if (asset)
-                {
-                    ImGui::SetNextItemWidth(-FLT_MIN);
-                    if (ImGui::InputText(id.c_str(), buffer, sizeof(buffer), ImGuiInputTextFlags_EnterReturnsTrue))
-                    {
-                        if(manager)
-                        {
-                            *static_cast<Filesystem::AssetID*>(value) = manager->GetIDFromNameInProject(buffer);
-                        }
-                        FieldChangedEvent evt{ field };
-                        comp->OnFieldChanged(evt); MarkWorldDirty();
-                    }
-
-                    // Accept an asset dragged from the browser onto this field - works for any
-                    // AssetID field (mesh, materials, ...) since it only needs the dropped asset's
-                    // nameInProject, which GetIDFromNameInProject resolves the same way as the text box.
-                    if (ImGui::BeginDragDropTarget())
-                    {
-                        std::vector<std::string> dropped = DragDrop::AcceptAssetDragDropPayload();
-                        if (manager && !dropped.empty())
-                        {
-                            *static_cast<Filesystem::AssetID*>(value) = manager->GetIDFromNameInProject(dropped[0]);
-                            FieldChangedEvent evt{ field };
-                            comp->OnFieldChanged(evt); MarkWorldDirty();
-                        }
-                        ImGui::EndDragDropTarget();
-                    }
+                    FieldChangedEvent evt{ field };
+                    comp->OnFieldChanged(evt); MarkWorldDirty();
                 }
                 break;
             }

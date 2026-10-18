@@ -84,6 +84,13 @@ namespace Shard::Editor::GUI{
         std::string nameInProject;
         int size = 0;
 
+        // Cached at listing time (sorting, searching and drawing all use them every frame)
+        std::string filename;
+        std::string lowerName;
+        // The label wrapped into two lines for `wrapWidth`
+        std::string line1, line2;
+        float wrapWidth = -1.0f;
+
         const AtlasRegion* icon;  // cached pointer
 
         Asset(ImGuiID id, const Engine::Filesystem::Path& path, const Engine::Filesystem::Type type, bool isDir, const AtlasRegion* icon, const std::string& nameInProject = "", int size = 0)
@@ -95,6 +102,9 @@ namespace Shard::Editor::GUI{
             this->isDirectory = isDir;
             this->nameInProject = nameInProject;
             this->size = size;
+            this->filename = path.GetFilename();
+            this->lowerName = filename;
+            std::transform(lowerName.begin(), lowerName.end(), lowerName.begin(), ::tolower);
         }
 
         static const ImGuiTableSortSpecs* s_current_sort_specs;
@@ -159,7 +169,33 @@ namespace Shard::Editor::GUI{
             void NavigateTo(const std::string& path);
             void SetParentWindow(Core::EditorMainWindow* parent);
 
+            /// The one non-folder asset selected in the browser (empty when none or several are), as its nameInProject
+            std::string GetSelectedAssetName() const;
+            /// Opens the folder holding the asset, selects it and scrolls to it ("Browse to asset")
+            void RevealAsset(const std::string& nameInProject);
+
         private:
+            enum class SortKey { Name, Type, Size };
+
+            struct FolderNode {
+                std::string name;
+                std::string path;
+                std::vector<FolderNode> children;
+            };
+
+            void DrawSidebar(float height);
+            void DrawFolderNode(const FolderNode& node, bool isRoot);
+            void RebuildFolderTree();
+            void DrawFilterPopup();
+            void DrawViewPopup();
+            void SetZoom(float size);
+            int ActiveFilterCount() const;
+            void RequestRelist() { if (!dirty) navigationOnly = true; dirty = true; }
+            void NavigateHistory(int direction);
+            void GoUp();
+            bool PassesFilter(const Asset& item) const;
+            void MoveItemsInto(const std::vector<std::string>& namesInProject, const Engine::Filesystem::Path& folder);
+
             void DrawBreadcrumb();
             void DrawAssets();
             void UpdateLayoutSizes(float avail_width);
@@ -167,7 +203,7 @@ namespace Shard::Editor::GUI{
 
             // Context menu / shortcuts only *request* an action (pendingAction); it runs once per frame
             // after the item loop (ProcessAction), since most of them rebuild `items`.
-            enum class Action { None, Open, Cut, Copy, Paste, Duplicate, Rename, Delete, Refresh, NewFolder, NewMaterial, NewWorld, Reveal, CopyPath, RefreshThumbnail };
+            enum class Action { None, Open, Cut, Copy, Paste, Duplicate, Rename, Delete, Refresh, NewFolder, NewMaterial, NewWorld, Reveal, CopyPath, RefreshThumbnail, ShowInFolder };
 
             void DrawContextMenu();
             void ProcessAction();
@@ -184,7 +220,7 @@ namespace Shard::Editor::GUI{
             Core::EditorMainWindow* parent = nullptr;
 
             Engine::Filesystem::Path currentPath;
-            float thumbnailSize = 72.f;
+            float thumbnailSize = 80.f;
 
             Action pendingAction = Action::None;
             ImGuiID contextTargetId = 0;                    // item that was right-clicked (0 = empty space)
@@ -196,6 +232,38 @@ namespace Shard::Editor::GUI{
             Engine::Filesystem::Path renamePath;
             char renameBuffer[256]{};
             bool openRenamePopup = false;
+
+            // Navigation history (back / forward), the current folder is history[historyIndex]
+            std::vector<std::string> history;
+            int historyIndex = -1;
+            bool navigatingHistory = false;
+
+            // Search box : only the items whose name contains it are listed
+            char searchBuffer[128]{};
+            bool focusSearch = false;
+
+            // RevealAsset : once the listing has been rebuilt, the item at this path gets selected and scrolled to
+            std::string pendingRevealPath;
+            int pendingScrollItem = -1;
+
+            int visibleItemCount = 0;   // the items of the folder, before the search
+            // View
+            SortKey sortKey = SortKey::Name;
+            bool sortAscending = true;
+            bool listView = false;
+            bool showSidebar = true;
+            float sidebarWidth = 200.0f;
+
+            // Filters
+            bool typeHidden[14]{};          // by Filesystem::Type
+            bool showFolders = true;
+            bool searchSubfolders = true;   // a search looks into the sub folders too
+
+            // Folder tree of the sidebar
+            FolderNode folderTree;
+            bool treeDirty = true;
+            bool treeRevealCurrent = false; // open the ancestors of the current folder in the tree
+            bool navigationOnly = false;    // the next listing is only a folder change / search : the folder structure did not change
 
             std::vector<Asset> items;               // Our items
             ExampleSelectionWithDeletion selection;     // Our selection (ImGuiSelectionBasicStorage + helper funcs to handle deletion)

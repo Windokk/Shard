@@ -1,0 +1,23 @@
+#version 430 core
+
+// Level 0 of the screen-space reflections' Hi-Z pyramid (see SSRManager) : a copy of the depth of the SSAO prepass. The pyramid keeps the MIN of
+// the depths below it (the CLOSEST surface of a region, where the occlusion culling's keeps the farthest) : a ray that is still in front of
+// the closest surface of a cell cannot hit anything inside it, which is what lets the march in ssr_trace.comp skip the cell whole.
+
+layout(local_size_x = 8, local_size_y = 8) in;
+
+layout(binding = 49) uniform sampler2D uDepth;
+layout(r32f, binding = 0) writeonly uniform image2D uHiZ0;
+
+uniform int uSizeX;
+uniform int uSizeY;
+#define uSize ivec2(uSizeX, uSizeY)
+
+void main()
+{
+    ivec2 p = ivec2(gl_GlobalInvocationID.xy);
+    if (p.x >= uSize.x || p.y >= uSize.y)
+        return;
+
+    imageStore(uHiZ0, p, vec4(texelFetch(uDepth, p, 0).r));
+}

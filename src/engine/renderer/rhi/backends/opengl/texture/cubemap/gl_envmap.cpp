@@ -8,6 +8,9 @@
 
 #include <stb/stb_image.h>
 
+#include <algorithm>
+#include <cmath>
+
 #include "engine/assets/resources_manager.hpp"
 
 #include "engine/renderer/rhi/backends/opengl/shader/gl_shader.hpp"
@@ -56,6 +59,9 @@ namespace Shard::Engine::Rendering{
         texSpecs.wrapT = TextureWrap::ClampEdge;
         texSpecs.wrapR = TextureWrap::ClampEdge;
         texSpecs.generateMips = true;
+        // Trilinear : each level holds the environment filtered for one roughness (see CreatePrefilter), and the lighting picks
+        // one by textureLod. With a plain Linear filter only the first level is ever read, whatever the lod asked for.
+        texSpecs.minFilter = TextureFilter::LinearMipmapLinear;
         texSpecs.internalFormat = TextureInternalFormat::RGB16F;
         texSpecs.width = 128;
         texSpecs.height = 128;
@@ -163,6 +169,9 @@ namespace Shard::Engine::Rendering{
 
         specs.width = CUBEMAP_SIZE;
         specs.height = CUBEMAP_SIZE;
+        // The prefilter below samples this cubemap at a lod chosen from the sample's solid angle (what keeps its 1024 samples
+        // from showing the texels of a sun disc) : it needs a mip filter to read anything but the first level
+        specs.minFilter = TextureFilter::LinearMipmapLinear;
 
         std::shared_ptr<Cubemap> cubemap = Cubemap::Create(specs, dataArray);
         {
@@ -236,6 +245,9 @@ namespace Shard::Engine::Rendering{
         texSpecs.wrapT = TextureWrap::ClampEdge;
         texSpecs.wrapR = TextureWrap::ClampEdge;
         texSpecs.generateMips = true;
+        // Trilinear : each level holds the environment filtered for one roughness (see CreatePrefilter), and the lighting picks
+        // one by textureLod. With a plain Linear filter only the first level is ever read, whatever the lod asked for.
+        texSpecs.minFilter = TextureFilter::LinearMipmapLinear;
         texSpecs.internalFormat = TextureInternalFormat::RGB16F;
         texSpecs.width = 128;
         texSpecs.height = 128;
@@ -394,17 +406,19 @@ namespace Shard::Engine::Rendering{
         glBindTexture(GL_TEXTURE_CUBE_MAP, cubemap->GetHandle());
 
         glBindFramebuffer(GL_FRAMEBUFFER, captureFBO);
-        unsigned int maxMipLevels = 2;
+        // Every level of the chain is drawn : level n holds the environment for a roughness of n / (kPrefilterRoughnessLevels - 1),
+        // up to 1 (the last levels, which the lighting never reads, are all fully rough)
+        const unsigned int maxMipLevels = static_cast<unsigned int>(std::floor(std::log2(float(prefilterMap->GetWidth())))) + 1;
         for (unsigned int mip = 0; mip < maxMipLevels; ++mip)
         {
             // reisze framebuffer according to mip-level size.
-            unsigned int mipWidth  = static_cast<unsigned int>(128 * std::pow(0.5, mip));
-            unsigned int mipHeight = static_cast<unsigned int>(128 * std::pow(0.5, mip));
+            unsigned int mipWidth  = std::max(1u, prefilterMap->GetWidth() >> mip);
+            unsigned int mipHeight = std::max(1u, prefilterMap->GetHeight() >> mip);
             glBindRenderbuffer(GL_RENDERBUFFER, captureRBO);
             glRenderbufferStorage(GL_RENDERBUFFER, GL_DEPTH_COMPONENT24, mipWidth, mipHeight);
             glViewport(0, 0, mipWidth, mipHeight);
 
-            float roughness = (float)mip / (float)(maxMipLevels - 1);
+            float roughness = std::min(1.0f, (float)mip / (float)(kPrefilterRoughnessLevels - 1));
             prefilterShader->SetFloat("roughness", roughness);
             for (unsigned int i = 0; i < 6; ++i)
             {

@@ -16,6 +16,8 @@
 #include "engine/renderer/components/camera_manager.hpp"
 #include "engine/renderer/components/render_world_data.hpp"
 #include "engine/renderer/components/probe_volume.hpp"
+#include "engine/renderer/components/reflection_probe.hpp"
+#include "engine/world/actor.hpp"
 #include "engine/renderer/features/lighting/probe_manager.hpp"
 #include "engine/renderer/features/lighting/lightmap_manager.hpp"
 #include "engine/renderer/features/raytracing/raytracer.hpp"
@@ -278,6 +280,39 @@ namespace Shard::Engine::Core {
                 if (!probes->IsBaking())
                     return CommandResult{true, std::string("no bake running, last bake ") + (probes->DidLastBakeSucceed() ? "succeeded" : "did not succeed")};
                 return CommandResult{true, std::string("baking : ") + probes->GetBakePhase() + " " + std::to_string(int(probes->GetBakeProgress() * 100.0f)) + "%"};
+            });
+
+        registry.RegisterCommand("reflection.bake", "reflection.bake : bakes the first active reflection probe of the loaded worlds (what the Bake button of the editor does)",
+            [this](const std::vector<std::string>&) {
+                if (!m_Context.worldManager)
+                    return CommandResult{false, "no world manager"};
+                for (int i = 0; i < m_Context.worldManager->GetLoadedWorldCount(); ++i) {
+                    Worlds::World* world = m_Context.worldManager->GetWorldAt(i);
+                    if (!world) continue;
+                    for (auto& [id, probe] : world->Ext<Rendering::RenderWorldData>().reflectionProbes)
+                        if (probe && probe->Active())
+                            return probe->Bake() ? CommandResult{true, "baking"} : CommandResult{false, "the bake could not start"};
+                }
+                return CommandResult{false, "no active reflection probe"};
+            });
+
+        registry.RegisterCommand("reflection.status", "reflection.status : the reflection probes of the loaded worlds, their baked picture, and the bake that is running",
+            [this](const std::vector<std::string>&) {
+                if (!m_Context.worldManager)
+                    return CommandResult{false, "no world manager"};
+                std::string text;
+                for (int i = 0; i < m_Context.worldManager->GetLoadedWorldCount(); ++i) {
+                    Worlds::World* world = m_Context.worldManager->GetWorldAt(i);
+                    if (!world) continue;
+                    for (auto& [id, probe] : world->Ext<Rendering::RenderWorldData>().reflectionProbes) {
+                        if (!probe) continue;
+                        const float progress = probe->GetBakeProgress();
+                        text += "  " + (probe->parent ? probe->parent->GetName() : std::string("?")) + " : " +
+                                (progress >= 0.0f ? "baking " + std::to_string(int(progress * 100.0f)) + "%"
+                                                  : probe->bakedData.empty() ? std::string("not baked") : "baked, " + probe->bakedData + (probe->GetEnvironment() ? "" : " (not loaded)")) + "\n";
+                    }
+                }
+                return CommandResult{true, text.empty() ? std::string("no reflection probe") : text};
             });
 
         registry.RegisterCommand("raytrace.render", "raytrace.render <file.hdr> [width] [height] [samples] [bounces] : path traces the world from the active camera into a linear HDR file in the project (what the editor's Offline Raytrace window does), blocking until it is done",

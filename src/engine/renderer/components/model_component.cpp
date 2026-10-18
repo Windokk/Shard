@@ -267,10 +267,17 @@ namespace Shard::Engine::Objects::Components{
         if(!activated)
             return;
 
+        // A slot can be null (unresolved asset) : keep its ID so the selection is not lost
+        std::vector<decltype(materialsID)::value_type> previousIDs = materialsID;
         this->materials = std::move(newMaterials);
         materialsID.clear();
         for(size_t i = 0; i < materials.size(); i++){
-            materialsID.push_back(materials[i]->GetAssetID());
+            if(materials[i])
+                materialsID.push_back(materials[i]->GetAssetID());
+            else if(i < previousIDs.size())
+                materialsID.push_back(previousIDs[i]);
+            else
+                materialsID.push_back({});
         }
     }
 
@@ -307,8 +314,22 @@ namespace Shard::Engine::Objects::Components{
         //Materials
         if(event.field->type == TypeID::Vector && event.field->container){
             std::vector<std::shared_ptr<Rendering::Material>> mats = {};
-            for(auto matID : materialsID){
-                mats.push_back(GetEngineContext()->GetResourcesManager()->Get<Rendering::Material>(Core::Resources::AssetKind::Material, GetEngineContext()->GetAssetIDManager()->GetAssetFromID(matID)->baseInfos.nameInProject));
+            auto* resources = GetEngineContext()->GetResourcesManager();
+            auto fallback = [&]{ return resources->Get<Rendering::Material>(Core::Resources::AssetKind::Material, "materials/default.mat"); };
+
+            for(size_t slot = 0; slot < materialsID.size(); slot++){
+                // A freshly added slot has no valid asset ID yet : it draws with the default material until one is picked
+                auto info = GetEngineContext()->GetAssetIDManager()->GetAssetFromID(materialsID[slot]);
+                std::shared_ptr<Rendering::Material> material;
+                if(!info){
+                    DEBUG_WARNING("Model material slot " + std::to_string(slot) + " has no asset for its ID, using the default material");
+                }
+                else{
+                    material = resources->Get<Rendering::Material>(Core::Resources::AssetKind::Material, info->baseInfos.nameInProject);
+                    if(!material)
+                        DEBUG_ERROR("Failed to load material: " + info->baseInfos.nameInProject + ", using the default material");
+                }
+                mats.push_back(material ? material : fallback());
             }
             SetMaterials(std::move(mats));
         }

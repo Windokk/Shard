@@ -13,6 +13,7 @@
 #include "engine/renderer/components/light_component.hpp"
 #include "engine/renderer/components/model_component.hpp"
 #include "engine/renderer/components/probe_volume.hpp"
+#include "engine/renderer/components/reflection_probe.hpp"
 #include "engine/renderer/components/render_world_data.hpp"
 #include "engine/renderer/components/skybox.hpp"
 #include "engine/renderer/features/billboards/billboard_atlas.hpp"
@@ -108,6 +109,22 @@ namespace Shard::Engine::Rendering {
             return proxy;
         }
 
+        ReflectionProbeProxy MakeReflectionProbeProxy(uint64_t key, ReflectionProbe& probe)
+        {
+            ReflectionProbeProxy proxy;
+            proxy.volume.key = key;
+            proxy.volume.objectId = probe.parent ? probe.parent->GetID().GetAsInt() : -1;
+            proxy.volume.center = probe.parent && probe.parent->transform ? probe.parent->transform->GetWorldPosition() : glm::vec3(0.0f);
+            proxy.volume.halfExtent = probe.halfExtent;
+            proxy.volume.active = probe.Active();
+            proxy.shape = probe.shape;
+            proxy.intensity = probe.intensity;
+            proxy.blendDistance = probe.blendDistance;
+            proxy.boxProjection = probe.boxProjection;
+            proxy.environment = probe.GetEnvironment();     // loaded by ReflectionProbe::TickAll, never here
+            return proxy;
+        }
+
         // ---- Billboards : the built-in providers. One per kind of component, each only reads its own components.
 
         constexpr float kIconSize = 40.0f;      // pixels
@@ -148,6 +165,17 @@ namespace Shard::Engine::Rendering {
                 if (snapshot.camera.valid && snapshot.camera.objectId == camera->parent->GetID().GetAsInt())
                     continue;
                 out.push_back(MakeIcon(MakeKey(worldIndex, id), camera->parent.get(), BuiltinSprite::Camera, glm::vec4(1.0f)));
+            }
+        }
+
+        void ReflectionProbeBillboards(Worlds::World& world, int worldIndex, const RenderSnapshot&, std::vector<BillboardProxy>& out)
+        {
+            for (auto& [id, probe] : world.Ext<RenderWorldData>().reflectionProbes) {
+                if (!probe || !probe->Active() || !probe->parent)
+                    continue;
+                // The probe icon in a cooler colour than the GI one, dimmed while the probe has no picture to reflect
+                const glm::vec4 tint = probe->GetEnvironment() ? glm::vec4(0.55f, 0.80f, 1.0f, 1.0f) : glm::vec4(0.55f, 0.65f, 0.80f, 0.55f);
+                out.push_back(MakeIcon(MakeKey(worldIndex, id), probe->parent.get(), BuiltinSprite::ProbeVolume, tint));
             }
         }
 
@@ -195,6 +223,7 @@ namespace Shard::Engine::Rendering {
 
             env.lightmapData = world.Ext<RenderWorldData>().lightmapData;
             env.display = world.Ext<RenderWorldData>().display;
+            env.ssr = world.Ext<RenderWorldData>().ssr;
 
             const auto& skybox = world.Ext<RenderWorldData>().skybox;
             if (skybox) {
@@ -217,6 +246,11 @@ namespace Shard::Engine::Rendering {
             for (auto& [id, volume] : data.probeVolumes) {
                 if (volume && volume->Active())
                     next.probeVolumes.push_back(MakeProbeVolumeProxy(MakeKey(worldIndex, id), *volume));
+            }
+
+            for (auto& [id, probe] : data.reflectionProbes) {
+                if (probe && probe->Active())
+                    next.reflectionProbes.push_back(MakeReflectionProbeProxy(MakeKey(worldIndex, id), *probe));
             }
         }
 
@@ -291,6 +325,7 @@ namespace Shard::Engine::Rendering {
         m_BillboardProviders.push_back(LightBillboards);
         m_BillboardProviders.push_back(CameraBillboards);
         m_BillboardProviders.push_back(ProbeVolumeBillboards);
+        m_BillboardProviders.push_back(ReflectionProbeBillboards);
         m_BillboardProviders.push_back(ComponentBillboards);
     }
 
@@ -426,6 +461,8 @@ namespace Shard::Engine::Rendering {
         SortByKey(next.billboards);
         std::sort(next.probeVolumes.begin(), next.probeVolumes.end(),
                   [](const ProbeVolumeProxy& a, const ProbeVolumeProxy& b) { return a.volume.key < b.volume.key; });
+        std::sort(next.reflectionProbes.begin(), next.reflectionProbes.end(),
+                  [](const ReflectionProbeProxy& a, const ReflectionProbeProxy& b) { return a.volume.key < b.volume.key; });
 
         if (worlds.GetLoadedWorldCount() > 0) {
             if (Worlds::World* world = worlds.GetWorldAt(0))
@@ -458,6 +495,23 @@ namespace Shard::Engine::Rendering {
                 return MakeKey(w, idInWorld);
         }
         return MakeKey(0, idInWorld);
+    }
+
+    Objects::Components::ReflectionProbe* FindReflectionProbe(Worlds::WorldManager& worlds, uint64_t key)
+    {
+        const int worldIndex = int(key >> 48);
+        const int idInWorld = int(uint32_t(key & 0xFFFFFFFFull));
+
+        if (worldIndex >= worlds.GetLoadedWorldCount())
+            return nullptr;
+
+        Worlds::World* world = worlds.GetWorldAt(worldIndex);
+        if (!world)
+            return nullptr;
+
+        auto& probes = world->Ext<RenderWorldData>().reflectionProbes;
+        auto it = probes.find(idInWorld);
+        return it != probes.end() ? it->second.get() : nullptr;
     }
 
     Objects::Components::ProbeVolume* FindProbeVolume(Worlds::WorldManager& worlds, uint64_t key)

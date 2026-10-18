@@ -202,6 +202,7 @@ namespace Shard::Engine::Rendering::Raytracing {
         shader->SetVec3("uCameraRight", camRight);
         shader->SetVec3("uCameraUp", camUp);
         shader->SetVec3("uCameraForward", camForward);
+        shader->SetBool("uPanorama", settings.panoramic);
         shader->SetVec2("uImageSize", glm::vec2((float)settings.width, (float)settings.height));
         shader->SetInt("uFrameIndex", (int)currentSample);
         shader->SetInt("uLightCount", (int)flatLights.size());

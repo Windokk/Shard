@@ -21,6 +21,7 @@ namespace Shard::Engine::Worlds {
 namespace Shard::Engine::Objects::Components {
     class Model;
     class ProbeVolume;
+    class ReflectionProbe;
 }
 
 namespace Shard::Engine::Rendering {
@@ -96,4 +97,7 @@ namespace Shard::Engine::Rendering {
 
     /// @brief The probe volume component a proxy key stands for, or null if it is gone
     Objects::Components::ProbeVolume* FindProbeVolume(Worlds::WorldManager& worlds, uint64_t key);
+
+    /// @brief The reflection probe component a proxy key stands for, or null if it is gone
+    Objects::Components::ReflectionProbe* FindReflectionProbe(Worlds::WorldManager& worlds, uint64_t key);
 }

@@ -201,6 +201,7 @@ bool GetCurrentView(RenderView& out) override;
             const std::shared_ptr<LightmapManager> GetLightmapManager() override { return m_LightmapManager; }
             const std::shared_ptr<SSAOManager> GetSSAOManager() override { return m_SSAOManager; }
             const std::shared_ptr<LightCullingManager> GetLightCullingManager() override { return m_LightCullingManager; }
+            const std::shared_ptr<SSRManager>& GetSSRManager() const { return m_SSRManager; }
 
         private:
 
@@ -314,6 +315,7 @@ bool GetCurrentView(RenderView& out) override;
             std::shared_ptr<ProbeManager> m_ProbeManager;
             std::shared_ptr<LightmapManager> m_LightmapManager;
             std::shared_ptr<SSAOManager> m_SSAOManager;
+            std::shared_ptr<SSRManager> m_SSRManager;
             std::shared_ptr<LightCullingManager> m_LightCullingManager;
             BillboardRenderer m_BillboardRenderer;
             std::shared_ptr<OcclusionCullingManager> m_OcclusionCulling;

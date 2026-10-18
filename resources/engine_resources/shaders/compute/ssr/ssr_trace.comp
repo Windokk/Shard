@@ -1,0 +1,265 @@
+#version 430 core
+
+// Screen-space reflections, the trace (see SSRManager) : for each pixel of the (possibly reduced) trace grid, the mirror ray of the surface is
+// marched through the depth buffer and the world position it finds is written, with a confidence.
+//
+// The march is the hierarchical-Z one (Uludag, "Hi-Z Screen-Space Cone-Traced Reflections", GPU Pro 5). A straight line in view space is a
+// straight line in (pixel x, pixel y, depth) after the projection, so the ray is a segment there, walked through a pyramid of the closest depth
+// of regions of the screen (ssr_hiz_*.comp) :
+//   - in front of the closest surface of a cell, nothing in the cell can be hit : go to the cell's border, and try a coarser level (bigger steps)
+//   - at the closest surface of the cell, something may be hit : go finer, until a pixel is
+//   - behind the surface of a pixel : a hit, if it is not behind it by more than the thickness (the depth buffer has no back of things - past
+//     that the ray went behind it and carries on)
+// The trace does not know the roughness of the surface (the depth prepass has no materials) : it is the mirror ray. The roughness is applied
+// where it is known, when lit.frag reads the colour of the hit (a blurred level of the colour pyramid).
+//
+// What is written is the hit in WORLD space (xyz) and its confidence (w), so that the frames can be blended whatever the camera did (temporal),
+// and ssr_resolve.comp can turn it into a pixel of the previous frame's picture.
+
+layout(local_size_x = 8, local_size_y = 8) in;
+
+layout(binding = 50) uniform sampler2D uHiZ;          // closest depth, every mip
+layout(binding = 51) uniform sampler2D uNormal;       // view space normal of the prepass
+layout(binding = 52) uniform sampler2D uHistory;      // the previous frame's result (world hit xyz, confidence), at the trace's size
+layout(rgba32f, binding = 0) writeonly uniform image2D uResult;
+
+uniform mat4 uProjection;
+uniform mat4 uInvProjection;
+uniform mat4 uInvView;
+uniform mat4 uPrevViewProj;
+
+uniform int uFullSizeX;
+uniform int uFullSizeY;      // the depth buffer
+#define uFullSize ivec2(uFullSizeX, uFullSizeY)
+uniform int uTraceSizeX;
+uniform int uTraceSizeY;     // the grid that is traced : the depth buffer / uDivisor
+#define uTraceSize ivec2(uTraceSizeX, uTraceSizeY)
+uniform int uDivisor;
+uniform int uMaxSteps;
+uniform int uMaxLevel;
+
+uniform float uMaxDistance;
+uniform float uThickness;
+uniform float uNear;
+uniform float uEdgeFade;
+
+uniform bool uTemporal;       // there is a usable history
+uniform float uTemporalBlend;
+uniform float uCameraStill;   // 1 : the camera did not move since the last frame, towards 0 as it moves
+
+const float kInf = 1e30;
+
+vec3 ViewPos(vec2 uv, float depth)
+{
+    vec4 v = uInvProjection * vec4(uv * 2.0 - 1.0, depth * 2.0 - 1.0, 1.0);
+    return v.xyz / v.w;
+}
+
+// Distance in front of the camera of a depth buffer value (perspective projection)
+float LinearDepth(float depth)
+{
+    return uProjection[3][2] / ((depth * 2.0 - 1.0) + uProjection[2][2]);
+}
+
+// The march. `o` is the start of the segment in (pixel, pixel, depth), `dir` its extent over t in [0, 1] ; `tMax` where it leaves the screen.
+bool March(vec3 o, vec3 dir, float tMax, out float tHit)
+{
+    float pixelsPerT = max(abs(dir.x), abs(dir.y));
+    if (pixelsPerT < 1e-3)
+        return false;       // it does not move on the screen : whatever it could hit is the surface it starts from
+
+    // A hundredth of a pixel past a cell's border : enough to be in the next cell whatever the rounding
+    float tEps = 0.01 / pixelsPerT;
+
+    // Begin after the pixel the ray starts in : its own depth is the surface the ray leaves
+    ivec2 startPix = clamp(ivec2(o.xy), ivec2(0), uFullSize - 1);
+    vec2 startTarget = vec2(dir.x > 0.0 ? float(startPix.x + 1) : float(startPix.x), dir.y > 0.0 ? float(startPix.y + 1) : float(startPix.y));
+    vec2 startAxis = vec2(abs(dir.x) > 1e-5 ? (startTarget.x - o.x) / dir.x : kInf, abs(dir.y) > 1e-5 ? (startTarget.y - o.y) / dir.y : kInf);
+    float t = min(startAxis.x, startAxis.y) + tEps;
+
+    int level = 0;
+
+    for (int i = 0; i < uMaxSteps; i++)
+    {
+        if (t >= tMax)
+            return false;
+
+        vec3 pos = o + dir * t;
+        ivec2 pix = clamp(ivec2(pos.xy), ivec2(0), uFullSize - 1);
+
+        // The pyramid's texel of this level that holds the pixel, and the part of the screen it covers (the last one of a row or column is
+        // wider when the size is odd : it reaches the edge, see ssr_hiz_reduce.comp)
+        ivec2 levelSize = max(uFullSize >> level, ivec2(1));
+        ivec2 cell = min(pix >> level, levelSize - 1);
+        float closest = texelFetch(uHiZ, cell, level).r;
+
+        ivec2 lo = cell << level;
+        ivec2 hi = (cell + 1) << level;
+        if (cell.x == levelSize.x - 1) hi.x = uFullSize.x;
+        if (cell.y == levelSize.y - 1) hi.y = uFullSize.y;
+
+        vec2 target = vec2(dir.x > 0.0 ? float(hi.x) : float(lo.x), dir.y > 0.0 ? float(hi.y) : float(lo.y));
+        vec2 axis = vec2(abs(dir.x) > 1e-5 ? (target.x - o.x) / dir.x : kInf, abs(dir.y) > 1e-5 ? (target.y - o.y) / dir.y : kInf);
+        float tBorder = min(axis.x, axis.y) + tEps;
+
+        if (pos.z >= closest)
+        {
+            // The ray is behind the closest surface of the cell
+            if (level == 0)
+            {
+                // ...of this very pixel : a hit, unless the ray passed far behind it (then it goes on, past the pixel)
+                if (LinearDepth(pos.z) - LinearDepth(closest) <= uThickness)
+                {
+                    tHit = t;
+                    return true;
+                }
+                t = tBorder;
+            }
+            else
+            {
+                level--;    // somewhere in the cell : look closer, without moving
+            }
+            continue;
+        }
+
+        // In front of it : where the ray gets to the depth of the closest surface, if it does before it leaves the cell
+        float tDepth = dir.z > 1e-7 ? (closest - o.z) / dir.z : kInf;
+        if (tDepth < tBorder && tDepth < tMax)
+        {
+            if (level == 0)
+            {
+                tHit = max(tDepth, t);
+                return true;
+            }
+            t = tDepth;
+            level--;
+        }
+        else
+        {
+            t = tBorder;
+            level = min(level + 1, uMaxLevel);
+        }
+    }
+
+    return false;
+}
+
+// The hit of the mirror ray of the pixel : xyz the surface point it found in view space, w its confidence (0 : nothing)
+vec4 Trace(ivec2 pix, float depth)
+{
+    vec2 uv = (vec2(pix) + 0.5) / vec2(uFullSize);
+    vec3 P = ViewPos(uv, depth);
+    vec3 N = normalize(texelFetch(uNormal, pix, 0).xyz);
+    vec3 V = normalize(-P);
+    vec3 R = reflect(-V, N);
+
+    // A ray pointing at the eye has nothing on the screen to find
+    float towardEye = dot(R, V);
+    if (towardEye > 0.995)
+        return vec4(0.0);
+
+    // Out of the surface a little, so that its own pixels are not what the ray finds. Grows with the distance : the depth buffer loses precision.
+    vec3 origin = P + N * max(0.005, 0.003 * -P.z);
+
+    float len = uMaxDistance;
+    if (R.z > 0.0)
+        len = min(len, 0.999 * (-uNear - origin.z) / R.z);     // not past the near plane
+    if (len <= 0.0)
+        return vec4(0.0);
+    vec3 end = origin + R * len;
+
+    vec4 clipS = uProjection * vec4(origin, 1.0);
+    vec4 clipE = uProjection * vec4(end, 1.0);
+    vec3 ndcS = clipS.xyz / clipS.w;
+    vec3 ndcE = clipE.xyz / clipE.w;
+
+    vec3 o = vec3((ndcS.xy * 0.5 + 0.5) * vec2(uFullSize), ndcS.z * 0.5 + 0.5);
+    vec3 e = vec3((ndcE.xy * 0.5 + 0.5) * vec2(uFullSize), ndcE.z * 0.5 + 0.5);
+    vec3 dir = e - o;
+
+    // The part of the segment that is on the screen and before the far plane
+    float tMax = 1.0;
+    if (dir.x > 0.0) tMax = min(tMax, (float(uFullSize.x) - o.x) / dir.x); else if (dir.x < 0.0) tMax = min(tMax, -o.x / dir.x);
+    if (dir.y > 0.0) tMax = min(tMax, (float(uFullSize.y) - o.y) / dir.y); else if (dir.y < 0.0) tMax = min(tMax, -o.y / dir.y);
+    if (dir.z > 0.0) tMax = min(tMax, (1.0 - o.z) / dir.z);
+    if (tMax <= 0.0)
+        return vec4(0.0);
+
+    float tHit;
+    if (!March(o, dir, tMax, tHit))
+        return vec4(0.0);
+
+    // What was hit : the surface of the pixel the ray ended in
+    vec3 pos = o + dir * tHit;
+    ivec2 hitPix = clamp(ivec2(pos.xy), ivec2(0), uFullSize - 1);
+    vec2 hitUV = (vec2(hitPix) + 0.5) / vec2(uFullSize);
+    vec3 H = ViewPos(hitUV, texelFetch(uHiZ, hitPix, 0).r);
+
+    float confidence = 1.0;
+
+    // The surface has to face the ray : the back of something is not what is reflected (and the depth buffer's surface at a silhouette is)
+    vec3 hitNormal = normalize(texelFetch(uNormal, hitPix, 0).xyz);
+    confidence *= smoothstep(0.0, 0.25, -dot(hitNormal, R));
+
+    // The reflection of what is about to leave the screen is going to be missing
+    float edge = min(min(hitUV.x, 1.0 - hitUV.x), min(hitUV.y, 1.0 - hitUV.y));
+    if (uEdgeFade > 0.0)
+        confidence *= smoothstep(0.0, uEdgeFade, edge);
+
+    float hitDistance = length(H - P);
+    confidence *= 1.0 - smoothstep(0.75, 1.0, hitDistance / uMaxDistance);
+    confidence *= 1.0 - smoothstep(0.9, 0.995, towardEye);
+
+    return vec4(H, confidence);
+}
+
+void main()
+{
+    ivec2 tp = ivec2(gl_GlobalInvocationID.xy);
+    if (tp.x >= uTraceSize.x || tp.y >= uTraceSize.y)
+        return;
+
+    // The pixel that stands for its block of the depth buffer
+    ivec2 pix = min(tp * uDivisor + uDivisor / 2, uFullSize - 1);
+    float depth = texelFetch(uHiZ, pix, 0).r;
+
+    vec4 result = vec4(0.0);
+    if (depth < 1.0)
+    {
+        vec4 hit = Trace(pix, depth);
+        if (hit.w > 0.0)
+        {
+            vec3 hitWorld = (uInvView * vec4(hit.xyz, 1.0)).xyz;
+            float confidence = hit.w;
+
+            if (uTemporal)
+            {
+                // Where this surface point was in the last picture, and what its reflection found then
+                vec2 uv = (vec2(pix) + 0.5) / vec2(uFullSize);
+                vec3 worldPos = (uInvView * vec4(ViewPos(uv, depth), 1.0)).xyz;
+                vec4 prevClip = uPrevViewProj * vec4(worldPos, 1.0);
+                if (prevClip.w > 0.0)
+                {
+                    vec2 prevUV = prevClip.xy / prevClip.w * 0.5 + 0.5;
+                    if (all(greaterThanEqual(prevUV, vec2(0.0))) && all(lessThan(prevUV, vec2(1.0))))
+                    {
+                        vec4 history = texelFetch(uHistory, min(ivec2(prevUV * vec2(uTraceSize)), uTraceSize - 1), 0);
+
+                        // The same hit, give or take : an edge, a thin thing that came in between or a changed view is not blended with
+                        float tolerance = 0.05 + 0.02 * length(hit.xyz);
+                        if (history.w > 0.0 && distance(hitWorld, history.xyz) < tolerance)
+                        {
+                            float blend = uTemporalBlend * uCameraStill;
+                            hitWorld = mix(hitWorld, history.xyz, blend);
+                            confidence = mix(confidence, history.w, blend);
+                        }
+                    }
+                }
+            }
+
+            result = vec4(hitWorld, confidence);
+        }
+    }
+
+    imageStore(uResult, tp, result);
+}

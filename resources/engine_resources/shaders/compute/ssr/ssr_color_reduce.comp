@@ -1,0 +1,40 @@
+#version 430 core
+
+// One step down the colour pyramid : the average of the 2x2 texels above, each weighted by 1 / (1 + brightness). The scene is HDR : a lone very
+// bright texel (a lamp, a highlight) would otherwise make a blurred reflection a grid of bright blocks, one per mip texel that contains it.
+
+layout(local_size_x = 8, local_size_y = 8) in;
+
+layout(rgba16f, binding = 0) readonly uniform image2D uSrc;
+layout(rgba16f, binding = 1) writeonly uniform image2D uDst;
+
+uniform int uSrcSizeX;
+uniform int uSrcSizeY;
+#define uSrcSize ivec2(uSrcSizeX, uSrcSizeY)
+uniform int uDstSizeX;
+uniform int uDstSizeY;
+#define uDstSize ivec2(uDstSizeX, uDstSizeY)
+
+void main()
+{
+    ivec2 p = ivec2(gl_GlobalInvocationID.xy);
+    if (p.x >= uDstSize.x || p.y >= uDstSize.y)
+        return;
+
+    ivec2 base = p * 2;
+    vec3 sum = vec3(0.0);
+    float weightSum = 0.0;
+
+    for (int y = 0; y < 2; y++)
+    {
+        for (int x = 0; x < 2; x++)
+        {
+            vec3 c = imageLoad(uSrc, min(base + ivec2(x, y), uSrcSize - 1)).rgb;
+            float w = 1.0 / (1.0 + max(c.r, max(c.g, c.b)));
+            sum += c * w;
+            weightSum += w;
+        }
+    }
+
+    imageStore(uDst, p, vec4(sum / weightSum, 1.0));
+}

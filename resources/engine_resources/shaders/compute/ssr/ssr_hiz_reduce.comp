@@ -1,0 +1,42 @@
+#version 430 core
+
+// One step down the SSR Hi-Z pyramid : each texel of level L is the MIN (closest) depth of the level L-1 texels it covers.
+//
+// A level is floor(size / 2) of the one above (what the texture's mip chain gives), so an odd size leaves a row / column over : the last texel
+// of that dimension also takes it, and so covers up to the edge of the screen. ssr_trace.comp's cell lookup (pixel >> level, clamped to the last
+// texel) and cell extents (the last one reaches the screen's edge) are exactly this, which is what keeps the pyramid conservative.
+
+layout(local_size_x = 8, local_size_y = 8) in;
+
+layout(r32f, binding = 0) readonly uniform image2D uSrc;
+layout(r32f, binding = 1) writeonly uniform image2D uDst;
+
+uniform int uSrcSizeX;
+uniform int uSrcSizeY;
+#define uSrcSize ivec2(uSrcSizeX, uSrcSizeY)
+uniform int uDstSizeX;
+uniform int uDstSizeY;
+#define uDstSize ivec2(uDstSizeX, uDstSizeY)
+
+void main()
+{
+    ivec2 p = ivec2(gl_GlobalInvocationID.xy);
+    if (p.x >= uDstSize.x || p.y >= uDstSize.y)
+        return;
+
+    ivec2 base = p * 2;
+    int spanX = (p.x == uDstSize.x - 1 && (uSrcSize.x & 1) == 1) ? 3 : 2;
+    int spanY = (p.y == uDstSize.y - 1 && (uSrcSize.y & 1) == 1) ? 3 : 2;
+
+    float closest = 1.0;
+    for (int y = 0; y < spanY; y++)
+    {
+        for (int x = 0; x < spanX; x++)
+        {
+            ivec2 q = min(base + ivec2(x, y), uSrcSize - 1);
+            closest = min(closest, imageLoad(uSrc, q).r);
+        }
+    }
+
+    imageStore(uDst, p, vec4(closest));
+}

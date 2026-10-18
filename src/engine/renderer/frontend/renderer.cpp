@@ -12,6 +12,7 @@
 #include "engine/renderer/features/lighting/probe_manager.hpp"
 #include "engine/renderer/features/lighting/lightmap_manager.hpp"
 #include "engine/renderer/features/lighting/ssao_manager.hpp"
+#include "engine/renderer/features/lighting/ssr_manager.hpp"
 #include "engine/renderer/features/lighting/light_culling_manager.hpp"
 #include "engine/assets/resources_manager.hpp"
 #include "engine/renderer/frontend/render_asset_kinds.hpp"
@@ -312,6 +313,10 @@ namespace Shard::Engine::Rendering{
 
         m_SSAOManager = std::make_shared<SSAOManager>();
         m_SSAOManager->Init(this, m_Settings->viewportWidth, m_Settings->viewportHeight);
+
+        // After the SSAO : its pass comes after the SSAO prepass
+        m_SSRManager = std::make_shared<SSRManager>();
+        m_SSRManager->Init(this);
 
         // Init Forward+ light culling
         m_LightCullingManager = std::make_shared<LightCullingManager>();
@@ -1335,6 +1340,7 @@ namespace Shard::Engine::Rendering{
         {
             SHARD_PROFILE_RENDER_SUB_SCOPE(Debugging::RenderSubSample::SSAOUpdate);
             m_SSAOManager->Update();
+            m_SSRManager->Update();
         }
 
         if(m_ActivePipeline)
@@ -1382,6 +1388,17 @@ namespace Shard::Engine::Rendering{
                 GpuScope passScope(m_RendererAPI->GetGpuProfiler(), passName.c_str());
                 DebugScope passMarker(m_RendererAPI.get(), passName.c_str());
                 ResolveSceneToViewport();
+                continue;
+            }
+
+            if (passName == SSRManager::kPassName)
+            {
+                // The reflections of the scene : compute work that reads the SSAO prepass' depth and normals and the last frame's picture (the
+                // HDR scene target still holds it, the forward pass clears it later). It reprograms the API state behind the draw path's back.
+                GpuScope passScope(m_RendererAPI->GetGpuProfiler(), passName.c_str());
+                DebugScope passMarker(m_RendererAPI.get(), passName.c_str());
+                m_SSRManager->Execute(m_SceneBuffer->GetResolveColorAttachment());
+                m_RendererAPI->InvalidateStateCache();
                 continue;
             }
 

@@ -9,6 +9,7 @@
 #include "engine/assets/resources_manager.hpp"
 #include "engine/physics/physics_body.hpp"
 #include "engine/renderer/components/probe_volume.hpp"
+#include "engine/renderer/components/reflection_probe.hpp"
 #include "engine/renderer/components/volume.hpp"
 #include "engine/renderer/frontend/renderer.hpp"
 #include "engine/renderer/rhi/material/material.hpp"
@@ -116,6 +117,11 @@ namespace Shard::Editor::Debug{
             case ShapeKind::Box:      return std::make_unique<DebugBox>(spec.halfExtent, kWireframeColor);
             case ShapeKind::Capsule:  return std::make_unique<DebugCapsule>(spec.radius, spec.halfHeight, kWireframeColor);
             case ShapeKind::Cylinder: return std::make_unique<DebugCylinder>(spec.radius, spec.halfHeight, kWireframeColor);
+
+            case ShapeKind::VolumeSphere:   return std::make_unique<DebugVolumeShape>(DebugVolumeShape::Kind::Sphere, spec.halfExtent, kWireframeColor);
+            case ShapeKind::VolumeCylinder: return std::make_unique<DebugVolumeShape>(DebugVolumeShape::Kind::Cylinder, spec.halfExtent, kWireframeColor);
+            case ShapeKind::VolumeCone:     return std::make_unique<DebugVolumeShape>(DebugVolumeShape::Kind::Cone, spec.halfExtent, kWireframeColor);
+            case ShapeKind::VolumePyramid:  return std::make_unique<DebugVolumeShape>(DebugVolumeShape::Kind::Pyramid, spec.halfExtent, kWireframeColor);
 
             case ShapeKind::ProbeGrid:
             {
@@ -278,6 +284,21 @@ namespace Shard::Editor::Debug{
 
                         Show(DebugLayer::Volumes, ownerID, kVolumeBoxSlot, objectID, box, model);
                         Show(DebugLayer::Probes, ownerID, kVolumeProbesSlot, objectID, probes, model);
+                    }
+                    else if(auto reflectionProbe = std::dynamic_pointer_cast<Components::ReflectionProbe>(comp))
+                    {
+                        // The shape of the probe, drawn in place of the box it is inscribed in
+                        switch(reflectionProbe->shape)
+                        {
+                            case Engine::Rendering::ReflectionProbeShape::Sphere:   box.kind = ShapeKind::VolumeSphere; break;
+                            case Engine::Rendering::ReflectionProbeShape::Cylinder: box.kind = ShapeKind::VolumeCylinder; break;
+                            case Engine::Rendering::ReflectionProbeShape::Cone:     box.kind = ShapeKind::VolumeCone; break;
+                            case Engine::Rendering::ReflectionProbeShape::Pyramid:  box.kind = ShapeKind::VolumePyramid; break;
+                            default: break;
+                        }
+
+                        // Axis-aligned and centered on the actor, like the picture it was taken from (see ReflectionProbe)
+                        Show(DebugLayer::Volumes, ownerID, kVolumeBoxSlot, objectID, box, glm::translate(glm::mat4(1.0f), actor.transform->GetWorldPosition()));
                     }
                     else
                     {

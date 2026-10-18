@@ -3,6 +3,7 @@
 
 #include "engine/renderer/rhi/backends/opengl/gl_utils.hpp"
 #include "engine/renderer/rhi/gpu_memory.hpp"
+#include "engine/renderer/rhi/resources/texture/texture_filtering.hpp"
 
 #include <algorithm>
 #include <cmath>
@@ -152,7 +153,7 @@ namespace Shard::Engine::Rendering{
                 return m;
             }();
 
-            glTexParameterf(GL_TEXTURE_2D, GL_TEXTURE_MAX_ANISOTROPY, std::min(8.0f, s_MaxAniso));
+            glTexParameterf(GL_TEXTURE_2D, GL_TEXTURE_MAX_ANISOTROPY, std::min(RequestedAnisotropy(), s_MaxAniso));
         }
 
         m_GpuBytes = 0;
@@ -216,7 +217,7 @@ namespace Shard::Engine::Rendering{
                     return m;
                 }();
 
-                glTexParameterf(GL_TEXTURE_2D, GL_TEXTURE_MAX_ANISOTROPY, std::min(8.0f, s_MaxAniso));
+                glTexParameterf(GL_TEXTURE_2D, GL_TEXTURE_MAX_ANISOTROPY, std::min(RequestedAnisotropy(), s_MaxAniso));
             }
         }
 
