@@ -20,33 +20,6 @@ inline FieldInfo ReflectionProbe_halfExtent_info = {
     &Equals<glm::vec3>
 };
 
-static EnumDescriptor ReflectionProbeShape_descriptor = {
-    "ReflectionProbeShape",
-    {
-        { 0, "Box" },
-        { 1, "Sphere" },
-        { 2, "Cylinder" },
-        { 3, "Cone" },
-        { 4, "Pyramid" },
-    },
-    sizeof(Rendering::ReflectionProbeShape)
-};
-
-inline FieldInfo ReflectionProbe_shape_info = {
-    "shape",
-    TypeID::Enum,
-    offsetof(Shard::Engine::Objects::Components::ReflectionProbe, shape),
-    Editable,
-    0, 0,
-    "Shape of the region the probe covers, inscribed in its box",
-    nullptr,
-    &ReflectionProbeShape_descriptor,
-    &CopyConstruct<Rendering::ReflectionProbeShape>,
-    &Assign<Rendering::ReflectionProbeShape>,
-    &Destroy<Rendering::ReflectionProbeShape>,
-    &Equals<Rendering::ReflectionProbeShape>
-};
-
 inline FieldInfo ReflectionProbe_bakeResolution_info = {
     "bakeResolution",
     TypeID::Int32,
@@ -90,6 +63,33 @@ inline FieldInfo ReflectionProbe_bakeBounces_info = {
     &Assign<int>,
     &Destroy<int>,
     &Equals<int>
+};
+
+static EnumDescriptor ReflectionProbeShape_descriptor = {
+    "ReflectionProbeShape",
+    {
+        { 0, "Box" },
+        { 1, "Sphere" },
+        { 2, "Cylinder" },
+        { 3, "Cone" },
+        { 4, "Pyramid" },
+    },
+    sizeof(Rendering::ReflectionProbeShape)
+};
+
+inline FieldInfo ReflectionProbe_shape_info = {
+    "shape",
+    TypeID::Enum,
+    offsetof(Shard::Engine::Objects::Components::ReflectionProbe, shape),
+    Editable,
+    0, 0,
+    "Shape of the region the probe covers, inscribed in its box",
+    nullptr,
+    &ReflectionProbeShape_descriptor,
+    &CopyConstruct<Rendering::ReflectionProbeShape>,
+    &Assign<Rendering::ReflectionProbeShape>,
+    &Destroy<Rendering::ReflectionProbeShape>,
+    &Equals<Rendering::ReflectionProbeShape>
 };
 
 inline FieldInfo ReflectionProbe_intensity_info = {
@@ -141,10 +141,10 @@ inline ClassDescriptor Shard::Engine::Objects::Components::ReflectionProbe::desc
     "ReflectionProbe",
     {
         &ReflectionProbe_halfExtent_info,
-        &ReflectionProbe_shape_info,
         &ReflectionProbe_bakeResolution_info,
         &ReflectionProbe_bakeSamples_info,
         &ReflectionProbe_bakeBounces_info,
+        &ReflectionProbe_shape_info,
         &ReflectionProbe_intensity_info,
         &ReflectionProbe_blendDistance_info,
         &ReflectionProbe_boxProjection_info,
