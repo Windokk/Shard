@@ -324,7 +324,8 @@ namespace Shard::Engine{
                 void RegisterConsoleCommands();
                 void StepPhysics(int step, float fixedDeltaTime);
                 void TickAudio();
-                void TickScripts();
+                enum class ScriptTick { Fixed, Update, Late };
+                void TickScripts(ScriptTick kind);
                 void UpdateWorlds();
                 void SyncPhysicsBodies(float fixedDeltaTime);
                 void RenderFrame();

@@ -3,12 +3,38 @@ set(INSTALL_GTEST OFF CACHE BOOL "" FORCE)
 add_subdirectory(${CMAKE_SOURCE_DIR}/submodules/googletest ${CMAKE_BINARY_DIR}/submodules/googletest SYSTEM)
 
 file(GLOB_RECURSE SHARD_TEST_SOURCES ${CMAKE_CURRENT_SOURCE_DIR}/*.cpp)
+# The plugin the tests load is a library of its own, not a part of the test executable
+list(FILTER SHARD_TEST_SOURCES EXCLUDE REGEX "/plugin_fixtures/")
+
+# An editor plugin with its own copy of ImGui
+shard_add_plugin(
+    NAME         ShardTestEditorPlugin
+    ID           shard.test.editor
+    VERSION      1.0.0
+    HOSTS        editor
+    EDITOR_UI
+    SOURCES      ${CMAKE_CURRENT_SOURCE_DIR}/plugin_fixtures/editor_plugin/editor_plugin.cpp
+    OUTPUT_DIR   ${CMAKE_BINARY_DIR}/test_plugins
+)
+
+# A plugin built as a shared library with shard_add_plugin, loaded by tests/plugins/dynamic_plugin_tests.cpp
+shard_add_plugin(
+    NAME         ShardTestPlugin
+    ID           shard.test.plugin
+    VERSION      1.0.0
+    KIND         module
+    MODULE_KIND  code
+    HOSTS        engine
+    SOURCES      ${CMAKE_CURRENT_SOURCE_DIR}/plugin_fixtures/test_plugin/test_plugin.cpp
+    OUTPUT_DIR   ${CMAKE_BINARY_DIR}/test_plugins
+)
 
 add_executable(ShardTests ${SHARD_TEST_SOURCES})
 
 target_include_directories(ShardTests PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})
 target_link_libraries(ShardTests PRIVATE Engine gtest gtest_main)
-target_compile_definitions(ShardTests PRIVATE BUILD_ENGINE SHARD_SOURCE_DIR="${CMAKE_SOURCE_DIR}")
+target_compile_definitions(ShardTests PRIVATE BUILD_ENGINE SHARD_SOURCE_DIR="${CMAKE_SOURCE_DIR}" SHARD_TEST_PLUGIN_DIR="${CMAKE_BINARY_DIR}/test_plugins")
+add_dependencies(ShardTests ShardTestPlugin ShardTestEditorPlugin)
 
 include(GoogleTest)
 # PRE_TEST: discover at test time, so a missing runtime DLL fails a test run instead of the build
@@ -33,3 +59,37 @@ add_test(NAME Determinism.Replay
         --require-checks
     WORKING_DIRECTORY ${CMAKE_BINARY_DIR})
 set_tests_properties(Determinism.Replay PROPERTIES FIXTURES_REQUIRED determinism_engine_resources TIMEOUT 120)
+
+# What a plugin adds through the extension points reaches the engine : the real headless engine loads the test plugin, which brings a render
+# feature, a render pipeline, an asset type and an importer (see plugin_fixtures/run_extension_e2e.cmake)
+add_test(NAME Plugins.ExtensionPoints
+    COMMAND ${CMAKE_COMMAND}
+        -DHEADLESS=$<TARGET_FILE:ShardHeadless>
+        -DGAME=$<TARGET_FILE:GameModule>
+        -DPLUGIN=${CMAKE_BINARY_DIR}/test_plugins/shard.test.plugin
+        -DPROJECT=${CMAKE_SOURCE_DIR}/tests/determinism/project/determinism_project.json
+        -DSAMPLE=${CMAKE_SOURCE_DIR}/tests/plugin_fixtures/sample.shardsrc
+        -DOUT=${CMAKE_BINARY_DIR}/plugin_e2e
+        -DWORKDIR=${CMAKE_BINARY_DIR}
+        -P ${CMAKE_SOURCE_DIR}/tests/plugin_fixtures/run_extension_e2e.cmake)
+set_tests_properties(Plugins.ExtensionPoints PROPERTIES FIXTURES_REQUIRED determinism_engine_resources TIMEOUT 180)
+
+# The asset validator: no problem in the projects that ship, and every kind of problem found in a broken one
+add_test(NAME Tools.AssetValidatorOnExampleProject
+    COMMAND ShardAssetValidator --project ${CMAKE_SOURCE_DIR}/example_project/example_project.json --game $<TARGET_FILE:GameModule> --strict --quiet
+    WORKING_DIRECTORY ${CMAKE_BINARY_DIR})
+add_test(NAME Tools.AssetValidatorFindsProblems
+    COMMAND ${CMAKE_COMMAND} -DVALIDATOR=$<TARGET_FILE:ShardAssetValidator> -DOUT=${CMAKE_BINARY_DIR}/validator_negative
+        -P ${CMAKE_SOURCE_DIR}/tests/plugin_fixtures/run_validator_negative.cmake)
+
+# --check-plugins runs the simulation with one job thread and with several and compares the states ; the headless server answers the plugin handshake
+add_test(NAME Plugins.CheckPlugins
+    COMMAND ${CMAKE_COMMAND} -DHEADLESS=$<TARGET_FILE:ShardHeadless> -DGAME=$<TARGET_FILE:GameModule>
+        -DPROJECT=${CMAKE_SOURCE_DIR}/tests/determinism/project/determinism_project.json -DWORKDIR=${CMAKE_BINARY_DIR}
+        -P ${CMAKE_SOURCE_DIR}/tests/plugin_fixtures/run_check_plugins.cmake)
+set_tests_properties(Plugins.CheckPlugins PROPERTIES FIXTURES_REQUIRED determinism_engine_resources TIMEOUT 300)
+add_test(NAME Plugins.ServerHandshake
+    COMMAND ${CMAKE_COMMAND} -DHEADLESS=$<TARGET_FILE:ShardHeadless> -DGAME=$<TARGET_FILE:GameModule>
+        -DPROJECT=${CMAKE_SOURCE_DIR}/tests/determinism/project/determinism_project.json -DWORKDIR=${CMAKE_BINARY_DIR} -DPORT=47321
+        -P ${CMAKE_SOURCE_DIR}/tests/plugin_fixtures/run_check_server.cmake)
+set_tests_properties(Plugins.ServerHandshake PROPERTIES FIXTURES_REQUIRED determinism_engine_resources TIMEOUT 200 RUN_SERIAL TRUE)

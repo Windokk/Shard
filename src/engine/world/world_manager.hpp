@@ -86,6 +86,18 @@ namespace Shard::Engine::Worlds{
                 }
             }
 
+            void FixedTick() {
+                for(auto& world : worldBuffer){
+                    world->FixedTick();
+                }
+            }
+
+            void LateTick() {
+                for(auto& world : worldBuffer){
+                    world->LateTick();
+                }
+            }
+
             /// Called when a world switch has unloaded every world, before the new one is built : whatever the
             /// modules submitted on behalf of the old worlds (the renderer's draw lists...) is dropped there.
             std::function<void()> onAllWorldsUnloaded;

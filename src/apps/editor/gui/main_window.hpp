@@ -19,6 +19,7 @@
 #include "apps/editor/gui/panels/editor_preferences/editor_preferences_panel.hpp"
 #include "apps/editor/gui/panels/console/console.hpp"
 #include "apps/editor/gui/panels/profiler/profiler_panel.hpp"
+#include "apps/editor/gui/panels/plugins/plugins_panel.hpp"
 #include "apps/editor/gui/panels/menu_bar/menu_bar.hpp"
 #include "apps/editor/debug/editor_debug_draw.hpp"
 #include "apps/editor/preferences/editor_preferences.hpp"
@@ -167,6 +168,7 @@ namespace Shard::Editor::Core {
         GUI::EditorPreferencesPanel* editorPreferencesPanel = nullptr;
         GUI::Console* console = nullptr;
         GUI::ProfilerPanel* profilerPanel = nullptr;
+        GUI::PluginsPanel* pluginsPanel = nullptr;
         GUI::MenuBar* menuBar = nullptr;
         
         // What the editor draws over the scene for the components (colliders, volumes, probes)

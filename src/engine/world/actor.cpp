@@ -273,6 +273,7 @@ namespace Shard::Engine::Objects{
         copy->transform->Destroy();
 
         copy->components.clear();
+        copy->unknownComponents = unknownComponents;
 
         DEBUG_INFO("Cloning actor : "+name);
 

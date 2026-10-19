@@ -36,8 +36,17 @@ namespace Shard::Engine::Objects::Components
             /// @brief Called when the play mode starts.
             virtual void OnPlay();
 
-            /// @brief Called each frame
+            /// @brief Called once per frame, in the Update phase (variable step : use GetDeltaTime())
             virtual void OnTick();
+
+            /// @brief Called once per fixed simulation step, in the Fixed phase, right before the physics step
+            /// @note Runs 0..N times per frame depending on the accumulator. Use GetFixedDeltaTime() : this is the place for forces and
+            /// gameplay that must be reproducible.
+            virtual void OnFixedTick();
+
+            /// @brief Called once per frame, in the Late phase, after the scripts and the physics moved everything
+            /// @note For cameras and anything that follows what moved this frame.
+            virtual void OnLateTick();
 
             /// @brief Called when the play mode stops
             virtual void OnStop();

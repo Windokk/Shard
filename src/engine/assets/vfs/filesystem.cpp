@@ -1,5 +1,8 @@
 #include "filesystem.hpp"
 
+#include <mutex>
+#include <set>
+
 #include "engine/platform/filesystem/paths.hpp"
 
 #include "engine/core/diagnostics/logger.hpp"
@@ -175,6 +178,49 @@ namespace Shard::Engine::Filesystem{
         return true;
     }
 
+    namespace {
+        std::mutex& CustomMutex() { static std::mutex m; return m; }
+        std::set<std::string>& CustomExtensions() { static std::set<std::string> s; return s; }
+
+        std::string NormalizeExtension(std::string ext)
+        {
+            std::transform(ext.begin(), ext.end(), ext.begin(), [](unsigned char c) { return char(std::tolower(c)); });
+            if(!ext.empty() && ext[0] != '.')
+                ext = "." + ext;
+            return ext;
+        }
+    }
+
+    bool RegisterCustomExtension(const std::string& extension)
+    {
+        const std::string ext = NormalizeExtension(extension);
+        if(ext.size() < 2)
+            return false;
+        // The engine's own extensions are not for sale : asking for the type of a made-up file tells whether it is known
+        {
+            std::lock_guard<std::mutex> lock(CustomMutex());
+            if(CustomExtensions().count(ext))
+                return true;
+        }
+        if(Path("x" + ext).GetExtensionType() != Type::T_TEXT || ext == ".txt" || ext == ".md")
+            return false;
+        std::lock_guard<std::mutex> lock(CustomMutex());
+        CustomExtensions().insert(ext);
+        return true;
+    }
+
+    bool UnregisterCustomExtension(const std::string& extension)
+    {
+        std::lock_guard<std::mutex> lock(CustomMutex());
+        return CustomExtensions().erase(NormalizeExtension(extension)) > 0;
+    }
+
+    bool IsCustomExtension(const std::string& extension)
+    {
+        std::lock_guard<std::mutex> lock(CustomMutex());
+        return CustomExtensions().count(NormalizeExtension(extension)) > 0;
+    }
+
     Type Path::GetExtensionType() const
     {
         std::string ext = GetExtensionString();
@@ -219,6 +265,9 @@ namespace Shard::Engine::Filesystem{
         if (it != extensionMap.end()) {
             return it->second;
         }
+
+        if(IsCustomExtension(ext))
+            return Type::T_CUSTOM;
 
         return Type::T_TEXT;
     }

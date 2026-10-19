@@ -17,7 +17,14 @@ namespace Shard::Engine::Rendering {
 
     void RenderPipelineRegistry::RegisterType(const std::string& type, const std::string& description, Factory factory)
     {
+        std::lock_guard<std::mutex> lock(m_Mutex);
         m_Types[type] = TypeEntry{description, std::move(factory)};
+    }
+
+    bool RenderPipelineRegistry::UnregisterType(const std::string& type)
+    {
+        std::lock_guard<std::mutex> lock(m_Mutex);
+        return m_Types.erase(type) > 0;
     }
 
     void RenderPipelineRegistry::ScanDirectory(const std::string& directory)
@@ -47,6 +54,7 @@ namespace Shard::Engine::Rendering {
             info.settings = json.contains("settings") && json["settings"].is_object() ? json["settings"] : nlohmann::json::object();
 
             // A file read again (a rescan, a hot reload) replaces what it said
+            std::lock_guard<std::mutex> lock(m_Mutex);
             m_Assets.erase(std::remove_if(m_Assets.begin(), m_Assets.end(), [&](const RenderPipelineInfo& known) { return known.name == info.name; }), m_Assets.end());
             m_Assets.push_back(std::move(info));
         }
@@ -54,6 +62,7 @@ namespace Shard::Engine::Rendering {
 
     std::vector<RenderPipelineInfo> RenderPipelineRegistry::List() const
     {
+        std::lock_guard<std::mutex> lock(m_Mutex);
         std::vector<RenderPipelineInfo> out = m_Assets;
 
         std::set<std::string> named;
@@ -79,6 +88,7 @@ namespace Shard::Engine::Rendering {
 
     bool RenderPipelineRegistry::Has(const std::string& name) const
     {
+        std::lock_guard<std::mutex> lock(m_Mutex);
         for (const RenderPipelineInfo& asset : m_Assets)
         {
             if (asset.name == name)
@@ -92,21 +102,27 @@ namespace Shard::Engine::Rendering {
         // An asset by that name, else a type
         std::string type = name;
         nlohmann::json settings = nlohmann::json::object();
-        for (const RenderPipelineInfo& asset : m_Assets)
+        Factory factory;
         {
-            if (asset.name == name)
+            std::lock_guard<std::mutex> lock(m_Mutex);
+            for (const RenderPipelineInfo& asset : m_Assets)
             {
-                type = asset.type;
-                settings = asset.settings;
-                break;
+                if (asset.name == name)
+                {
+                    type = asset.type;
+                    settings = asset.settings;
+                    break;
+                }
             }
+
+            auto it = m_Types.find(type);
+            if (it == m_Types.end())
+                return nullptr;
+            factory = it->second.factory;
         }
 
-        auto it = m_Types.find(type);
-        if (it == m_Types.end())
-            return nullptr;
-
-        return it->second.factory(settings);
+        // Outside the lock : a factory may ask the registry for something
+        return factory(settings);
     }
 
 }

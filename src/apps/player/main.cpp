@@ -3,6 +3,7 @@
 #include "engine/world/world_manager.hpp"
 #include "engine/assets/resources_manager.hpp"
 #include "engine/game_module.hpp"
+#include "engine/plugins/manager.hpp"
 #include "engine/platform/windowing/sdl/sdl_platform.hpp"
 #include "apps/player/player_window.hpp"
 
@@ -37,6 +38,7 @@ using namespace Shard::Game;
 
 Debugging::Level minDebugLevel = Debugging::Level::Log;
 std::string mainModuleLib = "";
+Shard::Engine::PluginStartupOptions pluginOptions;
 
 // --view-mode : a debug view of the scene (what the editor's viewport "View Mode" shows), for tracking a rendering
 // problem down in the player itself. None : the normal render.
@@ -180,6 +182,9 @@ EngineCreationSettings ComputeEngineSettings(int argc, char* argv[]) {
         else if(strcmp(argv[i], "--game") == 0 && i + 1 < argc){
             mainModuleLib = argv[++i];
         }
+        else if (const int taken = Engine::ParsePluginArgument(argc, argv, i, pluginOptions); taken > 0) {
+            i += taken - 1;
+        }
         else if(strcmp(argv[i], "--api") == 0 && i + 1 < argc){
             std::string api = argv[++i];
             if(api == "opengl")
@@ -253,8 +258,21 @@ int main(int argc, char* argv[]) {
     Engine::Debugging::SetLogger(&Engine::Debugging::Logger::GetInstance());
 
     //Game module loading and init
-    if (!LoadGameModule(mainModuleLib)) {
+    pluginOptions.host = Engine::Plugins::Host::Player;
+    pluginOptions.gameModule = mainModuleLib;
+    pluginOptions.project = engineSettings.project;
+    pluginOptions.deterministic = engineSettings.deterministic;
+    pluginOptions.readOnly = engineSettings.readOnly;
+    pluginOptions.strictLock = playing;
+    if (!Engine::StartPlugins(pluginOptions)) {
         early_crash();
+    }
+    if (playing && !replay.plugins.empty()) {
+        const Engine::Plugins::PluginSetDiff diff = Engine::Plugins::ComparePluginSets(Engine::Plugins::PluginManager::Get().SimulationPluginSet(), Engine::Plugins::PluginSetFromLines(replay.plugins));
+        if (!diff.Same()) {
+            std::cerr << "The replay was recorded with other plugins than the ones loaded now : " << diff.Describe() << std::endl;
+            early_crash();
+        }
     }
 
     // Platform creation
@@ -342,7 +360,9 @@ int main(int argc, char* argv[]) {
             std::cout << "[REPLAY] " << session.ChecksPassed() << " state check(s) matched" << std::endl;
         if (recording) {
             std::string error;
-            if (session.TakeRecording().Save(recordPath, error))
+            Engine::Core::Platform::ReplayData recorded = session.TakeRecording();
+            recorded.plugins = Engine::Plugins::PluginSetToLines(Engine::Plugins::PluginManager::Get().SimulationPluginSet());
+            if (recorded.Save(recordPath, error))
                 std::cout << "[REPLAY] recorded " << frames << " frames to " << recordPath << std::endl;
             else {
                 std::cerr << error << std::endl;
@@ -403,7 +423,7 @@ int main(int argc, char* argv[]) {
     //Cleaning
     Engine::Core::GetEngine().Destroy();
 
-    UnloadGameModule();
+    Engine::StopPlugins();
 
     if (maxFrames >= 0) {
         std::cout << "Rendered " << frames << " frames, shut down cleanly." << std::endl;

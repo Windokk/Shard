@@ -14,6 +14,7 @@
 #include "engine/renderer/rhi/render_pass.hpp"
 #include "engine/renderer/rhi/graph/render_graph.hpp"
 #include "engine/renderer/frontend/pipelines/render_pipeline.hpp"
+#include "engine/renderer/frontend/render_feature.hpp"
 #include "engine/renderer/rhi/render_context.hpp"
 #include "engine/renderer/rhi/render_thread.hpp"
 #include "engine/renderer/features/immediate/immediate_renderer.hpp"
@@ -142,6 +143,14 @@ bool GetCurrentView(RenderView& out) override;
             /// The one that is drawing now : not the requested one while a debug view it cannot draw is on
             std::string GetActiveRenderPipelineName() const { std::lock_guard<std::mutex> lock(m_PipelineSelectMutex); return m_ActivePipelineName; }
 
+            /// @brief Adds a feature a plugin brings (see RenderFeature) : it is activated at once (on the graphics thread) and called every frame. The same feature added twice is added once.
+            void AddRenderFeature(const std::shared_ptr<RenderFeature>& feature);
+            /// Deactivates a feature and lets go of it. When this returns the renderer holds nothing of it any more.
+            void RemoveRenderFeature(const std::shared_ptr<RenderFeature>& feature);
+            std::vector<std::string> GetRenderFeatureNames() const;
+            /// A kind of pipeline went away (its plugin was disabled) : if it is the one drawing, the forward pipeline takes over now
+            void OnPipelineTypeRemoved(const std::string& type);
+
             void PresentToScreen(int screenWidth, int screenHeight) { m_ViewportBuffer->BlitToScreen(screenWidth, screenHeight); }
 
             void ToggleMultisampling(const bool on);
@@ -243,6 +252,12 @@ bool GetCurrentView(RenderView& out) override;
             std::unordered_map<std::string, std::shared_ptr<RenderPass>> m_RenderPasses;
             // The pipeline that builds the frame
             std::unique_ptr<RenderPipeline> m_ActivePipeline;
+            std::vector<std::shared_ptr<RenderFeature>> m_Features;         // what plugins added, in the order they were added
+            mutable std::mutex m_FeaturesMutex;
+            uint32_t m_FeatureListener = 0;                                  // the extension points of the plugin manager this renderer follows
+            uint32_t m_PipelineListener = 0;
+            void ConnectPluginExtensions();
+            void DisconnectPluginExtensions();
             mutable std::mutex m_PipelineSelectMutex;
             std::string m_RequestedPipeline = "forward+";           // what was asked for
             std::string m_ActivePipelineName;                       // what runs (the forward pipeline for a debug view the requested one cannot draw)

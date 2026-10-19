@@ -142,7 +142,7 @@ namespace Shard::Editor::GUI{
                     bits |= CategoryLight;
                 else if (name == "Camera")
                     bits |= CategoryCamera;
-                else if (name.rfind("Audio", 0) == 0)
+                else if (name.rfind("Audio", 0) == 0 || name == "ReverbZone")
                     bits |= CategoryAudio;
                 else if (name == "PhysicsBody" || name.find("Gravity") != std::string::npos)
                     bits |= CategoryPhysics;

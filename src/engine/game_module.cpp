@@ -1,50 +1,110 @@
 #include "engine/game_module.hpp"
 
+#include <cstdlib>
+#include <cstring>
 #include <iostream>
 
-#include "engine/platform/lib_loader/module_loader.hpp"
-#include "engine/world/components/registry/component_registry.hpp"
-#include "engine/world/engine.hpp"
 #include "engine/core/diagnostics/logger.hpp"
+#include "engine/plugins/manager.hpp"
 
 namespace Shard::Engine {
 
-    namespace {
-        const std::string kGameModuleName = "game";
+    bool StartPlugins(const PluginStartupOptions& options)
+    {
+        Plugins::PluginManagerConfig config;
+        config.host = options.host;
+        config.gameLibrary = options.gameModule;
+        config.projectFile = options.project;
+        config.pluginPaths = options.pluginPaths;
+        config.searchPaths = options.searchPaths;
+        config.disabled = options.disabled;
+        config.deterministic = options.deterministic;
+        config.readOnly = options.readOnly;
+        config.strictLock = options.strictLock;
+        config.allowHotReload = options.hotReload && !options.deterministic;
+        config.ignoreSafeMode = options.ignoreSafeMode;
+        config.registries = options.registries;
+        config.trustFiles = options.trustFiles;
+        config.allowUnsigned = options.allowUnsigned;
+        if (const char* env = std::getenv("SHARD_PLUGIN_REGISTRY"))
+            if (*env) config.registries.push_back(env);
 
-        using GameInitFn = void(*)(Core::IEngineContext*, Objects::Components::ComponentRegistry*, Debugging::Logger*);
-        using GameRegisterComponentsFn = void(*)();
+        if (const char* env = std::getenv("SHARD_PLUGIN_PATH")) {
+#if defined(_WIN32)
+            const char separator = ';';
+#else
+            const char separator = ':';
+#endif
+            std::string all = env;
+            size_t start = 0;
+            while (start <= all.size()) {
+                const size_t at = all.find(separator, start);
+                const std::string part = all.substr(start, at == std::string::npos ? std::string::npos : at - start);
+                if (!part.empty()) config.searchPaths.push_back(part);
+                if (at == std::string::npos) break;
+                start = at + 1;
+            }
+        }
+
+        std::string error;
+        if (!Plugins::PluginManager::Get().Startup(config, &error)) {
+            std::cerr << "Plugins could not start :\n" << error << std::endl;
+            return false;
+        }
+        return true;
+    }
+
+    void StopPlugins()
+    {
+        Plugins::PluginManager::Get().Shutdown();
+    }
+
+    int ParsePluginArgument(int argc, char** argv, int index, PluginStartupOptions& options)
+    {
+        auto value = [&](const char* name) -> const char* {
+            if (index + 1 >= argc) {
+                std::cerr << name << " needs a value" << std::endl;
+                return nullptr;
+            }
+            return argv[index + 1];
+        };
+        const char* arg = argv[index];
+        if (std::strcmp(arg, "--plugin") == 0) {
+            if (const char* v = value("--plugin")) { options.pluginPaths.push_back(v); return 2; }
+            return 1;
+        }
+        if (std::strcmp(arg, "--plugin-path") == 0) {
+            if (const char* v = value("--plugin-path")) { options.searchPaths.push_back(v); return 2; }
+            return 1;
+        }
+        if (std::strcmp(arg, "--disable-plugin") == 0) {
+            if (const char* v = value("--disable-plugin")) { options.disabled.insert(v); return 2; }
+            return 1;
+        }
+        if (std::strcmp(arg, "--registry") == 0) {
+            if (const char* v = value("--registry")) { options.registries.push_back(v); return 2; }
+            return 1;
+        }
+        if (std::strcmp(arg, "--trust-file") == 0) {
+            if (const char* v = value("--trust-file")) { options.trustFiles.push_back(v); return 2; }
+            return 1;
+        }
+        if (std::strcmp(arg, "--allow-unsigned-plugins") == 0) { options.allowUnsigned = true; return 1; }
+        if (std::strcmp(arg, "--hot-reload-plugins") == 0) { options.hotReload = true; return 1; }
+        if (std::strcmp(arg, "--ignore-safe-mode") == 0) { options.ignoreSafeMode = true; return 1; }
+        if (std::strcmp(arg, "--strict-plugin-lock") == 0) { options.strictLock = true; return 1; }
+        return 0;
     }
 
     bool LoadGameModule(const std::string& path)
     {
-        auto& loader = Core::Platform::ModuleLoader::GetInstance();
-
-        if (!loader.LoadModule(kGameModuleName, path)) {
-            std::cerr << "Failed to load module: game" << std::endl;
-            return false;
-        }
-
-        auto initGame = loader.GetSymbol<GameInitFn>(kGameModuleName, "InitializeSingletons");
-        if (!initGame) {
-            std::cerr << "Failed to find symbol: InitializeSingletons" << std::endl;
-            return false;
-        }
-
-        initGame(&Core::GetEngine(), &Objects::Components::GetComponentRegistry(), &Debugging::GetLogger());
-
-        auto registerGameComponents = loader.GetSymbol<GameRegisterComponentsFn>(kGameModuleName, "RegisterGameComponents");
-        if (!registerGameComponents) {
-            std::cerr << "Failed to find symbol: RegisterGameComponents" << std::endl;
-            return false;
-        }
-        registerGameComponents();
-
-        return true;
+        PluginStartupOptions options;
+        options.gameModule = path;
+        return StartPlugins(options);
     }
 
     void UnloadGameModule()
     {
-        Core::Platform::ModuleLoader::GetInstance().UnloadModule(kGameModuleName);
+        StopPlugins();
     }
 }

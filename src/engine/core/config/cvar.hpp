@@ -156,6 +156,8 @@ namespace Shard::Engine::Core {
         };
     }
 
+    class CVarRegistry;
+
     /// @brief A named, typed setting that can be read from anywhere, changed from the console or a config file, and
     /// reacted to. Declare it as a static or a member :
     ///
@@ -177,6 +179,10 @@ namespace Shard::Engine::Core {
     public:
         /// @param min,max range of numeric variables (values outside are clamped) ; ignored for bool and string.
         CVar(std::string name, T defaultValue, std::string description = {}, CVarFlags flags = CVarFlags::None,
+             T min = DefaultMin(), T max = DefaultMax());
+        /// In a given registry instead of Global() : a plugin's variables go to the host's registry, not to the copy of the
+        /// registry its own binary carries.
+        CVar(CVarRegistry& registry, std::string name, T defaultValue, std::string description = {}, CVarFlags flags = CVarFlags::None,
              T min = DefaultMin(), T max = DefaultMax());
         ~CVar() override;
 
@@ -219,6 +225,7 @@ namespace Shard::Engine::Core {
         Detail::CVarStorage<T> m_Storage;
         T m_Default;
         T m_Min, m_Max;
+        CVarRegistry* m_Registry;
     };
 
     /// @brief What running a console line gives back.
@@ -335,16 +342,27 @@ namespace Shard::Engine::Core {
     template <typename T>
     CVar<T>::CVar(std::string name, T defaultValue, std::string description, CVarFlags flags, T min, T max)
         : CVarBase(std::move(name), std::move(description), flags),
-          m_Storage(defaultValue), m_Default(defaultValue), m_Min(min), m_Max(max) {
+          m_Storage(defaultValue), m_Default(defaultValue), m_Min(min), m_Max(max), m_Registry(&CVarRegistry::Global()) {
         if constexpr (std::is_arithmetic_v<T> && !std::is_same_v<T, bool>) {
             m_Default = std::clamp(m_Default, m_Min, m_Max);
             m_Storage.Store(m_Default);
         }
-        CVarRegistry::Global().Register(this);          // applies a value that was waiting for this variable
+        m_Registry->Register(this);          // applies a value that was waiting for this variable
     }
 
     template <typename T>
-    CVar<T>::~CVar() { CVarRegistry::Global().Unregister(this); }
+    CVar<T>::CVar(CVarRegistry& registry, std::string name, T defaultValue, std::string description, CVarFlags flags, T min, T max)
+        : CVarBase(std::move(name), std::move(description), flags),
+          m_Storage(defaultValue), m_Default(defaultValue), m_Min(min), m_Max(max), m_Registry(&registry) {
+        if constexpr (std::is_arithmetic_v<T> && !std::is_same_v<T, bool>) {
+            m_Default = std::clamp(m_Default, m_Min, m_Max);
+            m_Storage.Store(m_Default);
+        }
+        m_Registry->Register(this);
+    }
+
+    template <typename T>
+    CVar<T>::~CVar() { m_Registry->Unregister(this); }
 
     template <typename T>
     bool CVar<T>::FromString(std::string_view text, std::string* error) {
@@ -359,6 +377,6 @@ namespace Shard::Engine::Core {
 
     template <typename T>
     bool CVar<T>::Set(const T& value) {
-        return CVarRegistry::Global().SetLayerValue(ConfigLayer::Runtime, Name(), Traits::Format(value));
+        return m_Registry->SetLayerValue(ConfigLayer::Runtime, Name(), Traits::Format(value));
     }
 }

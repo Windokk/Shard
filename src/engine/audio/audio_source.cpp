@@ -21,7 +21,7 @@ namespace Shard::Engine::Objects::Components{
         if(audioID.IsValid() && GetEngineContext()->GetAudioIDManager()->GetSoundFromID(audioID)){
             // The sound already exists : an inactive source keeps it as is (creating another one here leaked a sound per call)
             if(activated)
-                GetEngineContext()->GetAudioManager()->UpdateSound(audioID, parent->transform->GetWorldPosition(), volume);
+                GetEngineContext()->GetAudioManager()->UpdateSound(audioID, parent->transform->GetWorldPosition(), volume, MakeSoundParams());
         }
         else{
             if(!pathInProject.empty() && volume != -1.0f){
@@ -29,10 +29,22 @@ namespace Shard::Engine::Objects::Components{
                 GetEngineContext()->GetAudioManager()->CreateSound(newID, pathInProject, parent->transform->GetWorldPosition(), spatialize);
 
                 // CreateSound silently no-ops (logging an error) if the file couldn't be loaded
-                if(GetEngineContext()->GetAudioIDManager()->GetSoundFromID(newID))
+                if(GetEngineContext()->GetAudioIDManager()->GetSoundFromID(newID)){
                     audioID = newID;
+                    // Its place is known from the first tick on, or the doppler would see it come from the origin
+                    GetEngineContext()->GetAudioManager()->UpdateSound(audioID, parent->transform->GetWorldPosition(), volume, MakeSoundParams());
+                }
             }
         }
+    }
+
+    Audio::SoundParams AudioSource::MakeSoundParams() const
+    {
+        Audio::SoundParams params;
+        params.worldPosition = parent->transform->GetWorldPositionD();
+        params.dopplerLevel = dopplerLevel;
+        params.reverbSend = reverbSend;
+        return params;
     }
 
     void AudioSource::Deserialize(const json componentData)
@@ -122,6 +134,9 @@ namespace Shard::Engine::Objects::Components{
     {
         if(std::strcmp(event.field->name, "volume") == 0){
             SetVolume(volume);
+        }
+        else if(std::strcmp(event.field->name, "dopplerLevel") == 0 || std::strcmp(event.field->name, "reverbSend") == 0){
+            Update();
         }
         else if(std::strcmp(event.field->name, "spatialize") == 0){
             if(audioID.IsValid())

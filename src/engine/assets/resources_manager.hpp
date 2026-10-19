@@ -97,6 +97,15 @@ namespace Shard::Engine::Core::Resources{
         std::string unknownMessage;
     };
 
+    /// @brief A kind of asset a plugin brings : the "asset.type" extension point. The engine gives it a kind id when the item is added (`kind`,
+    /// valid until it is removed), registers the loader, and has the files with its `extensions` indexed as assets of the project.
+    struct AssetTypeExtension {
+        std::string name;
+        std::vector<std::string> extensions;        ///< ".foo" ; compared without case
+        AssetKindInfo info;
+        AssetKind kind = AssetKind::FirstUser;
+    };
+
     class ResourcesManager{
         public:
 
@@ -104,6 +113,13 @@ namespace Shard::Engine::Core::Resources{
 
             /// @brief Declares a kind of resource. Call it before anything of that kind is requested.
             void RegisterKind(AssetKind kind, AssetKindInfo info);
+
+            /// @brief A kind id nobody uses, from AssetKind::FirstUser up (for kinds brought by plugins)
+            AssetKind AllocateUserKind() const;
+
+            /// @brief Forgets a kind : what is resident of it is dropped (the code that loaded it may be about to go away), its dependency
+            /// edges with it. False if the kind was not registered.
+            bool UnregisterKind(AssetKind kind);
 
             /// @brief The resources the owner asset (a world) needs, directly or through other owners (its
             /// materials' textures...), that are not resident yet and whose kind can be decoded ahead of time.

@@ -326,7 +326,7 @@ namespace Shard::Editor::GUI{
         PathRow("Project File", GetEngine().GetSettings().project, "The file these settings are saved to.");
         PathRow("Project Root", project->GetProjectRoot().full, "The folder of the project file : every path of the project is relative to it.");
         PathRow("Resources", project->GetProjectResourcesPath().full, "Where the assets live (what the asset browser shows).");
-        PathRow("Plugins", project->GetPluginsFolderPath().full, "Where the game modules of the project are looked for.");
+        PathRow("Plugins", project->GetPluginsFolderPath().full, "Where the plugins and datapacks of the project are looked for (see the Plugins panel).");
         PathRow("Asset Database", project->GetAssetDatabasePath().full, "The IDs of the assets and what each one depends on.");
         PathRow("Console Variables File", GetProjectConfigPath(), "project.cfg : the console variables the project sets (see Console Variables).");
     }

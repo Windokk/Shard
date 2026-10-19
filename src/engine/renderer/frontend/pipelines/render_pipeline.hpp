@@ -2,6 +2,7 @@
 
 #include <functional>
 #include <memory>
+#include <mutex>
 #include <string>
 #include <unordered_map>
 #include <vector>
@@ -87,6 +88,9 @@ namespace Shard::Engine::Rendering {
             /// A kind of pipeline. Registering a type again replaces it.
             void RegisterType(const std::string& type, const std::string& description, Factory factory);
 
+            /// Forgets a kind of pipeline (the plugin that brought it is going away). The assets that name it stay but can no longer be made.
+            bool UnregisterType(const std::string& type);
+
             /// Reads the `.renderpipeline` files of a directory (not recursive)
             void ScanDirectory(const std::string& directory);
 
@@ -105,8 +109,18 @@ namespace Shard::Engine::Rendering {
                 Factory factory;
             };
 
+            mutable std::mutex m_Mutex;            // the simulation, the editor and the graphics thread all ask
             std::unordered_map<std::string, TypeEntry> m_Types;
             std::vector<RenderPipelineInfo> m_Assets;
+    };
+
+    /// @brief A kind of render pipeline brought by a plugin : the "render.pipeline" extension point. Its `type` is what a `.renderpipeline` asset names and
+    /// what `render.pipeline` picks.
+    struct RenderPipelineExtension
+    {
+        std::string type;
+        std::string description;
+        RenderPipelineRegistry::Factory factory;
     };
 
     /// Registers the pipelines of the engine (forward+, deferred). Called once by the renderer.

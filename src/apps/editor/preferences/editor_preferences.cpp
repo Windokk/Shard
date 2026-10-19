@@ -141,6 +141,7 @@ namespace Shard::Editor::Core {
         data["panels"]["worldSettings"] = w.worldSettings;
         data["panels"]["projectSettings"] = w.projectSettings;
         data["panels"]["editorPreferences"] = w.editorPreferences;
+        data["panels"]["plugins"] = w.plugins;
 
         return data.dump(4);
     }
@@ -221,6 +222,7 @@ namespace Shard::Editor::Core {
         Read(panels, "worldSettings", w.worldSettings);
         Read(panels, "projectSettings", w.projectSettings);
         Read(panels, "editorPreferences", w.editorPreferences);
+        Read(panels, "plugins", w.plugins);
 
         return true;
     }

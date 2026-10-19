@@ -238,6 +238,11 @@ namespace Shard::Engine::Projects{
             Filesystem::Path GetAssetDatabasePath() { return assetDatabasePath; }
             Filesystem::Path GetPluginsFolderPath() { return pluginsFolder; }
 
+            /// The project's "plugins" array, as the file has it (see plugins/manager.hpp for the entries) : the project keeps it
+            /// untouched so that saving does not lose what the plugin manager reads. Null when the file has none.
+            const nlohmann::json& GetPluginsConfig() const { return pluginsConfig; }
+            void SetPluginsConfig(nlohmann::json config) { pluginsConfig = std::move(config); }
+
             BuildSettings* GetBuildSettings() { return &buildSettings; }
 
             PhysicsSettings* GetPhysicsSettings() { return &physicsSettings; }
@@ -248,6 +253,7 @@ namespace Shard::Engine::Projects{
             Filesystem::Path projectRoot = Filesystem::Path("");
             Filesystem::Path projectResourcesRoot = Filesystem::Path("");
             Filesystem::Path pluginsFolder = Filesystem::Path("");
+            nlohmann::json pluginsConfig;
             Filesystem::Path assetDatabasePath = Filesystem::Path("");
             BuildSettings buildSettings;
             PhysicsSettings physicsSettings;

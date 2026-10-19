@@ -3,6 +3,8 @@
 #include "engine/world/engine.hpp"
 #include "engine/assets/resources_manager.hpp"
 #include "engine/game_module.hpp"
+#include "engine/plugins/manager.hpp"
+#include "imgui/imgui.h"
 #include "apps/editor/commands/command_stack.hpp"
 #include "engine/platform/windowing/sdl/sdl_platform.hpp"
 #include "apps/editor/gui/main_window.hpp"
@@ -18,6 +20,7 @@ using namespace Shard::Engine::Objects;
 
 Debugging::Level minDebugLevel = Debugging::Level::Log;
 std::string gameModuleLib = "";
+Shard::Engine::PluginStartupOptions pluginOptions;
 
 // --frames : runs that many frames, then closes by itself without waiting for Enter (a non-interactive run, for smoke tests).
 // -1 : a normal run.
@@ -80,6 +83,9 @@ EngineCreationSettings ComputeEngineSettings(int argc, char* argv[]) {
         else if (strcmp(argv[i], "--game") == 0 && i + 1 < argc) {
             gameModuleLib = argv[++i];
         }
+        else if (const int taken = ParsePluginArgument(argc, argv, i, pluginOptions); taken > 0) {
+            i += taken - 1;
+        }
         else if(strcmp(argv[i], "--api") == 0 && i + 1 < argc){
             std::string api = argv[++i];
             if(api == "opengl")
@@ -120,7 +126,11 @@ int main(int argc, char* argv[]) {
     Debugging::SetLogger(&Debugging::Logger::GetInstance());
 
     //Game module loading and init
-    if (!LoadGameModule(gameModuleLib)) {
+    pluginOptions.host = Plugins::Host::Editor;
+    pluginOptions.gameModule = gameModuleLib;
+    pluginOptions.project = engineSettings.project;
+    pluginOptions.hotReload = true;
+    if (!StartPlugins(pluginOptions)) {
         early_crash();
     }
 
@@ -133,6 +143,20 @@ int main(int argc, char* argv[]) {
         
         // Editor startup
         Shard::Editor::Commands::CommandStack::Get();
+        {
+            // The editor's ImGui, for the plugins that draw their own windows
+            Plugins::EditorImGui imgui;
+            ImGuiMemAllocFunc allocate = nullptr;
+            ImGuiMemFreeFunc free = nullptr;
+            void* userData = nullptr;
+            ImGui::GetAllocatorFunctions(&allocate, &free, &userData);
+            imgui.context = ImGui::GetCurrentContext();
+            imgui.allocate = reinterpret_cast<void* (*)(size_t, void*)>(allocate);
+            imgui.free = reinterpret_cast<void (*)(void*, void*)>(free);
+            imgui.userData = userData;
+            Plugins::PluginManager::Get().SetEditorImGui(imgui);
+        }
+        Plugins::PluginManager::Get().NotifyEditorInit();
     }
 
     //Main Loop
@@ -150,7 +174,9 @@ int main(int argc, char* argv[]) {
 
     Shard::Editor::GUI::EditorResources::Instance().Shutdown();
 
+    Plugins::PluginManager::Get().NotifyEditorShutdown();
     Core::GetEngine().Destroy();
+    StopPlugins();
 
     if (maxFrames >= 0) {
         std::cout << "Rendered " << frames << " frames, shut down cleanly." << std::endl;

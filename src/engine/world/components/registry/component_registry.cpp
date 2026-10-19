@@ -12,8 +12,16 @@ namespace Shard::Engine::Objects::Components {
         if (registry.find(name) != registry.end()) {
             std::cerr<<"Component already registered: " + name<<std::endl;
         }
-        registry[name] = factory;
+        registry[name] = std::move(factory);
         std::cout<<"Registered custom component : " + name<<std::endl;
+    }
+
+    bool ComponentRegistry::UnregisterComponentType(const std::string& name) {
+        return registry.erase(name) > 0;
+    }
+
+    bool ComponentRegistry::IsRegistered(const std::string& name) const {
+        return registry.find(name) != registry.end();
     }
 
     std::shared_ptr<Component> ComponentRegistry::CreateComponentByName(const std::string& name) {

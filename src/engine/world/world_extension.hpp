@@ -39,6 +39,12 @@ namespace Shard::Engine::Worlds{
             /// The play mode starts, before the scripts are told.
             virtual void OnPlay(World& world) {}
 
+            /// The play mode stops, after the scripts were told.
+            virtual void OnStop(World& world) {}
+
+            /// The world is being unloaded : its actors still exist.
+            virtual void OnUnload(World& world) {}
+
             /// The `settings` object of the world file (read after the actors).
             virtual void DeserializeSettings(World& world, const nlohmann::json& settings) {}
 
@@ -50,6 +56,9 @@ namespace Shard::Engine::Worlds{
 
     void RegisterWorldExtension(std::type_index type, WorldExtensionFactory factory);
 
+    /// Forgets an extension (a plugin going away). Worlds that already hold an instance keep it until they are destroyed.
+    bool UnregisterWorldExtension(std::type_index type);
+
     /// Every registered extension, in registration order
     const std::vector<std::pair<std::type_index, WorldExtensionFactory>>& GetWorldExtensionFactories();
 
@@ -59,10 +68,26 @@ namespace Shard::Engine::Worlds{
         RegisterWorldExtension(std::type_index(typeid(T)), []() -> std::unique_ptr<IWorldExtension> { return std::make_unique<T>(); });
     }
 
+    /// @brief Can change the JSON of a world file before the world is built from it (and before its assets are listed) : the datapacks
+    /// that patch a world do it from there. `pathInProject` is the world's path as the project names it ("sponza.world").
+    using WorldJsonFilter = std::function<void(const std::string& pathInProject, nlohmann::json& world)>;
+    uint32_t AddWorldJsonFilter(WorldJsonFilter filter);
+    bool RemoveWorldJsonFilter(uint32_t id);
+    void ApplyWorldJsonFilters(const std::string& pathInProject, nlohmann::json& world);
+
+    /// @brief Asked before a world is written to disk : false cancels the save (a plugin's PreSave hook). Not set : saves go through.
+    using WorldSaveGuard = std::function<bool(const std::string& pathInProject)>;
+    void SetWorldSaveGuard(WorldSaveGuard guard);
+    bool AllowWorldSave(const std::string& pathInProject);
+
     /// Resources the `settings` object of a world file references (the skybox...), added by the module that reads them.
     using WorldSettingsAssetRefs = std::function<void(const nlohmann::json& settings, std::vector<Core::Resources::ResourceKey>& out)>;
 
     void RegisterWorldSettingsAssetRefs(WorldSettingsAssetRefs refs);
+
+    /// Registers `refs` and returns an id to give to UnregisterWorldSettingsAssetRefs
+    uint32_t RegisterWorldSettingsAssetRefsWithId(WorldSettingsAssetRefs refs);
+    bool UnregisterWorldSettingsAssetRefs(uint32_t id);
 
     const std::vector<WorldSettingsAssetRefs>& GetWorldSettingsAssetRefs();
 }

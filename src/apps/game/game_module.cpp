@@ -1,4 +1,5 @@
-#include "engine/world/components/registry/component_registration.hpp"
+#include "engine/plugins/context.hpp"
+#include "engine/plugins/plugin.hpp"
 #include "engine/world/engine.hpp"
 
 #include <Jolt/Jolt.h>
@@ -9,29 +10,22 @@
 #include "gun.reflection.hpp"
 
 using namespace Shard::Engine;
-using namespace Shard::Engine::Core;
-using namespace Shard::Engine::Objects::Components;
-using namespace Shard::Engine::Debugging;
+using namespace Shard::Engine::Plugins;
 
-#if defined(_WIN32) || defined(_WIN64)
-#   define API_EXPORT __declspec(dllexport)
-#else
-#   define API_EXPORT __attribute__((visibility("default")))
-#endif
+/// The game, as a module : its components are the ones the REGISTER_COMPONENT macros declared in the files of this library
+class GamePlugin final : public IModule {
+public:
+    ModuleKind Kind() const override { return ModuleKind::Code; }
 
-extern "C" API_EXPORT void InitializeSingletons(Core::IEngineContext* engine,
-                                                            ComponentRegistry* compReg, Logger* logger) {
-    SetEngine(engine);
-    SetComponentRegistry(compReg);
-    SetLogger(logger);
+    void OnLoad(PluginContext& ctx) override {
+        ctx.Components().AdoptStaticRegistrars();
+    }
+};
 
-    // The module has its own copy of Jolt's statics : without this its allocator hooks stay null, and creating a shape
-    // (JPH operator new) from game code jumps to address 0
+// This library has its own copy of Jolt's statics : without this its allocator hooks stay null, and creating a shape
+// (JPH operator new) from game code jumps to address 0
+static void LinkJolt() {
     JPH::RegisterDefaultAllocator();
 }
 
-extern "C" API_EXPORT void RegisterGameComponents() {
-    for (auto& cb : GetComponentRegistrars()) {
-        cb(GetComponentRegistry());
-    }
-}
+SHARD_PLUGIN_WITH_LINK(GamePlugin, &LinkJolt)

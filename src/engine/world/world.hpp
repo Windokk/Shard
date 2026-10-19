@@ -64,6 +64,8 @@ namespace Shard::Engine::Worlds{
             void Clear();
 
             void Tick();
+            void FixedTick();
+            void LateTick();
             void Play();
             void Stop();
             void OnLoad();

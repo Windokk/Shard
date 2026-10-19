@@ -1,4 +1,5 @@
 #include "main_window.hpp"
+#include "engine/plugins/manager.hpp"
 #include <stb/stb_image.h>
 
 #include "imgui/backends/imgui_impl_vulkan.h"
@@ -672,6 +673,7 @@ namespace Shard::Editor::Core{
         console = new GUI::Console();
         console->SetParentWindow(this);
         profilerPanel = new GUI::ProfilerPanel();
+        pluginsPanel = new GUI::PluginsPanel();
         menuBar = new GUI::MenuBar();
         menuBar->SetParentWindow(this);
 
@@ -1133,6 +1135,13 @@ namespace Shard::Editor::Core{
             console->Draw();
         if(panelVisibility.profiler)
             profilerPanel->Draw();
+        if(panelVisibility.plugins)
+            pluginsPanel->Draw(&panelVisibility.plugins);
+        // The windows plugins added
+        for(const auto& panel : Engine::Plugins::PluginManager::Get().Extensions().Get<Engine::Plugins::EditorPanelItem>("editor.panel")){
+            if(panel->visible && panel->draw)
+                panel->draw(&panel->visible);
+        }
 
         materialEditorPanel->Draw();
 

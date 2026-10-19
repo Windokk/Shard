@@ -33,6 +33,14 @@ namespace Shard::Engine::Objects::Components
     {
     }
 
+    void Script::OnFixedTick()
+    {
+    }
+
+    void Script::OnLateTick()
+    {
+    }
+
     void Script::OnStop()
     {
     }

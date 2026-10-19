@@ -30,8 +30,16 @@ namespace Shard::Engine::Filesystem{
         T_PROBES,
         T_LIGHTMAP,
         T_CONFIG,
-        T_DIRECTORY
+        T_DIRECTORY,
+        /// A file whose extension a plugin registered (see RegisterCustomExtension) : an asset of a kind the engine does not know itself
+        T_CUSTOM
     };
+
+    /// @brief Teaches the asset system an extension (".foo", compared without case) : files that have it are Type::T_CUSTOM instead of text.
+    /// Returns false for an extension the engine already knows. Thread safe.
+    bool RegisterCustomExtension(const std::string& extension);
+    bool UnregisterCustomExtension(const std::string& extension);
+    bool IsCustomExtension(const std::string& extension);
 
     // --- Path infos ---
     class Path {

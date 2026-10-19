@@ -2,6 +2,7 @@
 
 #include "engine/audio/audio_source.hpp"
 #include "engine/audio/audio_listener.hpp"
+#include "engine/audio/reverb_zone.hpp"
 #include "engine/world/components/registry/component_registry.hpp"
 
 namespace Shard::Engine::Audio{
@@ -19,6 +20,9 @@ namespace Shard::Engine::Audio{
         else if(auto listener = std::dynamic_pointer_cast<Objects::Components::AudioListener>(component)){
             listeners.emplace(idInWorld, listener);
         }
+        else if(auto zone = std::dynamic_pointer_cast<Objects::Components::ReverbZone>(component)){
+            reverbZones.emplace(idInWorld, zone);
+        }
     }
 
     void AudioWorldData::OnComponentRemoved(Worlds::World&, int idInWorld, const std::shared_ptr<Objects::Components::Component>& component)
@@ -27,6 +31,8 @@ namespace Shard::Engine::Audio{
             sources.erase(idInWorld);
         else if(component->IsInstanceOf<Objects::Components::AudioListener>())
             listeners.erase(idInWorld);
+        else if(component->IsInstanceOf<Objects::Components::ReverbZone>())
+            reverbZones.erase(idInWorld);
     }
 
     void AudioWorldData::OnPlay(Worlds::World&)
@@ -46,6 +52,7 @@ namespace Shard::Engine::Audio{
                     out.push_back({Core::Resources::AssetKind::Sound, component["sound"].get<std::string>()});
             });
         Objects::Components::GetComponentRegistry().RegisterBuiltinComponent<Objects::Components::AudioListener>("audio_listener");
+        Objects::Components::GetComponentRegistry().RegisterBuiltinComponent<Objects::Components::ReverbZone>("audio_reverb_zone");
         Worlds::RegisterWorldExtension<AudioWorldData>();
     }
 }

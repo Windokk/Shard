@@ -65,6 +65,36 @@ inline FieldInfo AudioSource_spatialize_info = {
     &Equals<bool>
 };
 
+inline FieldInfo AudioSource_dopplerLevel_info = {
+    "dopplerLevel",
+    TypeID::Float,
+    offsetof(Shard::Engine::Objects::Components::AudioSource, dopplerLevel),
+    Editable,
+    0.0f, 5.0f,
+    "Doppler effect : how much the pitch follows the movement of the source and of the listener. 0 is off, 1 is physical, more exaggerates it",
+    nullptr,
+    nullptr,
+    &CopyConstruct<float>,
+    &Assign<float>,
+    &Destroy<float>,
+    &Equals<float>
+};
+
+inline FieldInfo AudioSource_reverbSend_info = {
+    "reverbSend",
+    TypeID::Float,
+    offsetof(Shard::Engine::Objects::Components::AudioSource, reverbSend),
+    Editable,
+    0.0f, 1.0f,
+    "How much of the sound goes through the reverb of the zone the listener is in. 0 keeps it dry",
+    nullptr,
+    nullptr,
+    &CopyConstruct<float>,
+    &Assign<float>,
+    &Destroy<float>,
+    &Equals<float>
+};
+
 inline ClassDescriptor Shard::Engine::Objects::Components::AudioSource::descriptor = {
     "AudioSource",
     {
@@ -72,6 +102,8 @@ inline ClassDescriptor Shard::Engine::Objects::Components::AudioSource::descript
         &AudioSource_volume_info,
         &AudioSource_playOnStart_info,
         &AudioSource_spatialize_info,
+        &AudioSource_dopplerLevel_info,
+        &AudioSource_reverbSend_info,
     }
 };
 

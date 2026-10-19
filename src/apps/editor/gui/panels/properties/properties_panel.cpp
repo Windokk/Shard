@@ -20,6 +20,7 @@
 
 #include "engine/audio/audio_source.hpp"
 #include "engine/audio/audio_listener.hpp"
+#include "engine/audio/reverb_zone.hpp"
 #include "engine/world/components/transform.hpp"
 #include "engine/renderer/components/camera.hpp"
 #include "engine/renderer/components/model_component.hpp"
@@ -808,6 +809,7 @@ namespace Shard::Editor::GUI{
         if (ImGui::BeginMenu("Audio")) {
             SHARD_ADD_ITEM("Audio Source", AudioSource);
             SHARD_ADD_ITEM("Audio Listener", AudioListener);
+            SHARD_ADD_ITEM("Reverb Zone", ReverbZone);
             ImGui::EndMenu();
         }
 

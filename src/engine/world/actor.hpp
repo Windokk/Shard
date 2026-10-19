@@ -14,6 +14,9 @@
 
 #include <stdexcept>
 #include <iostream>
+#include <vector>
+
+#include <nlohmann/json.hpp>
 
 namespace Shard::Engine::Objects{
 
@@ -24,6 +27,9 @@ namespace Shard::Engine::Objects{
         std::vector<std::shared_ptr<Component>> components;
         std::string name;
         std::string folder;
+        /// Components of a type nobody registered (the plugin that brings it is not loaded) : kept as they were read, and written back
+        /// as they are, so that opening a world without the plugin and saving it does not lose them
+        std::vector<nlohmann::json> unknownComponents;
         Core::IEngineContext* engine = nullptr;
         Core::Ecs::Entity entity;
         public:
@@ -52,6 +58,9 @@ namespace Shard::Engine::Objects{
             const std::vector<std::shared_ptr<Component>>& GetComponents() const {
                 return components;
             }
+
+            const std::vector<nlohmann::json>& GetUnknownComponents() const { return unknownComponents; }
+            void AddUnknownComponent(nlohmann::json serialized) { unknownComponents.push_back(std::move(serialized)); }
 
             template <typename T>
             std::shared_ptr<T> AddComponent();

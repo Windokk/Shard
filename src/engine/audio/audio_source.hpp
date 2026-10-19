@@ -66,7 +66,15 @@ namespace Shard::Engine::Objects::Components
             FIELD(Editable, tooltip=Play in 3D : the volume and panning follow the distance and direction to the listener)
             bool spatialize = true;
 
+            FIELD(Editable, range=0.0f|5.0f, tooltip=Doppler effect : how much the pitch follows the movement of the source and of the listener. 0 is off, 1 is physical, more exaggerates it)
+            float dopplerLevel = 1.0f;
+
+            FIELD(Editable, range=0.0f|1.0f, tooltip=How much of the sound goes through the reverb of the zone the listener is in. 0 keeps it dry)
+            float reverbSend = 1.0f;
+
         private:
+            Audio::SoundParams MakeSoundParams() const;
+
             std::string pathInProject;
             Audio::AudioID audioID;
     };

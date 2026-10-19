@@ -1,4 +1,5 @@
 #include "renderer.hpp"
+#include "engine/plugins/manager.hpp"
 #include "engine/renderer/rhi/gpu_profiler.hpp"
 
 #include "engine/world/engine.hpp"
@@ -337,6 +338,9 @@ namespace Shard::Engine::Rendering{
         }
         ActivatePipeline(m_RequestedPipeline);
 
+        // What plugins add to the frame : their pipelines and features, the ones that are loaded already and the ones that come
+        ConnectPluginExtensions();
+
         m_ImmediateRenderer.Init(this);
         m_ThumbnailService.Init(this);
 
@@ -528,6 +532,9 @@ namespace Shard::Engine::Rendering{
 
     void Renderer::Shutdown()
     {
+        // Features hold plugin code : they let go of the renderer first
+        DisconnectPluginExtensions();
+
         // Scene builds run on the job system, which is destroyed right after the renderer shuts down
         if(m_ProbeManager)
             m_ProbeManager->WaitForSceneBuilds();
@@ -568,6 +575,9 @@ namespace Shard::Engine::Rendering{
 
         if(m_ActivePipeline)
             m_ActivePipeline->OnPassesCleared(*this);
+
+        for(const std::shared_ptr<RenderFeature>& feature : m_Features)
+            feature->OnPassesCleared(*this);
     }
 
     uint64_t Renderer::GenerateSortKey(const DrawCommand& cmd, const uint32_t submeshID)
@@ -1242,6 +1252,102 @@ namespace Shard::Engine::Rendering{
         // The frame that runs notices at its start
     }
 
+    void Renderer::AddRenderFeature(const std::shared_ptr<RenderFeature>& feature)
+    {
+        if(!feature)
+            return;
+        RenderThread::Get().InvokeResult([&] {
+            if(std::find(m_Features.begin(), m_Features.end(), feature) != m_Features.end())
+                return;
+            m_Features.push_back(feature);
+            feature->Activate(*this);
+            m_NeedExecutionOrderRebuild = true;
+            DEBUG_INFO("Render feature : ", feature->GetName());
+        });
+    }
+
+    void Renderer::RemoveRenderFeature(const std::shared_ptr<RenderFeature>& feature)
+    {
+        if(!feature)
+            return;
+        RenderThread::Get().InvokeResult([&] {
+            auto it = std::find(m_Features.begin(), m_Features.end(), feature);
+            if(it == m_Features.end())
+                return;
+            m_Features.erase(it);
+            feature->Deactivate(*this);
+            m_NeedExecutionOrderRebuild = true;
+        });
+    }
+
+    std::vector<std::string> Renderer::GetRenderFeatureNames() const
+    {
+        std::vector<std::string> names;
+        for(const std::shared_ptr<RenderFeature>& f : m_Features)
+            names.push_back(f->GetName());
+        return names;
+    }
+
+    void Renderer::OnPipelineTypeRemoved(const std::string& type)
+    {
+        RenderThread::Get().InvokeResult([&] {
+            const bool wasActive = m_ActivePipeline && type == m_ActivePipeline->GetType();
+            bool wasRequested;
+            {
+                std::lock_guard<std::mutex> lock(m_PipelineSelectMutex);
+                wasRequested = m_RequestedPipeline == type;
+                if(wasRequested)
+                    m_RequestedPipeline = "forward+";
+            }
+            // The pipeline object is plugin code : it goes before the plugin does
+            if(wasActive)
+                ActivatePipeline("forward+");
+        });
+    }
+
+    void Renderer::ConnectPluginExtensions()
+    {
+        Plugins::ExtensionRegistry& extensions = Plugins::PluginManager::Get().Extensions();
+        m_FeatureListener = extensions.Listen("render.feature", [this](const Plugins::ExtensionRegistry::Item& item, bool added) {
+            if(item.typeName != typeid(RenderFeature).name())
+                return;
+            auto feature = std::static_pointer_cast<RenderFeature>(item.object);
+            if(added)
+                AddRenderFeature(feature);
+            else
+                RemoveRenderFeature(feature);
+        });
+        m_PipelineListener = extensions.Listen("render.pipeline", [this](const Plugins::ExtensionRegistry::Item& item, bool added) {
+            if(item.typeName != typeid(RenderPipelineExtension).name())
+                return;
+            auto pipeline = std::static_pointer_cast<RenderPipelineExtension>(item.object);
+            if(added){
+                RenderPipelineRegistry::Get().RegisterType(pipeline->type, pipeline->description, pipeline->factory);
+            }
+            else{
+                RenderPipelineRegistry::Get().UnregisterType(pipeline->type);
+                OnPipelineTypeRemoved(pipeline->type);
+            }
+        });
+    }
+
+    void Renderer::DisconnectPluginExtensions()
+    {
+        Plugins::ExtensionRegistry& extensions = Plugins::PluginManager::Get().Extensions();
+        if(m_FeatureListener){
+            extensions.Unlisten(m_FeatureListener);
+            m_FeatureListener = 0;
+        }
+        if(m_PipelineListener){
+            extensions.Unlisten(m_PipelineListener);
+            m_PipelineListener = 0;
+        }
+        // What is still added is let go of, on the graphics thread
+        std::vector<std::shared_ptr<RenderFeature>> features = m_Features;
+        for(const std::shared_ptr<RenderFeature>& feature : features)
+            RemoveRenderFeature(feature);
+    }
+
     void Renderer::ActivatePipeline(const std::string& name)
     {
         if(m_ActivePipeline)
@@ -1345,6 +1451,9 @@ namespace Shard::Engine::Rendering{
 
         if(m_ActivePipeline)
             m_ActivePipeline->BeforeFrame(*this, GetSnapshot());
+
+        for(const std::shared_ptr<RenderFeature>& feature : m_Features)
+            feature->BeforeFrame(*this, GetSnapshot());
 
         {
             SHARD_PROFILE_RENDER_SUB_SCOPE(Debugging::RenderSubSample::LightCullingUpdate);

@@ -25,6 +25,7 @@ namespace Shard::Engine::Core::Platform {
     ///     fixed-step #3c888889          (float, #bits in hex, or decimal when written by hand)
     ///     world determinism.world
     ///     frames 600
+    ///     plugin game 0.0.0 0000000000000000          (a plugin that affects the simulation : id, version, hash of its content)
     ///     check 60 a1b2c3d4e5f60718 <transforms> <physics> <scripts>     (state hash after 60 frames, the three parts optional)
     ///     @12 key-down W
     ///     @12 mouse-move #43c80000 #42c80000 #40000000 #00000000
@@ -55,6 +56,9 @@ namespace Shard::Engine::Core::Platform {
         uint64_t frames = 0;            // how long the run lasted (0 : until the last event / check)
         std::vector<TimedEvent> events; // by frame, in the order they happened
         std::vector<Check> checks;      // by frames, ascending
+        /// The plugins that change the simulation, as the run had them : "<id> <version> <content hash>" (the plugin manager's set).
+        /// Empty : not recorded, nothing is checked. Written as `plugin` lines.
+        std::vector<std::string> plugins;
 
         /// The text of the file
         std::string Serialize() const;

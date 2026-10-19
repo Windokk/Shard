@@ -51,6 +51,7 @@ namespace Shard::Editor::Core {
         bool worldSettings = true;
         bool projectSettings = false;
         bool editorPreferences = false;
+        bool plugins = false;
     };
 
     enum class EditorTheme : int { Shard = 0, Dark = 1, Light = 2, Classic = 3 };

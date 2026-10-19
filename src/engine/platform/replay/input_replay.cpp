@@ -166,6 +166,8 @@ namespace Shard::Engine::Core::Platform {
         if (!world.empty())
             out << "world " << world << "\n";
         out << "frames " << Length() << "\n";
+        for (const std::string& plugin : plugins)
+            out << "plugin " << plugin << "\n";
         for (const Check& check : checks)
         {
             out << "check " << check.frames << " " << HashText(check.hash);
@@ -249,6 +251,11 @@ namespace Shard::Engine::Core::Platform {
             else if (t[0] == "frames")
             {
                 if (t.size() != 2 || !ParseUnsigned(t[1], out.frames)) return fail("frames <number>");
+            }
+            else if (t[0] == "plugin")
+            {
+                if (t.size() != 4) return fail("plugin <id> <version> <hash>");
+                out.plugins.push_back(t[1] + " " + t[2] + " " + t[3]);
             }
             else if (t[0] == "check")
             {

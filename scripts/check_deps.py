@@ -29,6 +29,7 @@ LAYERS = {
     "engine/platform": 1,
     "engine/assets": 2,
     "engine/world": 3,
+    "engine/plugins": 3.5,  # the plugin manager : registers into the world layer and below, loaded by the composition root above
     "engine/renderer": 4,
     "engine/physics": 4,
     "engine/audio": 4,

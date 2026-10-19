@@ -1,4 +1,6 @@
 #include "engine/world/engine.hpp"
+#include "engine/plugins/manager.hpp"
+#include "engine/assets/asset_importer.hpp"
 
 #include <algorithm>
 #include <fstream>
@@ -18,6 +20,7 @@
 #include "engine/core/memory/frame_allocator.hpp"
 #include "engine/core/memory/memory_tracker.hpp"
 #include "engine/platform/thread/thread.hpp"
+#include "engine/platform/process/process.hpp"
 #include "engine/assets/serialization/project/project_serializer.hpp"
 #include "engine/assets/hot_reloader.hpp"
 #include "engine/renderer/components/model_component.hpp"
@@ -110,6 +113,10 @@ namespace Shard::Engine{
             CVar<int> cvFrameKB("memory.frame_kb", 4096, "Per-frame scratch memory, in KB, per buffered frame (applies at startup)",
                                 CVarFlags::Archive, 64, 1048576);
 
+            // The extension points of the plugin manager the engine reads itself : the asset types and importers plugins bring
+            uint32_t gAssetTypeListener = 0;
+            uint32_t gAssetImporterListener = 0;
+
             std::string ConfigPath(const Filesystem::Path& directory, const char* fileName)
             {
                 return (directory / std::string(fileName)).GetNativePath();
@@ -147,6 +154,43 @@ namespace Shard::Engine{
             }
 
             InitSystems();
+
+            // The plugins (loaded before the engine started) get the scheduler and the event dispatcher : the systems and the
+            // subscriptions they declared in OnLoad are added now
+            Plugins::PluginManager::Get().OnEngineSystemsReady(this, m_Context.scheduler, m_Context.eventDispatcher);
+
+            // "asset.type" : a kind of asset with its loader and its file extensions ; "asset.importer" : a converter from a source format
+            {
+                Plugins::ExtensionRegistry& extensions = Plugins::PluginManager::Get().Extensions();
+                gAssetTypeListener = extensions.Listen("asset.type", [this](const Plugins::ExtensionRegistry::Item& item, bool added) {
+                    if(item.typeName != typeid(Core::Resources::AssetTypeExtension).name())
+                        return;
+                    auto type = std::static_pointer_cast<Core::Resources::AssetTypeExtension>(item.object);
+                    if(added){
+                        type->kind = m_Context.resourcesManager->AllocateUserKind();
+                        m_Context.resourcesManager->RegisterKind(type->kind, type->info);
+                        for(const std::string& extension : type->extensions){
+                            if(!Filesystem::RegisterCustomExtension(extension))
+                                DEBUG_WARNING("Asset type '", type->name, "' : the extension ", extension, " is one the engine reads itself, not registered");
+                        }
+                        DEBUG_INFO("Asset type : ", type->name);
+                    }
+                    else{
+                        m_Context.resourcesManager->UnregisterKind(type->kind);
+                        for(const std::string& extension : type->extensions)
+                            Filesystem::UnregisterCustomExtension(extension);
+                    }
+                });
+                gAssetImporterListener = extensions.Listen("asset.importer", [](const Plugins::ExtensionRegistry::Item& item, bool added) {
+                    if(item.typeName != typeid(Filesystem::AssetImporterExtension).name())
+                        return;
+                    auto importer = std::static_pointer_cast<Filesystem::AssetImporterExtension>(item.object);
+                    if(added)
+                        Filesystem::AssetImporters::Get().Register(importer);
+                    else
+                        Filesystem::AssetImporters::Get().Unregister(importer);
+                });
+            }
 
             if(settings.platform == nullptr)
                 DEBUG_FATAL("Platform settings are nullptr !");
@@ -284,6 +328,55 @@ namespace Shard::Engine{
             if(startWorld.empty() && m_Context.currentProject->GetBuildSettings()->buildIndex.size() > 0)
                 startWorld = m_Context.currentProject->GetBuildSettings()->buildIndex[0].full;
 
+            // The engine is up: the plugins start running, then the first world loads (they hear about it)
+            {
+                Plugins::PluginManager& plugins = Plugins::PluginManager::Get();
+                Plugins::PluginManager::Callbacks callbacks;
+                callbacks.hasLoadedWorlds = [this]{ return m_Context.worldManager->GetLoadedWorldCount() > 0; };
+                // A plugin is reloaded with the worlds put aside : their components have code in its library. What was edited and not saved is kept
+                // in the files the way play mode keeps it.
+                auto suspended = std::make_shared<std::vector<std::string>>();
+                callbacks.suspendWorlds = [this, suspended](std::string& error){
+                    suspended->clear();
+                    for(int i = 0; i < m_Context.worldManager->GetLoadedWorldCount(); i++){
+                        Worlds::World* world = m_Context.worldManager->GetWorldAt(i);
+                        auto info = world ? m_Context.assetIDManager->GetAssetFromID(world->GetAssetID()) : nullptr;
+                        if(!info){ error = "a loaded world is not in the asset database"; suspended->clear(); return false; }
+                        if(world->IsDirty() && !m_EngineSettings.readOnly){ error = "'" + info->baseInfos.nameInProject + "' has unsaved changes : save it first"; suspended->clear(); return false; }
+                        suspended->push_back(info->baseInfos.nameInProject);
+                    }
+                    while(m_Context.worldManager->GetLoadedWorldCount() > 0){
+                        const int last = m_Context.worldManager->GetLoadedWorldCount() - 1;
+                        Worlds::World* world = m_Context.worldManager->GetWorldAt(last);
+                        auto info = m_Context.assetIDManager->GetAssetFromID(world->GetAssetID());
+                        const std::string name = info ? info->baseInfos.nameInProject : "";
+                        m_Context.worldManager->UnloadWorld(last);
+                        if(!name.empty())
+                            m_Context.resourcesManager->Unload(Core::Resources::AssetKind::World, name);
+                    }
+                    m_Context.renderer->ClearPassesContent();
+                    m_Context.objIDManager->Reset();
+                    return true;
+                };
+                callbacks.resumeWorlds = [this, suspended]{
+                    for(const std::string& name : *suspended){
+                        auto world = m_Context.resourcesManager->Get<Worlds::World>(Core::Resources::AssetKind::World, name);
+                        if(world)
+                            m_Context.worldManager->LoadWorld(world);
+                        else
+                            DEBUG_ERROR("Plugins : could not load ", name, " back after the reload");
+                    }
+                    suspended->clear();
+                };
+                plugins.SetCallbacks(std::move(callbacks));
+                plugins.OnEngineInitialized();
+            }
+
+            if(!startWorld.empty() && !Plugins::PluginManager::Get().BeforeWorldLoad(startWorld)){
+                DEBUG_WARNING("The default world was not loaded because a plugin refused it");
+                startWorld.clear();
+            }
+
             if(!startWorld.empty()){
                 DEBUG_LOG("Loading default world : "+startWorld);
 
@@ -295,6 +388,7 @@ namespace Shard::Engine{
                     window->PollEvents();
                     window->DrawLoadingFrame(progress);
                 });
+                Plugins::PluginManager::Get().AfterWorldLoad(startWorld);
             }
 
             // Everything above ran on this thread, which owns the graphics context : from here on the render thread does
@@ -332,6 +426,10 @@ namespace Shard::Engine{
 
             JobSystemDesc jobDesc;
             jobDesc.workerCount = Platform::WorkerThreadCount();
+            // SHARD_JOB_THREADS pins the number of job threads (ShardHeadless --check-plugins runs the same simulation with different counts)
+            if(const auto pinned = Platform::GetEnv("SHARD_JOB_THREADS")){
+                try { jobDesc.workerCount = static_cast<unsigned>(std::max(1, std::stoi(*pinned))); } catch(...) {}
+            }
             jobDesc.onWorkerStart = [](unsigned index){ Platform::SetCurrentThreadName("Shard Job " + std::to_string(index)); };
             m_Context.jobSystem = new JobSystem(jobDesc);
             m_Context.threadPools = new ThreadPools([](PoolKind kind, const std::string& name, unsigned index){
@@ -423,10 +521,11 @@ namespace Shard::Engine{
 
             // Physics runs at a fixed rate, decoupled from the render rate : a frame runs as many steps as the elapsed real
             // time paid for (0 when rendering outpaces the simulation, several when it lags behind).
+            add("Scripts.FixedTick", Phase::Fixed, [this](SystemContext&){ if(m_PlayMode) TickScripts(ScriptTick::Fixed); });
             add("Physics.Step", Phase::Fixed, [this](SystemContext& c){ if(m_PlayMode) StepPhysics(c.fixedStep, c.fixedDeltaTime); });
 
             add("Audio.Tick", Phase::Update, [this](SystemContext&){ if(m_PlayMode) TickAudio(); });
-            add("Scripts.Tick", Phase::Update, [this](SystemContext&){ if(m_PlayMode) TickScripts(); });
+            add("Scripts.Tick", Phase::Update, [this](SystemContext&){ if(m_PlayMode) TickScripts(ScriptTick::Update); });
 
             // Loads the pictures the reflection probes reflect and advances the bake that is running : not gated by the play mode, a probe is
             // baked from the editor
@@ -434,6 +533,7 @@ namespace Shard::Engine{
 
             // After the scripts moved things : kinematic targets go to Jolt, dynamic results come back to the transforms
             add("Physics.Sync", Phase::Late, [this](SystemContext& c){ SyncPhysicsBodies(c.fixedDeltaTime); });
+            add("Scripts.LateTick", Phase::Late, [this](SystemContext&){ if(m_PlayMode) TickScripts(ScriptTick::Late); });
 
             auto extractor = std::make_shared<Rendering::RenderExtractor>();
             auto poseOffsets = std::make_shared<Rendering::RenderExtractor::PoseOffsets>();
@@ -484,6 +584,37 @@ namespace Shard::Engine{
             add("Render.Frame", Phase::Extract, [this](SystemContext&){ RenderFrame(); }, true);
 
             RegisterConsoleCommands();
+
+            CVarRegistry::Global().RegisterCommand("asset.import", "asset.import <file> [output folder] : converts a file with the importer a plugin brought for its extension (the output goes to the project's resources by default)",
+                [this](const std::vector<std::string>& args) {
+                    if(args.empty()){
+                        std::string known;
+                        for(const std::string& e : Filesystem::AssetImporters::Get().Extensions())
+                            known += (known.empty() ? "" : " ") + e;
+                        return CommandResult{false, "usage : asset.import <file> [output folder]\nimporters take : " + (known.empty() ? std::string("(none)") : known)};
+                    }
+                    std::string output = args.size() > 1 ? args[1] : std::string();
+                    if(output.empty() && m_Context.currentProject)
+                        output = m_Context.currentProject->GetProjectResourcesPath().GetNativePath();
+                    if(output.empty())
+                        return CommandResult{false, "no project : give an output folder"};
+                    const Filesystem::ImportResult result = Filesystem::AssetImporters::Get().Import(args[0], output);
+                    std::string text = result.message;
+                    for(const std::string& file : result.outputs)
+                        text += (text.empty() ? "" : "\n") + std::string("wrote ") + file;
+                    return CommandResult{result.ok, text.empty() ? std::string("imported") : text};
+                });
+
+            CVarRegistry::Global().RegisterCommand("render.features", "render.features : the render features plugins added, and the render pipelines that can be picked",
+                [this](const std::vector<std::string>&) {
+                    std::string text = "features :";
+                    for(const std::string& name : m_Context.renderer->GetRenderFeatureNames())
+                        text += " " + name;
+                    text += "\npipelines :";
+                    for(const Rendering::RenderPipelineInfo& info : Rendering::RenderPipelineRegistry::Get().List())
+                        text += " " + info.name;
+                    return CommandResult{true, text};
+                });
 
             CVarRegistry::Global().RegisterCommand("render.thread", "render.thread : what the render thread does (frames, time per frame, how long the simulation waited for it)",
                 [](const std::vector<std::string>& args) {
@@ -561,6 +692,9 @@ namespace Shard::Engine{
 
         void EngineInstance::SetPlayMode(bool on)
         {
+            if(on && !Plugins::PluginManager::Get().BeforePlay())
+                return;
+
             m_PlayMode = on;
 
             if(m_PlayMode){
@@ -593,6 +727,7 @@ namespace Shard::Engine{
                 }
 
                 m_ActivateAllPhysics = true;
+                Plugins::PluginManager::Get().AfterPlay();
             }
             else{
                 
@@ -633,10 +768,22 @@ namespace Shard::Engine{
             m_Context.audioManager->Shutdown();
             m_Context.physicsManager->Shutdown();
             m_Context.worldManager->UnloadAllWorlds();
+            // The plugins stop before the systems and the renderer they registered into go away
+            Plugins::PluginManager::Get().OnEngineDestroying();
+            if(gAssetTypeListener){
+                Plugins::PluginManager::Get().Extensions().Unlisten(gAssetTypeListener);
+                gAssetTypeListener = 0;
+            }
+            if(gAssetImporterListener){
+                Plugins::PluginManager::Get().Extensions().Unlisten(gAssetImporterListener);
+                gAssetImporterListener = 0;
+            }
             m_Context.renderer->Shutdown();
             m_Context.platform->GetWindow()->Destroy();
 
             CVarRegistry::Global().UnregisterCommand("render.thread");
+            CVarRegistry::Global().UnregisterCommand("asset.import");
+            CVarRegistry::Global().UnregisterCommand("render.features");
 
             // Last : every system that submitted work is shut down, and every JobGroup has been waited on. The pools'
             // queued tasks are run to the end first (they may use the job system), then the job system goes.
@@ -677,6 +824,7 @@ namespace Shard::Engine{
 
             RunScriptedCommands();
             m_FrameCount++;
+            Plugins::PluginManager::Get().BeginFrame(m_FrameCount);
 
             // Measured first thing in the frame so every system below works off the same delta, and so
             // the time the previous frame actually took is what decides how much simulation is owed.
@@ -708,6 +856,8 @@ namespace Shard::Engine{
             // The duration of this frame, which is what the categories sampled above add up to. The simulation's delta is the
             // previous frame's (it is read at the start of this one), so it would be shown against the wrong frame's breakdown.
             m_Context.profiler->EndFrameSampling(std::chrono::duration<float, std::milli>(std::chrono::steady_clock::now() - frameStart).count(), m_FrameCount);
+
+            Plugins::PluginManager::Get().EndFrame(m_FrameCount);
 
             if(m_Context.platform->GetInput()->WasKeyPressed(Key::Escape))
             {
@@ -742,10 +892,15 @@ namespace Shard::Engine{
             m_Context.audioManager->Tick();
         }
 
-        void EngineInstance::TickScripts()
+        void EngineInstance::TickScripts(ScriptTick kind)
         {
             SHARD_PROFILE_SCOPE(Debugging::ProfileCategory::Scripting);
-            m_Context.worldManager->Tick();
+            switch(kind)
+            {
+                case ScriptTick::Fixed:  m_Context.worldManager->FixedTick(); break;
+                case ScriptTick::Update: m_Context.worldManager->Tick();      break;
+                case ScriptTick::Late:   m_Context.worldManager->LateTick();  break;
+            }
         }
 
         void EngineInstance::UpdateWorlds()

@@ -195,6 +195,9 @@ namespace Shard::Engine::Serialization{
 
             project = std::make_shared<Projects::Project>(path.GetFilename(false), projectRoot, projectResPath, pluginsPath, buildSettings, assetDatabasePath);
 
+            if(data.contains("plugins") && data["plugins"].is_array())
+                project->SetPluginsConfig(data["plugins"]);
+
             *project->GetPhysicsSettings() = physicsSettings;
             *project->GetRenderingSettings() = renderingSettings;
 
@@ -228,6 +231,8 @@ namespace Shard::Engine::Serialization{
         data["projectResources"] = pro->GetProjectResourcesPath().RelativeTo(pro->GetProjectRoot()).full;
         data["pluginsFolder"] = pro->GetPluginsFolderPath().RelativeTo(pro->GetProjectRoot()).full;
         data["assetDatabase"] = pro->GetAssetDatabasePath().RelativeTo(pro->GetProjectRoot()).full;
+        if(pro->GetPluginsConfig().is_array())
+            data["plugins"] = pro->GetPluginsConfig();
 
         for(auto& world : pro->GetBuildSettings()->buildIndex){
             data["buildSettings"].push_back(world.full);

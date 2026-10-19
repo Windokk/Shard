@@ -18,6 +18,9 @@
 #include <cstdint>
 #include <cstdlib>
 #include <cstring>
+#include <filesystem>
+#include <fstream>
+#include <sstream>
 #include <iostream>
 #include <optional>
 #include <string>
@@ -29,6 +32,9 @@
 #include "engine/core/determinism/state_hash.hpp"
 #include "engine/core/diagnostics/logger.hpp"
 #include "engine/game_module.hpp"
+#include "engine/platform/process/process.hpp"
+#include "engine/plugins/handshake.hpp"
+#include "engine/plugins/manager.hpp"
 #include "engine/platform/replay/input_replay.hpp"
 #include "engine/platform/windowing/headless/headless_platform.hpp"
 #include "engine/renderer/frontend/renderer.hpp"
@@ -53,6 +59,7 @@ namespace {
     struct Options {
         std::string project;
         std::string gameModule;
+        PluginStartupOptions plugins;       // --plugin, --plugin-path, --disable-plugin...
         std::string world;
         std::string replayPath;
         std::string writeReplayPath;
@@ -64,6 +71,13 @@ namespace {
         bool printState = false;
         bool requireChecks = false;
         bool server = false;
+        bool listPlugins = false;           // --list-plugins : load them, print them, stop
+        bool checkPlugins = false;          // --check-plugins : run the simulation twice with other job thread counts and compare
+        std::string statePath;              // --state-out <file> : write the final state hash (and the plugin set hash) there
+        int port = 0;                       // --port <n> : with --server, answer the plugin handshake of clients on this port
+        bool offerDatapacks = false;        // --offer-datapacks : let clients download the datapacks they lack
+        std::string checkServer;            // --check-server host:port : ask a server whether our plugins are accepted, and exit
+        std::string validatePlugin;         // --validate-plugin <folder> : check a plugin folder, load nothing
         int width = 1280;
         int height = 720;
     };
@@ -90,6 +104,18 @@ namespace {
             "  --width / --height     size of the viewport the (null) renderer lays its targets out for\n"
             "  --debug <level>        log, info, warning, error or fatal (default info)\n"
             "  +name=value            sets a console variable\n"
+            "\n"
+            "  --plugin <path>        load a plugin (a folder, a shard-plugin.json or a library) ; repeatable\n"
+            "  --plugin-path <dir>    a folder that holds plugins ; repeatable (SHARD_PLUGIN_PATH adds more)\n"
+            "  --disable-plugin <id>  leave a plugin out of this run ; repeatable\n"
+            "  --check-plugins        run the simulation twice, with 1 and with several job threads, and fail if the state differs : what a plugin that\n"
+            "                         affects the simulation has to survive (exit code 2 when it does not)\n"
+            "  --state-out <file>     write the final state hash and the plugin set hash to a file\n"
+            "  --port <n>             with --server : answer the plugin handshake of clients on this port (see --offer-datapacks)\n"
+            "  --offer-datapacks      with --port : clients that lack a datapack can download it\n"
+            "  --check-server <host:port>  ask a server whether the plugins loaded here are accepted, and exit (needs --game and --project)\n"
+            "  --list-plugins         load the plugins (with --project and --game if given), print them and exit\n"
+            "  --validate-plugin <dir> check the manifest and the content of a plugin or datapack folder, load nothing\n"
             "\n"
             "Exit code : 0 = ran, and matched the replay / --expect ; 1 = could not start ; 2 = the run diverged\n";
     }
@@ -126,6 +152,32 @@ namespace {
                 options.server = true;
             else if (arg == "--print-state")
                 options.printState = true;
+            else if (arg == "--list-plugins")
+                options.listPlugins = true;
+            else if (arg == "--check-plugins")
+                options.checkPlugins = true;
+            else if (arg == "--offer-datapacks")
+                options.offerDatapacks = true;
+            else if (arg == "--state-out")
+            {
+                if (!(v = value(i, "--state-out"))) return false;
+                options.statePath = v;
+            }
+            else if (arg == "--port")
+            {
+                if (!(v = value(i, "--port"))) return false;
+                options.port = std::stoi(v);
+            }
+            else if (arg == "--check-server")
+            {
+                if (!(v = value(i, "--check-server"))) return false;
+                options.checkServer = v;
+            }
+            else if (arg == "--validate-plugin")
+            {
+                if (!(v = value(i, "--validate-plugin"))) return false;
+                options.validatePlugin = v;
+            }
             else if (arg == "--require-checks")
                 options.requireChecks = true;
             else if (arg == "--project")
@@ -202,6 +254,8 @@ namespace {
                 else if (level == "fatal") minDebugLevel = Debugging::Level::Fatal;
                 else std::cerr << "[WARNING] Unknown debug level : " << level << std::endl;
             }
+            else if (const int taken = ParsePluginArgument(argc, argv, i, options.plugins); taken > 0)
+                i += taken - 1;
             else
             {
                 std::cerr << "[ERROR] Unknown argument : " << arg << " (--help lists them)" << std::endl;
@@ -209,12 +263,78 @@ namespace {
             }
         }
 
+        if (!options.validatePlugin.empty() || options.listPlugins)
+            return true;        // these two do not run a simulation
+
         if (options.project.empty() || options.gameModule.empty())
         {
             std::cerr << "[ERROR] --project and --game are required (--help lists the options)" << std::endl;
             return false;
         }
         return true;
+    }
+}
+
+namespace {
+
+    // --check-plugins : the same run, in two processes, with one job thread and with several. A plugin that affects the simulation has to give the same state.
+    int CheckPlugins(int argc, char* argv[])
+    {
+        namespace fs = std::filesystem;
+        const std::string self = Platform::ExecutablePath();
+        std::vector<std::string> base;
+        for (int i = 1; i < argc; ++i)
+        {
+            const std::string arg = argv[i];
+            if (arg == "--check-plugins") continue;
+            if (arg == "--state-out" && i + 1 < argc) { ++i; continue; }
+            base.push_back(arg);
+        }
+
+        const std::string stamp = std::to_string(std::chrono::steady_clock::now().time_since_epoch().count());
+        struct Run { std::string threads; std::string stateFile; std::string state; std::string plugins; int exitCode = -1; };
+        std::vector<Run> runs = { { "1", (fs::temp_directory_path() / ("shard_check_a_" + stamp)).string(), "", "" },
+                                  { std::to_string(std::max(4u, std::thread::hardware_concurrency())), (fs::temp_directory_path() / ("shard_check_b_" + stamp)).string(), "", "" } };
+        for (Run& run : runs)
+        {
+            Platform::SetEnv("SHARD_JOB_THREADS", run.threads);
+            std::vector<std::string> args = base;
+            args.push_back("--state-out");
+            args.push_back(run.stateFile);
+            auto process = Platform::Process::Launch(self, args);
+            if (!process)
+            {
+                std::cerr << "[ERROR] could not start " << self << std::endl;
+                return 1;
+            }
+            const std::optional<int> code = process->Wait(10 * 60 * 1000);
+            if (!code) { process->Kill(); std::cerr << "[ERROR] the run with " << run.threads << " job threads did not finish in 10 minutes" << std::endl; return 1; }
+            run.exitCode = *code;
+            std::ifstream in(run.stateFile);
+            std::string key, value;
+            while (in >> key >> value)
+            {
+                if (key == "state") run.state = value;
+                else if (key == "plugins") run.plugins = value;
+            }
+            std::error_code ec;
+            fs::remove(run.stateFile, ec);
+            if (run.exitCode != 0 || run.state.empty())
+            {
+                std::cerr << "[CHECK FAILED] the run with " << run.threads << " job threads ended with code " << run.exitCode << (run.state.empty() ? " and no state" : "") << std::endl;
+                return run.exitCode == 0 ? 1 : run.exitCode;
+            }
+        }
+        std::cout << "[CHECK] " << runs[0].threads << " thread(s) : state " << runs[0].state << ", plugins " << runs[0].plugins << std::endl;
+        std::cout << "[CHECK] " << runs[1].threads << " thread(s) : state " << runs[1].state << ", plugins " << runs[1].plugins << std::endl;
+        if (runs[0].state != runs[1].state || runs[0].plugins != runs[1].plugins)
+        {
+            std::cerr << "[CHECK FAILED] the simulation is not the same with a different number of job threads : a plugin that affects it (or the engine) depends on "
+                         "the order things run in. Plugins that declare simulation.affects : see `plugin.hash`." << std::endl;
+            return 2;
+        }
+        std::cout << "[CHECK] same state with " << runs[0].threads << " and " << runs[1].threads << " job threads" << std::endl;
+        return 0;
     }
 }
 
@@ -231,6 +351,55 @@ int main(int argc, char* argv[])
         std::cerr << "[ERROR] Bad argument : " << e.what() << std::endl;
         return 1;
     }
+
+    if (!options.validatePlugin.empty())
+    {
+        std::ifstream in(options.validatePlugin + "/shard-plugin.json");
+        if (!in)
+        {
+            std::cerr << "[ERROR] No shard-plugin.json in " << options.validatePlugin << std::endl;
+            return 1;
+        }
+        std::stringstream text;
+        text << in.rdbuf();
+        auto manifest = Plugins::ParseManifestText(text.str());
+        if (!manifest)
+        {
+            std::cerr << "[ERROR] shard-plugin.json :\n" << manifest.GetError().message << std::endl;
+            return 1;
+        }
+        std::cout << "[PLUGIN] " << manifest.Value().id << " " << manifest.Value().version.ToString() << " : manifest ok" << std::endl;
+        int status = 0;
+        const std::string contentRoot = options.validatePlugin + "/" + manifest.Value().contentMount;
+        if (manifest.Value().HasContent() && (std::filesystem::is_directory(contentRoot) || manifest.Value().moduleKind == Plugins::ModuleKind::Datapack || manifest.Value().moduleKind == Plugins::ModuleKind::Mod))
+        {
+            for (const std::string& problem : Plugins::ValidateContentFolder(options.validatePlugin + "/" + manifest.Value().contentMount))
+            {
+                std::cerr << "[ERROR] " << problem << std::endl;
+                status = 1;
+            }
+            if (status == 0)
+                std::cout << "[PLUGIN] content ok" << std::endl;
+        }
+        return status;
+    }
+
+    if (options.listPlugins)
+    {
+        Core::SetEngine(&EngineInstance::GetInstance());
+        Debugging::SetLogger(&Debugging::Logger::GetInstance());
+        options.plugins.host = Plugins::Host::Headless;
+        options.plugins.gameModule = options.gameModule;
+        options.plugins.project = options.project;
+        options.plugins.readOnly = true;
+        const bool started = StartPlugins(options.plugins);
+        std::cout << Plugins::PluginManager::Get().Describe();
+        StopPlugins();
+        return started ? 0 : 1;
+    }
+
+    if (options.checkPlugins)
+        return CheckPlugins(argc, argv);
 
     // What a replay says about the run : its seed, its world, how long it lasts
     Platform::ReplayData replay;
@@ -257,8 +426,47 @@ int main(int argc, char* argv[])
     Core::SetEngine(engine);
     Debugging::SetLogger(&Debugging::Logger::GetInstance());
 
-    if (!LoadGameModule(options.gameModule))
+    options.plugins.host = Plugins::Host::Headless;
+    options.plugins.gameModule = options.gameModule;
+    options.plugins.project = options.project;
+    options.plugins.deterministic = true;
+    options.plugins.readOnly = true;
+    options.plugins.strictLock = hasReplay;     // a replay is only meaningful with the plugins it was recorded with
+    if (!StartPlugins(options.plugins))
         return 1;
+
+    // A replay says which plugins changed the simulation when it was recorded
+    if (hasReplay && !replay.plugins.empty())
+    {
+        const Plugins::PluginSetDiff diff = Plugins::ComparePluginSets(Plugins::PluginManager::Get().SimulationPluginSet(), Plugins::PluginSetFromLines(replay.plugins));
+        if (!diff.Same())
+        {
+            std::cerr << "[ERROR] The replay was recorded with other plugins than the ones loaded now : " << diff.Describe() << std::endl;
+            return 1;
+        }
+    }
+
+    if (!options.checkServer.empty())
+    {
+        const size_t colon = options.checkServer.rfind(':');
+        if (colon == std::string::npos) { std::cerr << "[ERROR] --check-server needs host:port" << std::endl; return 1; }
+        Plugins::PluginHandshakeClient client;
+        // The server may be starting up as we are : a few tries before giving up
+        Plugins::HandshakeResult result;
+        for (int attempt = 0; attempt < 60; ++attempt)
+        {
+            result = client.Connect(options.checkServer.substr(0, colon), uint16_t(std::stoi(options.checkServer.substr(colon + 1))), "check",
+                                    Plugins::PluginManager::Get().SimulationPluginSet());
+            if (result.connected)
+                break;
+            std::this_thread::sleep_for(std::chrono::milliseconds(250));
+        }
+        std::cout << "[SERVER] " << (result.accepted ? "accepted" : "refused : " + result.reason) << std::endl;
+        for (const auto& d : result.downloads)
+            std::cout << "[SERVER] offers the datapack " << d.id << " " << d.version << " (" << d.size << " bytes)" << std::endl;
+        StopPlugins();
+        return result.accepted ? 0 : (result.connected ? 3 : 1);
+    }
 
     EngineCreationSettings settings;
     settings.project = options.project;
@@ -342,6 +550,24 @@ int main(int argc, char* argv[])
     auto deadline = started;
     const std::chrono::duration<double> step(fixedStep);
 
+    // The server plugins hear that the server is up, tick by tick, and that it stops
+    if (options.server)
+        Plugins::PluginManager::Get().NotifyServerStart(true);
+
+    // Clients ask whether their plugins are the server's before they play
+    Plugins::PluginHandshakeServer handshake(Plugins::PluginManager::Get());
+    if (options.server && options.port > 0)
+    {
+        Plugins::HandshakeServerOptions handshakeOptions;
+        handshakeOptions.port = uint16_t(options.port);
+        handshakeOptions.offerDatapacks = options.offerDatapacks;
+        auto started = handshake.Start(handshakeOptions);
+        if (!started)
+            std::cerr << "[ERROR] the plugin handshake could not start : " << started.GetError().message << std::endl;
+        else
+            std::cout << "[HEADLESS] plugin handshake on port " << handshake.LocalPort() << std::endl;
+    }
+
     uint64_t frame = 0;
     for (; frame < length && !g_Interrupted && !engine->ShouldEnd(); ++frame)
     {
@@ -350,6 +576,12 @@ int main(int argc, char* argv[])
 
         if (!engine->Run())
             break;
+
+        if (options.server)
+        {
+            handshake.Poll();
+            Plugins::PluginManager::Get().NotifyServerTick(frame);
+        }
 
         play.AfterFrame(*engine);
         record.AfterFrame(*engine);
@@ -364,6 +596,10 @@ int main(int argc, char* argv[])
             std::this_thread::sleep_until(deadline);
         }
     }
+
+    handshake.Stop();
+    if (options.server)
+        Plugins::PluginManager::Get().NotifyServerStop(true);
 
     play.Finish(*engine);
     if (recording)
@@ -398,7 +634,9 @@ int main(int argc, char* argv[])
     if (recording)
     {
         std::string error;
-        if (!record.TakeRecording().Save(options.writeReplayPath, error))
+        Platform::ReplayData recorded = record.TakeRecording();
+        recorded.plugins = Plugins::PluginSetToLines(Plugins::PluginManager::Get().SimulationPluginSet());
+        if (!recorded.Save(options.writeReplayPath, error))
         {
             std::cerr << "[ERROR] " << error << std::endl;
             exitCode = exitCode ? exitCode : 1;
@@ -407,12 +645,19 @@ int main(int argc, char* argv[])
             std::cout << "[HEADLESS] replay written to " << options.writeReplayPath << std::endl;
     }
 
+    if (!options.statePath.empty())
+    {
+        std::ofstream out(options.statePath, std::ios::trunc);
+        out << "state " << Determinism::HashToString(final.total) << "\n"
+            << "plugins " << Determinism::HashToString(Plugins::HashPluginSet(Plugins::PluginManager::Get().SimulationPluginSet())) << "\n";
+    }
+
     // One line a script can read
     std::cout << "[HEADLESS] state " << Determinism::HashToString(final.total) << " frames " << final.frame << " physics-steps "
               << final.physicsSteps << " time " << seconds << " s" << std::endl;
 
     engine->Destroy();
-    UnloadGameModule();
+    StopPlugins();
 
     return exitCode;
 }

@@ -42,6 +42,8 @@ include_directories(${CMAKE_BINARY_DIR})
 
 # -Wall -Wextra on Shard's own targets, see cmake/ShardWarnings.cmake
 include(${CMAKE_SOURCE_DIR}/cmake/ShardWarnings.cmake)
+# shard_add_plugin : builds a plugin and its manifest, see cmake/ShardPlugin.cmake
+include(${CMAKE_SOURCE_DIR}/cmake/ShardPlugin.cmake)
 
 # Subdirs (Third party)
 add_subdirectory(submodules/freetype SYSTEM)
@@ -82,6 +84,8 @@ set_target_properties(vk-bootstrap PROPERTIES POSITION_INDEPENDENT_CODE ON)
 option(SHARD_DETERMINISTIC_PHYSICS "Build Jolt in cross platform deterministic mode (same simulation on every platform)" ON)
 if(SHARD_DETERMINISTIC_PHYSICS)
     set(CROSS_PLATFORM_DETERMINISTIC ON CACHE BOOL "Cross platform deterministic" FORCE)
+    # Part of a plugin's build fingerprint (src/engine/plugins/fingerprint.hpp) : a plugin built without it is refused
+    add_compile_definitions(SHARD_DETERMINISTIC_PHYSICS=1)
     if(NOT MSVC)
         add_compile_options(-ffp-contract=off)
     endif()
@@ -93,6 +97,7 @@ endif()
 option(SHARD_DOUBLE_PRECISION_PHYSICS "Build Jolt with double precision positions (large worlds)" ON)
 if(SHARD_DOUBLE_PRECISION_PHYSICS)
     set(DOUBLE_PRECISION ON CACHE BOOL "Use double precision math" FORCE)
+    add_compile_definitions(SHARD_DOUBLE_PRECISION_PHYSICS=1)
 endif()
 
 # Jolt with RTTI, like the rest of the engine. Without it libJolt has no typeinfo for the Jolt classes that define a
@@ -107,6 +112,8 @@ add_subdirectory(src/apps/tools/reflect)
 # Subdirs (Shard)
 add_subdirectory(src/engine)
 add_subdirectory(src/apps/tools/shaderc)
+add_subdirectory(src/apps/tools/shardpkg)
+add_subdirectory(src/apps/tools/asset_validator)
 add_subdirectory(src/apps/game)
 add_subdirectory(src/apps/editor)
 add_subdirectory(src/apps/player)
@@ -117,5 +124,5 @@ add_subdirectory(tests)
 
 shard_enable_warnings(
     ShardCore ShardPlatform ShardAssets ShardWorld ShardPhysics ShardAudio ShardShaderCompiler ShardRHI ShardRenderer ShardEngine
-    GameModule ShardEditor ShardGame ShardHeadless ShardShaderc ShardTests
+    GameModule ShardEditor ShardGame ShardHeadless ShardShaderc ShardPkg ShardAssetValidator ShardTests
 )

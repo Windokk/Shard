@@ -20,7 +20,8 @@ namespace Shard::Engine::Objects {
 namespace Shard::Engine::Objects::Components {
 
     class Component;
-    using ComponentFactory = std::shared_ptr<Component>(*)();
+    /// Builds a component of a type registered by name. A plain function (REGISTER_COMPONENT) or something that carries state (a type a datapack declares).
+    using ComponentFactory = std::function<std::shared_ptr<Component>()>;
 
     /// Builds an engine component for an actor (its type is known by the module that registers it)
     using BuiltinComponentFactory = std::function<std::shared_ptr<Component>(Core::IEngineContext*, std::shared_ptr<Actor>, uint32_t localId)>;
@@ -32,6 +33,11 @@ namespace Shard::Engine::Objects::Components {
         public:
             void RegisterComponentType(const std::string& name, ComponentFactory factory);
             std::shared_ptr<Component> CreateComponentByName(const std::string& name);
+
+            /// Forgets a component type registered with RegisterComponentType (a plugin going away). Components of that type
+            /// that already exist in a world are not touched. @return false if the name was not registered
+            bool UnregisterComponentType(const std::string& name);
+            bool IsRegistered(const std::string& name) const;
             const std::unordered_map<std::string, ComponentFactory>& GetAll() const;
 
             /// @brief Registers a component type of the engine, by the name its serialized form carries ("model",

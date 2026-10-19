@@ -1,4 +1,5 @@
 #include "menu_bar.hpp"
+#include "engine/plugins/manager.hpp"
 
 #include "apps/editor/gui/main_window.hpp"
 #include "apps/editor/gui/popups.hpp"
@@ -290,6 +291,9 @@ namespace Shard::Editor::GUI{
         ImGui::MenuItem("Asset Browser", nullptr, &parent->panelVisibility.assetBrowser);
         ImGui::MenuItem("Console", nullptr, &parent->panelVisibility.console);
         ImGui::MenuItem("Profiler", nullptr, &parent->panelVisibility.profiler);
+        ImGui::MenuItem("Plugins", nullptr, &parent->panelVisibility.plugins);
+        for(const auto& panel : Engine::Plugins::PluginManager::Get().Extensions().Get<Engine::Plugins::EditorPanelItem>("editor.panel"))
+            ImGui::MenuItem(panel->title.c_str(), nullptr, &panel->visible);
 
         ImGui::Separator();
 

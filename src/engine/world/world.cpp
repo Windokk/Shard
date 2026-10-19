@@ -46,7 +46,9 @@ namespace Shard::Engine::Worlds{
             // An engine component (model, light...) or a custom/inherited one, which has to be already registered
             std::shared_ptr<Objects::Components::Component> created = a->AddComponentByName(type);
             if(!created){
-                DEBUG_WARNING("Unknown component type: " + type);
+                // Kept, not dropped : the plugin that brings this type may just not be loaded, and a save must not lose its data
+                DEBUG_WARNING("Unknown component type: " + type + " (kept as it is in the file)");
+                a->AddUnknownComponent(component);
                 continue;
             }
 
@@ -107,6 +109,7 @@ namespace Shard::Engine::Worlds{
 
         try {
             json data = json::parse(src);
+            ApplyWorldJsonFilters(filePath.GetFilename(), data);
 
             if (data.contains("actors") && data["actors"].is_array()) {
                 for (auto& actor : data["actors"]) {
@@ -194,6 +197,7 @@ namespace Shard::Engine::Worlds{
 
         try {
             json data = json::parse(src);
+            ApplyWorldJsonFilters(filePath.GetFilename(), data);
 
             name = data["name"];
 
@@ -284,6 +288,8 @@ namespace Shard::Engine::Worlds{
             ordered_json serializedComp = comp->Serialize();
             actor["components"].push_back(serializedComp);
         }
+        for(const json& unknown : a->GetUnknownComponents())
+            actor["components"].push_back(ordered_json(unknown));
 
         actorsArray->push_back(actor);
     }
@@ -316,6 +322,11 @@ namespace Shard::Engine::Worlds{
 
     void World::Serialize(Filesystem::Path filePath)
     {
+        if(!AllowWorldSave(filePath.GetFilename())){
+            DEBUG_WARNING("Saving ", filePath.GetFilename(), " was cancelled");
+            return;
+        }
+
         ordered_json actorsArray;
 
         ordered_json meshes;
@@ -438,6 +449,9 @@ namespace Shard::Engine::Worlds{
 
     void World::Unload()
     {
+        for(auto& [type, extension] : extensions)
+            extension->OnUnload(*this);
+
         for(auto& [id,script] : scripts){
             script->OnWorldUnloaded();
         }
@@ -452,6 +466,24 @@ namespace Shard::Engine::Worlds{
         for(auto& [id,script] : scripts){
             if(script->Active()){
                 script->OnTick();
+            }
+        }
+    }
+
+    void World::FixedTick()
+    {
+        for(auto& [id,script] : scripts){
+            if(script->Active()){
+                script->OnFixedTick();
+            }
+        }
+    }
+
+    void World::LateTick()
+    {
+        for(auto& [id,script] : scripts){
+            if(script->Active()){
+                script->OnLateTick();
             }
         }
     }
@@ -475,6 +507,9 @@ namespace Shard::Engine::Worlds{
                 script->OnStop();
             }
         }
+
+        for(auto& [type, extension] : extensions)
+            extension->OnStop(*this);
     }
 
     void World::AddActor(std::shared_ptr<Objects::Actor> a)

@@ -24,6 +24,36 @@ namespace Shard::Engine::Core::Resources{
         kinds[index] = std::move(info);
     }
 
+    AssetKind ResourcesManager::AllocateUserKind() const
+    {
+        size_t index = static_cast<size_t>(AssetKind::FirstUser);
+        while(index < kinds.size() && kinds[index])
+            ++index;
+        return static_cast<AssetKind>(index);
+    }
+
+    bool ResourcesManager::UnregisterKind(AssetKind kind)
+    {
+        const size_t index = static_cast<size_t>(kind);
+        if(index >= kinds.size() || !kinds[index])
+            return false;
+
+        // Whatever of this kind is cached goes, and the graph forgets it
+        for(auto it = dependencies.begin(); it != dependencies.end();){
+            if(it->first.kind == kind) it = dependencies.erase(it); else ++it;
+        }
+        for(auto it = retainCount.begin(); it != retainCount.end();){
+            if(it->first.kind == kind) it = retainCount.erase(it); else ++it;
+        }
+        for(auto it = evictionCandidates.begin(); it != evictionCandidates.end();){
+            if(it->kind == kind) it = evictionCandidates.erase(it); else ++it;
+        }
+        if(index < resident.size())
+            resident[index].clear();
+        kinds[index].reset();
+        return true;
+    }
+
     const AssetKindInfo* ResourcesManager::KindInfo(AssetKind kind) const
     {
         const size_t index = static_cast<size_t>(kind);

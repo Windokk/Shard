@@ -5,6 +5,7 @@
 #include "engine/platform/devices/keys.hpp"
 #include "engine/platform/events/os_event.hpp"
 
+#include <algorithm>
 #include <cstdint>
 #include <string>
 #include <unordered_map>
@@ -129,35 +130,56 @@ namespace Shard::Engine::Events {
 
             using ComponentID = uint32_t;
 
+            /// What a subscription gives back : keep it to Unsubscribe later (0 is never a valid token). Ignoring it keeps the
+            /// subscription for the whole run, as before.
+            using Subscription = uint64_t;
+
+            /// Who a subscription belongs to : UnsubscribeOwner drops all of them at once (a plugin that is disabled). 0 : nobody.
+            using Owner = uint32_t;
+
             // Subscriptions
             template<typename T>
-            void subscribeGlobal(std::function<void(const T&)> callback) {
-                globalSubscribers[typeid(T)].emplace_back([cb = std::move(callback)](const Event& e) {
-                    cb(static_cast<const T&>(e));
-                });
+            Subscription subscribeGlobal(std::function<void(const T&)> callback, Owner owner = 0) {
+                return Add(globalSubscribers[typeid(T)], std::move(callback), owner);
             }
 
             template<typename T>
-            void subscribeToWorld(int worldID, std::function<void(const T&)> callback) {
-                worldSubscribers[worldID][typeid(T)].emplace_back([cb = std::move(callback)](const Event& e) {
-                    cb(static_cast<const T&>(e));
-                });
+            Subscription subscribeToWorld(int worldID, std::function<void(const T&)> callback, Owner owner = 0) {
+                return Add(worldSubscribers[worldID][typeid(T)], std::move(callback), owner);
             }
 
             template<typename T>
-            void subscribeToActor(Core::ObjectID actorID, std::function<void(const T&)> callback) {
-                actorSubscribers[actorID][typeid(T)].emplace_back([cb = std::move(callback)](const Event& e) {
-                    cb(static_cast<const T&>(e));
-                });
+            Subscription subscribeToActor(Core::ObjectID actorID, std::function<void(const T&)> callback, Owner owner = 0) {
+                return Add(actorSubscribers[actorID][typeid(T)], std::move(callback), owner);
             }
 
             template<typename T>
-            void subscribeToComponent(ComponentID componentID, std::function<void(const T&)> callback) {
-                componentSubscribers[componentID][typeid(T)].emplace_back(
-                    [cb = std::move(callback)](const Event& e) {
-                        cb(static_cast<const T&>(e));
-                    }
-                );
+            Subscription subscribeToComponent(ComponentID componentID, std::function<void(const T&)> callback, Owner owner = 0) {
+                return Add(componentSubscribers[componentID][typeid(T)], std::move(callback), owner);
+            }
+
+            /// Removes one subscription. Safe from inside a handler : the handler is skipped from then on, and swept once the
+            /// outermost emit is over. @return false if the token is unknown (already removed).
+            bool Unsubscribe(Subscription token) {
+                bool found = false;
+                ForEachList([&](HandlerList& list) {
+                    for (auto& h : list)
+                        if (h.token == token && h.alive) { h.alive = false; found = true; m_Dirty = true; }
+                });
+                if (found) SweepIfIdle();
+                return found;
+            }
+
+            /// Removes every subscription made with `owner` (not 0). @return how many
+            size_t UnsubscribeOwner(Owner owner) {
+                if (owner == 0) return 0;
+                size_t count = 0;
+                ForEachList([&](HandlerList& list) {
+                    for (auto& h : list)
+                        if (h.owner == owner && h.alive) { h.alive = false; ++count; m_Dirty = true; }
+                });
+                if (count) SweepIfIdle();
+                return count;
             }
 
             // Emission
@@ -190,20 +212,59 @@ namespace Shard::Engine::Events {
                 }
             }
 
-                
         private:
 
             using Handler = std::function<void(const Event&)>;
-            using SubscriberMap = std::unordered_map<std::type_index, std::vector<Handler>>;
+            struct Entry {
+                Subscription token = 0;
+                Owner owner = 0;
+                bool alive = true;
+                Handler fn;
+            };
+            using HandlerList = std::vector<Entry>;
+            using SubscriberMap = std::unordered_map<std::type_index, HandlerList>;
+
+            template<typename T>
+            Subscription Add(HandlerList& list, std::function<void(const T&)> callback, Owner owner) {
+                Entry entry;
+                entry.token = ++m_NextToken;
+                entry.owner = owner;
+                entry.fn = [cb = std::move(callback)](const Event& e) { cb(static_cast<const T&>(e)); };
+                list.push_back(std::move(entry));
+                return list.back().token;
+            }
 
             template<typename T>
             void dispatchTo(SubscriberMap& map, const T& event) {
                 auto it = map.find(typeid(T));
-                if (it != map.end()) {
-                    for (auto& handler : it->second) {
-                        handler(event);
-                    }
+                if (it == map.end()) return;
+                ++m_EmitDepth;
+                // By index and re-fetched : a handler may subscribe to the same type, which can move the list's storage
+                HandlerList& list = it->second;
+                for (size_t i = 0; i < list.size(); ++i) {
+                    if (!list[i].alive) continue;
+                    Handler fn = list[i].fn;        // a copy : the entry may be swept or moved while it runs
+                    fn(event);
                 }
+                --m_EmitDepth;
+                SweepIfIdle();
+            }
+
+            template<typename F>
+            void ForEachList(F&& fn) {
+                auto visit = [&](SubscriberMap& m) { for (auto& kv : m) fn(kv.second); };
+                visit(globalSubscribers);
+                for (auto& kv : worldSubscribers) visit(kv.second);
+                for (auto& kv : actorSubscribers) visit(kv.second);
+                for (auto& kv : componentSubscribers) visit(kv.second);
+            }
+
+            void SweepIfIdle() {
+                if (m_EmitDepth != 0 || !m_Dirty) return;
+                ForEachList([](HandlerList& list) {
+                    list.erase(std::remove_if(list.begin(), list.end(), [](const Entry& e) { return !e.alive; }), list.end());
+                });
+                m_Dirty = false;
             }
 
             // Subscriber storage
@@ -211,5 +272,9 @@ namespace Shard::Engine::Events {
             std::unordered_map<int, SubscriberMap> worldSubscribers;
             std::unordered_map<Core::ObjectID, SubscriberMap> actorSubscribers;
             std::unordered_map<ComponentID, SubscriberMap> componentSubscribers;
+
+            Subscription m_NextToken = 0;
+            int m_EmitDepth = 0;
+            bool m_Dirty = false;
     };
 }
