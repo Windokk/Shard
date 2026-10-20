@@ -281,7 +281,7 @@ namespace Shard::Engine::Plugins {
         out.moduleKind = ModuleKind::Code;
         out.linkage = Linkage::Dynamic;
         out.tier = TrustTier::FirstParty;
-        out.hosts = kAllSimulationHosts;
+        out.hosts = kAllSimulationHosts | HostBit(Host::Tool);   // a library handed to a tool (--game) is meant to be loaded by it
         out.affectsSimulation = true;
         out.contentMount.clear();
         const fs::path abs = fs::absolute(library, ec).lexically_normal();
