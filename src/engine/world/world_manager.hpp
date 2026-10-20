@@ -53,6 +53,10 @@ namespace Shard::Engine::Worlds{
             /// @param index The index of the world to unload
             void UnloadWorld(int index);
             
+            /// @brief Unloads every loaded world as a world switch does : their resources go, the modules drop what they
+            /// submitted for them (onAllWorldsUnloaded) and the object ids restart. Leaves no world loaded.
+            void UnloadLoadedWorlds();
+
             /// @brief Unload all loaded worlds
             void UnloadAllWorlds() {
                 for(size_t i = 0; i < worldBuffer.size(); i++){

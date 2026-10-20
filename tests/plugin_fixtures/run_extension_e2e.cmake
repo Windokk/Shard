@@ -1,5 +1,5 @@
 # Runs ShardHeadless with the test plugin and checks that the engine took what the plugin added through the extension points :
-# a render feature, a render pipeline, an asset type, an importer. Variables : HEADLESS GAME PLUGIN PROJECT SAMPLE OUT
+# a render feature, a render pipeline, an asset type, an importer. The plugin adds a component, so the world is unloaded before it is disabled. Variables : HEADLESS GAME PLUGIN PROJECT SAMPLE OUT
 file(REMOVE_RECURSE "${OUT}")
 file(MAKE_DIRECTORY "${OUT}")
 file(WRITE "${OUT}/script.txt"
@@ -8,6 +8,7 @@ file(WRITE "${OUT}/script.txt"
 4 asset.import ${SAMPLE} ${OUT}/imported
 5 render.pipeline shard-test-pipeline
 7 render.features
+8 world.unload
 8 plugin.disable shard.test.plugin
 9 render.features
 10 render.pipeline

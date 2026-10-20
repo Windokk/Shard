@@ -248,6 +248,16 @@ namespace Shard::Engine::Core {
                 return CommandResult{true, "loading " + args[0]};
             });
 
+        registry.RegisterCommand("world.unload", "world.unload : unloads every loaded world (what a plugin that adds components needs before it is disabled)",
+            [this](const std::vector<std::string>&) {
+                if (!m_Context.worldManager) return CommandResult{false, "no world manager"};
+                if (m_Context.worldManager->IsAsyncLoadInProgress()) return CommandResult{false, "a world is loading"};
+                const int count = m_Context.worldManager->GetLoadedWorldCount();
+                m_Context.worldManager->UnloadLoadedWorlds();
+                if (m_Context.resourcesManager) m_Context.resourcesManager->CollectUnused();
+                return CommandResult{true, std::to_string(count) + " world(s) unloaded"};
+            });
+
         registry.RegisterCommand("render.resize", "render.resize <width> <height> : resizes the viewport framebuffers as a window resize does",
             [this](const std::vector<std::string>& args) {
                 if (args.size() < 2 || !m_Context.renderer) return CommandResult{false, "usage: render.resize <width> <height>"};

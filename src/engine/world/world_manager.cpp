@@ -98,6 +98,33 @@ namespace Shard::Engine::Worlds{
         FinishAsyncLoad();
     }
 
+    void WorldManager::UnloadLoadedWorlds()
+    {
+        if(worldBuffer.empty())
+            return;
+
+        auto& engine = Core::GetEngine();
+        auto* assetIDManager = engine.GetAssetIDManager();
+        auto* resourcesManager = engine.GetResourcesManager();
+
+        while(!worldBuffer.empty()){
+            std::string nameInProject = assetIDManager->GetAssetFromID(worldBuffer[0]->GetAssetID())->baseInfos.nameInProject;
+            UnloadWorld(0);
+            resourcesManager->Unload(Core::Resources::AssetKind::World, nameInProject);
+        }
+
+        if(onAllWorldsUnloaded)
+            onAllWorldsUnloaded();
+
+        // Must happen before a new world is deserialized: Reset() invalidates every
+        // ObjectID and restarts the counter from 1. Deserializing first would hand the new
+        // world's actors IDs that Reset() then wipes out from the manager (while the objects
+        // themselves stay alive via the world's own containers), so the *next* world loaded
+        // reuses those same low IDs - GetObjectFromID() then resolves them to the wrong actor
+        // and RemoveActorRecursive() ends up tearing down the wrong world's tree entirely.
+        engine.GetObjectIDManager()->Reset();
+    }
+
     void WorldManager::FinishAsyncLoad()
     {
         std::string pathInProject = asyncLoadPathInProject;
@@ -113,26 +140,7 @@ namespace Shard::Engine::Worlds{
             return;
         }
 
-        if(!worldBuffer.empty()){
-            auto* resourcesManager = engine.GetResourcesManager();
-
-            while(!worldBuffer.empty()){
-                std::string nameInProject = assetIDManager->GetAssetFromID(worldBuffer[0]->GetAssetID())->baseInfos.nameInProject;
-                UnloadWorld(0);
-                resourcesManager->Unload(Core::Resources::AssetKind::World, nameInProject);
-            }
-
-            if(onAllWorldsUnloaded)
-                onAllWorldsUnloaded();
-
-            // Must happen before the new world is deserialized below: Reset() invalidates every
-            // ObjectID and restarts the counter from 1. Deserializing first would hand the new
-            // world's actors IDs that Reset() then wipes out from the manager (while the objects
-            // themselves stay alive via the world's own containers), so the *next* world loaded
-            // reuses those same low IDs - GetObjectFromID() then resolves them to the wrong actor
-            // and RemoveActorRecursive() ends up tearing down the wrong world's tree entirely.
-            engine.GetObjectIDManager()->Reset();
-        }
+        UnloadLoadedWorlds();
 
         auto world = engine.GetResourcesManager()->Get<Worlds::World>(Core::Resources::AssetKind::World, pathInProject);
 

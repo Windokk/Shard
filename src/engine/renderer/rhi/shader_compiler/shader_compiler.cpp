@@ -10,6 +10,7 @@
 #include <map>
 #include <memory>
 #include <mutex>
+#include <random>
 #include <regex>
 #include <set>
 #include <sstream>
@@ -76,9 +77,11 @@ namespace Shard::Engine::Rendering::ShaderCompiler {
             }
 
             static std::atomic<uint32_t> counter{0};
+            // The thread id and the counter are only unique in this process : two processes (ctest -j) start with the same ones
+            static const uint64_t process = (uint64_t(std::random_device{}()) << 32) | std::random_device{}();
             std::error_code ec;
             const std::filesystem::path temp = std::filesystem::temp_directory_path(ec);
-            const std::string unique = "shard_slang_" + std::to_string(std::hash<std::thread::id>{}(std::this_thread::get_id())) + "_" + std::to_string(counter++);
+            const std::string unique = "shard_slang_" + std::to_string(process) + "_" + std::to_string(std::hash<std::thread::id>{}(std::this_thread::get_id())) + "_" + std::to_string(counter++);
             const std::filesystem::path output = temp / (unique + ".spv");
             const std::filesystem::path diagnostics = temp / (unique + ".log");
 

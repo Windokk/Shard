@@ -52,7 +52,9 @@ namespace {
         protected:
             void SetUp() override
             {
-                dir = std::filesystem::temp_directory_path() / "shard_probe_bake_tests";
+                // One folder per test : ctest runs each test in its own process, possibly at the same time
+                const auto* info = ::testing::UnitTest::GetInstance()->current_test_info();
+                dir = std::filesystem::temp_directory_path() / (std::string("shard_probe_bake_tests_") + info->name());
                 std::filesystem::remove_all(dir);
                 std::filesystem::create_directories(dir);
                 path = Filesystem::Path((dir / "volume.probes").string());

@@ -233,12 +233,12 @@ namespace Shard::Engine::Plugins {
         std::error_code ec;
         fs::create_directories(fs::path(base).parent_path(), ec);
         {
-            std::ofstream out(base + ".key", std::ios::trunc);
+            std::ofstream out(base + ".key", std::ios::binary | std::ios::trunc);   // binary : the same bytes (LF) on every platform
             if (!out) return Core::Err("cannot write '" + base + ".key'");
             out << Crypto::ToHex(sk) << "\n";
         }
         fs::permissions(base + ".key", fs::perms::owner_read | fs::perms::owner_write, fs::perm_options::replace, ec);
-        std::ofstream pub(base + ".pub", std::ios::trunc);
+        std::ofstream pub(base + ".pub", std::ios::binary | std::ios::trunc);
         if (!pub) return Core::Err("cannot write '" + base + ".pub'");
         pub << Crypto::ToHex(pk) << "\n";
         return Core::Ok(true);
