@@ -113,7 +113,7 @@ namespace Shard::Engine::Plugins {
         size_t cursor = 0;
         for (const DeclaredField& declared : declaration.fields) {
             if (!IsIdentifier(declared.name)) return Core::Err("'" + declaration.name + "' : '" + declared.name + "' is not a field name (letters, digits and '_', not starting with a digit)");
-            if (declared.name == "type" || declared.name == "active") return Core::Err("'" + declaration.name + "' : the field name '" + declared.name + "' is reserved");
+            if (declared.name == "type" || declared.name == "active" || declared.name == "tags") return Core::Err("'" + declaration.name + "' : the field name '" + declared.name + "' is reserved");
             if (!seen.insert(declared.name).second) return Core::Err("'" + declaration.name + "' : the field '" + declared.name + "' is declared twice");
             Layout layout;
             if (!LayoutOf(declared.type, layout)) return Core::Err("'" + declaration.name + "' : unknown field type '" + declared.type + "'");

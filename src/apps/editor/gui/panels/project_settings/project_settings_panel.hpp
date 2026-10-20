@@ -2,6 +2,8 @@
 
 #include "apps/editor/gui/panels/settings_view.hpp"
 
+#include "engine/core/tags/tag.hpp"
+
 #include <string>
 #include <vector>
 
@@ -31,6 +33,20 @@ namespace Shard::Editor::GUI{
             void DrawPhysicsCategory();
             void DrawRenderingCategory();
             void DrawConsoleVariablesCategory();
+
+            // Tags (project_settings_tags.cpp)
+            void DrawTagsCategory();
+            void DrawTagNode(Engine::Core::Tag tag);
+            void DrawTagPopups();
+            void DrawTagReferenceList();
+            /// Gives the registry the project's tags again, after an edit of them
+            void ApplyTags();
+            bool AddTag(const std::string& name, std::string* error);
+            void DeleteTag(const std::string& name);
+            /// Renames the tag and what is under it, adds the redirects, and renames them in the open world
+            bool RenameTag(const std::string& from, const std::string& to, std::string* error);
+            /// Fills m_TagReferences : the open world as it is, the other worlds of the project as their files are
+            void FindTagReferences(Engine::Core::Tag tag);
 
             /// The row that edits the sun's cascades : a bar with a handle per split and the color of each cascade in the debug view.
             /// True when something changed.
@@ -65,5 +81,14 @@ namespace Shard::Editor::GUI{
             std::string m_EditingCVar;
             char m_CVarBuffer[256] = "";
             bool m_ProjectCVarsOnly = false;
+
+            // Tags : the new tag box, and what the popups (add a child, rename, delete) work on
+            char m_NewTagBuffer[256] = "";
+            std::string m_NewTagError;
+            std::string m_TagPopupTarget;
+            char m_TagNameBuffer[256] = "";
+            std::string m_TagError;
+            std::string m_TagReferencesOf;
+            std::vector<std::string> m_TagReferences;
     };
 }

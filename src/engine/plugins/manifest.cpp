@@ -3,6 +3,8 @@
 #include <algorithm>
 #include <cctype>
 
+#include "engine/core/tags/tag_registry.hpp"
+
 namespace Shard::Engine::Plugins {
 
     using nlohmann::json;
@@ -326,6 +328,25 @@ namespace Shard::Engine::Plugins {
             else m.settings = j["settings"];
         }
 
+        // "tags" : { "Weather.Rain" : { "comment" : "..." } }, or an array of names
+        if (r.Has("tags")) {
+            const json& t = j["tags"];
+            auto add = [&](const std::string& name, std::string comment) {
+                std::string why;
+                if (!Core::TagRegistry::IsValidName(name, &why)) errors.push_back("'tags' : " + why);
+                else m.tags[name] = std::move(comment);
+            };
+            if (t.is_object()) {
+                for (auto& [name, tag] : t.items())
+                    add(name, (tag.is_object() && tag.contains("comment") && tag["comment"].is_string()) ? tag["comment"].get<std::string>() : std::string());
+            } else if (t.is_array()) {
+                for (const json& name : t) {
+                    if (name.is_string()) add(name.get<std::string>(), std::string());
+                    else errors.push_back("'tags' must hold names");
+                }
+            } else errors.push_back("'tags' must be an object (name : { comment }) or an array of names");
+        }
+
         if (!errors.empty()) {
             std::string all;
             for (size_t i = 0; i < errors.size(); ++i) all += (i ? "\n" : "") + errors[i];
@@ -370,6 +391,15 @@ namespace Shard::Engine::Plugins {
         j["dependencies"] = deps;
         j["simulation"]["affects"] = m.affectsSimulation;
         j["simulation"]["deterministic"] = m.deterministic;
+        if (!m.tags.empty()) {
+            nlohmann::ordered_json tags = nlohmann::ordered_json::object();
+            for (const auto& [name, comment] : m.tags) {
+                nlohmann::ordered_json tag = nlohmann::ordered_json::object();
+                if (!comment.empty()) tag["comment"] = comment;
+                tags[name] = tag;
+            }
+            j["tags"] = tags;
+        }
         return j;
     }
 }

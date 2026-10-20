@@ -8,6 +8,7 @@
 #include <glm/gtc/quaternion.hpp>
 
 #include "engine/assets/vfs/filesystem.hpp"
+#include "engine/assets/serialization/tags/tag_json.hpp"
 #include "engine/core/diagnostics/logger.hpp"
 
 namespace Shard::Engine::Serialization
@@ -113,6 +114,10 @@ namespace Shard::Engine::Serialization
                 return true;
             }
 
+            // The scratch buffer below is raw memory : only plain data can be read into it
+            if (c.elementType == TypeID::TagContainer || c.elementType == TypeID::TagQuery)
+                return false;
+
             alignas(16) unsigned char element[128] = {};
             if (c.elementSize > sizeof(element))
                 return false;
@@ -205,6 +210,19 @@ namespace Shard::Engine::Serialization
                 out = asset ? asset->baseInfos.nameInProject : "";
                 return true;
             }
+
+            // Tags are saved by name : the hash of a name is the engine's business, and a renamed tag is found again by its redirect
+            case TypeID::Tag:
+                out = static_cast<const Core::Tag*>(value)->ToString();
+                return true;
+
+            case TypeID::TagContainer:
+                out = TagsToJson(*static_cast<const Core::TagContainer*>(value));
+                return true;
+
+            case TypeID::TagQuery:
+                out = static_cast<const Core::TagQuery*>(value)->ToString();
+                return true;
 
             case TypeID::Vector:
             {
@@ -346,6 +364,33 @@ namespace Shard::Engine::Serialization
 
                 const std::string name = in.get<std::string>();
                 *static_cast<Filesystem::AssetID*>(value) = name.empty() ? Filesystem::AssetID() : context.assets->GetIDFromNameInProject(name);
+                return true;
+            }
+
+            case TypeID::Tag:
+                if (!in.is_string())
+                    return false;
+                *static_cast<Core::Tag*>(value) = Core::TagRegistry::Get().Resolve(in.get<std::string>());
+                return true;
+
+            case TypeID::TagContainer:
+                if (!in.is_array())
+                    return false;
+                *static_cast<Core::TagContainer*>(value) = TagsFromJson(in);
+                return true;
+
+            case TypeID::TagQuery:
+            {
+                if (!in.is_string())
+                    return false;
+                Core::TagQuery query;
+                std::string error;
+                if (!Core::TagQuery::TryParse(in.get<std::string>(), query, &error))
+                {
+                    DEBUG_WARNING(std::string("Invalid tag query in '") + field.name + "' : " + error);
+                    return false;
+                }
+                *static_cast<Core::TagQuery*>(value) = std::move(query);
                 return true;
             }
 

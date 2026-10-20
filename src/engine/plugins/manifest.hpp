@@ -105,6 +105,8 @@ namespace Shard::Engine::Plugins {
 
         nlohmann::json settings = nlohmann::json::object();     ///< defaults for the plugin's cvars (key : name without the id prefix)
 
+        std::map<std::string, std::string> tags;         ///< the tags the plugin declares : name -> comment (see docs/concepts/tags.md)
+
         // ---- Filled by discovery, not read from the file ----
         std::string rootDir;                              ///< folder the manifest was found in (absolute, '/' separators)
         std::string manifestPath;

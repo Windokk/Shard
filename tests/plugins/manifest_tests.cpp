@@ -160,3 +160,20 @@ TEST(PluginManifest, WritesBackWhatItReads)
     EXPECT_EQ(round.Value().id, "a.b");
     EXPECT_EQ(round.Value().version.ToString(), "2.1.0");
 }
+
+TEST(PluginManifest, DeclaresTags)
+{
+    json j = PluginTest::Manifest("a.b");
+    j["tags"] = json::parse(R"({ "Weather.Rain": { "comment": "wet" }, "Weather.Snow": {} })");
+    auto m = ParseManifest(j);
+    ASSERT_TRUE(m);
+    ASSERT_EQ(m.Value().tags.size(), 2u);
+    EXPECT_EQ(m.Value().tags.at("Weather.Rain"), "wet");
+    EXPECT_EQ(ManifestToJson(m.Value())["tags"]["Weather.Rain"]["comment"], "wet");
+
+    j["tags"] = json::array({ "Weather.Fog" });
+    ASSERT_TRUE(ParseManifest(j));
+
+    j["tags"] = json::array({ "Weather..Fog" });
+    EXPECT_FALSE(ParseManifest(j));
+}

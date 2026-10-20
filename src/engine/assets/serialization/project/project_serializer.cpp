@@ -193,6 +193,30 @@ namespace Shard::Engine::Serialization{
                 DEBUG_INFO("No rendering settings for project: "+path.full+", using the defaults");
             }
 
+            Projects::TagSettings tagSettings;
+
+            // "tags" : { "Enemy.Boss" : { "comment" : "..." } }, a plain array of names is accepted too
+            if(data.contains("tags")){
+                const json& tags = data["tags"];
+                if(tags.is_object()){
+                    for(auto& [tagName, tag] : tags.items())
+                        tagSettings.tags[tagName] = (tag.is_object() && tag.contains("comment") && tag["comment"].is_string()) ? tag["comment"].get<std::string>() : std::string();
+                }
+                else if(tags.is_array()){
+                    for(const json& tag : tags)
+                        if(tag.is_string())
+                            tagSettings.tags[tag.get<std::string>()] = std::string();
+                }
+                else
+                    DEBUG_ERROR("Project tags must be an object (name : { comment }), ignoring them");
+            }
+
+            if(data.contains("tagRedirects") && data["tagRedirects"].is_object()){
+                for(auto& [from, to] : data["tagRedirects"].items())
+                    if(to.is_string())
+                        tagSettings.redirects[from] = to.get<std::string>();
+            }
+
             project = std::make_shared<Projects::Project>(path.GetFilename(false), projectRoot, projectResPath, pluginsPath, buildSettings, assetDatabasePath);
 
             if(data.contains("plugins") && data["plugins"].is_array())
@@ -200,6 +224,7 @@ namespace Shard::Engine::Serialization{
 
             *project->GetPhysicsSettings() = physicsSettings;
             *project->GetRenderingSettings() = renderingSettings;
+            *project->GetTagSettings() = tagSettings;
 
             project->versionMajor = projectMajorVersion;
             project->versionMinor = projectMinorVersion;
@@ -281,6 +306,21 @@ namespace Shard::Engine::Serialization{
             out["pointFilterRadius"] = shadows.pointFilterRadius;
             data["rendering"]["shadows"] = out;
         }
+
+        // Only when there are some : a project without tags keeps the file it had
+        const Projects::TagSettings* tags = pro->GetTagSettings();
+        if(!tags->tags.empty()){
+            ordered_json out = ordered_json::object();
+            for(const auto& [tagName, comment] : tags->tags){
+                ordered_json tag = ordered_json::object();
+                if(!comment.empty())
+                    tag["comment"] = comment;
+                out[tagName] = tag;
+            }
+            data["tags"] = out;
+        }
+        if(!tags->redirects.empty())
+            data["tagRedirects"] = tags->redirects;
 
         // The editor preferences are the user's, not the project's : the editor keeps them in its own file
         return data;

@@ -1,3 +1,4 @@
+#include "engine/core/tags/tag_registry.hpp"
 #include <gtest/gtest.h>
 
 #include <thread>
@@ -871,4 +872,19 @@ TEST_F(PluginManagerTest, ADisabledModuleHearsNothingMore)
     Worlds::World world("w", Filesystem::Path("w.world"));
     world.OnLoad();
     EXPECT_FALSE(Logged("world-loaded watcher"));
+}
+
+// ---- Tags ----
+
+TEST_F(PluginManagerTest, APluginsTagsLiveAsLongAsItRuns)
+{
+    Core::TagRegistry::Get().Clear();
+    AddScripted(ModuleManifest("weather", [](json& j) { j["tags"] = json::parse(R"({ "Weather.Rain": {} })"); }));
+    ASSERT_TRUE(Start());
+    EXPECT_TRUE(Core::Tag::Request("Weather.Rain").IsValid());
+    EXPECT_EQ(Core::TagRegistry::Get().GetInfo(Core::Tag::Request("Weather.Rain"))->declarations[0].owner, "weather");
+
+    ASSERT_TRUE(pm().Disable("weather"));
+    EXPECT_FALSE(Core::TagRegistry::Get().Find("Weather.Rain").IsValid());
+    Core::TagRegistry::Get().Clear();
 }

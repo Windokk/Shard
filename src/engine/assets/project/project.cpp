@@ -3,6 +3,7 @@
 #include "engine/assets/serialization/project/project_serializer.hpp"
 #include "engine/assets/asset_database_serializer.hpp"
 #include "engine/assets/asset_references.hpp"
+#include "engine/core/tags/tag_registry.hpp"
 
 namespace Shard::Engine::Projects{
     Project::Project(std::string name, Filesystem::Path projectRoot, Filesystem::Path projectResourcesRoot, Filesystem::Path pluginsFolder, BuildSettings buildSettings, Filesystem::Path assetDatabasePath)
@@ -69,5 +70,13 @@ namespace Shard::Engine::Projects{
             return;
         }
         savedState = text;
+    }
+
+    void ApplyTagSettings(const TagSettings& settings)
+    {
+        std::vector<std::pair<std::string, std::string>> tags(settings.tags.begin(), settings.tags.end());
+        Core::TagRegistry& registry = Core::TagRegistry::Get();
+        registry.SetDeclarations(Core::TagSource::Project, "", tags);
+        registry.SetRedirects(settings.redirects);
     }
 }

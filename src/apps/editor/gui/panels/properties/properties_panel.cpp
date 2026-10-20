@@ -8,6 +8,7 @@
 #include "apps/editor/gui/main_window.hpp"
 #include "apps/editor/gui/dragdrop/asset_drag_drop.hpp"
 #include "apps/editor/gui/IconsLucide.h"
+#include "apps/editor/gui/tag_widgets.hpp"
 #include "apps/editor/commands/command_stack.hpp"
 
 #include <glm/glm.hpp>
@@ -876,6 +877,18 @@ namespace Shard::Editor::GUI{
             nameEditActor = nullptr;
         }
 
+        ImGui::AlignTextToFramePadding();
+        ImGui::Text("Tags");
+        if (ImGui::IsItemHovered())
+            ImGui::SetTooltip("What this actor is : found with World::FindActorsWithTag, tested by tag queries. The children do not inherit them.");
+        ImGui::SameLine();
+        Engine::Core::TagContainer tags = actor->GetTags();
+        if (TagWidgets::TagContainerEditor("##ActorTags", tags))
+        {
+            Commands::Actions::EditActor(actor, "Edit Tags", [&]{ actor->GetTags() = tags; });
+            MarkWorldDirty();
+        }
+
         ImGui::Text("Object ID: %d", actor->GetID().GetAsInt());
         ImGui::Text("Components: %zu", actor->GetComponents().size());
     }
@@ -937,6 +950,24 @@ namespace Shard::Editor::GUI{
             {
                 ImGui::TableSetupColumn("##Property", ImGuiTableColumnFlags_WidthStretch, 90.0f);
                 ImGui::TableSetupColumn("##Value", ImGuiTableColumnFlags_WidthStretch, 90.0f);
+
+                // The component's own tags, before its fields
+                ImGui::TableNextRow();
+                ImGui::TableSetColumnIndex(0);
+                ImGui::AlignTextToFramePadding();
+                ImGui::TextUnformatted("tags");
+                if (ImGui::IsItemHovered())
+                    ImGui::SetTooltip("What this part of the actor is (a hitbox, an interaction...) : found with World::FindComponentsWithTag.");
+                ImGui::TableSetColumnIndex(1);
+                Engine::Core::TagContainer componentTags = comp->GetTags();
+                if (TagWidgets::TagContainerEditor("##ComponentTags", componentTags))
+                {
+                    if (drawnActor)
+                        Commands::Actions::EditActor(drawnActor, "Edit Component Tags", [&]{ comp->GetTags() = componentTags; });
+                    else
+                        comp->GetTags() = componentTags;
+                    MarkWorldDirty();
+                }
 
                 for (FieldInfo* field : desc->fields)
                 {
@@ -1316,6 +1347,33 @@ namespace Shard::Editor::GUI{
             {
                 Filesystem::AssetID* asset = static_cast<Filesystem::AssetID*>(value);
                 if (asset && DrawAssetField(id, *asset, assetBrowser))
+                {
+                    FieldChangedEvent evt{ field };
+                    comp->OnFieldChanged(evt); MarkWorldDirty();
+                }
+                break;
+            }
+            case TypeID::Tag:
+            {
+                if (TagWidgets::TagPicker(id.c_str(), *static_cast<Engine::Core::Tag*>(value)))
+                {
+                    FieldChangedEvent evt{ field };
+                    comp->OnFieldChanged(evt); MarkWorldDirty();
+                }
+                break;
+            }
+            case TypeID::TagContainer:
+            {
+                if (TagWidgets::TagContainerEditor(id.c_str(), *static_cast<Engine::Core::TagContainer*>(value)))
+                {
+                    FieldChangedEvent evt{ field };
+                    comp->OnFieldChanged(evt); MarkWorldDirty();
+                }
+                break;
+            }
+            case TypeID::TagQuery:
+            {
+                if (TagWidgets::TagQueryInput(id.c_str(), *static_cast<Engine::Core::TagQuery*>(value)))
                 {
                     FieldChangedEvent evt{ field };
                     comp->OnFieldChanged(evt); MarkWorldDirty();

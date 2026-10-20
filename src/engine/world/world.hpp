@@ -6,6 +6,9 @@
 #include <typeindex>
 
 #include "engine/world/objectID.hpp"
+#include "engine/core/spatial/spatial_index.hpp"
+#include "engine/core/tags/tag_container.hpp"
+#include "engine/core/tags/tag_query.hpp"
 #include "engine/world/components/script.hpp"
 #include "engine/world/components/transform.hpp"
 #include "engine/world/world_extension.hpp"
@@ -31,7 +34,7 @@ namespace Shard::Engine::Worlds{
     /// of the world when parent is null. The objects get new ids.
     std::shared_ptr<Objects::Actor> InstantiateActor(World& world, const json& actorData, const std::shared_ptr<Objects::Actor>& parent = nullptr);
 
-    class World{
+    class World : public Core::TagContainer::Listener{
 
         std::unordered_map<Core::ObjectID, std::shared_ptr<Objects::Actor>> rootActors;
         std::string name;
@@ -156,10 +159,65 @@ namespace Shard::Engine::Worlds{
             /// @brief Called by the actors when a component joins the world, so the modules can index it
             void NotifyComponentAdded(int idInWorld, const std::shared_ptr<Objects::Components::Component>& component, bool cloned = false);
 
+            // ---- Tags (see docs/concepts/tags.md) ----
+
+            /// @brief The tags of the world itself. Saved with it ; changing them sends TagsChangedEvent to the world (its asset id).
+            Core::TagContainer& GetTags() { return tags; }
+            const Core::TagContainer& GetTags() const { return tags; }
+
+            void OnTagsChanged(const Core::TagContainer& added, const Core::TagContainer& removed, bool quiet) override;
+
+            /// @brief The actors that have `tag` (or a tag under it), in the order of their ids. The deactivated ones are left out
+            /// unless includeInactive. Read from the world's index : costs the number of actors found, not of actors in the world.
+            std::vector<std::shared_ptr<Objects::Actor>> FindActorsWithTag(Core::Tag tag, bool includeInactive = false);
+            /// The first of FindActorsWithTag, null when there is none
+            std::shared_ptr<Objects::Actor> FindFirstActorWithTag(Core::Tag tag, bool includeInactive = false);
+            /// @brief The actors whose tags match `query`, in the order of their ids. Starts from the index when the query has a
+            /// required tag (TagQuery::GetRequiredTag), and tests every actor of the world otherwise.
+            std::vector<std::shared_ptr<Objects::Actor>> FindActors(const Core::TagQuery& query, bool includeInactive = false);
+
+            /// The components that have `tag` (or a tag under it), in the order of their ids in the world
+            std::vector<std::shared_ptr<Objects::Components::Component>> FindComponentsWithTag(Core::Tag tag, bool includeInactive = false);
+            /// The same, only those of type T
+            template<class T>
+            std::vector<std::shared_ptr<T>> FindComponentsWithTag(Core::Tag tag, bool includeInactive = false)
+            {
+                std::vector<std::shared_ptr<T>> out;
+                for (auto& component : FindComponentsWithTag(tag, includeInactive))
+                    if (auto typed = std::dynamic_pointer_cast<T>(component))
+                        out.push_back(std::move(typed));
+                return out;
+            }
+
+            /// @brief The actors that match `query` and whose position (Transform::GetWorldCoords) is within `radius` of `center` :
+            /// "the enemies within 10 m". In the order of their ids.
+            void QuerySphere(const Core::DVec3& center, double radius, const Core::TagQuery& query,
+                             std::vector<std::shared_ptr<Objects::Actor>>& out, bool includeInactive = false);
+            /// The same, with the position inside `box`
+            void QueryAABB(const Core::AABB& box, const Core::TagQuery& query,
+                           std::vector<std::shared_ptr<Objects::Actor>>& out, bool includeInactive = false);
+
+            /// @brief Keeps the tag index up to date : called by the actors when they join or leave the world and when their tags change
+            void IndexActorTags(const std::shared_ptr<Objects::Actor>& actor, const Core::TagContainer& added, const Core::TagContainer& removed);
+            /// The same for the components (removed from the index by RemoveComponent)
+            void IndexComponentTags(int idInWorld, const std::shared_ptr<Objects::Components::Component>& component,
+                                    const Core::TagContainer& added, const Core::TagContainer& removed);
+
         private:
 
             Core::ReferenceFrameTree frames;
             std::vector<std::pair<std::type_index, std::unique_ptr<IWorldExtension>>> extensions;
+
+            Core::TagContainer tags;
+
+            // The tag index : explicit tag -> what has it, ordered by id so that a search finds them in the same order on every run
+            std::unordered_map<uint64_t, std::map<Core::ObjectID, std::weak_ptr<Objects::Actor>>> actorsByTag;
+            std::unordered_map<uint64_t, std::map<int, std::weak_ptr<Objects::Components::Component>>> componentsByTag;
+
+            /// The actors of the index under `tag` (its tree included), ordered by id
+            std::map<Core::ObjectID, std::shared_ptr<Objects::Actor>> CollectTagged(Core::Tag tag, bool includeInactive);
+            /// Every actor of the world, ordered by id
+            std::map<Core::ObjectID, std::shared_ptr<Objects::Actor>> CollectAll(bool includeInactive);
     };
 
 }

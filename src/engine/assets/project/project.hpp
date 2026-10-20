@@ -1,6 +1,7 @@
 #pragma once
 
 #include <algorithm>
+#include <map>
 #include <string>
 #include <vector>
 
@@ -204,6 +205,18 @@ namespace Shard::Engine::Projects{
         ShadowSettings shadows;
     };
 
+    /// The project's own tags (see docs/concepts/tags.md) : the ones the plugins and the code declare are theirs
+    struct TagSettings{
+        /// Name -> comment (empty : none). A tag declares its parents with it : "Enemy.Boss" is enough for "Enemy" to exist.
+        std::map<std::string, std::string> tags;
+
+        /// Old name -> new name : what the worlds saved before a rename still say (the editor adds one per renamed tag)
+        std::map<std::string, std::string> redirects;
+    };
+
+    /// Gives the TagRegistry the project's tags and redirects (in place of the ones it had from the project)
+    void ApplyTagSettings(const TagSettings& settings);
+
     class Project{
         public:
 
@@ -249,6 +262,8 @@ namespace Shard::Engine::Projects{
 
             RenderingSettings* GetRenderingSettings() { return &renderingSettings; }
 
+            TagSettings* GetTagSettings() { return &tagSettings; }
+
         private:
             Filesystem::Path projectRoot = Filesystem::Path("");
             Filesystem::Path projectResourcesRoot = Filesystem::Path("");
@@ -258,6 +273,7 @@ namespace Shard::Engine::Projects{
             BuildSettings buildSettings;
             PhysicsSettings physicsSettings;
             RenderingSettings renderingSettings;
+            TagSettings tagSettings;
 
             /// The project file as it was last loaded or saved (ProjectToJson, dumped)
             std::string savedState;

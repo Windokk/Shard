@@ -10,6 +10,7 @@
 
 #include "apps/editor/gui/dragdrop/asset_drag_drop.hpp"
 #include "apps/editor/gui/IconsLucide.h"
+#include "apps/editor/gui/tag_widgets.hpp"
 
 #include "imgui/imgui.h"
 
@@ -62,6 +63,17 @@ namespace Shard::Editor::GUI{
         ImGui::InputText("Path", pathBuffer, sizeof(pathBuffer));
 
         ImGui::EndDisabled();
+
+        // The world's own tags (a game mode, a biome...) : a script reads them with GetTags() on its world
+        ImGui::AlignTextToFramePadding();
+        ImGui::TextUnformatted("Tags");
+        ImGui::SameLine();
+        Core::TagContainer tags = world->GetTags();
+        if (TagWidgets::TagContainerEditor("##WorldTags", tags))
+        {
+            world->GetTags() = tags;
+            world->SetDirty(true);
+        }
     }
 
     void WorldSettingsPanel::ApplySkybox(Worlds::World* world, const std::string& pathInProject)

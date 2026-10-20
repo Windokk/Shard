@@ -22,11 +22,12 @@ namespace Shard::Engine::Objects{
 
     using namespace Components;
 
-    class Actor : public WorldObject{
+    class Actor : public WorldObject, public Core::TagContainer::Listener{
         
         std::vector<std::shared_ptr<Component>> components;
         std::string name;
         std::string folder;
+        Core::TagContainer tags;
         /// Components of a type nobody registered (the plugin that brings it is not loaded) : kept as they were read, and written back
         /// as they are, so that opening a world without the plugin and saving it does not lose them
         std::vector<nlohmann::json> unknownComponents;
@@ -87,6 +88,13 @@ namespace Shard::Engine::Objects{
             /// outliner (saved with the world), the actor's place in the hierarchy and in the world is not affected.
             const std::string& GetFolder() const { return folder; }
             void SetFolder(std::string path) { folder = std::move(path); }
+
+            /// @brief The tags of this actor (see docs/concepts/tags.md). Saved with the world ; changing them keeps the world's index
+            /// up to date (World::FindActorsWithTag) and sends TagsChangedEvent to the actor. The children do not inherit them.
+            Core::TagContainer& GetTags() { return tags; }
+            const Core::TagContainer& GetTags() const { return tags; }
+
+            void OnTagsChanged(const Core::TagContainer& added, const Core::TagContainer& removed, bool quiet) override;
 
             void AddChild(std::shared_ptr<WorldObject> o) override;
 

@@ -155,6 +155,7 @@ If the process crashes while plugin code runs or loads, the crash handler notes 
 | `budgets` | `frameMs` : milliseconds per frame it should stay under. `memoryMB` : megabytes of counted memory (`PluginContext::Memory()`, see below), and `enforce` : an allocation that would pass it fails instead of only being reported. A plugin over its budget is reported in the log and `plugin.budgets` |
 | `permissions` | what it says it will do (`fs.read:content`, `render.feature`, `net`...). Read by `PluginContext::Has`, not enforced : see [Trust levels](#trust-levels) |
 | `settings` | defaults for its console variables (key relative to the plugin's variables), applied below the project's values |
+| `tags` | the tags it declares (`{ "Weather.Rain": { "comment": "..." } }`, or an array of names) : in the tree while the plugin is loaded, shown but not editable in Project settings > Tags. See [Tags](tags.md) |
 
 A datapack has the same manifest with `moduleKind: "datapack"`, `tier: 3` and no `binaries`.
 
@@ -409,7 +410,7 @@ Everything is checked when the pack loads ; a pack with a file that doesn't have
     { "op": "setSettings",     "settings": { "ambient_color": [0.1, 0.1, 0.1] } } ] }
 ```
 
-* **Declared components** (`components/<name>.json`) describe fields (`bool`, `int`, `float`, `string`, `vec3`, `color`) with defaults. Each one becomes a real component type under its name : it can be added to an actor, is saved and loaded with the world, copied with the actor and edited in the inspector like a component written in C++, and code reads it with `DeclaredFieldsComponent::Get`/`Set`. A component has up to 64 fields and 1 KB of them, and the names `type` and `active` are reserved. It has no behavior of its own : that comes from a code module.
+* **Declared components** (`components/<name>.json`) describe fields (`bool`, `int`, `float`, `string`, `vec3`, `color`) with defaults. Each one becomes a real component type under its name : it can be added to an actor, is saved and loaded with the world, copied with the actor and edited in the inspector like a component written in C++, and code reads it with `DeclaredFieldsComponent::Get`/`Set`. A component has up to 64 fields and 1 KB of them, and the names `type`, `active` and `tags` are reserved. It has no behavior of its own : that comes from a code module.
 
 `example_project/plugins/example-pack` is a small datapack.
 

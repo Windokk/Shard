@@ -125,7 +125,7 @@ Chaque phase vise quelque chose de testable seul. Les durées sont des ordres de
 
 ### R2 · ABI C stable et SDK public (3 à 4 semaines)
 
-C'est la phase 7 du plan d'origine, non commencée. Aujourd'hui un plugin natif se lie à tout `Engine` (statique) : sa compatibilité repose sur l'empreinte de build, donc sur la même toolchain que le moteur.
+C'est la phase 7 du plan d'origine, non commencée. Plan détaillé : `c-abi-sdk.fr.md`. Aujourd'hui un plugin natif se lie à tout `Engine` (statique) : sa compatibilité repose sur l'empreinte de build, donc sur la même toolchain que le moteur.
 
 * `ShardHostApi` : table de fonctions C versionnée (`structSize`, `apiMajor/Minor`, `QueryInterface(id, minVersion)`), allocation de l'hôte, journal.
 * Interfaces d'extension en C (composants, systèmes, cvars, commandes, événements, services) et un SDK C++ header-only qui les enrobe ; les classes actuelles deviennent un adaptateur.

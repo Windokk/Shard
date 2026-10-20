@@ -6,6 +6,7 @@
 #include <nlohmann/json.hpp>
 
 #include "engine/world/object.hpp"
+#include "engine/core/tags/tag_container.hpp"
 
 using namespace nlohmann;
 using ordered_json = nlohmann::ordered_json;
@@ -35,10 +36,13 @@ namespace Shard::Engine::Objects{
             TransformHierarchy = 1 << 3
         };
 
-        class Component : public Core::Object{
+        class Component : public Core::Object, public Core::TagContainer::Listener{
 
             public:
                 Component(std::shared_ptr<Actor> parent, uint32_t local_id);
+                /// A copy (what Clone does) has the same tags, and hears its own changes
+                Component(const Component& other);
+                Component& operator=(const Component& other);
                 virtual ~Component();
                 std::shared_ptr<Actor> parent = nullptr;
 
@@ -93,12 +97,19 @@ namespace Shard::Engine::Objects{
                 /// @param changes TransformChange flags
                 virtual void OnTransformChanged(uint8_t changes) {}
 
+                /// @brief The tags of this component (see docs/concepts/tags.md). Saved with the world, under "tags" ; changing them keeps
+                /// the world's index up to date and sends TagsChangedEvent to the component (its id in the world).
+                Core::TagContainer& GetTags() { return tags; }
+                const Core::TagContainer& GetTags() const { return tags; }
+
+                void OnTagsChanged(const Core::TagContainer& added, const Core::TagContainer& removed, bool quiet) override;
+
             private:
 
             protected:
                 /// @brief Serializes the reflected fields of this component (its descriptor, see GetDescriptor)
                 /// @param typeName The "type" the component is found again by when a level is loaded
-                /// @note "type" and "active" are reserved keys : a reflected field named like that is not serialized
+                /// @note "type", "active" and "tags" are reserved keys : a reflected field named like that is not serialized
                 ordered_json SerializeReflected(const std::string& typeName) const;
 
                 /// @brief Loads the reflected fields of this component, running OnFieldChanged for each of them
@@ -115,6 +126,7 @@ namespace Shard::Engine::Objects{
 
                 uint32_t local_id;
                 bool activated = true;
+                Core::TagContainer tags;
 
         };
     }

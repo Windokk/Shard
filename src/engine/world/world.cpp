@@ -7,6 +7,9 @@
 #include "engine/world/components/registry/component_registry.hpp"
 #include "engine/world/engine.hpp"
 #include "engine/assets/resources_manager.hpp"
+#include "engine/assets/serialization/tags/tag_json.hpp"
+#include "engine/core/tags/tag_registry.hpp"
+#include "engine/world/event_system.hpp"
 
 namespace Shard::Engine::Worlds{
 
@@ -18,6 +21,8 @@ namespace Shard::Engine::Worlds{
 
         for(auto& [type, factory] : GetWorldExtensionFactories())
             extensions.emplace_back(type, factory());
+
+        tags.SetListener(this);
     }
 
     void World::NotifyComponentAdded(int idInWorld, const std::shared_ptr<Objects::Components::Component>& component, bool cloned)
@@ -39,7 +44,10 @@ namespace Shard::Engine::Worlds{
             const std::string& type = component["type"];
 
             if(type == "transform"){
-                a->GetComponent<Objects::Components::Transform>()->Deserialize(component);
+                auto transform = a->GetComponent<Objects::Components::Transform>();
+                transform->Deserialize(component);
+                if(component.contains("tags"))
+                    transform->GetTags().Assign(Serialization::TagsFromJson(component["tags"]), true);
                 continue;
             }
 
@@ -53,10 +61,17 @@ namespace Shard::Engine::Worlds{
             }
 
             created->Deserialize(component);
+
+            if(component.contains("tags"))
+                created->GetTags().Assign(Serialization::TagsFromJson(component["tags"]), true);
         }
     }
 
     void DeserializeActor(std::shared_ptr<Objects::Actor> a, json data, json actor){
+
+        // Before the components : the scripts' OnCreate (run as each one joins the world) can read the actor's tags
+        if (actor.contains("tags"))
+            a->GetTags().Assign(Serialization::TagsFromJson(actor["tags"]), true);
 
         // This actor's own components (crucially its transform) have to be deserialized BEFORE its
         // children's: a child's components (Light, PhysicsBody, ProbeVolume, ...) read the parent's
@@ -201,6 +216,8 @@ namespace Shard::Engine::Worlds{
 
             name = data["name"];
 
+            tags.Assign(data.contains("tags") ? Serialization::TagsFromJson(data["tags"]) : Core::TagContainer(), true);
+
             folders.clear();
             if(data.contains("folders") && data["folders"].is_array())
                 for(auto& folder : data["folders"])
@@ -279,6 +296,9 @@ namespace Shard::Engine::Worlds{
         if(!a->GetFolder().empty())
             actor["folder"] = a->GetFolder();
 
+        if(!a->GetTags().IsEmpty())
+            actor["tags"] = Serialization::TagsToJson(a->GetTags());
+
         for(auto& childrenID : a->GetChildrenID(false)){
             auto child = a->GetChild(childrenID);
             SerializeActor(std::dynamic_pointer_cast<Objects::Actor>(child), &actor["children"]);
@@ -286,6 +306,9 @@ namespace Shard::Engine::Worlds{
 
         for(auto& comp : a->GetComponents()){
             ordered_json serializedComp = comp->Serialize();
+            // For every component, whatever its Serialize does : "tags" is a reserved key (see Component::SerializeReflected)
+            if(!comp->GetTags().IsEmpty())
+                serializedComp["tags"] = Serialization::TagsToJson(comp->GetTags());
             actor["components"].push_back(serializedComp);
         }
         for(const json& unknown : a->GetUnknownComponents())
@@ -336,6 +359,9 @@ namespace Shard::Engine::Worlds{
         ordered_json full;
 
         full["name"] = name;
+
+        if(!tags.IsEmpty())
+            full["tags"] = Serialization::TagsToJson(tags);
 
         if(frames.Count() > 1)
             full["frames"] = SerializeFrames(frames);
@@ -432,6 +458,10 @@ namespace Shard::Engine::Worlds{
 
         frames.Clear();
         folders.clear();
+
+        tags.Assign(Core::TagContainer(), true);
+        actorsByTag.clear();
+        componentsByTag.clear();
     }
 
     void World::OnLoad()
@@ -584,7 +614,175 @@ namespace Shard::Engine::Worlds{
             scripts.erase(idInWorld);
         }
 
+        IndexComponentTags(idInWorld, compPtr, Core::TagContainer(), compPtr->GetTags());
+
         for(auto& [type, extension] : extensions)
             extension->OnComponentRemoved(*this, idInWorld, compPtr);
+    }
+
+    // ---- Tags ----
+
+    void World::OnTagsChanged(const Core::TagContainer& added, const Core::TagContainer& removed, bool quiet)
+    {
+        if (quiet || !loaded)
+            return;
+        if (Events::EventDispatcher* events = Core::GetEngine().GetEventDispatcher())
+            events->emitToWorld(ResolveAssetID(), Events::TagsChangedEvent(added, removed, Core::ObjectID(0)));
+    }
+
+    void World::IndexActorTags(const std::shared_ptr<Objects::Actor>& actor, const Core::TagContainer& added, const Core::TagContainer& removed)
+    {
+        if (!actor)
+            return;
+
+        const Core::ObjectID actorID = actor->GetID();
+        for (Core::Tag tag : removed) {
+            auto it = actorsByTag.find(tag.GetId().Value());
+            if (it == actorsByTag.end())
+                continue;
+            it->second.erase(actorID);
+            if (it->second.empty())
+                actorsByTag.erase(it);
+        }
+        for (Core::Tag tag : added)
+            actorsByTag[tag.GetId().Value()][actorID] = actor;
+    }
+
+    void World::IndexComponentTags(int idInWorld, const std::shared_ptr<Objects::Components::Component>& component,
+                                   const Core::TagContainer& added, const Core::TagContainer& removed)
+    {
+        for (Core::Tag tag : removed) {
+            auto it = componentsByTag.find(tag.GetId().Value());
+            if (it == componentsByTag.end())
+                continue;
+            it->second.erase(idInWorld);
+            if (it->second.empty())
+                componentsByTag.erase(it);
+        }
+        if (!component)
+            return;
+        for (Core::Tag tag : added)
+            componentsByTag[tag.GetId().Value()][idInWorld] = component;
+    }
+
+    std::map<Core::ObjectID, std::shared_ptr<Objects::Actor>> World::CollectTagged(Core::Tag tag, bool includeInactive)
+    {
+        std::map<Core::ObjectID, std::shared_ptr<Objects::Actor>> found;
+        if (!tag.IsValid())
+            return found;
+
+        // The actors tagged `tag` itself, or a tag under it
+        std::vector<Core::Tag> tree;
+        Core::TagRegistry::Get().CollectDescendants(tag, tree);
+
+        for (Core::Tag t : tree) {
+            auto it = actorsByTag.find(t.GetId().Value());
+            if (it == actorsByTag.end())
+                continue;
+            for (auto& [id, weak] : it->second) {
+                std::shared_ptr<Objects::Actor> actor = weak.lock();
+                if (actor && (includeInactive || actor->IsActive()))
+                    found.emplace(id, std::move(actor));
+            }
+        }
+        return found;
+    }
+
+    std::map<Core::ObjectID, std::shared_ptr<Objects::Actor>> World::CollectAll(bool includeInactive)
+    {
+        std::map<Core::ObjectID, std::shared_ptr<Objects::Actor>> found;
+
+        std::vector<std::shared_ptr<Objects::Actor>> pending;
+        for (auto& [id, actor] : rootActors)
+            pending.push_back(actor);
+
+        while (!pending.empty()) {
+            std::shared_ptr<Objects::Actor> actor = std::move(pending.back());
+            pending.pop_back();
+            if (!actor)
+                continue;
+            for (Core::ObjectID childID : actor->GetChildrenID(false))
+                if (auto child = std::dynamic_pointer_cast<Objects::Actor>(actor->GetChild(childID)))
+                    pending.push_back(child);
+            if (includeInactive || actor->IsActive())
+                found.emplace(actor->GetID(), std::move(actor));
+        }
+        return found;
+    }
+
+    std::vector<std::shared_ptr<Objects::Actor>> World::FindActorsWithTag(Core::Tag tag, bool includeInactive)
+    {
+        std::vector<std::shared_ptr<Objects::Actor>> out;
+        for (auto& [id, actor] : CollectTagged(tag, includeInactive))
+            out.push_back(std::move(actor));
+        return out;
+    }
+
+    std::shared_ptr<Objects::Actor> World::FindFirstActorWithTag(Core::Tag tag, bool includeInactive)
+    {
+        auto found = CollectTagged(tag, includeInactive);
+        return found.empty() ? nullptr : found.begin()->second;
+    }
+
+    std::vector<std::shared_ptr<Objects::Actor>> World::FindActors(const Core::TagQuery& query, bool includeInactive)
+    {
+        const Core::Tag required = query.GetRequiredTag();
+        auto candidates = required.IsValid() ? CollectTagged(required, includeInactive) : CollectAll(includeInactive);
+
+        std::vector<std::shared_ptr<Objects::Actor>> out;
+        for (auto& [id, actor] : candidates)
+            if (query.Matches(actor->GetTags()))
+                out.push_back(std::move(actor));
+        return out;
+    }
+
+    std::vector<std::shared_ptr<Objects::Components::Component>> World::FindComponentsWithTag(Core::Tag tag, bool includeInactive)
+    {
+        std::vector<std::shared_ptr<Objects::Components::Component>> out;
+        if (!tag.IsValid())
+            return out;
+
+        std::vector<Core::Tag> tree;
+        Core::TagRegistry::Get().CollectDescendants(tag, tree);
+
+        std::map<int, std::shared_ptr<Objects::Components::Component>> found;
+        for (Core::Tag t : tree) {
+            auto it = componentsByTag.find(t.GetId().Value());
+            if (it == componentsByTag.end())
+                continue;
+            for (auto& [id, weak] : it->second) {
+                std::shared_ptr<Objects::Components::Component> component = weak.lock();
+                if (component && (includeInactive || component->Active()))
+                    found.emplace(id, std::move(component));
+            }
+        }
+
+        out.reserve(found.size());
+        for (auto& [id, component] : found)
+            out.push_back(std::move(component));
+        return out;
+    }
+
+    void World::QuerySphere(const Core::DVec3& center, double radius, const Core::TagQuery& query,
+                            std::vector<std::shared_ptr<Objects::Actor>>& out, bool includeInactive)
+    {
+        out.clear();
+        const double radiusSquared = radius * radius;
+        for (auto& actor : FindActors(query, includeInactive)) {
+            if (!actor->transform)
+                continue;
+            const Core::DVec3 offset = actor->transform->GetWorldCoords().ToDVec3() - center;
+            if (glm::dot(offset, offset) <= radiusSquared)
+                out.push_back(std::move(actor));
+        }
+    }
+
+    void World::QueryAABB(const Core::AABB& box, const Core::TagQuery& query,
+                          std::vector<std::shared_ptr<Objects::Actor>>& out, bool includeInactive)
+    {
+        out.clear();
+        for (auto& actor : FindActors(query, includeInactive))
+            if (actor->transform && box.Contains(actor->transform->GetWorldCoords().ToDVec3()))
+                out.push_back(std::move(actor));
     }
 }

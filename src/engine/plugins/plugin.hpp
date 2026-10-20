@@ -1,5 +1,6 @@
 #pragma once
 
+#include <cstddef>
 #include <cstdint>
 #include <functional>
 #include <memory>
@@ -12,6 +13,7 @@
 #include "engine/plugins/fingerprint.hpp"
 #include "engine/plugins/hooks.hpp"
 #include "engine/plugins/manifest.hpp"
+#include "engine/core/tags/tag_registry.hpp"
 #include "engine/world/components/registry/component_registry.hpp"
 #include "engine/world/engine.hpp"
 
@@ -201,6 +203,7 @@ namespace Shard::Engine::Plugins {
         Core::IEngineContext* engine = nullptr;
         Objects::Components::ComponentRegistry* components = nullptr;
         Debugging::Logger* logger = nullptr;
+        Core::TagRegistry* tags = nullptr;              ///< added after the first version : check structSize before reading it
     };
 
     struct PluginDesc {
@@ -224,6 +227,8 @@ namespace Shard::Engine::Plugins {
         Core::SetEngine(links->engine);
         Objects::Components::SetComponentRegistry(links->components);
         Debugging::SetLogger(links->logger);
+        if (links->structSize >= offsetof(HostLinks, tags) + sizeof(links->tags))
+            Core::TagRegistry::Link(links->tags);
 #else
         (void)links;
 #endif

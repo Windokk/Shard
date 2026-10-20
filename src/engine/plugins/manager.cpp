@@ -12,6 +12,7 @@
 #include "engine/core/config/cvar.hpp"
 #include "engine/core/diagnostics/logger.hpp"
 #include "engine/core/math/hash.hpp"
+#include "engine/core/tags/tag_registry.hpp"
 #include "engine/platform/crash/crash_handler.hpp"
 #include "engine/plugins/archive.hpp"
 #include "engine/plugins/declared_component.hpp"
@@ -746,6 +747,7 @@ namespace Shard::Engine::Plugins {
         links.engine = m_Engine;
         links.components = &Objects::Components::GetComponentRegistry();
         links.logger = &Debugging::GetLogger();
+        links.tags = &Core::TagRegistry::Get();
 
         auto describe = r.library.Symbol<DescribeFn>(r.manifest.entry);
         if (!describe) {
@@ -847,6 +849,7 @@ namespace Shard::Engine::Plugins {
             try { r.context->ReleaseAll(); } catch (...) {}
         }
         m_Content.Unmount(r.owner);
+        Core::TagRegistry::Get().RemoveDeclarations(Core::TagSource::Plugin, r.manifest.id);
         FailDependents(r.manifest.id, r.manifest.id);
     }
 
@@ -880,6 +883,12 @@ namespace Shard::Engine::Plugins {
 
     void PluginManager::MountContent(PluginRecord& r)
     {
+        // The tags of the manifest join the tree with the plugin's content (and leave it with it, see UnmountContent's callers)
+        if (!r.manifest.tags.empty()) {
+            std::vector<std::pair<std::string, std::string>> tags(r.manifest.tags.begin(), r.manifest.tags.end());
+            Core::TagRegistry::Get().SetDeclarations(Core::TagSource::Plugin, r.manifest.id, tags);
+        }
+
         if (!r.manifest.HasContent()) return;
         std::string err;
         if (!m_Content.Mount(r.manifest, r.owner, &err)) {
@@ -1029,6 +1038,7 @@ namespace Shard::Engine::Plugins {
             r.context.reset();
         }
         m_Content.Unmount(r.owner);
+        Core::TagRegistry::Get().RemoveDeclarations(Core::TagSource::Plugin, r.manifest.id);
         m_Declared.erase(std::remove_if(m_Declared.begin(), m_Declared.end(), [&](const DeclaredComponentEntry& d) { return d.pluginId == r.manifest.id; }), m_Declared.end());
         m_Services.RevokeOwner(r.owner);
         m_Hooks.RemoveOwner(r.owner);

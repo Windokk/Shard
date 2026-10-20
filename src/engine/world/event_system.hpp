@@ -1,6 +1,7 @@
 #pragma once
 
 #include "engine/world/objectID.hpp"
+#include "engine/core/tags/tag_container.hpp"
 #include "engine/platform/devices/gamepad.hpp"
 #include "engine/platform/devices/keys.hpp"
 #include "engine/platform/events/os_event.hpp"
@@ -115,6 +116,15 @@ namespace Shard::Engine::Events {
         const std::string actorName;
         WorldStructureChangedEvent(
         const int& worldAssetID, const WorldChangeType changeType, const std::string actorName, Core::ObjectID source) : Event(source), worldAssetID(worldAssetID), changeType(changeType), actorName(actorName) {}
+    };
+
+    /// @brief The tags of a world, an actor or a component changed (see TagContainer). Sent to the scope of what changed : the world
+    /// (its asset id), the actor, or the component (its id in the world). One event per Add, Remove or Assign ; loading sends none.
+    /// added / removed : the explicit tags that changed.
+    struct TagsChangedEvent : public Event {
+        Core::TagContainer added;
+        Core::TagContainer removed;
+        TagsChangedEvent(Core::TagContainer a, Core::TagContainer r, Core::ObjectID source) : Event(source), added(std::move(a)), removed(std::move(r)) {}
     };
 
     class EventDispatcher;

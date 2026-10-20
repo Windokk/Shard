@@ -59,6 +59,7 @@ Subscribers are found by the exact C++ type (`typeid`), so an event deriving fro
 | Event | Emitted | Carries |
 |---|---|---|
 | `WorldStructureChangedEvent` | globally, when an actor is created, destroyed, moved, activated or deactivated, and when a world is loaded or unloaded | `worldAssetID`, `changeType` (`CREATED`, `DESTROYED`, `MOVED`, `ACTIVATED`, `DEACTIVATED`, `LOADED`, `UNLOADED`), `actorName` |
+| `TagsChangedEvent` | to the world (its asset id), the actor or the component (its id in the world) whose tags changed, in a loaded world. Not when a world is loaded | `added`, `removed` (the explicit tags that changed). See [Tags](tags.md) |
 
 ### Input events
 

@@ -203,6 +203,8 @@ namespace Shard::Engine{
             }
             else{
                 m_Context.currentProject = project;
+                // Before any world (or plugin content) is read : the names in the files are resolved against the tree
+                Projects::ApplyTagSettings(*project->GetTagSettings());
                 LoadConfigLayer(ConfigLayer::Project, ConfigPath(project->GetProjectRoot(), "project.cfg"));
             }
 

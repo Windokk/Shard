@@ -202,6 +202,7 @@ namespace Shard::Engine::Plugins {
         if (r->context) r->context->ReleaseAll();
         r->context.reset();
         m_Content.Unmount(r->owner);
+        Core::TagRegistry::Get().RemoveDeclarations(Core::TagSource::Plugin, r->manifest.id);
         m_Declared.erase(std::remove_if(m_Declared.begin(), m_Declared.end(), [&](const DeclaredComponentEntry& d) { return d.pluginId == id; }), m_Declared.end());
         m_Services.RevokeOwner(r->owner);
         m_Hooks.RemoveOwner(r->owner);

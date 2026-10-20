@@ -23,6 +23,18 @@ namespace Shard::Engine::Objects{
     Actor::Actor(std::string name, Core::IEngineContext* engine) : engine(engine)
     {
         SetName(name);
+        tags.SetListener(this);
+    }
+
+    void Actor::OnTagsChanged(const Core::TagContainer& added, const Core::TagContainer& removed, bool quiet)
+    {
+        if (!world)
+            return;
+
+        world->IndexActorTags(AsShared<Actor>(), added, removed);
+
+        if (!quiet && world->IsLoaded() && engine)
+            engine->GetEventDispatcher()->emitToActor(id, Events::TagsChangedEvent(added, removed, id));
     }
 
     void Actor::Init(){
@@ -86,6 +98,7 @@ namespace Shard::Engine::Objects{
 
         // The other modules index what they own (lights, models, physics bodies...)
         world->NotifyComponentAdded(idInWorld, component, cloned);
+        world->IndexComponentTags(idInWorld, component, component->GetTags(), Core::TagContainer());
 
         if (auto script = std::dynamic_pointer_cast<Script>(component)) {
             world->scripts.emplace(idInWorld, script);
@@ -132,6 +145,7 @@ namespace Shard::Engine::Objects{
         if(world){
 
             world->RemoveActor(id);
+            world->IndexActorTags(AsShared<Actor>(), Core::TagContainer(), tags);
             
             if(world->IsLoaded()){
                 int worldAssetID = world->ResolveAssetID();
@@ -222,6 +236,7 @@ namespace Shard::Engine::Objects{
         this->world = world;
 
         world->transforms.emplace(GetComponentIDInWorld(transform->GetLocalId()), transform);
+        world->IndexActorTags(AsShared<Actor>(), tags, Core::TagContainer());
 
         if(world->IsLoaded()){
             int worldAssetID = world->ResolveAssetID();
@@ -274,6 +289,8 @@ namespace Shard::Engine::Objects{
 
         copy->components.clear();
         copy->unknownComponents = unknownComponents;
+        // Before it joins the world, which indexes them
+        copy->tags.Assign(tags, true);
 
         DEBUG_INFO("Cloning actor : "+name);
 
@@ -295,6 +312,8 @@ namespace Shard::Engine::Objects{
             std::shared_ptr<Component> cloneComp = comp->Clone();
 
             cloneComp->SetParent(copy);
+            // A Clone that does not copy construct the component would lose them ; they are indexed when it joins the world
+            cloneComp->GetTags().Assign(comp->GetTags(), true);
 
             copy->components.push_back(cloneComp);
 

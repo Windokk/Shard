@@ -80,6 +80,7 @@ namespace Shard::Editor::GUI{
             { "Build", ICON_LC_PACKAGE, [this]{ DrawBuildCategory(); } },
             { "Physics", ICON_LC_ATOM, [this]{ DrawPhysicsCategory(); } },
             { "Rendering", ICON_LC_MONITOR, [this]{ DrawRenderingCategory(); } },
+            { "Tags", ICON_LC_TAGS, [this]{ DrawTagsCategory(); } },
             { "Console Variables", ICON_LC_TERMINAL, [this]{ DrawConsoleVariablesCategory(); } },
         });
     }
@@ -176,6 +177,8 @@ namespace Shard::Editor::GUI{
         GetEngine().GetRenderer()->SetMultisampleCount(rendering->msaaSamples);
         GetEngine().GetRenderer()->SetShadowSettings(rendering->shadows);
         GetEngine().GetRenderer()->SetRenderPipeline(rendering->renderPipeline);
+
+        Projects::ApplyTagSettings(*project->GetTagSettings());
     }
 
     void ProjectSettingsPanel::Revert()
@@ -195,6 +198,7 @@ namespace Shard::Editor::GUI{
         *project->GetBuildSettings() = *saved->GetBuildSettings();
         *project->GetPhysicsSettings() = *saved->GetPhysicsSettings();
         *project->GetRenderingSettings() = *saved->GetRenderingSettings();
+        *project->GetTagSettings() = *saved->GetTagSettings();
         ApplyToEngine();
 
         // The console variables : what project.cfg says again

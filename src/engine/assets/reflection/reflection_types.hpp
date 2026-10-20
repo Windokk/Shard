@@ -8,6 +8,9 @@
 #include <vector>
 
 #include "engine/assets/assetID.hpp"
+#include "engine/core/tags/tag.hpp"
+#include "engine/core/tags/tag_container.hpp"
+#include "engine/core/tags/tag_query.hpp"
 
 enum class TypeID : uint16_t {
     // Invalid / base
@@ -69,7 +72,12 @@ enum class TypeID : uint16_t {
     Struct,
     Enum,
 
-    Asset
+    Asset,
+
+    // Tags (engine/core/tags)
+    Tag,
+    TagContainer,
+    TagQuery
 };
 
 struct EnumValueInfo {
@@ -160,7 +168,20 @@ static TypeID GetTypeIDFromString(std::string typeName) {
 
         // Others
         {"AssetID", TypeID::Asset},
-        {"Shard::Engine::Filesystem::AssetID", TypeID::Asset}
+        {"Shard::Engine::Filesystem::AssetID", TypeID::Asset},
+
+        {"Tag", TypeID::Tag},
+        {"Core::Tag", TypeID::Tag},
+        {"Engine::Core::Tag", TypeID::Tag},
+        {"Shard::Engine::Core::Tag", TypeID::Tag},
+        {"TagContainer", TypeID::TagContainer},
+        {"Core::TagContainer", TypeID::TagContainer},
+        {"Engine::Core::TagContainer", TypeID::TagContainer},
+        {"Shard::Engine::Core::TagContainer", TypeID::TagContainer},
+        {"TagQuery", TypeID::TagQuery},
+        {"Core::TagQuery", TypeID::TagQuery},
+        {"Engine::Core::TagQuery", TypeID::TagQuery},
+        {"Shard::Engine::Core::TagQuery", TypeID::TagQuery}
     };
 
     if (auto it = typeMap.find(typeName); it != typeMap.end())
@@ -230,6 +251,10 @@ inline std::string GetStringFromTypeID(TypeID type) {
         case TypeID::Enum: return "Enum";
 
         case TypeID::Asset: return "Asset";
+
+        case TypeID::Tag: return "Tag";
+        case TypeID::TagContainer: return "TagContainer";
+        case TypeID::TagQuery: return "TagQuery";
     }
 
     return "Unknown"; // fallback, should never hit
@@ -272,6 +297,10 @@ inline size_t GetTypeSize(TypeID type) {
         case TypeID::CString: return sizeof(char*);
 
         case TypeID::Asset: return sizeof(Shard::Engine::Filesystem::AssetID);
+
+        case TypeID::Tag: return sizeof(Shard::Engine::Core::Tag);
+        case TypeID::TagContainer: return sizeof(Shard::Engine::Core::TagContainer);
+        case TypeID::TagQuery: return sizeof(Shard::Engine::Core::TagQuery);
 
         default:
             return 0; // containers / structs handled separately
