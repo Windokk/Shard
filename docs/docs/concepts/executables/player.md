@@ -10,7 +10,7 @@ It is also the tool for everything that needs the real game on a real GPU : smok
 ## Launching
 
 ```
-ShardGame --game libGameModule.so --project example_project.json
+ShardGame --game plugins/game/bin/linux-x86_64/libGameModule.so --project example_project.json
 ```
 
 `--project` is required. If no world can be loaded (a bad path, a broken file), the player stops with `No world was loaded, aborting...`.
@@ -44,7 +44,7 @@ ShardGame --game libGameModule.so --project example_project.json
 | `--bench-warmup <n>` | frames left out of the benchmark at the start, for shader compiles and streaming (default 120) |
 
 ```
-ShardGame --game libGameModule.so --project example_project.json --frames 600 --bench --screenshot out.png
+ShardGame --game plugins/game/bin/linux-x86_64/libGameModule.so --project example_project.json --frames 600 --bench --screenshot out.png
 ```
 
 ### Record and replay

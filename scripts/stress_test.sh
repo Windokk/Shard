@@ -4,7 +4,7 @@
 # thread and once without, and fails when a run crashes, hangs, logs an [ERROR] / [FATAL], or makes a graphics call from the
 # wrong thread. The render thread is the point : it must behave like drawing on the main thread, only faster.
 #
-# Usage : bash scripts/stress_test.sh      (after a build : it uses build/ShardGame and build/libGameModule)
+# Usage : bash scripts/stress_test.sh      (after a build : it uses build/ShardGame and build/plugins/game/bin/*/libGameModule)
 #
 #   SHARD_STRESS_FRAMES   frames per run (default 1200 : the script runs until frame 900)
 #   SHARD_STRESS_TIMEOUT  seconds before a run is given up as hung (default 300)
@@ -21,10 +21,12 @@ ignored_errors='ma_engine_init failed'
 cd "$root/build" || { echo "[ERROR] no build/ folder : build the project first." >&2; exit 1; }
 
 player=./ShardGame
-module=libGameModule.so
+module=$(ls plugins/game/bin/*/libGameModule.so 2>/dev/null | head -n 1)
+module=${module:-plugins/game/bin/*/libGameModule.so}
 if [ -x ./ShardGame.exe ]; then
     player=./ShardGame.exe
-    module=libGameModule.dll
+    module=$(ls plugins/game/bin/*/libGameModule.dll 2>/dev/null | head -n 1)
+    module=${module:-plugins/game/bin/*/libGameModule.dll}
 fi
 if [ ! -x "$player" ] || [ ! -f "$module" ]; then
     echo "[ERROR] ShardGame / $module not found in build/ : build the project first." >&2

@@ -63,7 +63,7 @@ The engine is built around three ideas:
 ./build.sh        # or build.bat on Windows
 
 # Run the editor with the example project
-./ShardEditor.exe --game libGameModule.dll --project ../example_project/example_project.json --api opengl
+./ShardEditor.exe --game plugins/game/bin/windows-x86_64/libGameModule.dll --project ../example_project/example_project.json --api opengl
 ```
 
 The full setup (fonts, FMOD, resource folders, Linux packages) is described in [Getting Started](getting-started.md).

@@ -29,4 +29,4 @@ fi
 # Run the editor only if build succeeded
 echo "[INFO] Build succeeded. Starting editor..."
 cd build
-./ShardEditor --game libGameModule.so --project ../example_project/example_project.json --api vulkan
+./ShardEditor --game plugins/game/bin/linux-x86_64/libGameModule.so --project ../example_project/example_project.json --api vulkan

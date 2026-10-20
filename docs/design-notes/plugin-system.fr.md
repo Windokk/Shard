@@ -11,7 +11,7 @@ Le design d'origine avait 9 phases. Bilan :
 | Phase d'origine | État | Remarques |
 |---|---|---|
 | 0 · Désenregistrement par propriétaire | **fait** | `EventDispatcher` (tokens, owner), `ComponentRegistry`, `CVar` avec registre explicite, extensions de monde, `Scheduler::Remove` |
-| 1 · Noyau (manifeste, résolveur, manager, `IPlugin`/`IModule`) | **fait** | `src/engine/plugins/`. Le `GameModule` est le module `game`, les anciennes bibliothèques (`InitializeSingletons`) chargent encore |
+| 1 · Noyau (manifeste, résolveur, manager, `IPlugin`/`IModule`) | **fait** | `src/engine/plugins/`. Le `GameModule` est le module `game`, construit avec `shard_add_plugin` (`build/plugins/game/`), les anciennes bibliothèques (`InitializeSingletons`) chargent encore |
 | 2 · Surface d'extension | **fait** | `PluginContext` et ses registrars, hooks, services, points d'extension |
 | 3 · Modules et contenu | **fait** | `mod://`, couches, datapacks, patches de monde, composants déclarés (réels), composants inconnus conservés |
 | 4 · Éditeur | **fait** | panneau Plugins, `editor.panel`, ImGui partagé avec les bibliothèques |

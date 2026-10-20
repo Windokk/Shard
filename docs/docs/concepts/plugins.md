@@ -77,7 +77,7 @@ The editor, the player and `ShardHeadless` take these :
 | `--trust-file <path>` | a file of trusted publishers ; repeatable (default : `plugin-trust.json` next to the project) |
 | `--allow-unsigned-plugins` | load native plugins and install from registries without a signature of a trusted publisher |
 
-`--game <library>` still works : the library is loaded as the plugin `game`, a code module. It does not need a manifest.
+`--game <library>` still works : the library is loaded as the plugin `game`, a code module. It does not need a manifest. The engine's own game module is built with `shard_add_plugin` (id `game`), so it sits at `<build>/plugins/game/bin/<platform>/` with its `shard-plugin.json` : pass the library to `--game`, or the folder to `--plugin` to load it through its manifest.
 
 `ShardHeadless` also has :
 

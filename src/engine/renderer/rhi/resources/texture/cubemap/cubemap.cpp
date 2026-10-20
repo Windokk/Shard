@@ -45,7 +45,8 @@ namespace Shard::Engine::Rendering{
     {
         std::array<unsigned char*, 6> faces;
 
-        int width, height, channels;
+        int width = 0, height = 0, channels = 0;
+        int firstWidth = 0, firstHeight = 0, firstChannels = 0;
 
         for (size_t i = 0; i < 6; i++)
         {
@@ -53,14 +54,23 @@ namespace Shard::Engine::Rendering{
 
             if(!filePath.Exists() || filePath.IsDirectory()){
                 DEBUG_ERROR("Attempted to create a cubemap with a missing file : ",filePath.full);
+                for (size_t j = 0; j < i; j++)
+                    stbi_image_free(faces[j]);
                 return nullptr;
             }
 
             std::string file = filePath.ReadFile();
-            
+
             faces[i] = stbi_load_from_memory(reinterpret_cast<const unsigned char*>(file.data()),
                                             static_cast<int>(file.size()),
                                             &width, &height, &channels, 0);
+
+            if (faces[i] && i > 0 && (width != firstWidth || height != firstHeight || channels != firstChannels))
+            {
+                DEBUG_ERROR("The faces of a cubemap must share a size and a channel count : ", filePath.full);
+                stbi_image_free(faces[i]);
+                faces[i] = nullptr;
+            }
 
             if (!faces[i])
             {
@@ -69,14 +79,27 @@ namespace Shard::Engine::Rendering{
 
                 return nullptr;
             }
+
+            if (i == 0)
+            {
+                firstWidth = width;
+                firstHeight = height;
+                firstChannels = channels;
+            }
+        }
+
+        // What the pictures hold is what the texture is made of : the caller's specifications only say how it is filtered and read
+        specs.width = static_cast<uint32_t>(firstWidth);
+        specs.height = static_cast<uint32_t>(firstHeight);
+        switch (firstChannels)
+        {
+            case 1: specs.format = TextureFormat::RED;  specs.internalFormat = TextureInternalFormat::RED;   break;
+            case 2: specs.format = TextureFormat::RG;   specs.internalFormat = TextureInternalFormat::RG;    break;
+            case 3: specs.format = TextureFormat::RGB;  specs.internalFormat = TextureInternalFormat::RGB8;  break;
+            default: specs.format = TextureFormat::RGBA; specs.internalFormat = TextureInternalFormat::RGBA8; break;
         }
 
         auto cubemap = Create(specs, faces);
-
-        //TODO : Set specifications from data's average ? or max ? or min ?
-        // specs.width = 
-        // specs.height = 
-        // specs.format = 
 
         for (int i = 0; i < 6; i++)
             stbi_image_free(faces[i]);

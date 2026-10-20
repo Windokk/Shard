@@ -65,7 +65,7 @@ namespace Shard::Engine::Rendering {
         public:
             /// Bump when the look of thumbnails changes (studio lights, framing, ...) : it is part of the
             /// disk cache key, so old cached images are ignored rather than shown stale.
-            static constexpr uint32_t kRenderVersion = 1;
+            static constexpr uint32_t kRenderVersion = 2;
 
             static constexpr uint32_t kCellSize = 128;
             static constexpr uint32_t kAtlasSize = 2048;

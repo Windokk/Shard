@@ -20,10 +20,10 @@
             "metallic": 1.0
         },
         {
-            "roughness": 0.0
+            "roughness": 1.0
         },
         {
-            "useEnvReflections": true
+            "useEnvReflections": false
         }
     ]
 }

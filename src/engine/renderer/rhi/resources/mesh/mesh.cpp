@@ -206,9 +206,16 @@ namespace Shard::Engine::Rendering{
                 glm::vec3 t = v.tangent;
 
                 // Remove component in normal direction:
-                t = glm::normalize(t - n * glm::dot(n, t));
+                t = t - n * glm::dot(n, t);
 
-                v.tangent = t;
+                // A mesh without UVs (or a degenerate triangle fan) leaves no tangent : normalizing the zero vector gives NaN, which
+                // reaches the shader's TBN and turns every normal into NaN. Any direction perpendicular to the normal will do.
+                if (glm::dot(t, t) < 1e-12f) {
+                    const glm::vec3 axis = glm::abs(n.x) < 0.9f ? glm::vec3(1.0f, 0.0f, 0.0f) : glm::vec3(0.0f, 1.0f, 0.0f);
+                    t = glm::cross(n, axis);
+                }
+
+                v.tangent = glm::normalize(t);
             }
         }
     }

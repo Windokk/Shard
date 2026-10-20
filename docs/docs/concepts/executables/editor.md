@@ -15,7 +15,7 @@ It is the same engine as [the player](player.md), with an [ImGui](https://github
 ## Launching
 
 ```
-ShardEditor --game libGameModule.so --project example_project.json
+ShardEditor --game plugins/game/bin/linux-x86_64/libGameModule.so --project example_project.json
 ```
 
 `--project` is required : with none, the editor prints `No project specified, aborting...` and stops. `--game` is the game module to load (`GameModule.dll` on Windows).
@@ -66,7 +66,7 @@ Double-clicking an asset opens its own editor when there is one (the material ed
 
 ## Play mode
 
-**Tools → Play Mode** starts the game inside the viewport : scripts get `OnPlay`, then their ticks (see [Time](../time.md)), and `OnStop` when you stop. Pressing Play first saves the first loaded world to its file ; stopping reloads it from there. What a script moves or destroys while playing is therefore thrown away, and the world comes back as it was when you pressed Play.
+**Tools → Play Mode** starts the game inside the viewport : scripts get `OnPlay`, then their ticks (see [Time](../time.md)), and `OnStop` when you stop. Pressing Play first saves the first loaded world to its file ; stopping reloads it from there. What a script moves or destroys while playing is therefore thrown away, and the world comes back as it was when you pressed Play. **F1** stops the play mode (the only editor shortcut that works while playing).
 
 The accumulator is emptied while not in play mode, so pressing Play does not replay a burst of fixed steps.
 

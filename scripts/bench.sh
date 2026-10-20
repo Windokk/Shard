@@ -22,10 +22,12 @@ frames="${SHARD_BENCH_FRAMES:-900}"
 cd "$root/build" || { echo "[ERROR] no build/ folder : build the project first." >&2; exit 1; }
 
 player=./ShardGame
-module=libGameModule.so
+module=$(ls plugins/game/bin/*/libGameModule.so 2>/dev/null | head -n 1)
+module=${module:-plugins/game/bin/*/libGameModule.so}
 if [ -x ./ShardGame.exe ]; then
     player=./ShardGame.exe
-    module=libGameModule.dll
+    module=$(ls plugins/game/bin/*/libGameModule.dll 2>/dev/null | head -n 1)
+    module=${module:-plugins/game/bin/*/libGameModule.dll}
 fi
 if [ ! -x "$player" ] || [ ! -f "$module" ]; then
     echo "[ERROR] ShardGame / $module not found in build/ : build the project first." >&2

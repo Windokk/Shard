@@ -8,7 +8,7 @@
 // (the null backend : the frame is built, nothing is drawn) differ. Every frame is exactly one fixed step, the random streams
 // derive from the seed : the same inputs always end in the same state.
 //
-//   ShardHeadless --game libGameModule.dll --project ../example_project/example_project.json --replay run.replay
+//   ShardHeadless --game plugins/game/bin/windows-x86_64/libGameModule.dll --project ../example_project/example_project.json --replay run.replay
 //
 // Exit code : 0 = ran (and matched the replay / --expect), 1 = could not start, 2 = the run diverged.
 

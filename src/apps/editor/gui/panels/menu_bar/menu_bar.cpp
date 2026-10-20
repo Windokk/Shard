@@ -268,7 +268,7 @@ namespace Shard::Editor::GUI{
         ImGui::Separator();
 
         bool playing = GetEngine().IsInPlayMode();
-        if (ImGui::MenuItem("Play Mode", nullptr, playing))
+        if (ImGui::MenuItem("Play Mode", playing ? "F1 : stop" : nullptr, playing))
         {
             if (playing)
                 GetEngine().SetPlayMode(false);

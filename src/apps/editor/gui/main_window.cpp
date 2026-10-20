@@ -1438,10 +1438,16 @@ namespace Shard::Editor::Core{
 
     void EditorMainWindow::ProcessInputs() const
     {
-        if(Engine::Core::GetEngine().IsInPlayMode())
-            return;
-
         Engine::Core::Platform::IInput* input = Engine::Core::GetEngine().GetInputManager();
+
+        if(Engine::Core::GetEngine().IsInPlayMode())
+        {
+            // The one editor shortcut that works while playing : the game owns the other keys. The viewport re-asserts the
+            // editor camera on the next frame (see ViewportWindow::Draw)
+            if(input->WasKeyPressed(Engine::Input::Key::F1) && !ImGui::GetIO().WantTextInput)
+                Engine::Core::GetEngine().SetPlayMode(false);
+            return;
+        }
 
         if(input->IsKeyDown(Engine::Input::Key::LeftControl)){
         

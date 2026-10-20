@@ -2,17 +2,15 @@ file(GLOB_RECURSE GAME_SOURCES
   ${CMAKE_CURRENT_SOURCE_DIR}/*.cpp
 )
 
-add_library(GameModule SHARED ${GAME_SOURCES})
-
-target_compile_definitions(GameModule PRIVATE BUILD_GAME)
-
-target_include_directories(GameModule PRIVATE
-  ${CMAKE_SOURCE_DIR}/src/
-  ${CMAKE_SOURCE_DIR}/submodules/json/single_include/
-  ${CMAKE_SOURCE_DIR}/submodules/jolt/
-  ${CMAKE_SOURCE_DIR}/submodules/
-  ${CMAKE_SOURCE_DIR}/submodules/glm
-  ${CMAKE_SOURCE_DIR}/submodules/freetype/include/
+# The game is the module "game" : built like any other plugin, laid out as <build>/plugins/game/{shard-plugin.json,bin/<platform>/}.
+# Pass the library to the executables with --game ($<TARGET_FILE:GameModule>), or --plugin <build>/plugins/game to use the manifest.
+shard_add_plugin(
+  NAME         GameModule
+  ID           game
+  VERSION      ${PROJECT_VERSION}
+  KIND         module
+  MODULE_KIND  code
+  HOSTS        engine tool
+  DESCRIPTION  "The game's own components and scripts"
+  SOURCES      ${GAME_SOURCES}
 )
-
-target_link_libraries(GameModule PRIVATE Engine)

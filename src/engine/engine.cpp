@@ -737,6 +737,11 @@ namespace Shard::Engine{
                     m_Context.worldManager->GetWorldAt(i)->Stop();
                 }
 
+                // A game may have hidden and captured the cursor (a first person controller) : whoever stops the play session
+                // (button, menu, F1, console) gets it back
+                if(Platform::IInput* input = GetInputManager())
+                    input->SetCursorVisibility(Platform::CursorVisibility::Visible);
+
                 m_ReloadCurrentWorld = true;
             }
         }

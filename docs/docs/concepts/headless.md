@@ -7,7 +7,7 @@ A project's simulation can run with no window, GPU or sound card, and it can be 
 - replays, since a session's inputs take only a few KB
 
 ```
-ShardHeadless --game libGameModule.dll --project example_project.json --replay run.replay
+ShardHeadless --game plugins/game/bin/windows-x86_64/libGameModule.dll --project example_project.json --replay run.replay
 ```
 
 ## ShardHeadless
@@ -90,7 +90,7 @@ To play it back, use `ShardGame --replay run.replay` to watch it (keyboard input
 If a change is meant to affect the simulation (different physics settings, a new script field...), re-record the replay and commit it:
 
 ```
-ShardHeadless --game build/libGameModule.dll --project tests/determinism/project/determinism_project.json \
+ShardHeadless --game build/plugins/game/bin/windows-x86_64/libGameModule.dll --project tests/determinism/project/determinism_project.json \
               --replay tests/determinism/golden/determinism.replay --write-replay tests/determinism/golden/determinism.replay
 ```
 

@@ -88,7 +88,7 @@ ShardReflect (the reflection generator, in src/apps/tools/reflect) is built with
 
 This runs the editor, loads the game module, opens the example project and uses open gl core as the rendering api
 ```bash
-./ShardEditor.exe --game libGameModule.dll --project ..\\example_project\\example_project.json --api opengl
+./ShardEditor.exe --game plugins/game/bin/windows-x86_64/libGameModule.dll --project ..\\example_project\\example_project.json --api opengl
 ```
 
 ## Credits/Dependencies

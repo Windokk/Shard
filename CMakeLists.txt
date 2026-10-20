@@ -124,5 +124,5 @@ add_subdirectory(tests)
 
 shard_enable_warnings(
     ShardCore ShardPlatform ShardAssets ShardWorld ShardPhysics ShardAudio ShardShaderCompiler ShardRHI ShardRenderer ShardEngine
-    GameModule ShardEditor ShardGame ShardHeadless ShardShaderc ShardPkg ShardAssetValidator ShardTests
+    ShardEditor ShardGame ShardHeadless ShardShaderc ShardPkg ShardAssetValidator ShardTests
 )

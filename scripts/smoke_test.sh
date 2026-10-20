@@ -4,7 +4,7 @@
 # cannot be read, a shader that does not compile...). It does not look at the picture : it is there to catch what
 # breaks the engine at boot.
 #
-# Usage : bash scripts/smoke_test.sh     (after a build : it uses build/ShardGame and build/libGameModule)
+# Usage : bash scripts/smoke_test.sh     (after a build : it uses build/ShardGame and build/plugins/game/bin/*/libGameModule)
 #
 #   SHARD_SMOKE_WORLD    the world to load (default cornell.world : Sponza, the first world of the project, is a Git LFS
 #                        file a plain checkout does not have, and it is far too heavy for a software OpenGL)
@@ -32,10 +32,12 @@ for dir in engine_resources editor_resources; do
 done
 
 player=./ShardGame
-module=libGameModule.so
+module=$(ls plugins/game/bin/*/libGameModule.so 2>/dev/null | head -n 1)
+module=${module:-plugins/game/bin/*/libGameModule.so}
 if [ -x ./ShardGame.exe ]; then
     player=./ShardGame.exe
-    module=libGameModule.dll
+    module=$(ls plugins/game/bin/*/libGameModule.dll 2>/dev/null | head -n 1)
+    module=${module:-plugins/game/bin/*/libGameModule.dll}
 fi
 if [ ! -x "$player" ] || [ ! -f "$module" ]; then
     echo "[ERROR] ShardGame / $module not found in build/ : build the project first." >&2
