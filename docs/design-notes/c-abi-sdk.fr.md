@@ -1,6 +1,6 @@
 # ABI C stable et SDK public : plan
 
-> Note interne, suite de `plugin-system.fr.md` (phase **R2**, phase 7 du plan d'origine). Rien de ce qui est décrit ici n'existe encore. Ce document fixe les choix avant d'écrire du code, découpe le travail en étapes testables et liste les questions à trancher.
+> Note interne, suite de `plugin-system.fr.md` (phase **R2**, phase 7 du plan d'origine). **État (2026-10-21) : A0 et A1 faits, plus cvars et commandes de A3** (voir §13) ; le reste n'existe pas encore. Ce document fixe les choix avant d'écrire du code, découpe le travail en étapes testables et liste les questions à trancher.
 >
 > Rédigé le 2026-10-20.
 
@@ -345,3 +345,30 @@ Le module **Voxel** (R8, phase 9 du tableau d'architecture) s'écrit contre le S
 * **R6 (sandbox WASM)** : la table d'imports d'un module WASM = les interfaces de §5.2, avec les mêmes handles et `ShardStr` ; seule la mémoire change (pointeurs dans la mémoire linéaire de l'instance).
 * **Liaisons d'autres langages** (Rust, Zig, C#) générées à partir des en-têtes C.
 * **Fin de `HostLinks`** pour les tiers ; avec la suppression de `GetEngine()` (phase 2 du tableau), il pourra disparaître tout à fait.
+
+## 13. Avancement
+
+### Fait : A0 et A1 (2026-10-21)
+
+* `sdk/include/shard/shard_abi.h` (types, versions, codes de résultat), `shard_host.h` (`ShardHostApi`, `ShardPluginInfo`, `ShardPluginCallbacks`, point d'entrée), `shard_plugin.h` (interface `shard.plugin` 1.0). Les en-têtes compilent en C11 pedantic (la fixture est en C avec `-Wall -Wextra -pedantic -Werror`) et en C++.
+* `tests/plugins/abi_layout_tests.cpp` fige `sizeof`/`offsetof` de chaque struct ; à mettre à jour avec toute révision de l'ABI.
+* Manifeste : champ `abi` (`"cpp"` par défaut, `"c1"`), `entry` par défaut `shard_plugin_entry` pour `c1`. `shard_add_plugin(... ABI c1)` écrit le champ et ne lie pas `Engine` (seulement `sdk/include`).
+* `src/engine/plugins/abi/c_plugin.{hpp,cpp}` : `GetCHostApi()` (log, alloc/free comptés par `PluginMemory`, `query_interface`), `ValidateCPluginInfo` (version, taille, callbacks), `CAbiPlugin : IModule`. La branche `c1` de `PluginManager::LoadLibrary` n'applique pas l'empreinte de build. `ShardPluginCtx` = id du propriétaire, résolu dans une table à chaque appel : un handle resté après le déchargement ne trouve rien.
+* Fixture `tests/plugin_fixtures/c_plugin/c_plugin.c` et `tests/plugins/c_plugin_tests.cpp` : cycle de vie complet, désactivation/réactivation, mémoire de l'hôte, refus d'un `abiMinor` trop grand, d'une autre majeure, d'un `structSize` trop petit, de callbacks absents, d'une entrée qui refuse.
+
+### Fait en plus (2026-10-21) : cvars et commandes
+
+* `shard_cvars.h` (`shard.cvars` 1.0) : `create_bool/int/float/string` (bornes, drapeau `SHARD_CVAR_READONLY`), `get_*`, `set_*`. Les handles `ShardCVar` sont `génération << 32 | slot` : détruits avec le contexte (`on_disable` / `on_unload`), un handle resté renvoie `SHARD_E_STALE_HANDLE`. `set_*` passe par `ForceSet` (le plugin est le propriétaire : il contourne `ReadOnly` et les couches de configuration, les bornes s'appliquent).
+* `shard_commands.h` (`shard.commands` 1.0) : `add(name, help, run, user)`, les mots arrivent en `ShardStr[]`, la sortie est un `ShardStr` copié au retour, un code non nul = échec. Doublon dans le même plugin : `SHARD_E_ALREADY_EXISTS` ; un nom pris par le moteur ou un autre plugin est **remplacé** (comportement existant de `CVarRegistry::RegisterCommand`, non changé ici) : le préfixe reste la règle.
+* Tests : `CPluginTest.*` (15 de base + 3 cvars + 1 commande), disposition épinglée pour `ShardCVarsApi` et `ShardCommandsApi`.
+
+### Écarts par rapport au plan
+
+* `CAbiPlugin` dérive d'`IModule` et non d'`EnginePlugin` (les deux dérivent d'`IPlugin` : un double héritage serait ambigu). `on_frame_begin/end` viendra avec l'étape qui touchera à `PluginRecord::enginePlugin`.
+* Les callbacks renvoient un `ShardResult` : une valeur non nulle fait échouer le plugin comme une exception en C++.
+* `ShardPluginInfo::structSize` est écrit par le plugin (son `sizeof`), pas par l'hôte : c'est ce qui permet de refuser une struct trop petite.
+* `on_prepare_reload`/`on_restore` attendent `shard.state` (A3) ; sans eux un plugin C n'est pas rechargeable à chaud.
+
+### Reste
+
+A2 (composants, ECS, systèmes), A3 (événements nommés, hooks, services, extensions, état ; cvars et commandes sont faits), A4 (SDK C++ header-only, `ShardSDKConfig.cmake`, gabarit, `cmake --install`), A5 (job CI hors dépôt, autre compilateur, test 1.0 → 1.1, fuzz, tutoriel).

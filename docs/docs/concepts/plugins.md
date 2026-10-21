@@ -361,6 +361,33 @@ A plugin can also be compiled into the executable : declare it with `SHARD_STATI
 
 Libraries that predate this (they export `InitializeSingletons` and `RegisterGameComponents`) still load, as a code module, with a warning. They get no build check and cannot be reloaded.
 
+## The C ABI (in progress)
+
+A plugin can be written against the C headers of `sdk/include/shard` instead of the engine's C++ headers. It links nothing of the engine, so it loads in any engine with a compatible ABI revision whatever compiler built either side. Set `"abi": "c1"` in the manifest (or `ABI c1` in `shard_add_plugin`) ; the entry point is then `shard_plugin_entry` instead of `shard_plugin_describe`.
+
+```c
+#include <shard/shard_host.h>
+
+static ShardResult SHARD_CALL OnLoad(void* user, ShardPluginCtx ctx) { /* ... */ return SHARD_OK; }
+
+static const ShardPluginCallbacks kCallbacks = { sizeof(ShardPluginCallbacks), &OnLoad };
+static const ShardHostApi* gHost;
+
+SHARD_PLUGIN_EXPORT ShardResult SHARD_CALL shard_plugin_entry(const ShardHostApi* host, ShardPluginInfo* out)
+{
+    gHost = host;
+    out->structSize = sizeof(ShardPluginInfo);
+    out->abiMajor = SHARD_ABI_MAJOR;
+    out->abiMinor = SHARD_ABI_MINOR;
+    out->callbacks = &kCallbacks;
+    return SHARD_OK;
+}
+```
+
+What is there today (ABI 1.0) : the lifecycle callbacks (`on_load`, `on_initialize`, `on_enable`, `on_disable`, `on_unload`), logging, memory counted against the plugin's budget, and interfaces fetched with `query_interface` : `shard.plugin` (id, version, folder), `shard.cvars` (bool, int, float and string variables, with handles that go stale when the plugin is disabled) and `shard.commands` (console commands that receive their words as `ShardStr`). Components, systems, events, hooks, services and extension points are the next steps of `docs/design-notes/c-abi-sdk.fr.md`.
+
+The rules the headers follow : plain C, fixed size types, every struct starts with `structSize` and only grows at the end, handles instead of pointers, no exception crosses. The host refuses a plugin built for a newer revision than its own (`abiMinor` above the host's) or another major, and one whose `ShardPluginInfo` is smaller than the first version. The build fingerprint does not apply to a `c1` plugin. The tier does not change : a C plugin is a native tier 1 plugin, signed or consented to like the others, and nothing isolates it.
+
 ## Module content
 
 A module's content folder is mounted in the virtual file system as `mod://<id>/`, and every file in it can be read from there :

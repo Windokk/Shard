@@ -10,6 +10,7 @@
 #       [HOSTS       engine player headless] # default : engine
 #       [DEPENDS     shard.audio "com.acme.clouds@^2.1" ...]   # "id" or "id@range" ; append "?" to the id for an optional one
 #       [ENGINE_REQUIRES largeWorld determinism]
+#       [ABI         cpp|c1]                 # default : cpp. c1 : the C ABI of sdk/include/shard ; the plugin links nothing of the engine (C or C++ sources)
 #       [EDITOR_UI]                          # the plugin draws with ImGui (editor windows) : ImGui is compiled into it, see engine/plugins/editor_imgui.hpp
 #       [AFFECTS_SIMULATION]                 # the plugin changes what the simulation computes (default for modules)
 #       [CONTENT_DIR content]                # a folder of the source tree copied next to the plugin as its content
@@ -20,16 +21,22 @@
 #   <OUTPUT_DIR>/<ID>/shard-plugin.json
 #   <OUTPUT_DIR>/<ID>/bin/<platform>/<library>
 #   <OUTPUT_DIR>/<ID>/content/...
-# It links the engine, so it sees the same headers as the game module (BUILD_GAME), and exports its entry point with SHARD_PLUGIN.
+# ABI cpp links the engine, so it sees the same headers as the game module (BUILD_GAME), and exports its entry point with SHARD_PLUGIN.
 
 function(shard_add_plugin)
     set(options AFFECTS_SIMULATION NO_SIMULATION EDITOR_UI)
-    set(one NAME ID VERSION KIND MODULE_KIND CONTENT_DIR OUTPUT_DIR DESCRIPTION)
+    set(one NAME ID VERSION KIND MODULE_KIND CONTENT_DIR OUTPUT_DIR DESCRIPTION ABI)
     set(multi SOURCES HOSTS DEPENDS ENGINE_REQUIRES)
     cmake_parse_arguments(P "${options}" "${one}" "${multi}" ${ARGN})
 
     if(NOT P_NAME OR NOT P_ID OR NOT P_VERSION)
         message(FATAL_ERROR "shard_add_plugin needs NAME, ID and VERSION")
+    endif()
+    if(NOT P_ABI)
+        set(P_ABI cpp)
+    endif()
+    if(NOT P_ABI STREQUAL "cpp" AND NOT P_ABI STREQUAL "c1")
+        message(FATAL_ERROR "shard_add_plugin : ABI must be cpp or c1, not ${P_ABI}")
     endif()
     if(NOT P_KIND)
         set(P_KIND plugin)
@@ -68,20 +75,27 @@ function(shard_add_plugin)
             ${CMAKE_SOURCE_DIR}/submodules/imgui/imgui_draw.cpp)
     endif()
     add_library(${P_NAME} SHARED ${P_SOURCES} ${_imgui_sources})
-    target_compile_definitions(${P_NAME} PRIVATE BUILD_GAME)
-    target_include_directories(${P_NAME} PRIVATE
-        ${CMAKE_SOURCE_DIR}/src/
-        ${CMAKE_SOURCE_DIR}/submodules/json/single_include/
-        ${CMAKE_SOURCE_DIR}/submodules/jolt/
-        ${CMAKE_SOURCE_DIR}/submodules/
-        ${CMAKE_SOURCE_DIR}/submodules/glm
-        ${CMAKE_SOURCE_DIR}/submodules/freetype/include/
-    )
-    if(P_EDITOR_UI)
-        target_include_directories(${P_NAME} PRIVATE ${CMAKE_SOURCE_DIR}/submodules/imgui/)
-        set_source_files_properties(${_imgui_sources} PROPERTIES COMPILE_OPTIONS "-w")
+    if(P_ABI STREQUAL "c1")
+        # Only the SDK headers : this is what a plugin outside the repository sees. Symbols are hidden but the entry point.
+        target_include_directories(${P_NAME} PRIVATE ${CMAKE_SOURCE_DIR}/sdk/include)
+        set_target_properties(${P_NAME} PROPERTIES C_VISIBILITY_PRESET hidden CXX_VISIBILITY_PRESET hidden VISIBILITY_INLINES_HIDDEN ON)
+    else()
+        target_compile_definitions(${P_NAME} PRIVATE BUILD_GAME)
+        target_include_directories(${P_NAME} PRIVATE
+            ${CMAKE_SOURCE_DIR}/src/
+            ${CMAKE_SOURCE_DIR}/sdk/include/
+            ${CMAKE_SOURCE_DIR}/submodules/json/single_include/
+            ${CMAKE_SOURCE_DIR}/submodules/jolt/
+            ${CMAKE_SOURCE_DIR}/submodules/
+            ${CMAKE_SOURCE_DIR}/submodules/glm
+            ${CMAKE_SOURCE_DIR}/submodules/freetype/include/
+        )
+        if(P_EDITOR_UI)
+            target_include_directories(${P_NAME} PRIVATE ${CMAKE_SOURCE_DIR}/submodules/imgui/)
+            set_source_files_properties(${_imgui_sources} PROPERTIES COMPILE_OPTIONS "-w")
+        endif()
+        target_link_libraries(${P_NAME} PRIVATE Engine)
     endif()
-    target_link_libraries(${P_NAME} PRIVATE Engine)
     set_target_properties(${P_NAME} PROPERTIES
         LIBRARY_OUTPUT_DIRECTORY "${_bin}"
         RUNTIME_OUTPUT_DIRECTORY "${_bin}"
@@ -145,6 +159,10 @@ function(shard_add_plugin)
     if(P_CONTENT_DIR)
         set(_content ",\n  \"content\": { \"mount\": \"content\" }")
     endif()
+    set(_abi "")
+    if(P_ABI STREQUAL "c1")
+        set(_abi "\n  \"abi\": \"c1\",")
+    endif()
     set(_description "")
     if(P_DESCRIPTION)
         set(_description "\n  \"description\": \"${P_DESCRIPTION}\",")
@@ -157,7 +175,7 @@ function(shard_add_plugin)
   \"name\": \"${P_NAME}\",${_description}
   \"version\": \"${P_VERSION}\",
   \"kind\": \"${P_KIND}\",${_moduleKind}
-  \"linkage\": \"dynamic\",
+  \"linkage\": \"dynamic\",${_abi}
   \"hosts\": [${_hosts}],
   \"engine\": { \"api\": \"1.0\", \"requires\": [${_requires}] },
   \"binaries\": { \"${_platform}\": \"bin/${_platform}/$<TARGET_FILE_NAME:${P_NAME}>\" },
@@ -174,7 +192,15 @@ function(shard_add_plugin)
             COMMENT "Copying the content of ${P_ID}")
     endif()
 
-    if(COMMAND shard_enable_warnings)
+    if(COMMAND shard_enable_warnings AND P_ABI STREQUAL "cpp")
         shard_enable_warnings(${P_NAME})
+    endif()
+    if(P_ABI STREQUAL "c1")
+        # The headers promise C11 and C++17 without a warning, pedantic included
+        if(MSVC)
+            target_compile_options(${P_NAME} PRIVATE /W4 /WX)
+        else()
+            target_compile_options(${P_NAME} PRIVATE -Wall -Wextra -pedantic -Werror)
+        endif()
     endif()
 endfunction()

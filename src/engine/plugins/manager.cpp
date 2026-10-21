@@ -2,6 +2,7 @@
 
 #include <algorithm>
 #include <chrono>
+#include <cstring>
 #include <new>
 #include <filesystem>
 #include <fstream>
@@ -14,6 +15,7 @@
 #include "engine/core/math/hash.hpp"
 #include "engine/core/tags/tag_registry.hpp"
 #include "engine/platform/crash/crash_handler.hpp"
+#include "engine/plugins/abi/c_plugin.hpp"
 #include "engine/plugins/archive.hpp"
 #include "engine/plugins/declared_component.hpp"
 #include "engine/world/engine.hpp"
@@ -748,6 +750,21 @@ namespace Shard::Engine::Plugins {
         links.components = &Objects::Components::GetComponentRegistry();
         links.logger = &Debugging::GetLogger();
         links.tags = &Core::TagRegistry::Get();
+
+        if (r.manifest.abi == "c1") {
+            // The C ABI : no engine types cross, so the build fingerprint does not apply (the ABI version is the contract)
+            auto entry = r.library.Symbol<ShardPluginEntryFn>(r.manifest.entry);
+            if (!entry) { Fail(r, "'" + path + "' does not export the C ABI entry point '" + r.manifest.entry + "'"); return false; }
+            ShardPluginInfo info;
+            std::memset(&info, 0, sizeof(info));
+            ShardResult result = SHARD_OK;
+            if (!Guard(r, "entry", [&] { result = entry(GetCHostApi(), &info); })) return false;
+            if (result != SHARD_OK) { Fail(r, "its entry point '" + r.manifest.entry + "' refused to load (" + std::to_string(result) + ")"); return false; }
+            const std::string problem = ValidateCPluginInfo(info);
+            if (!problem.empty()) { Fail(r, problem); return false; }
+            r.instance = CreateCPlugin(r.owner, info);
+            return true;
+        }
 
         auto describe = r.library.Symbol<DescribeFn>(r.manifest.entry);
         if (!describe) {

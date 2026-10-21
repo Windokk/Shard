@@ -100,6 +100,7 @@ add_library(ShardShaderCompiler STATIC ${SHADER_COMPILER_SOURCES} ${CMAKE_SOURCE
 target_compile_definitions(ShardShaderCompiler PRIVATE BUILD_ENGINE)
 target_include_directories(ShardShaderCompiler PUBLIC
     "${CMAKE_SOURCE_DIR}/src/"
+    "${CMAKE_SOURCE_DIR}/sdk/include/"
     "${CMAKE_SOURCE_DIR}/submodules/"
     "${CMAKE_SOURCE_DIR}/submodules/json/single_include/"
     "${CMAKE_SOURCE_DIR}/submodules/glm/"

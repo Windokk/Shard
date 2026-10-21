@@ -82,8 +82,12 @@ namespace Shard::Engine::Plugins {
         std::vector<std::string> engineRequires;        ///< features of the engine : largeWorld, determinism...
         std::string abiFingerprint;                      ///< empty : not checked (a datapack, a static module)
 
+        /// "cpp" : the C++ descriptor (shard_plugin_describe), checked with the full build fingerprint ; "c1" : the C ABI of sdk/include/shard
+        /// (shard_plugin_entry), checked with the ABI version only
+        std::string abi = "cpp";
+
         std::map<std::string, std::string> binaries;    ///< platform key -> path relative to the plugin folder
-        std::string entry = "shard_plugin_describe";
+        std::string entry = "shard_plugin_describe";    ///< "shard_plugin_entry" when abi is "c1" and the manifest says nothing
 
         std::vector<DependencySpec> dependencies;
         std::vector<DependencySpec> conflicts;

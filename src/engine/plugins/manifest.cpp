@@ -255,6 +255,9 @@ namespace Shard::Engine::Plugins {
                 m.binaries[it.key()] = it.value().get<std::string>();
             }
         }
+        m.abi = r.String("abi", m.abi);
+        if (m.abi != "cpp" && m.abi != "c1") errors.push_back("'abi' must be \"cpp\" or \"c1\", not \"" + m.abi + "\"");
+        if (m.abi == "c1") m.entry = "shard_plugin_entry";
         m.entry = r.String("entry", m.entry);
         if (m.moduleKind == ModuleKind::Datapack && !m.binaries.empty()) errors.push_back("a datapack has no binaries");
 
@@ -382,6 +385,7 @@ namespace Shard::Engine::Plugins {
         j["engine"]["versions"] = m.engineVersions.Text();
         if (!m.engineRequires.empty()) j["engine"]["requires"] = m.engineRequires;
         if (!m.abiFingerprint.empty()) j["abiFingerprint"] = m.abiFingerprint;
+        if (m.abi != "cpp") j["abi"] = m.abi;
         if (!m.binaries.empty()) j["binaries"] = m.binaries;
         auto deps = nlohmann::ordered_json::array();
         for (const DependencySpec& d : m.dependencies) {

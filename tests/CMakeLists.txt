@@ -29,12 +29,26 @@ shard_add_plugin(
     OUTPUT_DIR   ${CMAKE_BINARY_DIR}/test_plugins
 )
 
+# A plugin in plain C against the SDK headers only (ABI c1) : nothing of the engine is linked, see tests/plugins/c_plugin_tests.cpp
+shard_add_plugin(
+    NAME         ShardTestCPlugin
+    ID           shard.test.cplugin
+    VERSION      1.0.0
+    KIND         module
+    MODULE_KIND  code
+    HOSTS        engine
+    ABI          c1
+    SOURCES      ${CMAKE_CURRENT_SOURCE_DIR}/plugin_fixtures/c_plugin/c_plugin.c
+    OUTPUT_DIR   ${CMAKE_BINARY_DIR}/test_plugins
+)
+set_target_properties(ShardTestCPlugin PROPERTIES C_STANDARD 11 C_STANDARD_REQUIRED ON C_EXTENSIONS OFF)
+
 add_executable(ShardTests ${SHARD_TEST_SOURCES})
 
 target_include_directories(ShardTests PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})
 target_link_libraries(ShardTests PRIVATE Engine gtest gtest_main)
 target_compile_definitions(ShardTests PRIVATE BUILD_ENGINE SHARD_SOURCE_DIR="${CMAKE_SOURCE_DIR}" SHARD_TEST_PLUGIN_DIR="${CMAKE_BINARY_DIR}/test_plugins")
-add_dependencies(ShardTests ShardTestPlugin ShardTestEditorPlugin)
+add_dependencies(ShardTests ShardTestPlugin ShardTestEditorPlugin ShardTestCPlugin)
 
 include(GoogleTest)
 # PRE_TEST: discover at test time, so a missing runtime DLL fails a test run instead of the build
