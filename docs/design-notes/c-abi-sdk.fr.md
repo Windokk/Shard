@@ -1,6 +1,6 @@
 # ABI C stable et SDK public : plan
 
-> Note interne, suite de `plugin-system.fr.md` (phase **R2**, phase 7 du plan d'origine). **État (2026-10-21) : A0 et A1 faits, plus cvars et commandes de A3** (voir §13) ; le reste n'existe pas encore. Ce document fixe les choix avant d'écrire du code, découpe le travail en étapes testables et liste les questions à trancher.
+> Note interne, suite de `plugin-system.fr.md` (phase **R2**, phase 7 du plan d'origine). **État (2026-10-21) : A0 à A5 faits, puis le reste du plan, l'ABI est en 1.2** (voir §13 : ce qui a été fait, les écarts au plan et ce qui reste). Le reste du document est le plan tel qu'il a été écrit avant le code.
 >
 > Rédigé le 2026-10-20.
 
@@ -362,13 +362,63 @@ Le module **Voxel** (R8, phase 9 du tableau d'architecture) s'écrit contre le S
 * `shard_commands.h` (`shard.commands` 1.0) : `add(name, help, run, user)`, les mots arrivent en `ShardStr[]`, la sortie est un `ShardStr` copié au retour, un code non nul = échec. Doublon dans le même plugin : `SHARD_E_ALREADY_EXISTS` ; un nom pris par le moteur ou un autre plugin est **remplacé** (comportement existant de `CVarRegistry::RegisterCommand`, non changé ici) : le préfixe reste la règle.
 * Tests : `CPluginTest.*` (15 de base + 3 cvars + 1 commande), disposition épinglée pour `ShardCVarsApi` et `ShardCommandsApi`.
 
+### Fait : A2 à A5 (2026-10-21)
+
+**A2, composants, ECS, systèmes.** `shard_components.h`, `shard_ecs.h`, `shard_systems.h` ; côté hôte `src/engine/plugins/abi/c_components.cpp` et `c_systems.cpp`.
+
+* La décision du §8 (« composant d'acteur + ECS par nom ») tient. `register_type` crée un `ComponentId` ECS nommé `c:<id>.<nom>` (le même id d'une activation à l'autre, si la taille n'a pas changé) et un composant d'acteur `CAbiComponent` dont la réflexion est construite à partir des `ShardFieldDesc`. Le composant d'acteur pousse ses valeurs sur l'entité de l'acteur (attachement, chargement, édition, activation) et les relit depuis l'entité avant de sauver ou de copier : ce qu'un système a écrit est ce qui est sauvé. Un composant désactivé quitte l'entité. Il a fallu un point d'accroche `Component::OnAttached()` (appelé par `Actor::AttachComponent` et `Actor::Clone`).
+* `Registry::EachChunkRaw` / `CountRaw` : l'itération par blocs à partir d'identifiants, pour le C.
+* Un `ShardEcs` désigne l'exécution d'un système sur un fil (`thread_local`) : gardé après, ou utilisé ailleurs, il renvoie `SHARD_E_STALE_HANDLE`. Un système n'atteint que les types qu'il a déclarés (sauf exclusif). Une fonction `main` appelée depuis un système renvoie `SHARD_E_WRONG_THREAD` (toujours, pas seulement en debug).
+* Le compteur d'erreurs : un `run` qui renvoie une erreur passe par l'enveloppe du `SystemRegistrar`, comme une exception C++ (dixième erreur : le plugin échoue).
+* Sortie vérifiée : `CAbiTest.*` (`tests/plugins/c_abi_interfaces_tests.cpp`) ; le composant est sauvé avec ce qu'un système a écrit et rechargé sur une autre entité ; `plugin.info <id>` liste `component` et `system`.
+
+**A3, le reste des interfaces.** `shard_events.h`, `shard_hooks.h`, `shard_services.h`, `shard_extensions.h`, `shard_content.h`, `shard_state.h` ; `c_events.cpp`, `c_services.cpp`, `c_extensions.cpp`, `c_content.cpp`.
+
+* Canal nommé dans `EventDispatcher` (`subscribeNamed`, `emitNamed`, `NamedEvent`) et dans `EventRegistrar` (`SubscribeNamed`, `EmitNamed`, `Unsubscribe`) : le C++ s'en sert aussi. Un événement émis depuis un système est mis en file et livré en fin d'image (`PluginManager::EndFrame` → `FlushCEvents`), les files prises dans l'ordre des noms de systèmes.
+* Deux fixtures C : `c_plugin` fournit le service `cplugin.math`, `c_consumer` l'utilise ; désactiver la première vide la référence de la seconde (`SHARD_E_NOT_FOUND`, pas un pointeur pendant). Un validateur C tourne dans `RunToolValidators` ; importeur et type d'asset sont enveloppés dans les items C++ existants ; un rechargement à chaud garde l'état (`shard.state`).
+* `on_frame_begin/end` et `on_tool_task` : `CAbiPlugin` possède des objets `EnginePlugin` / `ToolPlugin` que le manager prend comme `enginePlugin` / `toolPlugin` (`GetCPluginFacets`), ce qui règle le double héritage noté plus bas.
+
+**A4, SDK C++, CMake, gabarit.** `sdk/include/shard/cpp/` (header-only, C++17 : `plugin.hpp`, `component.hpp`, `system.hpp`, `cvars.hpp`, `events.hpp`, `services.hpp`, `content.hpp`, `string.hpp`, `detail.hpp`), `sdk/cmake/` (`ShardSDKConfig.cmake`, `ShardSDKConfigVersion.cmake`, `ShardSDKPlugin.cmake` avec `shard_sdk_add_plugin`), `sdk/templates/plugin/`, `sdk/VERSION`. `cmake --install build --component sdk --prefix <dir>` pose le SDK dans `<dir>/sdk` ; la cible `ShardSDKArchive` en fait `shard-sdk-<version>.zip`. Le `shard_add_plugin` du dépôt utilise désormais l'écriture de manifeste du SDK. La fixture `sdk_spin` est le plugin du §7.2 (`SdkSpinTest.*`).
+
+**A5, compatibilité.**
+
+* Hors dépôt : le test `Sdk.OutOfTree` installe le SDK seul, copie le gabarit dans un dossier à part, le configure et le compile contre le SDK installé, puis `ShardHeadless --check-plugins --plugin` le charge et compare 1 et N fils.
+* Autre compilateur : vérifié sur cette machine, plugin MSVC 19.51 (lié à MSVCP140) et plugin Clang chargés par le moteur MinGW GCC. `-DSHARD_SDK_TEST_VCVARS=<vcvars64.bat>` ajoute le test `Sdk.OutOfTreeMsvc`, `-DSHARD_SDK_TEST_CXX=clang++` fait compiler `Sdk.OutOfTree` par Clang. La CI le fait (Clang sous Linux, MSVC sous Windows, `.github/workflows/build.yml`) : **pas encore vu tourner en CI**.
+* 1.0 → 1.1 : copie figée des en-têtes 1.0 dans `tests/plugin_fixtures/abi_1_0/include`, fixture compilée contre elle ; puis passage à 1.1 (`shard.plugin` 1.1 : `host`, `has_permission`). La fixture 1.0 charge et tourne dans le moteur 1.1, une fixture 1.1 est refusée par un hôte 1.0 simulé (`ValidateCPluginInfo(info, 0)`) : `AbiCompatTest.*`.
+* Fuzz léger : 20 000 `ShardPluginInfo` incohérents, et chaque fonction de chaque table appelée avec des handles qui ne désignent rien et des pointeurs nuls : pas de plantage, toujours une erreur.
+* Doc : `docs/docs/concepts/plugins.md` (« The C ABI and the SDK »), `docs/docs/tutorials.md` (« Write a plugin outside the engine repository »), `docs/docs/api_reference.md` (générée, voir les écarts), `docs/docs/contributing.md` (la règle de revue des en-têtes, cf. §11), `sdk/README.md`.
+
+### Fait : le reste du plan, ABI 1.2 (2026-10-21)
+
+Ce que la note prévoyait et que la première passe avait laissé :
+
+* **Le gros composant (§5.3)** : `SHARD_FIELD_BLOB` et `blob_create` / `blob_data` / `blob_resize` / `blob_free` (`shard.components` 1.1). Un blob est un bloc d'octets que l'hôte garde hors du composant, compté dans le budget mémoire du plugin et rendu avec lui ; la limite de 1 Ko du bloc ECS reste, ce qui ne tient pas dedans va dans un blob. Le bloc reste copié par `memcpy` (deux blocs peuvent partager un blob) ; le composant d'acteur, lui, possède les blobs de ses champs blob : il les sauve en base64 avec le monde, une copie de l'acteur (mode jeu) en reçoit des copies, le retirer les libère. `shard::Blob` dans le SDK C++.
+* **`shard.experimental.*` (§11)** : `shard_experimental.h`. Majeure 0, donnée pour sa mineure exacte seulement, pas épinglée par les tests de disposition, pas comptée dans `SHARD_ABI_MINOR`, refusée (`SHARD_E_UNSUPPORTED`) à un plugin natif portant une signature valide d'un éditeur de confiance (`MayUseExperimental`). Première interface : `shard.experimental.world_ecs` 0.1, le registre du moteur depuis le fil principal hors système (`open` / `close`, changements structurels appliqués à `close`, `shard::experimental::World` en C++) : le manque « ECS hors système » relevé plus haut, essayé avant d'être figé.
+* **Attribution des plantages (§6)** : chaque appel de l'hôte vers un plugin C passe par un `ActiveScope` (`c_internal.hpp`) : commandes, événements, hooks, validateurs, importeurs, chargement et libération d'assets, en plus du cycle de vie et des systèmes. `PluginManager::ActivePlugin()` ; test `CAbiTest.EveryCallbackIntoThePluginNamesItForACrashReport`.
+* **Événements décrits (§5.5)** : `describe` (`shard.events` 1.1), `EventRegistrar::DescribeNamed` côté C++, `EventDispatcher::describeNamed` / `namedLayout`, `Events::FormatNamedEvent`. La console s'en sert : `event.list`, `event.watch <nom>`, `event.unwatch <nom>`. Les replays n'enregistrent pas d'événements nommés aujourd'hui : rien à y afficher.
+* **Archive SDK en CI (§7.1)** : `ShardSDKArchive` dans `build.yml`, publiée par OS (`shard-sdk-Windows`, `shard-sdk-Linux`).
+* **Cible `package` (§7.1)** : `ShardPkg` lié en statique (MinGW) et installé dans `sdk/bin` ; le gabarit demande `PACKAGE` ; `Sdk.OutOfTree` construit l'archive avec le `ShardPkg` du SDK installé, et vérifie que la compilation n'a vu aucun chemin du dépôt (`compile_commands.json` et fichiers de réponse).
+* **Le tutoriel suivi pas à pas** : déroulé à la main depuis `shard-sdk-1.2.0.zip` dans un dossier vierge, l'id changé. Il a trouvé la bibliothèque d'import (`.dll.a`) embarquée dans le `.shardplugin` (corrigé : elle reste dans le dossier de build) et deux imprécisions du texte (corrigées). Ce n'est pas une machine propre : le moteur et MinGW étaient déjà là.
+* Trouvé en route : `ShardHostApi::engineVersion` n'était jamais rempli (il l'est, depuis `config.h`), et `PluginContext::Engine()` restait nul pour tout plugin chargé avant le moteur, donc pour tous (`BindEngine` reçoit maintenant le moteur) : `get_asset` n'aurait jamais marché en vrai.
+
 ### Écarts par rapport au plan
 
-* `CAbiPlugin` dérive d'`IModule` et non d'`EnginePlugin` (les deux dérivent d'`IPlugin` : un double héritage serait ambigu). `on_frame_begin/end` viendra avec l'étape qui touchera à `PluginRecord::enginePlugin`.
-* Les callbacks renvoient un `ShardResult` : une valeur non nulle fait échouer le plugin comme une exception en C++.
+* `CAbiPlugin` dérive d'`IModule` ; les rappels d'`EnginePlugin` et de `ToolPlugin` passent par des objets à part (voir A3).
+* Les callbacks renvoient un `ShardResult` : une valeur non nulle fait échouer le plugin comme une exception en C++ (sauf `on_tool_task`, dont l'erreur annule la tâche).
 * `ShardPluginInfo::structSize` est écrit par le plugin (son `sizeof`), pas par l'hôte : c'est ce qui permet de refuser une struct trop petite.
-* `on_prepare_reload`/`on_restore` attendent `shard.state` (A3) ; sans eux un plugin C n'est pas rechargeable à chaud.
+* Le lien `ShardPluginCtx` → contexte ne s'arrête plus dans `on_disable` mais quand le contexte libère tout (`PluginContext::OnRelease`, premier enregistrement donc dernier libéré) : `on_unload` peut encore libérer sa mémoire, les ressources d'un type d'asset sont rendues au plugin et ses blobs libérés tant que le contexte existe.
+* Composants : des champs de données simples (nombres, booléen, vecteurs, quaternion, couleur) et des blobs. Pas de `STRING`, `ASSET`, `ENTITY`, `TAG`, donc pas de `construct` / `destroy` / `copy` ; les valeurs par défaut sont un bloc d'octets, pas du JSON. Drapeaux : `RUNTIME` (affiché en lecture seule, non sauvé) et `PRIVATE` ; pas de `HIDDEN` (l'inspecteur ne sait pas cacher un champ). Les noms sont préfixés par l'hôte (`<id>.<nom>`), comme les cvars.
+* `shard.ecs` ne sert que depuis un système ; le fil principal passe par `shard.experimental.world_ecs`, sans promesse.
+* Hooks : une seule struct `ShardHookArgs` (`subject`, `detail`, `frame`) décrite par un tableau dans l'en-tête, au lieu d'une struct par hook.
+* Extensions : `add_validator`, `add_asset_type`, `add_importer` typées plutôt qu'un `add(point, name, item, item_type)` générique ; plus `get_asset` pour relire une ressource.
+* Services : un service C est un `ShardService` (table + `self` + version) dont l'hôte garde la copie ; `resolve` refuse (`SHARD_E_UNSUPPORTED`) un service fourni par un plugin C++.
+* La description d'un événement réutilise les `ShardFieldDesc` des composants (sans blob : une charge est copiée).
+* La référence de l'API (`docs/docs/api_reference.md`) est générée depuis les commentaires des en-têtes par `scripts/gen_api_reference.py`, pas par Doxygen : le site est en MkDocs (du Markdown, pas le HTML de Doxygen), le script n'ajoute aucune dépendance, et il vérifie au passage que la révision annoncée par chaque en-tête est celle que l'hôte offre. Le test `Docs.ApiReference` échoue si la page n'est plus ce que donnent les en-têtes ; le workflow du site la régénère avant de construire.
 
 ### Reste
 
-A2 (composants, ECS, systèmes), A3 (événements nommés, hooks, services, extensions, état ; cvars et commandes sont faits), A4 (SDK C++ header-only, `ShardSDKConfig.cmake`, gabarit, `cmake --install`), A5 (job CI hors dépôt, autre compilateur, test 1.0 → 1.1, fuzz, tutoriel).
+* Voir les étapes CI tourner : « autre compilateur » (Clang sous Linux, MSVC sous Windows) et l'archive SDK. Linux n'a jamais été vérifié sur cette machine.
+* Mesurer le coût par appel sur `Spin` avec 100 000 entités contre le même système en C++ (risque du §11).
+* Le critère de réception du §10 (le module Voxel contre le SDK seul) attend le module ; les blobs sont là pour lui.
+* Le tutoriel sur une machine réellement vierge (sans MinGW ni moteur installés à côté).
+* Candidats pour une 1.3 : faire passer `world_ecs` de l'expérimental au figé une fois éprouvé, champs `STRING` / `ASSET` / `ENTITY` (alloués par l'hôte, sur le modèle des blobs), écriture de `LocalTransform` qui remonte au `Transform`.

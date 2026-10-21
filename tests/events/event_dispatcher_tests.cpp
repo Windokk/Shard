@@ -1,5 +1,7 @@
 #include <gtest/gtest.h>
 
+#include <cstring>
+
 #include "engine/world/event_system.hpp"
 
 using namespace Shard::Engine::Events;
@@ -90,4 +92,35 @@ TEST(EventDispatcher, ComponentScopedEventOnlyReachesMatchingComponent) {
 
     dispatcher.emitToComponent(7, KeyPressedEvent(1, false, ObjectID(1)));
     EXPECT_TRUE(called);
+}
+
+// ---- Named events and their layouts ----
+
+TEST(EventDispatcher, ANamedEventLayoutBelongsToWhoDescribedIt) {
+    EventDispatcher dispatcher;
+    NamedEventLayout layout;
+    layout.size = 8;
+    layout.fields = { { "hits", NamedEventLayout::FieldType::I32, 0 }, { "alive", NamedEventLayout::FieldType::Bool, 4 } };
+    EXPECT_TRUE(dispatcher.describeNamed("game.Hit", layout, 7));
+    EXPECT_TRUE(dispatcher.describeNamed("game.Hit", layout, 7));        // its owner may describe it again
+    EXPECT_FALSE(dispatcher.describeNamed("game.Hit", layout, 8));       // not somebody else
+    ASSERT_NE(dispatcher.namedLayout("game.Hit"), nullptr);
+    EXPECT_EQ(dispatcher.describedNames(), std::vector<std::string>{ "game.Hit" });
+
+    dispatcher.UnsubscribeOwner(7);
+    EXPECT_EQ(dispatcher.namedLayout("game.Hit"), nullptr);
+}
+
+TEST(EventDispatcher, ANamedEventIsFormattedFromItsLayout) {
+    NamedEventLayout layout;
+    layout.size = 20;
+    layout.fields = { { "hits", NamedEventLayout::FieldType::I32, 0 }, { "where", NamedEventLayout::FieldType::Vec3, 4 }, { "alive", NamedEventLayout::FieldType::Bool, 16 } };
+    unsigned char payload[20] = {};
+    const int32_t hits = 3;
+    const float where[3] = { 1.f, 2.5f, -1.f };
+    std::memcpy(payload, &hits, 4);
+    std::memcpy(payload + 4, where, 12);
+    payload[16] = 1;
+    EXPECT_EQ(FormatNamedEvent(layout, payload, sizeof(payload)), "{ hits: 3, where: (1, 2.5, -1), alive: true }");
+    EXPECT_EQ(FormatNamedEvent(layout, payload, 6), "(6 bytes)");      // not the size it was described with
 }

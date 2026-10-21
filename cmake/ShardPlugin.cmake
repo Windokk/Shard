@@ -23,6 +23,10 @@
 #   <OUTPUT_DIR>/<ID>/content/...
 # ABI cpp links the engine, so it sees the same headers as the game module (BUILD_GAME), and exports its entry point with SHARD_PLUGIN.
 
+# The manifest writer and the layout are the SDK's (sdk/cmake/ShardSDKPlugin.cmake) : a plugin built in the repository and one built against
+# the installed SDK come out the same
+include(${CMAKE_CURRENT_LIST_DIR}/../sdk/cmake/ShardSDKPlugin.cmake)
+
 function(shard_add_plugin)
     set(options AFFECTS_SIMULATION NO_SIMULATION EDITOR_UI)
     set(one NAME ID VERSION KIND MODULE_KIND CONTENT_DIR OUTPUT_DIR DESCRIPTION ABI)
@@ -51,20 +55,8 @@ function(shard_add_plugin)
         set(P_OUTPUT_DIR "${CMAKE_BINARY_DIR}/plugins")
     endif()
 
-    # The platform key the manifest names the binary under (same as CurrentPlatformKey() in manifest.cpp)
-    string(TOLOWER "${CMAKE_SYSTEM_NAME}" _os)
-    if(_os STREQUAL "darwin")
-        set(_os macos)
-    endif()
-    if(CMAKE_SYSTEM_PROCESSOR MATCHES "arm64|aarch64|ARM64")
-        set(_arch arm64)
-    else()
-        set(_arch x86_64)
-    endif()
-    set(_platform "${_os}-${_arch}")
-
+    shard_sdk_platform(_platform)
     set(_root "${P_OUTPUT_DIR}/${P_ID}")
-    set(_bin "${_root}/bin/${_platform}")
 
     set(_imgui_sources "")
     if(P_EDITOR_UI)
@@ -96,95 +88,23 @@ function(shard_add_plugin)
         endif()
         target_link_libraries(${P_NAME} PRIVATE Engine)
     endif()
-    set_target_properties(${P_NAME} PROPERTIES
-        LIBRARY_OUTPUT_DIRECTORY "${_bin}"
-        RUNTIME_OUTPUT_DIRECTORY "${_bin}"
-        ARCHIVE_OUTPUT_DIRECTORY "${_bin}"
-    )
-    foreach(_cfg Debug Release RelWithDebInfo MinSizeRel)
-        string(TOUPPER ${_cfg} _CFG)
-        set_target_properties(${P_NAME} PROPERTIES
-            LIBRARY_OUTPUT_DIRECTORY_${_CFG} "${_bin}"
-            RUNTIME_OUTPUT_DIRECTORY_${_CFG} "${_bin}"
-            ARCHIVE_OUTPUT_DIRECTORY_${_CFG} "${_bin}"
-        )
-    endforeach()
-
-    # hosts -> JSON array
-    set(_hosts "")
-    foreach(_h ${P_HOSTS})
-        if(_hosts)
-            string(APPEND _hosts ", ")
-        endif()
-        string(APPEND _hosts "\"${_h}\"")
-    endforeach()
-
-    # dependencies : "id", "id@range", "id?" or "id?@range"
-    set(_deps "")
-    foreach(_d ${P_DEPENDS})
-        string(REGEX MATCH "^([^@?]+)(\\?)?(@(.+))?$" _m "${_d}")
-        set(_id "${CMAKE_MATCH_1}")
-        set(_optional "false")
-        if(CMAKE_MATCH_2)
-            set(_optional "true")
-        endif()
-        set(_range "*")
-        if(CMAKE_MATCH_4)
-            set(_range "${CMAKE_MATCH_4}")
-        endif()
-        if(_deps)
-            string(APPEND _deps ",\n    ")
-        endif()
-        string(APPEND _deps "{ \"id\": \"${_id}\", \"version\": \"${_range}\", \"optional\": ${_optional} }")
-    endforeach()
-
-    set(_requires "")
-    foreach(_r ${P_ENGINE_REQUIRES})
-        if(_requires)
-            string(APPEND _requires ", ")
-        endif()
-        string(APPEND _requires "\"${_r}\"")
-    endforeach()
+    shard_sdk_place_binary(${P_NAME} "${_root}" "${_platform}")
 
     set(_affects "false")
     if(P_AFFECTS_SIMULATION OR (P_KIND STREQUAL "module" AND NOT P_NO_SIMULATION))
         set(_affects "true")
     endif()
-
-    set(_moduleKind "")
-    if(P_MODULE_KIND)
-        set(_moduleKind "\n  \"moduleKind\": \"${P_MODULE_KIND}\",")
-    endif()
-    set(_content "")
-    if(P_CONTENT_DIR)
-        set(_content ",\n  \"content\": { \"mount\": \"content\" }")
-    endif()
     set(_abi "")
     if(P_ABI STREQUAL "c1")
-        set(_abi "\n  \"abi\": \"c1\",")
+        set(_abi c1)
     endif()
-    set(_description "")
-    if(P_DESCRIPTION)
-        set(_description "\n  \"description\": \"${P_DESCRIPTION}\",")
+    set(_content_flag "")
+    if(P_CONTENT_DIR)
+        set(_content_flag CONTENT)
     endif()
-
-    file(GENERATE OUTPUT "${_root}/shard-plugin.json" CONTENT
-"{
-  \"schema\": 1,
-  \"id\": \"${P_ID}\",
-  \"name\": \"${P_NAME}\",${_description}
-  \"version\": \"${P_VERSION}\",
-  \"kind\": \"${P_KIND}\",${_moduleKind}
-  \"linkage\": \"dynamic\",${_abi}
-  \"hosts\": [${_hosts}],
-  \"engine\": { \"api\": \"1.0\", \"requires\": [${_requires}] },
-  \"binaries\": { \"${_platform}\": \"bin/${_platform}/$<TARGET_FILE_NAME:${P_NAME}>\" },
-  \"dependencies\": [
-    ${_deps}
-  ],
-  \"simulation\": { \"affects\": ${_affects}, \"deterministic\": true }${_content}
-}
-")
+    shard_sdk_write_manifest(TARGET ${P_NAME} ROOT "${_root}" PLATFORM ${_platform} ID ${P_ID} NAME ${P_NAME} VERSION ${P_VERSION}
+        KIND ${P_KIND} MODULE_KIND "${P_MODULE_KIND}" ABI "${_abi}" HOSTS ${P_HOSTS} DEPENDS ${P_DEPENDS} ENGINE_REQUIRES ${P_ENGINE_REQUIRES}
+        AFFECTS ${_affects} DESCRIPTION "${P_DESCRIPTION}" ${_content_flag})
 
     if(P_CONTENT_DIR)
         add_custom_command(TARGET ${P_NAME} POST_BUILD

@@ -84,6 +84,7 @@ namespace Shard::Engine::Objects{
     void Actor::AttachComponent(const std::shared_ptr<Component>& component)
     {
         components.push_back(component);
+        component->OnAttached();
 
         if (world != nullptr)
             RegisterInWorld(component, false);
@@ -316,6 +317,7 @@ namespace Shard::Engine::Objects{
             cloneComp->GetTags().Assign(comp->GetTags(), true);
 
             copy->components.push_back(cloneComp);
+            cloneComp->OnAttached();
 
             if (cloneComp->IsInstanceOf<Transform>()) {
                 

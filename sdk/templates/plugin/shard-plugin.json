@@ -1,0 +1,14 @@
+{
+  "schema": 1,
+  "id": "com.example.template",
+  "name": "Template plugin",
+  "description": "A component, a system and a cvar : the starting point of a plugin written with the Shard SDK",
+  "version": "1.0.0",
+  "kind": "module",
+  "moduleKind": "code",
+  "hosts": ["engine", "player", "headless", "editor"],
+  "engine": { "api": "1.0", "requires": [] },
+  "dependencies": [],
+  "simulation": { "affects": true, "deterministic": true },
+  "content": { "mount": "content" }
+}

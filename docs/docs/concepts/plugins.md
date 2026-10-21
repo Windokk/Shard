@@ -361,32 +361,97 @@ A plugin can also be compiled into the executable : declare it with `SHARD_STATI
 
 Libraries that predate this (they export `InitializeSingletons` and `RegisterGameComponents`) still load, as a code module, with a warning. They get no build check and cannot be reloaded.
 
-## The C ABI (in progress)
+## The C ABI and the SDK
 
-A plugin can be written against the C headers of `sdk/include/shard` instead of the engine's C++ headers. It links nothing of the engine, so it loads in any engine with a compatible ABI revision whatever compiler built either side. Set `"abi": "c1"` in the manifest (or `ABI c1` in `shard_add_plugin`) ; the entry point is then `shard_plugin_entry` instead of `shard_plugin_describe`.
+A plugin can be written against the Shard SDK (`sdk/include/shard`) instead of the engine's C++ headers. It links nothing of the engine and includes none of its headers : it loads in every engine of the same ABI major revision (and a minor revision at least its own), whatever compiler built either side. A plugin built with MSVC loads in an engine built with MinGW GCC, one built with Clang in an engine built with GCC. The CI checks both.
 
-```c
-#include <shard/shard_host.h>
+There are two layers :
 
-static ShardResult SHARD_CALL OnLoad(void* user, ShardPluginCtx ctx) { /* ... */ return SHARD_OK; }
+* **The C ABI** (`shard/shard.h` and the headers it includes) : plain C11, the contract between the plugin and the engine.
+* **The C++ SDK** (`shard/cpp/plugin.hpp`) : header-only C++17 over the C ABI. It is compiled into the plugin, so it uses the standard library freely without touching the ABI.
 
-static const ShardPluginCallbacks kCallbacks = { sizeof(ShardPluginCallbacks), &OnLoad };
-static const ShardHostApi* gHost;
+```cpp
+#include <shard/cpp/plugin.hpp>
 
-SHARD_PLUGIN_EXPORT ShardResult SHARD_CALL shard_plugin_entry(const ShardHostApi* host, ShardPluginInfo* out)
-{
-    gHost = host;
-    out->structSize = sizeof(ShardPluginInfo);
-    out->abiMajor = SHARD_ABI_MAJOR;
-    out->abiMinor = SHARD_ABI_MINOR;
-    out->callbacks = &kCallbacks;
-    return SHARD_OK;
-}
+struct Spin { float speed = 1.f; float angle = 0.f; };
+SHARD_COMPONENT(Spin, (speed)(angle))
+
+class SpinPlugin : public shard::Plugin {
+public:
+    void OnLoad(shard::Context& ctx) override
+    {
+        auto spin = ctx.Components().Register<Spin>("Spin");
+        ctx.Systems().Add("rotate", shard::Phase::Update)
+            .Writes(spin)
+            .Run([spin](shard::SystemCtx& s) {
+                s.Each(spin, [&](Spin& c) { c.angle += c.speed * s.DeltaTime(); });
+            });
+        ctx.CVars().Float("scale", 1.f, "multiplies every speed");
+    }
+};
+SHARD_C_PLUGIN(SpinPlugin)
 ```
 
-What is there today (ABI 1.0) : the lifecycle callbacks (`on_load`, `on_initialize`, `on_enable`, `on_disable`, `on_unload`), logging, memory counted against the plugin's budget, and interfaces fetched with `query_interface` : `shard.plugin` (id, version, folder), `shard.cvars` (bool, int, float and string variables, with handles that go stale when the plugin is disabled) and `shard.commands` (console commands that receive their words as `ShardStr`). Components, systems, events, hooks, services and extension points are the next steps of `docs/design-notes/c-abi-sdk.fr.md`.
+The manifest says `"abi": "c1"`, and the entry point is `shard_plugin_entry` instead of `shard_plugin_describe`. `shard_sdk_add_plugin` (outside the repository) and `shard_add_plugin(... ABI c1)` (inside) write both. See [Write a plugin outside the engine repository](../tutorials.md) to start from the template, and the [C ABI reference](../api_reference.md) for every function.
 
-The rules the headers follow : plain C, fixed size types, every struct starts with `structSize` and only grows at the end, handles instead of pointers, no exception crosses. The host refuses a plugin built for a newer revision than its own (`abiMinor` above the host's) or another major, and one whose `ShardPluginInfo` is smaller than the first version. The build fingerprint does not apply to a `c1` plugin. The tier does not change : a C plugin is a native tier 1 plugin, signed or consented to like the others, and nothing isolates it.
+### What the C ABI offers
+
+Everything goes through interfaces that a plugin asks for by name and version with `host->query_interface("shard.systems", 1, 0, &table)`. The C++ SDK does it for you.
+
+| Interface | What it does |
+|---|---|
+| `shard.plugin` 1.1 | the plugin's id, version, folder ; the host it runs in and its permissions (1.1) |
+| `shard.cvars` 1.0 | variables of the console and of the config files |
+| `shard.commands` 1.0 | console commands |
+| `shard.components` 1.1 | component types described field by field : an ECS component and an actor component at once ; blobs for what does not fit (1.1) |
+| `shard.ecs` 1.0 | queries by chunk, component access and structural changes, from inside a system |
+| `shard.systems` 1.0 | systems in the scheduler's phases, with their reads, writes and order |
+| `shard.events` 1.1 | events found by name, carrying bytes (C++ code reaches the same channel) ; what a payload holds, for the tools (1.1) |
+| `shard.hooks` 1.0 | the engine's hooks, by name, cancellable |
+| `shard.services` 1.0 | tables of functions plugins offer each other, by name and version |
+| `shard.extensions` 1.0 | asset validators, asset types and asset importers |
+| `shard.content` 1.0 | the modules' content : `mod://` addresses, logical paths, reading files |
+| `shard.state` 1.0 | what a plugin keeps across a hot reload, as JSON text |
+| `shard.experimental.world_ecs` 0.1 | the engine's entities from the main thread, outside the systems (experimental, see below) |
+
+The lifecycle callbacks are the ones of `IPlugin`, plus the frame, the content and the world callbacks of `EnginePlugin` and `IModule`, and `on_tool_task` of `ToolPlugin`. What the C ABI does not offer : render features and pipelines, editor panels and ImGui, direct access to actors and worlds, and the network. A plugin that needs them is written in C++ against the engine.
+
+### Components across the ABI
+
+A type a plugin registers has two faces under one name (`<plugin id>.<name>`) :
+
+* an **ECS component** : a block of plain data (copied with `memcpy`, never constructed) on an entity. Systems query it and write it.
+* an **actor component** : what a world file saves, the inspector shows and an actor carries, made of the fields the plugin described (floats, integers, booleans, vectors, quaternions, colours).
+
+When an actor has the component, its entity has the block, with the same values. The actor component writes its values to the entity when it is loaded, edited, attached or activated, and reads them back from the entity when the world is saved or copied (play mode). So what a system changed is what gets saved. A deactivated component leaves the entity : the systems skip it. An entity a plugin spawned itself has no actor, and is not saved.
+
+Field flags : `SHARD_FIELD_RUNTIME` (shown read only, not saved), `SHARD_FIELD_PRIVATE` (neither shown nor saved). A component is 1024 bytes at most, aligned on 16 at most, with 64 fields at most. Its ECS id is reserved for the whole run : a plugin enabled again gets the same id back, provided the size did not change (a new layout needs a restart).
+
+What does not fit goes in a **blob** (ABI 1.2) : bytes the host keeps outside the block, as many as needed, counted against the plugin's memory budget, and given back with the plugin. A field of type `SHARD_FIELD_BLOB` holds its handle. The block is still plain data, so copying it shares the blob ; the actor component is the exception, it owns the blobs of its blob fields : it saves their bytes with the world (base64), a copy of the actor (play mode) gets copies of them, and removing the component frees them.
+
+### Systems and threads
+
+A system declares what it reads and writes, and reaches only those types through `shard.ecs` (an exclusive system reaches anything). The scheduler runs systems of a phase in parallel when they do not conflict ; the result is the same with one thread or many, which `ShardHeadless --check-plugins` checks.
+
+Every function of the ABI says which thread may call it : `any`, `system` (from a system, so in parallel) or `main` (the main thread, outside the systems). A `main` function called from a system returns `SHARD_E_WRONG_THREAD`. An event emitted from a system is queued and delivered on the main thread at the end of the frame, the queues taken in the order of the systems' names : the order does not depend on which system finished first.
+
+A system that returns an error (or throws, in C++) counts as an error of the plugin ; at the tenth, the host fails it, as for a C++ system. Every call from the engine into a C plugin (lifecycle, systems, events, hooks, commands, validators, importers, asset loaders) names the plugin as the one running : a crash in it is blamed on it, and the next start offers safe mode without it.
+
+### Described events
+
+The payload of a named event is bytes whose layout the sender documents. Since ABI 1.2 it can also tell the engine (`shard.events` 1.1 `describe`, `ctx.Events().Describe<T>()` in C++, `EventRegistrar::DescribeNamed` for a C++ plugin), with the same fields as a component. The console then shows them : `event.list` lists the described events and their fields, `event.watch <name>` logs every event sent under that name with its values (`{ ticks: 3, axis: (0, 1, 0) }`), `event.unwatch <name>` stops.
+
+### Experimental interfaces
+
+What may still change is offered as `shard.experimental.*` before it is frozen into the ABI. Such an interface carries **no** compatibility promise : its major is 0, `query_interface` hands it out for its exact minor only, and it may change or go in any engine revision. A native plugin carrying a valid signature of a trusted publisher (what is distributed) is refused them : they are for development and for trying what the next ABI revision should hold. Today : `shard.experimental.world_ecs`, the engine's registry from the main thread (`shard::experimental::World` in C++), open and closed within one callback, its structural changes applied at close.
+
+### Versions and the rules of the headers
+
+The ABI has a major and a minor revision (`SHARD_ABI_MAJOR`, `SHARD_ABI_MINOR`, the SDK's version). A minor revision only adds : functions at the end of a table, fields at the end of a struct, new interfaces. So a plugin built for 1.0 loads in an engine of 1.1, and a plugin built for 1.1 is refused by an engine of 1.0 (`built for the C ABI 1.1, this engine has 1.0`). Each interface has its own version too : a plugin that needs `has_permission` asks for `shard.plugin` 1.1.
+
+The headers follow these rules : plain C, fixed size types in structs, every struct starts with `uint32_t structSize` and only grows at its end, handles (index + generation) instead of pointers to host objects, no exception crosses the boundary. A handle that outlived its object (a cvar of a disabled plugin, a ShardEcs kept after the system's run) fails with `SHARD_E_STALE_HANDLE` instead of reading freed memory.
+
+The build fingerprint does not apply to a `c1` plugin : the ABI revision is the contract. The tier does not change either : a C plugin is a native tier 1 plugin, signed or consented to like the others, and nothing isolates it.
 
 ## Module content
 

@@ -93,6 +93,9 @@ namespace Shard::Engine::Objects{
 
                 virtual const ClassDescriptor* GetDescriptor() const = 0;
 
+                /// @brief The component joined an actor (added, loaded or cloned) : it has its parent from now on, and the actor's entity
+                virtual void OnAttached() {}
+
                 /// @brief The Transform of this component's actor changed
                 /// @param changes TransformChange flags
                 virtual void OnTransformChanged(uint8_t changes) {}

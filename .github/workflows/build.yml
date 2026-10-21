@@ -92,6 +92,35 @@ jobs:
       - name: Determinism (headless replay, no GPU)
         run: ctest --test-dir build -R "^Determinism\." --output-on-failure --timeout 300
 
+      # The C ABI is the promise that a plugin works whatever compiler built it (docs/design-notes/c-abi-sdk.fr.md, A5). The step "Test"
+      # already ran Sdk.OutOfTree : the SDK installed alone, the template of sdk/templates/plugin built against it outside the repository, and
+      # loaded by the headless engine. Here the template is built by ANOTHER compiler than the engine's : Clang against the GCC engine on
+      # Linux, MSVC against the MinGW engine on Windows.
+      - name: SDK, plugin built by Clang (engine built by GCC)
+        if: runner.os == 'Linux'
+        run: |
+          cmake -S . -B build -DSHARD_SDK_TEST_CXX=clang++
+          ctest --test-dir build -R "^Sdk\.OutOfTree$" --output-on-failure --timeout 400
+
+      - name: SDK, plugin built by MSVC (engine built by MinGW GCC)
+        if: runner.os == 'Windows'
+        run: |
+          VS="$("/c/Program Files (x86)/Microsoft Visual Studio/Installer/vswhere.exe" -latest -products '*' -requires Microsoft.VisualStudio.Component.VC.Tools.x86.x64 -property installationPath | tr -d '\r')"
+          cmake -S . -B build "-DSHARD_SDK_TEST_VCVARS=$(cygpath -m "$VS")/VC/Auxiliary/Build/vcvars64.bat"
+          ctest --test-dir build -R "^Sdk\.OutOfTreeMsvc$" --output-on-failure --timeout 400
+
+      # The SDK of this commit (headers, CMake package, template, ShardPkg) as shard-sdk-<version>.zip : what a plugin author downloads.
+      # One per OS : the headers are the same, ShardPkg is not.
+      - name: SDK archive
+        run: cmake --build build --target ShardSDKArchive
+
+      - name: Upload the SDK archive
+        uses: actions/upload-artifact@v4
+        with:
+          name: shard-sdk-${{ runner.os }}
+          path: build/shard-sdk-*.zip
+          if-no-files-found: error
+
       # The smoke test starts the player on example_project (scripts/smoke_test.sh). The runner has no GPU : on a virtual
       # display (Xvfb) OpenGL comes from Mesa's software renderer. Linux only : a Windows runner offers no OpenGL 4.6 at all.
       # llvmpipe only goes up to GL 4.5, so MESA_GL_VERSION_OVERRIDE is needed to get a 4.6 context.

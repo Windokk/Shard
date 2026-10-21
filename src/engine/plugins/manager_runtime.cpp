@@ -661,6 +661,40 @@ namespace Shard::Engine::Plugins {
             const std::string text = out.str();
             return R{ true, text.empty() ? "no services" : text };
         });
+        // Named events (the channel of the C ABI) : what plugins described, and a look at what goes through
+        add("event.list", "event.list : the named events plugins described, and their fields", [this](const Args&) {
+            if (!m_Events) return R{ false, "no event dispatcher in this run" };
+            std::ostringstream out;
+            for (const std::string& name : m_Events->describedNames()) {
+                const Events::NamedEventLayout* layout = m_Events->namedLayout(name);
+                out << name << " (" << layout->size << " bytes) :";
+                for (const auto& f : layout->fields) out << " " << f.name << "@" << f.offset;
+                out << "\n";
+            }
+            const std::string text = out.str();
+            return R{ true, text.empty() ? "no described events" : text };
+        });
+        add("event.watch", "event.watch <name> : logs every event sent globally under that name, with its fields when it is described", [this](const Args& a) {
+            if (a.empty()) return R{ false, "usage : event.watch <name>" };
+            if (!m_Events) return R{ false, "no event dispatcher in this run" };
+            if (m_EventWatches.count(a[0])) return R{ true, "already watching " + a[0] };
+            Events::EventDispatcher* events = m_Events;
+            const auto log = [events](const Events::NamedEvent& e) {
+                const Events::NamedEventLayout* layout = events->namedLayout(e.name);
+                const std::string text = layout ? Events::FormatNamedEvent(*layout, e.payload, e.size) : "(" + std::to_string(e.size) + " bytes)";
+                DEBUG_INFO("[event] " + e.name + " " + text);
+            };
+            m_EventWatches[a[0]] = m_Events->subscribeNamed(a[0], log);
+            return R{ true, "watching " + a[0] };
+        });
+        add("event.unwatch", "event.unwatch <name> : stops event.watch", [this](const Args& a) {
+            if (a.empty()) return R{ false, "usage : event.unwatch <name>" };
+            auto it = m_EventWatches.find(a[0]);
+            if (it == m_EventWatches.end() || !m_Events) return R{ false, "not watching " + a[0] };
+            m_Events->Unsubscribe(it->second);
+            m_EventWatches.erase(it);
+            return R{ true, "stopped watching " + a[0] };
+        });
         add("plugin.hooks", "plugin.hooks : how many handlers plugins attached to the hooks", [this](const Args&) {
             return R{ true, std::to_string(m_Hooks.Count()) + " hook handlers" };
         });

@@ -5,6 +5,7 @@
 #include <vector>
 
 #include <shard/shard_cvars.h>
+#include <shard/shard_host.h>
 
 #include "engine/core/config/cvar.hpp"
 #include "engine/plugins/manager.hpp"
@@ -135,6 +136,8 @@ TEST_F(CPluginTest, TheInterfaceTheHostOffersDescribesThePlugin)
     ASSERT_EQ(Rec()->state, PluginState::Initialized) << Rec()->error;
     EXPECT_STREQ(Export<const char* (*)()>("c_plugin_seen_id")(), kId);
     EXPECT_STREQ(Export<const char* (*)()>("c_plugin_seen_version")(), "1.0.0");
+    EXPECT_STREQ(Export<const char* (*)()>("c_plugin_seen_host")(), "headless");      // shard.plugin 1.1
+    EXPECT_EQ(Export<int (*)()>("c_plugin_has_net")(), SHARD_FALSE);
 }
 
 TEST_F(CPluginTest, MemoryFromTheHostIsCountedAndGivenBack)
@@ -170,7 +173,8 @@ TEST_F(CPluginTest, AnAbiRevisionNewerThanTheHostIsRefused)
     ASSERT_TRUE(pm().Startup(config));
     ASSERT_NE(Rec(), nullptr);
     EXPECT_EQ(Rec()->state, PluginState::Failed);
-    EXPECT_NE(Rec()->error.find("C ABI 1.1"), std::string::npos) << Rec()->error;
+    const std::string newer = "C ABI " + std::to_string(SHARD_ABI_MAJOR) + "." + std::to_string(SHARD_ABI_MINOR + 1);
+    EXPECT_NE(Rec()->error.find(newer), std::string::npos) << Rec()->error;
 }
 
 TEST_F(CPluginTest, AnotherMajorAbiIsRefused)
@@ -180,7 +184,7 @@ TEST_F(CPluginTest, AnotherMajorAbiIsRefused)
     ASSERT_TRUE(pm().Startup(config));
     ASSERT_NE(Rec(), nullptr);
     EXPECT_EQ(Rec()->state, PluginState::Failed);
-    EXPECT_NE(Rec()->error.find("C ABI 2.0"), std::string::npos) << Rec()->error;
+    EXPECT_NE(Rec()->error.find("C ABI 2." + std::to_string(SHARD_ABI_MINOR)), std::string::npos) << Rec()->error;
 }
 
 TEST_F(CPluginTest, AStructTooSmallIsRefused)

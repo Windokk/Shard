@@ -824,6 +824,12 @@ namespace Shard::Engine::Plugins {
         r.serverPlugin = dynamic_cast<ServerPlugin*>(r.instance);
         r.toolPlugin = dynamic_cast<ToolPlugin*>(r.instance);
         if (!r.module) r.module = dynamic_cast<IModule*>(r.instance);
+        if (r.manifest.abi == "c1") {
+            // A C plugin is one object whatever callbacks it fills : the kinds it also is are objects of their own
+            const CPluginFacets facets = GetCPluginFacets(r.instance);
+            r.enginePlugin = facets.engine;
+            r.toolPlugin = facets.tool;
+        }
         if (r.manifest.IsModule() && !r.module && !r.legacy)
             DEBUG_WARNING("Plugins : " + r.manifest.id + " says it is a module but its class does not derive from IModule");
 
@@ -834,7 +840,7 @@ namespace Shard::Engine::Plugins {
     bool PluginManager::CreateContext(PluginRecord& r)
     {
         r.context = std::make_unique<PluginContext>(r.manifest, r.owner, m_Config.host, MakeBindings());
-        if (m_Scheduler || m_Events) r.context->BindEngine(m_Scheduler, m_Events);
+        if (m_Scheduler || m_Events) r.context->BindEngine(m_Scheduler, m_Events, m_Engine);
         return true;
     }
 
@@ -999,7 +1005,7 @@ namespace Shard::Engine::Plugins {
             m_PatchFilterId = Worlds::AddWorldJsonFilter([this](const std::string& name, json& world) { PatchWorld(name, world); });
         }
         for (auto& r : m_Records) {
-            if (r->context) r->context->BindEngine(scheduler, events);
+            if (r->context) r->context->BindEngine(scheduler, events, engine);       // the contexts made before the engine existed learn it too
         }
     }
 
@@ -1031,6 +1037,7 @@ namespace Shard::Engine::Plugins {
             if (r.state != PluginState::Failed) r.state = PluginState::Disabled;
         }
         RemoveWorldBridge();
+        m_EventWatches.clear();         // the dispatcher goes with the engine
         Worlds::SetWorldSaveGuard(nullptr);
         if (m_PatchFilterId != 0) { Worlds::RemoveWorldJsonFilter(m_PatchFilterId); m_PatchFilterId = 0; }
         m_Scheduler = nullptr;
@@ -1164,6 +1171,8 @@ namespace Shard::Engine::Plugins {
             const double ms = std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - start).count();
             r->frameMsAverage = r->frameMsAverage * 0.9 + ms * 0.1;
         }
+        // What the C plugins' systems emitted during the frame
+        try { FlushCEvents(m_Events); } catch (const std::exception& e) { DEBUG_ERROR(std::string("Plugins : a named event handler threw : ") + e.what()); }
         Hooks::PostFrame hook(frame);
         try { m_Hooks.Emit(hook); } catch (const std::exception& e) { DEBUG_ERROR(std::string("Plugins : PostFrame handler threw : ") + e.what()); }
         if (frame % 120 == 0) UpdateBudgets();

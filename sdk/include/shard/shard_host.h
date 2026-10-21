@@ -29,9 +29,16 @@ typedef struct ShardHostApi {
     ShardResult (SHARD_CALL *query_interface)(ShardStr id, uint32_t major, uint32_t minMinor, const void** out);
 } ShardHostApi;
 
+/* A world a module is told about. `name` is valid for the call. */
+typedef struct ShardWorldInfo {
+    uint32_t structSize;
+    int32_t  assetId;                       /* the world's asset id in the project, -1 if it has none */
+    ShardStr name;
+} ShardWorldInfo;
+
 /* ---- The plugin's callbacks ----
  * Same order and meaning as IPlugin. A callback returns SHARD_OK, or an error that makes the host fail the plugin (and the plugins that
- * depend on it) with the message the plugin logged. Every callback is optional : NULL means "nothing to do". */
+ * depend on it) with the message the plugin logged. Every callback is optional : NULL means "nothing to do". All of them run on the main thread. */
 
 typedef struct ShardPluginCallbacks {
     uint32_t structSize;
@@ -40,7 +47,29 @@ typedef struct ShardPluginCallbacks {
     ShardResult (SHARD_CALL *on_enable)(void* user, ShardPluginCtx ctx);
     ShardResult (SHARD_CALL *on_disable)(void* user, ShardPluginCtx ctx);
     ShardResult (SHARD_CALL *on_unload)(void* user, ShardPluginCtx ctx);
-    /* Added by the next ABI revisions (reload state, frame begin/end, world events...) go HERE : check structSize before reading them. */
+
+    /* Hot reload (shard_state.h). on_prepare_reload writes what must survive into `state` and returns SHARD_OK ; any other result (or no
+     * callback) makes the plugin not reloadable. on_restore reads it back in the new binary, after on_enable. */
+    ShardResult (SHARD_CALL *on_prepare_reload)(void* user, ShardPluginCtx ctx, ShardState state);
+    ShardResult (SHARD_CALL *on_restore)(void* user, ShardPluginCtx ctx, ShardState state);
+
+    /* Start and end of every frame while the plugin is enabled. Keep them short : their time is billed to the plugin. */
+    ShardResult (SHARD_CALL *on_frame_begin)(void* user, ShardPluginCtx ctx, uint64_t frame);
+    ShardResult (SHARD_CALL *on_frame_end)(void* user, ShardPluginCtx ctx, uint64_t frame);
+
+    /* Modules : the content folder is mounted (mod://<id>/ is readable, shard_content.h), and what happens to the worlds */
+    ShardResult (SHARD_CALL *on_content_mounted)(void* user, ShardPluginCtx ctx);
+    ShardResult (SHARD_CALL *on_world_loaded)(void* user, ShardPluginCtx ctx, const ShardWorldInfo* world);
+    ShardResult (SHARD_CALL *on_world_unloaded)(void* user, ShardPluginCtx ctx, const ShardWorldInfo* world);
+    ShardResult (SHARD_CALL *on_play_start)(void* user, ShardPluginCtx ctx, const ShardWorldInfo* world);
+    ShardResult (SHARD_CALL *on_play_stop)(void* user, ShardPluginCtx ctx, const ShardWorldInfo* world);
+
+    /* Offline tools : the tool is about to run `task` ("cook", "bake", "validate") on the project file `project`. SHARD_OK lets it run ;
+     * anything else cancels it, with *message (copied before the call returns) as the reason. Unlike the others, an error here does not
+     * fail the plugin. */
+    ShardResult (SHARD_CALL *on_tool_task)(void* user, ShardPluginCtx ctx, ShardStr task, ShardStr project, ShardStr* message);
+
+    /* Callbacks of later ABI revisions go HERE : the host checks structSize before reading them. */
 } ShardPluginCallbacks;
 
 /* What the plugin fills in its entry point */

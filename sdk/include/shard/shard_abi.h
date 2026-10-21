@@ -16,7 +16,7 @@ extern "C" {
 #endif
 
 #define SHARD_ABI_MAJOR 1
-#define SHARD_ABI_MINOR 0
+#define SHARD_ABI_MINOR 2
 
 /* Calling convention of every function pointer in the tables. Empty on x86_64 and arm64. */
 #define SHARD_CALL
@@ -56,6 +56,7 @@ typedef struct ShardStr {
  * Never a pointer to a host object. index + generation, so a stale one fails instead of reading freed memory. 0 is never valid. */
 
 typedef uint64_t ShardPluginCtx;    /* designates a plugin to the host */
+typedef uint64_t ShardState;        /* the reload state being written or read : valid during on_prepare_reload / on_restore only (shard_state.h) */
 
 /* ---- Log levels ---- */
 

@@ -99,6 +99,7 @@ namespace Shard::Engine::Plugins {
     {
         std::vector<std::pair<std::string, size_t>> out;
         for (const Record& r : m_Records) {
+            if (r.kind == "release") continue;      // OnRelease : bookkeeping, not something the plugin added
             auto it = std::find_if(out.begin(), out.end(), [&](const auto& p) { return p.first == r.kind; });
             if (it == out.end()) out.push_back({ r.kind, 1 });
             else ++it->second;
@@ -143,8 +144,9 @@ namespace Shard::Engine::Plugins {
         return std::find(p.begin(), p.end(), permission) != p.end();
     }
 
-    void PluginContext::BindEngine(Core::Ecs::Scheduler* scheduler, Events::EventDispatcher* events)
+    void PluginContext::BindEngine(Core::Ecs::Scheduler* scheduler, Events::EventDispatcher* events, Core::IEngineContext* engine)
     {
+        if (engine) m_B.engine = engine;
         m_B.scheduler = scheduler;
         m_B.events = events;
         if (scheduler) {
@@ -282,6 +284,32 @@ namespace Shard::Engine::Plugins {
         return m_Ctx.m_B.scheduler->SetEnabled(name.find('/') == std::string::npos ? NameOf(name) : name, enabled);
     }
 
+    bool SystemRegistrar::Has(const std::string& name) const
+    {
+        const std::string full = name.find('/') == std::string::npos ? NameOf(name) : name;
+        const auto& pending = m_Ctx.m_PendingSystems;
+        if (std::any_of(pending.begin(), pending.end(), [&](const auto& p) { return p.first == full; })) return true;
+        const auto& names = m_Ctx.m_SystemNames;
+        return std::find(names.begin(), names.end(), full) != names.end();
+    }
+
+    bool SystemRegistrar::Remove(const std::string& name)
+    {
+        const std::string full = name.find('/') == std::string::npos ? NameOf(name) : name;
+        auto& pending = m_Ctx.m_PendingSystems;
+        auto waiting = std::find_if(pending.begin(), pending.end(), [&](const auto& p) { return p.first == full; });
+        if (waiting != pending.end()) {
+            pending.erase(waiting);
+            return true;
+        }
+        auto& names = m_Ctx.m_SystemNames;
+        auto it = std::find(names.begin(), names.end(), full);
+        if (it == names.end() || !m_Ctx.m_B.scheduler) return false;
+        names.erase(it);
+        // The record stays : removing a system that is gone already is harmless
+        return m_Ctx.m_B.scheduler->Remove(full);
+    }
+
     // ---- EventRegistrar ----
 
     Events::EventDispatcher* EventRegistrar::Dispatcher() const { return m_Ctx.m_B.events; }
@@ -298,6 +326,84 @@ namespace Shard::Engine::Plugins {
         } else {
             m_Ctx.m_PendingEvents.emplace_back(std::move(name), std::move(subscribe));
         }
+    }
+
+    uint64_t EventRegistrar::AddNamed(std::string name, std::function<Events::EventDispatcher::Subscription(Events::EventDispatcher&, Events::EventDispatcher::Owner)> subscribe)
+    {
+        auto state = std::make_shared<NamedSubscription>();
+        const uint64_t id = ++m_NextNamed;
+        m_Named.emplace_back(id, state);
+        Defer(std::move(name), [state, subscribe = std::move(subscribe)](Events::EventDispatcher& d, Events::EventDispatcher::Owner owner) {
+            if (!state->cancelled) state->token = subscribe(d, owner);
+        });
+        return id;
+    }
+
+    uint64_t EventRegistrar::SubscribeNamed(const std::string& name, std::function<void(const Events::NamedEvent&)> callback)
+    {
+        return AddNamed("named:" + name, [name, callback = std::move(callback)](Events::EventDispatcher& d, Events::EventDispatcher::Owner owner) {
+            return d.subscribeNamed(name, callback, owner);
+        });
+    }
+
+    uint64_t EventRegistrar::SubscribeNamedToWorld(int worldID, const std::string& name, std::function<void(const Events::NamedEvent&)> callback)
+    {
+        return AddNamed("named:world:" + name, [worldID, name, callback = std::move(callback)](Events::EventDispatcher& d, Events::EventDispatcher::Owner owner) {
+            return d.subscribeNamedToWorld(worldID, name, callback, owner);
+        });
+    }
+
+    bool EventRegistrar::Unsubscribe(uint64_t id)
+    {
+        auto it = std::find_if(m_Named.begin(), m_Named.end(), [&](const auto& p) { return p.first == id; });
+        if (it == m_Named.end()) return false;
+        std::shared_ptr<NamedSubscription> state = it->second;
+        m_Named.erase(it);
+        state->cancelled = true;
+        if (state->token != 0)
+            if (Events::EventDispatcher* d = Dispatcher()) d->Unsubscribe(state->token);
+        return true;
+    }
+
+    bool EventRegistrar::DescribeNamed(const std::string& name, Events::NamedEventLayout layout)
+    {
+        if (Dispatcher()) {
+            // Defer runs it at once when there is a dispatcher, and makes sure the plugin's events go with it
+            bool described = false;
+            Defer("describe:" + name, [&](Events::EventDispatcher& d, Events::EventDispatcher::Owner owner) { described = d.describeNamed(name, layout, owner); });
+            return described;
+        }
+        PluginContext* ctx = &m_Ctx;
+        Defer("describe:" + name, [ctx, name, layout](Events::EventDispatcher& d, Events::EventDispatcher::Owner owner) {
+            if (!d.describeNamed(name, layout, owner)) ctx->Warn("the event '" + name + "' is described by another plugin already");
+        });
+        return true;
+    }
+
+    bool EventRegistrar::EmitNamed(const std::string& name, const void* payload, size_t size) const
+    {
+        Events::EventDispatcher* d = Dispatcher();
+        if (!d) return false;
+        d->emitNamed(name, payload, size);
+        return true;
+    }
+
+    bool EventRegistrar::EmitNamedToWorld(int worldID, const std::string& name, const void* payload, size_t size) const
+    {
+        Events::EventDispatcher* d = Dispatcher();
+        if (!d) return false;
+        d->emitNamedToWorld(worldID, name, payload, size);
+        return true;
+    }
+
+    // ---- HookRegistrarApi ----
+
+    bool HookRegistrarApi::Off(HookRegistry::Token token)
+    {
+        auto it = std::find(m_Tokens.begin(), m_Tokens.end(), token);
+        if (token == 0 || it == m_Tokens.end() || !m_Ctx.m_B.hooks) return false;
+        m_Tokens.erase(it);
+        return m_Ctx.m_B.hooks->Remove(token);
     }
 
     // ---- CommandRegistrar / CVarRegistrar ----

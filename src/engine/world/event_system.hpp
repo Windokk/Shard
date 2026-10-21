@@ -129,6 +129,35 @@ namespace Shard::Engine::Events {
 
     class EventDispatcher;
 
+    /// @brief An event found by NAME rather than by C++ type, carrying bytes : what a plugin built against the C ABI (or by another compiler)
+    /// sends and receives, since it cannot name the engine's C++ types. The payload's layout is the sender's to document ; it is valid
+    /// during the call only.
+    struct NamedEvent : public Event {
+        const std::string& name;
+        const void* payload;
+        size_t size;
+        NamedEvent(const std::string& n, const void* p, size_t s, Core::ObjectID source) : Event(source), name(n), payload(p), size(s) {}
+    };
+
+    /// @brief What the payload of a named event holds, field by field : what tools need to show it (the console's event.watch). Given by
+    /// whoever sends the event (EventDispatcher::describeNamed) ; the dispatcher itself never reads payloads.
+    struct NamedEventLayout {
+        enum class FieldType : uint8_t { F32, F64, I32, U32, I64, U64, Bool, Vec2, Vec3, Vec4, Quat, Color };
+        struct Field {
+            std::string name;
+            FieldType type = FieldType::F32;
+            uint32_t offset = 0;
+        };
+        uint32_t size = 0;
+        std::vector<Field> fields;
+    };
+
+    /// The bytes of one field type (0 for an unknown one)
+    uint32_t NamedEventFieldSize(NamedEventLayout::FieldType type);
+
+    /// @brief A payload as text : "{ ticks: 3, axis: (0, 1, 0) }". A payload that is not of the layout's size is shown as "(<n> bytes)".
+    std::string FormatNamedEvent(const NamedEventLayout& layout, const void* payload, size_t size);
+
     /// @brief Turns an OS input event (key, text, mouse, gamepad) into the matching engine event and emits it globally.
     /// Anything that is not an input event (window, drop, quit...) is ignored.
     /// @return true if an event was emitted
@@ -168,6 +197,27 @@ namespace Shard::Engine::Events {
                 return Add(componentSubscribers[componentID][typeid(T)], std::move(callback), owner);
             }
 
+            /// @brief Events sent by name (NamedEvent), globally or to one world. The same tokens as the typed subscriptions.
+            Subscription subscribeNamed(const std::string& name, std::function<void(const NamedEvent&)> callback, Owner owner = 0) {
+                return Add(namedGlobal[name], std::move(callback), owner);
+            }
+
+            Subscription subscribeNamedToWorld(int worldID, const std::string& name, std::function<void(const NamedEvent&)> callback, Owner owner = 0) {
+                return Add(namedWorld[worldID][name], std::move(callback), owner);
+            }
+
+            void emitNamed(const std::string& name, const void* payload, size_t size) {
+                auto it = namedGlobal.find(name);
+                if (it != namedGlobal.end()) DispatchList(it->second, NamedEvent(name, payload, size, Core::ObjectID(0)));
+            }
+
+            void emitNamedToWorld(int worldID, const std::string& name, const void* payload, size_t size) {
+                auto world = namedWorld.find(worldID);
+                if (world == namedWorld.end()) return;
+                auto it = world->second.find(name);
+                if (it != world->second.end()) DispatchList(it->second, NamedEvent(name, payload, size, Core::ObjectID(0)));
+            }
+
             /// Removes one subscription. Safe from inside a handler : the handler is skipped from then on, and swept once the
             /// outermost emit is over. @return false if the token is unknown (already removed).
             bool Unsubscribe(Subscription token) {
@@ -180,9 +230,36 @@ namespace Shard::Engine::Events {
                 return found;
             }
 
-            /// Removes every subscription made with `owner` (not 0). @return how many
+            /// @brief Says what the payload of the events named `name` holds. One layout per name : false if another owner described it already
+            /// (the same owner replaces its own). It goes with the owner's subscriptions (UnsubscribeOwner).
+            bool describeNamed(const std::string& name, NamedEventLayout layout, Owner owner = 0) {
+                auto it = namedLayouts.find(name);
+                if (it != namedLayouts.end() && it->second.second != owner) return false;
+                namedLayouts[name] = { std::move(layout), owner };
+                return true;
+            }
+
+            /// The layout of a named event, null if nobody described it
+            const NamedEventLayout* namedLayout(const std::string& name) const {
+                auto it = namedLayouts.find(name);
+                return it == namedLayouts.end() ? nullptr : &it->second.first;
+            }
+
+            /// The names of the described events, sorted
+            std::vector<std::string> describedNames() const {
+                std::vector<std::string> names;
+                for (const auto& kv : namedLayouts) names.push_back(kv.first);
+                std::sort(names.begin(), names.end());
+                return names;
+            }
+
+            /// Removes every subscription made with `owner` (not 0), and the layouts it described. @return how many subscriptions
             size_t UnsubscribeOwner(Owner owner) {
                 if (owner == 0) return 0;
+                for (auto it = namedLayouts.begin(); it != namedLayouts.end();) {
+                    if (it->second.second == owner) it = namedLayouts.erase(it);
+                    else ++it;
+                }
                 size_t count = 0;
                 ForEachList([&](HandlerList& list) {
                     for (auto& h : list)
@@ -248,9 +325,12 @@ namespace Shard::Engine::Events {
             void dispatchTo(SubscriberMap& map, const T& event) {
                 auto it = map.find(typeid(T));
                 if (it == map.end()) return;
+                DispatchList(it->second, event);
+            }
+
+            void DispatchList(HandlerList& list, const Event& event) {
                 ++m_EmitDepth;
-                // By index and re-fetched : a handler may subscribe to the same type, which can move the list's storage
-                HandlerList& list = it->second;
+                // By index : a handler may subscribe to the same type, which can move the list's storage
                 for (size_t i = 0; i < list.size(); ++i) {
                     if (!list[i].alive) continue;
                     Handler fn = list[i].fn;        // a copy : the entry may be swept or moved while it runs
@@ -267,6 +347,8 @@ namespace Shard::Engine::Events {
                 for (auto& kv : worldSubscribers) visit(kv.second);
                 for (auto& kv : actorSubscribers) visit(kv.second);
                 for (auto& kv : componentSubscribers) visit(kv.second);
+                for (auto& kv : namedGlobal) fn(kv.second);
+                for (auto& world : namedWorld) for (auto& kv : world.second) fn(kv.second);
             }
 
             void SweepIfIdle() {
@@ -282,6 +364,9 @@ namespace Shard::Engine::Events {
             std::unordered_map<int, SubscriberMap> worldSubscribers;
             std::unordered_map<Core::ObjectID, SubscriberMap> actorSubscribers;
             std::unordered_map<ComponentID, SubscriberMap> componentSubscribers;
+            std::unordered_map<std::string, HandlerList> namedGlobal;
+            std::unordered_map<std::string, std::pair<NamedEventLayout, Owner>> namedLayouts;
+            std::unordered_map<int, std::unordered_map<std::string, HandlerList>> namedWorld;
 
             Subscription m_NextToken = 0;
             int m_EmitDepth = 0;

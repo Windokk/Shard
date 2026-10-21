@@ -119,6 +119,25 @@ add_subdirectory(src/apps/editor)
 add_subdirectory(src/apps/player)
 add_subdirectory(src/apps/headless)
 
+# The SDK (sdk/README.md) : what a plugin built outside this repository needs, the headers of the C ABI and of the C++ SDK, the CMake
+# package and the template. `cmake --install build --component sdk --prefix <dir>` puts it in <dir>/sdk ; the ShardSDKArchive target makes
+# shard-sdk-<version>.zip of it in the build folder.
+file(READ ${CMAKE_SOURCE_DIR}/sdk/VERSION SHARD_SDK_VERSION)
+string(STRIP "${SHARD_SDK_VERSION}" SHARD_SDK_VERSION)
+install(DIRECTORY ${CMAKE_SOURCE_DIR}/sdk/include/ DESTINATION sdk/include COMPONENT sdk)
+install(DIRECTORY ${CMAKE_SOURCE_DIR}/sdk/cmake/ DESTINATION sdk/cmake COMPONENT sdk)
+install(DIRECTORY ${CMAKE_SOURCE_DIR}/sdk/templates/ DESTINATION sdk/templates COMPONENT sdk)
+install(FILES ${CMAKE_SOURCE_DIR}/sdk/VERSION ${CMAKE_SOURCE_DIR}/sdk/README.md DESTINATION sdk COMPONENT sdk)
+# ShardPkg packs a plugin into a .shardplugin and signs it : shard_sdk_add_plugin(... PACKAGE) finds it in sdk/bin
+install(TARGETS ShardPkg RUNTIME DESTINATION sdk/bin COMPONENT sdk)
+add_custom_target(ShardSDKArchive
+    COMMAND ${CMAKE_COMMAND} -E rm -rf ${CMAKE_BINARY_DIR}/sdk_stage
+    COMMAND ${CMAKE_COMMAND} --install ${CMAKE_BINARY_DIR} --component sdk --prefix ${CMAKE_BINARY_DIR}/sdk_stage
+    COMMAND ${CMAKE_COMMAND} -E chdir ${CMAKE_BINARY_DIR}/sdk_stage ${CMAKE_COMMAND} -E tar cf ${CMAKE_BINARY_DIR}/shard-sdk-${SHARD_SDK_VERSION}.zip --format=zip sdk
+    COMMENT "Packing the SDK into shard-sdk-${SHARD_SDK_VERSION}.zip"
+    VERBATIM)
+add_dependencies(ShardSDKArchive ShardPkg)
+
 enable_testing()
 add_subdirectory(tests)
 

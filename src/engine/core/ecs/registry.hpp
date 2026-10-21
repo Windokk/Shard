@@ -181,6 +181,36 @@ namespace Shard::Engine::Core::Ecs {
             ParallelFor(*js, 0, chunks.size(), 1, [&](size_t i) { runChunk(chunks[i].first, chunks[i].second); });
         }
 
+        /// @brief EachChunk for code that only knows component ids (the C ABI) : fn(count, const Entity* entities, void* const* columns),
+        /// columns[i] being the column of with[i] (any order, no duplicates). fn returns false to stop.
+        template <typename F>
+        void EachChunkRaw(const std::vector<ComponentId>& with, const ComponentSet& without, F&& fn) {
+            IterationScope scope(*this);
+            ComponentSet required = with;
+            Normalize(required);
+            ComponentSet excluded = without;
+            Normalize(excluded);
+            std::vector<void*> columns(with.size(), nullptr);
+            for (Archetype* archetype : Matching(required, excluded)) {
+                for (size_t c = 0; c < archetype->ChunkCount(); ++c) {
+                    if (archetype->ChunkSize(c) == 0) continue;
+                    for (size_t i = 0; i < with.size(); ++i) columns[i] = archetype->ChunkColumn(c, with[i]);
+                    if (!fn(archetype->ChunkSize(c), static_cast<const Entity*>(archetype->ChunkEntities(c)), static_cast<void* const*>(columns.data()))) return;
+                }
+            }
+        }
+
+        /// Number of entities that have all of `with` and none of `without`
+        size_t CountRaw(const std::vector<ComponentId>& with, const ComponentSet& without) const {
+            ComponentSet required = with;
+            Normalize(required);
+            ComponentSet excluded = without;
+            Normalize(excluded);
+            size_t total = 0;
+            for (Archetype* archetype : Matching(required, excluded)) total += archetype->Count();
+            return total;
+        }
+
         /// Number of entities that have all of Ts
         template <typename... Ts>
         size_t CountOf() const {

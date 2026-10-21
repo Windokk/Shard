@@ -263,6 +263,8 @@ namespace Shard::Engine::Plugins {
         // ---- Safe mode ----
         /// The plugin running when the process last crashed, if the crash happened inside plugin code
         static std::string ReadSafeModeSuspect(const std::string& stateDir);
+        /// The plugin whose code runs now (owner id, 0 : none) : what a crash is blamed on
+        uint32_t ActivePlugin() const { return m_ActivePlugin.load(std::memory_order_relaxed); }
 
         /// For tests : forget everything. Plugins are shut down first.
         void ResetForTests();
@@ -348,6 +350,7 @@ namespace Shard::Engine::Plugins {
         uint64_t m_FrameCounter = 0;
         uint32_t m_PatchFilterId = 0;
         std::vector<std::string> m_ConsoleCommands;
+        std::map<std::string, uint64_t> m_EventWatches;     // event.watch : name -> its subscription
         bool m_BridgeInstalled = false;
         uint32_t m_TempCounter = 0;
         std::vector<std::string> m_TempFiles;

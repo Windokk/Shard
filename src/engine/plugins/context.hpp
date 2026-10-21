@@ -177,6 +177,10 @@ namespace Shard::Engine::Plugins {
         /// The full name of one of this plugin's systems
         std::string NameOf(const std::string& name) const;
         bool SetEnabled(const std::string& name, bool enabled);
+        /// Removes one of this plugin's systems (its local or its full name), from the scheduler or from those waiting for it
+        bool Remove(const std::string& name);
+        /// True if this plugin has that system (local or full name), in the scheduler or waiting for it
+        bool Has(const std::string& name) const;
 
     private:
         friend class PluginContext;
@@ -207,12 +211,33 @@ namespace Shard::Engine::Plugins {
         template <typename T>
         void Emit(const T& event) const { if (Events::EventDispatcher* d = Dispatcher()) d->emitGlobal(event); }
 
+        /// @brief Events found by name (Events::NamedEvent) : the channel the plugins of the C ABI use. The returned id (never 0) is this
+        /// registrar's, valid before the engine has a dispatcher too ; give it to Unsubscribe.
+        uint64_t SubscribeNamed(const std::string& name, std::function<void(const Events::NamedEvent&)> callback);
+        uint64_t SubscribeNamedToWorld(int worldID, const std::string& name, std::function<void(const Events::NamedEvent&)> callback);
+        /// False if `id` is not a live subscription of SubscribeNamed*
+        bool Unsubscribe(uint64_t id);
+        /// @brief Says what the payload of the events named `name` holds, for the tools that show them (Events::NamedEventLayout). False if
+        /// another plugin described that name. It goes with the plugin.
+        bool DescribeNamed(const std::string& name, Events::NamedEventLayout layout);
+        /// @return false if the engine has no dispatcher (nothing sent)
+        bool EmitNamed(const std::string& name, const void* payload, size_t size) const;
+        bool EmitNamedToWorld(int worldID, const std::string& name, const void* payload, size_t size) const;
+
     private:
         friend class PluginContext;
         explicit EventRegistrar(PluginContext& ctx) : m_Ctx(ctx) {}
         void Defer(std::string name, std::function<void(Events::EventDispatcher&, Events::EventDispatcher::Owner)> subscribe);
+        uint64_t AddNamed(std::string name, std::function<Events::EventDispatcher::Subscription(Events::EventDispatcher&, Events::EventDispatcher::Owner)> subscribe);
         Events::EventDispatcher* Dispatcher() const;
         PluginContext& m_Ctx;
+
+        struct NamedSubscription {
+            Events::EventDispatcher::Subscription token = 0;    // 0 : not subscribed yet (no dispatcher)
+            bool cancelled = false;
+        };
+        std::vector<std::pair<uint64_t, std::shared_ptr<NamedSubscription>>> m_Named;
+        uint64_t m_NextNamed = 0;
     };
 
     class CommandRegistrar {
@@ -298,16 +323,19 @@ namespace Shard::Engine::Plugins {
 
     class HookRegistrarApi {
     public:
-        /// Intercepts a hook of Hooks::
+        /// Intercepts a hook of Hooks:: ; the token (0 when the engine has no hook registry) is for Off
         template <typename H>
-        void On(Priority priority, std::function<void(H&)> handler);
+        HookRegistry::Token On(Priority priority, std::function<void(H&)> handler);
         template <typename H>
-        void On(std::function<void(H&)> handler) { On<H>(Priority::Normal, std::move(handler)); }
+        HookRegistry::Token On(std::function<void(H&)> handler) { return On<H>(Priority::Normal, std::move(handler)); }
+        /// Removes a handler On returned
+        bool Off(HookRegistry::Token token);
 
     private:
         friend class PluginContext;
         explicit HookRegistrarApi(PluginContext& ctx) : m_Ctx(ctx) {}
         PluginContext& m_Ctx;
+        std::vector<HookRegistry::Token> m_Tokens;      // this plugin's : Off removes nobody else's
     };
 
     class ServiceRegistrar {
@@ -370,8 +398,8 @@ namespace Shard::Engine::Plugins {
         bool Has(const std::string& permission) const;
 
         // ---- Used by the plugin manager ----
-        /// The engine's scheduler and dispatcher exist now : adds what was waiting for them
-        void BindEngine(Core::Ecs::Scheduler* scheduler, Events::EventDispatcher* events);
+        /// The engine's scheduler and dispatcher exist now : adds what was waiting for them. `engine` (when given) is what Engine() returns from now on.
+        void BindEngine(Core::Ecs::Scheduler* scheduler, Events::EventDispatcher* events, Core::IEngineContext* engine = nullptr);
         /// Removes everything the plugin registered, last registered first. Safe to call twice.
         void ReleaseAll();
         /// How many registrations of each kind are live : for the plugin listing
@@ -380,6 +408,9 @@ namespace Shard::Engine::Plugins {
         bool Owns(const std::string& kind) const;
         /// Names of the systems this plugin registered (full names)
         const std::vector<std::string>& SystemNames() const { return m_SystemNames; }
+        /// @brief Runs `release` when everything is released (ReleaseAll), after what is registered from now on : for code that keeps its own
+        /// state about what it registered through this context (the C ABI's handles).
+        void OnRelease(const std::string& what, std::function<void()> release) { AddRecord("release", what, std::move(release)); }
         size_t RegistrationCount() const { return m_Records.size(); }
 
         const HostBindings& Bindings() const { return m_B; }
@@ -467,12 +498,14 @@ namespace Shard::Engine::Plugins {
     }
 
     template <typename H>
-    void HookRegistrarApi::On(Priority priority, std::function<void(H&)> handler)
+    HookRegistry::Token HookRegistrarApi::On(Priority priority, std::function<void(H&)> handler)
     {
-        if (!m_Ctx.m_B.hooks) return;
+        if (!m_Ctx.m_B.hooks) return 0;
         HookRegistry* registry = m_Ctx.m_B.hooks;
         const HookRegistry::Token token = registry->On<H>(priority, std::move(handler), m_Ctx.m_Owner);
         m_Ctx.AddRecord("hook", H::kName, [registry, token]() { registry->Remove(token); });
+        m_Tokens.push_back(token);
+        return token;
     }
 
     template <typename T>

@@ -96,7 +96,6 @@ namespace Shard::Editor::GUI{
         for (const Entry& entry : entries)
             categorySum += entry.ms;
         const float denominator = std::max(frame.totalMs, categorySum);
-        const bool overBudget = categorySum > frame.totalMs * 1.001f;
 
         // Single bar showing how the frame is split between subsystems, in descending order.
         ImVec2 barPos = ImGui::GetCursorScreenPos();

@@ -39,16 +39,55 @@ shard_add_plugin(
     HOSTS        engine
     ABI          c1
     SOURCES      ${CMAKE_CURRENT_SOURCE_DIR}/plugin_fixtures/c_plugin/c_plugin.c
+    CONTENT_DIR  plugin_fixtures/c_plugin/content
     OUTPUT_DIR   ${CMAKE_BINARY_DIR}/test_plugins
 )
 set_target_properties(ShardTestCPlugin PROPERTIES C_STANDARD 11 C_STANDARD_REQUIRED ON C_EXTENSIONS OFF)
+
+# A second C plugin that uses the service the first one provides
+shard_add_plugin(
+    NAME         ShardTestCConsumer
+    ID           shard.test.cconsumer
+    VERSION      1.0.0
+    HOSTS        engine
+    ABI          c1
+    SOURCES      ${CMAKE_CURRENT_SOURCE_DIR}/plugin_fixtures/c_consumer/c_consumer.c
+    OUTPUT_DIR   ${CMAKE_BINARY_DIR}/test_plugins
+)
+set_target_properties(ShardTestCConsumer PROPERTIES C_STANDARD 11 C_STANDARD_REQUIRED ON C_EXTENSIONS OFF)
+
+# A plugin in C++17 written with the C++ SDK of sdk/include/shard/cpp (the Spin plugin of the design note) : still nothing of the engine
+shard_add_plugin(
+    NAME         ShardTestSdkSpin
+    ID           shard.test.spin
+    VERSION      1.0.0
+    HOSTS        engine
+    ABI          c1
+    SOURCES      ${CMAKE_CURRENT_SOURCE_DIR}/plugin_fixtures/sdk_spin/spin.cpp
+    OUTPUT_DIR   ${CMAKE_BINARY_DIR}/test_plugins
+)
+set_target_properties(ShardTestSdkSpin PROPERTIES CXX_STANDARD 17 CXX_STANDARD_REQUIRED ON CXX_EXTENSIONS OFF)
+
+# A plugin built against the frozen headers of the C ABI 1.0 (plugin_fixtures/abi_1_0/include, found before sdk/include) : it must load in
+# every engine of ABI 1.x, see tests/plugins/abi_compat_tests.cpp
+shard_add_plugin(
+    NAME         ShardTestAbi10
+    ID           shard.test.abi10
+    VERSION      1.0.0
+    HOSTS        engine
+    ABI          c1
+    SOURCES      ${CMAKE_CURRENT_SOURCE_DIR}/plugin_fixtures/abi_1_0/abi_1_0_plugin.c
+    OUTPUT_DIR   ${CMAKE_BINARY_DIR}/test_plugins
+)
+target_include_directories(ShardTestAbi10 BEFORE PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/plugin_fixtures/abi_1_0/include)
+set_target_properties(ShardTestAbi10 PROPERTIES C_STANDARD 11 C_STANDARD_REQUIRED ON C_EXTENSIONS OFF)
 
 add_executable(ShardTests ${SHARD_TEST_SOURCES})
 
 target_include_directories(ShardTests PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})
 target_link_libraries(ShardTests PRIVATE Engine gtest gtest_main)
 target_compile_definitions(ShardTests PRIVATE BUILD_ENGINE SHARD_SOURCE_DIR="${CMAKE_SOURCE_DIR}" SHARD_TEST_PLUGIN_DIR="${CMAKE_BINARY_DIR}/test_plugins")
-add_dependencies(ShardTests ShardTestPlugin ShardTestEditorPlugin ShardTestCPlugin)
+add_dependencies(ShardTests ShardTestPlugin ShardTestEditorPlugin ShardTestCPlugin ShardTestCConsumer ShardTestSdkSpin ShardTestAbi10)
 
 include(GoogleTest)
 # PRE_TEST: discover at test time, so a missing runtime DLL fails a test run instead of the build
@@ -107,3 +146,41 @@ add_test(NAME Plugins.ServerHandshake
         -DPROJECT=${CMAKE_SOURCE_DIR}/tests/determinism/project/determinism_project.json -DWORKDIR=${CMAKE_BINARY_DIR} -DPORT=47321
         -P ${CMAKE_SOURCE_DIR}/tests/plugin_fixtures/run_check_server.cmake)
 set_tests_properties(Plugins.ServerHandshake PROPERTIES FIXTURES_REQUIRED determinism_engine_resources TIMEOUT 200 RUN_SERIAL TRUE)
+
+# The SDK outside the repository : installed alone, the template built against it in a folder of its own and loaded by the headless engine
+# (see plugin_fixtures/run_sdk_out_of_tree.cmake). SHARD_SDK_TEST_CXX builds the template with another compiler than the engine's ;
+# SHARD_SDK_TEST_VCVARS (the vcvars64.bat of a Visual Studio) adds the same test with MSVC : a plugin of another toolchain, loaded by this engine.
+set(SHARD_SDK_TEST_CXX "" CACHE STRING "C++ compiler for Sdk.OutOfTree (empty : the engine's)")
+set(SHARD_SDK_TEST_VCVARS "" CACHE FILEPATH "vcvars64.bat of an MSVC installation : adds Sdk.OutOfTreeMsvc")
+set(_sdk_cxx "${SHARD_SDK_TEST_CXX}")
+if(NOT _sdk_cxx)
+    set(_sdk_cxx "${CMAKE_CXX_COMPILER}")
+endif()
+set(_sdk_test_args
+    -DENGINE_BUILD=${CMAKE_BINARY_DIR}
+    -DHEADLESS=$<TARGET_FILE:ShardHeadless>
+    -DGAME=$<TARGET_FILE:GameModule>
+    -DPROJECT=${CMAKE_SOURCE_DIR}/tests/determinism/project/determinism_project.json
+    -DWORKDIR=${CMAKE_BINARY_DIR})
+add_test(NAME Sdk.OutOfTree
+    COMMAND ${CMAKE_COMMAND} ${_sdk_test_args} -DWORK=${CMAKE_BINARY_DIR}/sdk_out_of_tree "-DGENERATOR=${CMAKE_GENERATOR}"
+        -DMAKE_PROGRAM=${CMAKE_MAKE_PROGRAM} -DCXX=${_sdk_cxx}
+        -P ${CMAKE_SOURCE_DIR}/tests/plugin_fixtures/run_sdk_out_of_tree.cmake)
+set_tests_properties(Sdk.OutOfTree PROPERTIES FIXTURES_REQUIRED determinism_engine_resources TIMEOUT 400)
+if(SHARD_SDK_TEST_VCVARS)
+    add_test(NAME Sdk.OutOfTreeMsvc
+        COMMAND ${CMAKE_COMMAND} ${_sdk_test_args} -DWORK=${CMAKE_BINARY_DIR}/sdk_out_of_tree_msvc -DVCVARS=${SHARD_SDK_TEST_VCVARS}
+            -P ${CMAKE_SOURCE_DIR}/tests/plugin_fixtures/run_sdk_out_of_tree.cmake)
+    set_tests_properties(Sdk.OutOfTreeMsvc PROPERTIES FIXTURES_REQUIRED determinism_engine_resources TIMEOUT 400)
+endif()
+
+# docs/docs/api_reference.md is generated from the headers of the SDK (scripts/gen_api_reference.py) : it has to be what they give, and the
+# revisions the headers announce have to be the ones the host offers. Regenerate it with the ShardApiReference target.
+find_package(Python3 COMPONENTS Interpreter)
+if(Python3_Interpreter_FOUND)
+    add_test(NAME Docs.ApiReference COMMAND Python3::Interpreter ${CMAKE_SOURCE_DIR}/scripts/gen_api_reference.py --check)
+    add_custom_target(ShardApiReference
+        COMMAND Python3::Interpreter ${CMAKE_SOURCE_DIR}/scripts/gen_api_reference.py
+        COMMENT "Writing docs/docs/api_reference.md from sdk/include"
+        VERBATIM)
+endif()

@@ -34,4 +34,6 @@ jobs:
 
       - run: pip install mkdocs-redirects
 
+      - run: python scripts/gen_api_reference.py
+
       - run: mkdocs gh-deploy --force --config-file docs/mkdocs.yml
