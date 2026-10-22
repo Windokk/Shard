@@ -35,8 +35,10 @@ namespace Shard::Engine::Worlds{
 
     void WorldManager::LoadWorld(std::shared_ptr<World> world)
     {
-        if(!world)
-        DEBUG_FATAL("Cannot load world (because pointer is null)");
+        if(!world){
+            DEBUG_FATAL("Cannot load world (because pointer is null)");
+            return;
+        }
         worldBuffer.push_back(world);
         world->SetLoaded(true);
 
@@ -108,9 +110,12 @@ namespace Shard::Engine::Worlds{
         auto* resourcesManager = engine.GetResourcesManager();
 
         while(!worldBuffer.empty()){
-            std::string nameInProject = assetIDManager->GetAssetFromID(worldBuffer[0]->GetAssetID())->baseInfos.nameInProject;
+            // A world made in memory (the editor's New World) has no asset : nothing in the resources manager to release
+            auto info = assetIDManager->GetAssetFromID(worldBuffer[0]->GetAssetID());
+            const std::string nameInProject = info ? info->baseInfos.nameInProject : "";
             UnloadWorld(0);
-            resourcesManager->Unload(Core::Resources::AssetKind::World, nameInProject);
+            if(!nameInProject.empty())
+                resourcesManager->Unload(Core::Resources::AssetKind::World, nameInProject);
         }
 
         if(onAllWorldsUnloaded)

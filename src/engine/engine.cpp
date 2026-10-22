@@ -914,7 +914,15 @@ namespace Shard::Engine{
 
             if(m_ReloadCurrentWorld)
             {
-                std::string worldNameInProject = GetAssetIDManager()->GetAssetFromID(GetWorldManager()->GetWorldAt(0)->GetAssetID())->baseInfos.nameInProject;
+                // A world made in memory (the editor's New World) has no file to be reloaded from : it is left as it is
+                auto info = GetAssetIDManager()->GetAssetFromID(GetWorldManager()->GetWorldAt(0)->GetAssetID());
+                if(!info || info->baseInfos.nameInProject.empty())
+                {
+                    DEBUG_WARNING("The current world is not saved as an asset : nothing to reload it from");
+                    m_ReloadCurrentWorld = false;
+                    return;
+                }
+                std::string worldNameInProject = info->baseInfos.nameInProject;
                 GetWorldManager()->UnloadWorld(0);
                 GetResourcesManager()->Unload(Core::Resources::AssetKind::World, worldNameInProject);
                 GetRenderer()->ClearPassesContent();

@@ -355,7 +355,7 @@ namespace Shard::Engine::Plugins {
             if (e.compressedSize != e.size) return Core::Err("'" + e.path + "' : inconsistent sizes");
             out.assign(m_Bytes.begin() + long(dataAt), m_Bytes.begin() + long(dataAt + e.size));
         } else {
-            auto inflated = Inflate(&m_Bytes[dataAt], size_t(e.compressedSize), size_t(e.size));
+            auto inflated = Inflate(m_Bytes.data() + dataAt, size_t(e.compressedSize), size_t(e.size));     // dataAt may be the end (no data)
             if (!inflated) return Core::Err("'" + e.path + "' : " + inflated.GetError().message);
             out = std::move(inflated.Value());
             if (out.size() != e.size) return Core::Err("'" + e.path + "' : its size is not what the archive says");

@@ -136,12 +136,20 @@ namespace Shard::Engine::Rendering{
 
     std::shared_ptr<CubemapArray> CubemapArray::Create(TextureSpecifications& specs, const std::vector<std::array<Filesystem::Path, 6>> imageFiles)
     {
+        // Every face of every cubemap of the array is one layer of the same texture : they all share a size and a channel count
         std::vector<std::array<unsigned char *, 6>> allData;
+        int firstWidth = 0, firstHeight = 0, firstChannels = 0;
+
+        auto freeAll = [&allData](){
+            for (auto& faces : allData)
+                for (unsigned char* face : faces)
+                    stbi_image_free(face);
+        };
 
         for(size_t k = 0; k < imageFiles.size(); k++){
-            std::array<unsigned char*, 6> faces;
-
-            int width, height, channels;
+            allData.emplace_back();
+            allData.back().fill(nullptr);
+            std::array<unsigned char*, 6>& faces = allData.back();
 
             for (size_t i = 0; i < 6; i++)
             {
@@ -149,52 +157,56 @@ namespace Shard::Engine::Rendering{
 
                 if(!filePath.Exists() || filePath.IsDirectory()){
                     DEBUG_ERROR("Attempted to create a cubemap with a missing file : ",filePath.full);
+                    freeAll();
                     return nullptr;
                 }
 
                 std::string file = filePath.ReadFile();
-                
-                int currentWidth, currentHeight, currentChannels;
 
+                int width = 0, height = 0, channels = 0;
                 faces[i] = stbi_load_from_memory(reinterpret_cast<const unsigned char*>(file.data()),
                                                 static_cast<int>(file.size()),
-                                                &currentWidth, &currentHeight, &currentChannels, 0);
-
-                if(width != 0 && height != 0 && channels != 0 && (currentWidth != width || currentWidth != height || currentChannels != channels)){
-                    DEBUG_ERROR("Attempted to create a cubemap with file using different width/height/channel number : ", filePath.full);
-                    return nullptr;
-                }
-                else if(width == 0 && height == 0 && channels == 0){
-                    width = currentWidth;
-                    height = currentHeight;
-                    channels = currentChannels;
-                }
+                                                &width, &height, &channels, 0);
 
                 if (!faces[i])
                 {
-                    for (size_t j = 0; j < i; j++)
-                        stbi_image_free(faces[j]);
+                    DEBUG_ERROR("Couldn't decode a face of a cubemap : ", filePath.full);
+                    freeAll();
+                    return nullptr;
+                }
 
+                if (k == 0 && i == 0)
+                {
+                    firstWidth = width;
+                    firstHeight = height;
+                    firstChannels = channels;
+                }
+                else if (width != firstWidth || height != firstHeight || channels != firstChannels)
+                {
+                    DEBUG_ERROR("The faces of a cubemap array must share a size and a channel count : ", filePath.full);
+                    freeAll();
                     return nullptr;
                 }
             }
-
-            allData.push_back(faces);
-
-            //TODO : Set specifications from data's average ? or max ? or min ?
-            // specs.width = 
-            // specs.height = 
-            // specs.format = 
-
         }
-    
-        auto cubemapArray = CubemapArray::Create(specs, allData);
 
-        for(size_t k = 0; k < imageFiles.size(); k++){
-            for (int i = 0; i < 6; i++){
-                stbi_image_free(allData[k][i]);
+        // As Cubemap::Create does : what the pictures hold is what the texture is made of
+        if (!allData.empty())
+        {
+            specs.width = static_cast<uint32_t>(firstWidth);
+            specs.height = static_cast<uint32_t>(firstHeight);
+            switch (firstChannels)
+            {
+                case 1: specs.format = TextureFormat::RED;  specs.internalFormat = TextureInternalFormat::RED;   break;
+                case 2: specs.format = TextureFormat::RG;   specs.internalFormat = TextureInternalFormat::RG;    break;
+                case 3: specs.format = TextureFormat::RGB;  specs.internalFormat = TextureInternalFormat::RGB8;  break;
+                default: specs.format = TextureFormat::RGBA; specs.internalFormat = TextureInternalFormat::RGBA8; break;
             }
         }
+
+        auto cubemapArray = CubemapArray::Create(specs, allData);
+
+        freeAll();
 
         return cubemapArray;
     }

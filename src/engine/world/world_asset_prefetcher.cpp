@@ -146,13 +146,23 @@ namespace Shard::Engine::Worlds{
         return true;
     }
 
+    // Never throws : an asset that fails to decode or to upload is reported and left out, the world still loads (an exception out of
+    // here would leave the load pending forever, and no other world could be loaded)
     void AssetPrefetcher::Apply(DecodeJob& job)
     {
-        if(job.result->error)
-            std::rethrow_exception(job.result->error);   // as std::future::get() did
-        std::function<void()> finish = std::move(job.result->finish);
-        if(finish)
-            finish();
+        try {
+            if(job.result->error)
+                std::rethrow_exception(job.result->error);
+            std::function<void()> finish = std::move(job.result->finish);
+            if(finish)
+                finish();
+        }
+        catch(const std::exception& e) {
+            DEBUG_ERROR("Couldn't load an asset of the world : " + std::string(e.what()));
+        }
+        catch(...) {
+            DEBUG_ERROR("Couldn't load an asset of the world (unknown error)");
+        }
     }
 
     float AssetPrefetcher::GetProgress() const

@@ -1,6 +1,7 @@
 #include "engine/simulation_state.hpp"
 
 #include <algorithm>
+#include <limits>
 #include <vector>
 
 #include "engine/assets/serialization/reflection/reflection_serializer.hpp"
@@ -26,6 +27,26 @@ namespace Shard::Engine::Core {
                 ids.push_back(entry.first);
             std::sort(ids.begin(), ids.end());
             return ids;
+        }
+
+        // Folds together what StateHasher::Float folds together, in a value written as JSON : the text of -0.0 is not the text of 0.0, and
+        // which of the two a computation gives differs between the C runtimes (atan2, asin... of a zero), when the simulation does not
+        template <typename Json>
+        void CanonicalizeFloats(Json& value)
+        {
+            if (value.is_number_float())
+            {
+                const double number = value.template get<double>();
+                if (number == 0.0)
+                    value = 0.0;
+                else if (number != number)
+                    value = std::numeric_limits<double>::quiet_NaN();
+            }
+            else if (value.is_structured())
+            {
+                for (auto& element : value)
+                    CanonicalizeFloats(element);
+            }
         }
     }
 
@@ -92,7 +113,9 @@ namespace Shard::Engine::Core {
                 const ClassDescriptor* descriptor = script->GetDescriptor();
                 if (!descriptor)
                 {
-                    scriptHash.String(script->Serialize().dump());
+                    auto serialized = script->Serialize();
+                    CanonicalizeFloats(serialized);
+                    scriptHash.String(serialized.dump());
                     continue;
                 }
                 scriptHash.String(descriptor->name);
@@ -100,7 +123,10 @@ namespace Shard::Engine::Core {
                 {
                     nlohmann::ordered_json value;
                     if (Serialization::WriteValue(*field, field->type, reinterpret_cast<const uint8_t*>(script.get()) + field->offset, value, context))
+                    {
+                        CanonicalizeFloats(value);
                         scriptHash.String(field->name).String(value.dump());
+                    }
                 }
             }
         }

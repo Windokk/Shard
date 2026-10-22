@@ -554,14 +554,15 @@ namespace Shard::Engine::Rendering{
                 result.indices.push_back(static_cast<uint32_t>(vertexOffset + idx));
 
             for (const ChunkRange& chunk : chunks) {
-                result.submeshes.push_back(SubMesh{
-                    .indexOffset = slotIndexOffset + chunk.firstIndex,
-                    .indexCount = chunk.indexCount,
-                    .vertexCount = chunk.vertexCount,
-                    .materialIndex = slot,
-                    .boundsMin = chunk.boundsMin,
-                    .boundsMax = chunk.boundsMax
-                });
+                // Field by field : designated initializers are C++20 (MSVC refuses them in C++17)
+                SubMesh submesh;
+                submesh.indexOffset = slotIndexOffset + chunk.firstIndex;
+                submesh.indexCount = chunk.indexCount;
+                submesh.vertexCount = chunk.vertexCount;
+                submesh.materialIndex = slot;
+                submesh.boundsMin = chunk.boundsMin;
+                submesh.boundsMax = chunk.boundsMax;
+                result.submeshes.push_back(submesh);
             }
         }
 

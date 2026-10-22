@@ -18,7 +18,7 @@ namespace Shard::Engine::Rendering {
     class Material;
     class Pipeline;
     class ComputePipeline;
-    class RenderPass;
+    struct RenderPass;      // a struct (render_pass.hpp) : MSVC mangles class and struct differently
 
     enum class ClearBit : uint32_t
     {

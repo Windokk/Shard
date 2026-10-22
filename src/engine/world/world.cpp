@@ -47,40 +47,61 @@ namespace Shard::Engine::Worlds{
             extension->OnComponentAdded(*this, idInWorld, component, cloned);
     }
 
+    static void DeserializeComponent(const std::shared_ptr<Objects::Actor>& a, const std::string& type, const json& component){
+        if(type == "transform"){
+            auto transform = a->GetComponent<Objects::Components::Transform>();
+            transform->Deserialize(component);
+            if(component.contains("tags"))
+                transform->GetTags().Assign(Serialization::TagsFromJson(component["tags"]), true);
+            return;
+        }
+
+        // An engine component (model, light...) or a custom/inherited one, which has to be already registered
+        std::shared_ptr<Objects::Components::Component> created = a->AddComponentByName(type);
+        if(!created){
+            // Kept, not dropped : the plugin that brings this type may just not be loaded, and a save must not lose its data
+            DEBUG_WARNING("Unknown component type: " + type + " (kept as it is in the file)");
+            a->AddUnknownComponent(component);
+            return;
+        }
+
+        created->Deserialize(component);
+
+        if(component.contains("tags"))
+            created->GetTags().Assign(Serialization::TagsFromJson(component["tags"]), true);
+    }
+
     void DeserializeComponents(std::shared_ptr<Objects::Actor> a, json actorData){
-        if(!actorData["components"].is_array()){
+        if(!actorData.contains("components") || !actorData["components"].is_array()){
             DEBUG_ERROR("Couldn't deserialize actor's components as actor[components] is not an array");
-            return; 
+            return;
         }
 
         for(auto& component : actorData["components"]){
-            
-            if (!component.contains("type")) continue;
-        
-            const std::string& type = component["type"];
 
-            if(type == "transform"){
-                auto transform = a->GetComponent<Objects::Components::Transform>();
-                transform->Deserialize(component);
-                if(component.contains("tags"))
-                    transform->GetTags().Assign(Serialization::TagsFromJson(component["tags"]), true);
+            if (!component.is_object() || !component.contains("type")) continue;
+
+            if (!component["type"].is_string()) {
+                DEBUG_WARNING("Skipped a component of actor " + a->GetName() + " : its type is not a string");
                 continue;
             }
+            const std::string type = component["type"].get<std::string>();
 
-            // An engine component (model, light...) or a custom/inherited one, which has to be already registered
-            std::shared_ptr<Objects::Components::Component> created = a->AddComponentByName(type);
-            if(!created){
-                // Kept, not dropped : the plugin that brings this type may just not be loaded, and a save must not lose its data
-                DEBUG_WARNING("Unknown component type: " + type + " (kept as it is in the file)");
-                a->AddUnknownComponent(component);
-                continue;
+            // A component whose data has the wrong shape is dropped alone : the rest of the actor, and of the world, still loads
+            try {
+                DeserializeComponent(a, type, component);
+            } catch (const json::exception& e) {
+                DEBUG_WARNING("Couldn't deserialize component " + type + " of actor " + a->GetName() + " : " + e.what());
             }
-
-            created->Deserialize(component);
-
-            if(component.contains("tags"))
-                created->GetTags().Assign(Serialization::TagsFromJson(component["tags"]), true);
         }
+    }
+
+    // The name an actor is created with : a file whose name is missing or is not a string still loads, with a default one
+    static std::string ActorNameFromJson(const json& actor){
+        if (actor.contains("name") && actor["name"].is_string())
+            return actor["name"].get<std::string>();
+        DEBUG_WARNING("An actor has no name (or a name that is not a string) : named \"Actor\"");
+        return "Actor";
     }
 
     void DeserializeActor(std::shared_ptr<Objects::Actor> a, json data, json actor){
@@ -104,7 +125,11 @@ namespace Shard::Engine::Worlds{
         if (actor.contains("children") && actor["children"].is_array() && !actor["children"].empty()) {
             Core::IEngineContext* engine = &Core::GetEngine();
             for (auto& child : actor["children"]) {
-                std::shared_ptr<Objects::Actor> b = Core::Object::CreateWithContext<Objects::Actor>(engine, child["name"], engine);
+                if (!child.is_object()) {
+                    DEBUG_WARNING("Skipped a child of actor " + a->GetName() + " : it is not an object");
+                    continue;
+                }
+                std::shared_ptr<Objects::Actor> b = Core::Object::CreateWithContext<Objects::Actor>(engine, ActorNameFromJson(child), engine);
                 a->AddChild(b);
                 DeserializeActor(b, data, child);
             }
@@ -112,6 +137,9 @@ namespace Shard::Engine::Worlds{
     }
 
     static void CollectActorAssetRefs(const json& actor, std::vector<Core::Resources::ResourceKey>& refs){
+
+        if (!actor.is_object())
+            return;
 
         if (actor.contains("children") && actor["children"].is_array()) {
             for (auto& child : actor["children"]) {
@@ -124,7 +152,7 @@ namespace Shard::Engine::Worlds{
 
         for (auto& component : actor["components"]) {
 
-            if (!component.contains("type") || !component["type"].is_string())
+            if (!component.is_object() || !component.contains("type") || !component["type"].is_string())
                 continue;
 
             // Only the module that owns a component type knows which of its fields point to assets
@@ -157,6 +185,9 @@ namespace Shard::Engine::Worlds{
         } catch (const json::parse_error& e) {
             DEBUG_ERROR("JSON parse error: " + (std::string)e.what());
             refs.clear();
+        } catch (const json::exception& e) {
+            // What it collected so far is kept : those assets are wanted whatever comes after
+            DEBUG_ERROR("Couldn't read the assets of world " + filePath.GetFilename() + " : " + e.what());
         }
 
         return refs;
@@ -230,7 +261,17 @@ namespace Shard::Engine::Worlds{
             json data = json::parse(src);
             ApplyWorldJsonFilters(filePath.GetFilename(), data);
 
-            name = data["name"];
+            if(!data.is_object()){
+                DEBUG_ERROR("Couldn't load world " + filePath.GetFilename() + " : the file is not a JSON object");
+                return;
+            }
+
+            if(data.contains("name") && data["name"].is_string())
+                name = data["name"].get<std::string>();
+            else{
+                name = filePath.GetFilename(false);
+                DEBUG_WARNING("World " + filePath.GetFilename() + " has no name (or a name that is not a string) : named " + name);
+            }
 
             tags.Assign(data.contains("tags") ? Serialization::TagsFromJson(data["tags"]) : Core::TagContainer(), true);
 
@@ -247,9 +288,15 @@ namespace Shard::Engine::Worlds{
                 frames.Clear();
 
             Core::IEngineContext* engine = &Core::GetEngine();
-            for(auto& actor : data["actors"])
+            const json noActors = json::array();
+            const json& actors = data.contains("actors") && data["actors"].is_array() ? data["actors"] : noActors;
+            for(auto& actor : actors)
             {
-                std::shared_ptr<Objects::Actor> a = Core::Object::CreateWithContext<Objects::Actor>(engine, actor["name"], engine);
+                if(!actor.is_object()){
+                    DEBUG_WARNING("Skipped an entry of the actors of world " + name + " : it is not an object");
+                    continue;
+                }
+                std::shared_ptr<Objects::Actor> a = Core::Object::CreateWithContext<Objects::Actor>(engine, ActorNameFromJson(actor), engine);
                 AddActor(a);
                 DeserializeActor(a, data, actor);
             }
@@ -298,6 +345,11 @@ namespace Shard::Engine::Worlds{
         } catch (const json::parse_error& e) {
             DEBUG_ERROR("JSON parse error: " + (std::string)e.what());
             return;
+        } catch (const json::exception& e) {
+            // Thrown after the parse : the world keeps what was read before (the actors are dropped one component at a time
+            // already, so this is the world's own data : settings, tags, frames). Not dirty : nothing was edited yet, and a dirty
+            // world would block the next hot reload, the one that brings the fixed file
+            DEBUG_ERROR("World " + filePath.GetFilename() + " only partially loaded : " + e.what());
         }
 
         dirty = false;
@@ -425,14 +477,24 @@ namespace Shard::Engine::Worlds{
             return resolvedAssetID;
 
         auto& engine = Core::GetEngine();
+        const auto& assets = engine.GetAssetIDManager()->AssetIDMap;
+        if(resolvedAssetMissing && resolvedAssetPath == path.full && resolvedAssetCount == assets.size())
+            return -1;
+
         const std::string nameInProject = engine.GetFileManager()->GetFileInfos(path).nameInProject;
         if(!nameInProject.empty())
-            for(const auto& [id, info] : engine.GetAssetIDManager()->AssetIDMap)
+            for(const auto& [id, info] : assets)
                 if(info && info->baseInfos.nameInProject == nameInProject){
                     resolvedAssetID = id.GetAsInt();
                     resolvedAssetPath = path.full;
+                    resolvedAssetMissing = false;
                     return resolvedAssetID;
                 }
+
+        resolvedAssetID = -1;
+        resolvedAssetPath = path.full;
+        resolvedAssetMissing = true;
+        resolvedAssetCount = assets.size();
         return -1;
     }
 

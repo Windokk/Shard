@@ -55,6 +55,9 @@ namespace Shard::Engine::Worlds{
         // What ResolveAssetID found last, and for which file (it is asked on every actor created or destroyed)
         int resolvedAssetID = -1;
         std::string resolvedAssetPath;
+        // A miss is remembered too, until the file or the number of known assets changes (the world saved as a new asset)
+        bool resolvedAssetMissing = false;
+        size_t resolvedAssetCount = 0;
 
         public:
             World(std::string name, Filesystem::Path path);

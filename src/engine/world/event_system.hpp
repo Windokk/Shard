@@ -329,14 +329,21 @@ namespace Shard::Engine::Events {
             }
 
             void DispatchList(HandlerList& list, const Event& event) {
-                ++m_EmitDepth;
-                // By index : a handler may subscribe to the same type, which can move the list's storage
-                for (size_t i = 0; i < list.size(); ++i) {
-                    if (!list[i].alive) continue;
-                    Handler fn = list[i].fn;        // a copy : the entry may be swept or moved while it runs
-                    fn(event);
+                // The depth goes back down even when a handler throws : stuck above 0, nothing would ever be swept again
+                struct DepthGuard {
+                    EventDispatcher& d;
+                    explicit DepthGuard(EventDispatcher& dispatcher) : d(dispatcher) { ++d.m_EmitDepth; }
+                    ~DepthGuard() { --d.m_EmitDepth; }
+                };
+                {
+                    DepthGuard guard(*this);
+                    // By index : a handler may subscribe to the same type, which can move the list's storage
+                    for (size_t i = 0; i < list.size(); ++i) {
+                        if (!list[i].alive) continue;
+                        Handler fn = list[i].fn;        // a copy : the entry may be swept or moved while it runs
+                        fn(event);
+                    }
                 }
-                --m_EmitDepth;
                 SweepIfIdle();
             }
 
@@ -351,11 +358,30 @@ namespace Shard::Engine::Events {
                 for (auto& world : namedWorld) for (auto& kv : world.second) fn(kv.second);
             }
 
+            // Erases the map's entries for which `empty` is true
+            template<typename Map, typename Pred>
+            static void EraseIf(Map& map, Pred&& empty) {
+                for (auto it = map.begin(); it != map.end();) {
+                    if (empty(it->second)) it = map.erase(it);
+                    else ++it;
+                }
+            }
+
             void SweepIfIdle() {
                 if (m_EmitDepth != 0 || !m_Dirty) return;
                 ForEachList([](HandlerList& list) {
                     list.erase(std::remove_if(list.begin(), list.end(), [](const Entry& e) { return !e.alive; }), list.end());
                 });
+                // The lists left empty go too, and the actors, components and worlds left without any : otherwise every id ever
+                // subscribed to keeps an entry for the whole run. Nothing is being dispatched : no list is in use
+                auto emptyList = [](const HandlerList& list) { return list.empty(); };
+                auto prune = [&](SubscriberMap& map) { EraseIf(map, emptyList); return map.empty(); };
+                prune(globalSubscribers);
+                EraseIf(worldSubscribers, prune);
+                EraseIf(actorSubscribers, prune);
+                EraseIf(componentSubscribers, prune);
+                EraseIf(namedGlobal, emptyList);
+                EraseIf(namedWorld, [&](std::unordered_map<std::string, HandlerList>& names) { EraseIf(names, emptyList); return names.empty(); });
                 m_Dirty = false;
             }
 

@@ -40,15 +40,25 @@ namespace Shard::Engine::Plugins::CAbi {
 
         ShardActor Pack(const Slot& slot, uint32_t index) { return (ShardActor(slot.generation) << 32) | ShardActor(index + 1); }
 
-        // gMutex held : slots whose actor is gone become free (their old handles stale)
+        // gMutex held : the slot becomes free (its old handles stale). The address it held may be another actor's by now : its entry in
+        // gByActor is only taken out while it still names this slot
+        void Release(uint32_t index)
+        {
+            Slot& slot = gSlots[index];
+            auto it = gByActor.find(slot.raw);
+            if (it != gByActor.end() && it->second == index)
+                gByActor.erase(it);
+            slot = Slot{ {}, nullptr, slot.generation + 1 == 0 ? 1 : slot.generation + 1, false };
+            gFree.push_back(index);
+        }
+
+        // gMutex held : slots whose actor is gone become free
         void Sweep()
         {
             for (uint32_t i = 0; i < gSlots.size(); ++i) {
-                Slot& slot = gSlots[i];
-                if (!slot.used || !slot.actor.expired()) continue;
-                gByActor.erase(slot.raw);
-                slot = Slot{ {}, nullptr, slot.generation + 1 == 0 ? 1 : slot.generation + 1, false };
-                gFree.push_back(i);
+                const Slot& slot = gSlots[i];
+                if (slot.used && slot.actor.expired())
+                    Release(i);
             }
         }
 
@@ -667,7 +677,9 @@ namespace Shard::Engine::Plugins::CAbi {
         if (it != gByActor.end()) {
             Slot& slot = gSlots[it->second];
             if (slot.used && slot.actor.lock() == actor) return Pack(slot, it->second);
-            gByActor.erase(it);             // the address belongs to another actor now
+            // The address belongs to another actor now : the dead one's slot is freed right away instead of at the next Sweep
+            if (slot.used) Release(it->second);
+            else gByActor.erase(it);
         }
         if (++gSinceSweep >= 256) { gSinceSweep = 0; Sweep(); }
         uint32_t index;
