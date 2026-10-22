@@ -2,7 +2,7 @@
 
 > Note interne, hors de `docs/docs/` (qui est la doc de l'utilisateur du moteur, en anglais). La référence de ce qui existe est `docs/docs/concepts/plugins.md`. Ce document garde les choix de conception, ce qui s'écarte du plan d'origine, et surtout **ce qui reste à faire**.
 >
-> Dernière mise à jour : 2026-10-19. Tout a été développé et testé sous **Linux uniquement**.
+> Dernière mise à jour : 2026-10-22. Développé d'abord sous Linux ; depuis le 2026-10-20 la suite tourne sous **Windows (MinGW GCC)**, et la CI (`build.yml`) construit et teste sous Windows (MinGW GCC) et Linux (GCC). Rien sous macOS, et le moteur n'a jamais été compilé par MSVC (seuls des plugins de l'ABI C l'ont été).
 
 ## 1. Où on en est
 
@@ -11,17 +11,17 @@ Le design d'origine avait 9 phases. Bilan :
 | Phase d'origine | État | Remarques |
 |---|---|---|
 | 0 · Désenregistrement par propriétaire | **fait** | `EventDispatcher` (tokens, owner), `ComponentRegistry`, `CVar` avec registre explicite, extensions de monde, `Scheduler::Remove` |
-| 1 · Noyau (manifeste, résolveur, manager, `IPlugin`/`IModule`) | **fait** | `src/engine/plugins/`. Le `GameModule` est le module `game`, construit avec `shard_add_plugin` (`build/plugins/game/`), les anciennes bibliothèques (`InitializeSingletons`) chargent encore |
+| 1 · Noyau (manifeste, résolveur, manager, `IPlugin`/`IModule`) | **fait** | `src/engine/plugins/`. Le `GameModule` est le module `game`, construit avec `shard_add_plugin(... ABI c1)` (`build/plugins/game/`) : depuis le 2026-10-22 il est écrit contre le SDK seul (`src/apps/game`, aucun include du moteur). Les anciennes bibliothèques (`InitializeSingletons`) chargent encore |
 | 2 · Surface d'extension | **fait** | `PluginContext` et ses registrars, hooks, services, points d'extension |
 | 3 · Modules et contenu | **fait** | `mod://`, couches, datapacks, patches de monde, composants déclarés (réels), composants inconnus conservés |
 | 4 · Éditeur | **fait** | panneau Plugins, `editor.panel`, ImGui partagé avec les bibliothèques |
 | 5 · Rechargement à chaud | **fait** | passe par `OnPrepareReload`/`OnRestore` et la mise de côté des mondes |
 | 6 · Serveur, réseau, replays | **fait** (handshake) | pas de transport de jeu, voir §5 |
-| 7 · ABI C stable et SDK public | **non fait** | voir R2. On a l'empreinte de build (`kBuildFingerprint`) et le descripteur C++ `shard_plugin_describe`, pas la table `ShardHostApi` |
+| 7 · ABI C stable et SDK public | **fait** (ABI 1.5) | voir R2 et `c-abi-sdk.fr.md` §13. Deux chemins : `abi "c1"` (`shard_plugin_entry`, table `ShardHostApi`, sans lier `Engine`, empreinte réduite à OS + arch) et `abi "cpp"` (`shard_plugin_describe`, `Engine` lié, empreinte complète) |
 | 8 · Sandbox (WASM) et permissions appliquées | **non fait, décision** | exclu volontairement ; le tier 2 est refusé avec un message |
 | 9 · Distribution | **fait** (hors TLS et hors UI) | registres, signatures, archives, `ShardPkg` |
 
-Ajouts qui n'étaient pas dans le plan d'origine : budget mémoire compté, `ShardAssetValidator` comme hôte d'outils, `--check-plugins`, safe mode après un crash, `plugins.lock`, `SHARD_JOB_THREADS`.
+Ajouts qui n'étaient pas dans le plan d'origine : budget mémoire compté, `ShardAssetValidator` comme hôte d'outils, `--check-plugins`, safe mode après un crash, `plugins.lock`, `SHARD_JOB_THREADS`, et, avec l'ABI C, une couche de gameplay complète dans le SDK (scripts, acteurs, input, physique, audio, mondes, panneaux d'éditeur).
 
 ## 2. Architecture telle que construite
 
@@ -39,10 +39,14 @@ src/engine/plugins/
   archive, crypto, package         ZIP (inflate maison), SHA-2 + Ed25519 maison, signatures, magasin de confiance
   registry                         index, client HTTP/1.0, installateur
   handshake                        serveur/client TCP, offre de datapacks
-  fingerprint                      chaîne de build comparée à celle de la bibliothèque
+  fingerprint                      chaîne de build comparée à celle de la bibliothèque (chemin cpp seulement)
+  abi/                             ABI C : ShardHostApi, CAbiPlugin, une c_*.cpp par interface (c_internal.hpp les relie)
+src/engine/c_abi_physics.cpp, c_abi_audio.cpp
+                                   shard.physics et shard.audio, à la racine du moteur (voir ci-dessous)
+sdk/                               en-têtes C (l'ABI), SDK C++ header-only, paquet CMake, gabarit
 ```
 
-Le manager est à part dans la pile : rang 3.5 dans `scripts/check_deps.py` (au-dessus du monde, sous le renderer, la physique et l'audio). Le renderer l'importe pour lire `render.feature` / `render.pipeline`.
+Le manager est à part dans la pile : rang 3.5 dans `scripts/check_deps.py` (au-dessus du monde, sous le renderer, la physique et l'audio). Le renderer l'importe pour lire `render.feature` / `render.pipeline`. Pour la même raison, `plugins/abi` ne peut pas inclure la physique ni l'audio : leurs tables (et `DecodeContact`, qui traduit les contacts Jolt pour les scripts) sont définies à la racine du moteur et seulement déclarées dans `c_internal.hpp`.
 
 ### 2.2 Cycle de vie
 
@@ -85,24 +89,26 @@ Le renderer retire une feature ou un pipeline **sur le thread graphique, avant**
 
 | Piège | État |
 |---|---|
-| Singletons dupliqués (moteur lié en statique dans chaque bibliothèque) | **contourné** : pointeurs vers l'hôte, `std::function` pour les registres globaux. Reste une dette tant que `GetEngine()` existe |
-| Pointeurs vers du code déchargé | **traité** pour tout ce qui passe par le contexte (registres, événements, services, hooks, extensions, systèmes, cvars). **Ouvert** : ce qu'un plugin enregistre par un autre chemin (thread, ressource GPU, handle propre) reste à sa charge ; un test sous ASan/TSan manque |
-| `typeid` entre binaires | **traité** pour hooks et extensions (noms, pas `typeid`). **Ouvert** : `EventDispatcher` indexe encore par `typeid` ; OK sous Linux (comparaison par nom), à vérifier sous MSVC |
-| Allocation à travers la frontière | **partiel** : `ctx.Memory()` passe par l'allocateur de l'hôte, mais rien n'oblige à l'utiliser |
+| Singletons dupliqués (moteur lié en statique dans chaque bibliothèque) | **réglé pour l'ABI C** (le plugin ne lie pas `Engine`). **Contourné** sur le chemin cpp : pointeurs vers l'hôte, `std::function` pour les registres globaux. Reste une dette tant que `GetEngine()` existe |
+| Pointeurs vers du code déchargé | **traité** pour tout ce qui passe par le contexte (registres, événements, services, hooks, extensions, systèmes, cvars, et pour l'ABI C les types de scripts, marqués morts au déchargement). **Ouvert** : ce qu'un plugin enregistre par un autre chemin (thread, ressource GPU, handle propre) reste à sa charge ; un test sous ASan/TSan manque |
+| `typeid` entre binaires | **traité** pour hooks et extensions (noms, pas `typeid`) et pour les événements de l'ABI C (canal nommé de l'`EventDispatcher`, ouvert aussi au C++). **Ouvert** : le canal typé indexe encore par `typeid` ; OK avec GCC sous Linux et Windows, jamais essayé avec un moteur MSVC |
+| Allocation à travers la frontière | **traité pour l'ABI C** (`alloc`/`free` de l'hôte, comptés ; ce qui change de côté passe par là). **Partiel** sur le chemin cpp : `ctx.Memory()` passe par l'allocateur de l'hôte, mais rien n'oblige à l'utiliser |
 | Données de mods perdues à la sauvegarde | **traité** : composants inconnus conservés. **Ouvert** : l'éditeur ne les affiche nulle part |
 | Sécurité d'un plugin natif | **non résolu par construction** : signatures + consentement, aucune isolation |
 | Ordre de chargement = ordre de simulation | **traité** : tri stable par id, `--check-plugins` |
-| Empreinte de build incomplète | **partiel** : OS, arch, compilateur (majeur), build type, double précision, déterminisme. Pas la STL ni `_ITERATOR_DEBUG_LEVEL` |
-| Rechargement et disposition des données | **traité** par la réflexion/JSON pour l'état du plugin ; les mondes sont mis de côté et rechargés depuis le disque (refus s'ils ont des modifications non sauvegardées) |
-| Fichiers verrouillés sous Windows | **traité en théorie** (copie temporaire), **jamais exécuté sous Windows** |
-| Crash attribué au bon plugin | **partiel** : le plugin « actif » est noté (callbacks et systèmes), pas l'adresse fautive |
+| Empreinte de build incomplète | **sans objet pour l'ABI C** (OS + arch seulement, la compatibilité est celle des en-têtes, figée par `abi_layout_tests`). **Partiel** sur le chemin cpp : OS, arch, compilateur (majeur), build type, double précision, déterminisme. Pas la STL ni `_ITERATOR_DEBUG_LEVEL` |
+| Rechargement et disposition des données | **traité** par la réflexion/JSON pour l'état du plugin (`shard.state` pour l'ABI C) ; les mondes sont mis de côté et rechargés depuis le disque (refus s'ils ont des modifications non sauvegardées) |
+| Fichiers verrouillés sous Windows | **traité** (copie temporaire) ; les tests de rechargement de `dynamic_plugin_tests` passent sous Windows (MinGW) |
+| Crash attribué au bon plugin | **partiel** : le plugin « actif » est noté (callbacks et systèmes du chemin cpp ; pour l'ABI C, chaque appel de l'hôte vers le plugin passe par un `ActiveScope`), pas l'adresse fautive |
+| Handles d'acteur de l'ABI C et adresses réutilisées | **traité** (2026-10-22) : quand l'adresse d'un acteur détruit est reprise par un autre, l'ancienne case est libérée tout de suite (`Release` dans `c_actors.cpp`) au lieu d'attendre le balayage, et l'index par adresse n'est effacé que s'il désigne encore cette case |
 
 ## 4. Ce qui n'a pas été testé
 
-* **Windows et macOS** : aucun des tests ni des outils n'y a tourné. Points à risque : `DynLib`, la copie temporaire des bibliothèques, `fs::permissions` sur la clé secrète (ACL, pas POSIX), les ports du test de handshake, les chemins avec backslash dans les archives, MSVC pour `offsetof` sur le composant déclaré et les `#pragma GCC`.
-* **L'éditeur en vrai** : compilé, jamais lancé. Panneau Plugins, `editor.panel`, `BindEditorImGui` et le bouton de rechargement sont vérifiés par des tests unitaires et par un plugin d'exemple, pas à l'écran.
-* **Le player** : idem. `--hot-reload-plugins` et le contrôle des plugins au démarrage d'un replay ne sont couverts que par le chemin `ShardHeadless`.
-* **Un vrai jeu avec des plugins tiers** : le seul plugin qui n'est pas de test est `game`.
+* **macOS** : rien n'y a tourné.
+* **Windows** : la suite passe avec MinGW GCC (machine de dev et CI). Pas de moteur MSVC : restent à risque MSVC pour `offsetof` sur le composant déclaré, les `#pragma GCC` et le canal d'événements typé (`typeid`). `fs::permissions` sur la clé secrète ne pose pas d'ACL.
+* **L'éditeur en vrai** : il tourne avec le module `game` chargé en plugin (mode jeu, Game View). Le panneau Plugins, `editor.panel`, les panneaux de l'ABI C (`shard.editor`, testés avec un faux backend) et le bouton de rechargement n'ont pas été vérifiés à l'écran.
+* **Le player** : il charge le module `game` ; `--hot-reload-plugins` et le contrôle des plugins au démarrage d'un replay ne sont couverts que par le chemin `ShardHeadless`.
+* **Un vrai jeu avec des plugins tiers** : le seul plugin qui n'est pas de test est `game`, écrit contre le SDK mais dans le dépôt. Le gabarit est compilé hors du dépôt par `Sdk.OutOfTree`.
 
 ## 5. Roadmap restante
 
@@ -110,10 +116,10 @@ Chaque phase vise quelque chose de testable seul. Les durées sont des ordres de
 
 ### R0 · Vérifier ce qui existe (1 à 2 semaines), à faire en premier
 
-* Faire tourner toute la suite sous **Windows (MSVC et MinGW)** et **macOS** ; corriger. Ajouter ces cibles à la CI (`build.yml`).
+* ~~Windows MinGW en CI~~ : fait, `build.yml` construit et teste Windows (MinGW GCC) et Linux (GCC), avec le replay de déterminisme et les étapes « plugin compilé par un autre compilateur » de l'ABI C (Clang sous Linux, MSVC sous Windows), pas encore vues passer. Reste : **macOS**, et un moteur compilé par **MSVC** (les CMake lient avec des options GNU, `-lz`).
 * Faire tourner `ShardTests` sous **ASan et TSan** (le workflow TSan existe déjà, vérifier qu'il couvre `tests/plugins/`). Cibles : désenregistrement dans un handler, `PluginMemory`, `HookRegistry` pendant un `Emit`, rechargement d'une bibliothèque qui a des abonnements.
 * Un test d'**éditeur lancé pour de vrai** (xvfb ou fenêtre masquée) qui charge le plugin d'exemple et ouvre un panneau.
-* Fuzzer de formats (`ZipArchive`, `ParseManifest`, handshake, `ApplyWorldPatch`, `ValidateContentFolder`) : ce sont les frontières avec du contenu venu de l'extérieur.
+* Fuzzer de formats (`ZipArchive`, `ParseManifest`, handshake, `ApplyWorldPatch`, `ValidateContentFolder`) : ce sont les frontières avec du contenu venu de l'extérieur. (Le chargement d'un plugin C et les tables de l'ABI ont déjà un fuzz léger, `c-abi-sdk.fr.md` A5.)
 * **Sortie** : CI verte sur trois OS, aucun rapport de sanitizer.
 
 ### R1 · Brancher l'interface (1 à 2 semaines)
@@ -123,16 +129,15 @@ Chaque phase vise quelque chose de testable seul. Les durées sont des ordres de
 * Un écran de démarrage du player qui, devant un serveur de handshake, propose de télécharger les datapacks manquants puis redémarre (`PluginHandshakeClient` existe, personne ne l'appelle côté player).
 * **Sortie** : un utilisateur installe un plugin signé sans ouvrir de fichier JSON.
 
-### R2 · ABI C stable et SDK public (3 à 4 semaines)
+### R2 · ABI C stable et SDK public : fait (2026-10-21/22)
 
-C'est la phase 7 du plan d'origine, non commencée. Plan détaillé : `c-abi-sdk.fr.md`. Aujourd'hui un plugin natif se lie à tout `Engine` (statique) : sa compatibilité repose sur l'empreinte de build, donc sur la même toolchain que le moteur.
+Plan, avancement, écarts et reste : `c-abi-sdk.fr.md` (§13). En bref :
 
-* `ShardHostApi` : table de fonctions C versionnée (`structSize`, `apiMajor/Minor`, `QueryInterface(id, minVersion)`), allocation de l'hôte, journal.
-* Interfaces d'extension en C (composants, systèmes, cvars, commandes, événements, services) et un SDK C++ header-only qui les enrobe ; les classes actuelles deviennent un adaptateur.
-* Un plugin compilé **hors du dépôt**, sans lier `Engine`, chargé par un moteur d'une autre version mineure (test de compatibilité 1.0 → 1.1).
-* Gabarit de projet de plugin (`CMake` + `shard-plugin.json`) et tutoriel (`docs/tutorials.md`).
-* **Décision à prendre avant** : garder le tier 0 (C++, `Engine` lié) à côté, ou tout migrer. Recommandation : garder, il sert au code du jeu.
-* **Sortie** : le module « Voxel » (phase 9 du tableau) s'écrit sans aucun include interne.
+* `ShardHostApi` + `query_interface`, ABI **1.5** (`sdk/VERSION` 1.5.0) : plugin, contenu, composants, ECS, systèmes, événements, cvars, commandes, hooks, services, extensions, état, scripts, acteurs, input, physique, audio, mondes, éditeur ; `shard.experimental.world_ecs` sans promesse.
+* SDK C++ header-only (`sdk/include/shard/cpp/`, namespace `Shard`, `shard/game.hpp`), paquet CMake (`shard_sdk_add_plugin`), gabarit multi-fichiers, archive `shard-sdk-<version>.zip`, tutoriel `docs/docs/tutorials/write-a-game-with-the-sdk.md`, référence générée `docs/docs/api_reference.md`.
+* Prouvé : plugin compilé hors du dépôt contre le SDK installé (`Sdk.OutOfTree`), plugins MSVC et Clang chargés par le moteur MinGW (sur la machine de dev), plugin 1.0 chargé par le moteur courant (`AbiCompatTest`).
+* Décision prise : le chemin cpp (`Engine` lié) est gardé pour les modules du moteur ; le module `game` est passé à l'ABI C.
+* **Reste** : le critère de réception (module Voxel contre le SDK seul, R8), le coût par appel, le tutoriel sur une machine vierge, voir `c-abi-sdk.fr.md`.
 
 ### R3 · Assets des modules dans la base d'assets (2 à 3 semaines)
 
@@ -161,7 +166,7 @@ Le handshake est prêt, il n'y a pas de transport de jeu (UDP fiable, réplicati
 
 ### R6 · Sandbox (tier 2), exclu pour l'instant
 
-Quand ce sera repris : WebAssembly (déterministe, carburant mesurable), ABI d'imports = les interfaces C de R2 (**dépend donc de R2**), permissions réellement appliquées (`fs.read:content`, `net`, `render.feature`), budget CPU et mémoire par instance. Ne rien commencer avant R2.
+Quand ce sera repris : WebAssembly (déterministe, carburant mesurable), ABI d'imports = les interfaces C de R2 (faites : les handles et `ShardStr` s'y prêtent, seuls les pointeurs deviennent des décalages dans la mémoire linéaire), permissions réellement appliquées (`fs.read:content`, `net`, `render.feature`), budget CPU et mémoire par instance.
 
 ### R7 · Durcissement (au fil de l'eau)
 
@@ -180,22 +185,20 @@ Premier vrai client du système : Voxel (après le noyau ECS et le snapshot de r
 
 ```
 R0 ──► R1
- │
- └──► R2 ──► R8
-       │
-       └──► R6 (si un jour)
+R2 (fait) ──► R8
+          └──► R6 (si un jour)
 R3 ──► R4
 R5 attend le transport réseau
 R7 au fil de l'eau, TLS/index signé avant d'ouvrir un registre public
 ```
 
-À faire d'abord : **R0**. Tout le reste suppose que ce qui existe tient sur les trois systèmes.
+À faire d'abord : finir **R0** (macOS, moteur MSVC, sanitizers). Windows et Linux sont couverts par la CI.
 
 ## 7. Questions ouvertes
 
 | Question | Pistes |
 |---|---|
-| Garder la liaison statique de `Engine` dans les plugins ? | Elle impose le même compilateur et les mêmes options. R2 la retire pour les tiers, pas pour le jeu. Une bibliothèque partagée `ShardEngine` supprimerait les singletons dupliqués mais demande un gros travail de visibilité des symboles |
+| Garder la liaison statique de `Engine` dans les plugins ? | Elle impose le même compilateur et les mêmes options. R2 l'a retirée pour les tiers et pour le module `game` ; elle reste pour les plugins `abi "cpp"` (modules du moteur, accès complet). Une bibliothèque partagée `ShardEngine` supprimerait les singletons dupliqués de ce chemin mais demande un gros travail de visibilité des symboles |
 | `GetEngine()` | Le tableau d'architecture prévoit de le supprimer (phase 2). Quand ce sera fait, `HostLinks` devient inutile |
 | Un registre « officiel » | Qui possède la clé ? Comment on la fait tourner ? À trancher avant R7 |
 | Politique du tier 1 par défaut | Aujourd'hui : refusé sans signature ni consentement. Pour un moteur utilisé en local par des développeurs, c'est peut-être trop strict ; l'option `--allow-unsigned-plugins` existe |
@@ -212,3 +215,6 @@ R7 au fil de l'eau, TLS/index signé avant d'ouvrir un registre public
 | `handshake_tests`, `memory_tests`, `extension_point_unit_tests`, `editor_imgui_tests` | handshake et téléchargement, budget mémoire, types d'assets / importers / pipelines, ImGui |
 | `dynamic_plugin_tests` + `plugin_fixtures/` | vraies bibliothèques : chargement, déchargement, rechargement, empreinte, refus |
 | `Plugins.ExtensionPoints`, `Plugins.CheckPlugins`, `Plugins.ServerHandshake`, `Tools.AssetValidator*` | de bout en bout avec `ShardHeadless` et les outils |
+| `abi_layout_tests`, `abi_compat_tests`, `c_plugin_tests`, `c_abi_interfaces_tests` + fixtures `c_plugin`, `c_consumer`, `abi_1_0` | ABI C : dispositions figées, compatibilité 1.0, cycle de vie, chaque interface, fuzz des handles |
+| `sdk_spin_tests`, `game_scripts_tests` + fixtures `sdk_spin`, `game_scripts` | SDK C++ : composants, systèmes, scripts, acteurs, physique, audio, mondes, panneaux, composants typés |
+| `ExampleGameTest.*`, `Sdk.OutOfTree` (`Sdk.OutOfTreeMsvc`), `Docs.ApiReference`, `Determinism.Replay` | le module `game` chargé en vrai, gabarit compilé hors du dépôt, référence d'API à jour, replay avec le module de jeu |

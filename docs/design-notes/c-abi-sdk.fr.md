@@ -1,6 +1,6 @@
 # ABI C stable et SDK public : plan
 
-> Note interne, suite de `plugin-system.fr.md` (phase R2, phase 7 du plan d'origine). État au 2026-10-21 : A0 à A5 sont faits, puis le reste du plan, puis les révisions 1.3 (gameplay), 1.4 (scripts, acteurs, input) et 1.5 (physique, audio, mondes, panneaux d'éditeur). L'ABI est en 1.5. Le §13 dit ce qui a été fait, les écarts au plan et ce qui reste. Le reste du document est le plan tel qu'il a été écrit avant le code.
+> Note interne, suite de `plugin-system.fr.md` (phase R2, phase 7 du plan d'origine). État au 2026-10-22 : A0 à A5 sont faits, puis le reste du plan, puis les révisions 1.3 (gameplay), 1.4 (scripts, acteurs, input) et 1.5 (physique, audio, mondes, panneaux d'éditeur, champs déclarés dans la classe, composants typés) ; le module de jeu de l'exemple est écrit contre le SDK seul. L'ABI est en 1.5 (`sdk/VERSION` 1.5.0), le SDK C++ est dans le namespace `Shard`. Le §13 dit ce qui a été fait, les écarts au plan et ce qui reste. Les §1 à §12 sont le plan tel qu'il a été écrit avant le code (les noms de fichiers et d'interfaces y ont parfois changé, voir les écarts).
 >
 > Rédigé le 2026-10-20.
 
@@ -486,13 +486,13 @@ Tests : `AbiLayout` (les nouvelles tailles et offsets sont figés), `TheInterfac
 
 ### Reste
 
-* La CI passe, y compris les étapes « autre compilateur » (Clang sous Linux, MSVC sous Windows) et l'archive SDK. Linux n'a pas été vérifié sur cette machine.
+* La CI construit et teste la 1.5 sous Windows (MinGW) et Linux (GCC) ; le 2026-10-22 le seul écart Linux/Windows était le hachage des scripts (`-0.0` contre `+0.0` dans un champ, réglé par `CanonicalizeFloats`), et le replay doré a dû être réenregistré. Les étapes « autre compilateur » (Clang sous Linux, MSVC sous Windows) et l'archive SDK viennent après le replay dans `build.yml` : pas encore vues passer.
 * Mesurer le coût par appel sur `Spin` avec 100 000 entités contre le même système en C++ (risque du §11).
 * Le critère de réception du §10 (le module Voxel contre le SDK seul) attend le module ; les blobs sont là pour lui.
 * Le tutoriel sur une machine réellement vierge (sans MinGW ni moteur installés à côté).
 * Essayer les panneaux dans l'éditeur lui-même (les tests passent par un faux backend ; le dessin ImGui réel n'a été que compilé).
 * Faire passer `world_ecs` de l'expérimental au figé une fois éprouvé.
-* Avant une 1.6, faire passer la CI sur la 1.5 : rien n'a tourné sur Clang, MSVC ni Linux, et les en-têtes C++ du SDK sont compilés avec `-Werror` dans les fixtures.
+* Avant une 1.6, voir passer en CI les étapes Clang et MSVC sur la 1.5 (les en-têtes C++ du SDK sont compilés avec `-Werror` dans les fixtures).
 * Compiler les extraits de la section 8 du tutoriel (`Turret`, le panneau) : ils sont écrits à partir de l'API, pas copiés d'une fixture.
 * Figer une copie des en-têtes 1.4 à côté de celle de la 1.0 (`tests/plugin_fixtures/abi_1_0`), pour que les tests de compatibilité vérifient aussi qu'un plugin compilé en 1.4 charge toujours.
 
@@ -521,6 +521,13 @@ Deux retours sur le `Gun` : la liste `SHARD_REGISTER_SCRIPT_EX(Gun, (a)(b), ({ "
 * **`Gun`** réécrit : `bullet.Add<Shard::Model>()`, `SetMesh`, `SetMaterial(0, ...)`, `Add<Shard::PhysicsBody>()`, `SetShape(Shape::Capsule())`, `SetMotionType(Dynamic)`, `SetVelocity`. `Character` et `RandomKicker` passent aux `SHARD_FIELD`.
 * **Tests** : `GameScriptsTest.FieldsAreDeclaredInTheClassWithTheirOwnOptions`, `TypedComponentsTest.*` (le script `Builder` du fixture, et les trois fonctions de l'ABI par chemin, y compris les refus et le handle périmé), `TheInterfacesOfEachRevisionAreOffered` et `abi_layout_tests` (`ShardActorsApi` passe de 216 à 240 octets).
 * **Pas fait** : les composants plain data (`SHARD_COMPONENT`) gardent la liste `(a)(b)` : leur bloc est copié par `memcpy` et un marqueur d'un octet par champ le gonflerait. Pas de getter qui rende un `AssetId` (le moteur donne le nom). Le composant `camera` n'a pas pu être testé dans le contexte de test (il demande un `CameraManager`).
+
+### Nettoyages du 2026-10-22
+
+* **Namespace** : le SDK C++ est passé de `shard::` à `Shard::` (même casse que le moteur). Les en-têtes, le gabarit, les fixtures, le module de jeu, le tutoriel et la référence d'API ont suivi ; les noms C (`Shard*`, `shard_*`, `SHARD_*`) et les ids d'interfaces (`shard.physics`…) ne changent pas, donc l'ABI non plus.
+* **Physique et audio sortis de `plugins/abi`** : `c_physics.cpp` et `c_audio.cpp` incluaient la physique et l'audio, qui sont au-dessus de la couche des plugins dans `scripts/check_deps.py`. Ils sont devenus `src/engine/c_abi_physics.cpp` et `src/engine/c_abi_audio.cpp` ; `c_internal.hpp` ne fait que déclarer `PhysicsApi()`, `AudioApi()` et `DecodeContact`. `c_scripts.cpp` n'inclut plus Jolt : un contact lui arrive en `ContactInfo` (autre acteur, normale, point, pénétration, présence d'un manifold), traduit à la racine du moteur ; l'orientation de la normale (de soi vers l'autre) reste faite par le script.
+* **Handles d'acteur** (`c_actors.cpp`) : quand l'adresse d'un acteur détruit est reprise par un nouvel acteur avant le balayage, l'ancienne case est libérée tout de suite (`Release`), et l'index par adresse n'est retiré que s'il désigne encore la case libérée. Avant, la case morte restait occupée jusqu'au balayage et son entrée pouvait effacer celle du nouvel acteur.
+* **`Actor::Destroy`** remet à nul le `parent` de ses composants : ce lien gardait l'acteur détruit en vie, et avec lui ce que le `weak_ptr` d'un `ShardActor` désigne. L'acteur et ses composants sont maintenant libérés (`ActorTest.ADestroyedActorAndItsComponentsAreFreedOnceTheWorldChanges`).
 
 ### Absent après la 1.5 (candidats pour une 1.6)
 
