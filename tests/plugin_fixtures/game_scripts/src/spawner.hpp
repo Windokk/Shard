@@ -2,7 +2,7 @@
 
 #include <shard/game.hpp>
 
-class Spawner : public shard::Script {
+class Spawner : public Shard::Script {
 public:
     int32_t count = 2;
 

@@ -25,7 +25,7 @@ C_ORDER = ['shard_abi.h', 'shard_host.h', 'shard_plugin.h', 'shard_cvars.h', 'sh
            'shard_systems.h', 'shard_events.h', 'shard_hooks.h', 'shard_services.h', 'shard_extensions.h', 'shard_content.h', 'shard_state.h']
 C_SKIP = ['shard.h']        # includes the others, nothing of its own
 CPP_ORDER = ['plugin.hpp', 'component.hpp', 'system.hpp', 'cvars.hpp', 'events.hpp', 'services.hpp', 'content.hpp', 'string.hpp']
-CPP_SKIP = ['detail.hpp']   # what the others share : shard::Error is the only thing a plugin sees of it, documented in the page's text
+CPP_SKIP = ['detail.hpp']   # what the others share : Shard::Error is the only thing a plugin sees of it, documented in the page's text
 
 BS = chr(92)
 
@@ -525,7 +525,7 @@ def parse_cpp(text):
         elif m_cls and '(' not in code_plain.split('<')[0]:
             name = re.sub(r'\s+', '', m_cls.group(3))
             entry = None
-            if in_public() and not name.startswith('shard::'):
+            if in_public() and not name.startswith('Shard::'):
                 base = (' ' + m_cls.group(5).strip()) if m_cls.group(5) else ''
                 entry = ('class', name + base, d, [])
                 entries.append(entry) if scopes and scopes[-1][0] == 'namespace' else None
@@ -713,7 +713,7 @@ def generate():
     out.append('## The C++ SDK')
     out.append('')
     out.append('`sdk/include/shard/cpp` : header-only C++17 over the C ABI, compiled into the plugin. `#include <shard/cpp/plugin.hpp>` brings all '
-               'of it. Every callback of the SDK catches what the plugin throws : `shard::Error` (what a registration the host refused throws, '
+               'of it. Every callback of the SDK catches what the plugin throws : `Shard::Error` (what a registration the host refused throws, '
                'with its `ShardResult`) and anything else become an error of that callback, with the message in the log. Below, the public '
                'declarations of each header (bodies left out).')
     out.append('')

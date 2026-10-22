@@ -1,27 +1,27 @@
 // Shard C++ SDK : the engine's own components (model, light, physics body...) as typed handles, over shard.actors' field functions.
 //
-//   shard::Actor bullet = GetScene().Create("Bullet");
+//   Shard::Actor bullet = GetScene().Create("Bullet");
 //
-//   auto model = bullet.Add<shard::Model>();
+//   auto model = bullet.Add<Shard::Model>();
 //   model.SetMesh(mesh);                                       // an AssetId (a field of the script), or the asset's name in the project
 //   model.SetMaterial(0, material);
 //
-//   auto body = bullet.Add<shard::PhysicsBody>();
-//   body.SetShape(shard::Shape::Capsule(0.1f, 0.3f));
-//   body.SetMotionType(shard::MotionType::Dynamic);            // the body of the new kind exists at once : the velocity has something to push
+//   auto body = bullet.Add<Shard::PhysicsBody>();
+//   body.SetShape(Shard::Shape::Capsule(0.1f, 0.3f));
+//   body.SetMotionType(Shard::MotionType::Dynamic);            // the body of the new kind exists at once : the velocity has something to push
 //   body.SetFriction(0.8f);
 //   bullet.SetVelocity(forward * 30.f);
 //
-//   if (auto light = bullet.Get<shard::Light>()) light.SetIntensity(3.f);
+//   if (auto light = bullet.Get<Shard::Light>()) light.SetIntensity(3.f);
 //
 // A handle is a pair (actor, component type) : copying it is free, and it stays safe when the actor goes. Every setter changes that one field and
 // nothing else, the way an edit in the inspector does (the component's own change hook runs : a body keeps its velocity when its friction changes)
-// and throws shard::Error when the engine refuses it. The getters return a zero when the component or the field is gone.
+// and throws Shard::Error when the engine refuses it. The getters return a zero when the component or the field is gone.
 //
-// Not every component has a class here : shard::ComponentRef reaches any field of any component of the engine by its name (the one the inspector
+// Not every component has a class here : Shard::ComponentRef reaches any field of any component of the engine by its name (the one the inspector
 // and the world file use) :
 //
-//   shard::ComponentRef probe(actor, "probeVolume");
+//   Shard::ComponentRef probe(actor, "probeVolume");
 //   probe.SetFloat("blendDistance", 2.f);
 //
 // Assets read as their name in the project (the way a world file stores them) and are set from an AssetId or from that name.
@@ -38,7 +38,7 @@
 #include <shard/cpp/actor.hpp>
 #include <shard/cpp/component.hpp>
 
-namespace shard {
+namespace Shard {
 
     namespace detail {
 
@@ -201,12 +201,12 @@ namespace shard {
             ReadText([&](char* b, uint64_t c, uint64_t* s) { return detail::Actors().get_component_field(m_Actor.Handle(), Str(m_Type), Str(path), b, c, s); }, out);
             return out;
         }
-        /// Sets the field to a value written as JSON text. Throws shard::Error.
+        /// Sets the field to a value written as JSON text. Throws Shard::Error.
         void SetJson(std::string_view path, std::string_view valueJson) const
         {
             Check(detail::Actors().set_component_field(m_Actor.Handle(), Str(Needed()), Str(path), Str(valueJson)), "set", path);
         }
-        /// Removes an element of an array field (path "shapes/1") or a key of an object. Throws shard::Error.
+        /// Removes an element of an array field (path "shapes/1") or a key of an object. Throws Shard::Error.
         void Erase(std::string_view path) const
         {
             Check(detail::Actors().erase_component_field(m_Actor.Handle(), Str(Needed()), Str(path)), "erase", path);

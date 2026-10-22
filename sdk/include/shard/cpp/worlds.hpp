@@ -1,6 +1,6 @@
 // Shard C++ SDK : loading worlds (shard_worlds.h). Prefabs are spawned with Scene::SpawnPrefab.
 //
-//   if (reachedExit) shard::Worlds::Load("worlds/level2.world");
+//   if (reachedExit) Shard::Worlds::Load("worlds/level2.world");
 //
 // The load is a request : the engine swaps the worlds at the start of a later frame, so the script that asks keeps running until then.
 #pragma once
@@ -10,7 +10,7 @@
 #include <shard/shard_worlds.h>
 #include <shard/cpp/actor.hpp>
 
-namespace shard {
+namespace Shard {
 
     class Worlds {
     public:

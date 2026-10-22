@@ -473,6 +473,13 @@ namespace Shard::Editor::Core{
             });
     }
 
+    void EditorMainWindow::ToggleGameView()
+    {
+        gameView = !gameView;
+        if(gameView)
+            GUI::Notifications::Info("Game view : G to go back");
+    }
+
     void EditorMainWindow::OnWorldLoaded()
     {
         // The previous world's draw lists were cleared before the load (Renderer::ClearPassesContent) : the old actor's
@@ -1029,16 +1036,19 @@ namespace Shard::Editor::Core{
 
         if(renderPassesInitialized)
         {
-            Rendering::DebugViewState debugView;
-            debugView.mode = settings.viewMode;
-            debugView.showLighting = settings.showLighting;
-            debugView.showShadows = settings.showShadows;
-            renderer->SetDebugView(debugView);
-            renderer->SetShowEditorBillboards(settings.showBillboards);
+            // The game view shows what the game draws and nothing the editor adds over it, lit whatever the viewport was set to
+            const bool game = gameView;
 
-            debugDraw.SetLayerVisible(Debug::DebugLayer::Volumes, settings.showGizmos);
-            debugDraw.SetLayerVisible(Debug::DebugLayer::Probes, settings.showDDGIGizmos);
-            debugDraw.SetLayerVisible(Debug::DebugLayer::Physics, settings.showPhysicsShapes);
+            Rendering::DebugViewState debugView;
+            debugView.mode = game ? Rendering::ViewMode::Lit : settings.viewMode;
+            debugView.showLighting = game || settings.showLighting;
+            debugView.showShadows = game || settings.showShadows;
+            renderer->SetDebugView(debugView);
+            renderer->SetShowEditorBillboards(!game && settings.showBillboards);
+
+            debugDraw.SetLayerVisible(Debug::DebugLayer::Volumes, !game && settings.showGizmos);
+            debugDraw.SetLayerVisible(Debug::DebugLayer::Probes, !game && settings.showDDGIGizmos);
+            debugDraw.SetLayerVisible(Debug::DebugLayer::Physics, !game && settings.showPhysicsShapes);
             debugDraw.Update();
 
             // Re-submit the selected actor's model(s) every frame rather than only on selection change -
@@ -1055,8 +1065,8 @@ namespace Shard::Editor::Core{
             // Grid squares follow the location snap increment (1m when snapping is off).
             const float gridCell = (settings.snapLocation && settings.locationSnap > 0.0f) ? settings.locationSnap : 1.0f;
             const bool gridPlaneEnabled[3] = { settings.showGridX, settings.showGridY, settings.showGridZ };
-            const bool showOutlines = settings.showOutlines;
-            const bool showGrid = settings.showGrid;
+            const bool showOutlines = !game && settings.showOutlines;
+            const bool showGrid = !game && settings.showGrid;
 
             // What the editor draws over the scene is the renderer's own state : it is set from the render thread, between two
             // frames, from copies of the editor settings (this thread goes on without waiting). The passes' flags and
@@ -1104,6 +1114,16 @@ namespace Shard::Editor::Core{
         // Between two frames : a new theme or scale must not change the style halfway through one
         UpdatePreferences();
 
+        // A game that captured the cursor owns the mouse : its position keeps moving with the raw deltas, and would hover the panels around
+        // the viewport. Dear ImGui is told to ignore the mouse for as long as the capture lasts (F1 stops the play session without it).
+        {
+            ImGuiIO& io = ImGui::GetIO();
+            if(Engine::Core::GetEngine().IsInPlayMode() && SDL_GetWindowRelativeMouseMode(GetSDLWindow()))
+                io.ConfigFlags |= ImGuiConfigFlags_NoMouse;
+            else
+                io.ConfigFlags &= ~ImGuiConfigFlags_NoMouse;
+        }
+
         // The graphics backend of the UI is set up (and used) by the render thread : only the platform half is here
         ImGui_ImplSDL3_NewFrame();
         ImGui::NewFrame();
@@ -1111,41 +1131,59 @@ namespace Shard::Editor::Core{
 
         ImGuizmo::BeginFrame();
 
+        // G : the game view. Not with a modifier (Ctrl+G groups the selection), not while typing, not while playing (the game owns the keys)
+        {
+            const ImGuiIO& io = ImGui::GetIO();
+            if(!Engine::Core::GetEngine().IsInPlayMode() && !io.WantTextInput && !io.KeyCtrl && !io.KeyShift && !io.KeyAlt && !io.KeySuper
+                && !ImGuizmo::IsUsing() && ImGui::IsKeyPressed(ImGuiKey_G, false))
+                ToggleGameView();
+        }
+
         // An actor can be destroyed from anywhere (a panel, an undo, a parent being deleted) : the panels below
         // must not get a dead one. Again after the menu bar, whose items edit the world.
         ValidateSelection();
-        menuBar->Draw();
-        ValidateSelection();
 
-        ImGui::DockSpaceOverViewport();
-
-        if(panelVisibility.assetBrowser)
-            assetBrowser->Draw();
-        if(panelVisibility.viewport)
+        if(gameView)
+        {
+            // The scene alone : the viewport takes the whole window (see ViewportWindow::Draw), with no menu bar, dock space or panel. The
+            // panels are not submitted, which leaves them in their dock nodes : the layout is the same on the way back.
             viewport->Draw();
-        if(panelVisibility.properties)
-            propertiesPanel->Draw(GetSelectedActor(), static_cast<int>(selectedActors.size()));
-        if(panelVisibility.worldTree)
-            worldTree->Draw();
-        if(panelVisibility.worldSettings)
-            worldSettingsPanel->Draw();
-        if(panelVisibility.projectSettings)
-            projectSettingsPanel->Draw(&panelVisibility.projectSettings);
-        if(panelVisibility.editorPreferences)
-            editorPreferencesPanel->Draw(&panelVisibility.editorPreferences);
-        if(panelVisibility.console)
-            console->Draw();
-        if(panelVisibility.profiler)
-            profilerPanel->Draw();
-        if(panelVisibility.plugins)
-            pluginsPanel->Draw(&panelVisibility.plugins);
-        // The windows plugins added
-        for(const auto& panel : Engine::Plugins::PluginManager::Get().Extensions().Get<Engine::Plugins::EditorPanelItem>("editor.panel")){
-            if(panel->visible && panel->draw)
-                panel->draw(&panel->visible);
         }
+        else
+        {
+            menuBar->Draw();
+            ValidateSelection();
 
-        materialEditorPanel->Draw();
+            ImGui::DockSpaceOverViewport();
+
+            if(panelVisibility.assetBrowser)
+                assetBrowser->Draw();
+            if(panelVisibility.viewport)
+                viewport->Draw();
+            if(panelVisibility.properties)
+                propertiesPanel->Draw(GetSelectedActor(), static_cast<int>(selectedActors.size()));
+            if(panelVisibility.worldTree)
+                worldTree->Draw();
+            if(panelVisibility.worldSettings)
+                worldSettingsPanel->Draw();
+            if(panelVisibility.projectSettings)
+                projectSettingsPanel->Draw(&panelVisibility.projectSettings);
+            if(panelVisibility.editorPreferences)
+                editorPreferencesPanel->Draw(&panelVisibility.editorPreferences);
+            if(panelVisibility.console)
+                console->Draw();
+            if(panelVisibility.profiler)
+                profilerPanel->Draw();
+            if(panelVisibility.plugins)
+                pluginsPanel->Draw(&panelVisibility.plugins);
+            // The windows plugins added
+            for(const auto& panel : Engine::Plugins::PluginManager::Get().Extensions().Get<Engine::Plugins::EditorPanelItem>("editor.panel")){
+                if(panel->visible && panel->draw)
+                    panel->draw(&panel->visible);
+            }
+
+            materialEditorPanel->Draw();
+        }
 
         if(Engine::Core::GetEngine().GetWorldManager()->IsAsyncLoadInProgress())
             DrawLoadingOverlay(Engine::Core::GetEngine().GetWorldManager()->GetAsyncLoadProgress());

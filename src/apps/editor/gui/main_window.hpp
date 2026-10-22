@@ -71,6 +71,11 @@ namespace Shard::Editor::Core {
 
         void RequestPlay();
 
+        /// G : the scene as the game shows it. The viewport fills the window and everything else is hidden (menu bar, panels, toolbar,
+        /// gizmos, grid, outlines, editor icons) ; the camera still flies. Not saved, and not available while playing.
+        bool IsGameView() const { return gameView; }
+        void ToggleGameView();
+
         /// The primary actor of the selection : the last one selected. It is the one the properties panel shows and the one
         /// the gizmo sits on.
         std::shared_ptr<Engine::Objects::Actor> GetSelectedActor() const {
@@ -157,6 +162,7 @@ namespace Shard::Editor::Core {
 
         bool imguiInitialized = false;
         bool renderPassesInitialized = false;
+        bool gameView = false;
 
         // Panels
         GUI::AssetBrowser* assetBrowser = nullptr;

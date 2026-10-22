@@ -1836,21 +1836,21 @@ ShardResult spawn_prefab(ShardActor anchor, ShardStr prefab, ShardActor parent, 
 
 ## The C++ SDK
 
-`sdk/include/shard/cpp` : header-only C++17 over the C ABI, compiled into the plugin. `#include <shard/cpp/plugin.hpp>` brings all of it. Every callback of the SDK catches what the plugin throws : `shard::Error` (what a registration the host refused throws, with its `ShardResult`) and anything else become an error of that callback, with the message in the log. Below, the public declarations of each header (bodies left out).
+`sdk/include/shard/cpp` : header-only C++17 over the C ABI, compiled into the plugin. `#include <shard/cpp/plugin.hpp>` brings all of it. Every callback of the SDK catches what the plugin throws : `Shard::Error` (what a registration the host refused throws, with its `ShardResult`) and anything else become an error of that callback, with the message in the log. Below, the public declarations of each header (bodies left out).
 
 ### shard/cpp/plugin.hpp
 
 Shard C++ SDK : a plugin class over the C ABI.
 
 ```cpp
-class SpinPlugin : public shard::Plugin {
+class SpinPlugin : public Shard::Plugin {
 public:
-    void OnLoad(shard::Context& ctx) override { ... }
+    void OnLoad(Shard::Context& ctx) override { ... }
 };
 SHARD_C_PLUGIN(SpinPlugin)
 ```
 
-The macro exports `shard_plugin_entry` and fills the callbacks table : every callback catches what the plugin throws (`shard::Error` from a refused registration, or anything else) and turns it into an error the host fails the plugin with, the message in its log. Nothing of the engine is included or linked : this compiles against `sdk/include` alone, with any C++17 compiler.
+The macro exports `shard_plugin_entry` and fills the callbacks table : every callback catches what the plugin throws (`Shard::Error` from a refused registration, or anything else) and turns it into an error the host fails the plugin with, the message in its log. Nothing of the engine is included or linked : this compiles against `sdk/include` alone, with any C++17 compiler.
 
 #### `Context`
 
@@ -1872,17 +1872,17 @@ void Error(std::string_view message) const;
 /// Memory counted against the plugin's budget (manifest budgets.memoryMB) : give it back with Free
 void* Alloc(size_t size, size_t align = 16) const;
 void Free(void* p) const;
-shard::Components Components() const;
-shard::Systems Systems() const;
-shard::Scripts Scripts() const;
-shard::Editor Editor() const;
-shard::CVars CVars() const;
-shard::Commands Commands() const;
-shard::Events Events() const;
-shard::Hooks Hooks() const;
-shard::Services Services() const;
-shard::Content Content() const;
-shard::Extensions Extensions() const;
+Shard::Components Components() const;
+Shard::Systems Systems() const;
+Shard::Scripts Scripts() const;
+Shard::Editor Editor() const;
+Shard::CVars CVars() const;
+Shard::Commands Commands() const;
+Shard::Events Events() const;
+Shard::Hooks Hooks() const;
+Shard::Services Services() const;
+Shard::Content Content() const;
+Shard::Extensions Extensions() const;
 ```
 
 #### `World`
@@ -1921,7 +1921,7 @@ virtual bool OnToolTask(Context&, std::string_view /*task*/, std::string_view /*
 ```
 
 ```cpp
-/// Exports the entry point of the C ABI for a class derived from shard::Plugin (once per plugin, in one source file)
+/// Exports the entry point of the C ABI for a class derived from Shard::Plugin (once per plugin, in one source file)
 SHARD_C_PLUGIN(ClassName)
 /// A plugin that is only what its source files register (scripts, components, systems: shard/cpp/registry.hpp): the entry point, in any one of them
 SHARD_GAME_MODULE()
@@ -1932,7 +1932,7 @@ SHARD_GAME_MODULE()
 Shard C++ SDK : component types from C++ structs.
 
 ```cpp
-struct Spin { float speed = 1.f; float angle = 0.f; shard::Vec3 axis{ 0.f, 1.f, 0.f }; };
+struct Spin { float speed = 1.f; float angle = 0.f; Shard::Vec3 axis{ 0.f, 1.f, 0.f }; };
 SHARD_COMPONENT(Spin, (speed)(angle)(axis))
 ```
 
@@ -2001,7 +2001,7 @@ A text of a component (`shard_components.h`, 1.2) : a field of this type holds a
 ShardBlob handle = 0;
 /// The text (empty if there is none yet). thread : any
 std::string Get() const;
-/// Replaces the text. Throws shard::Error over the memory budget, or in an engine older than ABI 1.3. thread : any
+/// Replaces the text. Throws Shard::Error over the memory budget, or in an engine older than ABI 1.3. thread : any
 void Set(std::string_view text);
 Text& operator=(std::string_view text);
 Text& operator=(const char* text);
@@ -2067,15 +2067,15 @@ template <typename T> ComponentType<T> AsComponentType(ShardComponentType handle
 #### `Components`
 
 ```cpp
-/// Registers T as "<plugin id>.<name>" (from OnLoad). Throws shard::Error if the host refuses it (the log says why).
+/// Registers T as "<plugin id>.<name>" (from OnLoad). Throws Shard::Error if the host refuses it (the log says why).
 template <typename T> ComponentType<T> Register(const std::string& name, std::initializer_list<FieldOptions> options = {});
-/// A blob of `size` bytes, zeroed. Throws shard::Error over the memory budget, or in an engine older than ABI 1.2. thread : any
+/// A blob of `size` bytes, zeroed. Throws Shard::Error over the memory budget, or in an engine older than ABI 1.2. thread : any
 Blob CreateBlob(uint64_t size) const;
 /// Its bytes (null if the blob is not one of this plugin's) ; valid until it is resized or freed. thread : any
 void* BlobData(Blob blob, uint64_t* size = nullptr) const;
 bool ResizeBlob(Blob blob, uint64_t size) const;
 bool FreeBlob(Blob blob) const;
-/// Sets a string field of a component : `field` is the member itself (in the block of an entity, or in a copy). Throws shard::Error over
+/// Sets a string field of a component : `field` is the member itself (in the block of an entity, or in a copy). Throws Shard::Error over
 /// the memory budget, or in an engine older than ABI 1.3. thread : any
 void SetText(Text& field, std::string_view text) const;
 /// The text of a string field (empty if it holds none). thread : any
@@ -2096,9 +2096,9 @@ SHARD_COMPONENT(Type, sequence)
 Shard C++ SDK : systems and what they see of the entities.
 
 ```cpp
-ctx.Systems().Add("rotate", shard::Phase::Update)
+ctx.Systems().Add("rotate", Shard::Phase::Update)
     .Writes(spin)
-    .Run([spin](shard::SystemCtx& s) {
+    .Run([spin](Shard::SystemCtx& s) {
         s.Each(spin, [&](Spin& c) { c.angle += c.speed * s.DeltaTime(); });
     });
 ```
@@ -2149,7 +2149,7 @@ template <typename T> void Remove(Entity e, ComponentType<T> type) const;
 void Destroy(Entity e) const;
 void SetParent(Entity child, Entity parent) const;
 /// Moves the actor behind `e` (ABI 1.3) : its Transform takes the pose at the end of the phase. The system must declare the
-/// engine's shard.LocalTransform type in its writes. False if the entity has no actor. Throws shard::Error in an engine older than 1.3.
+/// engine's shard.LocalTransform type in its writes. False if the entity has no actor. Throws Shard::Error in an engine older than 1.3.
 bool SetLocalTransform(Entity e, const Pose& pose) const;
 /// The text of a string field of a component, from inside a system (see Components::SetText / GetText)
 void SetText(Text& field, std::string_view text) const;
@@ -2175,7 +2175,7 @@ SystemBuilder& MainThread();
 /// A full name ("com.acme.weather/wind"), or "./x" for this plugin's "x"
 SystemBuilder& After(std::string other);
 SystemBuilder& Before(std::string other);
-/// Adds the system. Throws shard::Error if the host refuses it.
+/// Adds the system. Throws Shard::Error if the host refuses it.
 void Run(SystemFn fn);
 ```
 
@@ -2228,7 +2228,7 @@ using CommandFn = std::function<bool(const std::vector<std::string_view>& args, 
 #### `Commands`
 
 ```cpp
-/// Named as given : prefix it with your own ("weather.set"). Throws shard::Error if this plugin has it already. thread : main
+/// Named as given : prefix it with your own ("weather.set"). Throws Shard::Error if this plugin has it already. thread : main
 void Add(const std::string& name, const std::string& help, CommandFn fn) const;
 ```
 
@@ -2250,7 +2250,7 @@ ShardSubscription SubscribeWorld(int32_t worldId, const std::string& name, Event
 template <typename T> ShardSubscription Subscribe(const std::string& name, std::function<void(const T&)> fn) const;
 bool Unsubscribe(ShardSubscription token) const;
 /// Says what the payload T of the events named `name` holds (its fields, as SHARD_COMPONENT lists them), for the tools that show
-/// events (the console's event.watch). Throws shard::Error if another plugin described that name, or if the engine is older than ABI 1.2.
+/// events (the console's event.watch). Throws Shard::Error if another plugin described that name, or if the engine is older than ABI 1.2.
 template <typename T> void Describe(const std::string& name) const;
 /// From a system it is delivered at the end of the frame ; from the main thread, at once
 bool Emit(const std::string& name, const void* payload, size_t size) const;
@@ -2279,7 +2279,7 @@ using HookFn = std::function<void(Hook&)>;
 #### `Hooks`
 
 ```cpp
-/// `name` : one of the table of shard_hooks.h ("PreSave"...). Throws shard::Error for an unknown one.
+/// `name` : one of the table of shard_hooks.h ("PreSave"...). Throws Shard::Error for an unknown one.
 ShardHookToken On(const std::string& name, HookFn fn, int32_t priority = SHARD_PRIORITY_NORMAL) const;
 bool Off(ShardHookToken token) const;
 ```
@@ -2318,7 +2318,7 @@ explicit operator bool() const;
 #### `Services`
 
 ```cpp
-/// `table` stays valid until the plugin is disabled (a static table). Throws shard::Error if another plugin provides the name.
+/// `table` stays valid until the plugin is disabled (a static table). Throws Shard::Error if another plugin provides the name.
 template <typename Table> void Provide(const std::string& name, uint32_t major, uint32_t minor, const Table* table, void* self) const;
 /// Empty if nobody provides it in that range ("^1.2", ">=1", "*")
 template <typename Table> Service<Table> Get(const std::string& name, const std::string& range = "*") const;
@@ -2410,20 +2410,20 @@ template <typename Fn> ShardResult ReadText(Fn&& call, std::string& out);
 Shard C++ SDK : actors, the things a world holds (`shard_actors.h`).
 
 ```cpp
-shard::Actor enemy = scene.Spawn(R"({ "name": "Enemy", "components": [] })");
+Shard::Actor enemy = scene.Spawn(R"({ "name": "Enemy", "components": [] })");
 enemy.SetPosition({ 0.f, 1.f, -5.f });
 enemy.AddTag("Enemy");
 if (Health* health = enemy.GetScript<Health>()) health->Damage(10.f);
 ```
 
-An Actor is a handle: copying it is free, and it stays safe when the actor is destroyed (`IsValid()` turns false, the getters return zeroes, the setters do nothing). Use it from the callbacks of a script (`shard::Script`) : not from a system, which runs beside others.
+An Actor is a handle: copying it is free, and it stays safe when the actor is destroyed (`IsValid()` turns false, the getters return zeroes, the setters do nothing). Use it from the callbacks of a script (`Shard::Script`) : not from a system, which runs beside others.
 
 #### `Scene`
 
 The world an actor is in: where to create, spawn and find other actors
 
 ```cpp
-/// A new actor (with its Transform) at the root of the scene, or under `parent`. Throws shard::Error if the scene is gone.
+/// A new actor (with its Transform) at the root of the scene, or under `parent`. Throws Shard::Error if the scene is gone.
 Actor Create(std::string_view name, Actor parent);
 Actor Create(std::string_view name);
 /// An actor built from the JSON of a world file's actor (name, components, children) : what the editor saves a prefab as
@@ -2432,7 +2432,7 @@ Actor Spawn(std::string_view actorJson);
 /// The first actor of that name (depth first, in the order of the ids), or an invalid one
 Actor Find(std::string_view name) const;
 /// Builds a prefab, an actor stored as JSON in the content of a module : a "mod://<id>/prefabs/crate.json" address, a logical path
-/// ("prefabs/crate.json") or a bare name ("crate"). Throws shard::Error if there is no such prefab.
+/// ("prefabs/crate.json") or a bare name ("crate"). Throws Shard::Error if there is no such prefab.
 Actor SpawnPrefab(std::string_view prefab, Actor parent);
 Actor SpawnPrefab(std::string_view prefab);
 /// The actors that have the tag or one under it ("Enemy" finds an "Enemy.Undead"), in the order of their ids
@@ -2486,19 +2486,19 @@ bool AddTag(std::string_view tag) const;
 bool RemoveTag(std::string_view tag) const;
 /// True for the tag or one under it
 bool HasTag(std::string_view tag) const;
-/// Adds a component and returns its handle, to set its fields : `actor.Add<shard::Light>().SetIntensity(3.f)`. Throws shard::Error.
+/// Adds a component and returns its handle, to set its fields : `actor.Add<Shard::Light>().SetIntensity(3.f)`. Throws Shard::Error.
 template <typename T> T Add() const;
-/// The handle of the component the actor has, which tells whether there is one : `if (auto body = actor.Get<shard::PhysicsBody>())`
+/// The handle of the component the actor has, which tells whether there is one : `if (auto body = actor.Get<Shard::PhysicsBody>())`
 template <typename T> T Get() const;
 template <typename T> bool Has() const;
 template <typename T> bool Remove() const;
-/// Throws shard::Error if the type is unknown. `fieldsJson` : the fields to set, a JSON object, or empty.
+/// Throws Shard::Error if the type is unknown. `fieldsJson` : the fields to set, a JSON object, or empty.
 void AddComponent(std::string_view type, std::string_view fieldsJson = {}) const;
 bool HasComponent(std::string_view type) const;
 bool RemoveComponent(std::string_view type) const;
 /// The component as the world file writes it, empty if the actor has none
 std::string ComponentJson(std::string_view type) const;
-/// Sets the fields the JSON object holds; the others keep their value. Throws shard::Error if the actor has no such component.
+/// Sets the fields the JSON object holds; the others keep their value. Throws Shard::Error if the actor has no such component.
 void SetComponentJson(std::string_view type, std::string_view fieldsJson) const;
 Vec3 Velocity() const;
 bool SetVelocity(Vec3 velocity) const;
@@ -2520,7 +2520,7 @@ bool PauseAudio() const;
 bool SetAudioVolume(float volume) const;
 /// The script of that class on the actor, null if it has none (a class registered with SHARD_REGISTER_SCRIPT)
 template <typename T> T* GetScript() const;
-/// Adds the script to the actor and returns it. Throws shard::Error if it cannot.
+/// Adds the script to the actor and returns it. Throws Shard::Error if it cannot.
 template <typename T> T* AddScript() const;
 /// The world this actor is in
 Scene GetScene() const;
@@ -2548,14 +2548,14 @@ static constexpr uint32_t value = SHARD_FIELD_ACTOR;
 Shard C++ SDK : sounds (`shard_audio.h`). An actor with an `"audio"` component plays and pauses its clip with `Actor::PlayAudio`, PauseAudio and SetAudioVolume. A one shot sound needs no actor.
 
 ```cpp
-shard::Audio::PlayOneShot("sounds/shot.wav", Owner().WorldPosition());
+Shard::Audio::PlayOneShot("sounds/shot.wav", Owner().WorldPosition());
 ```
 
 #### `Audio`
 
 ```cpp
 /// Plays a clip of the project ("sounds/shot.wav") once, from `position` in the world when `spatial` (louder and panned by the distance
-/// and direction to the listener), flat otherwise. The sound removes itself when it ends. Throws shard::Error if there is no such clip.
+/// and direction to the listener), flat otherwise. The sound removes itself when it ends. Throws Shard::Error if there is no such clip.
 static void PlayOneShot(std::string_view clip, Vec3 position, float volume = 1.f, bool spatial = true);
 /// A flat sound, with no place
 static void PlayOneShot(std::string_view clip, float volume = 1.f);
@@ -2632,7 +2632,7 @@ bool AddPanel(const std::string& title, PanelFn draw);
 ```
 
 ```cpp
-/// A panel of the editor, defined and registered from any file. `ui` is the name of the shard::Ui the body draws with. At global scope.
+/// A panel of the editor, defined and registered from any file. `ui` is the name of the Shard::Ui the body draws with. At global scope.
 SHARD_EDITOR_PANEL(Name, Title, ui)
 ```
 
@@ -2641,27 +2641,27 @@ SHARD_EDITOR_PANEL(Name, Title, ui)
 Shard C++ SDK : the engine's own components (model, light, physics body...) as typed handles, over `shard.actors`' field functions.
 
 ```cpp
-shard::Actor bullet = GetScene().Create("Bullet");
+Shard::Actor bullet = GetScene().Create("Bullet");
 
-auto model = bullet.Add<shard::Model>();
+auto model = bullet.Add<Shard::Model>();
 model.SetMesh(mesh);                                       // an AssetId (a field of the script), or the asset's name in the project
 model.SetMaterial(0, material);
 
-auto body = bullet.Add<shard::PhysicsBody>();
-body.SetShape(shard::Shape::Capsule(0.1f, 0.3f));
-body.SetMotionType(shard::MotionType::Dynamic);            // the body of the new kind exists at once : the velocity has something to push
+auto body = bullet.Add<Shard::PhysicsBody>();
+body.SetShape(Shard::Shape::Capsule(0.1f, 0.3f));
+body.SetMotionType(Shard::MotionType::Dynamic);            // the body of the new kind exists at once : the velocity has something to push
 body.SetFriction(0.8f);
 bullet.SetVelocity(forward * 30.f);
 
-if (auto light = bullet.Get<shard::Light>()) light.SetIntensity(3.f);
+if (auto light = bullet.Get<Shard::Light>()) light.SetIntensity(3.f);
 ```
 
-A handle is a pair (actor, component type) : copying it is free, and it stays safe when the actor goes. Every setter changes that one field and nothing else, the way an edit in the inspector does (the component's own change hook runs : a body keeps its velocity when its friction changes) and throws `shard::Error` when the engine refuses it. The getters return a zero when the component or the field is gone.
+A handle is a pair (actor, component type) : copying it is free, and it stays safe when the actor goes. Every setter changes that one field and nothing else, the way an edit in the inspector does (the component's own change hook runs : a body keeps its velocity when its friction changes) and throws `Shard::Error` when the engine refuses it. The getters return a zero when the component or the field is gone.
 
-Not every component has a class here : `shard::ComponentRef` reaches any field of any component of the engine by its name (the one the inspector and the world file use) :
+Not every component has a class here : `Shard::ComponentRef` reaches any field of any component of the engine by its name (the one the inspector and the world file use) :
 
 ```cpp
-shard::ComponentRef probe(actor, "probeVolume");
+Shard::ComponentRef probe(actor, "probeVolume");
 probe.SetFloat("blendDistance", 2.f);
 ```
 
@@ -2696,9 +2696,9 @@ bool IsActive() const;
 void SetActive(bool active) const;
 /// The value as JSON text ; empty if the component or the field is not there
 std::string GetJson(std::string_view path) const;
-/// Sets the field to a value written as JSON text. Throws shard::Error.
+/// Sets the field to a value written as JSON text. Throws Shard::Error.
 void SetJson(std::string_view path, std::string_view valueJson) const;
-/// Removes an element of an array field (path "shapes/1") or a key of an object. Throws shard::Error.
+/// Removes an element of an array field (path "shapes/1") or a key of an object. Throws Shard::Error.
 void Erase(std::string_view path) const;
 void SetFloat(std::string_view path, float value) const;
 void SetInt(std::string_view path, int64_t value) const;
@@ -2920,11 +2920,11 @@ void SetTint(Color tint) const;
 Shard C++ SDK : the fields of a script, declared where the member is.
 
 ```cpp
-class Gun : public shard::Script {
+class Gun : public Shard::Script {
 public:
     SHARD_FIELD(float, power, Range(0.f, 1000.f), Tooltip("Speed of the bullet")) = 30.f;
     SHARD_FIELD(float, lifetime, Range(0.f, 60.f)) = 3.f;
-    SHARD_FIELD(shard::AssetId, mesh, Tooltip("The mesh to shoot"));
+    SHARD_FIELD(Shard::AssetId, mesh, Tooltip("The mesh to shoot"));
     SHARD_FIELD(int, ammo, Runtime()) = 12;                  // shown by the inspector, not saved
     float cooldown = 0.f;                                    // not a field : it stays out of the inspector and the world file
 };
@@ -2999,9 +2999,9 @@ SHARD_FIELD(...)
 Shard C++ SDK : keyboard, mouse and gamepads (`shard_input.h`).
 
 ```cpp
-if (shard::Input::IsKeyDown(shard::Key::W)) owner.Translate(owner.Forward() * speed * dt);
-const float turn = shard::Input::Axis(shard::Key::A, shard::Key::D);                 // -1, 0 or 1
-if (shard::Input::WasPressed(shard::Key::Space)) Jump();
+if (Shard::Input::IsKeyDown(Shard::Key::W)) owner.Translate(owner.Forward() * speed * dt);
+const float turn = Shard::Input::Axis(Shard::Key::A, Shard::Key::D);                 // -1, 0 or 1
+if (Shard::Input::WasPressed(Shard::Key::Space)) Jump();
 ```
 
 What the engine's input manager sees this frame, which is also what a replay records. Call it from the callbacks of a script.
@@ -3111,10 +3111,10 @@ Vec3 Up() const;
 
 ### shard/cpp/physics.hpp
 
-Shard C++ SDK : ray casts (`shard_physics.h`). The forces, impulses and velocities of a body are methods of `shard::Actor`.
+Shard C++ SDK : ray casts (`shard_physics.h`). The forces, impulses and velocities of a body are methods of `Shard::Actor`.
 
 ```cpp
-if (auto hit = shard::Physics::Raycast(eye, forward, 50.f, shard::Layers::All, Owner())) {
+if (auto hit = Shard::Physics::Raycast(eye, forward, 50.f, Shard::Layers::All, Owner())) {
     hit->actor.Destroy();
     Spawn(hit->point + hit->normal * 0.1f);
 }
@@ -3157,10 +3157,10 @@ static std::optional<RayHit> Raycast(Vec3 origin, Vec3 direction, float maxDista
 Shard C++ SDK : random numbers that a replay of the run reproduces (`shard_plugin.h`, `random_stream`).
 
 ```cpp
-class Kicker : public shard::Script {
-    void OnPlay() override { m_Random = shard::Random::Stream("Kicker/" + Owner().Name()); }
+class Kicker : public Shard::Script {
+    void OnPlay() override { m_Random = Shard::Random::Stream("Kicker/" + Owner().Name()); }
     void OnTick(float) override { Owner().AddImpulse(m_Random.OnUnitSphere() * 4.f); }
-    shard::Random m_Random;
+    Shard::Random m_Random;
 };
 ```
 
@@ -3173,7 +3173,7 @@ class Kicker : public shard::Script {
 constexpr Random() : m_State(0x853c49e6748fea9bull), m_Increment(0xda3e39cb94b95bdbull);
 /// The stream `name` of this plugin for this run : the same name gives the same sequence when the run is replayed, and another name a
 /// sequence that does not depend on it. Name it after what draws from it ("Spawner/" + the actor's name), not after the order things
-/// started in. Throws shard::Error if the host does not offer streams (an engine of ABI 1.4 or older).
+/// started in. Throws Shard::Error if the host does not offer streams (an engine of ABI 1.4 or older).
 static Random Stream(std::string_view name);
 /// Uniform 32 random bits
 uint32_t Next();
@@ -3199,14 +3199,14 @@ A plugin of one file registers everything in OnLoad. A game does not: each .cpp 
 
 ```cpp
 SHARD_REGISTER_SCRIPT(Health, (maxHealth)(current))                   // shard/cpp/script.hpp
-SHARD_DEFINE_COMPONENT(Velocity, (x)(y)(z))                           // a component of plain data, found anywhere with shard::ComponentOf<Velocity>()
+SHARD_DEFINE_COMPONENT(Velocity, (x)(y)(z))                           // a component of plain data, found anywhere with Shard::ComponentOf<Velocity>()
 SHARD_ON_LOAD(Movement, ctx) { ctx.Systems().Add(...).Run(...); }     // anything else: systems, cvars, commands, hooks, events...
 ```
 
 The macros go at global scope, in a source file of the plugin's library (not in a static library the plugin links: the linker may drop a file nothing references).
 
 ```cpp
-/// The body that follows runs in OnLoad, after the components and the scripts are registered: `ctx` is the shard::Context. `Name` only orders
+/// The body that follows runs in OnLoad, after the components and the scripts are registered: `ctx` is the Shard::Context. `Name` only orders
 /// and names it (unique in the plugin, letters and digits).
 SHARD_ON_LOAD(Name, ctx)
 ```
@@ -3217,11 +3217,11 @@ Shard C++ SDK : scripts, the gameplay classes of a game (`shard_scripts.h`).
 
 ```cpp
 // health.hpp
-class Health : public shard::Script {
+class Health : public Shard::Script {
 public:
     float maxHealth = 100.f;                    // fields: shown in the inspector, saved with the world
     float current = 100.f;
-    shard::Text label;
+    Shard::Text label;
 
     void OnPlay() override { current = maxHealth; }
     void OnTick(float dt) override { if (current <= 0.f) Owner().Destroy(); }
@@ -3314,7 +3314,7 @@ static const ShardScriptCallbacks& Table();
 #### `Scripts`
 
 ```cpp
-/// Registers the class T as "<plugin id>.<name>" (from OnLoad: SHARD_REGISTER_SCRIPT does it). Throws shard::Error if the host refuses it.
+/// Registers the class T as "<plugin id>.<name>" (from OnLoad: SHARD_REGISTER_SCRIPT does it). Throws Shard::Error if the host refuses it.
 template <typename T> void Register(const std::string& name, std::initializer_list<FieldOptions> options = {});
 ```
 
@@ -3325,7 +3325,7 @@ template <typename T> void Register(const std::string& name, std::initializer_li
 /// The older way lists the members here instead (any field type of shard/cpp/component.hpp : numbers, bool, Vec2/3/4, Quat, Color, Text, AssetId,
 /// Blob), and the two may be mixed :
 /// SHARD_REGISTER_SCRIPT(Health, (maxHealth)(current))
-/// SHARD_REGISTER_SCRIPT_EX adds the options of the listed fields (shard::FieldOptions: bounds, tooltip, SHARD_FIELD_RUNTIME), in parentheses:
+/// SHARD_REGISTER_SCRIPT_EX adds the options of the listed fields (Shard::FieldOptions: bounds, tooltip, SHARD_FIELD_RUNTIME), in parentheses:
 /// SHARD_REGISTER_SCRIPT_EX(Health, (maxHealth)(current), ({ "maxHealth", 0, 0.f, 1000.f, "hit points" }))
 SHARD_DETAIL_UNPAREN(...)
 /// A script whose fields are declared in the class (SHARD_FIELD), or with no fields at all (it only reacts : OnTick, contacts...)
@@ -3338,7 +3338,7 @@ template <typename T> ComponentType<T>& ComponentOf();
 Shard C++ SDK : loading worlds (`shard_worlds.h`). Prefabs are spawned with `Scene::SpawnPrefab`.
 
 ```cpp
-if (reachedExit) shard::Worlds::Load("worlds/level2.world");
+if (reachedExit) Shard::Worlds::Load("worlds/level2.world");
 ```
 
 The load is a request : the engine swaps the worlds at the start of a later frame, so the script that asks keeps running until then.

@@ -1,6 +1,6 @@
 #include "bullet.hpp"
 
-void Bullet::OnContactAdded(const shard::Contact &)
+void Bullet::OnContactAdded(const Shard::Contact &)
 {
     Owner().Destroy();
 }

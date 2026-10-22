@@ -1,8 +1,8 @@
 // Shard C++ SDK : keyboard, mouse and gamepads (shard_input.h).
 //
-//   if (shard::Input::IsKeyDown(shard::Key::W)) owner.Translate(owner.Forward() * speed * dt);
-//   const float turn = shard::Input::Axis(shard::Key::A, shard::Key::D);                 // -1, 0 or 1
-//   if (shard::Input::WasPressed(shard::Key::Space)) Jump();
+//   if (Shard::Input::IsKeyDown(Shard::Key::W)) owner.Translate(owner.Forward() * speed * dt);
+//   const float turn = Shard::Input::Axis(Shard::Key::A, Shard::Key::D);                 // -1, 0 or 1
+//   if (Shard::Input::WasPressed(Shard::Key::Space)) Jump();
 //
 // What the engine's input manager sees this frame, which is also what a replay records. Call it from the callbacks of a script.
 #pragma once
@@ -11,7 +11,7 @@
 #include <shard/cpp/detail.hpp>
 #include <shard/cpp/math.hpp>
 
-namespace shard {
+namespace Shard {
 
     enum class Key : int32_t {
         Space = SHARD_KEY_SPACE, Apostrophe = SHARD_KEY_APOSTROPHE, Comma = SHARD_KEY_COMMA, Minus = SHARD_KEY_MINUS, Period = SHARD_KEY_PERIOD,

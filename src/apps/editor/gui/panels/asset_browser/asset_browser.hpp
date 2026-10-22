@@ -1,5 +1,9 @@
 #pragma once
 
+#include <atomic>
+#include <memory>
+#include <mutex>
+
 #include "engine/world/engine.hpp"
 
 #include "apps/editor/gui/resources/editor_resources.hpp"
@@ -203,10 +207,14 @@ namespace Shard::Editor::GUI{
 
             // Context menu / shortcuts only *request* an action (pendingAction); it runs once per frame
             // after the item loop (ProcessAction), since most of them rebuild `items`.
-            enum class Action { None, Open, Cut, Copy, Paste, Duplicate, Rename, Delete, Refresh, NewFolder, NewMaterial, NewWorld, Reveal, CopyPath, RefreshThumbnail, ShowInFolder };
+            enum class Action { None, Open, Cut, Copy, Paste, Duplicate, Rename, Delete, Refresh, NewFolder, NewMaterial, NewWorld, Reveal, CopyPath, RefreshThumbnail, ShowInFolder, Import };
 
             void DrawContextMenu();
             void ProcessAction();
+            /// Opens the OS file dialog ; what it picks is imported into the current folder (see ProcessImports)
+            void OpenImportDialog();
+            /// Imports what the file dialog picked since the last frame
+            void ProcessImports();
             void DrawDialogs();
             void OpenItem(const Asset& item);
             std::vector<const Asset*> GetSelectedItems() const;
@@ -228,6 +236,20 @@ namespace Shard::Editor::GUI{
 
             std::vector<Engine::Filesystem::Path> clipboard;
             bool clipboardCut = false;
+
+            // Import : the file dialog answers from a thread of its own, so what it picked waits here for the next frame. Shared with the
+            // dialog's callback, which may outlive the browser.
+            struct ImportRequest {
+                Engine::Filesystem::Path destination;       // the folder that was open when the dialog was
+                std::vector<std::string> sources;
+            };
+            struct ImportQueue {
+                std::mutex mutex;
+                std::vector<ImportRequest> requests;
+                std::string lastFolder;                     // where the dialog opens the next time
+                std::atomic<bool> dialogOpen{false};
+            };
+            std::shared_ptr<ImportQueue> importQueue = std::make_shared<ImportQueue>();
 
             Engine::Filesystem::Path renamePath;
             char renameBuffer[256]{};

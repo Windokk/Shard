@@ -1,7 +1,7 @@
 // Shard C++ SDK : sounds (shard_audio.h). An actor with an "audio" component plays and pauses its clip with Actor::PlayAudio, PauseAudio and
 // SetAudioVolume. A one shot sound needs no actor.
 //
-//   shard::Audio::PlayOneShot("sounds/shot.wav", Owner().WorldPosition());
+//   Shard::Audio::PlayOneShot("sounds/shot.wav", Owner().WorldPosition());
 #pragma once
 
 #include <string_view>
@@ -9,12 +9,12 @@
 #include <shard/shard_audio.h>
 #include <shard/cpp/actor.hpp>
 
-namespace shard {
+namespace Shard {
 
     class Audio {
     public:
         /// Plays a clip of the project ("sounds/shot.wav") once, from `position` in the world when `spatial` (louder and panned by the distance
-        /// and direction to the listener), flat otherwise. The sound removes itself when it ends. Throws shard::Error if there is no such clip.
+        /// and direction to the listener), flat otherwise. The sound removes itself when it ends. Throws Shard::Error if there is no such clip.
         static void PlayOneShot(std::string_view clip, Vec3 position, float volume = 1.f, bool spatial = true)
         {
             float p[3];

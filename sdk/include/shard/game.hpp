@@ -2,14 +2,14 @@
 //
 //   #include <shard/game.hpp>
 //
-//   class Health : public shard::Script { ... };          // shard/cpp/script.hpp ; its fields are declared in the class with SHARD_FIELD
+//   class Health : public Shard::Script { ... };          // shard/cpp/script.hpp ; its fields are declared in the class with SHARD_FIELD
 //   SHARD_REGISTER_SCRIPT(Health)
 //
 // A game is a folder of such files and one line, in any of them, that makes the plugin:
 //
 //   SHARD_GAME_MODULE()
 //
-// (or, when the plugin needs OnLoad / OnEnable code of its own, a class derived from shard::Plugin and SHARD_C_PLUGIN(YourClass)). The scripts,
+// (or, when the plugin needs OnLoad / OnEnable code of its own, a class derived from Shard::Plugin and SHARD_C_PLUGIN(YourClass)). The scripts,
 // components and systems of every file register themselves.
 #pragma once
 

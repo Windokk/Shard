@@ -1,12 +1,12 @@
 // Shard C++ SDK : actors, the things a world holds (shard_actors.h).
 //
-//   shard::Actor enemy = scene.Spawn(R"({ "name": "Enemy", "components": [] })");
+//   Shard::Actor enemy = scene.Spawn(R"({ "name": "Enemy", "components": [] })");
 //   enemy.SetPosition({ 0.f, 1.f, -5.f });
 //   enemy.AddTag("Enemy");
 //   if (Health* health = enemy.GetScript<Health>()) health->Damage(10.f);
 //
 // An Actor is a handle: copying it is free, and it stays safe when the actor is destroyed (IsValid() turns false, the getters return zeroes, the
-// setters do nothing). Use it from the callbacks of a script (shard::Script) : not from a system, which runs beside others.
+// setters do nothing). Use it from the callbacks of a script (Shard::Script) : not from a system, which runs beside others.
 #pragma once
 
 #include <cstring>
@@ -24,7 +24,7 @@
 #include <shard/cpp/detail.hpp>
 #include <shard/cpp/math.hpp>
 
-namespace shard {
+namespace Shard {
 
     class Actor;
 
@@ -71,7 +71,7 @@ namespace shard {
         Scene() = default;
         explicit Scene(ShardActor anchor) : m_Anchor(anchor) {}
 
-        /// A new actor (with its Transform) at the root of the scene, or under `parent`. Throws shard::Error if the scene is gone.
+        /// A new actor (with its Transform) at the root of the scene, or under `parent`. Throws Shard::Error if the scene is gone.
         Actor Create(std::string_view name, Actor parent);
         Actor Create(std::string_view name);
         /// An actor built from the JSON of a world file's actor (name, components, children) : what the editor saves a prefab as
@@ -80,7 +80,7 @@ namespace shard {
         /// The first actor of that name (depth first, in the order of the ids), or an invalid one
         Actor Find(std::string_view name) const;
         /// Builds a prefab, an actor stored as JSON in the content of a module : a "mod://<id>/prefabs/crate.json" address, a logical path
-        /// ("prefabs/crate.json") or a bare name ("crate"). Throws shard::Error if there is no such prefab.
+        /// ("prefabs/crate.json") or a bare name ("crate"). Throws Shard::Error if there is no such prefab.
         Actor SpawnPrefab(std::string_view prefab, Actor parent);
         Actor SpawnPrefab(std::string_view prefab);
         /// The actors that have the tag or one under it ("Enemy" finds an "Enemy.Undead"), in the order of their ids
@@ -166,14 +166,14 @@ namespace shard {
         bool HasTag(std::string_view tag) const { return Api().has_tag(m_Handle, Str(tag)) == SHARD_TRUE; }
 
         // ---- The engine's components as typed handles (shard/cpp/engine_components.hpp) : Model, PhysicsBody, Light, Camera, AudioSource... ----
-        /// Adds a component and returns its handle, to set its fields : `actor.Add<shard::Light>().SetIntensity(3.f)`. Throws shard::Error.
+        /// Adds a component and returns its handle, to set its fields : `actor.Add<Shard::Light>().SetIntensity(3.f)`. Throws Shard::Error.
         template <typename T>
         T Add() const
         {
             AddComponent(T::kType);
             return T(*this);
         }
-        /// The handle of the component the actor has, which tells whether there is one : `if (auto body = actor.Get<shard::PhysicsBody>())`
+        /// The handle of the component the actor has, which tells whether there is one : `if (auto body = actor.Get<Shard::PhysicsBody>())`
         template <typename T>
         T Get() const { return T(*this); }
         template <typename T>
@@ -183,13 +183,13 @@ namespace shard {
 
         // ---- The same components by the name the world file calls them ("light", "model"...), their fields as JSON : for a type that has no
         // class in engine_components.hpp, or to build a component from a file ----
-        /// Throws shard::Error if the type is unknown. `fieldsJson` : the fields to set, a JSON object, or empty.
+        /// Throws Shard::Error if the type is unknown. `fieldsJson` : the fields to set, a JSON object, or empty.
         void AddComponent(std::string_view type, std::string_view fieldsJson = {}) const { detail::Check(Api().add_component(m_Handle, Str(type), Str(fieldsJson)), "add_component '" + std::string(type) + "'"); }
         bool HasComponent(std::string_view type) const { return Api().has_component(m_Handle, Str(type)) == SHARD_TRUE; }
         bool RemoveComponent(std::string_view type) const { return Api().remove_component(m_Handle, Str(type)) == SHARD_OK; }
         /// The component as the world file writes it, empty if the actor has none
         std::string ComponentJson(std::string_view type) const { return Read([&](char* b, uint64_t c, uint64_t* s) { return Api().get_component(m_Handle, Str(type), b, c, s); }); }
-        /// Sets the fields the JSON object holds; the others keep their value. Throws shard::Error if the actor has no such component.
+        /// Sets the fields the JSON object holds; the others keep their value. Throws Shard::Error if the actor has no such component.
         void SetComponentJson(std::string_view type, std::string_view fieldsJson) const { detail::Check(Api().set_component(m_Handle, Str(type), Str(fieldsJson)), "set_component '" + std::string(type) + "'"); }
 
         // ---- Physics : the actor needs a "physics_body" component (AddComponent("physics_body")). False : it has none, or no live body yet ----
@@ -236,7 +236,7 @@ namespace shard {
             if (!name || detail::ScriptsApi().get_object(detail::PluginHandle(), m_Handle, Str(*name), &object) != SHARD_OK) return nullptr;
             return static_cast<T*>(object);
         }
-        /// Adds the script to the actor and returns it. Throws shard::Error if it cannot.
+        /// Adds the script to the actor and returns it. Throws Shard::Error if it cannot.
         template <typename T>
         T* AddScript() const
         {

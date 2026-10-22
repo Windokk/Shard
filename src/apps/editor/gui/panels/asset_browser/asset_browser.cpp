@@ -7,6 +7,9 @@
 #include "engine/world/world.hpp"
 #include "engine/assets/resources_manager.hpp"
 #include "engine/assets/hot_reloader.hpp"
+#include "engine/assets/asset_importer.hpp"
+#include "engine/platform/clipboard/clipboard.hpp"
+#include "engine/platform/windowing/iwindow.hpp"
 #include "engine/renderer/frontend/renderer.hpp"
 #include "engine/renderer/rhi/resources/texture/texture.hpp"
 #include "engine/renderer/features/immediate/thumbnail_service.hpp"
@@ -308,6 +311,8 @@ namespace Shard::Editor::GUI{
             staleThumbnails->clear();
         }
 
+        ProcessImports();
+
         if (dirty)
             Refresh();
 
@@ -353,6 +358,8 @@ namespace Shard::Editor::GUI{
                         SetZoom(80.0f);
                     if (io.KeyShift && ImGui::IsKeyPressed(ImGuiKey_N, false))
                         pendingAction = Action::NewFolder;
+                    if (!io.KeyShift && ImGui::IsKeyPressed(ImGuiKey_I, false))
+                        pendingAction = Action::Import;
                 }
             }
 
@@ -425,11 +432,16 @@ namespace Shard::Editor::GUI{
         const float spacing = style.ItemSpacing.x;
         const float filterWidth = 96.0f;
         const float searchWidth = 170.0f;
-        const float clusterWidth = frameHeight + spacing + filterWidth + spacing + frameHeight + spacing + searchWidth;
+        const float clusterWidth = frameHeight + spacing + frameHeight + spacing + filterWidth + spacing + frameHeight + spacing + searchWidth;
         const float clusterX = breadcrumbStartX + ImGui::GetContentRegionAvail().x - clusterWidth;
 
         ImGui::SetCursorPos(ImVec2(clusterX, rowY));
 
+        if (ImGui::Button(ICON_LC_IMPORT "##Import", ImVec2(frameHeight, 0.0f)))
+            pendingAction = Action::Import;
+        if (ImGui::IsItemHovered()) ImGui::SetTooltip("Import assets from the disk (Ctrl+I)");
+
+        ImGui::SameLine();
         {
             const bool sidebarOn = showSidebar;
             if (sidebarOn)
@@ -1462,6 +1474,9 @@ namespace Shard::Editor::GUI{
 
             ImGui::Separator();
 
+            if (ImGui::MenuItem("Import...", "Ctrl+I"))
+                pendingAction = Action::Import;
+
             if (ImGui::MenuItem("Show in Explorer"))
                 pendingAction = Action::Reveal;
         }
@@ -1625,6 +1640,10 @@ namespace Shard::Editor::GUI{
                 break;
             }
 
+            case Action::Import:
+                OpenImportDialog();
+                break;
+
             case Action::Reveal:
                 if (!selected.empty())
                     Ops::RevealInFileExplorer(selected[0]->path.full, true);
@@ -1648,6 +1667,84 @@ namespace Shard::Editor::GUI{
         }
 
         ReportFailures("Asset Browser", failures);
+    }
+
+    void AssetBrowser::OpenImportDialog()
+    {
+        namespace Dialogs = Engine::Core::Platform::Dialogs;
+
+        // One dialog at a time
+        if (importQueue->dialogOpen.exchange(true))
+            return;
+
+        // What the engine reads, then what the importers of the plugins convert
+        const std::vector<Dialogs::FileFilter> groups = {
+            { "Models", "fbx" },
+            { "Images", "png;jpg;jpeg;hdr;bmp;gif;tga" },
+            { "Sounds", "wav;mp3;ogg" },
+            { "Fonts", "ttf;otf;fnt" },
+            { "Shaders", "vert;frag;geom;comp" }
+        };
+
+        std::string converted;
+        for (const std::string& extension : Engine::Filesystem::AssetImporters::Get().Extensions())
+            converted += (converted.empty() ? "" : ";") + (!extension.empty() && extension[0] == '.' ? extension.substr(1) : extension);
+
+        Dialogs::FileDialogDesc desc;
+        desc.title = "Import assets";
+        desc.allowMultiple = true;
+        desc.parentWindow = Engine::Core::GetEngine().GetWindow()->GetNativeHandle();
+
+        std::string everything;
+        for (const Dialogs::FileFilter& group : groups)
+            everything += (everything.empty() ? "" : ";") + group.pattern;
+        if (!converted.empty())
+            everything += ";" + converted;
+
+        desc.filters.push_back({ "All supported assets", everything });
+        desc.filters.insert(desc.filters.end(), groups.begin(), groups.end());
+        if (!converted.empty())
+            desc.filters.push_back({ "Converted formats", converted });
+        desc.filters.push_back({ "All files", "*" });
+
+        {
+            std::lock_guard<std::mutex> lock(importQueue->mutex);
+            desc.defaultPath = importQueue->lastFolder;
+        }
+
+        // The dialog is asynchronous and answers from its own thread : the answer is queued for ProcessImports. It goes to the folder that is
+        // open now, whatever the user browses to meanwhile.
+        Dialogs::ShowOpenFileDialog(desc, [queue = importQueue, destination = currentPath](const std::vector<std::string>& paths)
+        {
+            std::lock_guard<std::mutex> lock(queue->mutex);
+            if (!paths.empty())
+            {
+                queue->lastFolder = std::filesystem::u8path(paths[0]).parent_path().u8string();
+                queue->requests.push_back({ destination, paths });
+            }
+            queue->dialogOpen = false;
+        });
+    }
+
+    void AssetBrowser::ProcessImports()
+    {
+        std::vector<ImportRequest> requests;
+        {
+            std::lock_guard<std::mutex> lock(importQueue->mutex);
+            requests.swap(importQueue->requests);
+        }
+
+        for (const ImportRequest& request : requests)
+        {
+            AssetOperations::ImportSummary summary = AssetOperations::Import(request.destination, request.sources);
+
+            if (summary.imported > 0)
+            {
+                Notifications::Success("Imported %d asset%s", summary.imported, summary.imported > 1 ? "s" : "");
+                dirty = true; navigationOnly = false;
+            }
+            ReportFailures("Import", summary.failures);
+        }
     }
 
     void AssetBrowser::ReportFailures(const std::string& title, const std::vector<std::string>& failures)

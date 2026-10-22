@@ -11,7 +11,7 @@
 #include <shard/shard_cvars.h>
 #include <shard/cpp/detail.hpp>
 
-namespace shard {
+namespace Shard {
 
     namespace detail {
         inline const ShardCVarsApi& CVarsApi() { return Require<ShardCVarsApi>(SHARD_IFACE_CVARS); }
@@ -82,7 +82,7 @@ namespace shard {
     public:
         explicit CVars(ShardPluginCtx ctx) : m_Ctx(ctx) {}
 
-        // Throw shard::Error if the host refuses (the name is taken...). thread : main
+        // Throw Shard::Error if the host refuses (the name is taken...). thread : main
         CVar<bool> Bool(const std::string& name, bool value, const std::string& help = {}, uint32_t flags = 0) const
         {
             ShardCVar h = 0;
@@ -120,7 +120,7 @@ namespace shard {
     class Commands {
     public:
         explicit Commands(ShardPluginCtx ctx) : m_Ctx(ctx) {}
-        /// Named as given : prefix it with your own ("weather.set"). Throws shard::Error if this plugin has it already. thread : main
+        /// Named as given : prefix it with your own ("weather.set"). Throws Shard::Error if this plugin has it already. thread : main
         void Add(const std::string& name, const std::string& help, CommandFn fn) const
         {
             const auto& api = detail::Require<ShardCommandsApi>(SHARD_IFACE_COMMANDS);

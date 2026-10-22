@@ -62,12 +62,12 @@ A script is a class that lives on an actor. The engine creates it with the compo
 #pragma once
 #include <shard/game.hpp>
 
-class Health : public shard::Script {
+class Health : public Shard::Script {
 public:
     // Fields : shown in the inspector, saved with the world. Each one is declared where it is, with its options
     SHARD_FIELD(float, maxHealth, Range(1.f, 1000.f), Tooltip("Hit points at the start")) = 100.f;
     SHARD_FIELD(float, current, Runtime()) = 100.f;     // Runtime : shown, not saved
-    SHARD_FIELD(shard::Text, label);                    // a text, edited in the inspector
+    SHARD_FIELD(Shard::Text, label);                    // a text, edited in the inspector
     float invulnerableFor = 0.f;                        // not a field : a normal member
 
     void OnPlay() override { current = maxHealth; }
@@ -120,19 +120,19 @@ A script gets its actor with `Owner()` and reaches the rest of the world from th
 
 void Player::OnTick(float dt)
 {
-    const float turn = shard::Input::Axis(shard::Key::A, shard::Key::D);
-    const float forward = shard::Input::Axis(shard::Key::S, shard::Key::W);
+    const float turn = Shard::Input::Axis(Shard::Key::A, Shard::Key::D);
+    const float forward = Shard::Input::Axis(Shard::Key::S, Shard::Key::W);
     Owner().Translate(Owner().Forward() * (forward * speed * dt));
-    Owner().SetRotation(shard::AxisAngle({ 0.f, 1.f, 0.f }, -turn * 2.f * dt) * Owner().Rotation());
+    Owner().SetRotation(Shard::AxisAngle({ 0.f, 1.f, 0.f }, -turn * 2.f * dt) * Owner().Rotation());
 
-    shard::Scene scene = GetScene();                        // the world this actor is in
-    if (shard::Input::WasPressed(shard::Key::Space)) {
-        shard::Actor bullet = scene.Create("Bullet");
+    Shard::Scene scene = GetScene();                        // the world this actor is in
+    if (Shard::Input::WasPressed(Shard::Key::Space)) {
+        Shard::Actor bullet = scene.Create("Bullet");
         bullet.SetWorldPose(Owner().WorldPose());
-        bullet.Add<shard::Light>().SetIntensity(3.f);                     // an engine component, as a typed handle
+        bullet.Add<Shard::Light>().SetIntensity(3.f);                     // an engine component, as a typed handle
         bullet.AddScript<Bullet>();                                       // a script of this plugin
     }
-    if (shard::Actor enemy = scene.Find("Boss"))
+    if (Shard::Actor enemy = scene.Find("Boss"))
         if (Health* health = enemy.GetScript<Health>())
             health->Damage(10.f);
 }
@@ -140,12 +140,12 @@ void Player::OnTick(float dt)
 SHARD_REGISTER_SCRIPT(Player)
 ```
 
-* `shard::Actor` is a handle. Copy it freely and keep it in a member. Once the actor is destroyed, `IsValid()` returns false, getters return zeroes and setters do nothing.
+* `Shard::Actor` is a handle. Copy it freely and keep it in a member. Once the actor is destroyed, `IsValid()` returns false, getters return zeroes and setters do nothing.
 * Pose : `Position`, `Rotation` and `Scale` are relative to the parent. `WorldPosition`, `WorldRotation` and `WorldPose` are in world space. There are also `Forward`, `Right`, `Up`, `LookAt` and `Translate`.
 * Hierarchy and state : `Parent`, `SetParent`, `Children`, `Name`, `IsActive`, `SetActive`, `Destroy`, `AddTag`, `HasTag`.
-* `GetScene()` gives a `shard::Scene` : `Create`, `Spawn` (an actor from the JSON a world file holds, such as a prefab), `Find` by name and `FindWithTag`.
-* `shard::Input` reads the keyboard, mouse and gamepads. It reads what replays record, so a recorded run plays back the same.
-* The maths : `shard::Vec3` and `shard::Quat` with the usual operators, plus `Dot`, `Cross`, `Normalize`, `Lerp`, `AxisAngle` and `LookRotation`.
+* `GetScene()` gives a `Shard::Scene` : `Create`, `Spawn` (an actor from the JSON a world file holds, such as a prefab), `Find` by name and `FindWithTag`.
+* `Shard::Input` reads the keyboard, mouse and gamepads. It reads what replays record, so a recorded run plays back the same.
+* The maths : `Shard::Vec3` and `Shard::Quat` with the usual operators, plus `Dot`, `Cross`, `Normalize`, `Lerp`, `AxisAngle` and `LookRotation`.
 
 ## 7. Systems
 
@@ -155,17 +155,17 @@ A script per bullet is fine for a hundred bullets. For thousands, keep the data 
 // src/ecs/projectiles.cpp
 #include <shard/game.hpp>
 
-struct Projectile { shard::Vec3 velocity; float life = 3.f; };
-SHARD_DEFINE_COMPONENT(Projectile, (velocity)(life))        // found anywhere with shard::ComponentOf<Projectile>()
+struct Projectile { Shard::Vec3 velocity; float life = 3.f; };
+SHARD_DEFINE_COMPONENT(Projectile, (velocity)(life))        // found anywhere with Shard::ComponentOf<Projectile>()
 
 SHARD_ON_LOAD(ProjectileSystem, ctx)                  // runs in OnLoad, after every component is registered
 {
-    const auto projectile = shard::ComponentOf<Projectile>();
-    const auto pose = ctx.Components().Find<shard::Pose>("shard.LocalTransform");
-    ctx.Systems().Add("fly", shard::Phase::Update).Writes(projectile, pose).Run([projectile, pose](shard::SystemCtx& s) {
-        s.Each(projectile, [&](shard::Entity e, Projectile& b) {
+    const auto projectile = Shard::ComponentOf<Projectile>();
+    const auto pose = ctx.Components().Find<Shard::Pose>("shard.LocalTransform");
+    ctx.Systems().Add("fly", Shard::Phase::Update).Writes(projectile, pose).Run([projectile, pose](Shard::SystemCtx& s) {
+        s.Each(projectile, [&](Shard::Entity e, Projectile& b) {
             b.life -= s.DeltaTime();
-            if (shard::Pose* p = s.Get(e, pose)) { shard::Pose moved = *p; moved.position += b.velocity * s.DeltaTime(); s.SetLocalTransform(e, moved); }
+            if (Shard::Pose* p = s.Get(e, pose)) { Shard::Pose moved = *p; moved.position += b.velocity * s.DeltaTime(); s.SetLocalTransform(e, moved); }
             if (b.life <= 0.f) s.Destroy(e);
         });
     });
@@ -178,27 +178,27 @@ The registrations of all files run at the start of `OnLoad`, in a fixed order : 
 
 ## 8. Physics, sound, worlds and the editor
 
-A script reaches these through `shard::Actor` and a few static classes. All of them work from script callbacks.
+A script reaches these through `Shard::Actor` and a few static classes. All of them work from script callbacks.
 
 ```cpp
-class Turret : public shard::Script {
+class Turret : public Shard::Script {
 public:
-    shard::Actor target;            // an actor of the world, picked by name in the inspector
+    Shard::Actor target;            // an actor of the world, picked by name in the inspector
     std::string note;               // a std::string works as a field
 
     void OnFixedTick(float) override
     {
         if (!target) return;
         // Look at the target and fire a ray at it. The turret itself is ignored.
-        auto hit = shard::Physics::Raycast(Owner().WorldPosition(), target.WorldPosition() - Owner().WorldPosition(), 50.f,
-                                           shard::Layers::All, Owner());
+        auto hit = Shard::Physics::Raycast(Owner().WorldPosition(), target.WorldPosition() - Owner().WorldPosition(), 50.f,
+                                           Shard::Layers::All, Owner());
         if (hit && hit->actor == target) {
-            hit->actor.AddImpulse(shard::Vec3{ 0.f, 5.f, 0.f });
-            shard::Audio::PlayOneShot("sounds/shot.wav", Owner().WorldPosition());
+            hit->actor.AddImpulse(Shard::Vec3{ 0.f, 5.f, 0.f });
+            Shard::Audio::PlayOneShot("sounds/shot.wav", Owner().WorldPosition());
         }
     }
 
-    void OnContactAdded(const shard::Contact& contact) override
+    void OnContactAdded(const Shard::Contact& contact) override
     {
         if (contact.other.HasTag("bullet")) Owner().Destroy();
     }
@@ -206,9 +206,9 @@ public:
 SHARD_REGISTER_SCRIPT(Turret, (target)(note))
 ```
 
-* A `shard::Actor` field is saved as the path of the actor (`Level/Enemy`). If that actor is not in the world yet when the script starts, the script waits and the field is filled before the first callback where the actor exists.
+* A `Shard::Actor` field is saved as the path of the actor (`Level/Enemy`). If that actor is not in the world yet when the script starts, the script waits and the field is filled before the first callback where the actor exists.
 * The actor needs a `physics_body` component for `AddForce`, `AddImpulse`, `Velocity`, `SetVelocity` and the rest. A force lasts for one step, so add it in `OnFixedTick`.
-* `shard::Worlds::Load("worlds/arena.world")` replaces the loaded worlds at the start of a later frame, not in the middle of your callback. `GetScene().SpawnPrefab("crate")` builds `prefabs/crate.json` from your plugin's content, or from any module by its `mod://` address.
+* `Shard::Worlds::Load("worlds/arena.world")` replaces the loaded worlds at the start of a later frame, not in the middle of your callback. `GetScene().SpawnPrefab("crate")` builds `prefabs/crate.json` from your plugin's content, or from any module by its `mod://` address.
 * To add a window to the editor, write a panel. In the player and in headless runs nothing is added and nothing else changes :
 
 ```cpp
@@ -226,12 +226,12 @@ The panel is listed in the editor's Window menu.
 
 * `ctx.CVars()`, `ctx.Commands()`, `ctx.Events()`, `ctx.Hooks()`, `ctx.Services()`, `ctx.Content()`, `ctx.Extensions()` : see [Plugins](../concepts/plugins.md#the-c-abi-and-the-sdk) and the [C ABI reference](../api_reference.md).
 * `OnPrepareReload` and `OnRestore` of the plugin keep values across a hot reload in the editor.
-* A component block is 1024 bytes at most. Anything bigger goes in a `shard::Blob` member (`ctx.Components().CreateBlob(size)`, `BlobData(blob)`), and the actor component saves its bytes with the world. A script object can be up to 16 KB and can hold any member that is not a field.
-* A `shard::AssetId` member is an asset chosen in the inspector.
+* A component block is 1024 bytes at most. Anything bigger goes in a `Shard::Blob` member (`ctx.Components().CreateBlob(size)`, `BlobData(blob)`), and the actor component saves its bytes with the world. A script object can be up to 16 KB and can hold any member that is not a field.
+* A `Shard::AssetId` member is an asset chosen in the inspector.
 * `ctx.Events().Describe<Payload>("name")` tells the tools what an event carries, so `event.watch <name>` in the console prints each one with its fields.
-* `shard::experimental::World` reaches the engine's entities from the main thread, outside systems. It may change in any engine revision, and a signed plugin cannot use it.
+* `Shard::experimental::World` reaches the engine's entities from the main thread, outside systems. It may change in any engine revision, and a signed plugin cannot use it.
 
-If the engine refuses a registration, the SDK throws `shard::Error`. If nothing catches it, the plugin fails and the message is in the log. No exception crosses into the engine : an exception in a script callback is logged and counted as an error of the plugin, and the game continues.
+If the engine refuses a registration, the SDK throws `Shard::Error`. If nothing catches it, the plugin fails and the message is in the log. No exception crosses into the engine : an exception in a script callback is logged and counted as an error of the plugin, and the game continues.
 
 To write a plugin in C instead, include `<shard/shard.h>` and fill the tables yourself. `tests/plugin_fixtures/c_plugin/c_plugin.c` in the engine's repository uses every interface.
 

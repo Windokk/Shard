@@ -3,7 +3,7 @@
 void RandomKicker::OnPlay()
 {
     // A stream of its own : named after the actor, so it does not depend on which script started first
-    m_Random = shard::Random::Stream("RandomKicker/" + Owner().Name());
+    m_Random = Shard::Random::Stream("RandomKicker/" + Owner().Name());
     frames = 0;
     kicks = 0;
 }

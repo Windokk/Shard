@@ -46,6 +46,17 @@ namespace Shard::Editor::GUI::AssetOperations
     Result CreateMaterial(const Engine::Filesystem::Path& dir, Engine::Filesystem::Path& created);
     Result CreateWorld(const Engine::Filesystem::Path& dir, Engine::Filesystem::Path& created);
 
+    struct ImportSummary
+    {
+        int imported = 0;                       ///< the files that are assets of the project now
+        std::vector<std::string> failures;      ///< one message per file that could not be brought in
+    };
+
+    /// @brief Brings files from anywhere on the disk into the folder `dir` of the project and registers them as assets. A file that
+    /// a plugin's importer takes (see AssetImporters) is converted into `dir` by it, a file that is in the project already is only
+    /// registered where it is, any other is copied (as `name_1` if the name is taken).
+    ImportSummary Import(const Engine::Filesystem::Path& dir, const std::vector<std::string>& sources);
+
     /// @brief Brings the asset database in line with the disk for everything under `dir` : files added
     /// outside the editor get an ID, entries whose file is gone (and unused) are dropped.
     /// @return A one-line summary of what changed (empty if nothing did)

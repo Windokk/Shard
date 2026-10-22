@@ -1,6 +1,6 @@
 // Shard C++ SDK : component types from C++ structs.
 //
-//   struct Spin { float speed = 1.f; float angle = 0.f; shard::Vec3 axis{ 0.f, 1.f, 0.f }; };
+//   struct Spin { float speed = 1.f; float angle = 0.f; Shard::Vec3 axis{ 0.f, 1.f, 0.f }; };
 //   SHARD_COMPONENT(Spin, (speed)(angle)(axis))
 //
 // (at global scope) declares which members are fields (their type and offset are deduced) ; the struct's default member values are the
@@ -18,7 +18,7 @@
 #include <shard/shard_components.h>
 #include <shard/cpp/detail.hpp>
 
-namespace shard {
+namespace Shard {
 
     // Layout-compatible stand-ins for the vector types of the ABI (any type of the same layout can be mapped with FieldType below)
     struct Vec2 { float x = 0.f, y = 0.f; };
@@ -68,7 +68,7 @@ namespace shard {
 
         /// The text (empty if there is none yet). thread : any
         std::string Get() const;
-        /// Replaces the text. Throws shard::Error over the memory budget, or in an engine older than ABI 1.3. thread : any
+        /// Replaces the text. Throws Shard::Error over the memory budget, or in an engine older than ABI 1.3. thread : any
         void Set(std::string_view text);
         Text& operator=(std::string_view text) { Set(text); return *this; }
         Text& operator=(const char* text) { Set(text ? std::string_view(text) : std::string_view()); return *this; }
@@ -107,7 +107,7 @@ namespace shard {
         template <typename M>
         void Add(const char* name, M T::* member)
         {
-            static_assert(FieldType<M>::value != 0, "this member type has no SHARD_FIELD_* : specialize shard::FieldType for it");
+            static_assert(FieldType<M>::value != 0, "this member type has no SHARD_FIELD_* : specialize Shard::FieldType for it");
             const char* base = reinterpret_cast<const char*>(&m_Sample);
             const char* at = reinterpret_cast<const char*>(&(m_Sample.*member));
             Entry e;
@@ -180,7 +180,7 @@ namespace shard {
     public:
         explicit Components(ShardPluginCtx ctx) : m_Ctx(ctx) {}
 
-        /// Registers T as "<plugin id>.<name>" (from OnLoad). Throws shard::Error if the host refuses it (the log says why).
+        /// Registers T as "<plugin id>.<name>" (from OnLoad). Throws Shard::Error if the host refuses it (the log says why).
         template <typename T>
         ComponentType<T> Register(const std::string& name, std::initializer_list<FieldOptions> options = {})
         {
@@ -203,7 +203,7 @@ namespace shard {
             return type;
         }
 
-        /// A blob of `size` bytes, zeroed. Throws shard::Error over the memory budget, or in an engine older than ABI 1.2. thread : any
+        /// A blob of `size` bytes, zeroed. Throws Shard::Error over the memory budget, or in an engine older than ABI 1.2. thread : any
         Blob CreateBlob(uint64_t size) const
         {
             Blob blob;
@@ -222,7 +222,7 @@ namespace shard {
         bool ResizeBlob(Blob blob, uint64_t size) const { return Blobs().blob_resize(m_Ctx, blob.handle, size) == SHARD_OK; }
         bool FreeBlob(Blob blob) const { return Blobs().blob_free(m_Ctx, blob.handle) == SHARD_OK; }
 
-        /// Sets a string field of a component : `field` is the member itself (in the block of an entity, or in a copy). Throws shard::Error over
+        /// Sets a string field of a component : `field` is the member itself (in the block of an entity, or in a copy). Throws Shard::Error over
         /// the memory budget, or in an engine older than ABI 1.3. thread : any
         void SetText(Text& field, std::string_view text) const
         {
@@ -265,7 +265,7 @@ namespace shard {
     };
 }
 
-namespace shard {
+namespace Shard {
     inline std::string Text::Get() const { return Components(detail::PluginHandle()).GetText(*this); }
     inline void Text::Set(std::string_view text) { Components(detail::PluginHandle()).SetText(*this, text); }
 }
@@ -280,9 +280,9 @@ namespace shard {
 
 /// Declares which members of `Type` are its fields : SHARD_COMPONENT(Spin, (speed)(angle)). At global scope, `Type` fully qualified.
 #define SHARD_COMPONENT(Type, sequence)                                                                     \
-    template <> struct shard::ComponentTraits<Type> {                                                       \
+    template <> struct Shard::ComponentTraits<Type> {                                                       \
         static constexpr bool kDescribed = true;                                                            \
-        static void Describe(::shard::FieldList<Type>& fields)                                              \
+        static void Describe(::Shard::FieldList<Type>& fields)                                              \
         {                                                                                                   \
             using Self = Type;                                                                              \
             SHARD_DETAIL_CAT(SHARD_DETAIL_FIELD_A sequence, _END)                                           \

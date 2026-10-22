@@ -13,6 +13,7 @@
 #include "engine/world/world.hpp"
 #include "engine/assets/resources_manager.hpp"
 #include "engine/assets/asset_database_serializer.hpp"
+#include "engine/assets/asset_importer.hpp"
 #include "engine/assets/asset_references.hpp"
 #include "engine/core/diagnostics/logger.hpp"
 
@@ -363,6 +364,67 @@ namespace Shard::Editor::GUI::AssetOperations
 
         PersistDatabase();
         return {};
+    }
+
+    ImportSummary Import(const Path& dir, const std::vector<std::string>& sources)
+    {
+        ImportSummary summary;
+
+        std::string dirName;
+        if(!NameInProject(fs::path(dir.full), dirName)){
+            summary.failures.push_back("Assets can only be imported inside the project's resources.");
+            return summary;
+        }
+
+        auto* fileManager = Engine::Core::GetEngine().GetFileManager();
+
+        for(const std::string& source : sources){
+            // The paths come from the OS dialog, in UTF-8
+            const fs::path from = fs::u8path(source);
+            const std::string label = from.filename().string();
+
+            std::error_code ec;
+            if(!fs::is_regular_file(from, ec)){
+                summary.failures.push_back("\"" + label + "\" is not a file.");
+                continue;
+            }
+
+            // Already in the project : nothing to copy, it only needs to be known
+            std::string insideName;
+            if(NameInProject(from, insideName)){
+                fileManager->RegisterAsset(Path(from.string(), true));
+                summary.imported++;
+                continue;
+            }
+
+            // A format the engine does not read : the plugin that brought its importer converts it
+            if(Engine::Filesystem::AssetImporters::Get().CanImport(source)){
+                const Engine::Filesystem::ImportResult result = Engine::Filesystem::AssetImporters::Get().Import(source, dir.full);
+                if(!result.ok){
+                    summary.failures.push_back("Couldn't import \"" + label + "\" : " + (result.message.empty() ? std::string("the importer failed.") : result.message));
+                    continue;
+                }
+                for(const std::string& output : result.outputs)
+                    fileManager->RegisterAsset(Path(output, true));
+                summary.imported++;
+                continue;
+            }
+
+            const Path target = UniquePath(dir, from.stem().string(), from.extension().string());
+            fs::copy_file(from, target.full, ec);
+            if(ec){
+                summary.failures.push_back("Couldn't copy \"" + label + "\" : " + ec.message());
+                continue;
+            }
+
+            fileManager->RegisterAsset(Path(target.full, true));
+            summary.imported++;
+        }
+
+        if(summary.imported > 0)
+            PersistDatabase();
+
+        return summary;
     }
 
     std::string Sync(const Path& dir)

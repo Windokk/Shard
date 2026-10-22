@@ -12,7 +12,7 @@
 #include <shard/shard_services.h>
 #include <shard/cpp/detail.hpp>
 
-namespace shard {
+namespace Shard {
 
     /// A service resolved now : its table and the provider's `self`. Do not keep it : resolve again before each use.
     template <typename Table>
@@ -57,7 +57,7 @@ namespace shard {
     public:
         explicit Services(ShardPluginCtx ctx) : m_Ctx(ctx) {}
 
-        /// `table` stays valid until the plugin is disabled (a static table). Throws shard::Error if another plugin provides the name.
+        /// `table` stays valid until the plugin is disabled (a static table). Throws Shard::Error if another plugin provides the name.
         template <typename Table>
         void Provide(const std::string& name, uint32_t major, uint32_t minor, const Table* table, void* self) const
         {

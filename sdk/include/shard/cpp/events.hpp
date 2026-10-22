@@ -12,7 +12,7 @@
 #include <shard/cpp/component.hpp>
 #include <shard/cpp/detail.hpp>
 
-namespace shard {
+namespace Shard {
 
     using EventFn = std::function<void(std::string_view name, const void* payload, size_t size)>;
 
@@ -48,7 +48,7 @@ namespace shard {
         bool Unsubscribe(ShardSubscription token) const { return Api().unsubscribe(m_Ctx, token) == SHARD_OK; }
 
         /// @brief Says what the payload T of the events named `name` holds (its fields, as SHARD_COMPONENT lists them), for the tools that show
-        /// events (the console's event.watch). Throws shard::Error if another plugin described that name, or if the engine is older than ABI 1.2.
+        /// events (the console's event.watch). Throws Shard::Error if another plugin described that name, or if the engine is older than ABI 1.2.
         template <typename T>
         void Describe(const std::string& name) const
         {
@@ -107,7 +107,7 @@ namespace shard {
     class Hooks {
     public:
         explicit Hooks(ShardPluginCtx ctx) : m_Ctx(ctx) {}
-        /// `name` : one of the table of shard_hooks.h ("PreSave"...). Throws shard::Error for an unknown one.
+        /// `name` : one of the table of shard_hooks.h ("PreSave"...). Throws Shard::Error for an unknown one.
         ShardHookToken On(const std::string& name, HookFn fn, int32_t priority = SHARD_PRIORITY_NORMAL) const
         {
             ShardHookToken token = 0;

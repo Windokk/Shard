@@ -11,8 +11,6 @@
 
 #include "engine/plugins/abi/c_fields.hpp"
 #include "engine/plugins/abi/c_internal.hpp"
-#include "engine/physics/physics_body.hpp"
-#include "engine/physics/physics_events.hpp"
 #include "engine/world/actor.hpp"
 #include "engine/world/components/script.hpp"
 #include "engine/world/time_manager.hpp"
@@ -96,9 +94,9 @@ namespace Shard::Engine::Plugins::CAbi {
 
             // ---- Physics contacts ----
 
-            void OnContactAdded(const Events::ContactAddedEvent& e) override { Contact(m_Type->cb.on_contact_added, "on_contact_added", e.otherBody, &e.contactManifold); }
-            void OnContactPersisted(const Events::ContactPersistedEvent& e) override { Contact(m_Type->cb.on_contact_persisted, "on_contact_persisted", e.otherBody, &e.contactManifold); }
-            void OnContactEnded(const Events::ContactRemovedEvent& e) override { Contact(m_Type->cb.on_contact_ended, "on_contact_ended", e.otherBody, nullptr); }
+            void OnContactAdded(const Events::ContactAddedEvent& e) override { if (m_Type->cb.on_contact_added) Contact(m_Type->cb.on_contact_added, "on_contact_added", DecodeContact(e)); }
+            void OnContactPersisted(const Events::ContactPersistedEvent& e) override { if (m_Type->cb.on_contact_persisted) Contact(m_Type->cb.on_contact_persisted, "on_contact_persisted", DecodeContact(e)); }
+            void OnContactEnded(const Events::ContactRemovedEvent& e) override { if (m_Type->cb.on_contact_ended) Contact(m_Type->cb.on_contact_ended, "on_contact_ended", DecodeContact(e)); }
 
             void OnDestroyed() override
             {
@@ -221,23 +219,22 @@ namespace Shard::Engine::Plugins::CAbi {
                 if (pending) ResolveActorFields(*m_Type, Data(), m_Text, m_Hooks);
             }
 
-            void Contact(ShardScriptContactFn fn, const char* what, const Objects::Components::PhysicsBody& other, const JPH::ContactManifold* manifold)
+            void Contact(ShardScriptContactFn fn, const char* what, const ContactInfo& info)
             {
-                if (!fn || !parent || !other.parent) return;
+                if (!fn || !parent || !info.other) return;
                 ShardContact contact{};
                 contact.structSize = sizeof(ShardContact);
-                contact.other = ActorHandle(other.parent);
-                if (manifold) {
-                    glm::vec3 normal(manifold->mWorldSpaceNormal.GetX(), manifold->mWorldSpaceNormal.GetY(), manifold->mWorldSpaceNormal.GetZ());
+                contact.other = ActorHandle(info.other);
+                if (info.hasManifold) {
+                    glm::vec3 normal(info.normal[0], info.normal[1], info.normal[2]);
                     // Jolt's normal runs from the first body to the second : this one is either
-                    const glm::vec3 toOther = other.parent->transform->GetWorldPosition() - parent->transform->GetWorldPosition();
+                    const glm::vec3 toOther = info.other->transform->GetWorldPosition() - parent->transform->GetWorldPosition();
                     if (glm::dot(normal, toOther) < 0.0f) normal = -normal;
                     contact.normal[0] = normal.x; contact.normal[1] = normal.y; contact.normal[2] = normal.z;
-                    if (!manifold->mRelativeContactPointsOn1.empty()) {
-                        const JPH::RVec3 point = manifold->GetWorldSpaceContactPointOn1(0);
-                        contact.point[0] = float(point.GetX()); contact.point[1] = float(point.GetY()); contact.point[2] = float(point.GetZ());
+                    if (info.hasPoint) {
+                        contact.point[0] = info.point[0]; contact.point[1] = info.point[1]; contact.point[2] = info.point[2];
                     }
-                    contact.penetration = manifold->mPenetrationDepth;
+                    contact.penetration = info.penetration;
                 }
                 Call(what, [&] { return fn(m_Type->user, Data(), &contact); });
             }

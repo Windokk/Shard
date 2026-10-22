@@ -8,7 +8,8 @@
 #include "engine/world/actor.hpp"
 #include "engine/world/engine.hpp"
 
-// shard.audio : the AudioSource of an actor, and one shot sounds
+// shard.audio : the AudioSource of an actor, and one shot sounds. Lives in the engine root, not in src/engine/plugins/abi with the other
+// interfaces: the plugin layer is below audio and may not include it (scripts/check_deps.py), and c_internal.hpp declares AudioApi.
 
 namespace Shard::Engine::Plugins::CAbi {
 

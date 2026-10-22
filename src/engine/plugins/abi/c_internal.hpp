@@ -20,6 +20,11 @@
 
 namespace Shard::Engine::Core::Ecs { struct SystemContext; }
 namespace Shard::Engine::Objects { class Actor; }
+namespace Shard::Engine::Events {
+    struct ContactAddedEvent;
+    struct ContactPersistedEvent;
+    struct ContactRemovedEvent;
+}
 
 namespace Shard::Engine::Plugins::CAbi {
 
@@ -92,6 +97,20 @@ namespace Shard::Engine::Plugins::CAbi {
     /// The plugin's context releases everything: its script types stop being called (the objects that are still in worlds are left alone)
     void ReleaseScripts(PluginOwner owner);
 
+    /// What a script is told about a contact, read from the events of the physics module (which this layer cannot include) by the engine root
+    /// (c_abi_physics.cpp). The normal is Jolt's : from the first body to the second, whichever the script's is.
+    struct ContactInfo {
+        std::shared_ptr<Objects::Actor> other;      ///< the actor of the other body, null if it has none
+        bool hasManifold = false;                   ///< false for the end of a contact : no normal, point or penetration
+        float normal[3] = {};
+        bool hasPoint = false;
+        float point[3] = {};
+        float penetration = 0.0f;
+    };
+    ContactInfo DecodeContact(const Events::ContactAddedEvent& event);
+    ContactInfo DecodeContact(const Events::ContactPersistedEvent& event);
+    ContactInfo DecodeContact(const Events::ContactRemovedEvent& event);
+
     // ---- System runs (c_systems.cpp) ----
 
     struct CSystem;
@@ -161,6 +180,7 @@ namespace Shard::Engine::Plugins::CAbi {
     const void* ActorsApi();
     const void* ScriptsApi();
     const void* InputApi();
+    /// Physics and audio sit above this layer: these two (and DecodeContact) are defined by the engine root (src/engine/c_abi_physics.cpp, c_abi_audio.cpp)
     const void* PhysicsApi();
     const void* AudioApi();
     const void* WorldsApi();

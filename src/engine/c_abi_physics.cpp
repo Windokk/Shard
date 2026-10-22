@@ -8,12 +8,15 @@
 #include <Jolt/Physics/Body/BodyFilter.h>
 
 #include "engine/physics/physics_body.hpp"
+#include "engine/physics/physics_events.hpp"
 #include "engine/physics/physics_manager.hpp"
 #include "engine/plugins/abi/c_internal.hpp"
 #include "engine/world/actor.hpp"
 #include "engine/world/engine.hpp"
 
-// shard.physics : the PhysicsBody of an actor, and the physics manager's ray casts
+// shard.physics : the PhysicsBody of an actor, and the physics manager's ray casts. Lives in the engine root, not in src/engine/plugins/abi with
+// the other interfaces: the plugin layer is below physics and may not include it (scripts/check_deps.py), and c_internal.hpp declares what
+// it needs from here (PhysicsApi, DecodeContact).
 
 namespace Shard::Engine::Plugins::CAbi {
 
@@ -156,6 +159,32 @@ namespace Shard::Engine::Plugins::CAbi {
             } catch (...) { return SHARD_E_INTERNAL; }
         }
     }
+
+    namespace {
+        ContactInfo Decode(const Objects::Components::PhysicsBody& other, const JPH::ContactManifold* manifold)
+        {
+            ContactInfo info;
+            info.other = other.parent;
+            if (!manifold) return info;
+            info.hasManifold = true;
+            info.normal[0] = manifold->mWorldSpaceNormal.GetX();
+            info.normal[1] = manifold->mWorldSpaceNormal.GetY();
+            info.normal[2] = manifold->mWorldSpaceNormal.GetZ();
+            if (!manifold->mRelativeContactPointsOn1.empty()) {
+                const JPH::RVec3 point = manifold->GetWorldSpaceContactPointOn1(0);
+                info.hasPoint = true;
+                info.point[0] = float(point.GetX());
+                info.point[1] = float(point.GetY());
+                info.point[2] = float(point.GetZ());
+            }
+            info.penetration = manifold->mPenetrationDepth;
+            return info;
+        }
+    }
+
+    ContactInfo DecodeContact(const Events::ContactAddedEvent& e) { return Decode(e.otherBody, &e.contactManifold); }
+    ContactInfo DecodeContact(const Events::ContactPersistedEvent& e) { return Decode(e.otherBody, &e.contactManifold); }
+    ContactInfo DecodeContact(const Events::ContactRemovedEvent& e) { return Decode(e.otherBody, nullptr); }
 
     const void* PhysicsApi()
     {

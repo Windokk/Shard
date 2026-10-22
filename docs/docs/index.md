@@ -54,12 +54,12 @@ A game is a plugin built with the SDK. A script is a class that lives on an acto
     ```cpp
     #include <shard/game.hpp>
 
-    class Health : public shard::Script {
+    class Health : public Shard::Script {
     public:
         // fields: shown in the inspector, saved with the world, each declared where it is
         SHARD_FIELD(float, maxHealth, Range(1.f, 1000.f)) = 100.f;
         SHARD_FIELD(float, current) = 100.f;
-        SHARD_FIELD(shard::Text, label);
+        SHARD_FIELD(Shard::Text, label);
 
         void OnPlay() override { current = maxHealth; }
         void OnTick(float deltaTime) override;

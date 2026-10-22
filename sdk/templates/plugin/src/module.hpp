@@ -4,4 +4,4 @@
 #include <shard/game.hpp>
 
 /// The console variable "<plugin id>.scale" (created by the module): multiplies every speed
-shard::CVar<float>& SpinScale();
+Shard::CVar<float>& SpinScale();

@@ -9,7 +9,7 @@
 
 #include <shard/cpp/component.hpp>
 
-namespace shard {
+namespace Shard {
 
     constexpr float kPi = 3.14159265358979323846f;
     // The factors are written out in double and rounded once : kPi / 180.f divides a float that is already rounded, and is off by a unit of the last

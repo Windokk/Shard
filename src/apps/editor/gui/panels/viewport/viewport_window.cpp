@@ -184,13 +184,31 @@ namespace Shard::Editor::GUI {
             cameraActor->transform->SetPosition(pos);
         }
 
-        ImGui::Begin("Viewport");
+        const bool gameView = parent && parent->IsGameView();
 
-        float toolbarHeight = ImGui::GetFrameHeight() + ImGui::GetStyle().WindowPadding.y * 2;
-        ImGui::BeginChild("ToolbarArea", ImVec2(0, toolbarHeight), false, ImGuiWindowFlags_NoScrollbar);
-        DrawToolbar();
-        ImGui::EndChild();
-        
+        if (gameView)
+        {
+            // The scene alone over the whole window : no title bar, toolbar or padding. A window of its own, so that the docked
+            // "Viewport" keeps its place for the way back.
+            const ImGuiViewport* host = ImGui::GetMainViewport();
+            ImGui::SetNextWindowPos(host->Pos);
+            ImGui::SetNextWindowSize(host->Size);
+            ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(0, 0));
+            ImGui::PushStyleVar(ImGuiStyleVar_WindowBorderSize, 0.0f);
+            ImGui::Begin("Game View", nullptr, ImGuiWindowFlags_NoDecoration | ImGuiWindowFlags_NoDocking | ImGuiWindowFlags_NoMove
+                | ImGuiWindowFlags_NoSavedSettings | ImGuiWindowFlags_NoScrollWithMouse | ImGuiWindowFlags_NoBringToFrontOnFocus);
+            ImGui::PopStyleVar(2);
+        }
+        else
+        {
+            ImGui::Begin("Viewport");
+
+            float toolbarHeight = ImGui::GetFrameHeight() + ImGui::GetStyle().WindowPadding.y * 2;
+            ImGui::BeginChild("ToolbarArea", ImVec2(0, toolbarHeight), false, ImGuiWindowFlags_NoScrollbar);
+            DrawToolbar();
+            ImGui::EndChild();
+        }
+
         // Get current size
         ImVec2 current_size = ImGui::GetWindowSize();
 
@@ -200,7 +218,8 @@ namespace Shard::Editor::GUI {
         ImVec2 avail = ImGui::GetContentRegionAvail();
         viewportSize = glm::vec2(avail.x, avail.y);
 
-        if ((current_size.x != prev_size.x || current_size.y != prev_size.y)
+        // The toolbar is not in the game view : the image is taller even when the window is not
+        if ((current_size.x != prev_size.x || current_size.y != prev_size.y || gameView != gameViewShown)
             && avail.x > 0 && avail.y > 0)
         {
             Engine::Core::GetEngine().GetRenderer()->RescaleFramebuffers(avail.x, avail.y);
@@ -208,6 +227,7 @@ namespace Shard::Editor::GUI {
 
         // Save for next frame
         prev_size = current_size;
+        gameViewShown = gameView;
 
         if (textureID != 0)
         {
@@ -225,11 +245,15 @@ namespace Shard::Editor::GUI {
         viewportImageMin = ImGui::GetItemRectMin();
         viewportImageMax = ImGui::GetItemRectMax();
 
-        HandleAssetDrop();
+        // The game view only looks : nothing to drop, and no key may edit what is not shown (Delete on a hidden selection)
+        if (!gameView)
+        {
+            HandleAssetDrop();
 
-        HandleShortcuts();
+            HandleShortcuts();
+        }
 
-        if(parent && parent->GetSelectedActor() && parent->settings.showGizmos)
+        if(!gameView && parent && parent->GetSelectedActor() && parent->settings.showGizmos)
             DrawObjectGizmo();
 
         if(marqueeActive)
@@ -247,8 +271,10 @@ namespace Shard::Editor::GUI {
 
         ImGui::SameLine();
 
-        if(parent->settings.showGizmos)
+        if(!gameView && parent->settings.showGizmos)
             DrawViewGizmo();
+        else
+            isUsingViewGizmo = false;
 
         uiHovered = ImGui::IsAnyItemHovered();
     
@@ -1214,8 +1240,11 @@ namespace Shard::Editor::GUI {
 
         bool canStartInteraction = cameraActor && viewportHovered && !uiHovered && !ImGuizmo::IsUsing() && !isUsingViewGizmo;
 
+        // The game view flies the camera but does not select (the outline and the gizmo are not shown)
+        const bool gameView = parent && parent->IsGameView();
+
         // Ctrl / Shift + button : a selection rectangle, not the camera
-        if (HandleMarquee(canStartInteraction && !isDragging))
+        if (HandleMarquee(canStartInteraction && !isDragging && !gameView))
             return;
 
         if (!cameraActor || (!isDragging && !canStartInteraction))
@@ -1288,7 +1317,7 @@ namespace Shard::Editor::GUI {
         }
     
         // Picking
-        if(input->WasMouseReleased(Engine::Input::MouseButton::Left)){
+        if(!gameView && input->WasMouseReleased(Engine::Input::MouseButton::Left)){
             
             if(Engine::Core::GetEngine().GetTimeManager()->CurrentAppTime().seconds - firstClickTime > 0.3f){
                 return;

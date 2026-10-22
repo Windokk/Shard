@@ -221,3 +221,20 @@ TEST_F(ActorTest, DestroyingAnActorFromInsideAQueryIsDeferred) {
     EXPECT_FALSE(ecs->IsAlive(entity));
 }
 
+// An actor and its components point at each other : once the actor is destroyed and the world changed (which resets the object IDs), nothing
+// of it may survive, or what a component holds (a model's mesh) stays loaded for good and its asset can never be deleted
+TEST_F(ActorTest, ADestroyedActorAndItsComponentsAreFreedOnceTheWorldChanges) {
+    std::weak_ptr<Actor> weakActor;
+    std::weak_ptr<Transform> weakTransform;
+    {
+        auto actor = Object::CreateWithContext<Actor>(&context, std::string("Doomed"), &context);
+        weakActor = actor;
+        weakTransform = actor->transform;
+        actor->Destroy();
+    }
+    EXPECT_TRUE(weakActor.expired());                                 // nothing outside holds it, and its components do not either
+
+    context.GetObjectIDManager()->Reset();                            // what loading another world does
+    EXPECT_TRUE(weakTransform.expired());
+}
+

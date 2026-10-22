@@ -6,9 +6,9 @@
 void Mover::OnTick(float deltaTime)
 {
     // The keyboard : A and D steer along the direction, Space hurts the Health script of the same actor (a script of another file)
-    const float steer = shard::Input::Axis(shard::Key::A, shard::Key::D);
+    const float steer = Shard::Input::Axis(Shard::Key::A, Shard::Key::D);
     Owner().Translate(direction * (speed * deltaTime * (1.f + steer)));
-    if (shard::Input::WasPressed(shard::Key::Space)) {
+    if (Shard::Input::WasPressed(Shard::Key::Space)) {
         if (Health* health = Owner().GetScript<Health>()) {
             health->Damage(60.f);
             ++GetStats().crossScript;

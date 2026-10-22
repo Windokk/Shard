@@ -6,7 +6,7 @@
 // of the components and the order of the systems from one build to the next).
 //
 //   SHARD_REGISTER_SCRIPT(Health, (maxHealth)(current))                   // shard/cpp/script.hpp
-//   SHARD_DEFINE_COMPONENT(Velocity, (x)(y)(z))                           // a component of plain data, found anywhere with shard::ComponentOf<Velocity>()
+//   SHARD_DEFINE_COMPONENT(Velocity, (x)(y)(z))                           // a component of plain data, found anywhere with Shard::ComponentOf<Velocity>()
 //   SHARD_ON_LOAD(Movement, ctx) { ctx.Systems().Add(...).Run(...); }     // anything else: systems, cvars, commands, hooks, events...
 //
 // The macros go at global scope, in a source file of the plugin's library (not in a static library the plugin links: the linker may drop a file
@@ -17,7 +17,7 @@
 #include <string>
 #include <vector>
 
-namespace shard {
+namespace Shard {
 
     class Context;
 
@@ -54,9 +54,9 @@ namespace shard {
 #define SHARD_DETAIL_REG_CAT(a, b) SHARD_DETAIL_REG_CAT_(a, b)
 #define SHARD_DETAIL_REG_CAT_(a, b) a##b
 
-/// The body that follows runs in OnLoad, after the components and the scripts are registered: `ctx` is the shard::Context. `Name` only orders
+/// The body that follows runs in OnLoad, after the components and the scripts are registered: `ctx` is the Shard::Context. `Name` only orders
 /// and names it (unique in the plugin, letters and digits).
 #define SHARD_ON_LOAD(Name, ctx)                                                                                    \
-    static void SHARD_DETAIL_REG_CAT(ShardOnLoad_, Name)(::shard::Context& ctx);                                    \
-    static ::shard::detail::Registrar SHARD_DETAIL_REG_CAT(shardRegistrar_, Name)("3load:" #Name, &SHARD_DETAIL_REG_CAT(ShardOnLoad_, Name)); \
-    static void SHARD_DETAIL_REG_CAT(ShardOnLoad_, Name)(::shard::Context& ctx)
+    static void SHARD_DETAIL_REG_CAT(ShardOnLoad_, Name)(::Shard::Context& ctx);                                    \
+    static ::Shard::detail::Registrar SHARD_DETAIL_REG_CAT(shardRegistrar_, Name)("3load:" #Name, &SHARD_DETAIL_REG_CAT(ShardOnLoad_, Name)); \
+    static void SHARD_DETAIL_REG_CAT(ShardOnLoad_, Name)(::Shard::Context& ctx)

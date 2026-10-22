@@ -2,8 +2,8 @@
 
 void Spinner::OnTick(float deltaTime)
 {
-    const float angle = shard::Radians(degreesPerSecond * SpinScale().Get() * deltaTime);
-    Owner().SetRotation(shard::AxisAngle(axis, angle) * Owner().Rotation());
+    const float angle = Shard::Radians(degreesPerSecond * SpinScale().Get() * deltaTime);
+    Owner().SetRotation(Shard::AxisAngle(axis, angle) * Owner().Rotation());
 }
 
 // Registers the class: this is all that connects it to the plugin

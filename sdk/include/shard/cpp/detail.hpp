@@ -11,7 +11,7 @@
 #include <shard/shard_host.h>
 #include <shard/cpp/string.hpp>
 
-namespace shard {
+namespace Shard {
 
     /// What a registration of the SDK throws when the host refused it. The SDK turns it into an error of the callback it escaped from (the
     /// host then fails the plugin with the message logged).
@@ -43,7 +43,7 @@ namespace shard {
     namespace detail {
 
         /// The plugin's own handle, known from its first callback (a plugin is one context for its whole life): what lets a value type like
-        /// shard::Text or shard::Actor reach the host without being handed the context
+        /// Shard::Text or Shard::Actor reach the host without being handed the context
         inline ShardPluginCtx& PluginHandle()
         {
             static ShardPluginCtx handle = 0;

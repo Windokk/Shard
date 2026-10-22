@@ -1,11 +1,11 @@
 // Shard C++ SDK : scripts, the gameplay classes of a game (shard_scripts.h).
 //
 //   // health.hpp
-//   class Health : public shard::Script {
+//   class Health : public Shard::Script {
 //   public:
 //       float maxHealth = 100.f;                    // fields: shown in the inspector, saved with the world
 //       float current = 100.f;
-//       shard::Text label;
+//       Shard::Text label;
 //
 //       void OnPlay() override { current = maxHealth; }
 //       void OnTick(float dt) override { if (current <= 0.f) Owner().Destroy(); }
@@ -37,7 +37,7 @@
 #include <shard/cpp/field.hpp>
 #include <shard/cpp/registry.hpp>
 
-namespace shard {
+namespace Shard {
 
     /// A contact of the actor's body with another one (physics). The actor needs a "physics_body" component.
     struct Contact {
@@ -178,14 +178,14 @@ namespace shard {
     public:
         explicit Scripts(ShardPluginCtx ctx) : m_Ctx(ctx) {}
 
-        /// Registers the class T as "<plugin id>.<name>" (from OnLoad: SHARD_REGISTER_SCRIPT does it). Throws shard::Error if the host refuses it.
+        /// Registers the class T as "<plugin id>.<name>" (from OnLoad: SHARD_REGISTER_SCRIPT does it). Throws Shard::Error if the host refuses it.
         template <typename T>
         void Register(const std::string& name, std::initializer_list<FieldOptions> options = {})
         {
-            static_assert(std::is_base_of<Script, T>::value, "a script derives from shard::Script");
+            static_assert(std::is_base_of<Script, T>::value, "a script derives from Shard::Script");
             static_assert(std::is_default_constructible<T>::value, "a script is default constructible (the host builds it)");
             static_assert(ScriptTraits<T>::kDescribed, "register this script with SHARD_REGISTER_SCRIPT");
-            static_assert(sizeof(T) <= SHARD_SCRIPT_MAX_SIZE, "a script is 16 KB at most : keep its bulk in a shard::Blob or a heap allocation");
+            static_assert(sizeof(T) <= SHARD_SCRIPT_MAX_SIZE, "a script is 16 KB at most : keep its bulk in a Shard::Blob or a heap allocation");
             static_assert(alignof(T) <= 16, "a script is aligned on 16 bytes at most");
             // A sample object tells where the fields are in the class : the members listed by the registration macro are found by their
             // address, the ones declared with SHARD_FIELD announce themselves while the sample is built
@@ -229,30 +229,30 @@ namespace shard {
 /// The older way lists the members here instead (any field type of shard/cpp/component.hpp : numbers, bool, Vec2/3/4, Quat, Color, Text, AssetId,
 /// Blob), and the two may be mixed :
 ///   SHARD_REGISTER_SCRIPT(Health, (maxHealth)(current))
-/// SHARD_REGISTER_SCRIPT_EX adds the options of the listed fields (shard::FieldOptions: bounds, tooltip, SHARD_FIELD_RUNTIME), in parentheses:
+/// SHARD_REGISTER_SCRIPT_EX adds the options of the listed fields (Shard::FieldOptions: bounds, tooltip, SHARD_FIELD_RUNTIME), in parentheses:
 ///   SHARD_REGISTER_SCRIPT_EX(Health, (maxHealth)(current), ({ "maxHealth", 0, 0.f, 1000.f, "hit points" }))
 #define SHARD_DETAIL_UNPAREN(...) __VA_ARGS__
 #define SHARD_DETAIL_SCRIPT(Class, Name, sequence, optionsList)                                                       \
-    template <> struct shard::ScriptTraits<Class> {                                                                   \
+    template <> struct Shard::ScriptTraits<Class> {                                                                   \
     static constexpr bool kDescribed = true;                                                                          \
-    static void Describe(::shard::FieldList<Class>& fields)                                                           \
+    static void Describe(::Shard::FieldList<Class>& fields)                                                           \
     {                                                                                                                 \
     using Self = Class;                                                                                               \
     SHARD_DETAIL_CAT(SHARD_DETAIL_FIELD_A sequence, _END)                                                             \
     }                                                                                                                 \
     };                                                                                                                \
-    static ::shard::detail::Registrar SHARD_DETAIL_REG_CAT(shardScriptRegistrar_, __COUNTER__)(                       \
-    "1script:" Name, [](::shard::Context& ctx) { ctx.Scripts().Register<Class>(Name, { optionsList }); });             
+    static ::Shard::detail::Registrar SHARD_DETAIL_REG_CAT(shardScriptRegistrar_, __COUNTER__)(                       \
+    "1script:" Name, [](::Shard::Context& ctx) { ctx.Scripts().Register<Class>(Name, { optionsList }); });             
 
 #define SHARD_DETAIL_SCRIPT_LISTED(Class, sequence) SHARD_DETAIL_SCRIPT(Class, #Class, sequence, )
 /// A script whose fields are declared in the class (SHARD_FIELD), or with no fields at all (it only reacts : OnTick, contacts...)
 #define SHARD_DETAIL_SCRIPT_DECLARED(Class)                                                                            \
-    template <> struct shard::ScriptTraits<Class> {                                                                    \
+    template <> struct Shard::ScriptTraits<Class> {                                                                    \
         static constexpr bool kDescribed = true;                                                                       \
-        static void Describe(::shard::FieldList<Class>&) {}                                                            \
+        static void Describe(::Shard::FieldList<Class>&) {}                                                            \
     };                                                                                                                 \
-    static ::shard::detail::Registrar SHARD_DETAIL_REG_CAT(shardScriptRegistrar_, __COUNTER__)(                        \
-        "1script:" #Class, [](::shard::Context& ctx) { ctx.Scripts().Register<Class>(#Class); });
+    static ::Shard::detail::Registrar SHARD_DETAIL_REG_CAT(shardScriptRegistrar_, __COUNTER__)(                        \
+        "1script:" #Class, [](::Shard::Context& ctx) { ctx.Scripts().Register<Class>(#Class); });
 
 // SHARD_REGISTER_SCRIPT(Class) or SHARD_REGISTER_SCRIPT(Class, (a)(b)) : the number of arguments picks the form
 #define SHARD_DETAIL_EXPAND(x) x
@@ -263,10 +263,10 @@ namespace shard {
 #define SHARD_REGISTER_SCRIPT_BARE(Class) SHARD_DETAIL_SCRIPT_DECLARED(Class)
 
 /// A component of plain data (the ECS kind: systems query it, shard/cpp/system.hpp), defined and registered from any file; found anywhere after
-/// OnLoad with shard::ComponentOf<Type>().
+/// OnLoad with Shard::ComponentOf<Type>().
 ///   struct Velocity { float x = 0.f, y = 0.f, z = 0.f; };
 ///   SHARD_DEFINE_COMPONENT(Velocity, (x)(y)(z))
-namespace shard {
+namespace Shard {
     template <typename T> ComponentType<T>& ComponentOf()
     {
         static ComponentType<T> type;
@@ -275,5 +275,5 @@ namespace shard {
 }
 #define SHARD_DEFINE_COMPONENT(Type, sequence)                                                                      \
     SHARD_COMPONENT(Type, sequence)                                                                                 \
-    static ::shard::detail::Registrar SHARD_DETAIL_REG_CAT(shardComponentRegistrar_, __COUNTER__)(                  \
-        "0component:" #Type, [](::shard::Context& ctx) { ::shard::ComponentOf<Type>() = ctx.Components().Register<Type>(#Type); });
+    static ::Shard::detail::Registrar SHARD_DETAIL_REG_CAT(shardComponentRegistrar_, __COUNTER__)(                  \
+        "0component:" #Type, [](::Shard::Context& ctx) { ::Shard::ComponentOf<Type>() = ctx.Components().Register<Type>(#Type); });

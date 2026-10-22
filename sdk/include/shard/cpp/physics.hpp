@@ -1,6 +1,6 @@
-// Shard C++ SDK : ray casts (shard_physics.h). The forces, impulses and velocities of a body are methods of shard::Actor.
+// Shard C++ SDK : ray casts (shard_physics.h). The forces, impulses and velocities of a body are methods of Shard::Actor.
 //
-//   if (auto hit = shard::Physics::Raycast(eye, forward, 50.f, shard::Layers::All, Owner())) {
+//   if (auto hit = Shard::Physics::Raycast(eye, forward, 50.f, Shard::Layers::All, Owner())) {
 //       hit->actor.Destroy();
 //       Spawn(hit->point + hit->normal * 0.1f);
 //   }
@@ -11,7 +11,7 @@
 #include <shard/shard_physics.h>
 #include <shard/cpp/actor.hpp>
 
-namespace shard {
+namespace Shard {
 
     /// Which bodies a ray looks at
     struct Layers {

@@ -131,7 +131,7 @@ TEST_F(SdkSpinTest, ItDescribesItsEventAndCountsItsEntitiesThroughTheExperimenta
     ASSERT_EQ(layout->fields.size(), 2u);
     EXPECT_EQ(layout->fields[1].name, "speed");
 
-    // shard::experimental::World over the engine's registry
+    // Shard::experimental::World over the engine's registry
     Spin spin{ 1.0f, 0.0f, { 0.f, 1.f, 0.f }, 0 };
     Core::Ecs::Registry& ecs = *engine.GetEcs();
     ASSERT_TRUE(ecs.AddRaw(ecs.Create(), SpinId(), &spin));
@@ -141,7 +141,7 @@ TEST_F(SdkSpinTest, ItDescribesItsEventAndCountsItsEntitiesThroughTheExperimenta
     EXPECT_EQ(count.output, "2");
 }
 
-// ABI 1.3 through the C++ SDK : shard::Text, shard::AssetId and SystemCtx::SetLocalTransform
+// ABI 1.3 through the C++ SDK : Shard::Text, Shard::AssetId and SystemCtx::SetLocalTransform
 TEST_F(SdkSpinTest, ATextAnAssetAndAMovingSystemWrittenWithTheSdk)
 {
     PluginTest::AssetContext context;

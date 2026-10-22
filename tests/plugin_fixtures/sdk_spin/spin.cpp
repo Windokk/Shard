@@ -13,15 +13,15 @@
 struct Spin {
     float speed = 1.f;
     float angle = 0.f;
-    shard::Vec3 axis{ 0.f, 1.f, 0.f };
+    Shard::Vec3 axis{ 0.f, 1.f, 0.f };
     int32_t turns = 0;
 };
 SHARD_COMPONENT(Spin, (speed)(angle)(axis)(turns))
 
 // ABI 1.3 : a text and an asset in a component, and a system that moves the actor
 struct Sign {
-    shard::Text text;
-    shard::AssetId icon;
+    Shard::Text text;
+    Shard::AssetId icon;
     int32_t uses = 0;
 };
 SHARD_COMPONENT(Sign, (text)(icon)(uses))
@@ -38,19 +38,19 @@ namespace {
     std::string gLastError;
 }
 
-class SpinPlugin : public shard::Plugin {
+class SpinPlugin : public Shard::Plugin {
 public:
-    void OnLoad(shard::Context& ctx) override
+    void OnLoad(Shard::Context& ctx) override
     {
         auto spin = ctx.Components().Register<Spin>("Spin", {
             { "speed", 0, 0.f, 20.f, "radians per second" },
             { "turns", SHARD_FIELD_RUNTIME, 0.f, 0.f, "" },
         });
         m_Scale = ctx.CVars().Float("scale", 1.f, "multiplies every speed", 0.f, 10.f);
-        const shard::CVar<float> scale = m_Scale;
-        ctx.Systems().Add("rotate", shard::Phase::Update)
+        const Shard::CVar<float> scale = m_Scale;
+        ctx.Systems().Add("rotate", Shard::Phase::Update)
             .Writes(spin)
-            .Run([spin, scale](shard::SystemCtx& s) {
+            .Run([spin, scale](Shard::SystemCtx& s) {
                 const float k = scale.Get();
                 s.Each(spin, [&](Spin& c) {
                     c.angle += c.speed * k * s.DeltaTime();
@@ -62,14 +62,14 @@ public:
                 });
             });
         auto sign = ctx.Components().Register<Sign>("Sign");
-        auto pose = ctx.Components().Find<shard::Pose>("shard.LocalTransform");
-        ctx.Systems().Add("sign", shard::Phase::Update)
+        auto pose = ctx.Components().Find<Shard::Pose>("shard.LocalTransform");
+        ctx.Systems().Add("sign", Shard::Phase::Update)
             .Writes(sign, pose)
-            .Run([sign](shard::SystemCtx& s) {
-                s.Each(sign, [&](shard::Entity e, Sign& c) {
+            .Run([sign](Shard::SystemCtx& s) {
+                s.Each(sign, [&](Shard::Entity e, Sign& c) {
                     ++c.uses;
                     s.SetText(c.text, s.GetText(c.text) + "*");
-                    shard::Pose p;
+                    Shard::Pose p;
                     p.position.x = float(c.uses);
                     p.scale = { 3.f, 3.f, 3.f };
                     s.SetLocalTransform(e, p);
@@ -84,35 +84,35 @@ public:
             return true;
         });
         // shard.experimental.world_ecs : the Spin entities, counted from the main thread
-        const shard::Context here = ctx;
+        const Shard::Context here = ctx;
         ctx.Commands().Add("spin.count", "spin.count : how many entities spin", [here, spin](const std::vector<std::string_view>&, std::string& out) {
-            shard::experimental::World world(here.Handle());
+            Shard::experimental::World world(here.Handle());
             out = std::to_string(world.Ecs().Query(spin).Count());
             return true;
         });
-        // A registration the host refuses throws shard::Error ; caught here to show it does not take the plugin down
+        // A registration the host refuses throws Shard::Error ; caught here to show it does not take the plugin down
         try {
-            ctx.Hooks().On("NoSuchHook", [](shard::Hook&) {});
-        } catch (const shard::Error& e) {
+            ctx.Hooks().On("NoSuchHook", [](Shard::Hook&) {});
+        } catch (const Shard::Error& e) {
             gLastError = e.what();
         }
-        ctx.Hooks().On("PreSave", [](shard::Hook& hook) {
+        ctx.Hooks().On("PreSave", [](Shard::Hook& hook) {
             if (hook.Subject() == "spin.world") hook.Cancel("spinning");
         });
     }
 
-    bool OnPrepareReload(shard::Context&, shard::StateWriter& state) override
+    bool OnPrepareReload(Shard::Context&, Shard::StateWriter& state) override
     {
         return state.Set("scale", std::to_string(m_Scale.Get()));
     }
 
-    void OnRestore(shard::Context&, shard::StateReader& state) override
+    void OnRestore(Shard::Context&, Shard::StateReader& state) override
     {
         if (auto value = state.Get("scale")) m_Scale.Set(std::stof(*value));
     }
 
 private:
-    shard::CVar<float> m_Scale;
+    Shard::CVar<float> m_Scale;
 };
 
 SHARD_C_PLUGIN(SpinPlugin)

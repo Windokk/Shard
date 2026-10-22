@@ -8,7 +8,7 @@
 
 #include <shard/shard_abi.h>
 
-namespace shard {
+namespace Shard {
 
     /// A view as the ABI's string. The view must outlive the call it is passed to.
     inline ShardStr Str(std::string_view s) { return ShardStr{ s.data(), uint64_t(s.size()) }; }

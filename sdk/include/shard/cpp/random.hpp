@@ -1,9 +1,9 @@
 // Shard C++ SDK : random numbers that a replay of the run reproduces (shard_plugin.h, random_stream).
 //
-//   class Kicker : public shard::Script {
-//       void OnPlay() override { m_Random = shard::Random::Stream("Kicker/" + Owner().Name()); }
+//   class Kicker : public Shard::Script {
+//       void OnPlay() override { m_Random = Shard::Random::Stream("Kicker/" + Owner().Name()); }
 //       void OnTick(float) override { Owner().AddImpulse(m_Random.OnUnitSphere() * 4.f); }
-//       shard::Random m_Random;
+//       Shard::Random m_Random;
 //   };
 //
 // rand(), std::random_device and std::uniform_*_distribution give different numbers from one run, platform or standard library to the next, so
@@ -20,7 +20,7 @@
 #include <shard/cpp/detail.hpp>
 #include <shard/cpp/math.hpp>
 
-namespace shard {
+namespace Shard {
 
     class Random {
     public:
@@ -29,7 +29,7 @@ namespace shard {
 
         /// The stream `name` of this plugin for this run : the same name gives the same sequence when the run is replayed, and another name a
         /// sequence that does not depend on it. Name it after what draws from it ("Spawner/" + the actor's name), not after the order things
-        /// started in. Throws shard::Error if the host does not offer streams (an engine of ABI 1.4 or older).
+        /// started in. Throws Shard::Error if the host does not offer streams (an engine of ABI 1.4 or older).
         static Random Stream(std::string_view name)
         {
             const ShardPluginApi* api = detail::Interface<ShardPluginApi>(SHARD_IFACE_PLUGIN, 2);

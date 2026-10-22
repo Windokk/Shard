@@ -1,8 +1,8 @@
 // Shard C++ SDK : systems and what they see of the entities.
 //
-//   ctx.Systems().Add("rotate", shard::Phase::Update)
+//   ctx.Systems().Add("rotate", Shard::Phase::Update)
 //       .Writes(spin)
-//       .Run([spin](shard::SystemCtx& s) {
+//       .Run([spin](Shard::SystemCtx& s) {
 //           s.Each(spin, [&](Spin& c) { c.angle += c.speed * s.DeltaTime(); });
 //       });
 //
@@ -27,7 +27,7 @@
 #include <shard/cpp/detail.hpp>
 #include <shard/cpp/math.hpp>
 
-namespace shard {
+namespace Shard {
 
     using Entity = ShardEntity;
 
@@ -175,7 +175,7 @@ namespace shard {
         void SetParent(Entity child, Entity parent) const { detail::Check(Api().set_parent(m_Run.ecs, child, parent), "set_parent"); }
 
         /// Moves the actor behind `e` (ABI 1.3) : its Transform takes the pose at the end of the phase. The system must declare the
-        /// engine's shard.LocalTransform type in its writes. False if the entity has no actor. Throws shard::Error in an engine older than 1.3.
+        /// engine's shard.LocalTransform type in its writes. False if the entity has no actor. Throws Shard::Error in an engine older than 1.3.
         bool SetLocalTransform(Entity e, const Pose& pose) const
         {
             const ShardEcsApi* api = detail::Interface<ShardEcsApi>(SHARD_IFACE_ECS, 1);
@@ -227,7 +227,7 @@ namespace shard {
         SystemBuilder& After(std::string other) { m_After.push_back(std::move(other)); return *this; }
         SystemBuilder& Before(std::string other) { m_Before.push_back(std::move(other)); return *this; }
 
-        /// Adds the system. Throws shard::Error if the host refuses it.
+        /// Adds the system. Throws Shard::Error if the host refuses it.
         void Run(SystemFn fn)
         {
             SystemFn* kept = detail::Keep(std::move(fn));

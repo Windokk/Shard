@@ -3,13 +3,13 @@
 #include <shard/game.hpp>
 
 // A script with fields of several kinds : numbers, a text, an asset
-class Health : public shard::Script {
+class Health : public Shard::Script {
 public:
     float maxHealth = 100.f;
     float current = 100.f;
     int32_t timesHurt = 0;
-    shard::Text label;
-    shard::AssetId icon;
+    Shard::Text label;
+    Shard::AssetId icon;
 
     void OnCreate() override;
     void OnPlay() override;

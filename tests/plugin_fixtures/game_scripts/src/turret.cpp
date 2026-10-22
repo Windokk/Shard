@@ -7,7 +7,7 @@ void Turret::OnTick(float)
     GetStats().lastNote = note;
     if (!target) return;
     Owner().LookAt(target.WorldPosition());
-    GetStats().targetDistance = shard::Distance(Owner().WorldPosition(), target.WorldPosition());
+    GetStats().targetDistance = Shard::Distance(Owner().WorldPosition(), target.WorldPosition());
     ++GetStats().aimed;
 }
 

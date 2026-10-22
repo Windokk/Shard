@@ -5,24 +5,24 @@
 #include "../module.hpp"
 
 struct Drift {
-    shard::Vec3 velocity{ 0.f, 0.f, 0.f };      // units per second
+    Shard::Vec3 velocity{ 0.f, 0.f, 0.f };      // units per second
     float age = 0.f;
 };
 SHARD_DEFINE_COMPONENT(Drift, (velocity)(age))
 
 SHARD_ON_LOAD(DriftSystem, ctx)
 {
-    const auto drift = shard::ComponentOf<Drift>();
+    const auto drift = Shard::ComponentOf<Drift>();
     // The engine's own component of the pose: an actor is read through it and moved with SystemCtx::SetLocalTransform, which asks for it in writes
-    const auto pose = ctx.Components().Find<shard::Pose>("shard.LocalTransform");
-    ctx.Systems().Add("drift", shard::Phase::Update)
+    const auto pose = ctx.Components().Find<Shard::Pose>("shard.LocalTransform");
+    ctx.Systems().Add("drift", Shard::Phase::Update)
         .Writes(drift, pose)
-        .Run([drift, pose](shard::SystemCtx& s) {
+        .Run([drift, pose](Shard::SystemCtx& s) {
             const float dt = s.DeltaTime() * SpinScale().Get();
-            s.Each(drift, [&](shard::Entity entity, Drift& d) {
+            s.Each(drift, [&](Shard::Entity entity, Drift& d) {
                 d.age += dt;
-                if (shard::Pose* p = s.Get(entity, pose)) {
-                    shard::Pose moved = *p;
+                if (Shard::Pose* p = s.Get(entity, pose)) {
+                    Shard::Pose moved = *p;
                     moved.position += d.velocity * dt;
                     s.SetLocalTransform(entity, moved);
                 }

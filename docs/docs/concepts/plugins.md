@@ -379,7 +379,7 @@ The C++ SDK itself has two levels. The gameplay level is how a game is written :
 // health.hpp
 #include <shard/game.hpp>
 
-class Health : public shard::Script {
+class Health : public Shard::Script {
 public:
     SHARD_FIELD(float, maxHealth, Range(1.f, 1000.f)) = 100.f;      // a field : shown in the inspector, saved with the world
     SHARD_FIELD(float, current) = 100.f;
@@ -404,14 +404,14 @@ The registration level underneath is for a plugin that is not a game, or that fi
 struct Spin { float speed = 1.f; float angle = 0.f; };
 SHARD_COMPONENT(Spin, (speed)(angle))
 
-class SpinPlugin : public shard::Plugin {
+class SpinPlugin : public Shard::Plugin {
 public:
-    void OnLoad(shard::Context& ctx) override
+    void OnLoad(Shard::Context& ctx) override
     {
         auto spin = ctx.Components().Register<Spin>("Spin");
-        ctx.Systems().Add("rotate", shard::Phase::Update)
+        ctx.Systems().Add("rotate", Shard::Phase::Update)
             .Writes(spin)
-            .Run([spin](shard::SystemCtx& s) {
+            .Run([spin](Shard::SystemCtx& s) {
                 s.Each(spin, [&](Spin& c) { c.angle += c.speed * s.DeltaTime(); });
             });
         ctx.CVars().Float("scale", 1.f, "multiplies every speed");
@@ -420,7 +420,7 @@ public:
 SHARD_C_PLUGIN(SpinPlugin)
 ```
 
-You can mix them. A game can have scripts in some files, systems in others (`SHARD_ON_LOAD`, `SHARD_DEFINE_COMPONENT`), and a class derived from `shard::Plugin` for variables, commands and hot reload. The [tutorial](../tutorials/write-a-game-with-the-sdk.md) builds one.
+You can mix them. A game can have scripts in some files, systems in others (`SHARD_ON_LOAD`, `SHARD_DEFINE_COMPONENT`), and a class derived from `Shard::Plugin` for variables, commands and hot reload. The [tutorial](../tutorials/write-a-game-with-the-sdk.md) builds one.
 
 The manifest of such a plugin says `"abi": "c1"`, and its entry point is `shard_plugin_entry` instead of `shard_plugin_describe`. `shard_sdk_add_plugin` (outside the repository) and `shard_add_plugin(... ABI c1)` (inside it) write both. The [C ABI reference](../api_reference.md) lists every function.
 
@@ -490,24 +490,24 @@ The scripts of a world run one after the other on the thread that ticks them, ne
 * read and set the pose, the name, the active state, the parent, the children and the tags,
 * create an actor, spawn one from the JSON a world file holds, find one by name or by tag, and destroy one,
 * add, test, remove, read and set the engine's components by the name their serialized form uses (`"light"`, `"model"`, `"physics_body"`), with their fields as JSON. Anything the editor shows can be reached this way.
-* read, set and erase one field of a component (`shard.actors` 1.1), by its name or a path into it (`"materials/0"`, `"shapes/0/params/radius"`, `"shapes/-"` to append). A field of the engine is set the way an edit in the inspector sets it, so a physics body keeps its velocity when its friction changes. The C++ SDK wraps these in typed handles (`actor.Add<shard::Model>().SetMesh(mesh)`, `shard::PhysicsBody`, `shard::Light`...).
+* read, set and erase one field of a component (`shard.actors` 1.1), by its name or a path into it (`"materials/0"`, `"shapes/0/params/radius"`, `"shapes/-"` to append). A field of the engine is set the way an edit in the inspector sets it, so a physics body keeps its velocity when its friction changes. The C++ SDK wraps these in typed handles (`actor.Add<Shard::Model>().SetMesh(mesh)`, `Shard::PhysicsBody`, `Shard::Light`...).
 
 Creating and searching work in the world of an actor that you pass in. A script passes its owner.
 
 `shard.input` reads the engine's input manager, which is what replays record, so a script that reads its input here behaves the same in a replay. Key and button numbers are part of the ABI.
 
-**Random numbers** (`shard.plugin` 1.2). `rand()`, `std::random_device` and `std::uniform_*_distribution` give other numbers from one run, platform or standard library to the next, so a replay that used them would drift. `random_stream` returns the state of a generator for a named stream, derived from the run's seed, the plugin's id and the name : the same name gives the same sequence when the run is replayed. The generator is PCG32, the engine's own `Core::Random`, and the SDK's `shard::Random` runs it inside the plugin, so drawing a number is not a call into the engine and gives the same bits. Name a stream after what draws from it (`"Spawner/" + Owner().Name()`), not after the order scripts started in.
+**Random numbers** (`shard.plugin` 1.2). `rand()`, `std::random_device` and `std::uniform_*_distribution` give other numbers from one run, platform or standard library to the next, so a replay that used them would drift. `random_stream` returns the state of a generator for a named stream, derived from the run's seed, the plugin's id and the name : the same name gives the same sequence when the run is replayed. The generator is PCG32, the engine's own `Core::Random`, and the SDK's `Shard::Random` runs it inside the plugin, so drawing a number is not a call into the engine and gives the same bits. Name a stream after what draws from it (`"Spawner/" + Owner().Name()`), not after the order scripts started in.
 
 ```cpp
-void RandomKicker::OnPlay() { m_Random = shard::Random::Stream("RandomKicker/" + Owner().Name()); }
+void RandomKicker::OnPlay() { m_Random = Shard::Random::Stream("RandomKicker/" + Owner().Name()); }
 void RandomKicker::OnTick(float) { Owner().AddImpulse(m_Random.OnUnitSphere() * strength); }
 ```
 
 **Contacts** (`shard.scripts` 1.1). A script with a physics body is told when it touches another body : `on_contact_added`, `on_contact_persisted` and `on_contact_ended` (`OnContactAdded`, `OnContactPersisted`, `OnContactEnded` in C++). Each gets a `ShardContact` : the other actor, a point of the contact, the normal and the penetration depth. The normal points from the script's actor toward the other one. The end of a contact has the other actor only. Both actors of a pair get the call, each with its own point of view.
 
-**Actor references and strings in scripts** (`shard.components` 1.3). A script field of type `SHARD_FIELD_ACTOR` holds a `ShardActor`. The world file saves it as the path of the actor, `"Level/Enemy"` (root first, then the children's names). When the file is loaded, or a copy is made for play mode, the actor named by the path may not exist yet : the engine keeps the path, looks again before each callback, and fills the handle on the first call where the actor is there. An actor that is destroyed leaves an empty reference, never a dangling one. In C++ the field is a `shard::Actor` (check it with `if (target)`). References are for scripts only, because a plain component block has no way to hold a path. They count against the same 8 text fields as strings.
+**Actor references and strings in scripts** (`shard.components` 1.3). A script field of type `SHARD_FIELD_ACTOR` holds a `ShardActor`. The world file saves it as the path of the actor, `"Level/Enemy"` (root first, then the children's names). When the file is loaded, or a copy is made for play mode, the actor named by the path may not exist yet : the engine keeps the path, looks again before each callback, and fills the handle on the first call where the actor is there. An actor that is destroyed leaves an empty reference, never a dangling one. In C++ the field is a `Shard::Actor` (check it with `if (target)`). References are for scripts only, because a plain component block has no way to hold a path. They count against the same 8 text fields as strings.
 
-A script can also list a string that the plugin owns, a `std::string` in C++. Such a field is flagged `SHARD_FIELD_ACCESSOR`, and gives `text_get` and `text_set` in the script's callbacks so that the engine reads and writes it through the plugin. The `std::string` itself never crosses the ABI, which is what keeps it safe between compilers : only the bytes do. Components still use `shard::Text`.
+A script can also list a string that the plugin owns, a `std::string` in C++. Such a field is flagged `SHARD_FIELD_ACCESSOR`, and gives `text_get` and `text_set` in the script's callbacks so that the engine reads and writes it through the plugin. The `std::string` itself never crosses the ABI, which is what keeps it safe between compilers : only the bytes do. Components still use `Shard::Text`.
 
 **Physics** (`shard.physics`). Takes the handle of an actor with a `physics_body` component. It reads and sets the velocity and the angular velocity, adds forces, torques and impulses (at the centre or at a point of the world), reads the gravity that acts on the body and gives it a gravity of its own. A force lasts for the step it is added in, so a script that wants to push for longer adds it every fixed tick. Units are metres, kilograms, seconds and newtons.
 
@@ -516,7 +516,7 @@ A script can also list a string that the plugin owns, a `std::string` in C++. Su
 ```cpp
 void Turret::OnFixedTick(float)
 {
-    auto hit = shard::Physics::Raycast(Owner().WorldPosition(), Owner().Forward(), 50.f, shard::Layers::All, Owner());
+    auto hit = Shard::Physics::Raycast(Owner().WorldPosition(), Owner().Forward(), 50.f, Shard::Layers::All, Owner());
     if (hit) hit->actor.AddImpulse(Owner().Forward() * 5.f);
 }
 ```
@@ -551,21 +551,21 @@ Field flags : `SHARD_FIELD_RUNTIME` shows the field read-only and does not save 
 
 **Blobs** (ABI 1.2) hold what does not fit in the block. A blob is bytes that the engine keeps outside the block, counted against the plugin's memory budget and released with the plugin. A field of type `SHARD_FIELD_BLOB` holds its handle. The block is still plain data, so copying a block shares the blob. The actor component is the exception : it owns the blobs of its blob fields, saves their bytes with the world (base64), gives a copy of the actor copies of them, and frees them when the component is removed.
 
-**Text and assets** (ABI 1.3). A field of type `SHARD_FIELD_STRING` holds the handle of a blob whose bytes are UTF-8 text. The block stays plain data, the inspector shows a text box, and the world file saves a string. Ownership works as for blobs. `string_set` and `string_get` of `shard.components` 1.2 read and write it without touching the blob (`shard::Text` in C++, with `Get()` and `Set()`). A component has at most 8 string fields, and a string field cannot be `SHARD_FIELD_PRIVATE`.
+**Text and assets** (ABI 1.3). A field of type `SHARD_FIELD_STRING` holds the handle of a blob whose bytes are UTF-8 text. The block stays plain data, the inspector shows a text box, and the world file saves a string. Ownership works as for blobs. `string_set` and `string_get` of `shard.components` 1.2 read and write it without touching the blob (`Shard::Text` in C++, with `Get()` and `Set()`). A component has at most 8 string fields, and a string field cannot be `SHARD_FIELD_PRIVATE`.
 
-A field of type `SHARD_FIELD_ASSET` is an `int32_t` : the id of an asset of the project, 0 for none (`shard::AssetId` in C++). The inspector shows an asset picker, and the world file saves the asset by its name in the project, like the engine's own components. Neither type can be used in a described event, because an event payload is copied as bytes.
+A field of type `SHARD_FIELD_ASSET` is an `int32_t` : the id of an asset of the project, 0 for none (`Shard::AssetId` in C++). The inspector shows an asset picker, and the world file saves the asset by its name in the project, like the engine's own components. Neither type can be used in a described event, because an event payload is copied as bytes.
 
 ### Moving actors
 
-A system cannot write the engine's own pose component through the pointers a query returns. The actor's `Transform` drives `shard.LocalTransform` and would overwrite the change. Instead, a system calls `set_local_transform` of `shard.ecs` 1.1 (`SystemCtx::SetLocalTransform(entity, shard::Pose)` in C++), after declaring `shard.LocalTransform` in its `writes` :
+A system cannot write the engine's own pose component through the pointers a query returns. The actor's `Transform` drives `shard.LocalTransform` and would overwrite the change. Instead, a system calls `set_local_transform` of `shard.ecs` 1.1 (`SystemCtx::SetLocalTransform(entity, Shard::Pose)` in C++), after declaring `shard.LocalTransform` in its `writes` :
 
 ```cpp
-auto local = ctx.Components().Find<shard::Pose>("shard.LocalTransform");
-ctx.Systems().Add("drift", shard::Phase::Update)
+auto local = ctx.Components().Find<Shard::Pose>("shard.LocalTransform");
+ctx.Systems().Add("drift", Shard::Phase::Update)
     .Writes(sign, local)
-    .Run([sign](shard::SystemCtx& s) {
-        s.Each(sign, [&](shard::Entity e, Sign& c) {
-            shard::Pose p;
+    .Run([sign](Shard::SystemCtx& s) {
+        s.Each(sign, [&](Shard::Entity e, Sign& c) {
+            Shard::Pose p;
             p.position.x = float(++c.uses);
             s.SetLocalTransform(e, p);
         });
@@ -596,7 +596,7 @@ The payload of a named event is bytes, and the sender documents their layout. Si
 
 Things that may still change are offered as `shard.experimental.*` before they are frozen into the ABI. These interfaces come with no compatibility promise : the major is 0, `query_interface` returns one only for its exact minor, and it can change or disappear in any engine revision. A native plugin carrying a valid signature from a trusted publisher (a distributed plugin) is refused them. They are for development, and for trying what the next ABI revision should contain.
 
-There is one today, `shard.experimental.world_ecs`. It gives the engine's registry on the main thread (`shard::experimental::World` in C++). It is opened and closed within one callback, and its structural changes are applied when it closes.
+There is one today, `shard.experimental.world_ecs`. It gives the engine's registry on the main thread (`Shard::experimental::World` in C++). It is opened and closed within one callback, and its structural changes are applied when it closes.
 
 ### Versions and the rules of the headers
 

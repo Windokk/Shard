@@ -284,6 +284,11 @@ namespace Shard::Editor::GUI{
         if (!ImGui::BeginMenu("Window"))
             return;
 
+        if (ImGui::MenuItem("Game View", "G", parent->IsGameView(), !GetEngine().IsInPlayMode()))
+            parent->ToggleGameView();
+
+        ImGui::Separator();
+
         ImGui::MenuItem("Viewport", nullptr, &parent->panelVisibility.viewport);
         ImGui::MenuItem("World Tree", nullptr, &parent->panelVisibility.worldTree);
         ImGui::MenuItem("World Settings", nullptr, &parent->panelVisibility.worldSettings);

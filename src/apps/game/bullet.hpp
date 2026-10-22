@@ -4,10 +4,10 @@
 
 #include <shard/game.hpp>
 
-class Bullet : public shard::Script {
+class Bullet : public Shard::Script {
 public:
 
-    void OnContactAdded(const shard::Contact&) override;
+    void OnContactAdded(const Shard::Contact&) override;
 
 private:
 

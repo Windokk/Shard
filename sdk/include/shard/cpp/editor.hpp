@@ -23,7 +23,7 @@
 #include <shard/cpp/detail.hpp>
 #include <shard/cpp/registry.hpp>
 
-namespace shard {
+namespace Shard {
 
     /// The widgets of a panel : valid inside its draw function. Every widget that edits a value takes it by reference and returns true on the
     /// frame the user changed it.
@@ -162,9 +162,9 @@ namespace shard {
     };
 }
 
-/// A panel of the editor, defined and registered from any file. `ui` is the name of the shard::Ui the body draws with. At global scope.
+/// A panel of the editor, defined and registered from any file. `ui` is the name of the Shard::Ui the body draws with. At global scope.
 #define SHARD_EDITOR_PANEL(Name, Title, ui)                                                                         \
-    static void SHARD_DETAIL_REG_CAT(ShardPanel_, Name)(::shard::Ui& ui);                                           \
-    static ::shard::detail::Registrar SHARD_DETAIL_REG_CAT(shardPanelRegistrar_, Name)(                             \
-        "4panel:" #Name, [](::shard::Context& ctx) { ctx.Editor().AddPanel(Title, &SHARD_DETAIL_REG_CAT(ShardPanel_, Name)); }); \
-    static void SHARD_DETAIL_REG_CAT(ShardPanel_, Name)(::shard::Ui& ui)
+    static void SHARD_DETAIL_REG_CAT(ShardPanel_, Name)(::Shard::Ui& ui);                                           \
+    static ::Shard::detail::Registrar SHARD_DETAIL_REG_CAT(shardPanelRegistrar_, Name)(                             \
+        "4panel:" #Name, [](::Shard::Context& ctx) { ctx.Editor().AddPanel(Title, &SHARD_DETAIL_REG_CAT(ShardPanel_, Name)); }); \
+    static void SHARD_DETAIL_REG_CAT(ShardPanel_, Name)(::Shard::Ui& ui)

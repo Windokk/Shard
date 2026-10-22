@@ -1,12 +1,12 @@
 // Shard C++ SDK : a plugin class over the C ABI.
 //
-//   class SpinPlugin : public shard::Plugin {
+//   class SpinPlugin : public Shard::Plugin {
 //   public:
-//       void OnLoad(shard::Context& ctx) override { ... }
+//       void OnLoad(Shard::Context& ctx) override { ... }
 //   };
 //   SHARD_C_PLUGIN(SpinPlugin)
 //
-// The macro exports shard_plugin_entry and fills the callbacks table : every callback catches what the plugin throws (shard::Error from a
+// The macro exports shard_plugin_entry and fills the callbacks table : every callback catches what the plugin throws (Shard::Error from a
 // refused registration, or anything else) and turns it into an error the host fails the plugin with, the message in its log. Nothing of the
 // engine is included or linked : this compiles against sdk/include alone, with any C++17 compiler.
 #pragma once
@@ -29,7 +29,7 @@
 #include <shard/cpp/services.hpp>
 #include <shard/cpp/system.hpp>
 
-namespace shard {
+namespace Shard {
 
     /// What the host knows of the plugin, and every way the plugin reaches it
     class Context {
@@ -55,17 +55,17 @@ namespace shard {
         void* Alloc(size_t size, size_t align = 16) const { return detail::Host()->alloc(m_Ctx, uint64_t(size), uint64_t(align)); }
         void Free(void* p) const { detail::Host()->free(m_Ctx, p); }
 
-        shard::Components Components() const { return shard::Components(m_Ctx); }
-        shard::Systems Systems() const { return shard::Systems(m_Ctx); }
-        shard::Scripts Scripts() const { return shard::Scripts(m_Ctx); }
-        shard::Editor Editor() const { return shard::Editor(m_Ctx); }
-        shard::CVars CVars() const { return shard::CVars(m_Ctx); }
-        shard::Commands Commands() const { return shard::Commands(m_Ctx); }
-        shard::Events Events() const { return shard::Events(m_Ctx); }
-        shard::Hooks Hooks() const { return shard::Hooks(m_Ctx); }
-        shard::Services Services() const { return shard::Services(m_Ctx); }
-        shard::Content Content() const { return shard::Content(m_Ctx); }
-        shard::Extensions Extensions() const { return shard::Extensions(m_Ctx); }
+        Shard::Components Components() const { return Shard::Components(m_Ctx); }
+        Shard::Systems Systems() const { return Shard::Systems(m_Ctx); }
+        Shard::Scripts Scripts() const { return Shard::Scripts(m_Ctx); }
+        Shard::Editor Editor() const { return Shard::Editor(m_Ctx); }
+        Shard::CVars CVars() const { return Shard::CVars(m_Ctx); }
+        Shard::Commands Commands() const { return Shard::Commands(m_Ctx); }
+        Shard::Events Events() const { return Shard::Events(m_Ctx); }
+        Shard::Hooks Hooks() const { return Shard::Hooks(m_Ctx); }
+        Shard::Services Services() const { return Shard::Services(m_Ctx); }
+        Shard::Content Content() const { return Shard::Content(m_Ctx); }
+        Shard::Extensions Extensions() const { return Shard::Extensions(m_Ctx); }
 
     private:
         static const ShardPluginApi* Plugin() { return detail::Interface<ShardPluginApi>(SHARD_IFACE_PLUGIN); }
@@ -206,14 +206,14 @@ namespace shard {
     }
 }
 
-/// Exports the entry point of the C ABI for a class derived from shard::Plugin (once per plugin, in one source file)
+/// Exports the entry point of the C ABI for a class derived from Shard::Plugin (once per plugin, in one source file)
 #define SHARD_C_PLUGIN(ClassName)                                                                                   \
     extern "C" SHARD_PLUGIN_EXPORT ShardResult SHARD_CALL shard_plugin_entry(const ShardHostApi* host, ShardPluginInfo* out) \
     {                                                                                                               \
-        return ::shard::detail::Entry(host, out, #ClassName, []() -> ::shard::Plugin* { return new ClassName(); }); \
+        return ::Shard::detail::Entry(host, out, #ClassName, []() -> ::Shard::Plugin* { return new ClassName(); }); \
     }
 
 /// A plugin that is only what its source files register (scripts, components, systems: shard/cpp/registry.hpp): the entry point, in any one of them
 #define SHARD_GAME_MODULE()                                                    \
-    namespace { class ShardGameModule final : public ::shard::Plugin {}; }                                         \
+    namespace { class ShardGameModule final : public ::Shard::Plugin {}; }                                         \
     SHARD_C_PLUGIN(ShardGameModule)

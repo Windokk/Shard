@@ -158,8 +158,9 @@ namespace Shard::Engine::Objects{
         
         WorldObject::Destroy();
 
-        // The children went first (each released its own entity) ; this takes whatever is left of the subtree with it
-        // (or as soon as the iteration that is running is over : a system may destroy actors from inside a query)
+        for(auto& component : components)
+            component->parent = nullptr;
+
         if(Core::Ecs::Registry* ecs = EcsOf(engine))
             ecs->DestroyDeferred(entity);
         entity = Core::Ecs::kNullEntity;

@@ -74,6 +74,8 @@ namespace Shard::Editor::GUI {
             ImVec2 viewportPos = ImVec2(0,0);
             bool viewportHovered = false;
             bool viewportFocused = false;
+            // Whether the last frame was the game view : the image changes size without the window doing it
+            bool gameViewShown = false;
 
             // Camera
             std::shared_ptr<Engine::Objects::Actor> cameraActor;

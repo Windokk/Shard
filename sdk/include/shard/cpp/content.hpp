@@ -12,7 +12,7 @@
 #include <shard/shard_state.h>
 #include <shard/cpp/detail.hpp>
 
-namespace shard {
+namespace Shard {
 
     class Content {
     public:

@@ -1,10 +1,10 @@
 // Shard C++ SDK : the fields of a script, declared where the member is.
 //
-//   class Gun : public shard::Script {
+//   class Gun : public Shard::Script {
 //   public:
 //       SHARD_FIELD(float, power, Range(0.f, 1000.f), Tooltip("Speed of the bullet")) = 30.f;
 //       SHARD_FIELD(float, lifetime, Range(0.f, 60.f)) = 3.f;
-//       SHARD_FIELD(shard::AssetId, mesh, Tooltip("The mesh to shoot"));
+//       SHARD_FIELD(Shard::AssetId, mesh, Tooltip("The mesh to shoot"));
 //       SHARD_FIELD(int, ammo, Runtime()) = 12;                  // shown by the inspector, not saved
 //       float cooldown = 0.f;                                    // not a field : it stays out of the inspector and the world file
 //   };
@@ -34,7 +34,7 @@
 #include <shard/cpp/component.hpp>
 #include <shard/cpp/detail.hpp>
 
-namespace shard {
+namespace Shard {
 
     /// What the options of a field add to it
     struct FieldSpec {
@@ -43,7 +43,7 @@ namespace shard {
         std::string tooltip;
     };
 
-    /// The options of SHARD_FIELD : `using namespace shard::field` brings them in scope, the macro does it for its arguments
+    /// The options of SHARD_FIELD : `using namespace Shard::field` brings them in scope, the macro does it for its arguments
     namespace field {
         struct Range {
             float min, max;
@@ -126,7 +126,7 @@ namespace shard {
         template <typename T>
         constexpr uint32_t DeclaredFieldType()
         {
-            static_assert(FieldType<T>::value != 0, "this member type has no SHARD_FIELD_* : specialize shard::FieldType for it");
+            static_assert(FieldType<T>::value != 0, "this member type has no SHARD_FIELD_* : specialize Shard::FieldType for it");
             return FieldType<T>::value;
         }
 
@@ -156,11 +156,11 @@ namespace shard {
 #define SHARD_FIELD(...) SHARD_DETAIL_FIELD_EXPAND(SHARD_DETAIL_FIELD(__VA_ARGS__, End()))
 #define SHARD_DETAIL_FIELD_EXPAND(x) x
 #define SHARD_DETAIL_FIELD(Type, name, ...)                                                                               \
-    ::shard::detail::FieldMarker shardFieldMarker_##name##_{                                                              \
-        #name, ::shard::detail::DeclaredFieldType<Type>(), ::shard::FieldFlags<Type>::value, &name,                       \
-        []() -> const ::shard::FieldSpec& {                                                                               \
-            using namespace ::shard::field;                                                                               \
-            static const ::shard::FieldSpec spec = ::shard::MakeFieldSpec(__VA_ARGS__);                                   \
+    ::Shard::detail::FieldMarker shardFieldMarker_##name##_{                                                              \
+        #name, ::Shard::detail::DeclaredFieldType<Type>(), ::Shard::FieldFlags<Type>::value, &name,                       \
+        []() -> const ::Shard::FieldSpec& {                                                                               \
+            using namespace ::Shard::field;                                                                               \
+            static const ::Shard::FieldSpec spec = ::Shard::MakeFieldSpec(__VA_ARGS__);                                   \
             return spec;                                                                                                  \
         } };                                                                                                              \
     Type name
