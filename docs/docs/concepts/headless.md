@@ -81,7 +81,7 @@ To play it back, use `ShardGame --replay run.replay` to watch it (keyboard input
 
 ## Regression test
 
-`tests/determinism` holds a small project (a floor, a wall, some bodies that fall and get kicked at random by `RandomKicker` scripts, and a keyboard-controlled `Character`) and a replay (`golden/determinism.replay`) that walks around with WASD for 600 frames. CTest runs it through `ShardHeadless` as `Determinism.Replay`. CI runs it on Windows and Linux on runners without a GPU, and fails if any check doesn't match:
+`tests/determinism` holds a small project (a floor, a wall, some bodies that fall and get kicked at random by `RandomKicker` scripts, and a keyboard-controlled `Character`, all of them scripts of the example game, which is written with the SDK) and a replay (`golden/determinism.replay`) that walks around with WASD for 600 frames. CTest runs it through `ShardHeadless` as `Determinism.Replay`. CI runs it on Windows and Linux on runners without a GPU, and fails if any check doesn't match:
 
 ```
 [REPLAY FAILED] the run diverged from the replay after 60 frames : expected state bf7eabc5c5ff73f9, got 5e47b74a8a3edcc4 (differs : transforms)

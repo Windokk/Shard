@@ -18,6 +18,14 @@ struct Spin {
 };
 SHARD_COMPONENT(Spin, (speed)(angle)(axis)(turns))
 
+// ABI 1.3 : a text and an asset in a component, and a system that moves the actor
+struct Sign {
+    shard::Text text;
+    shard::AssetId icon;
+    int32_t uses = 0;
+};
+SHARD_COMPONENT(Sign, (text)(icon)(uses))
+
 // The payload of "shard.test.spin.Turned" : described for the tools (event.watch)
 struct Turned {
     int32_t turns = 0;
@@ -51,6 +59,20 @@ public:
                         ++c.turns;
                         s.Emit("shard.test.spin.Turned", Turned{ c.turns, c.speed });
                     }
+                });
+            });
+        auto sign = ctx.Components().Register<Sign>("Sign");
+        auto pose = ctx.Components().Find<shard::Pose>("shard.LocalTransform");
+        ctx.Systems().Add("sign", shard::Phase::Update)
+            .Writes(sign, pose)
+            .Run([sign](shard::SystemCtx& s) {
+                s.Each(sign, [&](shard::Entity e, Sign& c) {
+                    ++c.uses;
+                    s.SetText(c.text, s.GetText(c.text) + "*");
+                    shard::Pose p;
+                    p.position.x = float(c.uses);
+                    p.scale = { 3.f, 3.f, 3.f };
+                    s.SetLocalTransform(e, p);
                 });
             });
         ctx.Events().Describe<Turned>("shard.test.spin.Turned");

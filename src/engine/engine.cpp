@@ -20,6 +20,7 @@
 #include "engine/core/memory/frame_allocator.hpp"
 #include "engine/core/memory/memory_tracker.hpp"
 #include "engine/platform/thread/thread.hpp"
+#include "engine/platform/time/clock.hpp"
 #include "engine/platform/process/process.hpp"
 #include "engine/assets/serialization/project/project_serializer.hpp"
 #include "engine/assets/hot_reloader.hpp"
@@ -80,16 +81,15 @@ namespace Shard::Engine{
             CVar<int> cvEngineMaxFPS("engine.maxFPS", 0, "Global frame rate limit, main thread included, 0 : unlimited", CVarFlags::Archive, 0, 10000);
             CVar<int> cvMaxFPS("render.maxFPS", 0, "Frame rate limit of the render thread alone, 0 : unlimited (the vsync, when on, limits it to the display's rate anyway)", CVarFlags::Archive, 0, 10000);
 
-            // Holds the calling thread until `fps` frames per second means this frame is over. The last millisecond is spun on, a sleep overshoots by about that much
+            // Holds the calling thread until `fps` frames per second means this frame is over. std::this_thread::sleep_until
+            // rounds up to the Windows scheduler tick (15.6 ms) : any limit under ~400 fps came out as 64 fps. PreciseSleep waits
+            // on a high resolution timer and spins on the clock for the end.
             void HoldUntil(std::chrono::steady_clock::time_point frameStart, int fps)
             {
                 SHARD_PROFILE_SCOPE(Debugging::ProfileCategory::Waiting);
                 const auto target = frameStart + std::chrono::duration_cast<std::chrono::steady_clock::duration>(std::chrono::duration<double>(1.0 / fps));
-                const auto spinMargin = std::chrono::milliseconds(1);
-                if(std::chrono::steady_clock::now() + spinMargin < target)
-                    std::this_thread::sleep_until(target - spinMargin);
-                while(std::chrono::steady_clock::now() < target)
-                    std::this_thread::yield();
+                const double remaining = std::chrono::duration<double>(target - std::chrono::steady_clock::now()).count();
+                Core::Platform::PreciseSleep(remaining);
             }
             CVar<bool> cvRenderDoc("render.renderdoc", false, "Load RenderDoc before the graphics API starts, so that `render.capture` can take a capture (applies at startup, SHARD_RENDERDOC=1 does the same)");
             CVar<bool> cvVulkanValidation("render.vulkan_validation", false, "Vulkan : turn the validation layer on (needs the Vulkan SDK ; applies at startup, SHARD_VULKAN_VALIDATION=1 does the same)");
@@ -865,11 +865,6 @@ namespace Shard::Engine{
             m_Context.profiler->EndFrameSampling(std::chrono::duration<float, std::milli>(std::chrono::steady_clock::now() - frameStart).count(), m_FrameCount);
 
             Plugins::PluginManager::Get().EndFrame(m_FrameCount);
-
-            if(m_Context.platform->GetInput()->WasKeyPressed(Key::Escape))
-            {
-                return false;
-            }
 
             return true;
         }

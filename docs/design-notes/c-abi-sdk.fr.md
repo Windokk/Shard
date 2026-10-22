@@ -1,6 +1,6 @@
 # ABI C stable et SDK public : plan
 
-> Note interne, suite de `plugin-system.fr.md` (phase **R2**, phase 7 du plan d'origine). **État (2026-10-21) : A0 à A5 faits, puis le reste du plan, l'ABI est en 1.2** (voir §13 : ce qui a été fait, les écarts au plan et ce qui reste). Le reste du document est le plan tel qu'il a été écrit avant le code.
+> Note interne, suite de `plugin-system.fr.md` (phase R2, phase 7 du plan d'origine). État au 2026-10-21 : A0 à A5 sont faits, puis le reste du plan, puis les révisions 1.3 (gameplay), 1.4 (scripts, acteurs, input) et 1.5 (physique, audio, mondes, panneaux d'éditeur). L'ABI est en 1.5. Le §13 dit ce qui a été fait, les écarts au plan et ce qui reste. Le reste du document est le plan tel qu'il a été écrit avant le code.
 >
 > Rédigé le 2026-10-20.
 
@@ -265,7 +265,7 @@ Aucun include de `src/engine`. Le même plugin s'écrit en C pur avec les tables
 ### 7.3 Documentation
 
 * `docs/docs/concepts/plugins.md` : une section « C ABI and SDK » (règles, versions, `abi` dans le manifeste, différences avec le chemin C++).
-* `docs/docs/tutorials.md` : « Write a plugin outside the engine repository » à partir du gabarit.
+* `docs/docs/tutorials/write-a-game-with-the-sdk.md` : « Write a game with the SDK » à partir du gabarit.
 * `docs/docs/api_reference.md` : la référence des tables, générée depuis les commentaires des en-têtes C (Doxygen sur `sdk/include` seulement).
 
 ## 8. Décisions à prendre avant de commencer
@@ -386,7 +386,7 @@ Le module **Voxel** (R8, phase 9 du tableau d'architecture) s'écrit contre le S
 * Autre compilateur : vérifié sur cette machine, plugin MSVC 19.51 (lié à MSVCP140) et plugin Clang chargés par le moteur MinGW GCC. `-DSHARD_SDK_TEST_VCVARS=<vcvars64.bat>` ajoute le test `Sdk.OutOfTreeMsvc`, `-DSHARD_SDK_TEST_CXX=clang++` fait compiler `Sdk.OutOfTree` par Clang. La CI le fait (Clang sous Linux, MSVC sous Windows, `.github/workflows/build.yml`) : **pas encore vu tourner en CI**.
 * 1.0 → 1.1 : copie figée des en-têtes 1.0 dans `tests/plugin_fixtures/abi_1_0/include`, fixture compilée contre elle ; puis passage à 1.1 (`shard.plugin` 1.1 : `host`, `has_permission`). La fixture 1.0 charge et tourne dans le moteur 1.1, une fixture 1.1 est refusée par un hôte 1.0 simulé (`ValidateCPluginInfo(info, 0)`) : `AbiCompatTest.*`.
 * Fuzz léger : 20 000 `ShardPluginInfo` incohérents, et chaque fonction de chaque table appelée avec des handles qui ne désignent rien et des pointeurs nuls : pas de plantage, toujours une erreur.
-* Doc : `docs/docs/concepts/plugins.md` (« The C ABI and the SDK »), `docs/docs/tutorials.md` (« Write a plugin outside the engine repository »), `docs/docs/api_reference.md` (générée, voir les écarts), `docs/docs/contributing.md` (la règle de revue des en-têtes, cf. §11), `sdk/README.md`.
+* Doc : `docs/docs/concepts/plugins.md` (« The C ABI and the SDK »), `docs/docs/tutorials/write-a-game-with-the-sdk.md` (« Write a game with the SDK »), `docs/docs/api_reference.md` (générée, voir les écarts), `docs/docs/contributing.md` (la règle de revue des en-têtes, cf. §11), `sdk/README.md`.
 
 ### Fait : le reste du plan, ABI 1.2 (2026-10-21)
 
@@ -401,13 +401,82 @@ Ce que la note prévoyait et que la première passe avait laissé :
 * **Le tutoriel suivi pas à pas** : déroulé à la main depuis `shard-sdk-1.2.0.zip` dans un dossier vierge, l'id changé. Il a trouvé la bibliothèque d'import (`.dll.a`) embarquée dans le `.shardplugin` (corrigé : elle reste dans le dossier de build) et deux imprécisions du texte (corrigées). Ce n'est pas une machine propre : le moteur et MinGW étaient déjà là.
 * Trouvé en route : `ShardHostApi::engineVersion` n'était jamais rempli (il l'est, depuis `config.h`), et `PluginContext::Engine()` restait nul pour tout plugin chargé avant le moteur, donc pour tous (`BindEngine` reçoit maintenant le moteur) : `get_asset` n'aurait jamais marché en vrai.
 
+### Fait : ABI 1.3 (2026-10-21)
+
+Deux manques empêchaient d'écrire du gameplay : déplacer un acteur, et avoir dans un composant autre chose que des nombres.
+
+Déplacer un acteur : `shard.ecs` 1.1, `set_local_transform(ecs, entity, pose)`. `shard.LocalTransform` est un miroir que le `Transform` de l'acteur écrase, donc un système ne peut pas écrire dans son bloc. Il enregistre une pose, qui est appliquée à la fin de la phase, sur le fil principal, après les changements structurels (`Scheduler::SetPhaseEndHook`, installé par le manager, qui appelle `FlushCPoses`). L'application passe par `Transform::SetPosition`, `SetRotation` et `SetScale`, donc le miroir, les enfants, la physique et le rendu suivent, et seul ce qui a changé est appliqué. Les poses sont rangées par nom de système et appliquées dans cet ordre : le dernier nom gagne, quel que soit l'ordre de fin des systèmes. Le système doit déclarer `shard.LocalTransform` dans ses `writes` (sinon `SHARD_E_INVALID_ARG`). Une entité sans acteur répond `SHARD_E_NOT_FOUND`. Il n'y a pas de latence d'une image : la phase suivante voit déjà la pose.
+
+Texte et assets : `shard.components` 1.2.
+* `SHARD_FIELD_STRING` est un handle de blob dont les octets sont du texte UTF-8. Le composant d'acteur garde en plus un `std::string` par champ (8 au plus, `SHARD_COMPONENT_MAX_STRINGS`) que la réflexion lit : l'inspecteur le montre comme une zone de texte et le monde le sauve comme une chaîne. `Push` écrit le texte dans le blob avant de copier le bloc sur l'entité, `Pull` relit le blob après ce que les systèmes ont écrit. La propriété est celle des blobs (copie à `Clone`, libération à `Destroy`). Un champ `STRING` ne peut pas être `PRIVATE` : un blob convient dans ce cas. `string_set` et `string_get` évitent de manipuler le blob à la main.
+* `SHARD_FIELD_ASSET` est un `int32_t` mappé sur `AssetID` / `TypeID::Asset`. L'inspecteur montre un sélecteur d'asset, le monde sauve le nom dans le projet, et le champ compte dans les dépendances d'assets.
+* Ni l'un ni l'autre ne peut figurer dans un événement décrit.
+
+Le SDK C++ gagne `shard::Text`, `shard::AssetId`, `shard::Pose`, `Components::SetText` et `GetText`, `SystemCtx::SetText`, `GetText` et `SetLocalTransform`. Dans un moteur plus ancien que la 1.3 ils lèvent `shard::Error` (`SHARD_E_UNSUPPORTED`).
+
+Tests : `CAbiTest.ATextAndAnAssetAreSavedShownAndOwnedByTheActorComponent`, `CAbiTest.ASystemMovesTheActorBehindAnEntityAtTheEndOfThePhase` (fixture C, type `Label`), `SdkSpinTest.ATextAnAssetAndAMovingSystemWrittenWithTheSdk` (fixture C++), un test du hook de fin de phase dans `EcsScheduler`, les dispositions de `ShardEcsApi` (96 octets) et `ShardComponentsApi` (104), et le fuzz des handles.
+
+Pas fait en 1.3 : `SHARD_FIELD_ENTITY` (une référence à un autre acteur demande une résolution au chargement du monde, un remappage quand l'acteur est copié en mode jeu et un sélecteur d'acteur dans l'inspecteur), `TAG`, la promotion de `world_ecs`, la création et la destruction d'acteurs, l'input, la physique et l'audio.
+
+### Fait : ABI 1.4, un jeu en plusieurs fichiers (2026-10-21)
+
+Le SDK 1.3 était une API d'enregistrement : `OnLoad` pose des lambdas et tout tient dans `plugin.cpp`. Le moteur a pourtant déjà le modèle qu'il faut : le composant `Script` (`OnCreate`, `OnPlay`, `OnTick`, `OnFixedTick`, `OnLateTick`, `OnStop`, `OnDestroyed`), des champs décrits par réflexion et une classe par fichier (`src/apps/game`). Le SDK reprend ce modèle.
+
+`shard.scripts` 1.0 (`shard_scripts.h`, `c_scripts.cpp`) :
+* Un type de script est un composant d'acteur qui dérive du `Script` du moteur (`CScriptComponent<N>`, avec N = 256 octets, 1 Ko, 4 Ko ou 16 Ko : la plus petite taille qui contient l'objet, le stockage étant au même endroit dans le composant pour toutes). Le monde le tick comme les siens, le mode jeu l'appelle, et `Clone` construit un objet neuf puis recopie les champs décrits (`CopyFields` copie les octets, et les blobs et textes pour de bon).
+* L'objet est construit et détruit sur place (`construct(user, storage)`) et n'est jamais déplacé, donc il peut contenir des `std::vector`.
+* Les champs utilisent `ShardFieldDesc`, texte, asset et blob compris. Le code qui les valide est partagé avec les composants (`BuildFieldSet`, `c_fields.hpp`, dont dérivent `CType` et `CScriptType`).
+* Un rappel qui renvoie une erreur ou lève passe par `reportError`, le dixième fait échouer le plugin, et l'appel est entouré d'un `ActiveScope` pour attribuer les plantages. Quand le contexte du plugin se libère, `ReleaseScripts` marque ses types comme morts : plus aucun rappel, même pour les objets qu'un monde tient encore.
+
+`shard.actors` 1.0 (`c_actors.cpp`) :
+* `ShardActor` est une génération et une case dans une table de `weak_ptr<Actor>`. Les ids d'objets du moteur sont réutilisés, donc un id ne peut pas servir de handle.
+* Pose locale et monde, hiérarchie, nom, activation, tags, destruction.
+* `create`, `spawn` (JSON d'un acteur de fichier monde, via `InstantiateActor`), `find_by_name` et `find_by_tag` travaillent dans le monde d'un acteur « ancre ». Il n'y a pas de handle de monde parce qu'un monde peut être déchargé, alors qu'un acteur invalide le dit.
+* Les composants du moteur s'atteignent par leur nom de sérialisation, avec leurs champs en JSON. `set_component` fusionne avec ce que le composant écrit déjà, donc les autres champs gardent leur valeur.
+* Ce qui n'est pas un champ (forces, raycasts) n'y est pas : ce sera `shard.physics`.
+
+Fils : la mention « thread : script » (`OnScriptThread`) vaut dans un rappel de script (`ScriptScope`) ou sur le fil principal hors système. Les systèmes `Scripts.*` du moteur sont exclusifs mais pas `mainThread`, donc ils peuvent tourner sur un fil de travail : c'est pourquoi la portée est un `thread_local` et pas une comparaison avec le fil principal. Un système C n'y a pas accès (`SHARD_E_WRONG_THREAD`).
+
+`shard.input` 1.0 (`c_input.cpp`) : le gestionnaire d'entrée du moteur, celui que les replays enregistrent, avec des numéros de touches propres à l'ABI (ceux de GLFW) et une table vers `Input::Key`. Il lit `Core::gSharedEnginePtr` plutôt que `GetEngine()`, qui arrête le processus quand il n'y a pas de moteur.
+
+Correction dans le moteur : `World::Tick` et les boucles voisines parcouraient `scripts` directement, alors que `RemoveComponent` y efface. Un script qui détruisait son propre acteur provoquait un comportement indéfini. Les boucles prennent maintenant un instantané des scripts et sautent ceux retirés entre-temps (`ForEachScript`).
+
+SDK C++ :
+* `shard/game.hpp` inclut le reste : `cpp/script.hpp` (`shard::Script`, `SHARD_REGISTER_SCRIPT` et `_EX`), `cpp/actor.hpp` (`Actor`, `Scene`), `cpp/input.hpp`, `cpp/math.hpp` (`Vec2`, `Vec3`, `Quat`, `Pose`, `LookRotation`) et `cpp/registry.hpp`.
+* Chaque `.cpp` ajoute sa fonction d'enregistrement à une liste à l'initialisation statique (`SHARD_REGISTER_SCRIPT`, `SHARD_DEFINE_COMPONENT`, `SHARD_ON_LOAD(Nom, ctx)`). Le SDK la déroule au début d'`OnLoad`, triée par clé (`0component:`, `1script:`, `3load:`) et non dans l'ordre d'édition de liens, parce que l'ordre des ids ECS et des systèmes en dépend, donc le déterminisme.
+* `GetScript<T>()` retrouve le nom sous lequel T a été enregistré par `typeid`. L'en-tête de T n'a donc pas besoin de déclarer un trait.
+* `shard::Text` a `Get()` et `Set()` : le SDK connaît le contexte du plugin (`detail::PluginHandle()`).
+* `SHARD_GAME_MODULE()` fait un plugin qui n'est que ces enregistrements.
+
+CMake : `shard_sdk_add_plugin(... SOURCE_DIRS src)` prend tous les fichiers sous `src/` (avec `CONFIGURE_DEPENDS`). Le gabarit est maintenant un projet de plusieurs fichiers (`module.cpp`, `gameplay/spinner.*`, `ecs/drift.cpp`).
+
+Tests : `GameScriptsTest.*` (fixture `tests/plugin_fixtures/game_scripts`, dix fichiers dont ceux du tutoriel, compilés avec `-Werror`), le fuzz des handles, les dispositions des nouvelles tables, et `Sdk.OutOfTree` avec le nouveau gabarit.
+
+Pas fait en 1.4 (fait en 1.5, voir plus bas) : les contacts physiques dans les scripts, `shard.physics`, l'audio, le chargement d'un monde, une référence à un acteur dans un champ, un `std::string` en membre listé d'un script, les prefabs par nom et une API de widgets pour l'éditeur. Toujours pas fait : `TAG` en champ.
+
+### Fait : ABI 1.5, physique, audio, mondes, éditeur (2026-10-21)
+
+Tout tient dans une seule révision : `shard.physics`, `shard.audio`, `shard.worlds` et `shard.editor` en 1.0, `shard.scripts` 1.1, `shard.components` 1.3.
+
+* **Contacts** : `ShardScriptCallbacks` gagne `on_contact_added/persisted/ended` (la struct passe de 120 à 160 octets, les champs sont ajoutés à la fin ; un plugin plus ancien a un `structSize` plus petit et ces champs sont lus comme nuls). `CScriptBase` surcharge les `OnContact*` de `Script` et fabrique un `ShardContact`. Jolt donne la normale du corps 1 vers le corps 2 : elle est retournée quand le script est le second, pour qu'elle aille toujours de soi vers l'autre. La fin d'un contact n'a pas de manifold, donc ni point ni normale.
+* **Physique** : les fonctions passent par les méthodes de `PhysicsBody`. `PhysicsManager::RayCast` rend maintenant le point et la normale (lus sous `BodyLockRead`). Le tir ignore un acteur (`IgnoreSingleBodyFilter`, `Jolt/Physics/Body/BodyFilter.h`) pour qu'un script ne se touche pas lui-même.
+* **Audio** : `AudioManager::PlayOneShot` crée un son sans acteur et le retire dans `Tick()` quand `ma_sound_at_end` dit qu'il est fini. Un gestionnaire « silencieux » (pas de périphérique : serveur, tests) accepte tous les appels.
+* **Mondes** : `load_world` passe par `LoadWorldAsync`, et le monde est échangé dans la mise à jour de monde de la phase PreSim, pas au milieu de l'image du script qui l'a demandé. Les prefabs se lisent dans les `ContentMounts` (`mod://`, chemin logique `prefabs/x.json`, ou nom nu) puis passent par `Worlds::InstantiateActor`.
+* **Références d'acteur** (`SHARD_FIELD_ACTOR`, scripts seulement) : le champ est un `ShardActor` dans l'objet et un chemin `Racine/Enfant` dans la sérialisation. Le chemin est gardé dans l'un des 8 emplacements de texte (partagés avec les chaînes) et rendu comme une chaîne éditable dans l'inspecteur. Si l'acteur n'existe pas encore (chargement, copie en mode jeu), le champ reste « en attente » et est résolu avant `OnCreate`, `OnWorldLoaded`, `OnPlay`, `OnTick` et `OnFixedTick`. Un composant simple ne peut pas en avoir : son bloc est copié par `memcpy` et ne peut pas porter de chemin.
+* **`std::string` listé** (`SHARD_FIELD_ACCESSOR`) : le champ n'est pas un handle ; l'hôte lit et écrit le texte par `text_get` / `text_set` du script, donc la `std::string` ne traverse jamais l'ABI, seuls les octets. Un type qui enregistre un champ de ce genre doit fournir les deux callbacks.
+* **Panneaux** : ImGui reste dans l'exécutable de l'éditeur. Le moteur expose `EditorUiBackend` (`ShardUiApi` + `begin` / `end`) que l'éditeur installe après `ImGui::CreateContext()` (`InstallPluginUi`). Sans backend (joueur, headless, outils), `shard.editor` répond `NOT_FOUND` et `Editor::AddPanel` renvoie faux : le plugin charge partout. Les panneaux sont des items d'extension `editor.panel` et apparaissent dans le menu Fenêtre.
+* **Piège** : ces appels passent par `Core::gSharedEnginePtr`, pas `GetEngine()`, qui termine le processus (`exit(2)`) quand il n'y a pas de moteur (outil hors ligne, test).
+* **SDK C++** : `Actor::AddForce`, `AddImpulse`, `Velocity`..., `Physics::Raycast`, `Audio::PlayOneShot`, `Worlds::Load`, `Scene::SpawnPrefab`, `Script::OnContact*`, `shard::Actor` et `std::string` comme champs listés, `SHARD_REGISTER_SCRIPT_BARE`, `SHARD_EDITOR_PANEL`.
+
+Tests : `AbiLayout` (les nouvelles tailles et offsets sont figés), `TheInterfacesOfEachRevisionAreOffered`, le fuzz étendu aux nouvelles tables, `GameScriptsTest.*` (références d'acteur et texte, audio / prefab / monde, panneaux avec un faux éditeur) et `GamePhysicsTest.AScriptPushesBodiesCastsRaysAndHearsContacts` avec un vrai `PhysicsManager`. Piège de test : une copie d'acteur n'enregistre ses scripts que dans un monde « chargé » (`World::SetLoaded(true)`).
+
 ### Écarts par rapport au plan
 
 * `CAbiPlugin` dérive d'`IModule` ; les rappels d'`EnginePlugin` et de `ToolPlugin` passent par des objets à part (voir A3).
 * Les callbacks renvoient un `ShardResult` : une valeur non nulle fait échouer le plugin comme une exception en C++ (sauf `on_tool_task`, dont l'erreur annule la tâche).
 * `ShardPluginInfo::structSize` est écrit par le plugin (son `sizeof`), pas par l'hôte : c'est ce qui permet de refuser une struct trop petite.
 * Le lien `ShardPluginCtx` → contexte ne s'arrête plus dans `on_disable` mais quand le contexte libère tout (`PluginContext::OnRelease`, premier enregistrement donc dernier libéré) : `on_unload` peut encore libérer sa mémoire, les ressources d'un type d'asset sont rendues au plugin et ses blobs libérés tant que le contexte existe.
-* Composants : des champs de données simples (nombres, booléen, vecteurs, quaternion, couleur) et des blobs. Pas de `STRING`, `ASSET`, `ENTITY`, `TAG`, donc pas de `construct` / `destroy` / `copy` ; les valeurs par défaut sont un bloc d'octets, pas du JSON. Drapeaux : `RUNTIME` (affiché en lecture seule, non sauvé) et `PRIVATE` ; pas de `HIDDEN` (l'inspecteur ne sait pas cacher un champ). Les noms sont préfixés par l'hôte (`<id>.<nom>`), comme les cvars.
+* Composants : des champs de données simples (nombres, booléen, vecteurs, quaternion, couleur), des blobs, et depuis la 1.3 du texte et des assets. Pas de `ENTITY`, `TAG`, donc pas de `construct` / `destroy` / `copy` ; les valeurs par défaut sont un bloc d'octets, pas du JSON. Drapeaux : `RUNTIME` (affiché en lecture seule, non sauvé) et `PRIVATE` ; pas de `HIDDEN` (l'inspecteur ne sait pas cacher un champ). Les noms sont préfixés par l'hôte (`<id>.<nom>`), comme les cvars.
 * `shard.ecs` ne sert que depuis un système ; le fil principal passe par `shard.experimental.world_ecs`, sans promesse.
 * Hooks : une seule struct `ShardHookArgs` (`subject`, `detail`, `frame`) décrite par un tableau dans l'en-tête, au lieu d'une struct par hook.
 * Extensions : `add_validator`, `add_asset_type`, `add_importer` typées plutôt qu'un `add(point, name, item, item_type)` générique ; plus `get_asset` pour relire une ressource.
@@ -417,8 +486,47 @@ Ce que la note prévoyait et que la première passe avait laissé :
 
 ### Reste
 
-* Voir les étapes CI tourner : « autre compilateur » (Clang sous Linux, MSVC sous Windows) et l'archive SDK. Linux n'a jamais été vérifié sur cette machine.
+* La CI passe, y compris les étapes « autre compilateur » (Clang sous Linux, MSVC sous Windows) et l'archive SDK. Linux n'a pas été vérifié sur cette machine.
 * Mesurer le coût par appel sur `Spin` avec 100 000 entités contre le même système en C++ (risque du §11).
 * Le critère de réception du §10 (le module Voxel contre le SDK seul) attend le module ; les blobs sont là pour lui.
 * Le tutoriel sur une machine réellement vierge (sans MinGW ni moteur installés à côté).
-* Candidats pour une 1.3 : faire passer `world_ecs` de l'expérimental au figé une fois éprouvé, champs `STRING` / `ASSET` / `ENTITY` (alloués par l'hôte, sur le modèle des blobs), écriture de `LocalTransform` qui remonte au `Transform`.
+* Essayer les panneaux dans l'éditeur lui-même (les tests passent par un faux backend ; le dessin ImGui réel n'a été que compilé).
+* Faire passer `world_ecs` de l'expérimental au figé une fois éprouvé.
+* Avant une 1.6, faire passer la CI sur la 1.5 : rien n'a tourné sur Clang, MSVC ni Linux, et les en-têtes C++ du SDK sont compilés avec `-Werror` dans les fixtures.
+* Compiler les extraits de la section 8 du tutoriel (`Turret`, le panneau) : ils sont écrits à partir de l'API, pas copiés d'une fixture.
+* Figer une copie des en-têtes 1.4 à côté de celle de la 1.0 (`tests/plugin_fixtures/abi_1_0`), pour que les tests de compatibilité vérifient aussi qu'un plugin compilé en 1.4 charge toujours.
+
+### Le module de jeu de l'exemple écrit avec le SDK seul (2026-10-22)
+
+`src/apps/game` (`Character`, `Gun`, `RandomKicker`) n'inclut plus rien du moteur : `ABI c1` dans `shard_add_plugin`, `#include <shard/game.hpp>`, une ligne `SHARD_GAME_MODULE()` (`module.cpp`). Les `.reflection.hpp` générés et `game_module.cpp` (`LinkJolt`, `AdoptStaticRegistrars`) ont disparu.
+
+* **Noms** : un script du SDK s'appelle `<id du plugin>.<nom>`, donc les mondes disent `game.Character`, `game.Gun` et `game.RandomKicker` (`physics.world`, `sponza.world`, `determinism.world` ont été réécrits). Un monde ancien qui dit `Character` garde le composant tel quel, comme n'importe quel type inconnu, et ne marche plus.
+* **Ajouts au SDK qu'il a fallu** : `shard.plugin` 1.2 `random_stream` (le `RandomKicker` tirait son générateur de `Core::GetEngine().MakeRandomStream`) et `shard::Random` (`cpp/random.hpp`), le PCG32 du moteur dans le plugin : mêmes bits, vérifié par `GameScriptsTest` contre `Core::Random`. Le nom du flux porte maintenant l'id du plugin (`game/RandomKicker/<acteur>`) et plus l'id local du composant, que le SDK ne donne pas ; `golden/determinism.replay` a donc été enregistré de nouveau (`--replay` et `--write-replay` sur le même fichier : les entrées WASD sont gardées, seuls les contrôles d'état changent, et le fichier note maintenant la ligne `plugin game`). Les deux scripts comptent dans le hachage (le `Character` marche avec ces touches) : sans le module de jeu, la rediffusion diverge. Rien ne dit que le `Character` du SDK donne les mêmes bits que l'ancien, il donne les mêmes à chaque exécution.
+* **Petits écarts** : `Radians` / `Degrees` du SDK multiplient par le facteur écrit en double (`kPi / 180.f` donnait un ulp d'écart avec glm), `FieldOptions` a un constructeur (`{ "frames", SHARD_FIELD_RUNTIME }` ne déclenche plus `-Wmissing-field-initializers`), `lockedMouseX`, `pitch`, `frames`... sont `RUNTIME` (affichés, plus sauvés dans le monde).
+* **`Gun`** : la balle est un acteur créé par `Scene::Create`, puis (à l'origine) `AddComponent("model", {"mesh": <id>, "materials": [<id>]})` et `AddComponent("physics_body", ...)` en JSON (le moteur lit un entier comme un nom d'asset), puis `SetVelocity`. Le corps existait dès que le composant existait. Remplacé ensuite par les composants typés, voir plus bas. Si un composant échoue, la balle est détruite avant de relancer l'exception. Le champ `sound` existait déjà sans servir : il reste sans servir.
+* **`--game`** accepte une bibliothèque de l'ABI C sans manifeste : `PluginManager::LoadLibrary` regarde si elle exporte `shard_plugin_entry` et pas `shard_plugin_describe`.
+* **Tests** : `ExampleGameTest.*` charge `<build>/plugins/game` dans le contexte de test (avec `RegisterRenderingModule` et `RegisterPhysicsModule`) : `Character` avance de `speed * dt`, `Gun` tire une balle qui vole puis disparaît, `RandomKicker` pousse dans la direction du flux du moteur.
+* **Pas fait** : le `Character` lit le curseur en `float` (`CursorPosition`) là où le moteur le lisait en `double` ; sans conséquence tant que le curseur est en pixels entiers.
+
+### Champs déclarés dans le header, composants typés (2026-10-22)
+
+Deux retours sur le `Gun` : la liste `SHARD_REGISTER_SCRIPT_EX(Gun, (a)(b), ({ "a", 0, 0.f, 1000.f }, ...))` du `.cpp` est loin du membre, et `AddComponent("physics_body", R"({"motionType":...})")` n'est pas une API.
+
+* **`SHARD_FIELD(Type, nom, options...) = valeur;`** (`cpp/field.hpp`). Dans la classe, avant chaque champ : la macro déclare le membre (`Type nom`, la valeur par défaut va après, comme pour n'importe quel membre) et, devant lui, un membre d'un octet (`FieldMarker`) dont le constructeur annonce nom, type, décalage et options. Pas de générateur de code (le SDK ne peut pas en imposer un à un jeu hors du dépôt) : `Scripts::Register` construit un objet témoin avec un collecteur actif, les marqueurs s'y inscrivent, et ceux des objets que l'hôte construit ensuite ne font rien (pas de collecteur, ou adresse hors du témoin). L'ordre des champs est celui de la classe. Les options s'écrivent nues (`Range(0.f, 1000.f)`, `Tooltip("...")`, `Runtime()`, `Hidden()`) : un lambda dans l'initialiseur du marqueur fait `using namespace shard::field`, et ne s'évalue que pendant l'enregistrement.
+* **`SHARD_REGISTER_SCRIPT(Classe)`** suffit alors. Les anciennes formes (`(a)(b)`, `_EX`, `_BARE`) marchent toujours et peuvent être mélangées avec des `SHARD_FIELD` dans une même classe (un nom déclaré deux fois est refusé).
+* **Piège** : la macro finit par `Type nom`, donc un champ sans `= valeur;` vaut zéro tant que la classe n'a pas de constructeur à elle (l'hôte la construit avec `T()`), et n'importe quoi sinon. Le compilateur du projet est en `-pedantic -Werror` : une macro variadique appelée sans argument variadique est une erreur en C++17, donc `SHARD_FIELD` ajoute elle-même une option vide (`End()`) à la fin. `Scripts::Register` donne au collecteur l'adresse du témoin sous forme d'entier (`uintptr_t`) : lui passer le pointeur vers du stockage pas encore construit déclenchait `-Werror=maybe-uninitialized` sur certains GCC (signalé sur le build de l'utilisateur, jamais reproduit avec le GCC 15.2 de MSYS2 à -O0/-O2/-O3/LTO).
+* **`shard.actors` 1.1** (dans la 1.5, pas encore publiée) : `get_component_field`, `set_component_field`, `erase_component_field`. Le chemin est un nom de champ (`"intensity"`) ou un chemin dans sa valeur (`"materials/0"`, `"shapes/0/params/radius"`, `"shapes/-"` pour ajouter), la valeur du JSON. Un champ réfléchi passe par `Component::ApplyField`, donc par `OnFieldChanged` comme une édition de l'inspecteur : changer le frottement d'un corps ne le reconstruit pas et garde sa vitesse. Ce que la réflexion ne décrit pas (les formes du `PhysicsBody`) passe par `Deserialize` sur le JSON complet modifié, comme `set_component`. Un tableau grandit pour contenir l'indice (les trous valent 0). Un champ inconnu est `NOT_FOUND`, une valeur du mauvais type `INVALID_ARG`.
+* **Composants typés** (`cpp/engine_components.hpp`) : `Model`, `PhysicsBody` (avec `Shape::Sphere/Box/Capsule/Cylinder`), `Light`, `Camera`, `AudioSource`, `AudioListener`, `Billboard`, par-dessus `ComponentRef` qui atteint n'importe quel champ de n'importe quel composant du moteur par son nom. `actor.Add<shard::Model>()`, `Get<T>()` (le handle dit s'il y a un composant), `Has<T>()`, `Remove<T>()`. Les setters jettent `shard::Error` en cas de refus (une faute de frappe est une erreur du script), les getters rendent zéro. Les assets se lisent par leur nom dans le projet (c'est ce que sérialise le moteur) et s'écrivent par `AssetId` ou par nom. Il n'y a pas encore de classe pour `ReverbZone`, `GravityField`, `ProbeVolume`, `ReflectionProbe` : `ComponentRef` les atteint.
+* **Changement dans le moteur** : `PhysicsBody::OnFieldChanged("motionType")` reconstruit le corps tout de suite (au lieu de le marquer à refaire au prochain `Tick`), pour que `SetMotionType(Dynamic)` puis `SetVelocity` marchent dans la même fonction. Différence à vérifier à l'écran (pas fait) : l'ancien chemin du `Gun` passait par `Model::Deserialize`, qui finit par `DeserializeActive(data, false)` (composant inactif si le JSON ne dit pas `"active"`) ; le nouveau ne désérialise pas et laisse le composant actif.
+* **`Gun`** réécrit : `bullet.Add<shard::Model>()`, `SetMesh`, `SetMaterial(0, ...)`, `Add<shard::PhysicsBody>()`, `SetShape(Shape::Capsule())`, `SetMotionType(Dynamic)`, `SetVelocity`. `Character` et `RandomKicker` passent aux `SHARD_FIELD`.
+* **Tests** : `GameScriptsTest.FieldsAreDeclaredInTheClassWithTheirOwnOptions`, `TypedComponentsTest.*` (le script `Builder` du fixture, et les trois fonctions de l'ABI par chemin, y compris les refus et le handle périmé), `TheInterfacesOfEachRevisionAreOffered` et `abi_layout_tests` (`ShardActorsApi` passe de 216 à 240 octets).
+* **Pas fait** : les composants plain data (`SHARD_COMPONENT`) gardent la liste `(a)(b)` : leur bloc est copié par `memcpy` et un marqueur d'un octet par champ le gonflerait. Pas de getter qui rende un `AssetId` (le moteur donne le nom). Le composant `camera` n'a pas pu être testé dans le contexte de test (il demande un `CameraManager`).
+
+### Absent après la 1.5 (candidats pour une 1.6)
+
+* **`TAG`** : pas de champ `TAG` dans les scripts ni dans les composants.
+* **Physique** : pas de formes ni d'articulations. Le raycast ne rend que le premier impact, sans requête de recouvrement ni de balayage. La fin d'un contact n'a ni point ni normale (Jolt ne donne pas de manifold à ce moment).
+* **Audio** : pas d'effets. Un son ponctuel ne rend pas de handle, donc on ne peut ni l'arrêter ni le régler après coup.
+* **Références d'acteur** : réservées aux scripts (un composant est copié par `memcpy` et ne peut pas porter de chemin), et elles partagent avec les chaînes les 8 emplacements de texte.
+* **Éditeur** : seulement des fenêtres avec des widgets simples. Pas d'extension de l'inspecteur, pas de gizmos, pas de menus personnalisés.
+* **Hors périmètre de l'ABI C** : le rendu (features, pipelines) et le réseau. Un plugin qui en a besoin s'écrit en C++ contre le moteur.

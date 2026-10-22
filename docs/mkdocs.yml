@@ -1,57 +1,105 @@
-site_name: Shard Engine Docs
-site_url: https://windokk.github.io/pulse
-repo_url: https://github.com/Windokk/pulse
-repo_name: Windokk/Pulse
-copyright: Copyright &copy; 2025 - Windokk
-extra:
-  version:
-    provider: mike
+site_name: Shard Engine
+site_description: A 3D game engine in C++17 for Windows and Linux.
+site_url: https://windokk.github.io/Shard/
+repo_url: https://github.com/Windokk/Shard
+repo_name: Windokk/Shard
+copyright: Copyright &copy; 2025 - 2026 Windokk
+
 plugins:
   - search
   - tags
   - redirects:
       redirect_maps:
-        'index.md': 'index/index.md'
-
-
+        'index/index.md': 'index.md'
+        'index/getting-started.md': 'getting-started.md'
 
 theme:
-  features:
-    - navigation.expand
-    - navigation.tabs
   name: material
-  logo: images/ShardLogoBlack.png
+  logo: images/logo-white.svg
+  favicon: images/favicon.svg
   icon:
     repo: fontawesome/brands/github
-    
+  features:
+    - navigation.tabs
+    - navigation.indexes
+    - navigation.top
+    - navigation.footer
+    - search.suggest
+    - search.highlight
+    - content.code.copy
+    - content.tabs.link
   palette:
     - media: "(prefers-color-scheme)"
       toggle:
-        icon: octicons/gear-16
-        name: System preference
+        icon: material/brightness-auto
+        name: Switch to light mode
     - media: "(prefers-color-scheme: light)"
       scheme: default
       primary: custom
       accent: custom
       toggle:
-        icon: material/toggle-switch
-        name: Light mode
+        icon: material/weather-night
+        name: Switch to dark mode
     - media: "(prefers-color-scheme: dark)"
       scheme: slate
-      primary: black
-      accent: indigo
+      primary: custom
+      accent: custom
       toggle:
-        icon: material/toggle-switch-off
-        name: Dark mode
+        icon: material/weather-sunny
+        name: Switch to system preference
+
+nav:
+  - Home: index.md
+  - Getting started: getting-started.md
+  - Concepts:
+    - concepts.md
+    - Engine:
+      - Modules: concepts/modules.md
+      - Plugins and modules: concepts/plugins.md
+      - Platform Abstraction Layer: concepts/platform.md
+      - Event system: concepts/events.md
+      - Time: concepts/time.md
+      - Tags: concepts/tags.md
+    - Rendering:
+      - Renderer: concepts/renderer.md
+      - Display and tonemapping: concepts/display.md
+      - Baked lighting: concepts/lightmaps.md
+    - World and simulation:
+      - Large world: concepts/large-world.md
+      - Gravity fields: concepts/gravity.md
+      - Headless mode and determinism: concepts/headless.md
+    - Executables:
+      - Editor: concepts/executables/editor.md
+      - Player: concepts/executables/player.md
+  - Tutorials:
+    - tutorials.md
+    - Write a game with the SDK: tutorials/write-a-game-with-the-sdk.md
+  - API reference: api_reference.md
+  - Contributing: contributing.md
 
 markdown_extensions:
   - admonition
+  - attr_list
+  - md_in_html
+  - tables
+  - toc:
+      permalink: true
   - pymdownx.details
   - pymdownx.superfences
-  - attr_list
+  - pymdownx.highlight:
+      anchor_linenums: true
+  - pymdownx.inlinehilite
+  - pymdownx.tabbed:
+      alternate_style: true
   - pymdownx.emoji:
       emoji_index: !!python/name:material.extensions.emoji.twemoji
       emoji_generator: !!python/name:material.extensions.emoji.to_svg
 
 extra_css:
   - stylesheets/extra.css
+
+extra:
+  social:
+    - icon: fontawesome/brands/github
+      link: https://github.com/Windokk/Shard
+      name: Shard on GitHub

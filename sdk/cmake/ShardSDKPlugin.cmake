@@ -2,7 +2,8 @@
 #
 #   find_package(ShardSDK 1.0 REQUIRED)
 #   shard_sdk_add_plugin(weather
-#       SOURCES      src/weather.cpp ...
+#       SOURCES      src/weather.cpp ...       # files, and / or :
+#       SOURCE_DIRS  src                       # folders : every .cpp / .cc / .cxx / .c under them is part of the plugin (found again when a file is added)
 #       MANIFEST     shard-plugin.json        # the plugin's manifest : the SDK adds "abi", "linkage" and "binaries" to it
 #     # or, without a manifest of your own :
 #       ID           com.acme.weather         # reverse DNS, lowercase
@@ -143,11 +144,19 @@ endfunction()
 function(shard_sdk_add_plugin target)
     set(options AFFECTS_SIMULATION NO_SIMULATION PACKAGE)
     set(one ID NAME VERSION KIND MODULE_KIND CONTENT_DIR OUTPUT_DIR DESCRIPTION MANIFEST)
-    set(multi SOURCES HOSTS DEPENDS ENGINE_REQUIRES)
+    set(multi SOURCES SOURCE_DIRS HOSTS DEPENDS ENGINE_REQUIRES)
     cmake_parse_arguments(P "${options}" "${one}" "${multi}" ${ARGN})
 
+    # A game is a folder of files: the ones under SOURCE_DIRS, found again by CMake whenever one is added or removed
+    foreach(_dir ${P_SOURCE_DIRS})
+        if(NOT IS_ABSOLUTE "${_dir}")
+            set(_dir "${CMAKE_CURRENT_SOURCE_DIR}/${_dir}")
+        endif()
+        file(GLOB_RECURSE _found CONFIGURE_DEPENDS "${_dir}/*.cpp" "${_dir}/*.cc" "${_dir}/*.cxx" "${_dir}/*.c")
+        list(APPEND P_SOURCES ${_found})
+    endforeach()
     if(NOT P_SOURCES)
-        message(FATAL_ERROR "shard_sdk_add_plugin(${target}) : SOURCES is empty")
+        message(FATAL_ERROR "shard_sdk_add_plugin(${target}) : no source file (SOURCES, or SOURCE_DIRS with files in them)")
     endif()
     if(NOT SHARD_SDK_INCLUDE_DIR)
         get_filename_component(SHARD_SDK_INCLUDE_DIR "${CMAKE_CURRENT_FUNCTION_LIST_DIR}/../include" ABSOLUTE)

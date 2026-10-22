@@ -50,10 +50,9 @@ What is left in the accumulator is how far the frame sits between two simulated 
 * Never accumulate `GetDeltaTime()` into a timer that decides gameplay : it differs from machine to machine.
 
 ```cpp
-void Character::OnTick()
+void Character::OnTick(float deltaTime)      // the SDK passes the step ; engine C++ asks the time manager for GetDeltaTime()
 {
-    const float dt = Core::GetEngine().GetTimeManager()->GetDeltaTime();
-    position += velocity * dt;
+    position += velocity * deltaTime;
 }
 ```
 

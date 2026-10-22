@@ -103,6 +103,12 @@ namespace Shard::Engine::Core::Ecs {
 
         uint64_t FrameCount() const { return m_Frame; }
 
+        /// @brief Called on the thread that runs the phase, once the systems of a phase are done and their recorded changes applied (not
+        /// for a phase that has no system). For what must touch more than the registry and so cannot be done from a system, such as the
+        /// actors behind the entities. An empty function removes it.
+        using PhaseEndFn = std::function<void(Phase)>;
+        void SetPhaseEndHook(PhaseEndFn hook) { m_PhaseEnd = std::move(hook); }
+
         struct SystemStats {
             std::string name;
             Phase phase;
@@ -146,6 +152,7 @@ namespace Shard::Engine::Core::Ecs {
         PhaseGraph m_Graphs[static_cast<size_t>(Phase::Count)];
         uint32_t m_NextSequence = 0;
         uint64_t m_Frame = 0;
+        PhaseEndFn m_PhaseEnd;
 
         // The context of the run in progress, read by the tasks of the TaskGraph
         Registry* m_RunRegistry = nullptr;

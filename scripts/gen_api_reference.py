@@ -669,14 +669,15 @@ def generate():
     out.append('')
     out.append('## The C ABI')
     out.append('')
-    out.append('The headers of `sdk/include/shard` are the contract between a plugin and the engine. This page is them, in reading order : their '
-               'comments are the documentation. See [Plugins](concepts/plugins.md#the-c-abi-and-the-sdk) for the concepts and '
-               '[the tutorial](tutorials.md) to build a plugin.')
+    out.append('The headers in `sdk/include/shard` are the contract between a plugin and the engine. This page is generated from their comments, '
+               'in reading order. See [Plugins](concepts/plugins.md#the-c-abi-and-the-sdk) for the concepts and '
+               '[the tutorial](tutorials/write-a-game-with-the-sdk.md) to build a plugin.')
     out.append('')
-    out.append('Every function says the thread it may be called from : **any**, **system** (from inside a system, in parallel with others) or '
-               '**main** (the main thread, outside the systems). A function returns a `ShardResult` : `SHARD_OK` (0) or a negative error, the '
-               'details in the engine\'s log under the plugin\'s id. Strings are `ShardStr` (UTF-8, not necessarily zero terminated, valid for '
-               'the call) ; a *text out* function takes `(buffer, capacity, *size)`, copies what fits and gives the full length.')
+    out.append('Every function says which thread may call it : `any`, `system` (from inside a system, possibly in parallel with others), '
+               '`script` (from a script callback) or `main` (the main thread, outside systems). A function returns a `ShardResult`, either '
+               '`SHARD_OK` (0) or a negative error, and the details go to the engine\'s log under the plugin\'s id. Strings are `ShardStr` : '
+               'UTF-8, not necessarily zero terminated, valid for the duration of the call. A "text out" function takes '
+               '`(buffer, capacity, *size)`, copies what fits and returns the full length.')
     out.append('')
 
     offered = offered_interfaces()

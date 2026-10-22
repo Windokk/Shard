@@ -1,4 +1,4 @@
-/* Interface "shard.components" 1.1 : component types described field by field.
+/* Interface "shard.components" 1.3 : component types described field by field.
  *
  * One registration gives a type two faces, under one name ("<plugin id>.<name>", made by the host) :
  *   - an ECS component : a block of `size` bytes on an entity, what systems query and write (shard_ecs.h). Plain data : copied with memcpy,
@@ -17,7 +17,12 @@
  * plugin (disable, unload). The block is still copied with memcpy, so two blocks may hold the same handle : that is a shared blob, not a
  * copy. The actor component is the exception, it owns the blobs of its blob fields : it saves their bytes with the world (base64), a copy of
  * the actor (play mode) gets copies of them, and removing the component frees them. A system that puts a new blob in such a field frees
- * the one it replaces. */
+ * the one it replaces.
+ *
+ * Text and assets (1.2) : a field SHARD_FIELD_STRING holds a ShardBlob too, whose bytes are the UTF-8 text (no terminator) : the actor
+ * component owns it like any blob, but the inspector shows it as a text box and the world file saves it as a JSON string. string_set and
+ * string_get read and write it without touching the blob by hand. A field SHARD_FIELD_ASSET is an int32_t, the id of an asset of the project
+ * (0 : none) : the inspector shows an asset picker, the world file saves the asset by its name, and the engine knows the component uses it. */
 #ifndef SHARD_COMPONENTS_H
 #define SHARD_COMPONENTS_H
 
@@ -46,10 +51,15 @@ typedef uint64_t ShardBlob;             /* 0 is never valid : an empty blob fiel
 #define SHARD_FIELD_QUAT    11u     /* float[4] : x, y, z, w */
 #define SHARD_FIELD_COLOR   12u     /* float[4] : r, g, b, a (the inspector shows a colour picker) */
 #define SHARD_FIELD_BLOB    13u     /* ShardBlob (uint64_t) : saved as the blob's bytes, not shown by the inspector (1.1) */
+#define SHARD_FIELD_STRING  14u     /* ShardBlob (uint64_t) holding UTF-8 text : edited in the inspector, saved as text (1.2). 8 per component at most */
+#define SHARD_FIELD_ASSET   15u     /* int32_t : the id of an asset, 0 for none (1.2) */
+#define SHARD_FIELD_ACTOR   16u     /* ShardActor (uint64_t) : another actor, saved by its path in the world. Scripts only (1.5) */
 
 /* Field flags. Without any, a field is saved and editable in the inspector. */
 #define SHARD_FIELD_RUNTIME     1u  /* runtime state : shown by the inspector, read only, not saved */
-#define SHARD_FIELD_PRIVATE     2u  /* neither shown nor saved : the block keeps it, nothing else sees it */
+#define SHARD_FIELD_PRIVATE     2u  /* neither shown nor saved : the block keeps it, nothing else sees it (not for a string : use a blob) */
+#define SHARD_FIELD_ACCESSOR    4u  /* a SHARD_FIELD_STRING of a script that is not a handle : the plugin's own string at that offset, read and written
+                                     * by the script's text_get and text_set callbacks (shard_scripts.h) instead of a blob (1.5) */
 
 typedef struct ShardFieldDesc {
     uint32_t structSize;
@@ -73,6 +83,7 @@ typedef struct ShardComponentDesc {
 
 #define SHARD_COMPONENT_MAX_SIZE    1024u
 #define SHARD_COMPONENT_MAX_FIELDS  64u
+#define SHARD_COMPONENT_MAX_STRINGS 8u      /* SHARD_FIELD_STRING and SHARD_FIELD_ACTOR fields of one component or script together (1.2) */
 
 typedef struct ShardComponentsApi {
     uint32_t structSize;
@@ -106,6 +117,14 @@ typedef struct ShardComponentsApi {
     /* New size, the first bytes kept, the rest zeroed ; the bytes move. thread : any */
     ShardResult (SHARD_CALL *blob_resize)(ShardPluginCtx ctx, ShardBlob blob, uint64_t size);
     ShardResult (SHARD_CALL *blob_free)(ShardPluginCtx ctx, ShardBlob blob);
+
+    /* ---- 1.2 : text ---- */
+    /* Puts `text` (copied now) in the string field `*field` points to : in its blob if it holds a live one, else in a new blob whose handle
+     * is stored in *field. thread : any. SHARD_E_OUT_OF_MEMORY : over the plugin's enforced budget. */
+    ShardResult (SHARD_CALL *string_set)(ShardPluginCtx ctx, ShardBlob* field, ShardStr text);
+    /* The text of a string field (empty for blob 0). `out->data` stays valid until the field is set again or freed. thread : any.
+     * SHARD_E_STALE_HANDLE : freed, or not this plugin's. */
+    ShardResult (SHARD_CALL *string_get)(ShardPluginCtx ctx, ShardBlob blob, ShardStr* out);
 } ShardComponentsApi;
 
 #ifdef __cplusplus

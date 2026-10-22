@@ -37,7 +37,7 @@ static_assert(offsetof(ShardComponentDesc, name) == 16, "ShardComponentDesc.name
 static_assert(offsetof(ShardComponentDesc, fields) == 32, "ShardComponentDesc.fields");
 static_assert(offsetof(ShardComponentDesc, defaults) == 40, "ShardComponentDesc.defaults");
 
-static_assert(sizeof(ShardComponentsApi) == 88, "ShardComponentsApi");                                        // 56 until 1.1
+static_assert(sizeof(ShardComponentsApi) == 104, "ShardComponentsApi");                                       // 88 until 1.2, 56 until 1.1
 static_assert(offsetof(ShardComponentsApi, structSize) == 0, "ShardComponentsApi.structSize");
 static_assert(offsetof(ShardComponentsApi, register_type) == 8, "ShardComponentsApi.register_type");
 static_assert(offsetof(ShardComponentsApi, find_type) == 16, "ShardComponentsApi.find_type");
@@ -49,6 +49,8 @@ static_assert(offsetof(ShardComponentsApi, blob_create) == 56, "ShardComponentsA
 static_assert(offsetof(ShardComponentsApi, blob_data) == 64, "ShardComponentsApi.blob_data");                 // 1.2
 static_assert(offsetof(ShardComponentsApi, blob_resize) == 72, "ShardComponentsApi.blob_resize");             // 1.2
 static_assert(offsetof(ShardComponentsApi, blob_free) == 80, "ShardComponentsApi.blob_free");                 // 1.2
+static_assert(offsetof(ShardComponentsApi, string_set) == 88, "ShardComponentsApi.string_set");               // 1.3
+static_assert(offsetof(ShardComponentsApi, string_get) == 96, "ShardComponentsApi.string_get");               // 1.3
 
 static_assert(sizeof(ShardContentApi) == 48, "ShardContentApi");
 static_assert(offsetof(ShardContentApi, structSize) == 0, "ShardContentApi.structSize");
@@ -86,7 +88,7 @@ static_assert(offsetof(ShardChunk, count) == 4, "ShardChunk.count");
 static_assert(offsetof(ShardChunk, entities) == 8, "ShardChunk.entities");
 static_assert(offsetof(ShardChunk, columns) == 16, "ShardChunk.columns");
 
-static_assert(sizeof(ShardEcsApi) == 88, "ShardEcsApi");
+static_assert(sizeof(ShardEcsApi) == 96, "ShardEcsApi");                                                      // 88 until 1.2
 static_assert(offsetof(ShardEcsApi, structSize) == 0, "ShardEcsApi.structSize");
 static_assert(offsetof(ShardEcsApi, each_chunk) == 8, "ShardEcsApi.each_chunk");
 static_assert(offsetof(ShardEcsApi, count) == 16, "ShardEcsApi.count");
@@ -98,6 +100,7 @@ static_assert(offsetof(ShardEcsApi, destroy) == 56, "ShardEcsApi.destroy");
 static_assert(offsetof(ShardEcsApi, add) == 64, "ShardEcsApi.add");
 static_assert(offsetof(ShardEcsApi, remove) == 72, "ShardEcsApi.remove");
 static_assert(offsetof(ShardEcsApi, set_parent) == 80, "ShardEcsApi.set_parent");
+static_assert(offsetof(ShardEcsApi, set_local_transform) == 88, "ShardEcsApi.set_local_transform");           // 1.3
 
 static_assert(sizeof(ShardLocalTransform) == 40, "ShardLocalTransform");
 static_assert(offsetof(ShardLocalTransform, position) == 0, "ShardLocalTransform.position");
@@ -209,13 +212,16 @@ static_assert(offsetof(ShardPluginInfo, id) == 16, "ShardPluginInfo.id");
 static_assert(offsetof(ShardPluginInfo, user) == 32, "ShardPluginInfo.user");
 static_assert(offsetof(ShardPluginInfo, callbacks) == 40, "ShardPluginInfo.callbacks");
 
-static_assert(sizeof(ShardPluginApi) == 48, "ShardPluginApi");                                                // 32 in 1.0
+static_assert(sizeof(ShardPluginApi) == 56, "ShardPluginApi");                                                // 32 in 1.0, 48 in 1.1
 static_assert(offsetof(ShardPluginApi, structSize) == 0, "ShardPluginApi.structSize");
 static_assert(offsetof(ShardPluginApi, id) == 8, "ShardPluginApi.id");
 static_assert(offsetof(ShardPluginApi, version) == 16, "ShardPluginApi.version");
 static_assert(offsetof(ShardPluginApi, directory) == 24, "ShardPluginApi.directory");
 static_assert(offsetof(ShardPluginApi, host) == 32, "ShardPluginApi.host");                                   // 1.1
 static_assert(offsetof(ShardPluginApi, has_permission) == 40, "ShardPluginApi.has_permission");               // 1.1
+static_assert(offsetof(ShardPluginApi, random_stream) == 48, "ShardPluginApi.random_stream");                 // 1.2 (ABI 1.5)
+static_assert(sizeof(ShardRandomState) == 16, "ShardRandomState");
+static_assert(offsetof(ShardRandomState, state) == 0 && offsetof(ShardRandomState, increment) == 8, "ShardRandomState fields");
 
 static_assert(sizeof(ShardService) == 32, "ShardService");
 static_assert(offsetof(ShardService, structSize) == 0, "ShardService.structSize");
@@ -281,13 +287,86 @@ static_assert(SHARD_E_STALE_HANDLE == -5 && SHARD_E_UNSUPPORTED == -6 && SHARD_E
 static_assert(SHARD_FIELD_F32 == 1 && SHARD_FIELD_F64 == 2 && SHARD_FIELD_I32 == 3 && SHARD_FIELD_U32 == 4 && SHARD_FIELD_I64 == 5 && SHARD_FIELD_U64 == 6, "field types");
 static_assert(SHARD_FIELD_BOOL == 7 && SHARD_FIELD_VEC2 == 8 && SHARD_FIELD_VEC3 == 9 && SHARD_FIELD_VEC4 == 10 && SHARD_FIELD_QUAT == 11 && SHARD_FIELD_COLOR == 12, "field types");
 static_assert(SHARD_FIELD_BLOB == 13 && sizeof(ShardBlob) == 8, "blobs (1.2)");
+// ABI 1.4 : actors, scripts, input
+static_assert(sizeof(ShardActorsApi) == 240, "ShardActorsApi");
+static_assert(offsetof(ShardActorsApi, is_valid) == 8, "ShardActorsApi.is_valid");
+static_assert(offsetof(ShardActorsApi, get_transform) == 56, "ShardActorsApi.get_transform");
+static_assert(offsetof(ShardActorsApi, get_parent) == 88, "ShardActorsApi.get_parent");
+static_assert(offsetof(ShardActorsApi, add_tag) == 120, "ShardActorsApi.add_tag");
+static_assert(offsetof(ShardActorsApi, create) == 144, "ShardActorsApi.create");
+static_assert(offsetof(ShardActorsApi, add_component) == 176, "ShardActorsApi.add_component");
+static_assert(offsetof(ShardActorsApi, set_component) == 208, "ShardActorsApi.set_component");
+static_assert(offsetof(ShardActorsApi, get_component_field) == 216, "ShardActorsApi.get_component_field");
+static_assert(offsetof(ShardActorsApi, erase_component_field) == 232, "ShardActorsApi.erase_component_field");
+
+static_assert(sizeof(ShardScriptCallbacks) == 160, "ShardScriptCallbacks");                                   // 120 until 1.4
+static_assert(offsetof(ShardScriptCallbacks, construct) == 8, "ShardScriptCallbacks.construct");
+static_assert(offsetof(ShardScriptCallbacks, attach) == 24, "ShardScriptCallbacks.attach");
+static_assert(offsetof(ShardScriptCallbacks, on_create) == 32, "ShardScriptCallbacks.on_create");
+static_assert(offsetof(ShardScriptCallbacks, on_tick) == 64, "ShardScriptCallbacks.on_tick");
+static_assert(offsetof(ShardScriptCallbacks, on_deactivated) == 112, "ShardScriptCallbacks.on_deactivated");
+static_assert(offsetof(ShardScriptCallbacks, on_contact_added) == 120, "ShardScriptCallbacks.on_contact_added");           // 1.5
+static_assert(offsetof(ShardScriptCallbacks, on_contact_persisted) == 128, "ShardScriptCallbacks.on_contact_persisted");   // 1.5
+static_assert(offsetof(ShardScriptCallbacks, on_contact_ended) == 136, "ShardScriptCallbacks.on_contact_ended");           // 1.5
+static_assert(offsetof(ShardScriptCallbacks, text_get) == 144, "ShardScriptCallbacks.text_get");                           // 1.5
+static_assert(offsetof(ShardScriptCallbacks, text_set) == 152, "ShardScriptCallbacks.text_set");                           // 1.5
+static_assert(sizeof(ShardContact) == 48, "ShardContact");
+static_assert(offsetof(ShardContact, other) == 8, "ShardContact.other");
+static_assert(offsetof(ShardContact, point) == 16, "ShardContact.point");
+static_assert(offsetof(ShardContact, normal) == 28, "ShardContact.normal");
+static_assert(offsetof(ShardContact, penetration) == 40, "ShardContact.penetration");
+
+// ABI 1.5 : physics, audio, worlds, the editor
+static_assert(sizeof(ShardPhysicsApi) == 112, "ShardPhysicsApi");
+static_assert(offsetof(ShardPhysicsApi, get_velocity) == 8, "ShardPhysicsApi.get_velocity");
+static_assert(offsetof(ShardPhysicsApi, add_force) == 40, "ShardPhysicsApi.add_force");
+static_assert(offsetof(ShardPhysicsApi, get_gravity) == 88, "ShardPhysicsApi.get_gravity");
+static_assert(offsetof(ShardPhysicsApi, raycast) == 104, "ShardPhysicsApi.raycast");
+static_assert(sizeof(ShardRayHit) == 48, "ShardRayHit");
+static_assert(offsetof(ShardRayHit, actor) == 8, "ShardRayHit.actor");
+static_assert(offsetof(ShardRayHit, point) == 16, "ShardRayHit.point");
+static_assert(offsetof(ShardRayHit, normal) == 28, "ShardRayHit.normal");
+static_assert(offsetof(ShardRayHit, distance) == 40, "ShardRayHit.distance");
+static_assert(sizeof(ShardAudioApi) == 40, "ShardAudioApi");
+static_assert(offsetof(ShardAudioApi, play_one_shot) == 32, "ShardAudioApi.play_one_shot");
+static_assert(sizeof(ShardWorldsApi) == 40, "ShardWorldsApi");
+static_assert(offsetof(ShardWorldsApi, load_world) == 8, "ShardWorldsApi.load_world");
+static_assert(offsetof(ShardWorldsApi, spawn_prefab) == 32, "ShardWorldsApi.spawn_prefab");
+static_assert(sizeof(ShardEditorApi) == 16, "ShardEditorApi");
+static_assert(sizeof(ShardUiApi) == 256, "ShardUiApi");
+static_assert(offsetof(ShardUiApi, text) == 8, "ShardUiApi.text");
+static_assert(offsetof(ShardUiApi, button) == 48, "ShardUiApi.button");
+static_assert(offsetof(ShardUiApi, slider_float) == 88, "ShardUiApi.slider_float");
+static_assert(offsetof(ShardUiApi, progress_bar) == 152, "ShardUiApi.progress_bar");
+static_assert(offsetof(ShardUiApi, separator) == 168, "ShardUiApi.separator");
+static_assert(offsetof(ShardUiApi, tooltip) == 248, "ShardUiApi.tooltip");
+static_assert(SHARD_FIELD_ACTOR == 16 && SHARD_FIELD_ACCESSOR == 4, "actor references and accessor strings (1.5)");
+static_assert(SHARD_LAYER_STATIC == 1 && SHARD_LAYER_MOVING == 2 && SHARD_LAYER_ALL == 3, "ray layers");
+static_assert(sizeof(ShardScriptDesc) == 56, "ShardScriptDesc");
+static_assert(offsetof(ShardScriptDesc, size) == 4, "ShardScriptDesc.size");
+static_assert(offsetof(ShardScriptDesc, name) == 16, "ShardScriptDesc.name");
+static_assert(offsetof(ShardScriptDesc, fields) == 32, "ShardScriptDesc.fields");
+static_assert(offsetof(ShardScriptDesc, user) == 40, "ShardScriptDesc.user");
+static_assert(offsetof(ShardScriptDesc, callbacks) == 48, "ShardScriptDesc.callbacks");
+static_assert(sizeof(ShardScriptsApi) == 32, "ShardScriptsApi");
+static_assert(offsetof(ShardScriptsApi, register_script) == 8, "ShardScriptsApi.register_script");
+static_assert(offsetof(ShardScriptsApi, add_to_actor) == 24, "ShardScriptsApi.add_to_actor");
+static_assert(sizeof(ShardInputApi) == 128, "ShardInputApi");
+static_assert(offsetof(ShardInputApi, key_down) == 8, "ShardInputApi.key_down");
+static_assert(offsetof(ShardInputApi, mouse_down) == 32, "ShardInputApi.mouse_down");
+static_assert(offsetof(ShardInputApi, gamepad_count) == 80, "ShardInputApi.gamepad_count");
+static_assert(offsetof(ShardInputApi, gamepad_rumble) == 120, "ShardInputApi.gamepad_rumble");
+static_assert(SHARD_KEY_A == 65 && SHARD_KEY_ESCAPE == 256 && SHARD_KEY_F1 == 290 && SHARD_KEY_KP_0 == 320 && SHARD_KEY_MENU == 348, "key numbers");
+static_assert(SHARD_PAD_DPAD_RIGHT == 14 && SHARD_AXIS_RIGHT_TRIGGER == 5 && SHARD_CURSOR_DISABLED == 2, "pad and cursor numbers");
+
+static_assert(SHARD_FIELD_STRING == 14 && SHARD_FIELD_ASSET == 15 && SHARD_COMPONENT_MAX_STRINGS == 8, "text and assets (1.3)");
 static_assert(SHARD_FIELD_RUNTIME == 1 && SHARD_FIELD_PRIVATE == 2 && SHARD_COMPONENT_MAX_SIZE == 1024 && SHARD_COMPONENT_MAX_FIELDS == 64, "field flags and limits");
 static_assert(SHARD_PHASE_INPUT == 0 && SHARD_PHASE_PRE_SIM == 1 && SHARD_PHASE_FIXED == 2 && SHARD_PHASE_POST_PHYSICS == 3, "phases");
 static_assert(SHARD_PHASE_UPDATE == 4 && SHARD_PHASE_LATE == 5 && SHARD_PHASE_EXTRACT == 6, "phases");
 static_assert(SHARD_SYSTEM_EXCLUSIVE == 1 && SHARD_SYSTEM_MAIN_THREAD == 2, "system flags");
 static_assert(SHARD_PRIORITY_EARLIEST == -200 && SHARD_PRIORITY_EARLY == -100 && SHARD_PRIORITY_NORMAL == 0 && SHARD_PRIORITY_LATE == 100 && SHARD_PRIORITY_LATEST == 200, "priorities");
 static_assert(SHARD_LOG_INFO == 0 && SHARD_LOG_WARNING == 1 && SHARD_LOG_ERROR == 2, "log levels");
-static_assert(SHARD_ABI_MAJOR == 1 && SHARD_ABI_MINOR == 2, "the ABI revision of these headers");
+static_assert(SHARD_ABI_MAJOR == 1 && SHARD_ABI_MINOR == 5, "the ABI revision of these headers");
 
 TEST(AbiLayout, HeadersCompileAsCppAndPinTheirLayout)
 {

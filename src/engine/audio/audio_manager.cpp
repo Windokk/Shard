@@ -332,6 +332,22 @@ namespace Shard::Engine::Audio
         }
     }
 
+    bool AudioManager::PlayOneShot(const std::string& pathInProject, glm::vec3 pos, float volume, bool spatialize)
+    {
+        Audio::AudioIDManager* ids = Core::GetEngine().GetAudioIDManager();
+        const AudioID id = ids->GenerateNewID();
+        CreateSound(id, pathInProject, pos, spatialize);
+        if (!ids->GetSoundFromID(id))
+            return false;
+
+        PlaySound(id, volume);
+        SoundParams params;
+        params.worldPosition = glm::dvec3(pos);
+        UpdateSound(id, pos, volume, params);       // after PlaySound, which scales the volume for a source that is updated every tick
+        oneShots.push_back(id);
+        return true;
+    }
+
     void AudioManager::PauseSound(AudioID id)
     {
         Sound* sound = Core::GetEngine().GetAudioIDManager()->GetSoundFromID(id);
@@ -493,6 +509,7 @@ namespace Shard::Engine::Audio
             Core::GetEngine().GetAudioIDManager()->DestroyID(pair.first);
         }
         soundCount = 0;
+        oneShots.clear();
 
         DestroyReverbBus(reverbBus);
         reverbBus = nullptr;
@@ -511,6 +528,17 @@ namespace Shard::Engine::Audio
         tickDelta = lastTickTime < 0.0 ? 0.0f : static_cast<float>(std::clamp(now - lastTickTime, 0.0, 0.25));
         lastTickTime = now;
         ++tickIndex;
+
+        // The one shot sounds that ended
+        for (size_t i = 0; i < oneShots.size();) {
+            Sound* sound = Core::GetEngine().GetAudioIDManager()->GetSoundFromID(oneShots[i]);
+            if (!sound || (sound->sound && ma_sound_at_end(sound->sound))) {
+                RemoveSound(oneShots[i]);
+                oneShots.erase(oneShots.begin() + static_cast<std::ptrdiff_t>(i));
+            } else {
+                ++i;
+            }
+        }
 
         std::vector<ReverbZoneSample> zones;
 

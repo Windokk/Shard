@@ -9,7 +9,7 @@
 </p>
 
 <p align="center">
-  A modular, data-oriented game engine<br>
+  A modular, developper/user friendly, data-oriented game engine<br>
 </p>
 
 <p align="center">
@@ -114,6 +114,7 @@ This runs the editor, loads the game module, opens the example project and uses 
 
 - Sounds/Music :
   - [TownTheme.mp3](https://opengameart.org/content/town-theme-rpg)
+  - [Gun SFX](https://opengameart.org/content/25-cc0-bang-firework-sfx)
 
 - Models :
   - "Rubik's Cube" (<https://skfb.ly/6U7pp>) by RED2000 is licensed under Creative Commons Attribution (<http://creativecommons.org/licenses/by/4.0/>).

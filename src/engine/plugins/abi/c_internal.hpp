@@ -5,7 +5,10 @@
 #include <string>
 #include <vector>
 
+#include <memory>
+
 #include <shard/shard_abi.h>
+#include <shard/shard_actors.h>
 #include <shard/shard_components.h>
 #include <shard/shard_ecs.h>
 
@@ -16,6 +19,7 @@
 // of a plugin when its context releases everything.
 
 namespace Shard::Engine::Core::Ecs { struct SystemContext; }
+namespace Shard::Engine::Objects { class Actor; }
 
 namespace Shard::Engine::Plugins::CAbi {
 
@@ -62,6 +66,32 @@ namespace Shard::Engine::Plugins::CAbi {
     /// True on that thread, outside of a system : where the functions documented "thread : main" may be called
     bool OnMainThread();
 
+    /// While one lives, this thread runs a callback of a script: the scripts of a world are ticked one after the other, so the functions
+    /// documented "thread : script" (actors, input) are safe there, on whatever thread the engine's script systems landed on.
+    class ScriptScope {
+    public:
+        ScriptScope();
+        ~ScriptScope();
+        ScriptScope(const ScriptScope&) = delete;
+        ScriptScope& operator=(const ScriptScope&) = delete;
+    };
+    /// Inside a script callback, or on the main thread outside the systems: where the functions documented "thread : script" may be called
+    bool OnScriptThread();
+
+    // ---- Actors, scripts, input (c_actors.cpp, c_scripts.cpp, c_input.cpp) ----
+
+    /// The handle of an actor (the same one each time while the actor lives), and the actor behind a handle (null: stale or never valid)
+    ShardActor ActorHandle(const std::shared_ptr<Objects::Actor>& actor);
+    std::shared_ptr<Objects::Actor> ActorOf(ShardActor handle);
+
+    /// The path of an actor in its world, the names from the root joined by '/' ("Level/Enemies/Boss"), "" for a handle that is not an actor any more
+    std::string ActorPath(ShardActor handle);
+    /// The actor of the world `anchor` is in that has that path (the first of that name at each level, in the order of the ids), 0 if there is none
+    ShardActor ActorAtPath(const std::shared_ptr<Objects::Actor>& anchor, const std::string& path);
+
+    /// The plugin's context releases everything: its script types stop being called (the objects that are still in worlds are left alone)
+    void ReleaseScripts(PluginOwner owner);
+
     // ---- System runs (c_systems.cpp) ----
 
     struct CSystem;
@@ -74,16 +104,28 @@ namespace Shard::Engine::Plugins::CAbi {
         std::vector<unsigned char> payload;
     };
 
+    /// A pose a system set on the actor behind an entity (shard.ecs set_local_transform) : applied to the actor's Transform at the end of the phase
+    struct QueuedPose {
+        uint64_t entity = 0;
+        ShardLocalTransform pose{};
+    };
+
     struct SystemRun {
         ShardEcs handle = 0;
         Core::Ecs::SystemContext* context = nullptr;
         const CSystem* system = nullptr;            ///< null : may touch any type (shard.experimental.world_ecs)
         bool mainThread = false;                    ///< opened from the main thread (world_ecs) : not a system, the main thread functions still work
         std::vector<QueuedEvent> events;
+        std::vector<QueuedPose> poses;
     };
 
     /// The run of a C system in progress on this thread, null outside of one
     SystemRun* CurrentRun();
+
+    /// Keeps the poses a system set until the end of the phase, under the system's name (the order they are applied in)
+    void QueuePoses(const std::string& systemName, std::vector<QueuedPose>& poses);
+    /// Gives each pose to the Transform of its actor (main thread, registry not iterated). Poses that find no actor are dropped.
+    void ApplyPoses(Core::IEngineContext* engine, const std::vector<QueuedPose>& poses);
 
     // ---- Events (c_events.cpp) ----
 
@@ -116,6 +158,15 @@ namespace Shard::Engine::Plugins::CAbi {
     const void* StateApi();
 
     const void* WorldEcsApi();
+    const void* ActorsApi();
+    const void* ScriptsApi();
+    const void* InputApi();
+    const void* PhysicsApi();
+    const void* AudioApi();
+    const void* WorldsApi();
+    const void* EditorApi();
+    /// True once the editor gave its widgets (SetEditorUiBackend) : shard.editor exists only then
+    bool EditorUiAvailable();
 
     /// The plugin's context releases everything : what the interfaces keep about it goes. `ctx` is still there (blobs give its memory back).
     void ReleaseComponents(PluginOwner owner);

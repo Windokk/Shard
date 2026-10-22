@@ -68,6 +68,21 @@ shard_add_plugin(
 )
 set_target_properties(ShardTestSdkSpin PROPERTIES CXX_STANDARD 17 CXX_STANDARD_REQUIRED ON CXX_EXTENSIONS OFF)
 
+# A game written as the SDK means it to be: several source files (scripts, a component and a system, the one-line module), each registering
+# its own pieces, see tests/plugins/game_scripts_tests.cpp
+file(GLOB SHARD_TEST_GAME_SOURCES CONFIGURE_DEPENDS ${CMAKE_CURRENT_SOURCE_DIR}/plugin_fixtures/game_scripts/src/*.cpp)
+shard_add_plugin(
+    NAME         ShardTestGameScripts
+    ID           shard.test.gamescripts
+    VERSION      1.0.0
+    HOSTS        engine
+    ABI          c1
+    SOURCES      ${SHARD_TEST_GAME_SOURCES}
+    CONTENT_DIR  plugin_fixtures/game_scripts/content
+    OUTPUT_DIR   ${CMAKE_BINARY_DIR}/test_plugins
+)
+set_target_properties(ShardTestGameScripts PROPERTIES CXX_STANDARD 17 CXX_STANDARD_REQUIRED ON CXX_EXTENSIONS OFF)
+
 # A plugin built against the frozen headers of the C ABI 1.0 (plugin_fixtures/abi_1_0/include, found before sdk/include) : it must load in
 # every engine of ABI 1.x, see tests/plugins/abi_compat_tests.cpp
 shard_add_plugin(
@@ -86,8 +101,8 @@ add_executable(ShardTests ${SHARD_TEST_SOURCES})
 
 target_include_directories(ShardTests PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})
 target_link_libraries(ShardTests PRIVATE Engine gtest gtest_main)
-target_compile_definitions(ShardTests PRIVATE BUILD_ENGINE SHARD_SOURCE_DIR="${CMAKE_SOURCE_DIR}" SHARD_TEST_PLUGIN_DIR="${CMAKE_BINARY_DIR}/test_plugins")
-add_dependencies(ShardTests ShardTestPlugin ShardTestEditorPlugin ShardTestCPlugin ShardTestCConsumer ShardTestSdkSpin ShardTestAbi10)
+target_compile_definitions(ShardTests PRIVATE BUILD_ENGINE SHARD_SOURCE_DIR="${CMAKE_SOURCE_DIR}" SHARD_TEST_PLUGIN_DIR="${CMAKE_BINARY_DIR}/test_plugins" SHARD_GAME_PLUGIN_DIR="${CMAKE_BINARY_DIR}/plugins/game")
+add_dependencies(ShardTests ShardTestPlugin ShardTestEditorPlugin ShardTestCPlugin ShardTestCConsumer ShardTestSdkSpin ShardTestGameScripts ShardTestAbi10 GameModule)
 
 include(GoogleTest)
 # PRE_TEST: discover at test time, so a missing runtime DLL fails a test run instead of the build

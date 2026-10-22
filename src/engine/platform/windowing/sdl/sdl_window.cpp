@@ -255,8 +255,10 @@ namespace Shard::Engine::Core::Platform {
             return false;
         }
         if (current)
+        {
             m_SwapInterval = m_RequestedSwapInterval.load();
             SDL_GL_SetSwapInterval(m_SwapInterval);    // the interval belongs to the context of the thread that swaps
+        }
         return true;
     }
 

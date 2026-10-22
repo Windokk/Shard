@@ -13,6 +13,22 @@
 
 namespace Shard::Engine::Worlds{
 
+    namespace {
+        /// Calls `fn(script)` for the scripts the world has now, in the order of their ids. A script may destroy actors (itself included) or add
+        /// components while it runs: the ones removed meanwhile are skipped, the ones added start with the next call.
+        template <typename Fn>
+        void ForEachScript(std::map<int, std::shared_ptr<Objects::Components::Script>>& scripts, Fn&& fn)
+        {
+            std::vector<std::pair<int, std::shared_ptr<Objects::Components::Script>>> snapshot(scripts.begin(), scripts.end());
+            for(auto& [id, script] : snapshot){
+                auto it = scripts.find(id);
+                if(it == scripts.end() || it->second != script)
+                    continue;
+                fn(script);
+            }
+        }
+    }
+
 
     World::World(std::string name, Filesystem::Path path)
     {
@@ -472,9 +488,7 @@ namespace Shard::Engine::Worlds{
         for(auto& [type, extension] : extensions)
             extension->OnLoad(*this);
 
-        for(auto& [id,script] : scripts){
-            script->OnWorldLoaded();
-        }
+        ForEachScript(scripts, [](auto& script){ script->OnWorldLoaded(); });
     }
 
     void World::Unload()
@@ -482,9 +496,7 @@ namespace Shard::Engine::Worlds{
         for(auto& [type, extension] : extensions)
             extension->OnUnload(*this);
 
-        for(auto& [id,script] : scripts){
-            script->OnWorldUnloaded();
-        }
+        ForEachScript(scripts, [](auto& script){ script->OnWorldUnloaded(); });
         
         Clear();
 
@@ -493,29 +505,17 @@ namespace Shard::Engine::Worlds{
 
     void World::Tick()
     {
-        for(auto& [id,script] : scripts){
-            if(script->Active()){
-                script->OnTick();
-            }
-        }
+        ForEachScript(scripts, [](auto& script){ if(script->Active()) script->OnTick(); });
     }
 
     void World::FixedTick()
     {
-        for(auto& [id,script] : scripts){
-            if(script->Active()){
-                script->OnFixedTick();
-            }
-        }
+        ForEachScript(scripts, [](auto& script){ if(script->Active()) script->OnFixedTick(); });
     }
 
     void World::LateTick()
     {
-        for(auto& [id,script] : scripts){
-            if(script->Active()){
-                script->OnLateTick();
-            }
-        }
+        ForEachScript(scripts, [](auto& script){ if(script->Active()) script->OnLateTick(); });
     }
 
     void World::Play()
@@ -523,20 +523,12 @@ namespace Shard::Engine::Worlds{
         for(auto& [type, extension] : extensions)
             extension->OnPlay(*this);
 
-        for(auto& [id,script] : scripts){
-            if(script->Active()){
-                script->OnPlay();
-            }
-        }
+        ForEachScript(scripts, [](auto& script){ if(script->Active()) script->OnPlay(); });
     }
 
     void World::Stop()
     {
-        for(auto& [id,script] : scripts){
-            if(script->Active()){
-                script->OnStop();
-            }
-        }
+        ForEachScript(scripts, [](auto& script){ if(script->Active()) script->OnStop(); });
 
         for(auto& [type, extension] : extensions)
             extension->OnStop(*this);

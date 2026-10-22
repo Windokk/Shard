@@ -107,6 +107,10 @@ namespace Shard::Engine::Objects{
 
                 void OnTagsChanged(const Core::TagContainer& added, const Core::TagContainer& removed, bool quiet) override;
 
+                /// @brief Sets one reflected field from its json form and runs OnFieldChanged for it : an edit of the inspector, from code
+                /// @return false if there is no such field (or it is read only), or the json does not fit its type (the field is untouched)
+                bool ApplyField(const std::string& name, const json& value);
+
             private:
 
             protected:

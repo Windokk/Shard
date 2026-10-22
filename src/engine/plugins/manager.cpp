@@ -751,6 +751,14 @@ namespace Shard::Engine::Plugins {
         links.logger = &Debugging::GetLogger();
         links.tags = &Core::TagRegistry::Get();
 
+        // A library handed over on its own (--game, a bare path) has no manifest to say which interface it speaks : one built with the SDK
+        // exports the C entry point and not the C++ descriptor
+        if (r.manifest.abi == "cpp" && r.manifest.manifestPath.empty() && !r.library.Symbol<DescribeFn>(r.manifest.entry) &&
+            r.library.Symbol<ShardPluginEntryFn>("shard_plugin_entry")) {
+            r.manifest.abi = "c1";
+            r.manifest.entry = "shard_plugin_entry";
+        }
+
         if (r.manifest.abi == "c1") {
             // The C ABI : no engine types cross, so the build fingerprint does not apply (the ABI version is the contract)
             auto entry = r.library.Symbol<ShardPluginEntryFn>(r.manifest.entry);
@@ -995,6 +1003,10 @@ namespace Shard::Engine::Plugins {
         m_Engine = engine;
         m_Scheduler = scheduler;
         m_Events = events;
+        // What C systems asked of the actors (shard.ecs set_local_transform) is done once the phase is over, on this thread
+        if (scheduler) scheduler->SetPhaseEndHook([this](Core::Ecs::Phase) {
+            try { FlushCPoses(m_Engine); } catch (const std::exception& e) { DEBUG_ERROR(std::string("Plugins : applying the poses of C systems threw : ") + e.what()); }
+        });
 
         Hooks::PreEngineInit pre;
         try { m_Hooks.Emit(pre); } catch (const std::exception& e) { DEBUG_ERROR(std::string("Plugins : PreEngineInit handler threw : ") + e.what()); }
@@ -1040,6 +1052,7 @@ namespace Shard::Engine::Plugins {
         m_EventWatches.clear();         // the dispatcher goes with the engine
         Worlds::SetWorldSaveGuard(nullptr);
         if (m_PatchFilterId != 0) { Worlds::RemoveWorldJsonFilter(m_PatchFilterId); m_PatchFilterId = 0; }
+        if (m_Scheduler) m_Scheduler->SetPhaseEndHook(nullptr);
         m_Scheduler = nullptr;
         m_Events = nullptr;
         m_EngineReady = false;
@@ -1118,6 +1131,7 @@ namespace Shard::Engine::Plugins {
         m_Extensions = ExtensionRegistry();
         m_Callbacks = Callbacks();
         m_Engine = nullptr;
+        if (m_Scheduler) m_Scheduler->SetPhaseEndHook(nullptr);
         m_Scheduler = nullptr;
         m_Events = nullptr;
         m_LockProblems.clear();

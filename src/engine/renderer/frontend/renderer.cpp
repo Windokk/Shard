@@ -555,6 +555,7 @@ namespace Shard::Engine::Rendering{
             pass->drawList.clear();
             pass->drawCommandsLookup.clear();
         }
+        m_ContentEpoch.fetch_add(1, std::memory_order_release);
 
         shadowDrawCommandsLookup.clear();
         shadowDrawList.clear();

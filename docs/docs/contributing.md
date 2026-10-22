@@ -1,12 +1,12 @@
 # Contributing
 
-## The SDK headers are a promise
+## SDK headers
 
-`sdk/include/shard/*.h` is the C ABI : plugins built by other people, with other compilers, against an older revision, call these structs and tables. A change there is reviewed for compatibility before anything else :
+`sdk/include/shard/*.h` is the C ABI : plugins built by other people, with other compilers, against an older revision, call these structs and tables. Changes there are reviewed for compatibility first :
 
 * only additions inside a major revision : a function at the end of a table, a field at the end of a struct, a new interface. Never reorder, resize or remove ;
 * every addition raises `SHARD_ABI_MINOR`, the interface's minor in `query_interface` and `sdk/VERSION`, and goes into the table of revisions of `sdk/README.md` ;
-* `tests/plugins/abi_layout_tests.cpp` is updated in the same change, on purpose : its failure is the signal that a layout moved ;
+* `tests/plugins/abi_layout_tests.cpp` is updated in the same change, deliberately : when it fails, a layout moved ;
 * `tests/plugin_fixtures/abi_1_0` is never edited : the plugin built against it has to keep loading.
 
 What is not ready to be frozen goes into a `shard.experimental.*` interface (`shard_experimental.h`) : major 0, no promise, refused to signed native plugins, not pinned, not counted in `SHARD_ABI_MINOR`. Moving it to a frozen interface later is an ordinary addition.

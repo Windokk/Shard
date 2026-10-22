@@ -34,6 +34,8 @@ namespace Shard::Engine::Rendering{
         std::shared_ptr<Texture2D> brdfLUT;
 
         GenerateGeometry();
+        // The convolutions below render into these : without them they draw into the default framebuffer and the maps stay unwritten
+        EnsureCaptureTargets();
 
         std::array<unsigned char*, 6> dataArray = {nullptr, nullptr, nullptr, nullptr, nullptr, nullptr};
 
@@ -181,11 +183,7 @@ namespace Shard::Engine::Rendering{
                 return nullptr;
             }
 
-            // Made once and reused : every skybox load used to leak a framebuffer and a renderbuffer
-            if (captureFBO == 0)
-                glGenFramebuffers(1, &captureFBO);
-            if (captureRBO == 0)
-                glGenRenderbuffers(1, &captureRBO);
+            EnsureCaptureTargets();
 
             glBindFramebuffer(GL_FRAMEBUFFER, captureFBO);
             glBindRenderbuffer(GL_RENDERBUFFER, captureRBO);
@@ -271,6 +269,15 @@ namespace Shard::Engine::Rendering{
         CreateBRDFLUT(brdfLUT);
 
         return std::make_shared<GLEnvironmentMap>(specs, cubemap, irradianceMap, prefilterMap, brdfLUT);
+    }
+
+    void GLEnvironmentMapGenerator::EnsureCaptureTargets()
+    {
+        // Made once and reused : every skybox load used to leak a framebuffer and a renderbuffer
+        if (captureFBO == 0)
+            glGenFramebuffers(1, &captureFBO);
+        if (captureRBO == 0)
+            glGenRenderbuffers(1, &captureRBO);
     }
 
     void GLEnvironmentMapGenerator::GenerateGeometry()

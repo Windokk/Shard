@@ -82,6 +82,7 @@ namespace Shard::Editor::Debug{
                 uint32_t modelID = 0;
                 glm::mat4 model = glm::mat4(1.0f);
                 uint64_t commandID = 0;
+                uint64_t epoch = 0;             // Renderer::GetContentEpoch() when the command was submitted
                 bool submitted = false;
                 bool seen = false;
             };

@@ -10,6 +10,7 @@
 #pragma once
 
 #include <array>
+#include <cstring>
 #include <exception>
 #include <functional>
 #include <memory>
@@ -24,6 +25,7 @@
 #include <shard/shard_systems.h>
 #include <shard/cpp/component.hpp>
 #include <shard/cpp/detail.hpp>
+#include <shard/cpp/math.hpp>
 
 namespace shard {
 
@@ -171,6 +173,24 @@ namespace shard {
         void Remove(Entity e, ComponentType<T> type) const { detail::Check(Api().remove(m_Run.ecs, e, type.handle), "remove"); }
         void Destroy(Entity e) const { detail::Check(Api().destroy(m_Run.ecs, e), "destroy"); }
         void SetParent(Entity child, Entity parent) const { detail::Check(Api().set_parent(m_Run.ecs, child, parent), "set_parent"); }
+
+        /// Moves the actor behind `e` (ABI 1.3) : its Transform takes the pose at the end of the phase. The system must declare the
+        /// engine's shard.LocalTransform type in its writes. False if the entity has no actor. Throws shard::Error in an engine older than 1.3.
+        bool SetLocalTransform(Entity e, const Pose& pose) const
+        {
+            const ShardEcsApi* api = detail::Interface<ShardEcsApi>(SHARD_IFACE_ECS, 1);
+            if (!api) throw Error(SHARD_E_UNSUPPORTED, "set_local_transform needs shard.ecs 1.1");
+            ShardLocalTransform t{};
+            std::memcpy(&t, &pose, sizeof(t));
+            const ShardResult r = api->set_local_transform(m_Run.ecs, e, &t);
+            if (r == SHARD_E_NOT_FOUND) return false;
+            detail::Check(r, "set_local_transform");
+            return true;
+        }
+
+        /// The text of a string field of a component, from inside a system (see Components::SetText / GetText)
+        void SetText(Text& field, std::string_view text) const { Components(m_Ctx).SetText(field, text); }
+        std::string GetText(Text field) const { return Components(m_Ctx).GetText(field); }
 
         /// A named event, delivered at the end of the frame (shard_events.h)
         void Emit(const std::string& name, const void* payload, size_t size) const

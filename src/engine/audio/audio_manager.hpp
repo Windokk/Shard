@@ -4,6 +4,7 @@
 #include <string>
 #include <iostream>
 #include <memory>
+#include <vector>
 
 
 #include <glm/glm.hpp>
@@ -81,6 +82,10 @@ namespace Shard::Engine::Audio
             void PauseSound(AudioID id);
             void UpdateSound(AudioID id, glm::vec3 pos, float volume, const SoundParams& params);
             void SetSpatialize(AudioID id, bool spatialize);
+
+            /// Plays a clip once and forgets it : the sound is made now and removed by Tick() when it has ended. Does nothing (and
+            /// returns false) when no sound was made : a silent manager, or a clip that could not be loaded.
+            bool PlayOneShot(const std::string& pathInProject, glm::vec3 pos, float volume, bool spatialize);
             void Update(const ListenerState& listener, float maxDistance);
 
             /// The reverb the listener is in this frame (nothing covered : no reverb). The bus moves toward it smoothly.
@@ -95,6 +100,8 @@ namespace Shard::Engine::Audio
             ma_engine* engine = nullptr;
             int soundCount = 0;
             float masterVolume = 100.0f;
+
+            std::vector<AudioID> oneShots;          // the sounds PlayOneShot made, removed once they end
 
             // Seconds between this audio tick and the last one (real time : the sound does not slow down with the game)
             float tickDelta = 0.0f;

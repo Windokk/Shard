@@ -1,7 +1,13 @@
 #include <algorithm>
 #include <atomic>
+#include <cmath>
+#include <map>
 #include <memory>
+#include <mutex>
 #include <stdexcept>
+
+#include <glm/glm.hpp>
+#include <glm/gtc/quaternion.hpp>
 
 #include <shard/shard_ecs.h>
 #include <shard/shard_experimental.h>
@@ -10,6 +16,10 @@
 #include "engine/core/ecs/registry.hpp"
 #include "engine/core/ecs/scheduler.hpp"
 #include "engine/plugins/abi/c_internal.hpp"
+#include "engine/plugins/abi/c_plugin.hpp"
+#include "engine/world/actor.hpp"
+#include "engine/world/components/transform.hpp"
+#include "engine/world/ecs_components.hpp"
 #include "engine/world/engine.hpp"
 
 // shard.systems and shard.ecs : a C system is a SystemDesc whose function calls the plugin. While it runs, the ShardEcs it was handed
@@ -29,6 +39,10 @@ namespace Shard::Engine::Plugins::CAbi {
     namespace {
         thread_local SystemRun* tRun = nullptr;
         std::atomic<uint64_t> gNextRun{ 0 };
+
+        // The poses systems set, by system name : applied in that order at the end of the phase, whatever order the systems finished in
+        std::mutex gPoseMutex;
+        std::map<std::string, std::vector<QueuedPose>> gPoses;
 
         SystemRun* RunOf(ShardEcs ecs)
         {
@@ -203,6 +217,32 @@ namespace Shard::Engine::Plugins::CAbi {
             } catch (...) { return SHARD_E_INTERNAL; }
         }
 
+        bool Finite(const float* v, int n)
+        {
+            for (int i = 0; i < n; ++i) if (!std::isfinite(v[i])) return false;
+            return true;
+        }
+
+        ShardResult SHARD_CALL SetLocalTransform(ShardEcs ecs, ShardEntity entity, const ShardLocalTransform* transform)
+        {
+            try {
+                SystemRun* run = RunOf(ecs);
+                if (!run) return SHARD_E_STALE_HANDLE;
+                if (entity == 0 || !transform) return SHARD_E_INVALID_ARG;
+                if (!MayTouch(*run, Core::Ecs::ComponentIdOf<Worlds::LocalTransform>())) return SHARD_E_INVALID_ARG;
+                if (!Finite(transform->position, 3) || !Finite(transform->rotation, 4) || !Finite(transform->scale, 3)) return SHARD_E_INVALID_ARG;
+                const float lengthSquared = transform->rotation[0] * transform->rotation[0] + transform->rotation[1] * transform->rotation[1] +
+                                            transform->rotation[2] * transform->rotation[2] + transform->rotation[3] * transform->rotation[3];
+                if (lengthSquared < 1e-12f) return SHARD_E_INVALID_ARG;
+                if (!run->context->registry.GetRaw(ToEntity(entity), Core::Ecs::ComponentIdOf<Worlds::ActorLink>())) return SHARD_E_NOT_FOUND;
+                QueuedPose pose;
+                pose.entity = entity;
+                pose.pose = *transform;
+                run->poses.push_back(pose);
+                return SHARD_OK;
+            } catch (...) { return SHARD_E_INTERNAL; }
+        }
+
         // ---- shard.systems ----
 
         bool IsSystemName(const std::string& name)
@@ -281,6 +321,7 @@ namespace Shard::Engine::Plugins::CAbi {
                     try { result = info->run(info->user, info->owner, &c); } catch (...) { tRun = previous; throw; }
                     tRun = previous;
                     if (!run.events.empty()) QueueEvents(info->name, run.events);
+                    if (!run.poses.empty()) QueuePoses(info->name, run.poses);
                     if (result != SHARD_OK) throw std::runtime_error("system '" + info->name + "' returned " + std::to_string(result));
                 };
                 if (ctx->Systems().Add(std::move(system)).empty()) return SHARD_E_ALREADY_EXISTS;
@@ -318,6 +359,7 @@ namespace Shard::Engine::Plugins::CAbi {
     namespace {
         struct MainRun {
             explicit MainRun(Core::Ecs::Registry& registry) : context{ registry, commands, nullptr, 0.0f, 0.0f, 0, 0, 0 } {}
+            Core::IEngineContext* engine = nullptr;
             SystemRun run;
             Core::Ecs::CommandBuffer commands;
             Core::Ecs::SystemContext context;
@@ -333,6 +375,7 @@ namespace Shard::Engine::Plugins::CAbi {
             gMainRuns.pop_back();
             tRun = top->previous;
             top->context.registry.Playback(top->commands);
+            ApplyPoses(top->engine, top->run.poses);
         }
 
         ShardResult SHARD_CALL WorldEcsOpen(ShardPluginCtx handle, ShardEcs* out)
@@ -349,6 +392,7 @@ namespace Shard::Engine::Plugins::CAbi {
                 if (!registry) return SHARD_E_UNSUPPORTED;
                 if (!registry->CanChangeStructure()) return SHARD_E_WRONG_THREAD;      // a phase runs
                 auto main = std::make_unique<MainRun>(*registry);
+                main->engine = engine;
                 main->run.handle = ++gNextRun;
                 main->run.context = &main->context;
                 main->run.mainThread = true;
@@ -389,9 +433,43 @@ namespace Shard::Engine::Plugins::CAbi {
 
     SystemRun* CurrentRun() { return tRun; }
 
+    void QueuePoses(const std::string& systemName, std::vector<QueuedPose>& poses)
+    {
+        std::lock_guard<std::mutex> lock(gPoseMutex);
+        auto& queue = gPoses[systemName];
+        queue.insert(queue.end(), poses.begin(), poses.end());
+        poses.clear();
+    }
+
+    void ApplyPoses(Core::IEngineContext* engine, const std::vector<QueuedPose>& poses)
+    {
+        if (poses.empty() || !engine) return;
+        Core::Ecs::Registry* ecs = engine->GetEcs();
+        Core::ObjectIDManager* objects = engine->GetObjectIDManager();
+        if (!ecs || !objects) return;
+        for (const QueuedPose& queued : poses) {
+            const Core::Ecs::Entity entity = Core::Ecs::Entity(queued.entity);
+            if (!ecs->IsAlive(entity)) continue;
+            const Worlds::ActorLink* link = ecs->TryGet<Worlds::ActorLink>(entity);
+            if (!link) continue;
+            auto actor = std::dynamic_pointer_cast<Objects::Actor>(objects->GetObjectFromID(Core::ObjectID(link->objectId)));
+            if (!actor || !actor->transform) continue;
+            Objects::Components::Transform& transform = *actor->transform;
+            const ShardLocalTransform& pose = queued.pose;
+            const glm::vec3 position(pose.position[0], pose.position[1], pose.position[2]);
+            const glm::quat rotation = glm::normalize(glm::quat(pose.rotation[3], pose.rotation[0], pose.rotation[1], pose.rotation[2]));
+            const glm::vec3 scale(pose.scale[0], pose.scale[1], pose.scale[2]);
+            // Only what changed : a system that sets the same pose every frame costs the actor nothing
+            if (transform.position != position) transform.SetPosition(position);
+            if (transform.rotation != rotation) transform.SetRotation(rotation);
+            if (transform.scale != scale) transform.SetScale(scale);
+        }
+    }
+
+
     const void* EcsApi()
     {
-        static const ShardEcsApi api = { sizeof(ShardEcsApi), &EachChunk, &Count, &IsAlive, &Get, &Parent, &Spawn, &Destroy, &Add, &Remove, &SetParent };
+        static const ShardEcsApi api = { sizeof(ShardEcsApi), &EachChunk, &Count, &IsAlive, &Get, &Parent, &Spawn, &Destroy, &Add, &Remove, &SetParent, &SetLocalTransform };
         return &api;
     }
 
@@ -399,5 +477,19 @@ namespace Shard::Engine::Plugins::CAbi {
     {
         static const ShardSystemsApi api = { sizeof(ShardSystemsApi), &SystemAdd, &SystemSetEnabled, &SystemRemove };
         return &api;
+    }
+}
+
+namespace Shard::Engine::Plugins {
+
+    void FlushCPoses(Core::IEngineContext* engine)
+    {
+        std::map<std::string, std::vector<CAbi::QueuedPose>> taken;
+        {
+            std::lock_guard<std::mutex> lock(CAbi::gPoseMutex);
+            if (CAbi::gPoses.empty()) return;
+            taken.swap(CAbi::gPoses);
+        }
+        for (const auto& kv : taken) CAbi::ApplyPoses(engine, kv.second);
     }
 }

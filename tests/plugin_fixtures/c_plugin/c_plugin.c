@@ -57,6 +57,23 @@ typedef struct Chunk {
 } Chunk;
 static const ShardComponentsApi* gComponents11;
 static ShardComponentType gChunkType;
+
+/* ABI 1.3 : text and assets in a component (shard.components 1.2), moving an actor from a system (shard.ecs 1.1) */
+typedef struct Label {
+    ShardBlob name;                         /* SHARD_FIELD_STRING */
+    int32_t   icon;                         /* SHARD_FIELD_ASSET */
+    int32_t   visits;
+} Label;
+typedef struct LabelRun {
+    ShardPluginCtx ctx;
+    ShardEcs ecs;
+} LabelRun;
+static const ShardComponentsApi* gComponents12;
+static const ShardEcsApi* gEcs11;
+static ShardComponentType gLabelType;
+static int gLabelResult;                    /* first error the label system met */
+static int gLabelNoActor;                   /* entities set_local_transform found no actor behind */
+static int gUndeclaredPose;                 /* what set_local_transform returned to a system that did not declare the transform */
 static int gSetupResult;                    /* first error of the registrations in on_load */
 static int gSystemRuns;
 static int gUndeclaredGet;                  /* what `get` on a type the system did not declare returned */
@@ -148,6 +165,53 @@ static ShardResult SHARD_CALL CmdPersist(void* user, ShardPluginCtx ctx, const S
     return SHARD_OK;
 }
 
+/* ---- The label system : appends a "!" to every name and moves the actor to x = its number of visits ---- */
+
+static ShardResult SHARD_CALL VisitLabels(void* user, const ShardChunk* chunk)
+{
+    const LabelRun* run = (const LabelRun*)user;
+    Label* labels = (Label*)chunk->columns[0];
+    uint32_t i;
+    for (i = 0; i < chunk->count; ++i) {
+        ShardStr text = { NULL, 0 };
+        char grown[64];
+        size_t n;
+        ShardLocalTransform pose;
+        ShardResult r;
+        labels[i].visits += 1;
+        if (gComponents12->string_get(run->ctx, labels[i].name, &text) != SHARD_OK) { if (!gLabelResult) gLabelResult = 1; continue; }
+        n = text.size < 60 ? (size_t)text.size : 60;
+        if (n) memcpy(grown, text.data, n);
+        grown[n] = '!';
+        text.data = grown;
+        text.size = (uint64_t)n + 1;
+        r = gComponents12->string_set(run->ctx, &labels[i].name, text);
+        if (r != SHARD_OK && !gLabelResult) gLabelResult = r;
+        memset(&pose, 0, sizeof(pose));
+        pose.position[0] = (float)labels[i].visits;
+        pose.rotation[3] = 1.0f;
+        pose.scale[0] = pose.scale[1] = pose.scale[2] = 2.0f;
+        r = gEcs11->set_local_transform(run->ecs, chunk->entities[i], &pose);
+        if (r == SHARD_E_NOT_FOUND) ++gLabelNoActor;
+        else if (r != SHARD_OK && !gLabelResult) gLabelResult = r;
+    }
+    return SHARD_OK;
+}
+
+static ShardResult SHARD_CALL VisitLabel(void* user, ShardPluginCtx ctx, const ShardSystemCtx* run)
+{
+    ShardQuery query;
+    LabelRun labelRun;
+    (void)user;
+    memset(&query, 0, sizeof(query));
+    query.structSize = sizeof(query);
+    query.withCount = 1;
+    query.with = &gLabelType;
+    labelRun.ctx = ctx;
+    labelRun.ecs = run->ecs;
+    return gEcs11 && gComponents12 ? gEcs->each_chunk(run->ecs, &query, &VisitLabels, &labelRun) : SHARD_OK;
+}
+
 /* ---- The system ---- */
 
 static ShardResult SHARD_CALL TickChunk(void* user, const ShardChunk* chunk)
@@ -185,6 +249,13 @@ static ShardResult SHARD_CALL Tick(void* user, ShardPluginCtx ctx, const ShardSy
     }
     /* a main thread function from inside a system : refused */
     gWrongThread = gCVars->set_int(ctx, gCounter, 7);
+    if (gEcs11) {
+        /* this system did not declare shard.LocalTransform : it may not move an actor */
+        ShardLocalTransform pose;
+        memset(&pose, 0, sizeof(pose));
+        pose.rotation[3] = 1.0f;
+        gUndeclaredPose = gEcs11->set_local_transform(run->ecs, 1, &pose);
+    }
 
     if (!gSpawned) {
         /* an entity of its own, with a Counter : created at the end of the phase */
@@ -373,6 +444,45 @@ static void RegisterAll(void* user, ShardPluginCtx ctx)
         Setup(gComponents11->register_type(ctx, &desc, &gChunkType));
     } else {
         Setup(SHARD_E_NOT_FOUND);
+    }
+    if (gHost->query_interface(Str(SHARD_IFACE_COMPONENTS), 1, 2, (const void**)&gComponents12) == SHARD_OK && gComponents12 &&
+        gHost->query_interface(Str(SHARD_IFACE_ECS), 1, 1, (const void**)&gEcs11) == SHARD_OK && gEcs11) {
+        ShardFieldDesc fields[3];
+        ShardComponentDesc desc;
+        ShardComponentType again = 0;
+        memset(fields, 0, sizeof(fields));
+        memset(&desc, 0, sizeof(desc));
+        fields[0].structSize = sizeof(ShardFieldDesc); fields[0].type = SHARD_FIELD_STRING; fields[0].name = Str("name");   fields[0].offset = (uint32_t)offsetof(Label, name);
+        fields[1].structSize = sizeof(ShardFieldDesc); fields[1].type = SHARD_FIELD_ASSET;  fields[1].name = Str("icon");   fields[1].offset = (uint32_t)offsetof(Label, icon);
+        fields[2].structSize = sizeof(ShardFieldDesc); fields[2].type = SHARD_FIELD_I32;    fields[2].name = Str("visits"); fields[2].offset = (uint32_t)offsetof(Label, visits);
+        desc.structSize = sizeof(desc);
+        desc.name = Str("Label");
+        desc.size = sizeof(Label);
+        desc.align = 8;
+        desc.fieldCount = 3;
+        desc.fields = fields;
+        Setup(gComponents12->register_type(ctx, &desc, &gLabelType));
+        /* a private string is refused : a string is saved and shown */
+        fields[0].flags = SHARD_FIELD_PRIVATE;
+        desc.name = Str("PrivateLabel");
+        if (gComponents12->register_type(ctx, &desc, &again) != SHARD_E_INVALID_ARG) Setup(1006);
+    } else {
+        Setup(SHARD_E_NOT_FOUND);
+    }
+    if (gLabelType) {
+        ShardComponentType writes[2];
+        ShardSystemDesc system;
+        writes[0] = gLabelType;
+        writes[1] = gTransformType;
+        memset(&system, 0, sizeof(system));
+        system.structSize = sizeof(system);
+        system.name = Str("label");
+        system.phase = SHARD_PHASE_UPDATE;
+        system.writeCount = 2;
+        system.writes = writes;
+        system.run = &VisitLabel;
+        system.user = user;
+        Setup(gSystems->add(ctx, &system));
     }
     {
         ShardSystemDesc system;
@@ -704,6 +814,10 @@ TEST_EXPORT int c_plugin_unsubscribe(void)
 }
 /* how another plugin's type looks from here */
 TEST_EXPORT uint64_t c_plugin_chunk_type(void) { return gChunkType; }
+TEST_EXPORT uint64_t c_plugin_label_type(void) { return gLabelType; }
+TEST_EXPORT int c_plugin_label_result(void) { return gLabelResult; }
+TEST_EXPORT int c_plugin_label_no_actor(void) { return gLabelNoActor; }
+TEST_EXPORT int c_plugin_undeclared_pose(void) { return gUndeclaredPose; }
 
 /* A blob of n bytes holding i % 251 at byte i (0 on failure) */
 TEST_EXPORT uint64_t c_plugin_make_blob(uint32_t n)

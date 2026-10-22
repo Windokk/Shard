@@ -1017,7 +1017,12 @@ namespace Shard::Engine::Objects::Components{
 
         if (strcmp(name, "motionType") == 0)
         {
-            shouldUpdateShape = true;
+            // At once when it can be : a script that sets the motion type then the velocity needs the body of the new kind to exist
+            Core::IEngineContext* engine = GetEngineContext();
+            if (activated && parent && engine && engine->GetPhysicsManager())
+                CreateBody(motionType);
+            else
+                shouldUpdateShape = true;
         }
         else if (strcmp(name, "overrideMass") == 0 || strcmp(name, "mass") == 0)
         {

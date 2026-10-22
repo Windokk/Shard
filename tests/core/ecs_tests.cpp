@@ -707,3 +707,25 @@ TEST(EcsScheduler, ReportsTimingsAndAFlushAtTheEndOfEveryPhase) {
     EXPECT_FALSE(stats[1].enabled);
     EXPECT_NE(scheduler.Describe().find("sleepy"), std::string::npos);
 }
+
+TEST(EcsScheduler, ThePhaseEndHookRunsAfterTheRecordedChangesOfAPhaseThatHasSystems) {
+    Registry registry;
+    for (int i = 0; i < 4; ++i) registry.Create(Health{i});
+
+    Scheduler scheduler;
+    SystemDesc killer; killer.name = "killer"; killer.phase = Phase::Update; killer.Writes<Health>();
+    killer.run = [](SystemContext& c) { c.registry.Each<Health>([&c](Entity e, Health& h) { if (h.value < 2) c.commands.Destroy(e); }); };
+    scheduler.Add(killer);
+
+    std::vector<Phase> ended;
+    size_t aliveAtTheEnd = 0;
+    scheduler.SetPhaseEndHook([&](Phase phase) { ended.push_back(phase); aliveAtTheEnd = registry.Count(); });
+    scheduler.RunFrame(registry, nullptr, {});
+    ASSERT_EQ(ended.size(), 1u);                                        // only the phase that has a system
+    EXPECT_EQ(ended[0], Phase::Update);
+    EXPECT_EQ(aliveAtTheEnd, 2u);                                       // the recorded destroys were applied already
+
+    scheduler.SetPhaseEndHook(nullptr);
+    scheduler.RunFrame(registry, nullptr, {});
+    EXPECT_EQ(ended.size(), 1u);
+}

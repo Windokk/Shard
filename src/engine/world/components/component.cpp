@@ -141,6 +141,28 @@ namespace Shard::Engine::Objects::Components {
         });
     }
 
+    bool Component::ApplyField(const std::string& name, const json& value)
+    {
+        const ClassDescriptor* descriptor = GetDescriptor();
+        if (!descriptor)
+            return false;
+
+        for (FieldInfo* field : descriptor->fields)
+        {
+            if (name != field->name)
+                continue;
+
+            bool read = false;
+            const Serialization::ReflectionContext context = MakeContext(*descriptor, GetEngineContext());
+            Serialization::ReadFields({ field }, this, json{ { name, value } }, context, [this, &read](const FieldInfo& changed) {
+                read = true;
+                OnFieldChanged(FieldChangedEvent{ &changed });
+            });
+            return read;
+        }
+        return false;
+    }
+
     void Component::DeserializeActive(const json& componentData, bool defaultActive)
     {
         bool active = defaultActive;

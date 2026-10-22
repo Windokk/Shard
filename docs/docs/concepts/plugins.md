@@ -77,7 +77,7 @@ The editor, the player and `ShardHeadless` take these :
 | `--trust-file <path>` | a file of trusted publishers ; repeatable (default : `plugin-trust.json` next to the project) |
 | `--allow-unsigned-plugins` | load native plugins and install from registries without a signature of a trusted publisher |
 
-`--game <library>` still works : the library is loaded as the plugin `game`, a code module. It does not need a manifest. The engine's own game module is built with `shard_add_plugin` (id `game`), so it sits at `<build>/plugins/game/bin/<platform>/` with its `shard-plugin.json` : pass the library to `--game`, or the folder to `--plugin` to load it through its manifest.
+`--game <library>` still works : the library is loaded as the plugin `game`, a code module. It does not need a manifest, and it may be a C++ plugin or one built with the SDK (the engine tells them apart by the entry point they export). The example game is built with `shard_add_plugin` (id `game`, `ABI c1`, so against the SDK alone), and sits at `<build>/plugins/game/bin/<platform>/` with its `shard-plugin.json` : pass the library to `--game`, or the folder to `--plugin` to load it through its manifest. Its scripts are the components `game.Character`, `game.Gun` and `game.RandomKicker`, as every script is named after its plugin.
 
 `ShardHeadless` also has :
 
@@ -145,8 +145,9 @@ If the process crashes while plugin code runs or loads, the crash handler notes 
 | `engine.api` | the plugin API it was built against. Refused if the major differs or the minor is above the engine's |
 | `engine.versions` | engine versions it works with |
 | `engine.requires` | engine features it needs : `largeWorld`, `determinism`, `headless`, `editor`, `physics`, `audio`, `renderer` |
-| `abiFingerprint` | optional : the build it expects (see [Building](#building)) |
-| `binaries`, `entry` | the library per platform (`linux-x86_64`, `windows-x86_64`, `macos-arm64`...), and its entry point (`shard_plugin_describe`) |
+| `abi` | how the library talks to the engine : `cpp` (default) for a plugin that links the engine, `c1` for a plugin built with the [SDK](#the-c-abi-and-the-sdk). `shard_sdk_add_plugin` and `shard_add_plugin(... ABI c1)` write it for you |
+| `abiFingerprint` | optional, `cpp` plugins only : the build it expects (see [Building](#building)). A `c1` plugin is not checked against the build fingerprint |
+| `binaries`, `entry` | the library per platform (`linux-x86_64`, `windows-x86_64`, `macos-arm64`...), and its entry point (`shard_plugin_describe` for `cpp`, `shard_plugin_entry` for `c1`) |
 | `dependencies`, `conflicts` | other plugins by id and version range ; `optional` for a dependency that may be absent. `service:<name>` stands for any plugin that provides that service |
 | `provides` | services it offers |
 | `loadAfter`, `loadBefore` | ordering hints between plugins |
@@ -351,7 +352,9 @@ shard_add_plugin(
 )
 ```
 
-It lays the plugin out where the manager finds it : `<build>/plugins/<id>/shard-plugin.json`, `bin/<platform>/<library>`, and `content/` when `CONTENT_DIR` is given. `DEPENDS` takes `id`, `id@range`, or `id?` for an optional one. `AFFECTS_SIMULATION` or `NO_SIMULATION` set `simulation.affects` (modules affect it by default). `EDITOR_UI` compiles ImGui into the library, for an editor plugin that draws windows. The library links the engine and is built with `BUILD_GAME`, like the game module.
+It lays the plugin out where the manager finds it : `<build>/plugins/<id>/shard-plugin.json`, `bin/<platform>/<library>`, and `content/` when `CONTENT_DIR` is given. `DEPENDS` takes `id`, `id@range`, or `id?` for an optional one. `AFFECTS_SIMULATION` or `NO_SIMULATION` set `simulation.affects` (modules affect it by default). `EDITOR_UI` compiles ImGui into the library, for an editor plugin that draws windows. The library links the engine and is built with `BUILD_GAME`. With `ABI c1` it links nothing of the engine and sees only `sdk/include`, which is how the example game is built.
+
+`ABI c1` builds a plugin of the [C ABI](#the-c-abi-and-the-sdk) instead : the library links nothing of the engine, only sees the headers of `sdk/include`, and its manifest says `"abi": "c1"`. Outside the engine's repository, use `shard_sdk_add_plugin` from the SDK, which lays the plugin out the same way (see [Write a game with the SDK](../tutorials/write-a-game-with-the-sdk.md)).
 
 The library exports its entry point with `SHARD_PLUGIN(Class)`, or `SHARD_PLUGIN_WITH_LINK(Class, fn)` when it has to set up a copy of another library's statics (the game module does it for Jolt's allocator). A library does not share the executable's globals : the host hands it the engine, the component registry and the logger when it loads, and the context only holds pointers to the host's objects.
 
@@ -363,12 +366,37 @@ Libraries that predate this (they export `InitializeSingletons` and `RegisterGam
 
 ## The C ABI and the SDK
 
-A plugin can be written against the Shard SDK (`sdk/include/shard`) instead of the engine's C++ headers. It links nothing of the engine and includes none of its headers : it loads in every engine of the same ABI major revision (and a minor revision at least its own), whatever compiler built either side. A plugin built with MSVC loads in an engine built with MinGW GCC, one built with Clang in an engine built with GCC. The CI checks both.
+A plugin can be written against the Shard SDK (`sdk/include/shard`) instead of the engine's C++ headers. It links nothing of the engine and includes none of its headers. It loads in every engine with the same ABI major revision and a minor revision at least as recent as its own, whichever compiler built either side. A plugin built with MSVC loads in an engine built with MinGW GCC, and one built with Clang loads in an engine built with GCC. The CI checks both.
 
 There are two layers :
 
-* **The C ABI** (`shard/shard.h` and the headers it includes) : plain C11, the contract between the plugin and the engine.
-* **The C++ SDK** (`shard/cpp/plugin.hpp`) : header-only C++17 over the C ABI. It is compiled into the plugin, so it uses the standard library freely without touching the ABI.
+* The C ABI (`shard/shard.h` and the headers it includes) is plain C11. It is the contract between the plugin and the engine.
+* The C++ SDK (`shard/game.hpp` and the `shard/cpp/` headers) is header-only C++17 on top of the C ABI. It is compiled into the plugin, so it can use the standard library freely without affecting the ABI.
+
+The C++ SDK itself has two levels. The gameplay level is how a game is written : classes that live on actors, like the engine's own scripts, in as many files as you want.
+
+```cpp
+// health.hpp
+#include <shard/game.hpp>
+
+class Health : public shard::Script {
+public:
+    SHARD_FIELD(float, maxHealth, Range(1.f, 1000.f)) = 100.f;      // a field : shown in the inspector, saved with the world
+    SHARD_FIELD(float, current) = 100.f;
+
+    void OnPlay() override { current = maxHealth; }
+    void OnTick(float deltaTime) override { if (current <= 0.f) Owner().Destroy(); }
+};
+
+// health.cpp
+#include "health.hpp"
+SHARD_REGISTER_SCRIPT(Health)                           // registers the class
+
+// module.cpp, once
+SHARD_GAME_MODULE()
+```
+
+The registration level underneath is for a plugin that is not a game, or that fits in one file. It registers components, systems, variables and commands by hand in `OnLoad` :
 
 ```cpp
 #include <shard/cpp/plugin.hpp>
@@ -392,66 +420,198 @@ public:
 SHARD_C_PLUGIN(SpinPlugin)
 ```
 
-The manifest says `"abi": "c1"`, and the entry point is `shard_plugin_entry` instead of `shard_plugin_describe`. `shard_sdk_add_plugin` (outside the repository) and `shard_add_plugin(... ABI c1)` (inside) write both. See [Write a plugin outside the engine repository](../tutorials.md) to start from the template, and the [C ABI reference](../api_reference.md) for every function.
+You can mix them. A game can have scripts in some files, systems in others (`SHARD_ON_LOAD`, `SHARD_DEFINE_COMPONENT`), and a class derived from `shard::Plugin` for variables, commands and hot reload. The [tutorial](../tutorials/write-a-game-with-the-sdk.md) builds one.
+
+The manifest of such a plugin says `"abi": "c1"`, and its entry point is `shard_plugin_entry` instead of `shard_plugin_describe`. `shard_sdk_add_plugin` (outside the repository) and `shard_add_plugin(... ABI c1)` (inside it) write both. The [C ABI reference](../api_reference.md) lists every function.
+
+### Getting the SDK
+
+The SDK is a folder : `include/` (the C ABI and the C++ SDK), `cmake/` (`find_package(ShardSDK)` and `shard_sdk_add_plugin`), `bin/ShardPkg`, `templates/plugin/` and `VERSION`. Its version is the C ABI revision. To get it, run `cmake --install build --component sdk --prefix <dir>` on an engine build (it goes to `<dir>/sdk`), or build the `ShardSDKArchive` target, which writes `build/shard-sdk-<version>.zip`. The CI publishes that archive for each OS.
+
+```cmake
+find_package(ShardSDK 1.0 REQUIRED)
+shard_sdk_add_plugin(weather
+    MANIFEST    shard-plugin.json      # the SDK adds "abi", "linkage" and "binaries"
+    SOURCE_DIRS src                    # every .cpp under src/
+    CONTENT_DIR content
+    PACKAGE)                           # adds the target weather_package
+```
+
+`SOURCES` lists files one by one, `SOURCE_DIRS` takes every `.cpp`, `.cc`, `.cxx` and `.c` under a folder (CMake looks again when a file is added). `PACKAGE` adds a `<target>_package` target that packs the plugin with the SDK's `ShardPkg` into `<build>/plugins/<id>.shardplugin`. Without a `MANIFEST`, give `ID` and `VERSION`, and optionally `KIND`, `MODULE_KIND`, `HOSTS`, `DEPENDS` and `AFFECTS_SIMULATION`. The manifest is then written for you.
 
 ### What the C ABI offers
 
-Everything goes through interfaces that a plugin asks for by name and version with `host->query_interface("shard.systems", 1, 0, &table)`. The C++ SDK does it for you.
+A plugin asks for interfaces by name and version : `host->query_interface("shard.systems", 1, 0, &table)`. The C++ SDK does this for you.
 
 | Interface | What it does |
 |---|---|
-| `shard.plugin` 1.1 | the plugin's id, version, folder ; the host it runs in and its permissions (1.1) |
-| `shard.cvars` 1.0 | variables of the console and of the config files |
+| `shard.plugin` 1.2 | the plugin's id, version and folder. The host it runs in and its permissions (1.1). Random streams (1.2) |
+| `shard.cvars` 1.0 | console and config variables |
 | `shard.commands` 1.0 | console commands |
-| `shard.components` 1.1 | component types described field by field : an ECS component and an actor component at once ; blobs for what does not fit (1.1) |
-| `shard.ecs` 1.0 | queries by chunk, component access and structural changes, from inside a system |
+| `shard.components` 1.3 | component types described field by field, each one an ECS component and an actor component. Blobs (1.1), text and asset fields (1.2), actor references and plugin-owned strings in scripts (1.3) |
+| `shard.ecs` 1.1 | queries by chunk, component access and structural changes, from inside a system. Moving the actor behind an entity (1.1) |
 | `shard.systems` 1.0 | systems in the scheduler's phases, with their reads, writes and order |
-| `shard.events` 1.1 | events found by name, carrying bytes (C++ code reaches the same channel) ; what a payload holds, for the tools (1.1) |
+| `shard.events` 1.1 | events by name, carrying bytes. C++ code reaches the same channel. Describing a payload for the tools (1.1) |
 | `shard.hooks` 1.0 | the engine's hooks, by name, cancellable |
-| `shard.services` 1.0 | tables of functions plugins offer each other, by name and version |
+| `shard.services` 1.0 | tables of functions that plugins offer each other, by name and version |
 | `shard.extensions` 1.0 | asset validators, asset types and asset importers |
-| `shard.content` 1.0 | the modules' content : `mod://` addresses, logical paths, reading files |
+| `shard.content` 1.0 | module content : `mod://` addresses, logical paths, reading files |
 | `shard.state` 1.0 | what a plugin keeps across a hot reload, as JSON text |
-| `shard.experimental.world_ecs` 0.1 | the engine's entities from the main thread, outside the systems (experimental, see below) |
+| `shard.scripts` 1.1 | script types : classes of the plugin that live on actors. Physics contacts (1.1) |
+| `shard.actors` 1.0 | the actors of a world : pose, hierarchy, tags, creating and finding them, the engine's components as JSON |
+| `shard.input` 1.0 | keyboard, mouse and gamepads |
+| `shard.physics` 1.0 | velocities, forces, impulses, gravity and ray casts |
+| `shard.audio` 1.0 | the sound of an actor, one shot sounds |
+| `shard.worlds` 1.0 | loading a world, spawning a prefab by name |
+| `shard.editor` 1.0 | panels in the editor. Only the editor offers it |
+| `shard.experimental.world_ecs` 0.1 | the engine's entities from the main thread, outside systems (experimental, see below) |
 
-The lifecycle callbacks are the ones of `IPlugin`, plus the frame, the content and the world callbacks of `EnginePlugin` and `IModule`, and `on_tool_task` of `ToolPlugin`. What the C ABI does not offer : render features and pipelines, editor panels and ImGui, direct access to actors and worlds, and the network. A plugin that needs them is written in C++ against the engine.
+The lifecycle callbacks are those of `IPlugin`, plus the frame, content and world callbacks of `EnginePlugin` and `IModule`, and `on_tool_task` of `ToolPlugin`.
+
+The C ABI has no render features or pipelines, no ImGui itself (a plugin draws with the editor's widgets, see below), no physics shapes or joints beyond what the body component's fields describe, no audio mixing or effects, and no network. The engine components that have no interface of their own can still be read and changed as JSON through `shard.actors`. A plugin that needs more is written in C++ against the engine.
+
+### Scripts, actors and input
+
+A script type (`shard.scripts`) is a class of the plugin that lives on an actor. The plugin describes its size, its fields and its callbacks, and the engine registers it as an actor component named `<plugin id>.<name>`. It is built on the engine's own `Script` component, so :
+
+* the world ticks it in the same order as the engine's scripts (the order the components were added),
+* play mode starts and stops it,
+* the world file saves its fields and the inspector shows them,
+* a copy of the actor made for play mode builds a new object and copies the fields into it.
+
+The object lives in storage held by the component, up to 16 KB. The plugin's own functions construct and destroy it in place and the engine never moves it, so it can have any member, including a `std::vector`. Fields are described like a component's, with `ShardFieldDesc` : numbers, booleans, vectors, quaternions, colours, text, assets and blobs, at their offsets in the object.
+
+The callbacks are `OnCreate`, `OnPlay`, `OnTick(dt)`, `OnFixedTick(dt)`, `OnLateTick(dt)`, `OnStop`, `OnDestroyed`, `OnActivated`, `OnDeactivated`, `OnWorldLoaded` and `OnWorldUnloaded`. They mean what they mean for the engine's scripts.
+
+The scripts of a world run one after the other on the thread that ticks them, never two at once. This is why they can use `shard.actors` and `shard.input`, which a system cannot (systems run side by side). A script can destroy its own actor or add components in a callback : the world ticks the scripts it had when the tick began and skips the ones removed in the meantime.
+
+`shard.actors` works with `ShardActor` handles, made of a generation and a slot. A destroyed actor fails with `SHARD_E_STALE_HANDLE`, and its handle never refers to another actor. It can :
+
+* read and set the pose, the name, the active state, the parent, the children and the tags,
+* create an actor, spawn one from the JSON a world file holds, find one by name or by tag, and destroy one,
+* add, test, remove, read and set the engine's components by the name their serialized form uses (`"light"`, `"model"`, `"physics_body"`), with their fields as JSON. Anything the editor shows can be reached this way.
+* read, set and erase one field of a component (`shard.actors` 1.1), by its name or a path into it (`"materials/0"`, `"shapes/0/params/radius"`, `"shapes/-"` to append). A field of the engine is set the way an edit in the inspector sets it, so a physics body keeps its velocity when its friction changes. The C++ SDK wraps these in typed handles (`actor.Add<shard::Model>().SetMesh(mesh)`, `shard::PhysicsBody`, `shard::Light`...).
+
+Creating and searching work in the world of an actor that you pass in. A script passes its owner.
+
+`shard.input` reads the engine's input manager, which is what replays record, so a script that reads its input here behaves the same in a replay. Key and button numbers are part of the ABI.
+
+**Random numbers** (`shard.plugin` 1.2). `rand()`, `std::random_device` and `std::uniform_*_distribution` give other numbers from one run, platform or standard library to the next, so a replay that used them would drift. `random_stream` returns the state of a generator for a named stream, derived from the run's seed, the plugin's id and the name : the same name gives the same sequence when the run is replayed. The generator is PCG32, the engine's own `Core::Random`, and the SDK's `shard::Random` runs it inside the plugin, so drawing a number is not a call into the engine and gives the same bits. Name a stream after what draws from it (`"Spawner/" + Owner().Name()`), not after the order scripts started in.
+
+```cpp
+void RandomKicker::OnPlay() { m_Random = shard::Random::Stream("RandomKicker/" + Owner().Name()); }
+void RandomKicker::OnTick(float) { Owner().AddImpulse(m_Random.OnUnitSphere() * strength); }
+```
+
+**Contacts** (`shard.scripts` 1.1). A script with a physics body is told when it touches another body : `on_contact_added`, `on_contact_persisted` and `on_contact_ended` (`OnContactAdded`, `OnContactPersisted`, `OnContactEnded` in C++). Each gets a `ShardContact` : the other actor, a point of the contact, the normal and the penetration depth. The normal points from the script's actor toward the other one. The end of a contact has the other actor only. Both actors of a pair get the call, each with its own point of view.
+
+**Actor references and strings in scripts** (`shard.components` 1.3). A script field of type `SHARD_FIELD_ACTOR` holds a `ShardActor`. The world file saves it as the path of the actor, `"Level/Enemy"` (root first, then the children's names). When the file is loaded, or a copy is made for play mode, the actor named by the path may not exist yet : the engine keeps the path, looks again before each callback, and fills the handle on the first call where the actor is there. An actor that is destroyed leaves an empty reference, never a dangling one. In C++ the field is a `shard::Actor` (check it with `if (target)`). References are for scripts only, because a plain component block has no way to hold a path. They count against the same 8 text fields as strings.
+
+A script can also list a string that the plugin owns, a `std::string` in C++. Such a field is flagged `SHARD_FIELD_ACCESSOR`, and gives `text_get` and `text_set` in the script's callbacks so that the engine reads and writes it through the plugin. The `std::string` itself never crosses the ABI, which is what keeps it safe between compilers : only the bytes do. Components still use `shard::Text`.
+
+**Physics** (`shard.physics`). Takes the handle of an actor with a `physics_body` component. It reads and sets the velocity and the angular velocity, adds forces, torques and impulses (at the centre or at a point of the world), reads the gravity that acts on the body and gives it a gravity of its own. A force lasts for the step it is added in, so a script that wants to push for longer adds it every fixed tick. Units are metres, kilograms, seconds and newtons.
+
+`raycast` returns the first body on a ray : its actor, the point, the surface normal and the distance. `layers` limits it to static bodies, moving bodies or both, and `ignore` is an actor the ray goes through, which is usually the one firing it.
+
+```cpp
+void Turret::OnFixedTick(float)
+{
+    auto hit = shard::Physics::Raycast(Owner().WorldPosition(), Owner().Forward(), 50.f, shard::Layers::All, Owner());
+    if (hit) hit->actor.AddImpulse(Owner().Forward() * 5.f);
+}
+```
+
+**Audio** (`shard.audio`). `play`, `pause` and `set_volume` act on the `audio` component of an actor. `play_one_shot` plays a clip of the project once, from a place in the world or flat, with no actor, and frees itself when it ends. A host with no sound device accepts every call and plays nothing.
+
+**Worlds and prefabs** (`shard.worlds`). `load_world` asks for a world by its path in the project. The load is a request : it runs in the background and the world is swapped in at the start of a later frame, so the script that asked keeps running with everything it holds until then. `is_loading` and `loaded_count` tell where it is. `spawn_prefab` builds an actor from a JSON file of the plugin's content, by `mod://` address, logical path (`prefabs/crate.json`) or bare name (`crate`), under a parent or at the root of the world. Before this, a plugin had to pass the actor's JSON itself.
+
+**Panels in the editor** (`shard.editor`). ImGui has no stable ABI, so a plugin never calls it. It adds a panel, a window of the editor's Window menu, and draws its contents with the widgets `ShardUiApi` offers : text, buttons, checkboxes, sliders, drags, text boxes, colour pickers, combos, trees, progress bars and plots. The draw function runs every frame the window is open, on the editor's main thread, and only then may it use the widgets. Only the editor offers `shard.editor`. In the player, in a headless run and in the offline tools the interface is not found, the panel is not added, and the same plugin loads everywhere. A plugin whose `hosts` include `engine` is loaded by the editor like by the player, and `editor` alone limits it to the editor.
+
+```cpp
+SHARD_EDITOR_PANEL(Spawner, "Enemy spawner", ui)
+{
+    static int count = 5;
+    ui.SliderInt("Count", count, 1, 50);
+    if (ui.Button("Spawn")) SpawnEnemies(count);
+}
+```
+
+A call into a script goes through the plugin like any other. The plugin is named as the one running, so a crash is blamed on it. An exception is caught, and an error returned counts as an error of the plugin : at the tenth, the engine fails the plugin, as it does for a system. When the plugin is disabled or unloaded, its scripts stop being called, so a world that still holds them never calls into a library that has left.
 
 ### Components across the ABI
 
-A type a plugin registers has two faces under one name (`<plugin id>.<name>`) :
+A type that a plugin registers has two parts under one name (`<plugin id>.<name>`) :
 
-* an **ECS component** : a block of plain data (copied with `memcpy`, never constructed) on an entity. Systems query it and write it.
-* an **actor component** : what a world file saves, the inspector shows and an actor carries, made of the fields the plugin described (floats, integers, booleans, vectors, quaternions, colours).
+* an ECS component : a block of plain data on an entity, copied with `memcpy` and never constructed. Systems query it and write it.
+* an actor component : what a world file saves, the inspector shows and an actor carries. It is made of the fields the plugin described (floats, integers, booleans, vectors, quaternions, colours, and since ABI 1.3 text and assets).
 
-When an actor has the component, its entity has the block, with the same values. The actor component writes its values to the entity when it is loaded, edited, attached or activated, and reads them back from the entity when the world is saved or copied (play mode). So what a system changed is what gets saved. A deactivated component leaves the entity : the systems skip it. An entity a plugin spawned itself has no actor, and is not saved.
+When an actor has the component, its entity has the block with the same values. The actor component writes its values to the entity when it is loaded, edited, attached or activated, and reads them back when the world is saved or copied for play mode. What a system changed is therefore what gets saved. A deactivated component leaves the entity, so systems skip it. An entity that a plugin spawned itself has no actor and is not saved.
 
-Field flags : `SHARD_FIELD_RUNTIME` (shown read only, not saved), `SHARD_FIELD_PRIVATE` (neither shown nor saved). A component is 1024 bytes at most, aligned on 16 at most, with 64 fields at most. Its ECS id is reserved for the whole run : a plugin enabled again gets the same id back, provided the size did not change (a new layout needs a restart).
+Field flags : `SHARD_FIELD_RUNTIME` shows the field read-only and does not save it, `SHARD_FIELD_PRIVATE` neither shows nor saves it. A component is at most 1024 bytes, aligned on at most 16, with at most 64 fields. Its ECS id is kept for the whole run : a plugin that is enabled again gets the same id back, as long as the size did not change (a new layout needs a restart).
 
-What does not fit goes in a **blob** (ABI 1.2) : bytes the host keeps outside the block, as many as needed, counted against the plugin's memory budget, and given back with the plugin. A field of type `SHARD_FIELD_BLOB` holds its handle. The block is still plain data, so copying it shares the blob ; the actor component is the exception, it owns the blobs of its blob fields : it saves their bytes with the world (base64), a copy of the actor (play mode) gets copies of them, and removing the component frees them.
+**Blobs** (ABI 1.2) hold what does not fit in the block. A blob is bytes that the engine keeps outside the block, counted against the plugin's memory budget and released with the plugin. A field of type `SHARD_FIELD_BLOB` holds its handle. The block is still plain data, so copying a block shares the blob. The actor component is the exception : it owns the blobs of its blob fields, saves their bytes with the world (base64), gives a copy of the actor copies of them, and frees them when the component is removed.
+
+**Text and assets** (ABI 1.3). A field of type `SHARD_FIELD_STRING` holds the handle of a blob whose bytes are UTF-8 text. The block stays plain data, the inspector shows a text box, and the world file saves a string. Ownership works as for blobs. `string_set` and `string_get` of `shard.components` 1.2 read and write it without touching the blob (`shard::Text` in C++, with `Get()` and `Set()`). A component has at most 8 string fields, and a string field cannot be `SHARD_FIELD_PRIVATE`.
+
+A field of type `SHARD_FIELD_ASSET` is an `int32_t` : the id of an asset of the project, 0 for none (`shard::AssetId` in C++). The inspector shows an asset picker, and the world file saves the asset by its name in the project, like the engine's own components. Neither type can be used in a described event, because an event payload is copied as bytes.
+
+### Moving actors
+
+A system cannot write the engine's own pose component through the pointers a query returns. The actor's `Transform` drives `shard.LocalTransform` and would overwrite the change. Instead, a system calls `set_local_transform` of `shard.ecs` 1.1 (`SystemCtx::SetLocalTransform(entity, shard::Pose)` in C++), after declaring `shard.LocalTransform` in its `writes` :
+
+```cpp
+auto local = ctx.Components().Find<shard::Pose>("shard.LocalTransform");
+ctx.Systems().Add("drift", shard::Phase::Update)
+    .Writes(sign, local)
+    .Run([sign](shard::SystemCtx& s) {
+        s.Each(sign, [&](shard::Entity e, Sign& c) {
+            shard::Pose p;
+            p.position.x = float(++c.uses);
+            s.SetLocalTransform(e, p);
+        });
+    });
+```
+
+The pose is relative to the parent. It is recorded and applied when the phase ends, on the main thread, after the structural changes. The actor's `Transform` takes it, so children, physics and the renderer follow, and the entity's `LocalTransform` then holds it. Until the phase ends, systems that read `shard.LocalTransform` still see the old pose, whether the phase runs on one thread or many.
+
+If several systems set the same entity in one phase, the one whose name sorts last wins. Only what changed is applied, so setting the same pose every frame costs nothing. A deactivated actor ignores the call, and an entity with no actor (one the plugin spawned itself) gets `SHARD_E_NOT_FOUND`.
 
 ### Systems and threads
 
-A system declares what it reads and writes, and reaches only those types through `shard.ecs` (an exclusive system reaches anything). The scheduler runs systems of a phase in parallel when they do not conflict ; the result is the same with one thread or many, which `ShardHeadless --check-plugins` checks.
+A system declares what it reads and writes, and can reach only those types through `shard.ecs` (an exclusive system can reach any). The scheduler runs the systems of a phase in parallel when they do not conflict, and the result is the same with one thread or many. `ShardHeadless --check-plugins` checks this.
 
-Every function of the ABI says which thread may call it : `any`, `system` (from a system, so in parallel) or `main` (the main thread, outside the systems). A `main` function called from a system returns `SHARD_E_WRONG_THREAD`. An event emitted from a system is queued and delivered on the main thread at the end of the frame, the queues taken in the order of the systems' names : the order does not depend on which system finished first.
+Every function of the ABI says which thread may call it : `any`, `system` (from a system, so possibly in parallel) or `main` (the main thread, outside systems). A `main` function called from a system returns `SHARD_E_WRONG_THREAD`. An event emitted from a system is queued and delivered on the main thread at the end of the frame, with the queues taken in the order of the systems' names, so the order does not depend on which system finished first.
 
-A system that returns an error (or throws, in C++) counts as an error of the plugin ; at the tenth, the host fails it, as for a C++ system. Every call from the engine into a C plugin (lifecycle, systems, events, hooks, commands, validators, importers, asset loaders) names the plugin as the one running : a crash in it is blamed on it, and the next start offers safe mode without it.
+A system that returns an error, or throws in C++, counts as an error of the plugin. At the tenth, the engine fails the plugin, as for a C++ system. Every call from the engine into a C plugin (lifecycle, systems, events, hooks, commands, validators, importers, asset loaders) names the plugin as the one running, so a crash is blamed on it and the next start offers safe mode without it.
 
 ### Described events
 
-The payload of a named event is bytes whose layout the sender documents. Since ABI 1.2 it can also tell the engine (`shard.events` 1.1 `describe`, `ctx.Events().Describe<T>()` in C++, `EventRegistrar::DescribeNamed` for a C++ plugin), with the same fields as a component. The console then shows them : `event.list` lists the described events and their fields, `event.watch <name>` logs every event sent under that name with its values (`{ ticks: 3, axis: (0, 1, 0) }`), `event.unwatch <name>` stops.
+The payload of a named event is bytes, and the sender documents their layout. Since ABI 1.2 the sender can also describe it to the engine, with the same fields as a component (`describe` in `shard.events` 1.1, `ctx.Events().Describe<T>()` in C++, `EventRegistrar::DescribeNamed` for a C++ plugin). The console then uses the description :
+
+* `event.list` lists the described events and their fields,
+* `event.watch <name>` logs every event sent under that name with its values (`{ ticks: 3, axis: (0, 1, 0) }`),
+* `event.unwatch <name>` stops.
 
 ### Experimental interfaces
 
-What may still change is offered as `shard.experimental.*` before it is frozen into the ABI. Such an interface carries **no** compatibility promise : its major is 0, `query_interface` hands it out for its exact minor only, and it may change or go in any engine revision. A native plugin carrying a valid signature of a trusted publisher (what is distributed) is refused them : they are for development and for trying what the next ABI revision should hold. Today : `shard.experimental.world_ecs`, the engine's registry from the main thread (`shard::experimental::World` in C++), open and closed within one callback, its structural changes applied at close.
+Things that may still change are offered as `shard.experimental.*` before they are frozen into the ABI. These interfaces come with no compatibility promise : the major is 0, `query_interface` returns one only for its exact minor, and it can change or disappear in any engine revision. A native plugin carrying a valid signature from a trusted publisher (a distributed plugin) is refused them. They are for development, and for trying what the next ABI revision should contain.
+
+There is one today, `shard.experimental.world_ecs`. It gives the engine's registry on the main thread (`shard::experimental::World` in C++). It is opened and closed within one callback, and its structural changes are applied when it closes.
 
 ### Versions and the rules of the headers
 
-The ABI has a major and a minor revision (`SHARD_ABI_MAJOR`, `SHARD_ABI_MINOR`, the SDK's version). A minor revision only adds : functions at the end of a table, fields at the end of a struct, new interfaces. So a plugin built for 1.0 loads in an engine of 1.1, and a plugin built for 1.1 is refused by an engine of 1.0 (`built for the C ABI 1.1, this engine has 1.0`). Each interface has its own version too : a plugin that needs `has_permission` asks for `shard.plugin` 1.1.
+The ABI has a major and a minor revision (`SHARD_ABI_MAJOR`, `SHARD_ABI_MINOR`, also the SDK's version). A minor revision only adds : functions at the end of a table, fields at the end of a struct, new interfaces. A plugin built for 1.0 therefore loads in an engine at 1.1, while a plugin built for 1.1 is refused by an engine at 1.0 (`built for the C ABI 1.1, this engine has 1.0`). Each interface has its own version as well : a plugin that needs `has_permission` asks for `shard.plugin` 1.1.
 
-The headers follow these rules : plain C, fixed size types in structs, every struct starts with `uint32_t structSize` and only grows at its end, handles (index + generation) instead of pointers to host objects, no exception crosses the boundary. A handle that outlived its object (a cvar of a disabled plugin, a ShardEcs kept after the system's run) fails with `SHARD_E_STALE_HANDLE` instead of reading freed memory.
+The headers follow these rules :
 
-The build fingerprint does not apply to a `c1` plugin : the ABI revision is the contract. The tier does not change either : a C plugin is a native tier 1 plugin, signed or consented to like the others, and nothing isolates it.
+* plain C, with fixed-size types in structs,
+* every struct starts with `uint32_t structSize` and only grows at its end,
+* handles (index and generation) stand for host objects, never pointers,
+* no exception crosses the boundary.
+
+A handle that outlived its object (a cvar of a disabled plugin, a `ShardEcs` kept after the system's run) fails with `SHARD_E_STALE_HANDLE` instead of reading freed memory.
+
+The build fingerprint does not apply to a `c1` plugin, since the ABI revision is the contract. The tier does not change either : a C plugin is a native tier 1 plugin, signed or allowed like the others, and nothing isolates it.
 
 ## Module content
 
@@ -543,7 +703,12 @@ ShardPkg sign my_plugin --publisher acme --key keys/acme.key
 ShardPkg pack my_plugin --out com.acme.weather-1.4.2.shardplugin
 ShardPkg verify com.acme.weather-1.4.2.shardplugin --trust plugin-trust.json
 ShardPkg index registry/index.json add registry/com.acme.weather-1.4.2.shardplugin --name "Acme"
+ShardPkg fingerprint                             # the build fingerprint of this engine, what `cpp` plugins are checked against
 ```
+
+Sign first, then pack, then index : signing writes `shard-signature.json` into the folder, and the archive is made of the folder as it is. Without `--out`, `pack` names the archive `<id>-<version>.shardplugin`. The archive holds the manifest, the libraries and the content, and nothing else : the import library a Windows build produces stays in the build folder.
+
+`ShardPkg` is installed in the SDK (`sdk/bin`) (on Windows with MinGW it is linked statically, so it runs without the engine or a compiler runtime next to it), so a plugin built outside the engine's repository can pack and sign itself : `shard_sdk_add_plugin(... PACKAGE)` finds it there (`SHARD_PKG_EXECUTABLE` points CMake at another one). It works the same way for `cpp` and `c1` plugins.
 
 A registry is a folder (or a web server's folder) with an `index.json` and the archives it lists. The index gives each archive's file name, size and SHA-256, its publisher, the engine versions it works with and its dependencies. Serve it over plain `http://` ; `https://` is not supported, and nothing depends on it : the archive is checked against the hash in the index, and its files against the signature.
 
@@ -599,6 +764,8 @@ If the new library does not load, the plugin is `Failed` with the reason.
 | `plugin.budgets` | time per frame and counted memory against each plugin's budget |
 | `plugin.search`, `plugin.install`, `plugin.installed`, `plugin.updates`, `plugin.update`, `plugin.uninstall` | registries, see above |
 | `plugin.trust <publisher> <key>`, `plugin.verify <id>` | trusted publishers and signatures |
+| `event.list` | the named events that plugins described (ABI 1.2) and their fields |
+| `event.watch <name>`, `event.unwatch <name>` | log every event sent under that name with its values, or stop |
 | `asset.import <file> [folder]`, `render.features` | what plugins brought to the asset and render systems |
 
 The editor's *Plugins* window (Window menu) shows the same list, with the problems found at startup and buttons for enable, disable and reload.
@@ -607,7 +774,11 @@ The editor's *Plugins* window (Window menu) shows the same list, with the proble
 
 | Symptom | Likely cause |
 |---|---|
-| *build fingerprint mismatch* | the plugin was built with another compiler, build type or physics option than the executable |
+| *build fingerprint mismatch* | a `cpp` plugin was built with another compiler, build type or physics option than the executable. A plugin built with the SDK (`"abi": "c1"`) is not checked this way |
+| *built for the C ABI 1.x, this engine has 1.y* | the plugin was built with an SDK more recent than the engine : update the engine, or build against an older SDK |
+| *does not export the C ABI entry point* | the manifest says `"abi": "c1"` but the library has no `shard_plugin_entry` : build it with `shard_sdk_add_plugin` or end it with `SHARD_C_PLUGIN` |
+| *'abi' must be "cpp" or "c1"* | a typo in the manifest's `abi` field |
+| an interface call returns `SHARD_E_UNSUPPORTED` | an experimental interface (`shard.experimental.*`) asked by a plugin that is signed by a trusted publisher, or an engine that does not have it |
 | *needs engine ...*, *built for plugin API ...* | `engine.versions` or `engine.api` doesn't fit this engine |
 | *needs the engine feature ...* | the engine was built without it (`largeWorld` needs `SHARD_DOUBLE_PRECISION_PHYSICS`) |
 | *no binary for linux-x86_64* | the manifest has no library for this platform |

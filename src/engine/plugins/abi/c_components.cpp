@@ -15,6 +15,7 @@
 
 #include "engine/assets/reflection/reflection_fields.hpp"
 #include "engine/core/ecs/registry.hpp"
+#include "engine/plugins/abi/c_fields.hpp"
 #include "engine/plugins/abi/c_internal.hpp"
 #include "engine/world/actor.hpp"
 #include "engine/world/ecs_components.hpp"
@@ -29,27 +30,13 @@ namespace Shard::Engine::Plugins::CAbi {
         static_assert(sizeof(ShardLocalTransform) == sizeof(Worlds::LocalTransform), "ShardLocalTransform mirrors Worlds::LocalTransform");
         static_assert(sizeof(ShardActorLink) == sizeof(Worlds::ActorLink), "ShardActorLink mirrors Worlds::ActorLink");
 
-        struct CField {
-            std::string name;
-            std::string tooltip;
-            uint32_t type = 0;
-            uint32_t offset = 0;
-            uint32_t flags = 0;
-            float min = 0.0f;
-            float max = 0.0f;
-        };
-
-        struct CType {
+        struct CType : FieldSet {
             std::string name;                       // full : "<plugin id>.<name>"
             PluginOwner owner = 0;
             Core::Ecs::ComponentId ecs = Core::Ecs::kInvalidComponent;
             uint32_t size = 0;
             uint32_t align = 0;
             std::vector<unsigned char> defaults;
-            std::deque<CField> fields;              // stable : ShardFieldDesc handed out point into them
-            ClassDescriptor descriptor;             // the fields that are shown or saved
-            std::deque<FieldInfo> infos;
-            std::vector<const CField*> blobs;       // the SHARD_FIELD_BLOB fields : the actor component owns their blobs
         };
 
         std::mutex gTypesMutex;
@@ -64,6 +51,8 @@ namespace Shard::Engine::Plugins::CAbi {
             void (*destroy)(void*);
             bool (*equals)(const void*, const void*);
         };
+
+        static_assert(sizeof(Filesystem::AssetID) == sizeof(int32_t), "SHARD_FIELD_ASSET is an AssetID");
 
         template <typename T>
         FieldLayout Layout(TypeID type)
@@ -87,6 +76,9 @@ namespace Shard::Engine::Plugins::CAbi {
                 case SHARD_FIELD_QUAT: out = Layout<glm::quat>(TypeID::Quat); return true;
                 case SHARD_FIELD_COLOR: out = Layout<glm::vec4>(TypeID::ColorRGBA); return true;
                 case SHARD_FIELD_BLOB: out = Layout<uint64_t>(TypeID::UInt64); return true;      // never reflected : saved by CAbiComponent
+                case SHARD_FIELD_STRING: out = Layout<uint64_t>(TypeID::UInt64); return true;    // the block holds a blob handle ; the std::string beside it is what is reflected
+                case SHARD_FIELD_ASSET: out = Layout<Filesystem::AssetID>(TypeID::Asset); return true;
+                case SHARD_FIELD_ACTOR: out = Layout<uint64_t>(TypeID::UInt64); return true;      // a handle ; the path in a std::string beside it is what is reflected
                 default: return false;
             }
         }
@@ -294,6 +286,51 @@ namespace Shard::Engine::Plugins::CAbi {
             } catch (...) { return SHARD_E_INTERNAL; }
         }
 
+        ShardResult SHARD_CALL StringSet(ShardPluginCtx handle, ShardBlob* field, ShardStr text)
+        {
+            try {
+                if (!field || (text.size && !text.data)) return SHARD_E_INVALID_ARG;
+                if (*field) {
+                    const ShardResult resized = BlobResize(handle, *field, text.size);
+                    if (resized == SHARD_OK) {
+                        void* data = nullptr;
+                        uint64_t size = 0;
+                        const ShardResult found = BlobData(handle, *field, &data, &size);
+                        if (found != SHARD_OK) return found;
+                        if (text.size) std::memcpy(data, text.data, size_t(text.size));
+                        return SHARD_OK;
+                    }
+                    if (resized != SHARD_E_STALE_HANDLE) return resized;
+                    *field = 0;                     // not a live blob of this plugin : the field gets a new one
+                }
+                ShardBlob blob = 0;
+                const ShardResult created = BlobCreate(handle, text.size, &blob);
+                if (created != SHARD_OK) return created;
+                void* data = nullptr;
+                uint64_t size = 0;
+                const ShardResult found = BlobData(handle, blob, &data, &size);
+                if (found != SHARD_OK) { BlobFree(handle, blob); return found; }
+                if (text.size) std::memcpy(data, text.data, size_t(text.size));
+                *field = blob;
+                return SHARD_OK;
+            } catch (...) { return SHARD_E_INTERNAL; }
+        }
+
+        ShardResult SHARD_CALL StringGet(ShardPluginCtx handle, ShardBlob blob, ShardStr* out)
+        {
+            try {
+                if (!out) return SHARD_E_INVALID_ARG;
+                *out = ShardStr{ nullptr, 0 };
+                if (blob == 0) return SHARD_OK;
+                void* data = nullptr;
+                uint64_t size = 0;
+                const ShardResult found = BlobData(handle, blob, &data, &size);
+                if (found != SHARD_OK) return found;
+                *out = ShardStr{ static_cast<const char*>(data), size };
+                return SHARD_OK;
+            } catch (...) { return SHARD_E_INTERNAL; }
+        }
+
         // ---- The actor component ----
 
         class CAbiComponent final : public Objects::Components::Component {
@@ -317,6 +354,19 @@ namespace Shard::Engine::Plugins::CAbi {
 #endif
             }
 
+            /// Where the std::string of the n-th SHARD_FIELD_STRING field is in the object : the offset the reflection reads it at
+            static size_t TextOffset(int n)
+            {
+#if defined(__GNUC__) || defined(__clang__)
+#   pragma GCC diagnostic push
+#   pragma GCC diagnostic ignored "-Winvalid-offsetof"
+#endif
+                return offsetof(CAbiComponent, m_Text) + size_t(n) * sizeof(std::string);
+#if defined(__GNUC__) || defined(__clang__)
+#   pragma GCC diagnostic pop
+#endif
+            }
+
             std::shared_ptr<Objects::Components::Component> Clone() const override
             {
                 Pull();
@@ -324,6 +374,10 @@ namespace Shard::Engine::Plugins::CAbi {
                 std::memcpy(copy->m_Storage, m_Storage, m_Type->size);
                 // The copy owns copies of the blobs : what play mode does to them stays in play mode
                 for (const CField* f : m_Type->blobs) copy->SetBlob(*f, CopyBlob(m_Type->owner, Blob(*f)));
+                for (const CField* f : m_Type->texts) {
+                    copy->SetBlob(*f, CopyBlob(m_Type->owner, Blob(*f)));
+                    copy->m_Text[f->text] = m_Text[f->text];
+                }
                 copy->activated = activated;
                 return copy;
             }
@@ -367,6 +421,10 @@ namespace Shard::Engine::Plugins::CAbi {
                     FreeBlob(m_Type->owner, Blob(*f));
                     SetBlob(*f, 0);
                 }
+                for (const CField* f : m_Type->texts) {
+                    FreeBlob(m_Type->owner, Blob(*f));
+                    SetBlob(*f, 0);
+                }
                 Component::Destroy();
             }
 
@@ -393,8 +451,21 @@ namespace Shard::Engine::Plugins::CAbi {
                 Core::Ecs::Registry* ecs = Ecs();
                 const Core::Ecs::Entity entity = EntityOf();
                 if (!ecs || !ecs->IsAlive(entity)) return;
+                PushTexts();
                 if (void* at = ecs->GetRaw(entity, m_Type->ecs)) { std::memcpy(at, m_Storage, m_Type->size); return; }
                 if (ecs->CanChangeStructure()) ecs->AddRaw(entity, m_Type->ecs, m_Storage);
+            }
+
+            // The text of each string field into the blob its handle designates (a new blob when it has none yet) : what systems read
+            void PushTexts()
+            {
+                for (const CField* f : m_Type->texts) {
+                    ShardBlob blob = Blob(*f);
+                    std::string current;
+                    if (blob && BlobBytes(m_Type->owner, blob, current) && current == m_Text[f->text]) continue;
+                    StringSet(ShardPluginCtx(m_Type->owner), &blob, ToStr(m_Text[f->text]));
+                    SetBlob(*f, blob);
+                }
             }
 
             // What the systems wrote on the entity back into this component
@@ -403,7 +474,15 @@ namespace Shard::Engine::Plugins::CAbi {
                 Core::Ecs::Registry* ecs = Ecs();
                 const Core::Ecs::Entity entity = EntityOf();
                 if (!ecs || !ecs->IsAlive(entity)) return;
-                if (const void* at = ecs->GetRaw(entity, m_Type->ecs)) std::memcpy(m_Storage, at, m_Type->size);
+                const void* at = ecs->GetRaw(entity, m_Type->ecs);
+                if (!at) return;
+                std::memcpy(m_Storage, at, m_Type->size);
+                // The text a system wrote into the blobs
+                for (const CField* f : m_Type->texts) {
+                    std::string bytes;
+                    if (!BlobBytes(m_Type->owner, Blob(*f), bytes)) bytes.clear();
+                    m_Text[f->text] = std::move(bytes);
+                }
             }
 
             void Detach()
@@ -414,6 +493,7 @@ namespace Shard::Engine::Plugins::CAbi {
             }
 
             alignas(16) mutable unsigned char m_Storage[SHARD_COMPONENT_MAX_SIZE];
+            mutable std::string m_Text[SHARD_COMPONENT_MAX_STRINGS];        // the string fields, as the inspector and the world file see them
             std::shared_ptr<const CType> m_Type;
         };
 
@@ -443,56 +523,12 @@ namespace Shard::Engine::Plugins::CAbi {
                 type->owner = PluginOwner(handle);
                 type->size = desc->size;
                 type->align = desc->align;
-                type->descriptor.name = full;
                 if (desc->defaults) type->defaults.assign(static_cast<const unsigned char*>(desc->defaults), static_cast<const unsigned char*>(desc->defaults) + desc->size);
 
-                std::vector<std::pair<uint32_t, uint32_t>> spans;      // [offset, end) of every field
-                const size_t base = CAbiComponent::StorageOffset();
-                for (uint32_t i = 0; i < desc->fieldCount; ++i) {
-                    const ShardFieldDesc& f = desc->fields[i];
-                    if (f.structSize < sizeof(ShardFieldDesc)) return refuse("'" + full + "' : field " + std::to_string(i) + " has a ShardFieldDesc too small");
-                    CField field;
-                    field.name = ToString(f.name);
-                    if (!IsIdentifier(field.name, false)) return refuse("'" + full + "' : '" + field.name + "' is not a field name");
-                    if (field.name == "type" || field.name == "active" || field.name == "tags") return refuse("'" + full + "' : the field name '" + field.name + "' is reserved");
-                    for (const CField& other : type->fields)
-                        if (other.name == field.name) return refuse("'" + full + "' : the field '" + field.name + "' is described twice");
-                    FieldLayout layout;
-                    if (!LayoutOf(f.type, layout)) return refuse("'" + full + "' : the field '" + field.name + "' has an unknown type (" + std::to_string(f.type) + ")");
-                    if (uint64_t(f.offset) + layout.size > desc->size) return refuse("'" + full + "' : the field '" + field.name + "' goes past the end of the block");
-                    if (f.offset % layout.align != 0) return refuse("'" + full + "' : the field '" + field.name + "' is not aligned");
-                    for (const auto& span : spans)
-                        if (f.offset < span.second && span.first < f.offset + layout.size) return refuse("'" + full + "' : the field '" + field.name + "' overlaps another");
-                    spans.emplace_back(f.offset, f.offset + layout.size);
-                    field.tooltip = ToString(f.tooltip);
-                    field.type = f.type;
-                    field.offset = f.offset;
-                    field.flags = f.flags;
-                    field.min = f.min;
-                    field.max = f.max;
-                    type->fields.push_back(std::move(field));
-                    const CField& kept = type->fields.back();
-
-                    if (kept.type == SHARD_FIELD_BLOB) { type->blobs.push_back(&kept); continue; }
-                    if (kept.flags & SHARD_FIELD_PRIVATE) continue;
-                    FieldInfo info{};
-                    info.name = kept.name.c_str();
-                    info.type = layout.type;
-                    info.offset = uint32_t(base + kept.offset);
-                    info.flags = (kept.flags & SHARD_FIELD_RUNTIME) ? uint32_t(ReadOnly) : uint32_t(Editable);
-                    info.min = kept.min;
-                    info.max = kept.max;
-                    info.tooltip = kept.tooltip.empty() ? nullptr : kept.tooltip.c_str();
-                    info.CopyConstruct = layout.copy;
-                    info.Assign = layout.assign;
-                    info.Destroy = layout.destroy;
-                    info.Equals = layout.equals;
-                    type->infos.push_back(info);
-                }
-                for (FieldInfo& info : type->infos) type->descriptor.fields.push_back(&info);
+                std::string why;
+                if (!BuildFieldSet(*type, full, desc->fields, desc->fieldCount, desc->size, CAbiComponent::StorageOffset(), CAbiComponent::TextOffset(0), false, why)) return refuse(why);
                 // A default blob would be shared by every new component : a blob field starts empty
-                for (const CField* f : type->blobs)
-                    if (!type->defaults.empty()) std::memset(type->defaults.data() + f->offset, 0, sizeof(ShardBlob));
+                if (!type->defaults.empty()) ZeroHandleFields(*type, type->defaults.data());
 
                 {
                     std::lock_guard<std::mutex> lock(gTypesMutex);
@@ -618,7 +654,7 @@ namespace Shard::Engine::Plugins::CAbi {
     const void* ComponentsApi()
     {
         static const ShardComponentsApi api = { sizeof(ShardComponentsApi), &RegisterType, &FindType, &TypeLayout, &FieldCount, &FieldAt, &FindField,
-                                                &BlobCreate, &BlobData, &BlobResize, &BlobFree };
+                                                &BlobCreate, &BlobData, &BlobResize, &BlobFree, &StringSet, &StringGet };
         return &api;
     }
 
@@ -675,4 +711,195 @@ namespace Shard::Engine::Plugins::CAbi {
             else ++it;
         }
     }
+
+    namespace {
+        ShardBlob HandleAt(const unsigned char* storage, const CField& f)
+        {
+            ShardBlob blob = 0;
+            std::memcpy(&blob, storage + f.offset, sizeof(blob));
+            return blob;
+        }
+        void SetHandleAt(unsigned char* storage, const CField& f, ShardBlob blob) { std::memcpy(storage + f.offset, &blob, sizeof(blob)); }
+    }
+
+    bool BuildFieldSet(FieldSet& out, const std::string& full, const ShardFieldDesc* fields, uint32_t count, uint32_t size, size_t storageBase, size_t textBase, bool script, std::string& why)
+    {
+        auto refuse = [&](const std::string& what) { why = what; return false; };
+        out.descriptor.name = full;
+        std::vector<std::pair<uint32_t, uint32_t>> spans;      // [offset, end) of every field
+        for (uint32_t i = 0; i < count; ++i) {
+            const ShardFieldDesc& f = fields[i];
+            if (f.structSize < sizeof(ShardFieldDesc)) return refuse("'" + full + "' : field " + std::to_string(i) + " has a ShardFieldDesc too small");
+            CField field;
+            field.name = ToString(f.name);
+            if (!IsIdentifier(field.name, false)) return refuse("'" + full + "' : '" + field.name + "' is not a field name");
+            if (field.name == "type" || field.name == "active" || field.name == "tags") return refuse("'" + full + "' : the field name '" + field.name + "' is reserved");
+            for (const CField& other : out.fields)
+                if (other.name == field.name) return refuse("'" + full + "' : the field '" + field.name + "' is described twice");
+            FieldLayout layout;
+            if (!LayoutOf(f.type, layout)) return refuse("'" + full + "' : the field '" + field.name + "' has an unknown type (" + std::to_string(f.type) + ")");
+            if (f.type == SHARD_FIELD_STRING || f.type == SHARD_FIELD_ACTOR) {
+                if (f.flags & SHARD_FIELD_PRIVATE) return refuse("'" + full + "' : the string or actor field '" + field.name + "' cannot be private (use a blob)");
+                if (out.texts.size() >= SHARD_COMPONENT_MAX_STRINGS) return refuse("'" + full + "' has more than " + std::to_string(SHARD_COMPONENT_MAX_STRINGS) + " string and actor fields");
+                field.text = int(out.texts.size());
+            }
+            if (f.type == SHARD_FIELD_ACTOR && !script) return refuse("'" + full + "' : the field '" + field.name + "' is an actor reference, which only a script can have");
+            if ((f.flags & SHARD_FIELD_ACCESSOR) && (f.type != SHARD_FIELD_STRING || !script)) return refuse("'" + full + "' : the field '" + field.name + "' has SHARD_FIELD_ACCESSOR, for a string of a script only");
+            field.accessor = (f.flags & SHARD_FIELD_ACCESSOR) != 0;
+            field.actor = f.type == SHARD_FIELD_ACTOR;
+            if (uint64_t(f.offset) + layout.size > size) return refuse("'" + full + "' : the field '" + field.name + "' goes past the end of the block");
+            if (f.offset % layout.align != 0) return refuse("'" + full + "' : the field '" + field.name + "' is not aligned");
+            for (const auto& span : spans)
+                if (f.offset < span.second && span.first < f.offset + layout.size) return refuse("'" + full + "' : the field '" + field.name + "' overlaps another");
+            spans.emplace_back(f.offset, f.offset + layout.size);
+            field.tooltip = ToString(f.tooltip);
+            field.type = f.type;
+            field.offset = f.offset;
+            field.size = layout.size;
+            field.flags = f.flags;
+            field.min = f.min;
+            field.max = f.max;
+            out.fields.push_back(std::move(field));
+            const CField& kept = out.fields.back();
+
+            if (kept.type == SHARD_FIELD_BLOB) { out.blobs.push_back(&kept); continue; }
+            if (kept.type == SHARD_FIELD_STRING || kept.type == SHARD_FIELD_ACTOR) {
+                // The storage holds the blob (or the handle of the actor, or the plugin's own string) ; the inspector and the world file work
+                // on the std::string beside it
+                out.texts.push_back(&kept);
+                const FieldLayout text = Layout<std::string>(TypeID::String);
+                FieldInfo info{};
+                info.name = kept.name.c_str();
+                info.type = text.type;
+                info.offset = uint32_t(textBase + size_t(kept.text) * sizeof(std::string));
+                info.flags = (kept.flags & SHARD_FIELD_RUNTIME) ? uint32_t(ReadOnly) : uint32_t(Editable);
+                info.tooltip = kept.tooltip.empty() ? nullptr : kept.tooltip.c_str();
+                info.CopyConstruct = text.copy;
+                info.Assign = text.assign;
+                info.Destroy = text.destroy;
+                info.Equals = text.equals;
+                out.infos.push_back(info);
+                continue;
+            }
+            if (kept.flags & SHARD_FIELD_PRIVATE) continue;
+            FieldInfo info{};
+            info.name = kept.name.c_str();
+            info.type = layout.type;
+            info.offset = uint32_t(storageBase + kept.offset);
+            info.flags = (kept.flags & SHARD_FIELD_RUNTIME) ? uint32_t(ReadOnly) : uint32_t(Editable);
+            info.min = kept.min;
+            info.max = kept.max;
+            info.tooltip = kept.tooltip.empty() ? nullptr : kept.tooltip.c_str();
+            info.CopyConstruct = layout.copy;
+            info.Assign = layout.assign;
+            info.Destroy = layout.destroy;
+            info.Equals = layout.equals;
+            out.infos.push_back(info);
+        }
+        for (FieldInfo& info : out.infos) out.descriptor.fields.push_back(&info);
+        return true;
+    }
+
+    void ZeroHandleFields(const FieldSet& set, unsigned char* storage)
+    {
+        for (const CField* f : set.blobs) SetHandleAt(storage, *f, 0);
+        for (const CField* f : set.texts) if (!f->accessor) SetHandleAt(storage, *f, 0);      // an accessor string is the plugin's memory, not a handle
+    }
+
+    void PullTexts(const FieldSet& set, PluginOwner owner, const unsigned char* storage, std::string* texts, FieldHooks* hooks)
+    {
+        for (const CField* f : set.texts) {
+            if (f->accessor) {
+                if (!hooks || !hooks->textGet) continue;
+                ShardStr text{ nullptr, 0 };
+                hooks->textGet(hooks->user, hooks->object, f->offset, &text);
+                texts[f->text] = ToString(text);
+            } else if (f->actor) {
+                const ShardActor handle = HandleAt(storage, *f);
+                if (handle && hooks && hooks->actorPath) texts[f->text] = hooks->actorPath(handle);
+                else if (!handle && !(hooks && hooks->pending[f->text])) texts[f->text].clear();      // a path still waiting for its actor is kept
+            } else {
+                std::string bytes;
+                if (!BlobBytes(owner, HandleAt(storage, *f), bytes)) bytes.clear();
+                texts[f->text] = std::move(bytes);
+            }
+        }
+    }
+
+    void PushTexts(const FieldSet& set, PluginOwner owner, unsigned char* storage, const std::string* texts, FieldHooks* hooks)
+    {
+        for (const CField* f : set.texts) {
+            if (f->accessor) {
+                if (hooks && hooks->textSet) hooks->textSet(hooks->user, hooks->object, f->offset, ToStr(texts[f->text]));
+            } else if (f->actor) {
+                ShardActor handle = 0;
+                if (!texts[f->text].empty() && hooks && hooks->actorAt) handle = hooks->actorAt(texts[f->text]);
+                if (hooks) hooks->pending[f->text] = handle == 0 && !texts[f->text].empty();
+                SetHandleAt(storage, *f, handle);
+            } else {
+                ShardBlob blob = HandleAt(storage, *f);
+                std::string current;
+                if (blob && BlobBytes(owner, blob, current) && current == texts[f->text]) continue;
+                StringSet(ShardPluginCtx(owner), &blob, ToStr(texts[f->text]));
+                SetHandleAt(storage, *f, blob);
+            }
+        }
+    }
+
+    void ResolveActorFields(const FieldSet& set, unsigned char* storage, const std::string* texts, FieldHooks& hooks)
+    {
+        if (!hooks.actorAt) return;
+        for (const CField* f : set.texts) {
+            if (!f->actor || !hooks.pending[f->text]) continue;
+            const ShardActor handle = hooks.actorAt(texts[f->text]);
+            if (!handle) continue;
+            SetHandleAt(storage, *f, handle);
+            hooks.pending[f->text] = false;
+        }
+    }
+
+    void SerializeBlobs(const FieldSet& set, PluginOwner owner, const unsigned char* storage, ordered_json& out)
+    {
+        for (const CField* f : set.blobs) {
+            std::string bytes;
+            if (BlobBytes(owner, HandleAt(storage, *f), bytes)) out[f->name] = EncodeBase64(bytes);
+        }
+    }
+
+    void DeserializeBlobs(const FieldSet& set, PluginOwner owner, unsigned char* storage, const json& in)
+    {
+        for (const CField* f : set.blobs) {
+            auto it = in.find(f->name);
+            if (it == in.end() || !it->is_string()) continue;
+            std::string bytes;
+            if (!DecodeBase64(it->get<std::string>(), bytes)) continue;
+            FreeBlob(owner, HandleAt(storage, *f));
+            SetHandleAt(storage, *f, BlobFromBytes(owner, bytes));
+        }
+    }
+
+    void FreeFieldBlobs(const FieldSet& set, PluginOwner owner, unsigned char* storage)
+    {
+        for (const CField* f : set.blobs) { FreeBlob(owner, HandleAt(storage, *f)); SetHandleAt(storage, *f, 0); }
+        for (const CField* f : set.texts) {
+            if (f->accessor) continue;                          // the plugin's string : its destructor frees it
+            if (!f->actor) FreeBlob(owner, HandleAt(storage, *f));
+            SetHandleAt(storage, *f, 0);
+        }
+    }
+
+    void CopyFields(const FieldSet& set, PluginOwner owner, unsigned char* to, std::string* toTexts, const unsigned char* from, const std::string* fromTexts)
+    {
+        for (const CField& f : set.fields) {
+            if (f.accessor || f.actor) {
+                toTexts[f.text] = fromTexts[f.text];            // the caller pushes it : an accessor into the new object, an actor reference once the copy is in a world
+            } else if (f.type == SHARD_FIELD_BLOB || f.type == SHARD_FIELD_STRING) {
+                SetHandleAt(to, f, CopyBlob(owner, HandleAt(from, f)));
+                if (f.type == SHARD_FIELD_STRING) toTexts[f.text] = fromTexts[f.text];
+            } else {
+                std::memcpy(to + f.offset, from + f.offset, f.size);
+            }
+        }
+    }
+
 }

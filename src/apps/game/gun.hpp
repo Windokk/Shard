@@ -1,48 +1,28 @@
 #pragma once
 
-#include "engine/world/components/script.hpp"
-#include "engine/world/components/registry/component_macros.hpp"
-#include "engine/assets/assetID.hpp"
-
-#include <memory>
 #include <vector>
 
+#include <shard/game.hpp>
 
-class CLASS() Gun : public Shard::Engine::Objects::Components::Script{
+/// @brief Fires a physical bullet where the actor looks when the left mouse button is pressed
+class Gun : public shard::Script {
+public:
+    void OnTick(float deltaTime) override;
 
-    public:
-        Gun(std::shared_ptr<Actor> parent, uint32_t local_id) : Script(parent, local_id){};
+    SHARD_FIELD(float, gunShotIntensity, Range(0.f, 1000.f)) = 30.f;
+    SHARD_FIELD(float, bulletLifetime, Range(0.f, 60.f), Tooltip("Seconds before a bullet is destroyed")) = 3.f;
+    SHARD_FIELD(shard::AssetId, mesh, Tooltip("The mesh to shoot"));
+    SHARD_FIELD(shard::AssetId, material, Tooltip("The material of the mesh to shoot"));
+    SHARD_FIELD(shard::AssetId, sound, Tooltip("The sound to play on shoot"));
+    SHARD_FIELD(float, capsuleYOffset) = 0.3f;
 
-        void OnPlay() override;
-        void OnTick() override;
+private:
+    /// @brief Fires a bullet that is destroyed `time` seconds later
+    void Shoot(float time);
 
-        FIELD(Editable, range=0.0|1000.0)
-        float gunShotIntensity = 30.f;
-
-        FIELD(Editable, range=0.0|60.0, tooltip=Seconds before a bullet is destroyed)
-        float bulletLifetime = 3.f;
-
-        FIELD(Editable, tooltip=The mesh to shoot)
-        Shard::Engine::Filesystem::AssetID mesh;
-
-        FIELD(Editable, tooltip=The material of the mesh to shoot)
-        Shard::Engine::Filesystem::AssetID material;
-
-        FIELD(Editable, tooltip=The sound to play on shoot)
-        Shard::Engine::Filesystem::AssetID sound;
-
-    private:
-
-        /// @brief Fires a bullet that is destroyed `time` seconds later
-        void Shoot(float time);
-
-        struct Bullet {
-            std::weak_ptr<Actor> actor;
-            float remaining;
-        };
-        std::vector<Bullet> bullets;
-
-        DECLARE_DESCRIPTOR(Gun);
+    struct SBullet {
+        shard::Actor actor;
+        float remaining;
+    };
+    std::vector<SBullet> bullets;
 };
-
-DECLARE_COMPONENT(Gun)

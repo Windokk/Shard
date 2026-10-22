@@ -1,0 +1,11 @@
+#pragma once
+
+#include <shard/game.hpp>
+
+class Mover : public shard::Script {
+public:
+    float speed = 2.f;
+    shard::Vec3 direction{ 1.f, 0.f, 0.f };
+
+    void OnTick(float deltaTime) override;
+};

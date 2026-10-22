@@ -11,6 +11,8 @@
 #include <unordered_map>
 #include <vector>
 
+#include <shard/shard_actors.h>
+#include <shard/shard_audio.h>
 #include <shard/shard_commands.h>
 #include <shard/shard_components.h>
 #include <shard/shard_content.h>
@@ -18,12 +20,17 @@
 #include <shard/shard_ecs.h>
 #include <shard/shard_events.h>
 #include <shard/shard_experimental.h>
+#include <shard/shard_editor.h>
 #include <shard/shard_extensions.h>
 #include <shard/shard_hooks.h>
+#include <shard/shard_input.h>
+#include <shard/shard_physics.h>
 #include <shard/shard_plugin.h>
+#include <shard/shard_scripts.h>
 #include <shard/shard_services.h>
 #include <shard/shard_state.h>
 #include <shard/shard_systems.h>
+#include <shard/shard_worlds.h>
 
 #include "engine/core/config/cvar.hpp"
 #include "engine/core/diagnostics/logger.hpp"
@@ -49,7 +56,12 @@ namespace Shard::Engine::Plugins {
             std::mutex gThreadMutex;
             bool gHasMainThread = false;
             std::thread::id gMainThread;
+            thread_local int tScriptDepth = 0;
         }
+
+        ScriptScope::ScriptScope() { ++tScriptDepth; }
+        ScriptScope::~ScriptScope() { --tScriptDepth; }
+        bool OnScriptThread() { return tScriptDepth > 0 || OnMainThread(); }
 
         PluginContext* FindContext(ShardPluginCtx handle)
         {
@@ -118,6 +130,7 @@ namespace Shard::Engine::Plugins {
         void UnbindContext(PluginOwner owner)
         {
             // What needs the context still : the registry the plugin left open, the memory of its blobs
+            ReleaseScripts(owner);
             if (PluginContext* ctx = FindContext(owner)) {
                 CloseWorldEcs(owner);
                 ReleaseBlobs(owner, *ctx);
@@ -203,6 +216,19 @@ namespace Shard::Engine::Plugins {
                 PluginContext* c = FindContext(handle);
                 return c && c->Has(ToString(permission)) ? SHARD_TRUE : SHARD_FALSE;
             } catch (...) { return SHARD_FALSE; }
+        }
+
+        ShardResult SHARD_CALL PluginRandomStream(ShardPluginCtx handle, ShardStr name, ShardRandomState* out)
+        {
+            if (!out) return SHARD_E_INVALID_ARG;
+            try {
+                PluginContext* c = FindContext(handle);
+                if (!c) return SHARD_E_INVALID_ARG;
+                const Core::Random stream = c->MakeRandomStream(ToString(name));
+                out->state = stream.State();
+                out->increment = stream.Increment();
+                return SHARD_OK;
+            } catch (...) { return SHARD_E_INTERNAL; }
         }
 
         // ---- shard.cvars ----
@@ -369,17 +395,17 @@ namespace Shard::Engine::Plugins {
 
         const std::vector<Interface>& Interfaces()
         {
-            static const ShardPluginApi pluginApi = { sizeof(ShardPluginApi), &PluginId, &PluginVersion, &PluginDirectory, &PluginHost, &PluginHasPermission };
+            static const ShardPluginApi pluginApi = { sizeof(ShardPluginApi), &PluginId, &PluginVersion, &PluginDirectory, &PluginHost, &PluginHasPermission, &PluginRandomStream };
             static const ShardCommandsApi commandsApi = { sizeof(ShardCommandsApi), &CommandAdd };
             static const ShardCVarsApi cvarsApi = {
                 sizeof(ShardCVarsApi), &CVarCreateBool, &CVarCreateInt, &CVarCreateFloat, &CVarCreateString,
                 &CVarGetBool, &CVarGetInt, &CVarGetFloat, &CVarGetString, &CVarSetBool, &CVarSetInt, &CVarSetFloat, &CVarSetString };
             static const std::vector<Interface> interfaces = {
-                { SHARD_IFACE_PLUGIN, 1, 1, &pluginApi },
+                { SHARD_IFACE_PLUGIN, 1, 2, &pluginApi },
                 { SHARD_IFACE_COMMANDS, 1, 0, &commandsApi },
                 { SHARD_IFACE_CVARS, 1, 0, &cvarsApi },
-                { SHARD_IFACE_COMPONENTS, 1, 1, ComponentsApi() },
-                { SHARD_IFACE_ECS, 1, 0, EcsApi() },
+                { SHARD_IFACE_COMPONENTS, 1, 3, ComponentsApi() },
+                { SHARD_IFACE_ECS, 1, 1, EcsApi() },
                 { SHARD_IFACE_SYSTEMS, 1, 0, SystemsApi() },
                 { SHARD_IFACE_EVENTS, 1, 1, EventsApi() },
                 { SHARD_IFACE_HOOKS, 1, 0, HooksApi() },
@@ -387,6 +413,13 @@ namespace Shard::Engine::Plugins {
                 { SHARD_IFACE_EXTENSIONS, 1, 0, ExtensionsApi() },
                 { SHARD_IFACE_CONTENT, 1, 0, ContentApi() },
                 { SHARD_IFACE_STATE, 1, 0, StateApi() },
+                { SHARD_IFACE_ACTORS, 1, 1, ActorsApi() },
+                { SHARD_IFACE_SCRIPTS, 1, 1, ScriptsApi() },
+                { SHARD_IFACE_INPUT, 1, 0, InputApi() },
+                { SHARD_IFACE_PHYSICS, 1, 0, PhysicsApi() },
+                { SHARD_IFACE_AUDIO, 1, 0, AudioApi() },
+                { SHARD_IFACE_WORLDS, 1, 0, WorldsApi() },
+                { SHARD_IFACE_EDITOR, 1, 0, EditorApi() },
                 // No promise : major 0, handed out for its exact minor only (see shard_experimental.h)
                 { SHARD_IFACE_EXPERIMENTAL_WORLD_ECS, 0, 1, WorldEcsApi() },
             };
@@ -401,6 +434,7 @@ namespace Shard::Engine::Plugins {
                 const std::string wanted = ToString(id);
                 for (const Interface& i : Interfaces()) {
                     if (wanted != i.id) continue;
+                    if (wanted == SHARD_IFACE_EDITOR && !EditorUiAvailable()) return SHARD_E_NOT_FOUND;      // only in the editor
                     if (major != i.major || minMinor > i.minor) return SHARD_E_NOT_FOUND;
                     if (i.major == 0 && minMinor != i.minor) return SHARD_E_NOT_FOUND;    // experimental : that revision exactly
                     *out = i.table;

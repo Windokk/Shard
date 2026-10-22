@@ -5,16 +5,25 @@
     "shader": "shaders/mesh/lit",
     "uniforms": [
         {
-            "albedo": "textures/bullet.png"
+            "albedo": "textures/bullet/Bullet_BaseColor.png"
         },
         {
-            "metallic": 0.5
+            "metallic": 1.0
         },
         {
-            "roughness": 0.14000000059604645
+            "roughness": 1.0
         },
         {
-            "useEnvReflections": false
+            "useEnvReflections": true
+        },
+        {
+            "metallicMap": "textures/bullet/Bullet_Metallic.png"
+        },
+        {
+            "normalMap": "textures/bullet/Bullet_Normal.png"
+        },
+        {
+            "roughnessMap": "textures/bullet/Bullet_Roughness.png"
         }
     ]
 }

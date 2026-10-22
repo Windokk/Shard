@@ -1,4 +1,4 @@
-/* Interface "shard.ecs" 1.0 : entities and their components, from inside a system (shard_systems.h).
+/* Interface "shard.ecs" 1.1 : entities and their components, from inside a system (shard_systems.h).
  *
  * Every function takes the ShardEcs the system was handed in its ShardSystemCtx : it is valid during that run, on that thread, and
  * nowhere else (SHARD_E_STALE_HANDLE). A system reads and writes only the types it declared (reads / writes of its ShardSystemDesc,
@@ -7,7 +7,11 @@
  *
  * Structural changes (spawn, destroy, add, remove, set_parent) are recorded and applied at the end of the phase, system by system in
  * registration order. spawn returns a placeholder that the later commands of the same run can use ; it means nothing afterwards.
- * Changing the VALUE of a component (through the pointers of each_chunk and get) is immediate. */
+ * Changing the VALUE of a component (through the pointers of each_chunk and get) is immediate.
+ *
+ * Moving an actor (1.1) : the engine's own components below are not written through these pointers, the actor's Transform is what drives
+ * them. set_local_transform records the new pose ; at the end of the phase the actor's Transform takes it (so does everything that follows
+ * a Transform : children, physics, the renderer) and the LocalTransform of the entity then holds it. */
 #ifndef SHARD_ECS_H
 #define SHARD_ECS_H
 
@@ -43,6 +47,14 @@ typedef struct ShardChunk {
 /* Return SHARD_OK to go on ; anything else stops the iteration and is what each_chunk returns. */
 typedef ShardResult (SHARD_CALL *ShardChunkFn)(void* user, const ShardChunk* chunk);
 
+/* "shard.LocalTransform" (find_type) : on the entity of every actor, its Transform relative to its parent. Read it ; move the actor with
+ * set_local_transform (1.1) */
+typedef struct ShardLocalTransform {
+    float position[3];
+    float rotation[4];      /* quaternion x, y, z, w */
+    float scale[3];
+} ShardLocalTransform;
+
 typedef struct ShardEcsApi {
     uint32_t structSize;
 
@@ -65,17 +77,18 @@ typedef struct ShardEcsApi {
     ShardResult (SHARD_CALL *add)(ShardEcs ecs, ShardEntity entity, ShardComponentType type, const void* data, uint64_t size);
     ShardResult (SHARD_CALL *remove)(ShardEcs ecs, ShardEntity entity, ShardComponentType type);
     ShardResult (SHARD_CALL *set_parent)(ShardEcs ecs, ShardEntity child, ShardEntity parent);  /* null parent : detach */
+
+    /* ---- 1.1 : moving actors ---- */
+    /* Records the new local pose (relative to the parent) of the actor that stands behind `entity`. Applied at the end of the phase, on the
+     * main thread, after the structural changes ; when several systems set the same entity, the one whose name sorts last wins. The system
+     * must have "shard.LocalTransform" in its `writes` (shard.systems). `transform` is read now.
+     * SHARD_E_NOT_FOUND : the entity has no actor now (a placeholder, or an entity a plugin spawned itself) : nothing moves. An actor that is
+     * deactivated when the phase ends ignores it. thread : system */
+    ShardResult (SHARD_CALL *set_local_transform)(ShardEcs ecs, ShardEntity entity, const ShardLocalTransform* transform);
 } ShardEcsApi;
 
 /* ---- The engine's own components, found by name with shard.components' find_type ----
- * Read them ; do not write them : the actor's components are what drives them, and they overwrite what a system writes. */
-
-/* "shard.LocalTransform" : on the entity of every actor, its Transform relative to its parent */
-typedef struct ShardLocalTransform {
-    float position[3];
-    float rotation[4];      /* quaternion x, y, z, w */
-    float scale[3];
-} ShardLocalTransform;
+ * Read them ; do not write their blocks : the actor's components are what drives them, and they overwrite what a system writes. */
 
 /* "shard.ActorLink" : on the entity of every actor, the actor's object id */
 typedef struct ShardActorLink {

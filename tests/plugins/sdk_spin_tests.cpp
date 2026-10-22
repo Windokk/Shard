@@ -4,7 +4,10 @@
 
 #include "engine/core/config/cvar.hpp"
 #include "engine/core/ecs/registry.hpp"
+#include "engine/plugins/abi/c_internal.hpp"
 #include "engine/plugins/manager.hpp"
+#include "engine/world/actor.hpp"
+#include "plugins/asset_test_context.hpp"
 #include "support/test_engine_context.hpp"
 #include "engine/world/components/registry/component_registry.hpp"
 
@@ -40,13 +43,13 @@ namespace {
         template <typename Fn>
         Fn Export(const char* name) { return Rec()->library.Symbol<Fn>(name); }
 
-        void Start()
+        void Start(Core::IEngineContext* engine = nullptr)
         {
             std::string error;
             ASSERT_TRUE(pm().Startup(config, &error)) << error;
             ASSERT_NE(Rec(), nullptr);
             ASSERT_EQ(Rec()->state, PluginState::Initialized) << Rec()->error;
-            pm().OnEngineSystemsReady(nullptr, &scheduler, &events);
+            pm().OnEngineSystemsReady(engine, &scheduler, &events);
             pm().OnEngineInitialized();
             ASSERT_EQ(Rec()->state, PluginState::Enabled) << Rec()->error;
         }
@@ -136,4 +139,43 @@ TEST_F(SdkSpinTest, ItDescribesItsEventAndCountsItsEntitiesThroughTheExperimenta
     const Core::CommandResult count = Core::CVarRegistry::Global().Execute("spin.count");
     EXPECT_TRUE(count.ok) << count.output;
     EXPECT_EQ(count.output, "2");
+}
+
+// ABI 1.3 through the C++ SDK : shard::Text, shard::AssetId and SystemCtx::SetLocalTransform
+TEST_F(SdkSpinTest, ATextAnAssetAndAMovingSystemWrittenWithTheSdk)
+{
+    PluginTest::AssetContext context;
+    Core::SetEngine(&context);
+    Start(&context);
+    {
+        struct SignBlock {          // the fixture's struct
+            uint64_t text;
+            int32_t icon;
+            int32_t uses;
+        };
+        const auto signId = Core::Ecs::ComponentRegistry::Global().Register("c:shard.test.spin.Sign", sizeof(SignBlock), alignof(SignBlock));
+        auto actor = Core::Object::CreateWithContext<Objects::Actor>(&context, std::string("Post"), &context);
+        auto component = actor->AddComponentByName("shard.test.spin.Sign");
+        ASSERT_NE(component, nullptr);
+        component->Deserialize(nlohmann::json::parse(R"({"active":true,"text":"stop","icon":4,"uses":0})"));
+
+        Core::Ecs::Registry& ecs = *context.GetEcs();
+        Core::Ecs::Scheduler::FrameTiming timing;
+        timing.deltaTime = 0.1f;
+        scheduler.RunFrame(ecs, nullptr, timing);
+        scheduler.RunFrame(ecs, nullptr, timing);
+
+        const auto* block = static_cast<const SignBlock*>(ecs.GetRaw(actor->GetEntity(), signId));
+        ASSERT_NE(block, nullptr);
+        EXPECT_EQ(block->icon, 4);
+        EXPECT_EQ(block->uses, 2);
+        std::string text;
+        ASSERT_TRUE(CAbi::BlobBytes(Rec()->owner, block->text, text));
+        EXPECT_EQ(text, "stop**");
+        EXPECT_FLOAT_EQ(actor->transform->GetPosition().x, 2.0f);
+        EXPECT_FLOAT_EQ(actor->transform->GetScale().z, 3.0f);
+        EXPECT_EQ(component->Serialize()["text"].get<std::string>(), "stop**");
+        EXPECT_EQ(Rec()->errorCount, 0u);
+    }
+    Core::SetEngine(nullptr);
 }

@@ -108,7 +108,7 @@ Le renderer retire une feature ou un pipeline **sur le thread graphique, avant**
 
 Chaque phase vise quelque chose de testable seul. Les durées sont des ordres de grandeur pour une personne.
 
-### R0 · Vérifier ce qui existe (1 à 2 semaines) — à faire en premier
+### R0 · Vérifier ce qui existe (1 à 2 semaines), à faire en premier
 
 * Faire tourner toute la suite sous **Windows (MSVC et MinGW)** et **macOS** ; corriger. Ajouter ces cibles à la CI (`build.yml`).
 * Faire tourner `ShardTests` sous **ASan et TSan** (le workflow TSan existe déjà, vérifier qu'il couvre `tests/plugins/`). Cibles : désenregistrement dans un handler, `PluginMemory`, `HookRegistry` pendant un `Emit`, rechargement d'une bibliothèque qui a des abonnements.
@@ -159,7 +159,7 @@ Le handshake est prêt, il n'y a pas de transport de jeu (UDP fiable, réplicati
 * Lister les plugins `simulation.affects` dans l'en-tête de session et dans le message de reconnexion.
 * **Sortie** : un client et un serveur avec des plugins différents ne peuvent pas jouer ensemble, et le message dit lequel.
 
-### R6 · Sandbox (tier 2) — exclu pour l'instant
+### R6 · Sandbox (tier 2), exclu pour l'instant
 
 Quand ce sera repris : WebAssembly (déterministe, carburant mesurable), ABI d'imports = les interfaces C de R2 (**dépend donc de R2**), permissions réellement appliquées (`fs.read:content`, `net`, `render.feature`), budget CPU et mémoire par instance. Ne rien commencer avant R2.
 

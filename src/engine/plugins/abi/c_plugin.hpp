@@ -2,6 +2,7 @@
 
 #include <string>
 
+#include <shard/shard_editor.h>
 #include <shard/shard_host.h>
 
 #include "engine/plugins/context.hpp"
@@ -36,6 +37,19 @@ namespace Shard::Engine::Plugins {
     /// trusted publisher (a plugin that is distributed must not depend on what may change)
     bool MayUseExperimental(TrustTier tier, SignatureInfo::Status status);
 
+    /// What the editor gives the C plugins that have panels (shard.editor): the widgets, drawn with its ImGui, and the window they go in.
+    /// `begin` opens the window `title` (false : it is collapsed, draw nothing) and `end` is always called after it.
+    struct EditorUiBackend {
+        const ShardUiApi* widgets = nullptr;
+        bool (*begin)(const char* title, bool* open) = nullptr;
+        void (*end)() = nullptr;
+    };
+    /// Called by the editor once its ImGui is up (and with null before it goes): without it, shard.editor is not offered
+    void SetEditorUiBackend(const EditorUiBackend* backend);
+
     /// Delivers the named events C systems emitted during the frame (main thread, end of the frame)
     void FlushCEvents(Events::EventDispatcher* dispatcher);
+
+    /// Applies the poses C systems set during the phase that just ended to the Transform of their actors (main thread, the scheduler's phase end)
+    void FlushCPoses(Core::IEngineContext* engine);
 }

@@ -332,6 +332,8 @@ namespace Shard::Engine::Physics
         bool hit = false;
         Objects::Components::PhysicsBody* hitBody = nullptr;
         float hitDistance = -1.0f;
+        glm::vec3 point = glm::vec3(0.0f);          ///< where the ray met the body, in the world
+        glm::vec3 normal = glm::vec3(0.0f, 1.0f, 0.0f);     ///< the surface's normal there, pointing out of the body
     };
 
     class PhysicsManager {

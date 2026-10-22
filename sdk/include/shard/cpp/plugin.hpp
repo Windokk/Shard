@@ -17,11 +17,15 @@
 #include <string_view>
 
 #include <shard/shard.h>
+#include <shard/cpp/actor.hpp>
 #include <shard/cpp/component.hpp>
 #include <shard/cpp/content.hpp>
 #include <shard/cpp/cvars.hpp>
 #include <shard/cpp/detail.hpp>
+#include <shard/cpp/editor.hpp>
 #include <shard/cpp/events.hpp>
+#include <shard/cpp/registry.hpp>
+#include <shard/cpp/script.hpp>
 #include <shard/cpp/services.hpp>
 #include <shard/cpp/system.hpp>
 
@@ -53,6 +57,8 @@ namespace shard {
 
         shard::Components Components() const { return shard::Components(m_Ctx); }
         shard::Systems Systems() const { return shard::Systems(m_Ctx); }
+        shard::Scripts Scripts() const { return shard::Scripts(m_Ctx); }
+        shard::Editor Editor() const { return shard::Editor(m_Ctx); }
         shard::CVars CVars() const { return shard::CVars(m_Ctx); }
         shard::Commands Commands() const { return shard::Commands(m_Ctx); }
         shard::Events Events() const { return shard::Events(m_Ctx); }
@@ -115,6 +121,7 @@ namespace shard {
         ShardResult Call(ShardPluginCtx ctx, const char* what, Fn&& fn)
         {
             if (!Instance()) return SHARD_E_INTERNAL;
+            PluginHandle() = ctx;
             return Guard(ctx, what, [&] {
                 Context c(ctx);
                 fn(*Instance(), c);
@@ -130,7 +137,10 @@ namespace shard {
                 c.structSize = sizeof(ShardPluginCallbacks);
                 c.on_load = [](void*, ShardPluginCtx ctx) -> ShardResult {
                     KeptObjects().clear();      // what the previous context registered is gone with it
-                    return Call(ctx, "OnLoad", [](Plugin& p, Context& c) { p.OnLoad(c); });
+                    return Call(ctx, "OnLoad", [](Plugin& p, Context& c) {
+                        RunRegistrations(c);        // the scripts, components and systems the source files of the game registered
+                        p.OnLoad(c);
+                    });
                 };
                 c.on_initialize = [](void*, ShardPluginCtx ctx) { return Call(ctx, "OnInitialize", [](Plugin& p, Context& c) { p.OnInitialize(c); }); };
                 c.on_enable = [](void*, ShardPluginCtx ctx) { return Call(ctx, "OnEnable", [](Plugin& p, Context& c) { p.OnEnable(c); }); };
@@ -202,3 +212,8 @@ namespace shard {
     {                                                                                                               \
         return ::shard::detail::Entry(host, out, #ClassName, []() -> ::shard::Plugin* { return new ClassName(); }); \
     }
+
+/// A plugin that is only what its source files register (scripts, components, systems: shard/cpp/registry.hpp): the entry point, in any one of them
+#define SHARD_GAME_MODULE()                                                    \
+    namespace { class ShardGameModule final : public ::shard::Plugin {}; }                                         \
+    SHARD_C_PLUGIN(ShardGameModule)

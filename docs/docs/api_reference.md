@@ -4,19 +4,19 @@
 
 ## The C ABI
 
-The headers of `sdk/include/shard` are the contract between a plugin and the engine. This page is them, in reading order : their comments are the documentation. See [Plugins](concepts/plugins.md#the-c-abi-and-the-sdk) for the concepts and [the tutorial](tutorials.md) to build a plugin.
+The headers in `sdk/include/shard` are the contract between a plugin and the engine. This page is generated from their comments, in reading order. See [Plugins](concepts/plugins.md#the-c-abi-and-the-sdk) for the concepts and [the tutorial](tutorials/write-a-game-with-the-sdk.md) to build a plugin.
 
-Every function says the thread it may be called from : **any**, **system** (from inside a system, in parallel with others) or **main** (the main thread, outside the systems). A function returns a `ShardResult` : `SHARD_OK` (0) or a negative error, the details in the engine's log under the plugin's id. Strings are `ShardStr` (UTF-8, not necessarily zero terminated, valid for the call) ; a *text out* function takes `(buffer, capacity, *size)`, copies what fits and gives the full length.
+Every function says which thread may call it : `any`, `system` (from inside a system, possibly in parallel with others), `script` (from a script callback) or `main` (the main thread, outside systems). A function returns a `ShardResult`, either `SHARD_OK` (0) or a negative error, and the details go to the engine's log under the plugin's id. Strings are `ShardStr` : UTF-8, not necessarily zero terminated, valid for the duration of the call. A "text out" function takes `(buffer, capacity, *size)`, copies what fits and returns the full length.
 
 | Header | Interface | |
 |---|---|---|
 | [`shard_abi.h`](#shard_abih) | | base types, versions and rules |
 | [`shard_host.h`](#shard_hosth) | | what a plugin exports and what the host gives it |
-| [`shard_plugin.h`](#shard_pluginh) | `shard.plugin` 1.1 | who the plugin is, as the host read it from the manifest, and where it runs |
+| [`shard_plugin.h`](#shard_pluginh) | `shard.plugin` 1.2 | who the plugin is, as the host read it from the manifest, and where it runs |
 | [`shard_cvars.h`](#shard_cvarsh) | `shard.cvars` 1.0 | variables the plugin owns, readable from the console and the config files like the engine's own |
 | [`shard_commands.h`](#shard_commandsh) | `shard.commands` 1.0 | console commands |
-| [`shard_components.h`](#shard_componentsh) | `shard.components` 1.1 | component types described field by field |
-| [`shard_ecs.h`](#shard_ecsh) | `shard.ecs` 1.0 | entities and their components, from inside a system |
+| [`shard_components.h`](#shard_componentsh) | `shard.components` 1.3 | component types described field by field |
+| [`shard_ecs.h`](#shard_ecsh) | `shard.ecs` 1.1 | entities and their components, from inside a system |
 | [`shard_systems.h`](#shard_systemsh) | `shard.systems` 1.0 | functions the engine's scheduler runs every frame, in a phase, in parallel with the systems they do not conflict with |
 | [`shard_events.h`](#shard_eventsh) | `shard.events` 1.1 | events found by NAME, carrying bytes |
 | [`shard_hooks.h`](#shard_hooksh) | `shard.hooks` 1.0 | the points of the engine a plugin can intercept, and cancel |
@@ -24,7 +24,14 @@ Every function says the thread it may be called from : **any**, **system** (from
 | [`shard_extensions.h`](#shard_extensionsh) | `shard.extensions` 1.0 | what a plugin adds to the engine's subsystems through their extension points |
 | [`shard_content.h`](#shard_contenth) | `shard.content` 1.0 | the content folders of the loaded modules |
 | [`shard_state.h`](#shard_stateh) | `shard.state` 1.0 | what a plugin keeps across a hot reload |
+| [`shard_actors.h`](#shard_actorsh) | | Interface `"shard.actors"` 1.1 (1.0 + the fields of a component, one at a time) |
+| [`shard_audio.h`](#shard_audioh) | `shard.audio` 1.0 | sounds |
+| [`shard_editor.h`](#shard_editorh) | `shard.editor` 1.0 | windows of the editor, with a small set of widgets |
 | [`shard_experimental.h`](#shard_experimentalh) | `shard.experimental.world_ecs` 0.1 | the engine's entities from the main thread, outside the systems |
+| [`shard_input.h`](#shard_inputh) | `shard.input` 1.0 | keyboard, mouse and gamepads, polled |
+| [`shard_physics.h`](#shard_physicsh) | `shard.physics` 1.0 | the rigid bodies of actors, and ray casts |
+| [`shard_scripts.h`](#shard_scriptsh) | `shard.scripts` 1.1 | scripts, the components that carry a plugin's gameplay code |
+| [`shard_worlds.h`](#shard_worldsh) | `shard.worlds` 1.0 | loading worlds, and prefabs |
 
 ### shard_abi.h
 
@@ -42,7 +49,7 @@ Changing a struct without bumping `SHARD_ABI_MINOR` is a bug : `tests/plugins/ab
 | | Value | |
 |---|---|---|
 | `SHARD_ABI_MAJOR` | `1` |  |
-| `SHARD_ABI_MINOR` | `2` |  |
+| `SHARD_ABI_MINOR` | `5` |  |
 
 Calling convention of every function pointer in the tables. Empty on `x86_64` and arm64.
 
@@ -219,11 +226,20 @@ SHARD_PLUGIN_EXPORT ShardResult shard_plugin_entry(const ShardHostApi* host, Sha
 
 ### shard_plugin.h
 
-Interface `"shard.plugin"` 1.1 : who the plugin is, as the host read it from the manifest, and where it runs. Thread : any. 1.1 added host and `has_permission` : ask for minor 1 (`query_interface`(`SHARD_IFACE_PLUGIN`, 1, 1, ...)) to call them.
+Interface `"shard.plugin"` 1.2 : who the plugin is, as the host read it from the manifest, and where it runs. Thread : any. 1.1 added host and `has_permission` : ask for minor 1 (`query_interface`(`SHARD_IFACE_PLUGIN`, 1, 1, ...)) to call them. 1.2 added `random_stream` : ask for minor 2.
 
 | | Value | |
 |---|---|---|
 | `SHARD_IFACE_PLUGIN` | `"shard.plugin"` |  |
+
+#### ShardRandomState
+
+The state of a PCG32 generator (O'Neill 2014) : `state` and `increment` are the two words of Shard's Random class. Whoever holds them continues the sequence with the same code and gets the same numbers on every platform (`shard/cpp/random.hpp` does).
+
+```c
+uint64_t state;
+uint64_t increment;
+```
 
 #### ShardPluginApi
 
@@ -251,6 +267,14 @@ ShardStr host(ShardPluginCtx ctx);
 
 ```c
 int32_t has_permission(ShardPluginCtx ctx, ShardStr permission);
+```
+
+**1.2**
+
+A generator for the stream `name` : derived from the run's seed, the plugin's id and the name, so the same name gives the same sequence in a replay of the run, and two plugins never share a stream. Name a stream after what draws from it (an actor's name and the script's), not after the order things started in. The generator is the caller's afterwards : no further call is needed.
+
+```c
+ShardResult random_stream(ShardPluginCtx ctx, ShardStr name, ShardRandomState* out);
 ```
 
 ### shard_cvars.h
@@ -332,7 +356,7 @@ ShardResult add(ShardPluginCtx ctx, ShardStr name, ShardStr help, ShardCommandFn
 
 ### shard_components.h
 
-Interface `"shard.components"` 1.1 : component types described field by field.
+Interface `"shard.components"` 1.3 : component types described field by field.
 
 One registration gives a type two faces, under one name (`"<plugin id>.<name>"`, made by the host) :
 
@@ -351,6 +375,8 @@ An actor that has the actor component has the ECS component on its entity, with 
 The type lives as long as the plugin is enabled. Its ECS id stays reserved for the whole run : a plugin enabled again gets the same `ShardComponentType` back, provided it describes the same size (a type whose size changed needs a restart of the engine).
 
 Blobs (1.1) : bytes the host keeps outside the block, as many as needed (a chunk of voxels), counted against the plugin's memory budget. A field `SHARD_FIELD_BLOB` holds the `ShardBlob` handle. The plugin owns its blobs : `blob_free` gives one back, and all of them go with the plugin (disable, unload). The block is still copied with memcpy, so two blocks may hold the same handle : that is a shared blob, not a copy. The actor component is the exception, it owns the blobs of its blob fields : it saves their bytes with the world (base64), a copy of the actor (play mode) gets copies of them, and removing the component frees them. A system that puts a new blob in such a field frees the one it replaces.
+
+Text and assets (1.2) : a field `SHARD_FIELD_STRING` holds a `ShardBlob` too, whose bytes are the UTF-8 text (no terminator) : the actor component owns it like any blob, but the inspector shows it as a text box and the world file saves it as a JSON string. `string_set` and `string_get` read and write it without touching the blob by hand. A field `SHARD_FIELD_ASSET` is an `int32_t`, the id of an asset of the project (0 : none) : the inspector shows an asset picker, the world file saves the asset by its name, and the engine knows the component uses it.
 
 | | Value | |
 |---|---|---|
@@ -378,24 +404,27 @@ Field types : the C type the field has in the block, and how it is saved
 | `SHARD_FIELD_QUAT` | `11u` | float[4] : x, y, z, w |
 | `SHARD_FIELD_COLOR` | `12u` | float[4] : r, g, b, a (the inspector shows a colour picker) |
 | `SHARD_FIELD_BLOB` | `13u` | `ShardBlob` (`uint64_t`) : saved as the blob's bytes, not shown by the inspector (1.1) |
+| `SHARD_FIELD_STRING` | `14u` | `ShardBlob` (`uint64_t`) holding UTF-8 text : edited in the inspector, saved as text (1.2). 8 per component at most |
+| `SHARD_FIELD_ASSET` | `15u` | `int32_t` : the id of an asset, 0 for none (1.2) |
+| `SHARD_FIELD_ACTOR` | `16u` | `ShardActor` (`uint64_t`) : another actor, saved by its path in the world. Scripts only (1.5) |
 
 Field flags. Without any, a field is saved and editable in the inspector.
 
 | | Value | |
 |---|---|---|
 | `SHARD_FIELD_RUNTIME` | `1u` | runtime state : shown by the inspector, read only, not saved |
-| `SHARD_FIELD_PRIVATE` | `2u` | neither shown nor saved : the block keeps it, nothing else sees it |
-
-#### ShardFieldDesc
+| `SHARD_FIELD_PRIVATE` | `2u` | neither shown nor saved : the block keeps it, nothing else sees it (not for a string : use a blob) |
+| `SHARD_FIELD_ACCESSOR` | `4u` | a `SHARD_FIELD_STRING` of a script that is not a handle : the plugin's own string at that offset, read and writt |
 
 ```c
-uint32_t structSize;
+* by the script's text_get and text_set callbacks (shard_scripts.h) instead of a blob (1.5) */ typedef struct ShardFieldDesc { uint32_t structSize;
 uint32_t type;    // SHARD_FIELD_*
 ShardStr name;    // letters, digits and '_' ; "type", "active" and "tags" are reserved
 uint32_t offset;    // in the block, aligned for its type
 uint32_t flags;    // SHARD_FIELD_RUNTIME...
 float min, max;    // bounds of the inspector's widget ; min == max : none
 ShardStr tooltip;    // optional
+} ShardFieldDesc;
 ```
 
 #### ShardComponentDesc
@@ -414,6 +443,7 @@ const void* defaults;    // `size` bytes : the value of a new component. NULL : 
 |---|---|---|
 | `SHARD_COMPONENT_MAX_SIZE` | `1024u` |  |
 | `SHARD_COMPONENT_MAX_FIELDS` | `64u` |  |
+| `SHARD_COMPONENT_MAX_STRINGS` | `8u` | `SHARD_FIELD_STRING` and `SHARD_FIELD_ACTOR` fields of one component or script together (1.2) |
 
 #### ShardComponentsApi
 
@@ -468,13 +498,29 @@ ShardResult blob_resize(ShardPluginCtx ctx, ShardBlob blob, uint64_t size);
 ShardResult blob_free(ShardPluginCtx ctx, ShardBlob blob);
 ```
 
+**1.2 : text**
+
+Puts `text` (copied now) in the string field `*field` points to : in its blob if it holds a live one, else in a new blob whose handle is stored in `*field`. thread : any. `SHARD_E_OUT_OF_MEMORY` : over the plugin's enforced budget.
+
+```c
+ShardResult string_set(ShardPluginCtx ctx, ShardBlob* field, ShardStr text);
+```
+
+The text of a string field (empty for blob 0). `out->data` stays valid until the field is set again or freed. thread : any. `SHARD_E_STALE_HANDLE` : freed, or not this plugin's.
+
+```c
+ShardResult string_get(ShardPluginCtx ctx, ShardBlob blob, ShardStr* out);
+```
+
 ### shard_ecs.h
 
-Interface `"shard.ecs"` 1.0 : entities and their components, from inside a system (`shard_systems.h`).
+Interface `"shard.ecs"` 1.1 : entities and their components, from inside a system (`shard_systems.h`).
 
 Every function takes the `ShardEcs` the system was handed in its `ShardSystemCtx` : it is valid during that run, on that thread, and nowhere else (`SHARD_E_STALE_HANDLE`). A system reads and writes only the types it declared (reads / writes of its `ShardSystemDesc`, `SHARD_E_INVALID_ARG` otherwise ; an exclusive system may touch anything) : the scheduler relies on these declarations to run systems in parallel, and the result of a frame must not depend on it.
 
 Structural changes (spawn, destroy, add, remove, `set_parent`) are recorded and applied at the end of the phase, system by system in registration order. spawn returns a placeholder that the later commands of the same run can use ; it means nothing afterwards. Changing the VALUE of a component (through the pointers of `each_chunk` and get) is immediate.
+
+Moving an actor (1.1) : the engine's own components below are not written through these pointers, the actor's Transform is what drives them. `set_local_transform` records the new pose ; at the end of the phase the actor's Transform takes it (so does everything that follows a Transform : children, physics, the renderer) and the LocalTransform of the entity then holds it.
 
 | | Value | |
 |---|---|---|
@@ -510,6 +556,16 @@ Return `SHARD_OK` to go on ; anything else stops the iteration and is what `each
 
 ```c
 typedef ShardResult (*ShardChunkFn)(void* user, const ShardChunk* chunk);
+```
+
+#### ShardLocalTransform
+
+`"shard.LocalTransform"` (`find_type`) : on the entity of every actor, its Transform relative to its parent. Read it ; move the actor with `set_local_transform` (1.1)
+
+```c
+float position[3];
+float rotation[4];    // quaternion x, y, z, w
+float scale[3];
 ```
 
 #### ShardEcsApi
@@ -563,19 +619,17 @@ ShardResult remove(ShardEcs ecs, ShardEntity entity, ShardComponentType type);
 ShardResult set_parent(ShardEcs ecs, ShardEntity child, ShardEntity parent);    // null parent : detach
 ```
 
-**The engine's own components, found by name with `shard.components`' `find_type`**
+**1.1 : moving actors**
 
-Read them ; do not write them : the actor's components are what drives them, and they overwrite what a system writes.
-
-#### ShardLocalTransform
-
-`"shard.LocalTransform"` : on the entity of every actor, its Transform relative to its parent
+Records the new local pose (relative to the parent) of the actor that stands behind `entity`. Applied at the end of the phase, on the main thread, after the structural changes ; when several systems set the same entity, the one whose name sorts last wins. The system must have `"shard.LocalTransform"` in its `writes` (`shard.systems`). `transform` is read now. `SHARD_E_NOT_FOUND` : the entity has no actor now (a placeholder, or an entity a plugin spawned itself) : nothing moves. An actor that is deactivated when the phase ends ignores it. thread : system
 
 ```c
-float position[3];
-float rotation[4];    // quaternion x, y, z, w
-float scale[3];
+ShardResult set_local_transform(ShardEcs ecs, ShardEntity entity, const ShardLocalTransform* transform);
 ```
+
+**The engine's own components, found by name with `shard.components`' `find_type`**
+
+Read them ; do not write their blocks : the actor's components are what drives them, and they overwrite what a system writes.
 
 #### ShardActorLink
 
@@ -1036,6 +1090,319 @@ ShardResult get(ShardState state, ShardStr key, char* buffer, uint64_t capacity,
 int32_t has(ShardState state, ShardStr key);
 ```
 
+### shard_actors.h
+
+Interface `"shard.actors"` 1.1 (1.0 + the fields of a component, one at a time) : the actors of a world, as a script sees them.
+
+An actor is what a world file holds and the editor's outliner shows : a name, a pose, children, tags and components. A `ShardActor` is a handle to one (a generation and a slot, never a pointer) : it fails with `SHARD_E_STALE_HANDLE` once the actor is destroyed, and a handle of another actor never takes its place. 0 is never valid.
+
+Where it may be called (`"thread : script"`) : from the callbacks of a script (`shard_scripts.h`), from `on_load` / `on_play_start`... and the other callbacks of the plugin that run on the main thread. NOT from a system (`shard_systems.h`) : a system runs beside others, and the actors are not made for that (`SHARD_E_WRONG_THREAD`). A system moves an actor with `shard.ecs`' `set_local_transform`.
+
+"In the world of `anchor``" : the functions that create or look for actors work in the world the anchor actor is in. A script passes its owner. The engine's components are reached by the name their serialized form carries ("`light`", "`model"...), their fields as JSON text : the format of the world files, so anything the editor shows can be read and set from here.
+
+| | Value | |
+|---|---|---|
+| `SHARD_IFACE_ACTORS` | `"shard.actors"` |  |
+
+```c
+typedef uint64_t ShardActor;    // 0 is never valid : "no actor"
+```
+
+#### ShardActorsApi
+
+```c
+uint32_t structSize;
+```
+
+**Identity and state**
+
+`SHARD_TRUE` if the handle designates an actor that still exists. thread : script
+
+```c
+int32_t is_valid(ShardActor actor);
+```
+
+The name, as the `"text out"` of the ABI : at most `capacity` bytes into `buffer`, the full length in `*size`. thread : script
+
+```c
+ShardResult get_name(ShardActor actor, char* buffer, uint64_t capacity, uint64_t* size);
+ShardResult set_name(ShardActor actor, ShardStr name);
+int32_t is_active(ShardActor actor);
+ShardResult set_active(ShardActor actor, int32_t active);
+```
+
+Removes the actor, its components (their scripts get `on_destroyed`) and its children. The handle is stale afterwards.
+
+```c
+ShardResult destroy(ShardActor actor);
+```
+
+**Pose : `ShardLocalTransform` (`shard_ecs.h`), rotation as a quaternion x, y, z, w**
+
+relative to the parent
+
+```c
+ShardResult get_transform(ShardActor actor, ShardLocalTransform* out);
+ShardResult set_transform(ShardActor actor, const ShardLocalTransform* transform);
+```
+
+in the world (the root reference frame's axes) ; the scale is the lossy one of a parent that is scaled and rotated
+
+```c
+ShardResult get_world_transform(ShardActor actor, ShardLocalTransform* out);
+ShardResult set_world_transform(ShardActor actor, const ShardLocalTransform* transform);
+```
+
+**Hierarchy**
+
+`*out` is 0 for an actor at the root of the world
+
+```c
+ShardResult get_parent(ShardActor actor, ShardActor* out);
+```
+
+parent 0 : the root of the world. `keep_world` `SHARD_TRUE` : the actor stays where it is (its local pose is recomputed).
+
+```c
+ShardResult set_parent(ShardActor actor, ShardActor parent, int32_t keep_world);
+ShardResult child_count(ShardActor actor, uint32_t* count);
+ShardResult child_at(ShardActor actor, uint32_t index, ShardActor* out);
+```
+
+**Tags (`docs/concepts/tags.md`) : a tag is found by its name, `"Enemy.Undead"`**
+
+```c
+ShardResult add_tag(ShardActor actor, ShardStr tag);
+ShardResult remove_tag(ShardActor actor, ShardStr tag);
+```
+
+`SHARD_TRUE` if the actor has the tag or one under it (`"Enemy"` for an `"Enemy.Undead"`)
+
+```c
+int32_t has_tag(ShardActor actor, ShardStr tag);
+```
+
+**The world of an actor**
+
+A new actor (with its Transform) at the root of the world of `anchor`, or under `parent` (0 : the root). `*out` is the actor.
+
+```c
+ShardResult create(ShardActor anchor, ShardStr name, ShardActor parent, ShardActor* out);
+```
+
+An actor built from the JSON of a world file's actor (name, components, children) : the form the editor saves prefabs in
+
+```c
+ShardResult spawn(ShardActor anchor, ShardStr actor_json, ShardActor parent, ShardActor* out);
+```
+
+The first actor of that name, depth first in the order of the ids. `SHARD_E_NOT_FOUND` if there is none.
+
+```c
+ShardResult find_by_name(ShardActor anchor, ShardStr name, ShardActor* out);
+```
+
+The actors that have the tag (or one under it), in the order of their ids : up to `capacity` of them into `out`, how many there are in `*count` (call it with capacity 0 to ask). The deactivated ones are left out.
+
+```c
+ShardResult find_by_tag(ShardActor anchor, ShardStr tag, ShardActor* out, uint32_t capacity, uint32_t* count);
+```
+
+**Components, by the name their serialized form carries (`"light"`, `"model"`, `"physics_body"`, or `"<plugin id>.<name>"`)**
+
+Adds one. `fields_json` : the fields to set, a JSON object (`"{ \"`intensity\`": 3 }"`), or an empty string. `SHARD_E_NOT_FOUND` : unknown type.
+
+```c
+ShardResult add_component(ShardActor actor, ShardStr type, ShardStr fields_json);
+int32_t has_component(ShardActor actor, ShardStr type);
+ShardResult remove_component(ShardActor actor, ShardStr type);
+```
+
+The component as the world file writes it (a JSON object), as a `"text out"`. `SHARD_E_NOT_FOUND` : the actor has none.
+
+```c
+ShardResult get_component(ShardActor actor, ShardStr type, char* buffer, uint64_t capacity, uint64_t* size);
+```
+
+Sets the fields that the JSON object holds, like an edit in the inspector (the others keep their value)
+
+```c
+ShardResult set_component(ShardActor actor, ShardStr type, ShardStr fields_json);
+```
+
+**One field of a component (1.1)**
+
+`path` is a field of the component (`"intensity"`, `"motionType"`, `"active"`) or a path into it, the names and indexes of the world file's JSON separated by '/' (`"materials/0"`, `"shapes/0/params/radius"`). A value is JSON text : 2.5, true, `"Dynamic"`, {`"x"`:0,`"y"`:1,`"z"`:0}. Assets read as their name in the project and are written as that name or as their id. `SHARD_E_NOT_FOUND` : no such component or field.
+
+The value, as a `"text out"`
+
+```c
+ShardResult get_component_field(ShardActor actor, ShardStr type, ShardStr path, char* buffer, uint64_t capacity, uint64_t* size);
+```
+
+Sets one field and nothing else : a field of the engine goes through the component's own change hook, like an edit in the inspector (a physics body keeps its velocity when its friction changes). An array grows to hold the index it is given (`"materials/2"` on one material: the gap holds 0) and `"-"` appends (`"shapes/-"`). `SHARD_E_INVALID_ARG` : the value does not fit the field.
+
+```c
+ShardResult set_component_field(ShardActor actor, ShardStr type, ShardStr path, ShardStr value_json);
+```
+
+Removes an element of an array (`"shapes/1"`) or a key of an object
+
+```c
+ShardResult erase_component_field(ShardActor actor, ShardStr type, ShardStr path);
+```
+
+### shard_audio.h
+
+Interface `"shard.audio"` 1.0 : sounds.
+
+Two ways to make a sound. An actor with an `"audio"` component (add it with `shard.actors`' `add_component`, its clip, volume and 3D settings are fields of the component) is played and paused here. A one shot sound needs no actor : it plays once from a place and removes itself when it ends.
+
+A clip is an asset of the project, named by its path in the project (`"sounds/shot.wav"`). Volumes are 1 for the clip's own level.
+
+thread : script (`shard_actors.h` says where that is). `SHARD_E_UNSUPPORTED` : this host has no audio (an offline tool). A host that runs with no sound device (a server, the tests) accepts every call and plays nothing.
+
+| | Value | |
+|---|---|---|
+| `SHARD_IFACE_AUDIO` | `"shard.audio"` |  |
+
+#### ShardAudioApi
+
+```c
+uint32_t structSize;
+```
+
+Starts the clip of the actor's audio component from the beginning (it does nothing if it already plays)
+
+```c
+ShardResult play(ShardActor actor);
+ShardResult pause(ShardActor actor);
+ShardResult set_volume(ShardActor actor, float volume);
+```
+
+Plays `clip` once, from `position` in the world when `spatial` is `SHARD_TRUE` (louder and panned by the distance and direction to the listener), flat otherwise. `SHARD_E_NOT_FOUND` : no such clip.
+
+```c
+ShardResult play_one_shot(ShardStr clip, const float position[3], float volume, int32_t spatial);
+```
+
+### shard_editor.h
+
+Interface `"shard.editor"` 1.0 : windows of the editor, with a small set of widgets.
+
+ImGui has no stable ABI, so a plugin does not draw with it : it adds a panel and draws the contents with the widgets of `ShardUiApi`, which the editor implements with its own ImGui. The panel is a window of the editor's Window menu (hidden until the user opens it). Its draw function runs every frame while the window is open, on the editor's main thread, and may call the widgets then and only then.
+
+This interface exists only in the editor : in the player, in headless runs and in the offline tools `query_interface` answers `SHARD_E_NOT_FOUND`, so a plugin that has panels keeps working there. The editor loads a plugin whose manifest `"hosts"` include `"engine"` (the default) or `"editor"`.
+
+Widgets that take a value change it in place and return `SHARD_TRUE` on the frame the user changed it. A label may carry a hidden id after `"##"` (`"Speed##enemy1"`), as in ImGui, to tell apart two widgets with the same text.
+
+| | Value | |
+|---|---|---|
+| `SHARD_IFACE_EDITOR` | `"shard.editor"` |  |
+
+#### ShardUiApi
+
+```c
+uint32_t structSize;
+```
+
+Text
+
+```c
+void text(ShardStr text);
+void text_colored(const float rgba[4], ShardStr text);
+void text_wrapped(ShardStr text);
+void bullet_text(ShardStr text);
+void label_text(ShardStr label, ShardStr value);
+```
+
+Buttons and choices
+
+```c
+int32_t button(ShardStr label);
+int32_t small_button(ShardStr label);
+int32_t checkbox(ShardStr label, int32_t* value);
+int32_t selectable(ShardStr label, int32_t selected);
+```
+
+`current` is the index of the chosen item of `items`
+
+```c
+int32_t combo(ShardStr label, int32_t* current, const ShardStr* items, uint32_t count);
+```
+
+Values
+
+```c
+int32_t slider_float(ShardStr label, float* value, float min, float max);
+int32_t slider_int(ShardStr label, int32_t* value, int32_t min, int32_t max);
+int32_t drag_float(ShardStr label, float* value, float speed, float min, float max);
+int32_t drag_int(ShardStr label, int32_t* value, float speed, int32_t min, int32_t max);
+int32_t input_float(ShardStr label, float* value);
+int32_t input_int(ShardStr label, int32_t* value);
+```
+
+`buffer` holds a zero terminated text of at most capacity - 1 bytes, edited in place
+
+```c
+int32_t input_text(ShardStr label, char* buffer, uint64_t capacity);
+int32_t color_edit(ShardStr label, float rgba[4]);
+```
+
+Display
+
+```c
+void progress_bar(float fraction, ShardStr overlay);
+void plot_lines(ShardStr label, const float* values, int32_t count);
+```
+
+Layout
+
+```c
+void separator(void);
+void same_line(void);
+void spacing(void);
+void set_next_item_width(float width);
+```
+
+`SHARD_TRUE` while the section is open ; the contents are drawn only then
+
+```c
+int32_t collapsing_header(ShardStr label);
+```
+
+A node of a tree : when it returns `SHARD_TRUE`, draw the children and call `tree_pop`
+
+```c
+int32_t tree_node(ShardStr label);
+void tree_pop(void);
+void push_id(ShardStr id);
+void pop_id(void);
+```
+
+The widget drawn last
+
+```c
+int32_t is_item_hovered(void);
+void tooltip(ShardStr text);
+```
+
+```c
+typedef void (*ShardPanelFn)(void* user, const ShardUiApi* ui);
+```
+
+#### ShardEditorApi
+
+```c
+uint32_t structSize;
+```
+
+Adds a panel named `title` to the editor's Window menu, from `on_load`. It goes with the plugin. thread : main. `SHARD_E_ALREADY_EXISTS` : this plugin has a panel of that name.
+
+```c
+ShardResult add_panel(ShardPluginCtx ctx, ShardStr title, ShardPanelFn draw, void* user);
+```
+
 ### shard_experimental.h
 
 Interface `"shard.experimental.world_ecs"` 0.1 : the engine's entities from the main thread, outside the systems.
@@ -1064,6 +1431,407 @@ Applies the structural changes recorded since open, in order. The last opened fi
 
 ```c
 ShardResult close(ShardPluginCtx ctx, ShardEcs ecs);
+```
+
+### shard_input.h
+
+Interface `"shard.input"` 1.0 : keyboard, mouse and gamepads, polled.
+
+What the engine's input manager sees this frame, which is also what a recorded run replays : a script that reads input through here behaves in a replay as the game did. The key and button numbers below are part of the ABI (the engine maps them to its own).
+
+thread : script, for every function (`shard_actors.h` says where that is).
+
+| | Value | |
+|---|---|---|
+| `SHARD_IFACE_INPUT` | `"shard.input"` |  |
+
+Keys : the numbers of the common keyboard APIs (printable keys are their upper case ASCII)
+
+| | Value | |
+|---|---|---|
+| `SHARD_KEY_SPACE` | `32` |  |
+| `SHARD_KEY_APOSTROPHE` | `39` |  |
+| `SHARD_KEY_COMMA` | `44` |  |
+| `SHARD_KEY_MINUS` | `45` |  |
+| `SHARD_KEY_PERIOD` | `46` |  |
+| `SHARD_KEY_SLASH` | `47` |  |
+| `SHARD_KEY_0` | `48` | ... `SHARD_KEY_9` = 57 |
+| `SHARD_KEY_SEMICOLON` | `59` |  |
+| `SHARD_KEY_EQUAL` | `61` |  |
+| `SHARD_KEY_A` | `65` | ... `SHARD_KEY_Z` = 90 |
+| `SHARD_KEY_LEFT_BRACKET` | `91` |  |
+| `SHARD_KEY_BACKSLASH` | `92` |  |
+| `SHARD_KEY_RIGHT_BRACKET` | `93` |  |
+| `SHARD_KEY_GRAVE_ACCENT` | `96` |  |
+| `SHARD_KEY_ESCAPE` | `256` |  |
+| `SHARD_KEY_ENTER` | `257` |  |
+| `SHARD_KEY_TAB` | `258` |  |
+| `SHARD_KEY_BACKSPACE` | `259` |  |
+| `SHARD_KEY_INSERT` | `260` |  |
+| `SHARD_KEY_DELETE` | `261` |  |
+| `SHARD_KEY_RIGHT` | `262` |  |
+| `SHARD_KEY_LEFT` | `263` |  |
+| `SHARD_KEY_DOWN` | `264` |  |
+| `SHARD_KEY_UP` | `265` |  |
+| `SHARD_KEY_PAGE_UP` | `266` |  |
+| `SHARD_KEY_PAGE_DOWN` | `267` |  |
+| `SHARD_KEY_HOME` | `268` |  |
+| `SHARD_KEY_END` | `269` |  |
+| `SHARD_KEY_CAPS_LOCK` | `280` |  |
+| `SHARD_KEY_SCROLL_LOCK` | `281` |  |
+| `SHARD_KEY_NUM_LOCK` | `282` |  |
+| `SHARD_KEY_PRINT_SCREEN` | `283` |  |
+| `SHARD_KEY_PAUSE` | `284` |  |
+| `SHARD_KEY_F1` | `290` | ... `SHARD_KEY_F25` = 314 |
+| `SHARD_KEY_KP_0` | `320` | ... `SHARD_KEY_KP_9` = 329 |
+| `SHARD_KEY_KP_DECIMAL` | `330` |  |
+| `SHARD_KEY_KP_DIVIDE` | `331` |  |
+| `SHARD_KEY_KP_MULTIPLY` | `332` |  |
+| `SHARD_KEY_KP_SUBTRACT` | `333` |  |
+| `SHARD_KEY_KP_ADD` | `334` |  |
+| `SHARD_KEY_KP_ENTER` | `335` |  |
+| `SHARD_KEY_KP_EQUAL` | `336` |  |
+| `SHARD_KEY_LEFT_SHIFT` | `340` |  |
+| `SHARD_KEY_LEFT_CONTROL` | `341` |  |
+| `SHARD_KEY_LEFT_ALT` | `342` |  |
+| `SHARD_KEY_LEFT_SUPER` | `343` |  |
+| `SHARD_KEY_RIGHT_SHIFT` | `344` |  |
+| `SHARD_KEY_RIGHT_CONTROL` | `345` |  |
+| `SHARD_KEY_RIGHT_ALT` | `346` |  |
+| `SHARD_KEY_RIGHT_SUPER` | `347` |  |
+| `SHARD_KEY_MENU` | `348` |  |
+
+Mouse buttons
+
+| | Value | |
+|---|---|---|
+| `SHARD_MOUSE_LEFT` | `0` |  |
+| `SHARD_MOUSE_RIGHT` | `1` |  |
+| `SHARD_MOUSE_MIDDLE` | `2` | buttons 3 to 7 follow |
+
+The cursor
+
+| | Value | |
+|---|---|---|
+| `SHARD_CURSOR_VISIBLE` | `0` |  |
+| `SHARD_CURSOR_HIDDEN` | `1` |  |
+| `SHARD_CURSOR_DISABLED` | `2` | hidden and locked to the window : the mouse look of a first person game |
+
+Gamepads : the face buttons are named by position (SOUTH is A on an Xbox pad, Cross on a PlayStation one)
+
+| | Value | |
+|---|---|---|
+| `SHARD_PAD_SOUTH` | `0` |  |
+| `SHARD_PAD_EAST` | `1` |  |
+| `SHARD_PAD_WEST` | `2` |  |
+| `SHARD_PAD_NORTH` | `3` |  |
+| `SHARD_PAD_BACK` | `4` |  |
+| `SHARD_PAD_GUIDE` | `5` |  |
+| `SHARD_PAD_START` | `6` |  |
+| `SHARD_PAD_LEFT_STICK` | `7` |  |
+| `SHARD_PAD_RIGHT_STICK` | `8` |  |
+| `SHARD_PAD_LEFT_SHOULDER` | `9` |  |
+| `SHARD_PAD_RIGHT_SHOULDER` | `10` |  |
+| `SHARD_PAD_DPAD_UP` | `11` |  |
+| `SHARD_PAD_DPAD_DOWN` | `12` |  |
+| `SHARD_PAD_DPAD_LEFT` | `13` |  |
+| `SHARD_PAD_DPAD_RIGHT` | `14` |  |
+| `SHARD_AXIS_LEFT_X` | `0` | sticks -1 (left, up) to 1 (right, down) |
+| `SHARD_AXIS_LEFT_Y` | `1` |  |
+| `SHARD_AXIS_RIGHT_X` | `2` |  |
+| `SHARD_AXIS_RIGHT_Y` | `3` |  |
+| `SHARD_AXIS_LEFT_TRIGGER` | `4` | triggers 0 to 1 |
+| `SHARD_AXIS_RIGHT_TRIGGER` | `5` |  |
+
+#### ShardInputApi
+
+```c
+uint32_t structSize;
+```
+
+Keyboard : `SHARD_TRUE` / `SHARD_FALSE`. `pressed` and `released` are true on the frame the key changes, `down` while it is held.
+
+```c
+int32_t key_down(int32_t key);
+int32_t key_pressed(int32_t key);
+int32_t key_released(int32_t key);
+```
+
+Mouse
+
+```c
+int32_t mouse_down(int32_t button);
+int32_t mouse_pressed(int32_t button);
+int32_t mouse_released(int32_t button);
+ShardResult get_cursor(double* x, double* y);
+ShardResult set_cursor(double x, double y);
+ShardResult set_cursor_mode(int32_t mode);
+```
+
+Gamepads, numbered from 0 in the order they were plugged in
+
+```c
+int32_t gamepad_count(void);
+int32_t gamepad_button_down(int32_t pad, int32_t button);
+int32_t gamepad_button_pressed(int32_t pad, int32_t button);
+int32_t gamepad_button_released(int32_t pad, int32_t button);
+```
+
+Dead zone : the fraction of the range that reads as 0 (0.1 is a fine default)
+
+```c
+float gamepad_axis(int32_t pad, int32_t axis, float dead_zone);
+```
+
+Strengths 0 to 1. `SHARD_FALSE` : the pad cannot rumble.
+
+```c
+int32_t gamepad_rumble(int32_t pad, float low, float high, int32_t duration_ms);
+```
+
+### shard_physics.h
+
+Interface `"shard.physics"` 1.0 : the rigid bodies of actors, and ray casts.
+
+A body is the engine's `"physics_body"` component of an actor (add it with `shard.actors`' `add_component`, its shape and mass are fields of the component). These functions move and push the body of an actor : its handle is the actor's. Positions, directions and velocities are in the world, in the units of the project (one unit is one metre unless the project says otherwise), forces in newtons and impulses in newton seconds. Contacts are not asked for here : a script is told about them (on\_contact\_\* in `shard_scripts.h`).
+
+thread : script (`shard_actors.h` says where that is). `SHARD_E_NOT_FOUND` : the actor has no physics body, or it has no live body yet. `SHARD_E_UNSUPPORTED` : this host has no physics (an offline tool).
+
+| | Value | |
+|---|---|---|
+| `SHARD_IFACE_PHYSICS` | `"shard.physics"` |  |
+
+The layers a ray looks at (a bit mask)
+
+| | Value | |
+|---|---|---|
+| `SHARD_LAYER_STATIC` | `1u` | bodies that never move |
+| `SHARD_LAYER_MOVING` | `2u` | kinematic and dynamic bodies |
+| `SHARD_LAYER_ALL` | `3u` |  |
+
+#### ShardRayHit
+
+```c
+uint32_t structSize;
+ShardActor actor;    // the actor whose body the ray hit
+float point[3];    // where, in the world
+float normal[3];    // the surface's normal there, pointing out of the body
+float distance;    // from the origin along the ray
+```
+
+#### ShardPhysicsApi
+
+```c
+uint32_t structSize;
+```
+
+Velocities, in the world
+
+```c
+ShardResult get_velocity(ShardActor actor, float out[3]);
+ShardResult set_velocity(ShardActor actor, const float velocity[3]);
+ShardResult get_angular_velocity(ShardActor actor, float out[3]);
+ShardResult set_angular_velocity(ShardActor actor, const float velocity[3]);
+```
+
+A force acts for the step it is added in (call it every step to push for longer), an impulse changes the velocity at once. A point is in the world : a force or impulse off the centre of mass also turns the body.
+
+```c
+ShardResult add_force(ShardActor actor, const float force[3]);
+ShardResult add_force_at_point(ShardActor actor, const float force[3], const float point[3]);
+ShardResult add_torque(ShardActor actor, const float torque[3]);
+ShardResult add_impulse(ShardActor actor, const float impulse[3]);
+ShardResult add_impulse_at_point(ShardActor actor, const float impulse[3], const float point[3]);
+ShardResult add_angular_impulse(ShardActor actor, const float impulse[3]);
+```
+
+The acceleration the body falls with now, from the world's gravity and the gravity fields where it is (or its own custom gravity)
+
+```c
+ShardResult get_gravity(ShardActor actor, float out[3]);
+```
+
+Gives the body a gravity of its own : the world's gravity and the fields no longer reach it
+
+```c
+ShardResult set_custom_gravity(ShardActor actor, const float gravity[3]);
+```
+
+The first body a ray meets. `direction` need not be normalized (a zero one is `SHARD_E_INVALID_ARG`). `layers` : `SHARD_LAYER_*`. `ignore` : an actor whose body the ray goes through (the one that fires it), or 0. `SHARD_OK` and `*out` filled when something is hit, `SHARD_E_NOT_FOUND` when nothing is within `max_distance`.
+
+```c
+ShardResult raycast(const float origin[3], const float direction[3], float max_distance, uint32_t layers, ShardActor ignore, ShardRayHit* out);
+```
+
+### shard_scripts.h
+
+Interface `"shard.scripts"` 1.1 : scripts, the components that carry a plugin's gameplay code.
+
+A script is an object of the plugin (a C++ class in the SDK) that lives on an actor, as the engine's own Script components do. The host owns its memory and calls it back : it is created with the component, receives the callbacks of the actor's life and of the frame (play, tick, fixed tick, late tick, stop...), in the order of the scripts of the world, and goes with the actor. Its fields are shown by the inspector, saved with the world and copied with the actor (play mode copies the world), exactly as for a component of `shard_components.h` : the same `ShardFieldDesc`, the same field types (text, assets, blobs included), at offsets in the object.
+
+Unlike a component's block, the object is NOT plain data : it is constructed in place in storage the host provides (`size` bytes, aligned on `align`), and destructed there. It is never moved or copied by the host with memcpy. A copy of the actor (play mode) constructs a new object and copies the described fields into it : what is not a field starts fresh, as if the actor was just created.
+
+Threads : every callback runs on the thread that ticks the scripts of the world, one script after the other, never two at once : what a script does with `shard_actors.h` and `shard_input.h` is safe there. The functions of this table are `"thread : main"` (from `on_load`).
+
+| | Value | |
+|---|---|---|
+| `SHARD_IFACE_SCRIPTS` | `"shard.scripts"` |  |
+| `SHARD_SCRIPT_MAX_SIZE` | `16384u` | bytes of an object |
+
+The callbacks of a script. All are optional but construct and destruct. A callback returns `SHARD_OK`, or an error that the host logs and counts as an error of the plugin (at the tenth the host fails the plugin, as for a system). `object` is what construct built.
+
+```c
+typedef ShardResult (*ShardScriptFn)(void* user, void* object);
+typedef ShardResult (*ShardScriptTickFn)(void* user, void* object, float delta_time);
+```
+
+#### ShardContact
+
+What a script is told about a contact of its actor's body with another one (physics, ABI 1.5). `other` is the other body's actor. `normal` points from this actor toward the other one. `point` is a point of the contact in the world, `penetration` how deep the bodies overlap. `on_contact_ended` only fills `other`.
+
+```c
+uint32_t structSize;
+ShardActor other;
+float point[3];
+float normal[3];
+float penetration;
+```
+
+```c
+typedef ShardResult (*ShardScriptContactFn)(void* user, void* object, const ShardContact* contact);
+```
+
+#### ShardScriptCallbacks
+
+```c
+uint32_t structSize;
+```
+
+Builds the object in `storage` : fields at their defaults, no actor yet. Called when the component is made (an actor getting it, the world file read, a copy of an actor). `SHARD_OK`, or an error to refuse (the component is not made).
+
+```c
+ShardResult construct(void* user, void* storage);
+```
+
+Destroys the object. The storage is the host's to free.
+
+```c
+void destruct(void* user, void* storage);
+```
+
+The component joined an actor : this is its owner, valid as long as the object lives. Called once, before `on_create`.
+
+```c
+ShardResult attach(void* user, void* object, ShardActor owner);
+ShardScriptFn on_create;    // the script joined an actor that is in a world (Script::OnCreate)
+ShardScriptFn on_world_loaded;    // the world finished loading (for actors tagged "Persistent")
+ShardScriptFn on_world_unloaded;
+ShardScriptFn on_play;    // play mode starts
+ShardScriptTickFn on_tick;    // every frame, in the Update phase : delta_time is the frame's
+ShardScriptTickFn on_fixed_tick;    // every fixed step, right before the physics step : delta_time is the step's
+ShardScriptTickFn on_late_tick;    // every frame, after the scripts and the physics moved everything
+ShardScriptFn on_stop;    // play mode stops
+ShardScriptFn on_destroyed;    // the component or its actor is destroyed, before destruct
+ShardScriptFn on_activated;
+ShardScriptFn on_deactivated;
+```
+
+1.5 : physics contacts, in the physics step's callbacks, on the thread that steps the physics
+
+```c
+ShardScriptContactFn on_contact_added;
+ShardScriptContactFn on_contact_persisted;
+ShardScriptContactFn on_contact_ended;
+```
+
+1.5 : the plugin's own strings. A field `SHARD_FIELD_STRING` with `SHARD_FIELD_ACCESSOR` is the object's `std::string` (or any string of the plugin's) at that offset : the host never reads its memory, it asks these. `text_get` gives the text (valid until the next call into the object), `text_set` replaces it. Both are required when a field has the flag.
+
+```c
+void text_get(void* user, void* object, uint32_t offset, ShardStr* out);
+ShardResult text_set(void* user, void* object, uint32_t offset, ShardStr text);
+```
+
+Callbacks of later ABI revisions go HERE : the host checks structSize before reading them.
+
+#### ShardScriptDesc
+
+```c
+uint32_t structSize;
+uint32_t size;    // bytes of the object, 1 to SHARD_SCRIPT_MAX_SIZE
+uint32_t align;    // a power of two, 16 at most
+uint32_t fieldCount;    // SHARD_COMPONENT_MAX_FIELDS at most
+ShardStr name;    // "Health" : the host registers "<plugin id>.Health", the name a world file calls it
+const ShardFieldDesc* fields;    // offsets in the object. Read during the call only.
+void* user;    // handed back to every callback
+const ShardScriptCallbacks* callbacks;    // copied up to its structSize during the call
+```
+
+#### ShardScriptsApi
+
+```c
+uint32_t structSize;
+```
+
+Registers a script type, from `on_load`. thread : main. `SHARD_E_INVALID_ARG` : a field out of the object, misaligned or overlapping another, a bad name, a size or an alignment out of bounds, no construct or destruct (the log says which). `SHARD_E_ALREADY_EXISTS` : the name is taken.
+
+```c
+ShardResult register_script(ShardPluginCtx ctx, const ShardScriptDesc* desc);
+```
+
+The object of the script `name` (as registered, `"Health"`) that `actor` has, if it belongs to this plugin : NULL in `*out` otherwise. Valid until the script is removed or the actor destroyed. thread : script
+
+```c
+ShardResult get_object(ShardPluginCtx ctx, ShardActor actor, ShardStr name, void** out);
+```
+
+Adds the script `name` to `actor` and returns its object. A script of this plugin only. thread : script
+
+```c
+ShardResult add_to_actor(ShardPluginCtx ctx, ShardActor actor, ShardStr name, void** out);
+```
+
+### shard_worlds.h
+
+Interface `"shard.worlds"` 1.0 : loading worlds, and prefabs.
+
+A world is loaded by its path in the project (`"worlds/arena.world"`). The load is a request : it starts in the background, and the world is swapped in at the start of a following frame, where the old worlds are unloaded (their scripts get `on_destroyed`) and the new one is loaded (the plugin's `on_world_loaded` is called). A script that asks for a load keeps running until then, so nothing it holds is pulled from under it in the middle of a frame.
+
+A prefab is an actor stored as JSON in the content of a module (`prefabs/<name>.json`, `shard_content.h`) : the form the editor writes an actor in. Spawning one builds the actor, its components and its children.
+
+thread : script (`shard_actors.h` says where that is).
+
+| | Value | |
+|---|---|---|
+| `SHARD_IFACE_WORLDS` | `"shard.worlds"` |  |
+
+#### ShardWorldsApi
+
+```c
+uint32_t structSize;
+```
+
+Asks for that world to replace the loaded ones. `SHARD_E_NOT_FOUND` : the project has no such world. `SHARD_E_ALREADY_EXISTS` : a load is already under way (ask again once `is_loading` says it is over). `SHARD_E_UNSUPPORTED` : this host has no worlds.
+
+```c
+ShardResult load_world(ShardStr path_in_project);
+```
+
+`SHARD_TRUE` while a requested load is under way.
+
+```c
+int32_t is_loading(void);
+```
+
+How many worlds are loaded.
+
+```c
+int32_t loaded_count(void);
+```
+
+Builds the prefab in the world of `anchor`, under `parent` (0 : at the root), and returns its actor. `prefab` is a `mod://` address (`"mod://com.acme.game/prefabs/crate.json"`), a logical path (`"prefabs/crate.json"`), or a bare name (`"crate"`, read as `"prefabs/crate.json"`). `SHARD_E_NOT_FOUND` : no such file. `SHARD_E_INVALID_ARG` : it is not an actor.
+
+```c
+ShardResult spawn_prefab(ShardActor anchor, ShardStr prefab, ShardActor parent, ShardActor* out);
 ```
 
 ## The C++ SDK
@@ -1106,6 +1874,8 @@ void* Alloc(size_t size, size_t align = 16) const;
 void Free(void* p) const;
 shard::Components Components() const;
 shard::Systems Systems() const;
+shard::Scripts Scripts() const;
+shard::Editor Editor() const;
 shard::CVars CVars() const;
 shard::Commands Commands() const;
 shard::Events Events() const;
@@ -1153,6 +1923,8 @@ virtual bool OnToolTask(Context&, std::string_view /*task*/, std::string_view /*
 ```cpp
 /// Exports the entry point of the C ABI for a class derived from shard::Plugin (once per plugin, in one source file)
 SHARD_C_PLUGIN(ClassName)
+/// A plugin that is only what its source files register (scripts, components, systems: shard/cpp/registry.hpp): the entry point, in any one of them
+SHARD_GAME_MODULE()
 ```
 
 ### shard/cpp/component.hpp
@@ -1196,7 +1968,7 @@ float x = 0.f, y = 0.f, z = 0.f, w = 1.f;
 float r = 1.f, g = 1.f, b = 1.f, a = 1.f;
 ```
 
-#### `FieldType<float>, FieldType<double>, FieldType<int32_t>, FieldType<uint32_t>, FieldType<int64_t>, FieldType<uint64_t>, FieldType<bool>, FieldType<Vec2>, FieldType<Vec3>, FieldType<Vec4>, FieldType<Quat>, FieldType<Color>, FieldType<float[2]>, FieldType<float[3]>, FieldType<float[4]>, FieldType<Blob>`
+#### `FieldType<float>, FieldType<double>, FieldType<int32_t>, FieldType<uint32_t>, FieldType<int64_t>, FieldType<uint64_t>, FieldType<bool>, FieldType<Vec2>, FieldType<Vec3>, FieldType<Vec4>, FieldType<Quat>, FieldType<Color>, FieldType<float[2]>, FieldType<float[3]>, FieldType<float[4]>, FieldType<Blob>, FieldType<std::string>, FieldType<Text>, FieldType<AssetId>`
 
 The `SHARD_FIELD_*` of a member type. Specialize it for a type of your own with the same layout (`glm::vec3` -&gt; `SHARD_FIELD_VEC3`).
 
@@ -1213,6 +1985,39 @@ ShardBlob handle = 0;
 explicit operator bool() const;
 ```
 
+#### `FieldFlags`
+
+Flags a member type adds to its field : none, except for a `std::string` of a script, which the host reads through the script's callbacks
+
+```cpp
+static constexpr uint32_t value = 0;
+```
+
+#### `Text`
+
+A text of a component (`shard_components.h`, 1.2) : a field of this type holds a handle, the text lives in the host. The inspector shows it as a text box and the world file saves it as a string. Read it with `Components::GetText`, write it with `Components::SetText`. Copying the struct copies the handle, not the text.
+
+```cpp
+ShardBlob handle = 0;
+/// The text (empty if there is none yet). thread : any
+std::string Get() const;
+/// Replaces the text. Throws shard::Error over the memory budget, or in an engine older than ABI 1.3. thread : any
+void Set(std::string_view text);
+Text& operator=(std::string_view text);
+Text& operator=(const char* text);
+Text& operator=(const std::string& text);
+Text& operator=(const Text&) = default;
+```
+
+#### `AssetId`
+
+The id of an asset of the project (`shard_components.h`, 1.2), 0 for none : the inspector shows an asset picker
+
+```cpp
+int32_t id = 0;
+explicit operator bool() const;
+```
+
 #### `FieldOptions`
 
 How a field shows in the editor and whether it is saved (see `shard_components.h`)
@@ -1224,6 +2029,8 @@ std::string name;
 uint32_t flags = 0;
 float min = 0.f, max = 0.f;
 std::string tooltip;
+/// Only the name is required : { "speed", 0, 0.f, 100.f }, { "frames", SHARD_FIELD_RUNTIME }
+FieldOptions(std::string fieldName, uint32_t fieldFlags = 0, float lowest = 0.f, float highest = 0.f, std::string hint = {}) : name(std::move(fieldName)), flags(fieldFlags), min(lowest), max(highest), tooltip(std::move(hint));
 ```
 
 #### `FieldList`
@@ -1268,11 +2075,18 @@ Blob CreateBlob(uint64_t size) const;
 void* BlobData(Blob blob, uint64_t* size = nullptr) const;
 bool ResizeBlob(Blob blob, uint64_t size) const;
 bool FreeBlob(Blob blob) const;
+/// Sets a string field of a component : `field` is the member itself (in the block of an entity, or in a copy). Throws shard::Error over
+/// the memory budget, or in an engine older than ABI 1.3. thread : any
+void SetText(Text& field, std::string_view text) const;
+/// The text of a string field (empty if it holds none). thread : any
+std::string GetText(Text field) const;
 /// A type by its full name ("com.acme.weather.Cloud", "shard.LocalTransform") : empty if there is none
 template <typename T> ComponentType<T> Find(const std::string& fullName) const;
 ```
 
 ```cpp
+inline std::string Text::Get() const;
+inline void Text::Set(std::string_view text);
 /// Declares which members of `Type` are its fields : SHARD_COMPONENT(Spin, (speed)(angle)). At global scope, `Type` fully qualified.
 SHARD_COMPONENT(Type, sequence)
 ```
@@ -1334,6 +2148,12 @@ template <typename T> void Add(Entity e, ComponentType<T> type, const T& value) 
 template <typename T> void Remove(Entity e, ComponentType<T> type) const;
 void Destroy(Entity e) const;
 void SetParent(Entity child, Entity parent) const;
+/// Moves the actor behind `e` (ABI 1.3) : its Transform takes the pose at the end of the phase. The system must declare the
+/// engine's shard.LocalTransform type in its writes. False if the entity has no actor. Throws shard::Error in an engine older than 1.3.
+bool SetLocalTransform(Entity e, const Pose& pose) const;
+/// The text of a string field of a component, from inside a system (see Components::SetText / GetText)
+void SetText(Text& field, std::string_view text) const;
+std::string GetText(Text field) const;
 /// A named event, delivered at the end of the frame (shard_events.h)
 void Emit(const std::string& name, const void* payload, size_t size) const;
 template <typename T> void Emit(const std::string& name, const T& payload) const;
@@ -1583,4 +2403,953 @@ inline std::string_view View(ShardStr s);
 inline std::string ToString(ShardStr s);
 /// Reads a "text out" function of the ABI (buffer, capacity, *size) into a std::string : asks for the length, then the text.
 template <typename Fn> ShardResult ReadText(Fn&& call, std::string& out);
+```
+
+### shard/cpp/actor.hpp
+
+Shard C++ SDK : actors, the things a world holds (`shard_actors.h`).
+
+```cpp
+shard::Actor enemy = scene.Spawn(R"({ "name": "Enemy", "components": [] })");
+enemy.SetPosition({ 0.f, 1.f, -5.f });
+enemy.AddTag("Enemy");
+if (Health* health = enemy.GetScript<Health>()) health->Damage(10.f);
+```
+
+An Actor is a handle: copying it is free, and it stays safe when the actor is destroyed (`IsValid()` turns false, the getters return zeroes, the setters do nothing). Use it from the callbacks of a script (`shard::Script`) : not from a system, which runs beside others.
+
+#### `Scene`
+
+The world an actor is in: where to create, spawn and find other actors
+
+```cpp
+/// A new actor (with its Transform) at the root of the scene, or under `parent`. Throws shard::Error if the scene is gone.
+Actor Create(std::string_view name, Actor parent);
+Actor Create(std::string_view name);
+/// An actor built from the JSON of a world file's actor (name, components, children) : what the editor saves a prefab as
+Actor Spawn(std::string_view actorJson, Actor parent);
+Actor Spawn(std::string_view actorJson);
+/// The first actor of that name (depth first, in the order of the ids), or an invalid one
+Actor Find(std::string_view name) const;
+/// Builds a prefab, an actor stored as JSON in the content of a module : a "mod://<id>/prefabs/crate.json" address, a logical path
+/// ("prefabs/crate.json") or a bare name ("crate"). Throws shard::Error if there is no such prefab.
+Actor SpawnPrefab(std::string_view prefab, Actor parent);
+Actor SpawnPrefab(std::string_view prefab);
+/// The actors that have the tag or one under it ("Enemy" finds an "Enemy.Undead"), in the order of their ids
+std::vector<Actor> FindWithTag(std::string_view tag) const;
+```
+
+#### `Actor`
+
+```cpp
+ShardActor Handle() const;
+bool IsValid() const;
+explicit operator bool() const;
+friend bool operator==(const Actor& a, const Actor& b);
+friend bool operator!=(const Actor& a, const Actor& b);
+std::string Name() const;
+void SetName(std::string_view name) const;
+bool IsActive() const;
+void SetActive(bool active) const;
+/// Removes the actor, its components and its children. Its scripts get OnDestroyed.
+void Destroy() const;
+Pose LocalPose() const;
+void SetLocalPose(const Pose& pose) const;
+Pose WorldPose() const;
+void SetWorldPose(const Pose& pose) const;
+Vec3 Position() const;
+void SetPosition(Vec3 position) const;
+Quat Rotation() const;
+void SetRotation(Quat rotation) const;
+Vec3 Scale() const;
+void SetScale(Vec3 scale) const;
+Vec3 WorldPosition() const;
+void SetWorldPosition(Vec3 position) const;
+Quat WorldRotation() const;
+void SetWorldRotation(Quat rotation) const;
+/// Moves the actor by `delta`, in its parent's space
+void Translate(Vec3 delta) const;
+/// Moves the actor by `delta`, in the world's axes
+void TranslateWorld(Vec3 delta) const;
+/// The directions the actor faces, in the world (it looks down its -Z)
+Vec3 Forward() const;
+Vec3 Right() const;
+Vec3 Up() const;
+/// Turns the actor to face a point of the world
+void LookAt(Vec3 target, Vec3 up = { 0.f, 1.f, 0.f }) const;
+Actor Parent() const;
+/// parent invalid: the root of the world. keepWorld: the actor stays where it is.
+void SetParent(Actor parent, bool keepWorld = true) const;
+std::vector<Actor> Children() const;
+/// False if the tag is not declared
+bool AddTag(std::string_view tag) const;
+bool RemoveTag(std::string_view tag) const;
+/// True for the tag or one under it
+bool HasTag(std::string_view tag) const;
+/// Adds a component and returns its handle, to set its fields : `actor.Add<shard::Light>().SetIntensity(3.f)`. Throws shard::Error.
+template <typename T> T Add() const;
+/// The handle of the component the actor has, which tells whether there is one : `if (auto body = actor.Get<shard::PhysicsBody>())`
+template <typename T> T Get() const;
+template <typename T> bool Has() const;
+template <typename T> bool Remove() const;
+/// Throws shard::Error if the type is unknown. `fieldsJson` : the fields to set, a JSON object, or empty.
+void AddComponent(std::string_view type, std::string_view fieldsJson = {}) const;
+bool HasComponent(std::string_view type) const;
+bool RemoveComponent(std::string_view type) const;
+/// The component as the world file writes it, empty if the actor has none
+std::string ComponentJson(std::string_view type) const;
+/// Sets the fields the JSON object holds; the others keep their value. Throws shard::Error if the actor has no such component.
+void SetComponentJson(std::string_view type, std::string_view fieldsJson) const;
+Vec3 Velocity() const;
+bool SetVelocity(Vec3 velocity) const;
+Vec3 AngularVelocity() const;
+bool SetAngularVelocity(Vec3 velocity) const;
+/// A force acts for the step it is added in : call it every step to push for longer. An impulse changes the velocity at once.
+bool AddForce(Vec3 force) const;
+bool AddForceAtPoint(Vec3 force, Vec3 worldPoint) const;
+bool AddTorque(Vec3 torque) const;
+bool AddImpulse(Vec3 impulse) const;
+bool AddImpulseAtPoint(Vec3 impulse, Vec3 worldPoint) const;
+bool AddAngularImpulse(Vec3 impulse) const;
+/// What the body falls with now : the world's gravity and the gravity fields where it is, or its own
+Vec3 Gravity() const;
+/// Gives the body a gravity of its own : the world's gravity and the fields no longer reach it
+bool SetCustomGravity(Vec3 gravity) const;
+bool PlayAudio() const;
+bool PauseAudio() const;
+bool SetAudioVolume(float volume) const;
+/// The script of that class on the actor, null if it has none (a class registered with SHARD_REGISTER_SCRIPT)
+template <typename T> T* GetScript() const;
+/// Adds the script to the actor and returns it. Throws shard::Error if it cannot.
+template <typename T> T* AddScript() const;
+/// The world this actor is in
+Scene GetScene() const;
+```
+
+```cpp
+inline Actor Scene::Create(std::string_view name, Actor parent);
+inline Actor Scene::Create(std::string_view name);
+inline Actor Scene::SpawnPrefab(std::string_view prefab, Actor parent);
+inline Actor Scene::SpawnPrefab(std::string_view prefab);
+inline Actor Scene::Spawn(std::string_view actorJson, Actor parent);
+inline Actor Scene::Spawn(std::string_view actorJson);
+inline Actor Scene::Find(std::string_view name) const;
+inline std::vector<Actor> Scene::FindWithTag(std::string_view tag) const;
+```
+
+#### `FieldType<Actor>`
+
+```cpp
+static constexpr uint32_t value = SHARD_FIELD_ACTOR;
+```
+
+### shard/cpp/audio.hpp
+
+Shard C++ SDK : sounds (`shard_audio.h`). An actor with an `"audio"` component plays and pauses its clip with `Actor::PlayAudio`, PauseAudio and SetAudioVolume. A one shot sound needs no actor.
+
+```cpp
+shard::Audio::PlayOneShot("sounds/shot.wav", Owner().WorldPosition());
+```
+
+#### `Audio`
+
+```cpp
+/// Plays a clip of the project ("sounds/shot.wav") once, from `position` in the world when `spatial` (louder and panned by the distance
+/// and direction to the listener), flat otherwise. The sound removes itself when it ends. Throws shard::Error if there is no such clip.
+static void PlayOneShot(std::string_view clip, Vec3 position, float volume = 1.f, bool spatial = true);
+/// A flat sound, with no place
+static void PlayOneShot(std::string_view clip, float volume = 1.f);
+```
+
+### shard/cpp/editor.hpp
+
+Shard C++ SDK : windows of the editor (`shard_editor.h`).
+
+```cpp
+SHARD_EDITOR_PANEL(Spawner, "Enemy spawner", ui)
+{
+    static int count = 5;
+    ui.SliderInt("Count", count, 1, 50);
+    if (ui.Button("Spawn")) SpawnEnemies(count);
+}
+```
+
+The panel appears in the editor's Window menu. In the player, in headless runs and in the offline tools there is no editor : the panel is not added and nothing else changes, so the same plugin runs everywhere. A plugin whose manifest hosts include `"engine"` is loaded by the editor ; `"editor"` alone limits it to the editor.
+
+#### `Ui`
+
+The widgets of a panel : valid inside its draw function. Every widget that edits a value takes it by reference and returns true on the frame the user changed it.
+
+```cpp
+void Text(std::string_view text) const;
+void TextColored(Color color, std::string_view text) const;
+void TextWrapped(std::string_view text) const;
+void BulletText(std::string_view text) const;
+void LabelText(std::string_view label, std::string_view value) const;
+bool Button(std::string_view label) const;
+bool SmallButton(std::string_view label) const;
+bool Checkbox(std::string_view label, bool& value) const;
+bool Selectable(std::string_view label, bool selected = false) const;
+bool Combo(std::string_view label, int& current, const std::vector<std::string>& items) const;
+bool SliderFloat(std::string_view label, float& value, float min, float max) const;
+bool SliderInt(std::string_view label, int& value, int min, int max) const;
+bool DragFloat(std::string_view label, float& value, float speed = 0.1f, float min = 0.f, float max = 0.f) const;
+bool DragInt(std::string_view label, int& value, float speed = 1.f, int min = 0, int max = 0) const;
+bool InputFloat(std::string_view label, float& value) const;
+bool InputInt(std::string_view label, int& value) const;
+/// A text box : edits `value` in place (up to 1023 bytes)
+bool InputText(std::string_view label, std::string& value) const;
+bool ColorEdit(std::string_view label, Color& color) const;
+void ProgressBar(float fraction, std::string_view overlay = {}) const;
+void PlotLines(std::string_view label, const std::vector<float>& values) const;
+void Separator() const;
+void SameLine() const;
+void Spacing() const;
+void SetNextItemWidth(float width) const;
+/// True while open : draw the contents only then
+bool CollapsingHeader(std::string_view label) const;
+/// When it returns true, draw the children and call TreePop
+bool TreeNode(std::string_view label) const;
+void TreePop() const;
+void PushId(std::string_view id) const;
+void PopId() const;
+bool IsItemHovered() const;
+void Tooltip(std::string_view text) const;
+```
+
+```cpp
+using PanelFn = std::function<void(Ui&)>;
+```
+
+#### `Editor`
+
+```cpp
+/// True when the host is the editor
+static bool Available();
+/// Adds a panel named `title` to the Window menu. Returns false outside the editor (nothing is added) or when this plugin already has a
+/// panel of that name. `draw` runs every frame while the window is open.
+bool AddPanel(const std::string& title, PanelFn draw);
+```
+
+```cpp
+/// A panel of the editor, defined and registered from any file. `ui` is the name of the shard::Ui the body draws with. At global scope.
+SHARD_EDITOR_PANEL(Name, Title, ui)
+```
+
+### shard/cpp/engine_components.hpp
+
+Shard C++ SDK : the engine's own components (model, light, physics body...) as typed handles, over `shard.actors`' field functions.
+
+```cpp
+shard::Actor bullet = GetScene().Create("Bullet");
+
+auto model = bullet.Add<shard::Model>();
+model.SetMesh(mesh);                                       // an AssetId (a field of the script), or the asset's name in the project
+model.SetMaterial(0, material);
+
+auto body = bullet.Add<shard::PhysicsBody>();
+body.SetShape(shard::Shape::Capsule(0.1f, 0.3f));
+body.SetMotionType(shard::MotionType::Dynamic);            // the body of the new kind exists at once : the velocity has something to push
+body.SetFriction(0.8f);
+bullet.SetVelocity(forward * 30.f);
+
+if (auto light = bullet.Get<shard::Light>()) light.SetIntensity(3.f);
+```
+
+A handle is a pair (actor, component type) : copying it is free, and it stays safe when the actor goes. Every setter changes that one field and nothing else, the way an edit in the inspector does (the component's own change hook runs : a body keeps its velocity when its friction changes) and throws `shard::Error` when the engine refuses it. The getters return a zero when the component or the field is gone.
+
+Not every component has a class here : `shard::ComponentRef` reaches any field of any component of the engine by its name (the one the inspector and the world file use) :
+
+```cpp
+shard::ComponentRef probe(actor, "probeVolume");
+probe.SetFloat("blendDistance", 2.f);
+```
+
+Assets read as their name in the project (the way a world file stores them) and are set from an AssetId or from that name.
+
+```cpp
+/// An enum of the engine's components, as the names the inspector shows
+enum class MotionType { Static, Kinematic, Dynamic };
+enum class GravityMode { Fields, World, Custom };
+enum class LightType { Directional, Point, Spot };
+enum class BakeMode { Dynamic, Stationary, Static };
+enum class BillboardFacing { Camera, AxisY, Fixed };
+```
+
+#### `ComponentRef`
+
+One component of an actor, reached by the names of its fields. The classes below (Model, PhysicsBody...) are this with the names written for you ; use it directly for a component that has no class here.
+
+```cpp
+/// `type` is the name the world file gives the component ("light", "physics_body", or "<plugin id>.<script>"). It must outlive the handle
+/// (a literal).
+ComponentRef(Actor actor, const char* type) : m_Actor(actor), m_Type(type);
+const Actor& Owner() const;
+const char* Type() const;
+/// The actor is alive and still has the component
+bool IsValid() const;
+explicit operator bool() const;
+/// Removes the component from its actor
+bool Remove() const;
+/// A deactivated component does nothing, as if it were not there
+bool IsActive() const;
+void SetActive(bool active) const;
+/// The value as JSON text ; empty if the component or the field is not there
+std::string GetJson(std::string_view path) const;
+/// Sets the field to a value written as JSON text. Throws shard::Error.
+void SetJson(std::string_view path, std::string_view valueJson) const;
+/// Removes an element of an array field (path "shapes/1") or a key of an object. Throws shard::Error.
+void Erase(std::string_view path) const;
+void SetFloat(std::string_view path, float value) const;
+void SetInt(std::string_view path, int64_t value) const;
+void SetBool(std::string_view path, bool value) const;
+void SetString(std::string_view path, std::string_view value) const;
+void SetVec3(std::string_view path, Vec3 v) const;
+void SetColor(std::string_view path, Color c) const;
+/// An asset, by its id (0 : none) or by its name in the project
+void SetAsset(std::string_view path, AssetId asset) const;
+void SetAsset(std::string_view path, std::string_view assetName) const;
+/// An enum, by the name the inspector shows ("Dynamic")
+void SetEnum(std::string_view path, std::string_view name) const;
+float GetFloat(std::string_view path, float fallback = 0.f) const;
+int64_t GetInt(std::string_view path, int64_t fallback = 0) const;
+bool GetBool(std::string_view path, bool fallback = false) const;
+std::string GetString(std::string_view path) const;
+Vec3 GetVec3(std::string_view path) const;
+Color GetColor(std::string_view path) const;
+/// The name in the project of an asset field ; empty for none
+std::string GetAsset(std::string_view path) const;
+/// The name of the value of an enum field ("Dynamic")
+std::string GetEnum(std::string_view path) const;
+/// How many elements an array field holds
+size_t Count(std::string_view path) const;
+```
+
+#### `Shape`
+
+A shape of a physics body. Dimensions are in the body's own space, before the actor's scale.
+
+```cpp
+enum class Kind { Sphere, Box, Capsule, Cylinder };
+Kind kind = Kind::Box;
+/// sphere, capsule, cylinder
+float radius = 0.5f;
+/// capsule (without its caps), cylinder : it lies along the body's Y
+float halfHeight = 0.5f;
+Vec3 halfExtent{ 0.5f, 0.5f, 0.5f };
+/// where the shape sits in the body
+Vec3 offset;
+/// how it is turned in the body
+Quat rotation;
+static Shape Sphere(float radius = 0.5f);
+static Shape Box(Vec3 halfExtent = { 0.5f, 0.5f, 0.5f });
+static Shape Capsule(float radius = 0.5f, float halfHeight = 0.5f);
+static Shape Cylinder(float radius = 0.5f, float halfHeight = 0.5f);
+/// The same shape, moved and turned inside the body
+Shape At(Vec3 where, Quat turned = Quat()) const;
+std::string ToJson() const;
+```
+
+#### `Model`
+
+`"model"` : a mesh and its materials, drawn where the actor is
+
+```cpp
+static constexpr const char* kType = "model";
+Model() = default;
+explicit Model(Actor actor) : ComponentRef(actor, kType);
+void SetMesh(AssetId mesh) const;
+void SetMesh(std::string_view assetName) const;
+std::string Mesh() const;
+/// The material of a submesh. A slot past the end grows the list (the ones in between hold no material).
+void SetMaterial(uint32_t slot, AssetId material) const;
+void SetMaterial(uint32_t slot, std::string_view assetName) const;
+std::string Material(uint32_t slot) const;
+/// Replaces all the materials
+void SetMaterials(std::initializer_list<AssetId> materials) const;
+size_t MaterialCount() const;
+/// Takes part in the baked lighting (turn it off for what moves)
+void SetStaticLighting(bool on) const;
+bool StaticLighting() const;
+void SetLightmapResolution(int texels) const;
+int LightmapResolution() const;
+```
+
+#### `PhysicsBody`
+
+`"physics_body"` : the actor is simulated (or collides, if it is static). Velocities and forces are on the Actor.
+
+```cpp
+static constexpr const char* kType = "physics_body";
+PhysicsBody() = default;
+explicit PhysicsBody(Actor actor) : ComponentRef(actor, kType);
+/// Static never moves, Kinematic is moved by code only, Dynamic is driven by the simulation. The body is rebuilt as the new kind at once.
+void SetMotionType(MotionType type) const;
+MotionType GetMotionType() const;
+/// Replaces the shapes of the body by this one (the body is rebuilt, which drops its velocity)
+void SetShape(const Shape& shape) const;
+/// Adds a shape to the body (a compound : the body is rebuilt)
+void AddShape(const Shape& shape) const;
+/// Removes a shape ; a body keeps at least one
+void RemoveShape(size_t index) const;
+size_t ShapeCount() const;
+/// The mass in kg. Without it the mass comes from the shape (and the engine's density).
+void SetMass(float kilograms) const;
+float Mass() const;
+void UseShapeMass() const;
+void SetLinearDamping(float damping) const;
+float LinearDamping() const;
+void SetAngularDamping(float damping) const;
+float AngularDamping() const;
+/// A multiplier on the gravity the body feels : 0 floats, a negative one falls upwards
+void SetGravityFactor(float factor) const;
+float GravityFactor() const;
+/// Fields : the world's gravity changed by the gravity fields around. World ignores the fields. Custom is SetCustomGravity's.
+void SetGravityMode(GravityMode mode) const;
+void SetCustomGravity(Vec3 acceleration) const;
+/// Resistance when sliding : 0 is ice, 1 is very grippy
+void SetFriction(float friction) const;
+float Friction() const;
+/// Bounciness : 0 does not bounce, 1 gives back all its energy
+void SetRestitution(float restitution) const;
+float Restitution() const;
+```
+
+#### `Light`
+
+`"light"` : directional, point or spot
+
+```cpp
+static constexpr const char* kType = "light";
+Light() = default;
+explicit Light(Actor actor) : ComponentRef(actor, kType);
+void SetType(LightType type) const;
+void SetIntensity(float intensity) const;
+float Intensity() const;
+/// Distance at which a point or spot light stops reaching
+void SetRadius(float radius) const;
+float Radius() const;
+void SetColor(Color color) const;
+Color GetColor() const;
+/// Spot light only : the angles, in degrees, of the cone that fades out and of the one at full brightness
+void SetCone(float innerDegrees, float outerDegrees) const;
+void SetCastShadows(bool on) const;
+bool CastShadows() const;
+/// Size of the emitter, for the soft shadows of baking and raytracing
+void SetSourceSize(float size) const;
+void SetBakeMode(BakeMode mode) const;
+```
+
+#### `Camera`
+
+`"camera"`
+
+```cpp
+static constexpr const char* kType = "camera";
+Camera() = default;
+explicit Camera(Actor actor) : ComponentRef(actor, kType);
+/// Vertical field of view in degrees (perspective)
+void SetFov(float degrees) const;
+float Fov() const;
+void SetNearPlane(float distance) const;
+void SetFarPlane(float distance) const;
+void SetOrthographic(bool on) const;
+/// Half of the vertical size of the view, in world units (orthographic)
+void SetOrthoSize(float size) const;
+void SetFrustumCulling(bool on) const;
+```
+
+#### `AudioSource`
+
+`"audio"` : a sound that plays from the actor
+
+```cpp
+static constexpr const char* kType = "audio";
+AudioSource() = default;
+explicit AudioSource(Actor actor) : ComponentRef(actor, kType);
+void SetClip(AssetId clip) const;
+void SetClip(std::string_view assetName) const;
+std::string Clip() const;
+/// 1 is the clip at its original level
+void SetVolume(float volume) const;
+float Volume() const;
+void SetPlayOnStart(bool on) const;
+/// Play in 3D : the volume and the panning follow the distance and direction to the listener
+void SetSpatialize(bool on) const;
+void SetDopplerLevel(float level) const;
+void SetReverbSend(float amount) const;
+bool Play() const;
+bool Pause() const;
+```
+
+#### `AudioListener`
+
+`"audio_listener"` : where the scene is heard from
+
+```cpp
+static constexpr const char* kType = "audio_listener";
+AudioListener() = default;
+explicit AudioListener(Actor actor) : ComponentRef(actor, kType);
+void SetDopplerFactor(float factor) const;
+float DopplerFactor() const;
+void SetSpeedOfSound(float unitsPerSecond) const;
+```
+
+#### `Billboard`
+
+`"billboard"` : a quad of a sprite that faces the camera
+
+```cpp
+static constexpr const char* kType = "billboard";
+Billboard() = default;
+explicit Billboard(Actor actor) : ComponentRef(actor, kType);
+/// Pixels when the size is on the screen, meters otherwise
+void SetSize(float size) const;
+void SetFacing(BillboardFacing facing) const;
+void SetScreenSpaceSize(bool on) const;
+void SetDepthTest(bool on) const;
+/// Image of the project, such as "textures/icons.png" ; empty for the generic marker
+void SetSpritePath(std::string_view path) const;
+/// How many cells the image holds side by side, and which one is drawn
+void SetSpriteSheet(int cells, uint32_t cell = 0) const;
+void SetTint(Color tint) const;
+```
+
+### shard/cpp/field.hpp
+
+Shard C++ SDK : the fields of a script, declared where the member is.
+
+```cpp
+class Gun : public shard::Script {
+public:
+    SHARD_FIELD(float, power, Range(0.f, 1000.f), Tooltip("Speed of the bullet")) = 30.f;
+    SHARD_FIELD(float, lifetime, Range(0.f, 60.f)) = 3.f;
+    SHARD_FIELD(shard::AssetId, mesh, Tooltip("The mesh to shoot"));
+    SHARD_FIELD(int, ammo, Runtime()) = 12;                  // shown by the inspector, not saved
+    float cooldown = 0.f;                                    // not a field : it stays out of the inspector and the world file
+};
+
+// gun.cpp
+SHARD_REGISTER_SCRIPT(Gun)
+```
+
+The macro declares the member (`Type name`, so the default value goes after it, as for any member) and, in front of it, a one byte member that tells the SDK its name, its type, where it is in the object and its options. Nothing else lists the field : no sequence in the .cpp, no generated file. Options are the names below, written bare inside the macro:
+
+```cpp
+Range(min, max)     the bounds of the inspector's widget
+Tooltip("text")     what the inspector shows when the mouse rests on the field
+Runtime()           the inspector shows it, read only, and the world file does not save it
+Hidden()            neither shown nor saved (the object keeps it; not for a string)
+```
+
+The type is any of the field types of `shard/cpp/component.hpp` (numbers, bool, `Vec2/3/4`, Quat, Color, Text, AssetId, `std::string`, Actor, Blob).
+
+#### `FieldSpec`
+
+What the options of a field add to it
+
+```cpp
+uint32_t flags = 0;
+float min = 0.f, max = 0.f;
+std::string tooltip;
+```
+
+#### `Range`
+
+```cpp
+float min, max;
+void Apply(FieldSpec& spec) const;
+```
+
+#### `Tooltip`
+
+```cpp
+const char* text;
+void Apply(FieldSpec& spec) const;
+```
+
+#### `Runtime`
+
+```cpp
+void Apply(FieldSpec& spec) const;
+```
+
+#### `Hidden`
+
+```cpp
+void Apply(FieldSpec& spec) const;
+```
+
+#### `End`
+
+`SHARD_FIELD` ends its options with it, so that the macro never has an empty `"..."` (an error in C++17 with -pedantic)
+
+```cpp
+void Apply(FieldSpec&) const;
+```
+
+```cpp
+template <typename... Options> FieldSpec MakeFieldSpec(const Options&... options);
+/// Declares a field of a script : `SHARD_FIELD(float, power, Range(0.f, 1000.f)) = 30.f;` (options are optional, see the top of this file)
+SHARD_FIELD(...)
+```
+
+### shard/cpp/input.hpp
+
+Shard C++ SDK : keyboard, mouse and gamepads (`shard_input.h`).
+
+```cpp
+if (shard::Input::IsKeyDown(shard::Key::W)) owner.Translate(owner.Forward() * speed * dt);
+const float turn = shard::Input::Axis(shard::Key::A, shard::Key::D);                 // -1, 0 or 1
+if (shard::Input::WasPressed(shard::Key::Space)) Jump();
+```
+
+What the engine's input manager sees this frame, which is also what a replay records. Call it from the callbacks of a script.
+
+```cpp
+enum class Key : int32_t { Space = SHARD_KEY_SPACE, Apostrophe = SHARD_KEY_APOSTROPHE, Comma = SHARD_KEY_COMMA, Minus = SHARD_KEY_MINUS, Period = SHARD_KEY_PERIOD, Slash = SHARD_KEY_SLASH, K0 = SHARD_KEY_0, K1, K2, K3, K4, K5, K6, K7, K8, K9, Semicolon = SHARD_KEY_SEMICOLON, Equal = SHARD_KEY_EQUAL, A = SHARD_KEY_A, B, C, D, E, F, G, H, I, J, K, L, M, N, O, P, Q, R, S, T, U, V, W, X, Y, Z, LeftBracket = SHARD_KEY_LEFT_BRACKET, Backslash = SHARD_KEY_BACKSLASH, RightBracket = SHARD_KEY_RIGHT_BRACKET, GraveAccent = SHARD_KEY_GRAVE_ACCENT, Escape = SHARD_KEY_ESCAPE, Enter = SHARD_KEY_ENTER, Tab = SHARD_KEY_TAB, Backspace = SHARD_KEY_BACKSPACE, Insert = SHARD_KEY_INSERT, Delete = SHARD_KEY_DELETE, Right = SHARD_KEY_RIGHT, Left = SHARD_KEY_LEFT, Down = SHARD_KEY_DOWN, Up = SHARD_KEY_UP, PageUp = SHARD_KEY_PAGE_UP, PageDown = SHARD_KEY_PAGE_DOWN, Home = SHARD_KEY_HOME, End = SHARD_KEY_END, CapsLock = SHARD_KEY_CAPS_LOCK, ScrollLock = SHARD_KEY_SCROLL_LOCK, NumLock = SHARD_KEY_NUM_LOCK, PrintScreen = SHARD_KEY_PRINT_SCREEN, Pause = SHARD_KEY_PAUSE, F1 = SHARD_KEY_F1, F2, F3, F4, F5, F6, F7, F8, F9, F10, F11, F12, Keypad0 = SHARD_KEY_KP_0, Keypad1, Keypad2, Keypad3, Keypad4, Keypad5, Keypad6, Keypad7, Keypad8, Keypad9, KeypadDecimal = SHARD_KEY_KP_DECIMAL, KeypadDivide = SHARD_KEY_KP_DIVIDE, KeypadMultiply = SHARD_KEY_KP_MULTIPLY, KeypadSubtract = SHARD_KEY_KP_SUBTRACT, KeypadAdd = SHARD_KEY_KP_ADD, KeypadEnter = SHARD_KEY_KP_ENTER, KeypadEqual = SHARD_KEY_KP_EQUAL, LeftShift = SHARD_KEY_LEFT_SHIFT, LeftControl = SHARD_KEY_LEFT_CONTROL, LeftAlt = SHARD_KEY_LEFT_ALT, LeftSuper = SHARD_KEY_LEFT_SUPER, RightShift = SHARD_KEY_RIGHT_SHIFT, RightControl = SHARD_KEY_RIGHT_CONTROL, RightAlt = SHARD_KEY_RIGHT_ALT, RightSuper = SHARD_KEY_RIGHT_SUPER, Menu = SHARD_KEY_MENU, };
+enum class MouseButton : int32_t { Left = SHARD_MOUSE_LEFT, Right = SHARD_MOUSE_RIGHT, Middle = SHARD_MOUSE_MIDDLE };
+enum class CursorMode : int32_t { Visible = SHARD_CURSOR_VISIBLE, Hidden = SHARD_CURSOR_HIDDEN, Disabled = SHARD_CURSOR_DISABLED };
+/// The face buttons are named by position: South is A on an Xbox pad, Cross on a PlayStation one
+enum class PadButton : int32_t { South = SHARD_PAD_SOUTH, East = SHARD_PAD_EAST, West = SHARD_PAD_WEST, North = SHARD_PAD_NORTH, Back = SHARD_PAD_BACK, Guide = SHARD_PAD_GUIDE, Start = SHARD_PAD_START, LeftStick = SHARD_PAD_LEFT_STICK, RightStick = SHARD_PAD_RIGHT_STICK, LeftShoulder = SHARD_PAD_LEFT_SHOULDER, RightShoulder = SHARD_PAD_RIGHT_SHOULDER, DpadUp = SHARD_PAD_DPAD_UP, DpadDown = SHARD_PAD_DPAD_DOWN, DpadLeft = SHARD_PAD_DPAD_LEFT, DpadRight = SHARD_PAD_DPAD_RIGHT, };
+enum class PadAxis : int32_t { LeftX = SHARD_AXIS_LEFT_X, LeftY = SHARD_AXIS_LEFT_Y, RightX = SHARD_AXIS_RIGHT_X, RightY = SHARD_AXIS_RIGHT_Y, LeftTrigger = SHARD_AXIS_LEFT_TRIGGER, RightTrigger = SHARD_AXIS_RIGHT_TRIGGER, };
+```
+
+#### `Input`
+
+```cpp
+static bool IsKeyDown(Key key);
+static bool WasPressed(Key key);
+static bool WasReleased(Key key);
+/// -1 while `negative` is held, 1 while `positive` is, 0 if neither or both
+static float Axis(Key negative, Key positive);
+static bool IsMouseDown(MouseButton button);
+static bool WasMousePressed(MouseButton button);
+static bool WasMouseReleased(MouseButton button);
+/// The cursor in pixels of the window
+static Vec2 CursorPosition();
+static void SetCursorPosition(double x, double y);
+static void SetCursorMode(CursorMode mode);
+static int GamepadCount();
+static bool IsPadDown(int pad, PadButton button);
+static bool WasPadPressed(int pad, PadButton button);
+static bool WasPadReleased(int pad, PadButton button);
+/// Sticks -1 to 1, triggers 0 to 1; what lies within `deadZone` of the centre reads as 0
+static float PadAxisValue(int pad, PadAxis axis, float deadZone = 0.1f);
+/// False if the pad cannot rumble
+static bool Rumble(int pad, float low, float high, int durationMs);
+```
+
+### shard/cpp/math.hpp
+
+Shard C++ SDK : the small math a gameplay script needs, on the plain structs of the ABI (Vec2, Vec3, Vec4, Quat, Color, Pose).
+
+The types are aggregates (Vec3{ 1, 2, 3 }), laid out like the engine's own, so a field of a script or a component can be one. The functions are free functions in namespace shard; the usual operators work. Conventions are the engine's: right handed, Y up, an actor looks down -Z, angles in radians (the Degrees helpers convert), quaternions x, y, z, w.
+
+```cpp
+constexpr float kPi = 3.14159265358979323846f;
+constexpr float Radians(float degrees);
+constexpr float Degrees(float radians);
+template <typename T> constexpr T Clamp(T v, T lo, T hi);
+constexpr float Lerp(float a, float b, float t);
+constexpr Vec2 operator+(Vec2 a, Vec2 b);
+constexpr Vec2 operator-(Vec2 a, Vec2 b);
+constexpr Vec2 operator*(Vec2 a, float k);
+constexpr Vec2 operator*(float k, Vec2 a);
+constexpr Vec2 operator/(Vec2 a, float k);
+constexpr Vec2 operator-(Vec2 a);
+constexpr float Dot(Vec2 a, Vec2 b);
+inline float Length(Vec2 a);
+constexpr Vec3 operator+(Vec3 a, Vec3 b);
+constexpr Vec3 operator-(Vec3 a, Vec3 b);
+constexpr Vec3 operator*(Vec3 a, float k);
+constexpr Vec3 operator*(float k, Vec3 a);
+constexpr Vec3 operator*(Vec3 a, Vec3 b);
+constexpr Vec3 operator/(Vec3 a, float k);
+constexpr Vec3 operator-(Vec3 a);
+inline Vec3& operator+=(Vec3& a, Vec3 b);
+inline Vec3& operator-=(Vec3& a, Vec3 b);
+inline Vec3& operator*=(Vec3& a, float k);
+constexpr bool operator==(Vec3 a, Vec3 b);
+constexpr bool operator!=(Vec3 a, Vec3 b);
+constexpr float Dot(Vec3 a, Vec3 b);
+constexpr Vec3 Cross(Vec3 a, Vec3 b);
+constexpr float LengthSquared(Vec3 a);
+inline float Length(Vec3 a);
+inline float Distance(Vec3 a, Vec3 b);
+/// The unit vector with that direction (the zero vector stays zero)
+inline Vec3 Normalize(Vec3 a);
+constexpr Vec3 Lerp(Vec3 a, Vec3 b, float t);
+/// `v` moved toward `target` by at most `maxDelta`
+inline Vec3 MoveTowards(Vec3 v, Vec3 target, float maxDelta);
+constexpr Quat operator*(Quat a, Quat b);
+constexpr Quat Conjugate(Quat q);
+inline Quat Normalize(Quat q);
+/// The vector rotated by the quaternion
+constexpr Vec3 operator*(Quat q, Vec3 v);
+inline Quat AxisAngle(Vec3 axis, float radians);
+/// Rotations about X (pitch), Y (yaw) then Z (roll), in degrees: applied in the order yaw, pitch, roll as a first person camera expects
+inline Quat FromEulerDegrees(float pitch, float yaw, float roll);
+/// The rotation that turns an actor's forward (-Z) toward `direction`, keeping `up` up
+inline Quat LookRotation(Vec3 direction, Vec3 up = { 0.f, 1.f, 0.f });
+inline Quat Slerp(Quat a, Quat b, float t);
+```
+
+#### `Pose`
+
+An actor's pose: the layout of `ShardLocalTransform` (position, rotation, scale)
+
+```cpp
+Vec3 position;
+Quat rotation;
+Vec3 scale{ 1.f, 1.f, 1.f };
+/// The directions of an actor with this rotation (it looks down -Z)
+Vec3 Forward() const;
+Vec3 Right() const;
+Vec3 Up() const;
+```
+
+### shard/cpp/physics.hpp
+
+Shard C++ SDK : ray casts (`shard_physics.h`). The forces, impulses and velocities of a body are methods of `shard::Actor`.
+
+```cpp
+if (auto hit = shard::Physics::Raycast(eye, forward, 50.f, shard::Layers::All, Owner())) {
+    hit->actor.Destroy();
+    Spawn(hit->point + hit->normal * 0.1f);
+}
+```
+
+#### `Layers`
+
+Which bodies a ray looks at
+
+```cpp
+/// bodies that never move
+static constexpr uint32_t Static = SHARD_LAYER_STATIC;
+/// kinematic and dynamic bodies
+static constexpr uint32_t Moving = SHARD_LAYER_MOVING;
+static constexpr uint32_t All = SHARD_LAYER_ALL;
+```
+
+#### `RayHit`
+
+```cpp
+/// the actor whose body was hit
+Actor actor;
+/// where, in the world
+Vec3 point;
+/// the surface's normal there, pointing out of the body
+Vec3 normal;
+float distance = 0.f;
+```
+
+#### `Physics`
+
+```cpp
+/// The first body the ray meets within `maxDistance`. `direction` need not be normalized. `ignore` : an actor whose body the ray goes
+/// through, usually the one that fires it. Call it from the callbacks of a script.
+static std::optional<RayHit> Raycast(Vec3 origin, Vec3 direction, float maxDistance, uint32_t layers = Layers::All, Actor ignore = Actor());
+```
+
+### shard/cpp/random.hpp
+
+Shard C++ SDK : random numbers that a replay of the run reproduces (`shard_plugin.h`, `random_stream`).
+
+```cpp
+class Kicker : public shard::Script {
+    void OnPlay() override { m_Random = shard::Random::Stream("Kicker/" + Owner().Name()); }
+    void OnTick(float) override { Owner().AddImpulse(m_Random.OnUnitSphere() * 4.f); }
+    shard::Random m_Random;
+};
+```
+
+`rand()`, `std::random_device` and `std::uniform_`\*\_distribution give different numbers from one run, platform or standard library to the next, so a replay or a networked simulation that used them would drift. A stream starts from the run's seed, and this class (PCG32, the generator of the engine's own `Core::Random`) produces the same numbers everywhere. Not for cryptography.
+
+#### `Random`
+
+```cpp
+/// A generator with a fixed seed, for what does not depend on the run (the same sequence in every run)
+constexpr Random() : m_State(0x853c49e6748fea9bull), m_Increment(0xda3e39cb94b95bdbull);
+/// The stream `name` of this plugin for this run : the same name gives the same sequence when the run is replayed, and another name a
+/// sequence that does not depend on it. Name it after what draws from it ("Spawner/" + the actor's name), not after the order things
+/// started in. Throws shard::Error if the host does not offer streams (an engine of ABI 1.4 or older).
+static Random Stream(std::string_view name);
+/// Uniform 32 random bits
+uint32_t Next();
+/// Uniform in [0, bound), without modulo bias. bound == 0 returns 0
+uint32_t Below(uint32_t bound);
+/// Uniform integer in [lo, hi], both included
+int32_t Range(int32_t lo, int32_t hi);
+/// Uniform float in [0, 1)
+float NextFloat();
+float Range(float lo, float hi);
+/// True with probability p
+bool Chance(float p);
+/// A uniform point inside the unit sphere, and a uniform unit direction
+Vec3 InUnitSphere();
+Vec3 OnUnitSphere();
+```
+
+### shard/cpp/registry.hpp
+
+Shard C++ SDK : registrations that live where the code lives.
+
+A plugin of one file registers everything in OnLoad. A game does not: each .cpp defines its own scripts, components and systems and says so at the bottom of the file, with one of these macros. They add themselves to a list when the library is loaded, and the SDK runs the list at the start of OnLoad, in a fixed order (by kind, then by name - never by the order the compiler happened to link the files, which would change the ids of the components and the order of the systems from one build to the next).
+
+```cpp
+SHARD_REGISTER_SCRIPT(Health, (maxHealth)(current))                   // shard/cpp/script.hpp
+SHARD_DEFINE_COMPONENT(Velocity, (x)(y)(z))                           // a component of plain data, found anywhere with shard::ComponentOf<Velocity>()
+SHARD_ON_LOAD(Movement, ctx) { ctx.Systems().Add(...).Run(...); }     // anything else: systems, cvars, commands, hooks, events...
+```
+
+The macros go at global scope, in a source file of the plugin's library (not in a static library the plugin links: the linker may drop a file nothing references).
+
+```cpp
+/// The body that follows runs in OnLoad, after the components and the scripts are registered: `ctx` is the shard::Context. `Name` only orders
+/// and names it (unique in the plugin, letters and digits).
+SHARD_ON_LOAD(Name, ctx)
+```
+
+### shard/cpp/script.hpp
+
+Shard C++ SDK : scripts, the gameplay classes of a game (`shard_scripts.h`).
+
+```cpp
+// health.hpp
+class Health : public shard::Script {
+public:
+    float maxHealth = 100.f;                    // fields: shown in the inspector, saved with the world
+    float current = 100.f;
+    shard::Text label;
+
+    void OnPlay() override { current = maxHealth; }
+    void OnTick(float dt) override { if (current <= 0.f) Owner().Destroy(); }
+    void Damage(float amount) { current -= amount; }
+};
+
+// health.cpp
+#include "health.hpp"
+SHARD_REGISTER_SCRIPT(Health, (maxHealth)(current)(label))
+```
+
+Put as many scripts as you like in as many files as you like: each registers itself (`shard/cpp/registry.hpp`). In the editor the script is a component, `"<plugin id>.Health"`, that you add to an actor like any other: its object is created with the component, its callbacks run in play mode in the same order as the engine's own scripts (the order the components were added), and it goes with the actor.
+
+The class is a normal C++ class: any member that is not listed stays out of the inspector and the world file, and starts fresh (a copy of the actor for play mode builds a new object and copies the listed fields into it). Keep the constructor free of calls into the engine (the SDK builds one to learn where the fields are): do that work in OnCreate or OnPlay.
+
+#### `Contact`
+
+A contact of the actor's body with another one (physics). The actor needs a `"physics_body"` component.
+
+```cpp
+/// the other body's actor
+Actor other;
+/// points from this actor toward the other one
+Vec3 normal;
+/// a point of the contact, in the world
+Vec3 point;
+/// how deep the bodies overlap
+float penetration = 0.f;
+```
+
+#### `Script`
+
+The base of a gameplay class. Override what you need; the host calls them as it calls the engine's own scripts.
+
+```cpp
+/// The script joined an actor that is in a world (a component added in play mode, a world loaded, a spawn)
+virtual void OnCreate();
+/// The world finished loading
+virtual void OnWorldLoaded();
+virtual void OnWorldUnloaded();
+/// Play mode starts (the first thing a script of the world does)
+virtual void OnPlay();
+/// Every frame; `deltaTime` is the frame's, in seconds
+virtual void OnTick(float /*deltaTime*/);
+/// Every fixed simulation step, right before the physics step: forces and anything that must be reproducible go here
+virtual void OnFixedTick(float /*fixedDeltaTime*/);
+/// Every frame, after the scripts and the physics moved everything: cameras and whatever follows what moved
+virtual void OnLateTick(float /*deltaTime*/);
+/// Play mode stops
+virtual void OnStop();
+/// The script or its actor is destroyed
+virtual void OnDestroyed();
+virtual void OnActivated();
+virtual void OnDeactivated();
+/// The physics step found this actor's body touching another one, still touching it, or no longer touching it (OnContactEnded only
+/// knows `other`). They run right after the step, so the bodies can be read and changed.
+virtual void OnContactAdded(const Contact&);
+virtual void OnContactPersisted(const Contact&);
+virtual void OnContactEnded(const Contact&);
+/// The actor this script is on
+const Actor& Owner() const;
+/// The world it is in
+Scene GetScene() const;
+```
+
+#### `ScriptTraits`
+
+Which members of T are its fields : `SHARD_REGISTER_SCRIPT` specializes it
+
+```cpp
+static constexpr bool kDescribed = false;
+```
+
+#### `ScriptThunks`
+
+The static functions the host calls, for a script class T
+
+```cpp
+static ShardResult Construct(void*, void* storage);
+static void SHARD_CALL Destruct(void*, void* storage);
+static ShardResult Attach(void*, void* object, ShardActor owner);
+template <void (Script::*Fn)()> static ShardResult Event(void*, void* object);
+template <void (Script::*Fn)(const Contact&)> static ShardResult ContactEvent(void*, void* object, const ShardContact* c);
+static void SHARD_CALL TextGet(void*, void* object, uint32_t offset, ShardStr* out);
+static ShardResult TextSet(void*, void* object, uint32_t offset, ShardStr text);
+template <void (Script::*Fn)(float)> static ShardResult Tick(void*, void* object, float dt);
+static const ShardScriptCallbacks& Table();
+```
+
+#### `Scripts`
+
+```cpp
+/// Registers the class T as "<plugin id>.<name>" (from OnLoad: SHARD_REGISTER_SCRIPT does it). Throws shard::Error if the host refuses it.
+template <typename T> void Register(const std::string& name, std::initializer_list<FieldOptions> options = {});
+```
+
+```cpp
+/// Registers a script class under its class name. At global scope, in a source file of the plugin (it needs <shard/game.hpp>).
+/// The fields are the members the class declares with SHARD_FIELD (shard/cpp/field.hpp), each with its own options, in the header :
+/// SHARD_REGISTER_SCRIPT(Health)
+/// The older way lists the members here instead (any field type of shard/cpp/component.hpp : numbers, bool, Vec2/3/4, Quat, Color, Text, AssetId,
+/// Blob), and the two may be mixed :
+/// SHARD_REGISTER_SCRIPT(Health, (maxHealth)(current))
+/// SHARD_REGISTER_SCRIPT_EX adds the options of the listed fields (shard::FieldOptions: bounds, tooltip, SHARD_FIELD_RUNTIME), in parentheses:
+/// SHARD_REGISTER_SCRIPT_EX(Health, (maxHealth)(current), ({ "maxHealth", 0, 0.f, 1000.f, "hit points" }))
+SHARD_DETAIL_UNPAREN(...)
+/// A script whose fields are declared in the class (SHARD_FIELD), or with no fields at all (it only reacts : OnTick, contacts...)
+SHARD_DETAIL_SCRIPT_DECLARED(Class)
+template <typename T> ComponentType<T>& ComponentOf();
+```
+
+### shard/cpp/worlds.hpp
+
+Shard C++ SDK : loading worlds (`shard_worlds.h`). Prefabs are spawned with `Scene::SpawnPrefab`.
+
+```cpp
+if (reachedExit) shard::Worlds::Load("worlds/level2.world");
+```
+
+The load is a request : the engine swaps the worlds at the start of a later frame, so the script that asks keeps running until then.
+
+#### `Worlds`
+
+```cpp
+/// Asks for the world at that path of the project to replace the loaded ones. False : the project has no such world, or a load is already
+/// under way.
+static bool Load(std::string_view pathInProject);
+/// True while a requested load is under way
+static bool IsLoading();
+static int LoadedCount();
 ```

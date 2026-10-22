@@ -334,6 +334,14 @@ namespace Shard::Engine::Physics {
             result.hit = true;
             result.hitBody = bodyIDToComponentMap.at(ioHit.mBodyID);
             result.hitDistance = ioHit.mFraction * request.maxDistance;
+
+            const JPH::RVec3 point = ray.GetPointOnRay(ioHit.mFraction);
+            result.point = glm::vec3(float(point.GetX()), float(point.GetY()), float(point.GetZ()));
+            JPH::BodyLockRead lock(m_physicsSystem.GetBodyLockInterface(), ioHit.mBodyID);
+            if (lock.Succeeded()) {
+                const JPH::Vec3 normal = lock.GetBody().GetWorldSpaceSurfaceNormal(ioHit.mSubShapeID2, point);
+                result.normal = glm::vec3(normal.GetX(), normal.GetY(), normal.GetZ());
+            }
         }
 
         return result;

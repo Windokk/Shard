@@ -1,5 +1,6 @@
 #include "main_window.hpp"
 #include "engine/plugins/manager.hpp"
+#include "apps/editor/gui/plugin_ui.hpp"
 #include <stb/stb_image.h>
 
 #include "imgui/backends/imgui_impl_vulkan.h"
@@ -628,6 +629,7 @@ namespace Shard::Editor::Core{
         //Init ImGui
         IMGUI_CHECKVERSION();
         ImGui::CreateContext();
+        Shard::Editor::GUI::InstallPluginUi();      // the widgets of the panels C plugins add (shard.editor)
         ImGuiIO& io = ImGui::GetIO();
         io.ConfigFlags |= ImGuiConfigFlags_DockingEnable;
         io.ConfigFlags |= ImGuiConfigFlags_NoMouseCursorChange;
@@ -1426,6 +1428,7 @@ namespace Shard::Editor::Core{
         else
             ImGui_ImplOpenGL3_Shutdown();
         ImGui_ImplSDL3_Shutdown();
+        Shard::Editor::GUI::RemovePluginUi();
         ImGui::DestroyContext();
 
         SDLWindow::Destroy();

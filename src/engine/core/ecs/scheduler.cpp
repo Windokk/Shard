@@ -227,6 +227,8 @@ namespace Shard::Engine::Core::Ecs {
         for (System* system : byRegistration)
             if (!system->commands.Empty()) registry.Playback(system->commands);
 
+        if (m_PhaseEnd) m_PhaseEnd(phase);
+
         // Entities whose destruction was asked while something was iterating
         registry.FlushDeferred();
     }

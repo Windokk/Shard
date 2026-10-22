@@ -1,4 +1,4 @@
-# A Shard plugin
+# A Shard game, as a plugin
 
 Built against the Shard SDK alone : no engine source, no engine library, any C++17 compiler.
 
@@ -8,8 +8,20 @@ cmake --build build
 ShardHeadless --game <game library> --project <project.json> --plugin build/plugins/com.example.template --list-plugins
 ```
 
-* `shard-plugin.json` : the manifest. Change `id` first (reverse DNS, lowercase), then `name`, `description`, `hosts`. The build adds `abi`, `linkage` and `binaries`.
-* `src/plugin.cpp` : a component (`Spin`), a system that turns it every frame, a console variable (`<id>.scale`), the content folder read at mount, and the scale kept across a hot reload.
-* `content/` : copied next to the plugin, readable as `mod://<id>/...`.
+## The layout
 
-The tutorial "Write a plugin outside the engine repository" (docs/docs/tutorials.md in the engine's repository) walks through it.
+```
+shard-plugin.json        the manifest : change `id` first (reverse DNS, lowercase), then `name`, `description`, `hosts`
+src/
+  module.cpp             the plugin's entry point : console variables, content, hot reload (the part that is not gameplay)
+  module.hpp             what the files share with it
+  gameplay/spinner.*     a script : a class on an actor with OnPlay / OnTick..., its fields saved with the world
+  ecs/drift.cpp          components and systems, for what there are thousands of
+content/                 copied next to the plugin, readable as mod://<id>/...
+```
+
+Every `.cpp` under `src/` is part of the plugin, and each registers its own scripts, components and systems with a line at its bottom
+(`SHARD_REGISTER_SCRIPT`, `SHARD_DEFINE_COMPONENT`, `SHARD_ON_LOAD`) : to add a feature, add files, and edit nothing else. Split your game in
+folders as you like (`src/player/`, `src/enemies/`, `src/ui/`...).
+
+The tutorial "Write a game with the SDK" (docs/docs/tutorials/write-a-game-with-the-sdk.md in the engine's repository) walks through it.

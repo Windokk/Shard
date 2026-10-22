@@ -40,6 +40,7 @@ namespace Shard::Engine::Rendering{
             };
 
             void GenerateGeometry();
+            void EnsureCaptureTargets();
             void CreateIrradiance(std::shared_ptr<Cubemap> irradianceMap, std::shared_ptr<Cubemap> cubemap);
             void CreatePrefilter(std::shared_ptr<Cubemap> prefilterMap, std::shared_ptr<Cubemap> cubemap);
             void CreateBRDFLUT(std::shared_ptr<Texture2D> brdfLUT);

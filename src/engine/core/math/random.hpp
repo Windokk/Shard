@@ -107,6 +107,11 @@ namespace Shard::Engine::Core {
             return Random(seed, stream);
         }
 
+        /// @brief The two words of the generator, and a generator built from them : how a stream crosses the C ABI
+        constexpr uint64_t State() const { return m_State; }
+        constexpr uint64_t Increment() const { return m_Increment; }
+        static constexpr Random FromState(uint64_t state, uint64_t increment) { Random r; r.m_State = state; r.m_Increment = increment; return r; }
+
         constexpr bool operator==(const Random& o) const { return m_State == o.m_State && m_Increment == o.m_Increment; }
 
     private:

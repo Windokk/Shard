@@ -1,5 +1,138 @@
-:root  > * {
-  --md-primary-fg-color:        #4d4d4d;
-  --md-primary-fg-color--light: #727272;
-  --md-primary-fg-color--dark:  #272727;
+/* ---- Palette ----
+   The header is near black in both schemes, so the white logo always reads on it. Links and accents are an indigo, lighter on the dark scheme. */
+:root > * {
+  --md-primary-fg-color:        #17171c;
+  --md-primary-fg-color--light: #3a3a44;
+  --md-primary-fg-color--dark:  #0c0c10;
+  --md-primary-bg-color:        #ffffff;
+  --md-primary-bg-color--light: #ffffffb3;
+  --md-accent-fg-color:         #4f5fe8;
+  --md-accent-fg-color--transparent: #4f5fe81a;
+  --md-accent-bg-color:         #ffffff;
+}
+
+[data-md-color-scheme="default"] {
+  --md-typeset-a-color: #3a49d1;
+}
+
+[data-md-color-scheme="slate"] {
+  --md-default-bg-color:        #121318;
+  --md-default-bg-color--light: #1a1b22;
+  --md-hue: 230;
+  --md-typeset-a-color: #8e9bff;
+  --md-accent-fg-color: #8e9bff;
+  --md-accent-fg-color--transparent: #8e9bff1a;
+}
+
+/* ---- Header ---- */
+.md-header__button.md-logo img,
+.md-header__button.md-logo svg {
+  height: 1.5rem;
+  width: auto;
+}
+
+.md-header__title {
+  font-weight: 600;
+  letter-spacing: 0.01em;
+}
+
+/* ---- Home page ---- */
+.shard-hero {
+  text-align: center;
+  padding: 2.5rem 0 1.5rem;
+}
+
+.shard-hero .shard-logo {
+  width: 6.5rem;
+  height: auto;
+  margin: 0 auto;
+}
+
+.md-typeset .shard-hero h1 {
+  font-size: clamp(2.3rem, 6vw, 3.8rem);
+  font-weight: 700;
+  letter-spacing: -0.03em;
+  line-height: 1.05;
+  margin: 1rem 0 0.6rem;
+  color: var(--md-default-fg-color);
+}
+
+.shard-hero .shard-tagline {
+  font-size: clamp(1rem, 2.4vw, 1.25rem);
+  line-height: 1.5;
+  max-width: 38rem;
+  margin: 0 auto 1.6rem;
+  color: var(--md-default-fg-color--light);
+}
+
+.shard-hero .md-button {
+  margin: 0.25rem 0.2rem;
+}
+
+.md-typeset .shard-shot {
+  margin: 1.5rem 0 0.4rem;
+  text-align: center;
+}
+
+.md-typeset .shard-shot img {
+  width: 100%;
+  max-width: 62rem;
+  border-radius: 0.7rem;
+  box-shadow: 0 18px 50px -12px rgba(0, 0, 0, 0.45);
+}
+
+.md-typeset .shard-shot figcaption {
+  font-size: 0.75rem;
+  text-align: center;
+  color: var(--md-default-fg-color--light);
+}
+
+/* Buttons: the secondary ones follow the accent, so they stay visible on both schemes */
+.md-typeset .md-button {
+  color: var(--md-accent-fg-color);
+  border-color: var(--md-accent-fg-color);
+  border-radius: 0.4rem;
+  font-weight: 600;
+}
+
+.md-typeset .md-button--primary {
+  background-color: var(--md-accent-fg-color);
+  border-color: var(--md-accent-fg-color);
+  color: #fff;
+}
+
+[data-md-color-scheme="slate"] .md-typeset .md-button--primary {
+  color: #101118;
+}
+
+.md-typeset .md-button:hover,
+.md-typeset .md-button:focus {
+  background-color: var(--md-accent-fg-color--transparent);
+  border-color: var(--md-accent-fg-color);
+  color: var(--md-accent-fg-color);
+}
+
+.md-typeset .md-button--primary:hover,
+.md-typeset .md-button--primary:focus {
+  background-color: var(--md-accent-fg-color);
+  filter: brightness(1.1);
+  color: #fff;
+}
+
+[data-md-color-scheme="slate"] .md-typeset .md-button--primary:hover,
+[data-md-color-scheme="slate"] .md-typeset .md-button--primary:focus {
+  color: #101118;
+}
+
+/* ---- Pages ---- */
+.md-typeset table:not([class]) {
+  font-size: 0.72rem;
+}
+
+.md-typeset pre > code {
+  font-size: 0.78em;
+}
+
+.md-footer-meta {
+  background-color: var(--md-primary-fg-color--dark);
 }

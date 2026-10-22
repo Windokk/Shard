@@ -105,7 +105,8 @@ TEST_F(AbiCompatTest, AnInterfaceIsOfferedUpToItsRevision)
     EXPECT_EQ(host->query_interface(S(SHARD_IFACE_PLUGIN), 1, 0, &table), SHARD_OK);     // a 1.0 plugin
     EXPECT_EQ(host->query_interface(S(SHARD_IFACE_PLUGIN), 1, 1, &table), SHARD_OK);     // a 1.1 plugin
     EXPECT_EQ(static_cast<const ShardPluginApi*>(table)->structSize, sizeof(ShardPluginApi));
-    EXPECT_EQ(host->query_interface(S(SHARD_IFACE_PLUGIN), 1, 2, &table), SHARD_E_NOT_FOUND);
+    EXPECT_EQ(host->query_interface(S(SHARD_IFACE_PLUGIN), 1, 2, &table), SHARD_OK);     // 1.5 : random streams
+    EXPECT_EQ(host->query_interface(S(SHARD_IFACE_PLUGIN), 1, 3, &table), SHARD_E_NOT_FOUND);
     EXPECT_EQ(table, nullptr);
     EXPECT_EQ(host->query_interface(S(SHARD_IFACE_SYSTEMS), 1, 1, &table), SHARD_E_NOT_FOUND);  // still 1.0
     EXPECT_EQ(host->query_interface(S("shard.nothing"), 1, 0, &table), SHARD_E_NOT_FOUND);
@@ -161,7 +162,14 @@ TEST_F(AbiCompatTest, EveryFunctionSurvivesHandlesThatMeanNothing)
     const auto* extensions = static_cast<const ShardExtensionsApi*>(get(SHARD_IFACE_EXTENSIONS));
     const auto* content = static_cast<const ShardContentApi*>(get(SHARD_IFACE_CONTENT));
     const auto* state = static_cast<const ShardStateApi*>(get(SHARD_IFACE_STATE));
-    ASSERT_TRUE(plugin && cvars && commands && components && ecs && systems && events && hooks && services && extensions && content && state);
+    const auto* actors = static_cast<const ShardActorsApi*>(get(SHARD_IFACE_ACTORS));
+    const auto* scripts = static_cast<const ShardScriptsApi*>(get(SHARD_IFACE_SCRIPTS));
+    const auto* input = static_cast<const ShardInputApi*>(get(SHARD_IFACE_INPUT));
+    const auto* physics = static_cast<const ShardPhysicsApi*>(get(SHARD_IFACE_PHYSICS));
+    const auto* audio = static_cast<const ShardAudioApi*>(get(SHARD_IFACE_AUDIO));
+    const auto* worlds = static_cast<const ShardWorldsApi*>(get(SHARD_IFACE_WORLDS));
+    ASSERT_TRUE(plugin && cvars && commands && components && ecs && systems && events && hooks && services && extensions && content && state && actors && scripts && input &&
+                physics && audio && worlds);
 
     std::mt19937_64 rng(99);
     const ShardStr name = S("x");
@@ -178,6 +186,9 @@ TEST_F(AbiCompatTest, EveryFunctionSurvivesHandlesThatMeanNothing)
         EXPECT_EQ(plugin->id(h).data, nullptr);
         EXPECT_EQ(plugin->host(h).data, nullptr);
         EXPECT_EQ(plugin->has_permission(h, name), SHARD_FALSE);
+        ShardRandomState randomState{};
+        EXPECT_LT(plugin->random_stream(h, name, &randomState), 0);
+        EXPECT_LT(plugin->random_stream(h, name, nullptr), 0);
         // cvars and commands
         ShardCVar cv = 0;
         EXPECT_LT(cvars->create_int(h, name, 0, empty, 0, 0, 1, &cv), 0);
@@ -200,8 +211,71 @@ TEST_F(AbiCompatTest, EveryFunctionSurvivesHandlesThatMeanNothing)
         ShardEntity spawned = 0;
         EXPECT_LT(ecs->spawn(h, &spawned), 0);
         EXPECT_LT(ecs->add(h, rng(), rng(), buffer, sizeof(buffer)), 0);
+        ShardLocalTransform pose{};
+        EXPECT_LT(ecs->set_local_transform(h, rng(), &pose), 0);
+        EXPECT_LT(ecs->set_local_transform(h, rng(), nullptr), 0);
+        ShardBlob text = rng();
+        ShardStr got{ nullptr, 0 };
+        EXPECT_LT(components->string_set(h, &text, name), 0);
+        EXPECT_LT(components->string_set(h, nullptr, name), 0);
+        EXPECT_LT(components->string_get(h, rng(), &got), 0);
+        EXPECT_LT(components->string_get(h, 0, nullptr), 0);
         EXPECT_LT(systems->add(h, nullptr), 0);
         EXPECT_LT(systems->set_enabled(h, name, 1), 0);
+        // actors, scripts, input : handles of actors that never existed
+        ShardActor found = 0;
+        uint32_t counted = 0;
+        EXPECT_EQ(actors->is_valid(rng()), SHARD_FALSE);
+        EXPECT_LT(actors->get_name(rng(), buffer, sizeof(buffer), &size), 0);
+        EXPECT_LT(actors->set_name(rng(), name), 0);
+        EXPECT_LT(actors->set_active(rng(), 1), 0);
+        EXPECT_LT(actors->destroy(rng()), 0);
+        EXPECT_LT(actors->get_transform(rng(), &pose), 0);
+        EXPECT_LT(actors->set_transform(rng(), &pose), 0);
+        EXPECT_LT(actors->set_world_transform(rng(), nullptr), 0);
+        EXPECT_LT(actors->get_parent(rng(), &found), 0);
+        EXPECT_LT(actors->set_parent(rng(), rng(), 1), 0);
+        EXPECT_LT(actors->child_count(rng(), &counted), 0);
+        EXPECT_LT(actors->add_tag(rng(), name), 0);
+        EXPECT_EQ(actors->has_tag(rng(), name), SHARD_FALSE);
+        EXPECT_LT(actors->create(rng(), name, 0, &found), 0);
+        EXPECT_LT(actors->spawn(rng(), name, 0, &found), 0);
+        EXPECT_LT(actors->find_by_name(rng(), name, &found), 0);
+        EXPECT_LT(actors->find_by_tag(rng(), name, nullptr, 0, &counted), 0);
+        EXPECT_LT(actors->add_component(rng(), name, empty), 0);
+        EXPECT_EQ(actors->has_component(rng(), name), SHARD_FALSE);
+        EXPECT_LT(actors->get_component(rng(), name, buffer, sizeof(buffer), &size), 0);
+        EXPECT_LT(actors->set_component(rng(), name, empty), 0);
+        EXPECT_LT(actors->get_component_field(rng(), name, name, buffer, sizeof(buffer), &size), 0);
+        EXPECT_LT(actors->set_component_field(rng(), name, name, empty), 0);
+        EXPECT_LT(actors->erase_component_field(rng(), name, name), 0);
+        EXPECT_LT(scripts->register_script(h, nullptr), 0);
+        EXPECT_LT(scripts->get_object(h, rng(), name, &p), 0);
+        EXPECT_LT(scripts->add_to_actor(h, rng(), name, &p), 0);
+        // physics, audio, worlds : the same
+        const float vec[3] = { 1.f, 2.f, 3.f };
+        float out3[3] = {};
+        ShardRayHit rayHit{};
+        rayHit.structSize = sizeof(rayHit);
+        EXPECT_LT(physics->get_velocity(rng(), out3), 0);
+        EXPECT_LT(physics->set_velocity(rng(), vec), 0);
+        EXPECT_LT(physics->add_force(rng(), vec), 0);
+        EXPECT_LT(physics->add_impulse_at_point(rng(), vec, vec), 0);
+        EXPECT_LT(physics->get_gravity(rng(), out3), 0);
+        EXPECT_LT(physics->set_custom_gravity(rng(), nullptr), 0);
+        EXPECT_LT(physics->raycast(nullptr, vec, 1.f, SHARD_LAYER_ALL, 0, &rayHit), 0);
+        EXPECT_LT(physics->raycast(vec, vec, 1.f, SHARD_LAYER_ALL, rng(), &rayHit), 0);
+        EXPECT_LT(audio->play(rng()), 0);
+        EXPECT_LT(audio->pause(rng()), 0);
+        EXPECT_LT(audio->set_volume(rng(), 1.f), 0);
+        EXPECT_LT(audio->play_one_shot(name, nullptr, 1.f, 1), 0);
+        EXPECT_LT(worlds->load_world(empty), 0);
+        EXPECT_LT(worlds->spawn_prefab(rng(), name, 0, &found), 0);
+        EXPECT_EQ(input->key_down(int32_t(rng())), SHARD_FALSE);
+        EXPECT_EQ(input->mouse_pressed(int32_t(rng())), SHARD_FALSE);
+        EXPECT_LT(input->get_cursor(nullptr, nullptr), 0);
+        EXPECT_LT(input->set_cursor_mode(int32_t(rng())), 0);
+        EXPECT_EQ(input->gamepad_button_down(int32_t(rng()), int32_t(rng())), SHARD_FALSE);
         // events, hooks, services
         ShardSubscription sub = 0;
         EXPECT_LT(events->subscribe(h, name, nullptr, nullptr, &sub), 0);

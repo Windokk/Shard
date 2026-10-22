@@ -61,6 +61,10 @@ namespace Shard::Engine::Rendering {
             std::function<void(int, int)> onViewportResized;
             void Shutdown();
             void ClearPassesContent();
+            /// @brief Counts the times ClearPassesContent wiped the draw lists. The lists belong to the render thread : whoever submits
+            /// commands from another thread (the editor's debug shapes) cannot look into them to learn that its commands are gone, it
+            /// compares this number with the one it read when it submitted them. Thread : any.
+            uint64_t GetContentEpoch() const { return m_ContentEpoch.load(std::memory_order_acquire); }
             void AddOrUpdateCommands(const std::vector<DrawCommand>& commands, const std::vector<std::string>& passes, bool addToShadowDrawList) override;
             void RemoveCommands(const std::vector<uint64_t> commandsID, const std::vector<std::string>& passes, bool removeFromShadowDrawList) override;
 
@@ -362,5 +366,6 @@ bool GetCurrentView(RenderView& out) override;
             std::atomic<uint32_t> m_PrimitivesCount{0};
             std::atomic<uint32_t> m_VerticesCount{0};
             std::unordered_map<uint64_t, uint32_t> m_CommandRefCount;
+            std::atomic<uint64_t> m_ContentEpoch{ 0 };
     };
 }

@@ -12,7 +12,7 @@ find_package(ShardSDK 1.0 REQUIRED)
 
 shard_sdk_add_plugin(template_plugin
     MANIFEST    shard-plugin.json
-    SOURCES     src/plugin.cpp
+    SOURCE_DIRS src          # every .cpp under src/ : add a file, run cmake again (or just build), and it is part of the plugin
     CONTENT_DIR content
     PACKAGE                 # cmake --build build --target template_plugin_package : build/plugins/<id>.shardplugin, with the SDK's ShardPkg
 )

@@ -53,12 +53,49 @@ namespace shard {
     };
     template <> struct FieldType<Blob> { static constexpr uint32_t value = SHARD_FIELD_BLOB; };
 
+    /// Flags a member type adds to its field : none, except for a std::string of a script, which the host reads through the script's callbacks
+    template <typename T, typename = void> struct FieldFlags { static constexpr uint32_t value = 0; };
+    /// A std::string member of a script is a field (shard/cpp/script.hpp) : the text is edited in the inspector and saved with the world. The
+    /// string stays the plugin's own, the host never touches its memory. Not for a component, whose block is plain data.
+    template <> struct FieldType<std::string> { static constexpr uint32_t value = SHARD_FIELD_STRING; };
+    template <> struct FieldFlags<std::string> { static constexpr uint32_t value = SHARD_FIELD_ACCESSOR; };
+
+    /// @brief A text of a component (shard_components.h, 1.2) : a field of this type holds a handle, the text lives in the host. The inspector
+    /// shows it as a text box and the world file saves it as a string. Read it with Components::GetText, write it with Components::SetText.
+    /// Copying the struct copies the handle, not the text.
+    struct Text {
+        ShardBlob handle = 0;
+
+        /// The text (empty if there is none yet). thread : any
+        std::string Get() const;
+        /// Replaces the text. Throws shard::Error over the memory budget, or in an engine older than ABI 1.3. thread : any
+        void Set(std::string_view text);
+        Text& operator=(std::string_view text) { Set(text); return *this; }
+        Text& operator=(const char* text) { Set(text ? std::string_view(text) : std::string_view()); return *this; }
+        Text& operator=(const std::string& text) { Set(text); return *this; }
+        Text() = default;
+        Text(const Text&) = default;
+        Text& operator=(const Text&) = default;
+    };
+    template <> struct FieldType<Text> { static constexpr uint32_t value = SHARD_FIELD_STRING; };
+
+    /// @brief The id of an asset of the project (shard_components.h, 1.2), 0 for none : the inspector shows an asset picker
+    struct AssetId {
+        int32_t id = 0;
+        explicit operator bool() const { return id != 0; }
+    };
+    template <> struct FieldType<AssetId> { static constexpr uint32_t value = SHARD_FIELD_ASSET; };
+
     /// How a field shows in the editor and whether it is saved (see shard_components.h)
     struct FieldOptions {
         std::string name;                   ///< the member's name, as written in SHARD_COMPONENT
         uint32_t flags = 0;                 ///< SHARD_FIELD_RUNTIME, SHARD_FIELD_PRIVATE
         float min = 0.f, max = 0.f;
         std::string tooltip;
+
+        /// Only the name is required : { "speed", 0, 0.f, 100.f }, { "frames", SHARD_FIELD_RUNTIME }
+        FieldOptions(std::string fieldName, uint32_t fieldFlags = 0, float lowest = 0.f, float highest = 0.f, std::string hint = {})
+            : name(std::move(fieldName)), flags(fieldFlags), min(lowest), max(highest), tooltip(std::move(hint)) {}
     };
 
     /// The fields of T, filled by the specialization SHARD_COMPONENT writes
@@ -76,6 +113,7 @@ namespace shard {
             Entry e;
             e.name = name;
             e.type = FieldType<M>::value;
+            e.flags = FieldFlags<M>::value;
             e.offset = uint32_t(at - base);
             m_Entries.push_back(e);
         }
@@ -84,6 +122,7 @@ namespace shard {
             const char* name;
             uint32_t type;
             uint32_t offset;
+            uint32_t flags;
         };
         const std::vector<Entry>& Entries() const { return m_Entries; }
 
@@ -100,11 +139,11 @@ namespace shard {
 
     namespace detail {
         /// The ShardFieldDesc of the fields SHARD_COMPONENT lists for T ; their strings point into `sample` and `options`
-        template <typename T>
+        template <typename T, typename Traits = ComponentTraits<T>>
         std::vector<ShardFieldDesc> FieldsOf(const T& sample, std::initializer_list<FieldOptions> options = {})
         {
             FieldList<T> list(sample);
-            ComponentTraits<T>::Describe(list);
+            Traits::Describe(list);
             std::vector<ShardFieldDesc> fields;
             for (const auto& e : list.Entries()) {
                 ShardFieldDesc f{};
@@ -112,9 +151,10 @@ namespace shard {
                 f.type = e.type;
                 f.name = Str(e.name);
                 f.offset = e.offset;
+                f.flags = e.flags;
                 for (const FieldOptions& o : options) {
                     if (o.name != e.name) continue;
-                    f.flags = o.flags;
+                    f.flags = o.flags | e.flags;
                     f.min = o.min;
                     f.max = o.max;
                     f.tooltip = Str(o.tooltip);
@@ -182,6 +222,20 @@ namespace shard {
         bool ResizeBlob(Blob blob, uint64_t size) const { return Blobs().blob_resize(m_Ctx, blob.handle, size) == SHARD_OK; }
         bool FreeBlob(Blob blob) const { return Blobs().blob_free(m_Ctx, blob.handle) == SHARD_OK; }
 
+        /// Sets a string field of a component : `field` is the member itself (in the block of an entity, or in a copy). Throws shard::Error over
+        /// the memory budget, or in an engine older than ABI 1.3. thread : any
+        void SetText(Text& field, std::string_view text) const
+        {
+            detail::Check(Texts().string_set(m_Ctx, &field.handle, Str(text)), "a text");
+        }
+        /// The text of a string field (empty if it holds none). thread : any
+        std::string GetText(Text field) const
+        {
+            ShardStr out{ nullptr, 0 };
+            if (Texts().string_get(m_Ctx, field.handle, &out) != SHARD_OK) return std::string();
+            return ToString(out);
+        }
+
         /// A type by its full name ("com.acme.weather.Cloud", "shard.LocalTransform") : empty if there is none
         template <typename T>
         ComponentType<T> Find(const std::string& fullName) const
@@ -201,8 +255,19 @@ namespace shard {
             if (!api) throw Error(SHARD_E_UNSUPPORTED, "blobs need shard.components 1.1");
             return *api;
         }
+        static const ShardComponentsApi& Texts()
+        {
+            const ShardComponentsApi* api = detail::Interface<ShardComponentsApi>(SHARD_IFACE_COMPONENTS, 2);
+            if (!api) throw Error(SHARD_E_UNSUPPORTED, "text fields need shard.components 1.2");
+            return *api;
+        }
         ShardPluginCtx m_Ctx;
     };
+}
+
+namespace shard {
+    inline std::string Text::Get() const { return Components(detail::PluginHandle()).GetText(*this); }
+    inline void Text::Set(std::string_view text) { Components(detail::PluginHandle()).SetText(*this, text); }
 }
 
 // Iterates a sequence (a)(b)(c) : the classic trick of two macros that call each other

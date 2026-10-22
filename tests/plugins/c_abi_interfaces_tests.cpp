@@ -11,13 +11,17 @@
 #include "support/test_engine_context.hpp"
 
 #include "engine/assets/asset_importer.hpp"
+#include "engine/assets/reflection/reflection_fields.hpp"
 #include "engine/assets/resources_manager.hpp"
 #include "engine/core/config/cvar.hpp"
 #include "engine/core/ecs/registry.hpp"
+#include "engine/plugins/abi/c_internal.hpp"
 #include "engine/plugins/abi/c_plugin.hpp"
 #include "engine/plugins/manager.hpp"
 #include "engine/world/actor.hpp"
+#include "engine/world/ecs_components.hpp"
 #include "engine/world/components/registry/component_registry.hpp"
+#include "plugins/asset_test_context.hpp"
 #include "plugins/plugin_test_utils.hpp"
 
 #include "config.h"
@@ -582,4 +586,154 @@ TEST_F(CAbiTest, AnEventThePluginDescribedIsShownWithItsFields)
     std::string error;
     ASSERT_TRUE(pm().Disable(kId, true, &error)) << error;
     EXPECT_EQ(events.namedLayout("shard.test.cplugin.Ticked"), nullptr);      // gone with the plugin
+}
+
+// ---- ABI 1.3 : text and assets in a component, moving an actor ----
+
+namespace {
+    // The block of the plugin's Label type
+    struct Label {
+        uint64_t name;
+        int32_t icon;
+        int32_t visits;
+    };
+}
+
+TEST_F(CAbiTest, ATextAndAnAssetAreSavedShownAndOwnedByTheActorComponent)
+{
+    Start();
+    BringUpEngine();
+    PluginTest::AssetContext context;
+    Core::SetEngine(&context);
+    {
+        const std::string type = std::string(kId) + ".Label";
+        const auto labelId = Core::Ecs::ComponentId(Export<uint64_t (*)()>("c_plugin_label_type")() - 1);
+        Core::Ecs::Registry& ecs = *context.GetEcs();
+        auto textOf = [&](uint64_t blob) {
+            std::string bytes;
+            return CAbi::BlobBytes(Rec()->owner, blob, bytes) ? bytes : std::string("<stale>");
+        };
+
+        auto actor = Core::Object::CreateWithContext<Objects::Actor>(&context, std::string("Sign"), &context);
+        auto component = actor->AddComponentByName(type);
+        ASSERT_NE(component, nullptr);
+
+        // The inspector sees the text as a string and the asset as an asset ; the blob handle is no field of its own
+        const ClassDescriptor* descriptor = component->GetDescriptor();
+        ASSERT_NE(descriptor, nullptr);
+        EXPECT_EQ(descriptor->fields.size(), 3u);
+        bool sawText = false, sawAsset = false;
+        for (const FieldInfo* field : descriptor->fields) {
+            if (std::string(field->name) == "name") sawText = field->type == TypeID::String;
+            if (std::string(field->name) == "icon") sawAsset = field->type == TypeID::Asset;
+        }
+        EXPECT_TRUE(sawText);
+        EXPECT_TRUE(sawAsset);
+
+        // Loaded from a world file : the text is in a blob on the entity, the asset is the number
+        component->Deserialize(json::parse(R"({"active":true,"name":"hello","icon":7,"visits":3})"));
+        auto* block = static_cast<Label*>(ecs.GetRaw(actor->GetEntity(), labelId));
+        ASSERT_NE(block, nullptr);
+        EXPECT_EQ(block->icon, 7);
+        EXPECT_EQ(block->visits, 3);
+        ASSERT_NE(block->name, 0u);
+        EXPECT_EQ(textOf(block->name), "hello");
+
+        // Edited : the same blob holds the new text
+        const uint64_t first = block->name;
+        component->Deserialize(json::parse(R"({"active":true,"name":"edited a lot","icon":7,"visits":3})"));
+        block = static_cast<Label*>(ecs.GetRaw(actor->GetEntity(), labelId));
+        EXPECT_EQ(block->name, first);
+        EXPECT_EQ(textOf(block->name), "edited a lot");
+
+        // What the system wrote into the text is what is saved
+        RunFrame(ecs);
+        RunFrame(ecs);
+        EXPECT_EQ(Int("c_plugin_label_result"), 0);
+        const ordered_json saved = component->Serialize();
+        EXPECT_EQ(saved["name"].get<std::string>(), "edited a lot!!");
+        EXPECT_EQ(saved["visits"].get<int>(), 5);
+        EXPECT_TRUE(saved.contains("icon"));                           // by name, which an empty database does not have
+
+        // A copy of the actor (play mode) has a text of its own
+        auto clone = actor->Clone();
+        const auto* cloned = static_cast<const Label*>(ecs.GetRaw(clone->GetEntity(), labelId));
+        ASSERT_NE(cloned, nullptr);
+        EXPECT_NE(cloned->name, block->name);
+        EXPECT_EQ(textOf(cloned->name), "edited a lot!!");
+        EXPECT_EQ(cloned->icon, 7);
+
+        // Removing the component frees its text
+        const uint64_t owned = block->name;
+        actor->RemoveComponent(component);
+        EXPECT_EQ(textOf(owned), "<stale>");
+    }
+    Core::SetEngine(nullptr);
+}
+
+TEST_F(CAbiTest, ASystemMovesTheActorBehindAnEntityAtTheEndOfThePhase)
+{
+    Start();
+    PluginTest::AssetContext context;
+    Core::SetEngine(&context);
+    pm().OnEngineSystemsReady(&context, &scheduler, &events);
+    pm().OnEngineInitialized();
+    ASSERT_EQ(Rec()->state, PluginState::Enabled) << Rec()->error;
+    {
+        const std::string type = std::string(kId) + ".Label";
+        const auto labelId = Core::Ecs::ComponentId(Export<uint64_t (*)()>("c_plugin_label_type")() - 1);
+        Core::Ecs::Registry& ecs = *context.GetEcs();
+
+        auto actor = Core::Object::CreateWithContext<Objects::Actor>(&context, std::string("Walker"), &context);
+        ASSERT_NE(actor->AddComponentByName(type), nullptr);
+        ASSERT_NE(actor->transform, nullptr);
+
+        // An entity the plugin made itself has no actor : set_local_transform says so, nothing moves
+        const Core::Ecs::Entity bare = ecs.Create();
+        const Label none{};
+        ASSERT_TRUE(ecs.AddRaw(bare, labelId, &none));
+
+        RunFrame(ecs);
+        EXPECT_FLOAT_EQ(actor->transform->GetPosition().x, 1.0f);            // the Transform took the pose...
+        EXPECT_FLOAT_EQ(actor->transform->GetScale().y, 2.0f);
+        const auto* mirror = ecs.TryGet<Worlds::LocalTransform>(actor->GetEntity());
+        ASSERT_NE(mirror, nullptr);
+        EXPECT_FLOAT_EQ(mirror->position.x, 1.0f);                           // ...and so did its entity
+        EXPECT_FLOAT_EQ(mirror->scale.z, 2.0f);
+        RunFrame(ecs);
+        EXPECT_FLOAT_EQ(actor->transform->GetPosition().x, 2.0f);
+
+        EXPECT_EQ(Int("c_plugin_label_result"), 0);
+        EXPECT_EQ(Int("c_plugin_label_no_actor"), 2);                        // the bare entity, twice
+        EXPECT_EQ(Int("c_plugin_undeclared_pose"), SHARD_E_INVALID_ARG);     // a system that did not declare the transform may not move anything
+        EXPECT_EQ(Rec()->errorCount, 0u);
+
+        // A deactivated actor ignores it
+        actor->transform->DeActivate();
+        RunFrame(ecs);
+        EXPECT_FLOAT_EQ(actor->transform->GetPosition().x, 2.0f);
+    }
+    Core::SetEngine(nullptr);
+}
+
+TEST_F(CAbiTest, TheInterfacesOfEachRevisionAreOffered)
+{
+    Start();
+    const ShardHostApi* api = GetCHostApi();
+    const void* table = nullptr;
+    auto ask = [&](const char* id, uint32_t minor) { return api->query_interface(ShardStr{ id, std::strlen(id) }, 1, minor, &table); };
+    EXPECT_EQ(ask(SHARD_IFACE_COMPONENTS, 3), SHARD_OK);            // 1.5 : actor references and accessor strings (1.3 : text and assets)
+    EXPECT_EQ(ask(SHARD_IFACE_COMPONENTS, 4), SHARD_E_NOT_FOUND);
+    EXPECT_EQ(ask(SHARD_IFACE_ECS, 1), SHARD_OK);                   // 1.3 : set_local_transform
+    EXPECT_EQ(ask(SHARD_IFACE_ECS, 2), SHARD_E_NOT_FOUND);
+    EXPECT_EQ(ask(SHARD_IFACE_ACTORS, 1), SHARD_OK);                // 1.4 : actors, scripts, input (1.5 : one field of a component at a time)
+    EXPECT_EQ(ask(SHARD_IFACE_ACTORS, 2), SHARD_E_NOT_FOUND);
+    EXPECT_EQ(ask(SHARD_IFACE_SCRIPTS, 1), SHARD_OK);               // 1.5 : contacts, accessor strings
+    EXPECT_EQ(ask(SHARD_IFACE_SCRIPTS, 2), SHARD_E_NOT_FOUND);
+    EXPECT_EQ(ask(SHARD_IFACE_INPUT, 0), SHARD_OK);
+    EXPECT_EQ(ask(SHARD_IFACE_PHYSICS, 0), SHARD_OK);               // 1.5 : physics, audio, worlds
+    EXPECT_EQ(ask(SHARD_IFACE_AUDIO, 0), SHARD_OK);
+    EXPECT_EQ(ask(SHARD_IFACE_WORLDS, 0), SHARD_OK);
+    EXPECT_EQ(ask(SHARD_IFACE_EDITOR, 0), SHARD_E_NOT_FOUND);       // only the editor has it
+    EXPECT_EQ(SHARD_ABI_MINOR, 5);
 }

@@ -12,7 +12,7 @@ sdk/
   templates/plugin/         a plugin to start from
 ```
 
-Get it with `cmake --install build --component sdk --prefix <dir>` (it lands in `<dir>/sdk`) or the `ShardSDKArchive` target (`build/shard-sdk-<version>.zip`). This folder of the repository is an SDK too. Start with `docs/docs/tutorials.md` ("Write a plugin outside the engine repository") ; the reference is `docs/docs/api_reference.md` (generated from these headers), the concepts are in `docs/docs/concepts/plugins.md` ("The C ABI and the SDK"), and the plan and its decisions in `docs/design-notes/c-abi-sdk.fr.md`.
+Get it with `cmake --install build --component sdk --prefix <dir>` (it lands in `<dir>/sdk`) or the `ShardSDKArchive` target (`build/shard-sdk-<version>.zip`). This folder of the repository is an SDK too. Start with `docs/docs/tutorials/write-a-game-with-the-sdk.md` ("Write a game with the SDK") ; the reference is `docs/docs/api_reference.md` (generated from these headers), the concepts are in `docs/docs/concepts/plugins.md` ("The C ABI and the SDK"), and the plan and its decisions in `docs/design-notes/c-abi-sdk.fr.md`.
 
 ## The C ABI
 
@@ -24,8 +24,8 @@ Get it with `cmake --install build --component sdk --prefix <dir>` (it lands in 
 | `shard_plugin.h` | `shard.plugin` 1.1 : the plugin's id, version, folder, host, permissions |
 | `shard_cvars.h` | `shard.cvars` 1.0 : variables the plugin owns (bool, int, float, string) |
 | `shard_commands.h` | `shard.commands` 1.0 : console commands |
-| `shard_components.h` | `shard.components` 1.1 : component types described field by field (an ECS component and an actor component at once) |
-| `shard_ecs.h` | `shard.ecs` 1.0 : queries, component access and structural changes, from a system ; the engine's components it can read |
+| `shard_components.h` | `shard.components` 1.3 : component types described field by field (an ECS component and an actor component at once) ; blobs, text and asset fields ; in a script, references to other actors and strings the plugin owns |
+| `shard_ecs.h` | `shard.ecs` 1.1 : queries, component access and structural changes, from a system ; the engine's components it can read ; moving an actor |
 | `shard_systems.h` | `shard.systems` 1.0 : systems in the scheduler's phases |
 | `shard_events.h` | `shard.events` 1.1 : events by name |
 | `shard_hooks.h` | `shard.hooks` 1.0 : the engine's hooks, by name |
@@ -33,13 +33,20 @@ Get it with `cmake --install build --component sdk --prefix <dir>` (it lands in 
 | `shard_extensions.h` | `shard.extensions` 1.0 : asset validators, asset types, asset importers |
 | `shard_content.h` | `shard.content` 1.0 : the modules' content (`mod://`, logical paths) |
 | `shard_state.h` | `shard.state` 1.0 : what survives a hot reload |
+| `shard_actors.h` | `shard.actors` 1.0 : the actors of a world : pose, hierarchy, tags, creating and finding, the engine's components as JSON |
+| `shard_scripts.h` | `shard.scripts` 1.1 : a plugin's classes living on actors, called back as the engine's own scripts are ; physics contacts |
+| `shard_input.h` | `shard.input` 1.0 : keyboard, mouse and gamepads, polled |
+| `shard_physics.h` | `shard.physics` 1.0 : velocities, forces, impulses, gravity and ray casts |
+| `shard_audio.h` | `shard.audio` 1.0 : playing the sound of an actor, one shot sounds |
+| `shard_worlds.h` | `shard.worlds` 1.0 : loading a world, spawning a prefab by name |
+| `shard_editor.h` | `shard.editor` 1.0 : panels in the editor, drawn with a small set of widgets. Offered by the editor only |
 | `shard_experimental.h` | `shard.experimental.world_ecs` 0.1 : the engine's entities from the main thread. No compatibility promise |
 
-A plugin sets `"abi": "c1"` in its `shard-plugin.json` and exports `shard_plugin_entry` (`shard_sdk_add_plugin` and `SHARD_C_PLUGIN` do both). In the engine's repository, `tests/plugin_fixtures/c_plugin/c_plugin.c` is a plugin in C that uses every interface, and `tests/plugin_fixtures/sdk_spin/spin.cpp` one in C++.
+A plugin sets `"abi": "c1"` in its `shard-plugin.json` and exports `shard_plugin_entry` (`shard_sdk_add_plugin` and `SHARD_C_PLUGIN` do both). In the engine's repository, `tests/plugin_fixtures/c_plugin/c_plugin.c` is a plugin in C that uses every interface, `tests/plugin_fixtures/sdk_spin/spin.cpp` one in C++, and `tests/plugin_fixtures/game_scripts` a game of several files with the gameplay layer.
 
 ## The C++ SDK
 
-`#include <shard/cpp/plugin.hpp>`, derive from `shard::Plugin`, end with `SHARD_C_PLUGIN(YourClass)`. It uses the standard library freely : it is compiled into the plugin and nothing of it crosses the ABI. Every callback catches what the plugin throws.
+`#include <shard/game.hpp>` and write your game as classes : `shard::Script` for what lives on an actor (`OnPlay`, `OnTick(dt)`...), `shard::Actor` and `shard::Scene` for the world, `shard::Input` for the keyboard, mouse and pads, `shard::Physics`, `shard::Audio` and `shard::Worlds` for rays, sounds and loading, `shard::Random` for numbers a replay reproduces, `SHARD_EDITOR_PANEL` for a window in the editor, the maths of `shard/cpp/math.hpp`. The fields of a script are declared in its class, one by one, with `SHARD_FIELD(float, power, Range(0.f, 10.f), Tooltip("..")) = 3.f;` (`shard/cpp/field.hpp`), and the engine's components are typed handles (`actor.Add<shard::Model>().SetMesh(mesh)`, `shard/cpp/engine_components.hpp`). Each source file registers its own scripts, components and systems with a line at its bottom (`SHARD_REGISTER_SCRIPT`, `SHARD_DEFINE_COMPONENT`, `SHARD_ON_LOAD`, see `shard/cpp/registry.hpp`), so a game is as many files as you like and `SHARD_GAME_MODULE()` in one of them. For a plugin that is not a game, derive from `shard::Plugin` and end with `SHARD_C_PLUGIN(YourClass)`. The C++ layer uses the standard library freely : it is compiled into the plugin and nothing of it crosses the ABI. Every callback catches what the plugin throws.
 
 ## Revisions
 
@@ -48,6 +55,9 @@ A plugin sets `"abi": "c1"` in its `shard-plugin.json` and exports `shard_plugin
 | 1.0 | the entry point, the callbacks, and the interfaces plugin, cvars, commands, components, ecs, systems, events, hooks, services, extensions, content, state |
 | 1.1 | `shard.plugin` 1.1 : `host`, `has_permission` |
 | 1.2 | `shard.components` 1.1 : blobs (`SHARD_FIELD_BLOB`, `blob_create` / `blob_data` / `blob_resize` / `blob_free`) ; `shard.events` 1.1 : `describe` ; `ShardHostApi::engineVersion` filled |
+| 1.3 | `shard.components` 1.2 : text and asset fields (`SHARD_FIELD_STRING`, `SHARD_FIELD_ASSET`, `string_set` / `string_get`) ; `shard.ecs` 1.1 : `set_local_transform`, a system moves the actor behind an entity |
+| 1.4 | `shard.scripts` 1.0, `shard.actors` 1.0, `shard.input` 1.0 : gameplay classes on actors, the world, the keyboard ; the C++ gameplay layer (`shard/game.hpp`) |
+| 1.5 | `shard.physics` 1.0, `shard.audio` 1.0, `shard.worlds` 1.0, `shard.editor` 1.0 ; `shard.scripts` 1.1 : `on_contact_*`, `text_get` / `text_set` ; `shard.components` 1.3 : `SHARD_FIELD_ACTOR`, `SHARD_FIELD_ACCESSOR` ; `shard.plugin` 1.2 : `random_stream` |
 
 A copy of the 1.0 headers is frozen in `tests/plugin_fixtures/abi_1_0` : a plugin built against it must keep loading (`tests/plugins/abi_compat_tests.cpp`).
 

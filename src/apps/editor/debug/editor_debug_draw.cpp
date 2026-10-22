@@ -10,6 +10,7 @@
 
 #include "engine/assets/assetID.hpp"
 #include "engine/assets/resources_manager.hpp"
+#include "engine/core/config/cvar.hpp"
 #include "engine/physics/gravity_field.hpp"
 #include "engine/physics/physics_body.hpp"
 #include "engine/renderer/components/probe_volume.hpp"
@@ -23,6 +24,7 @@
 #include "engine/world/actor.hpp"
 #include "engine/world/components/transform.hpp"
 #include "engine/world/engine.hpp"
+#include "engine/world/time_manager.hpp"
 #include "engine/world/world.hpp"
 #include "engine/world/world_manager.hpp"
 
@@ -36,6 +38,13 @@ namespace Shard::Editor::Debug{
     namespace {
 
         constexpr int kLayerCount = 3;
+
+        // The engine's "physics.interpolate" setting : what the renderer draws the bodies with, the shapes must follow
+        bool InterpolationEnabled()
+        {
+            const Engine::Core::CVarBase* cvar = Engine::Core::CVarRegistry::Global().Find("physics.interpolate");
+            return !cvar || cvar->ToString() != "false";
+        }
 
         // The passes the shapes are drawn in, on top of the scene, in the viewport framebuffer
         const char* const kPassNames[kLayerCount] = { "EditorVolumeGizmoPass", "EditorProbeGizmoPass", "EditorPhysicsDebugPass" };
@@ -195,11 +204,12 @@ namespace Shard::Editor::Debug{
 
         entry.seen = true;
 
-        // A world switch wipes the draw lists (see Renderer::ClearPassesContent) : a command that is gone is submitted again
-        const std::shared_ptr<Rendering::RenderPass>& pass = m_Passes[(int)layer];
-        const bool present = pass && pass->drawCommandsLookup.find(entry.commandID) != pass->drawCommandsLookup.end();
+        // A world switch wipes the draw lists (see Renderer::ClearPassesContent) : a command that is gone is submitted again. The lists
+        // are the render thread's, which inserts and erases in them as it runs the commands posted below : they are not looked into from
+        // here (a lookup racing an insert crashes), the epoch tells whether a wipe happened since the command was submitted
+        const uint64_t epoch = m_Renderer->GetContentEpoch();
 
-        if(entry.submitted && present && entry.model == model)
+        if(entry.submitted && entry.epoch == epoch && entry.model == model)
             return;
 
         const std::shared_ptr<Rendering::Mesh>& mesh = entry.shape->m_Mesh;
@@ -220,6 +230,7 @@ namespace Shard::Editor::Debug{
         m_Renderer->AddOrUpdateCommands({cmd}, {kPassNames[(int)layer]}, false);
 
         entry.model = model;
+        entry.epoch = epoch;
         entry.submitted = true;
     }
 
@@ -245,7 +256,17 @@ namespace Shard::Editor::Debug{
 
                 if(auto body = std::dynamic_pointer_cast<Components::PhysicsBody>(comp))
                 {
-                    const glm::mat4 world = actor.transform->GetWorldMatrix();
+                    glm::mat4 world = actor.transform->GetWorldMatrix();
+
+                    // The mesh of a moving body is drawn between its last two simulated poses (see Render.Extract) : its shapes
+                    // follow it, or they trail behind it by up to a step
+                    Engine::Time::TimeManager* time = Engine::Core::GetEngine().GetTimeManager();
+                    if(time && time->GetFixedDeltaTime() > 0.0f && Engine::Core::GetEngine().IsInPlayMode() && InterpolationEnabled())
+                    {
+                        glm::mat4 poseOffset;
+                        if(body->GetInterpolationOffset(time->GetFixedStepAlpha(), poseOffset))
+                            world = poseOffset * world;
+                    }
 
                     for(size_t i = 0; i < body->GetShapeCount(); i++)
                     {

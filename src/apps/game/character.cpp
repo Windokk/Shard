@@ -1,91 +1,62 @@
 #include "character.hpp"
 
-#include "engine/world/actor.hpp"
+#include <cmath>
 
-#include "engine/world/engine.hpp"
+void Character::OnPlay()
+{
+    const shard::Vec3 facing = Owner().LocalPose().Forward();
+    pitch = shard::Degrees(std::asin(shard::Clamp(facing.y, -1.0f, 1.0f)));
+    yaw = shard::Degrees(std::atan2(-facing.x, -facing.z));
 
-#include "engine/platform/windowing/iplatform.hpp"
-
-#include "engine/world/time_manager.hpp"
-
-#include <thread>
-#include <iostream>
-
-#include "engine/world/components/script.reflection.hpp"
-
-using namespace Shard::Engine;
-
-void Character::OnPlay() {
-    glm::vec3 forward = parent->transform->GetForward();
-    pitch = glm::degrees(asinf(glm::clamp(forward.y, -1.0f, 1.0f)));
-    yaw = glm::degrees(atan2f(-forward.x, -forward.z));
-
-    Core::Platform::IInput* input = Core::GetEngine().GetInputManager();
-    input->SetCursorVisibility(Shard::Engine::Core::Platform::CursorVisibility::Disabled);
+    shard::Input::SetCursorMode(shard::CursorMode::Disabled);
 }
 
-void Character::OnTick() {
-    Core::Platform::IInput* input = Core::GetEngine().GetInputManager();
+void Character::OnTick(float deltaTime)
+{
+    // Scripts tick once per rendered frame, so movement is expressed in units per second and scaled by the frame's delta : moving by a flat
+    // amount would make the character go faster the higher the framerate. Mouse look is deliberately not scaled : a cursor delta is already
+    // an amount of movement, not a rate.
+    const float step = speed * deltaTime;
 
-    // Scripts tick once per rendered frame, so movement is expressed in units per second and scaled
-    // by the frame's delta - translating by a flat amount would make the character move faster the
-    // higher the framerate. Mouse look is deliberately not scaled: a cursor delta is already an
-    // amount of movement, not a rate.
-    const float dt = Core::GetEngine().GetTimeManager()->GetDeltaTime();
-    const float step = speed * dt;
+    shard::Pose pose = Owner().LocalPose();
+    const shard::Vec3 forward = pose.Forward();
+    const shard::Vec3 right = pose.Right();
+    bool moved = false;
+    if (shard::Input::IsKeyDown(shard::Key::W)) { pose.position += forward * step; moved = true; }
+    if (shard::Input::IsKeyDown(shard::Key::A)) { pose.position += right * -step; moved = true; }
+    if (shard::Input::IsKeyDown(shard::Key::S)) { pose.position += forward * -step; moved = true; }
+    if (shard::Input::IsKeyDown(shard::Key::D)) { pose.position += right * step; moved = true; }
+    if (moved)
+        Owner().SetLocalPose(pose);
 
-    if(input->IsKeyDown(Input::Key::W)){
-        parent->transform->Translate(parent->transform->GetForward() * step);
-    }
-    if(input->IsKeyDown(Input::Key::A)){
-        parent->transform->Translate(glm::normalize(glm::cross(parent->transform->GetForward(), parent->transform->GetUp())) * -step);
-    }
-    if(input->IsKeyDown(Input::Key::S)){
-        parent->transform->Translate(parent->transform->GetForward() * -step);
-    }
-    if(input->IsKeyDown(Input::Key::D)){
-        parent->transform->Translate(glm::normalize(glm::cross(parent->transform->GetForward(), parent->transform->GetUp())) * step);
-    }
-
-    if (input->IsMouseDown(Input::MouseButton::Left))
+    if (shard::Input::IsMouseDown(shard::MouseButton::Left))
     {
-        double mouseX, mouseY;
-        input->GetCursorPos(&mouseX, &mouseY);
+        const shard::Vec2 cursor = shard::Input::CursorPosition();
 
         if (firstClick)
         {
-            lockedMouseX = mouseX;
-            lockedMouseY = mouseY;
+            lockedMouseX = cursor.x;
+            lockedMouseY = cursor.y;
             firstClick = false;
         }
 
-        double deltaX = mouseX - lockedMouseX;
-        double deltaY = lockedMouseY - mouseY; // reversed Y
+        const double deltaX = cursor.x - lockedMouseX;
+        const double deltaY = lockedMouseY - cursor.y;     // reversed Y
 
-        pitch += deltaY * mouseSensitivity;
-        yaw   -= deltaX * mouseSensitivity;
+        pitch += float(deltaY * mouseSensitivity);
+        yaw -= float(deltaX * mouseSensitivity);
 
         // Clamp pitch to avoid flipping
-        pitch = glm::clamp(pitch, -89.0f, 89.0f);
+        pitch = shard::Clamp(pitch, -89.0f, 89.0f);
 
-        // Build quaternion from yaw * pitch
-        glm::quat qPitch = glm::angleAxis(glm::radians(pitch), glm::vec3(1, 0, 0));
-        glm::quat qYaw   = glm::angleAxis(glm::radians(yaw),   glm::vec3(0, 1, 0));
-        glm::quat rotation = qYaw * qPitch;
-        
-        parent->transform->SetRotation(rotation);
- 
+        // yaw about the vertical, then pitch about the right axis
+        Owner().SetRotation(shard::FromEulerDegrees(pitch, yaw, 0.f));
+
         // Reset cursor back to locked position every frame
-        input->SetCursorPos(lockedMouseX, lockedMouseY);
+        shard::Input::SetCursorPosition(lockedMouseX, lockedMouseY);
     }
-    if(input->IsMouseUp(Input::MouseButton::Left))
-    {
+    else
         firstClick = true;
-    }
 }
 
-void Character::OnStop()
-{
-}
-
-REGISTER_COMPONENT(Character);
+SHARD_REGISTER_SCRIPT(Character)

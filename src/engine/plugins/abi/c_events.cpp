@@ -116,7 +116,7 @@ namespace Shard::Engine::Plugins::CAbi {
                     Events::NamedEventLayout::Field field;
                     field.name = ToString(f.name);
                     if (f.structSize < sizeof(ShardFieldDesc) || !IsFieldName(field.name) || !FieldLayoutOf(f.type, fieldSize, align)) return SHARD_E_INVALID_ARG;
-                    if (f.type == SHARD_FIELD_BLOB) return SHARD_E_INVALID_ARG;     // a payload is copied as bytes : a blob handle in it would mean nothing
+                    if (f.type > SHARD_FIELD_COLOR) return SHARD_E_INVALID_ARG;     // a payload is copied as bytes : a blob, a string (a blob handle) or an asset in it would mean nothing
                     if (uint64_t(f.offset) + fieldSize > size) return SHARD_E_INVALID_ARG;
                     for (const auto& other : layout.fields) if (other.name == field.name) return SHARD_E_INVALID_ARG;
                     field.type = Events::NamedEventLayout::FieldType(f.type - SHARD_FIELD_F32);     // the same order

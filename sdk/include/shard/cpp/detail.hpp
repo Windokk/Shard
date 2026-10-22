@@ -42,6 +42,14 @@ namespace shard {
 
     namespace detail {
 
+        /// The plugin's own handle, known from its first callback (a plugin is one context for its whole life): what lets a value type like
+        /// shard::Text or shard::Actor reach the host without being handed the context
+        inline ShardPluginCtx& PluginHandle()
+        {
+            static ShardPluginCtx handle = 0;
+            return handle;
+        }
+
         /// The host's table, given to the entry point
         inline const ShardHostApi*& Host()
         {
