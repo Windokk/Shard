@@ -19,6 +19,14 @@ namespace Shard::Engine::Rendering {
 
     using NumericValue = std::variant<bool, float, int, glm::vec2, glm::vec3, glm::vec4, glm::mat4>;
 
+    /// What a pass is in the main view's picture, for the editor's debug views (see DebugViewState and Renderer::DrawFrame) :
+    ///     Forward       the scene drawn and lit where it is drawn : every view (the wireframes in one or two sweeps over its draws)
+    ///     GBuffer       the materials written to a G-buffer : filled as the view needs it (as lines in the wireframe, the colour of the
+    ///                   views a G-buffer has nothing for, the UVs, in place of the albedo)
+    ///     Lighting      the pass that lights a G-buffer : shows the view from what the G-buffer holds
+    ///     WireOverlay   the lines of the shaded wireframe over the lit picture : only drawn in that view
+    enum class DebugViewRole : uint8_t { None = 0, Forward, GBuffer, Lighting, WireOverlay };
+
     struct RenderPass{
         std::shared_ptr<Framebuffer> target = nullptr;
         bool clearColor = true;
@@ -35,6 +43,8 @@ namespace Shard::Engine::Rendering {
         // RendererAPI::SetDepthSweep). Only for a pass that is the main view's shaded scene.
         bool depthPrepass = false;
         bool allowCulling = true;
+        // Whether the editor's debug view applies to the pass, and how. None : the pass always draws the same.
+        DebugViewRole debugViewRole = DebugViewRole::None;
         // Name of a mat4 in customUniforms to frustum-cull against instead of the active camera - a shadow pass
         // sets "lightSpaceMatrix", so casters outside the light's view volume are never submitted. Only used
         // when allowCulling is false (the camera's frustum would be the wrong volume for such a pass). The

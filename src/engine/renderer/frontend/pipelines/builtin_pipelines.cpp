@@ -19,6 +19,7 @@ namespace Shard::Engine::Rendering {
         constexpr const char* kForwardPass = "ForwardPass";
         constexpr const char* kGBufferPass = "GBufferPass";
         constexpr const char* kLightingPass = "DeferredLightingPass";
+        constexpr const char* kWireOverlayPass = "DeferredWireOverlayPass";
 
         /// The forward pass is the renderer's : a pipeline sets it up for what it makes of it
         void ConfigureForwardPass(Renderer& renderer, bool clear, bool depthPrepass)
@@ -56,6 +57,10 @@ namespace Shard::Engine::Rendering {
         /// The G-buffer has the sample count of the scene target (the project's MSAA setting) : the lighting pass runs once per sample (the
         /// SHARD_GBUFFER_MS permutation of the lit shader), so the geometry edges are anti-aliased like the forward pipelines' - at the price of lighting
         /// every sample of every pixel, edges or not.
+        ///
+        /// The editor's debug views are drawn by the pipeline itself (see DebugViewRole) : the lighting pass shows the normals, the depth, the GI, the
+        /// SSAO... from the G-buffer ; the views of what only the vertices carry (the UVs, the lightmap UVs, the wireframe) are written into the
+        /// G-buffer's albedo by the material pass ; the lines of the shaded wireframe are one more sweep over the G-buffer's draws.
         class DeferredPipeline final : public RenderPipeline
         {
             public:
@@ -100,6 +105,7 @@ namespace Shard::Engine::Rendering {
                     gbufferPass->clearColor = true;
                     gbufferPass->clearDepth = true;
                     gbufferPass->shaderVariant = "SHARD_GBUFFER";
+                    gbufferPass->debugViewRole = DebugViewRole::GBuffer;
                     renderer.AddRenderPass(gbufferPass, kGBufferPass, {});
 
                     // The lighting : a quad over the whole screen drawn with the lit shader's deferred permutation (a mesh, not a fullscreen triangle :
@@ -135,7 +141,20 @@ namespace Shard::Engine::Rendering {
                     lightingPass->clearDepth = true;
                     lightingPass->allowResize = false;
                     lightingPass->allowCulling = false;
+                    lightingPass->debugViewRole = DebugViewRole::Lighting;
                     renderer.AddRenderPass(lightingPass, kLightingPass, {kGBufferPass});
+
+                    // The shaded wireframe's lines : the G-buffer's draws again, as lines with the forward shader, over the lit picture (the renderer
+                    // enables the pass in that view only)
+                    auto wirePass = std::make_shared<RenderPass>();
+                    wirePass->target = renderer.GetSceneFramebuffer();
+                    wirePass->clearColor = false;
+                    wirePass->clearDepth = false;
+                    wirePass->allowResize = false;
+                    wirePass->externalDrawList = &gbufferPass->drawList;
+                    wirePass->debugViewRole = DebugViewRole::WireOverlay;
+                    wirePass->enabled = false;
+                    renderer.AddRenderPass(wirePass, kWireOverlayPass, {kLightingPass});
 
                     // The sky and the translucent geometry go on top of the lit picture
                     ConfigureForwardPass(renderer, false, false);
@@ -147,6 +166,8 @@ namespace Shard::Engine::Rendering {
                 {
                     ConfigureForwardPass(renderer, true, true);
 
+                    if (renderer.HasRenderPass(kWireOverlayPass))
+                        renderer.RemoveRenderPass(kWireOverlayPass);
                     if (renderer.HasRenderPass(kLightingPass))
                         renderer.RemoveRenderPass(kLightingPass);
                     if (renderer.HasRenderPass(kGBufferPass))
@@ -224,12 +245,8 @@ namespace Shard::Engine::Rendering {
                     }
 
                     dependencies[kLightingPass] = lighting;
-                    dependencies[kForwardPass] = {kLightingPass};
-                }
-
-                bool SupportsView(const DebugViewState& view) const override
-                {
-                    return view.mode == ViewMode::Lit && !view.wireframeRaster;
+                    dependencies[kWireOverlayPass] = {kLightingPass};
+                    dependencies[kForwardPass] = {kLightingPass, kWireOverlayPass};
                 }
 
             private:

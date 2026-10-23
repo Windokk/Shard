@@ -297,6 +297,7 @@ namespace Shard::Engine::Rendering{
         forwardPass->clearDepth = true;
         forwardPass->overridePipeline = false;
         forwardPass->depthPrepass = true;
+        forwardPass->debugViewRole = DebugViewRole::Forward;
         // Initially no dependencies for forward pass
         AddRenderPass(forwardPass, "ForwardPass", {});
         m_RendererAPI->SetClearColor(0,0,0,1);
@@ -1456,6 +1457,13 @@ namespace Shard::Engine::Rendering{
         for(const std::shared_ptr<RenderFeature>& feature : m_Features)
             feature->BeforeFrame(*this, GetSnapshot());
 
+        // The lines over the lit picture only exist in the shaded wireframe view
+        for(auto& [name, pass] : m_RenderPasses)
+        {
+            if(pass->debugViewRole == DebugViewRole::WireOverlay)
+                pass->enabled = m_DebugView.mode == ViewMode::ShadedWireframe;
+        }
+
         {
             SHARD_PROFILE_RENDER_SUB_SCOPE(Debugging::RenderSubSample::LightCullingUpdate);
             m_LightCullingManager->Update();
@@ -1540,7 +1548,8 @@ namespace Shard::Engine::Rendering{
             // and the pass's own clear/bind then also resets the API state the compute dispatches disturbed.
             // The main view's debug modes (wireframe, normals...) draw everything, so they are never culled.
             const bool debugViewIsPlain = m_DebugView.mode == ViewMode::Lit || m_DebugView.mode == ViewMode::Unlit;
-            const bool occlusionCulled = (passName == "SSAODepthNormalPass" || passName == "GBufferPass" || (passName == "ForwardPass" && debugViewIsPlain))
+            const bool sceneGeometryPass = pass->debugViewRole == DebugViewRole::Forward || pass->debugViewRole == DebugViewRole::GBuffer;
+            const bool occlusionCulled = (passName == "SSAODepthNormalPass" || (sceneGeometryPass && debugViewIsPlain))
                 && PrepareOcclusionCulling(passName, pass);
 
             GpuScope passScope(m_RendererAPI->GetGpuProfiler(), passName.c_str());
@@ -1548,7 +1557,40 @@ namespace Shard::Engine::Rendering{
 
             BeginRenderPass(pass);
 
-            if (passName == "ForwardPass")
+            if (pass->debugViewRole == DebugViewRole::GBuffer || pass->debugViewRole == DebugViewRole::Lighting)
+            {
+                // A G-buffer is written for the view (the materials, or the colour of a view that only the vertices know), then the lighting
+                // shows the view from it. The shaded wireframe is the lit picture here : its lines are the WireOverlay pass's.
+                DebugViewState state = m_DebugView;
+                if (state.mode == ViewMode::ShadedWireframe)
+                    state.mode = ViewMode::Lit;
+                state.wireframeRaster = pass->debugViewRole == DebugViewRole::GBuffer && state.mode == ViewMode::Wireframe;
+
+                // The sky (in the lighting pass) only belongs to the filled lit and unlit views, as in the forward pass
+                m_SkipFullscreenCommands = !debugViewIsPlain && m_DebugView.mode != ViewMode::ShadedWireframe;
+                m_RendererAPI->SetDebugView(state);
+                if (occlusionCulled)
+                    ExecuteOcclusionCulledPass(passName, pass);
+                else
+                    ExecuteRenderPass();
+
+                m_SkipFullscreenCommands = false;
+                m_RendererAPI->SetDebugView(DebugViewState{});
+            }
+            else if (pass->debugViewRole == DebugViewRole::WireOverlay)
+            {
+                // Lines over the lit picture, with the same small depth bias as the forward pass's second sweep
+                DebugViewState state = m_DebugView;
+                state.mode = ViewMode::ShadedWireframe;
+                state.wireframeRaster = true;
+                m_SkipFullscreenCommands = true;
+                m_RendererAPI->SetDebugView(state);
+                ExecuteRenderPass();
+
+                m_SkipFullscreenCommands = false;
+                m_RendererAPI->SetDebugView(DebugViewState{});
+            }
+            else if (pass->debugViewRole == DebugViewRole::Forward)
             {
                 // Debug views only ever touch the main scene render. Backgrounds (fullscreen
                 // triangles, i.e. the skybox) are dropped from every mode that isn't a filled lit/unlit view.

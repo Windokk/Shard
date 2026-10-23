@@ -61,6 +61,8 @@ A render pipeline asset defines how a frame is built. They live in `resources/en
 
 To add one, implement `RenderPipeline` and register it with `RenderPipelineRegistry`.
 
+The editor's view modes work with both pipelines. In `deferred`, the lighting pass draws the Normals, Depth, Unlit, GI, SSAO and Shadow Cascades views from the G-buffer. The G-buffer pass writes the UVs, Lightmap UVs and Wireframe colours in place of the albedo. The Shaded Wireframe lines come from one more sweep over the G-buffer's draws. To support the view modes in your own pipeline, set `RenderPass::debugViewRole` on its passes. A pipeline whose `SupportsView` returns false for a view falls back to `forward+` while that view is on.
+
 ## Shadows
 
 The shadow settings are in *Project Settings > Rendering*, in the *Shadows*, *Directional Shadows*, *Spot Shadows* and *Point Shadows* groups. They are saved in `rendering.shadows` in the project file and applied at once (the shadow maps are rebuilt when a resolution, the number of cascades, *Double-sided Casters* or *Conservative Rasterization* changes; everything else takes effect on the next frame).

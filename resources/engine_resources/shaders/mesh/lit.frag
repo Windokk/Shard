@@ -1058,6 +1058,42 @@ vec4 ShadeSurface(vec4 baseColor, float metallicValue, float roughnessValue, vec
         lighting = DisplayTransform(lighting, TONEMAP_ACES, 1.0);
     return vec4(lighting, baseColor.a);
 }
+
+// The debug views of what only the vertices know (the wireframes' line colour, the UVs, the lightmap UVs). The deferred pipeline writes this colour
+// to the G-buffer's albedo, where the lighting finds it.
+bool IsVertexDebugView() {
+    return viewMode == 2 || viewMode == 3 || viewMode == 6 || viewMode == 9;
+}
+
+// The debug views of the surface (the albedo, the normals, the depth) : the same from the forward shader and from the G-buffer
+bool SurfaceDebugColor(vec4 baseColor, vec3 emission, vec3 worldNormal, out vec4 color) {
+    color = vec4(0.0);
+    if (viewMode == 1) { color = vec4(baseColor.rgb + emission, baseColor.a); return true; }
+    if (viewMode == 4) { color = vec4(worldNormal * 0.5 + 0.5, 1.0); return true; }
+    if (viewMode == 5) {
+        float d = length(camPos - worldPos);
+        color = vec4(vec3(1.0 - d / (d + 20.0)), 1.0);
+        return true;
+    }
+    return false;
+}
+
+#ifndef SHARD_DEFERRED_LIGHTING
+vec3 VertexDebugColor(bool hasLightmap) {
+    if (viewMode == 2) return vec3(0.85, 0.9, 1.0);
+    if (viewMode == 3) return vec3(0.02, 0.02, 0.03);
+    if (viewMode == 6) return vec3(fract(texCoord), 0.0);
+
+    // The lightmap UVs as the bake sees them (atlas placement applied) : a checker shows texel density and
+    // stretching, the colour is the UV itself. Meshes without a lightmap show their raw second UV set, dimmed.
+    vec2 lmUV = hasLightmap ? lightmapUV * lightmapScaleOffset.xy + lightmapScaleOffset.zw : lightmapUV;
+    vec2 cell = floor(lmUV * 64.0);
+    float checker = mod(cell.x + cell.y, 2.0);
+    vec3 col = vec3(fract(lmUV), 0.35) * mix(0.55, 1.0, checker);
+    return hasLightmap ? col : col * 0.4;
+}
+#endif
+
 #ifdef SHARD_DEFERRED_LIGHTING
 
 void main() {
@@ -1084,9 +1120,20 @@ void main() {
     vec3 worldNormal = OctDecode(normals.xy);
     N = OctDecode(normals.zw);
     vec3 V = normalize(camPos - worldPos);
+    gl_FragDepth = depth;
+
+    // The debug views : the G-buffer pass wrote the colour of a view of the vertices in place of the albedo
+    if (IsVertexDebugView()) {
+        fragColor = vec4(albedoRaw.rgb, 1.0);
+        return;
+    }
+    vec4 debugColor;
+    if (SurfaceDebugColor(vec4(albedoRaw.rgb, 1.0), material.rgb, worldNormal, debugColor)) {
+        fragColor = debugColor;
+        return;
+    }
 
     fragColor = ShadeSurface(vec4(albedoRaw.rgb, 1.0), material.a, baked.a, worldNormal, (flags & 1) != 0, baked.rgb, material.rgb, V);
-    gl_FragDepth = depth;
 }
 
 #else
@@ -1131,34 +1178,19 @@ void main() {
     gNormals = vec4(OctEncode(worldNormal), OctEncode(N));
     gMaterial = vec4(emission, metallicValue);
     gBaked = vec4(bakedIrradiance, roughnessValue);
+    if (IsVertexDebugView())
+        gAlbedo.rgb = VertexDebugColor(hasLightmap);
     return;
 #else
-    if (viewMode != 0) {
-        if (viewMode == 2) { fragColor = vec4(0.85, 0.9, 1.0, 1.0); return; }
-        if (viewMode == 3) { fragColor = vec4(0.02, 0.02, 0.03, 1.0); return; }
-        if (viewMode == 4) { fragColor = vec4(worldNormal * 0.5 + 0.5, 1.0); return; }
-        if (viewMode == 5) {
-            float d = length(camPos - worldPos);
-            fragColor = vec4(vec3(1.0 - d / (d + 20.0)), 1.0);
-            return;
-        }
-        if (viewMode == 6) { fragColor = vec4(fract(texCoord), 0.0, 1.0); return; }
-        if (viewMode == 9) {
-            // The lightmap UVs as the bake sees them (atlas placement applied) : a checker shows texel density and
-            // stretching, the colour is the UV itself. Meshes without a lightmap show their raw second UV set, dimmed.
-            vec2 lmUV = hasLightmap ? lightmapUV * lightmapScaleOffset.xy + lightmapScaleOffset.zw : lightmapUV;
-            vec2 cell = floor(lmUV * 64.0);
-            float checker = mod(cell.x + cell.y, 2.0);
-            vec3 col = vec3(fract(lmUV), 0.35) * mix(0.55, 1.0, checker);
-            fragColor = vec4(hasLightmap ? col : col * 0.4, 1.0);
-            return;
-        }
-        if (viewMode == 1) {
-            fragColor = vec4(baseColor.rgb + emission, baseColor.a);
-            return;
-        }
+    if (IsVertexDebugView()) {
+        fragColor = vec4(VertexDebugColor(hasLightmap), 1.0);
+        return;
     }
-
+    vec4 debugColor;
+    if (SurfaceDebugColor(baseColor, emission, worldNormal, debugColor)) {
+        fragColor = debugColor;
+        return;
+    }
 
     fragColor = ShadeSurface(baseColor, metallicValue, roughnessValue, worldNormal, hasLightmap, bakedIrradiance, emission, V);
 #endif

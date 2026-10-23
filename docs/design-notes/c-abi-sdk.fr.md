@@ -383,7 +383,7 @@ Le module **Voxel** (R8, phase 9 du tableau d'architecture) s'écrit contre le S
 **A5, compatibilité.**
 
 * Hors dépôt : le test `Sdk.OutOfTree` installe le SDK seul, copie le gabarit dans un dossier à part, le configure et le compile contre le SDK installé, puis `ShardHeadless --check-plugins --plugin` le charge et compare 1 et N fils.
-* Autre compilateur : vérifié sur cette machine, plugin MSVC 19.51 (lié à MSVCP140) et plugin Clang chargés par le moteur MinGW GCC. `-DSHARD_SDK_TEST_VCVARS=<vcvars64.bat>` ajoute le test `Sdk.OutOfTreeMsvc`, `-DSHARD_SDK_TEST_CXX=clang++` fait compiler `Sdk.OutOfTree` par Clang. La CI le fait (Clang sous Linux, MSVC sous Windows, `.github/workflows/build.yml`) : **pas encore vu tourner en CI**.
+* Autre compilateur : vérifié sur cette machine, plugin MSVC 19.51 (lié à MSVCP140) et plugin Clang chargés par le moteur MinGW GCC. `-DSHARD_SDK_TEST_VCVARS=<vcvars64.bat>` ajoute le test `Sdk.OutOfTreeMsvc`, `-DSHARD_SDK_TEST_CXX=clang++` fait compiler `Sdk.OutOfTree` par Clang. La CI le fait (Clang sous Linux, MSVC sous Windows, `.github/workflows/build.yml`) et passe (2026-10-23).
 * 1.0 → 1.1 : copie figée des en-têtes 1.0 dans `tests/plugin_fixtures/abi_1_0/include`, fixture compilée contre elle ; puis passage à 1.1 (`shard.plugin` 1.1 : `host`, `has_permission`). La fixture 1.0 charge et tourne dans le moteur 1.1, une fixture 1.1 est refusée par un hôte 1.0 simulé (`ValidateCPluginInfo(info, 0)`) : `AbiCompatTest.*`.
 * Fuzz léger : 20 000 `ShardPluginInfo` incohérents, et chaque fonction de chaque table appelée avec des handles qui ne désignent rien et des pointeurs nuls : pas de plantage, toujours une erreur.
 * Doc : `docs/docs/concepts/plugins.md` (« The C ABI and the SDK »), `docs/docs/tutorials/write-a-game-with-the-sdk.md` (« Write a game with the SDK »), `docs/docs/api_reference.md` (générée, voir les écarts), `docs/docs/contributing.md` (la règle de revue des en-têtes, cf. §11), `sdk/README.md`.
@@ -486,13 +486,12 @@ Tests : `AbiLayout` (les nouvelles tailles et offsets sont figés), `TheInterfac
 
 ### Reste
 
-* La CI construit et teste la 1.5 sous Windows (MinGW) et Linux (GCC) ; le 2026-10-22 le seul écart Linux/Windows était le hachage des scripts (`-0.0` contre `+0.0` dans un champ, réglé par `CanonicalizeFloats`), et le replay doré a dû être réenregistré. Les étapes « autre compilateur » (Clang sous Linux, MSVC sous Windows) et l'archive SDK viennent après le replay dans `build.yml` : pas encore vues passer.
+* ~~CI~~ : fait. La CI construit et teste la 1.5 sous Windows (MinGW) et Linux (GCC), et tout passe (2026-10-23) : tests, replay de déterminisme, étapes « autre compilateur » (Clang sous Linux, MSVC sous Windows) et archive SDK. Le seul écart Linux/Windows rencontré en route était le hachage des scripts (`-0.0` contre `+0.0` dans un champ, réglé par `CanonicalizeFloats`, replay doré réenregistré).
 * Mesurer le coût par appel sur `Spin` avec 100 000 entités contre le même système en C++ (risque du §11).
 * Le critère de réception du §10 (le module Voxel contre le SDK seul) attend le module ; les blobs sont là pour lui.
 * Le tutoriel sur une machine réellement vierge (sans MinGW ni moteur installés à côté).
 * Essayer les panneaux dans l'éditeur lui-même (les tests passent par un faux backend ; le dessin ImGui réel n'a été que compilé).
 * Faire passer `world_ecs` de l'expérimental au figé une fois éprouvé.
-* Avant une 1.6, voir passer en CI les étapes Clang et MSVC sur la 1.5 (les en-têtes C++ du SDK sont compilés avec `-Werror` dans les fixtures).
 * Compiler les extraits de la section 8 du tutoriel (`Turret`, le panneau) : ils sont écrits à partir de l'API, pas copiés d'une fixture.
 * Figer une copie des en-têtes 1.4 à côté de celle de la 1.0 (`tests/plugin_fixtures/abi_1_0`), pour que les tests de compatibilité vérifient aussi qu'un plugin compilé en 1.4 charge toujours.
 

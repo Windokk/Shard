@@ -116,7 +116,7 @@ Chaque phase vise quelque chose de testable seul. Les durées sont des ordres de
 
 ### R0 · Vérifier ce qui existe (1 à 2 semaines), à faire en premier
 
-* ~~Windows MinGW en CI~~ : fait, `build.yml` construit et teste Windows (MinGW GCC) et Linux (GCC), avec le replay de déterminisme et les étapes « plugin compilé par un autre compilateur » de l'ABI C (Clang sous Linux, MSVC sous Windows), pas encore vues passer. Reste : **macOS**, et un moteur compilé par **MSVC** (les CMake lient avec des options GNU, `-lz`).
+* ~~Windows MinGW en CI~~ : fait, `build.yml` construit et teste Windows (MinGW GCC) et Linux (GCC), avec le replay de déterminisme et les étapes « plugin compilé par un autre compilateur » de l'ABI C (Clang sous Linux, MSVC sous Windows) ; tout passe en CI (2026-10-23). Reste : **macOS**, et un moteur compilé par **MSVC** (les CMake lient avec des options GNU, `-lz`).
 * Faire tourner `ShardTests` sous **ASan et TSan** (le workflow TSan existe déjà, vérifier qu'il couvre `tests/plugins/`). Cibles : désenregistrement dans un handler, `PluginMemory`, `HookRegistry` pendant un `Emit`, rechargement d'une bibliothèque qui a des abonnements.
 * Un test d'**éditeur lancé pour de vrai** (xvfb ou fenêtre masquée) qui charge le plugin d'exemple et ouvre un panneau.
 * Fuzzer de formats (`ZipArchive`, `ParseManifest`, handshake, `ApplyWorldPatch`, `ValidateContentFolder`) : ce sont les frontières avec du contenu venu de l'extérieur. (Le chargement d'un plugin C et les tables de l'ABI ont déjà un fuzz léger, `c-abi-sdk.fr.md` A5.)
@@ -135,7 +135,7 @@ Plan, avancement, écarts et reste : `c-abi-sdk.fr.md` (§13). En bref :
 
 * `ShardHostApi` + `query_interface`, ABI **1.5** (`sdk/VERSION` 1.5.0) : plugin, contenu, composants, ECS, systèmes, événements, cvars, commandes, hooks, services, extensions, état, scripts, acteurs, input, physique, audio, mondes, éditeur ; `shard.experimental.world_ecs` sans promesse.
 * SDK C++ header-only (`sdk/include/shard/cpp/`, namespace `Shard`, `shard/game.hpp`), paquet CMake (`shard_sdk_add_plugin`), gabarit multi-fichiers, archive `shard-sdk-<version>.zip`, tutoriel `docs/docs/tutorials/write-a-game-with-the-sdk.md`, référence générée `docs/docs/api_reference.md`.
-* Prouvé : plugin compilé hors du dépôt contre le SDK installé (`Sdk.OutOfTree`), plugins MSVC et Clang chargés par le moteur MinGW (sur la machine de dev), plugin 1.0 chargé par le moteur courant (`AbiCompatTest`).
+* Prouvé : plugin compilé hors du dépôt contre le SDK installé (`Sdk.OutOfTree`), plugin MSVC chargé par le moteur MinGW sous Windows et plugin Clang chargé par le moteur GCC sous Linux, en CI, plugin 1.0 chargé par le moteur courant (`AbiCompatTest`).
 * Décision prise : le chemin cpp (`Engine` lié) est gardé pour les modules du moteur ; le module `game` est passé à l'ABI C.
 * **Reste** : le critère de réception (module Voxel contre le SDK seul, R8), le coût par appel, le tutoriel sur une machine vierge, voir `c-abi-sdk.fr.md`.
 
