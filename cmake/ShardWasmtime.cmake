@@ -33,9 +33,9 @@ if(WIN32)
         IMPORTED_IMPLIB "${_shard_wasmtime_implib}")
     file(COPY "${wasmtime_SOURCE_DIR}/lib/wasmtime.dll" DESTINATION "${CMAKE_BINARY_DIR}")
 else()
-    # The prebuilt .so carries no SONAME : without one the linker records the (build-relative) path as the NEEDED entry, which the loader
-    # then fails to resolve from another working directory (ctest). Declaring it makes NEEDED a bare name, found through the build rpath.
+    # The prebuilt .so carries no SONAME : without NO_SONAME the linker records the (build-relative) path as the NEEDED entry, which the
+    # loader fails to resolve from another working directory (ctest). NO_SONAME makes CMake link with -L/-l instead (bare NEEDED, found via rpath).
     set_target_properties(ShardWasmtime PROPERTIES
         IMPORTED_LOCATION "${wasmtime_SOURCE_DIR}/lib/libwasmtime.so"
-        IMPORTED_SONAME "libwasmtime.so")
+        IMPORTED_NO_SONAME TRUE)
 endif()
