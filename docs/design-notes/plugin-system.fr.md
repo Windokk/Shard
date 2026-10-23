@@ -18,7 +18,7 @@ Le design d'origine avait 9 phases. Bilan :
 | 5 · Rechargement à chaud | **fait** | passe par `OnPrepareReload`/`OnRestore` et la mise de côté des mondes |
 | 6 · Serveur, réseau, replays | **fait** (handshake) | pas de transport de jeu, voir §5 |
 | 7 · ABI C stable et SDK public | **fait** (ABI 1.5) | voir R2 et `c-abi-sdk.fr.md` §13. Deux chemins : `abi "c1"` (`shard_plugin_entry`, table `ShardHostApi`, sans lier `Engine`, empreinte réduite à OS + arch) et `abi "cpp"` (`shard_plugin_describe`, `Engine` lié, empreinte complète) |
-| 8 · Sandbox (WASM) et permissions appliquées | **non fait, décision** | exclu volontairement ; le tier 2 est refusé avec un message |
+| 8 · Sandbox (WASM) et permissions appliquées | **commencé** (2026-10-23) | voir R6 et `wasm-sandbox.fr.md`. Un tier 2 est un module WebAssembly (`abi "wasm1"`) exécuté par Wasmtime, avec budgets ; une permission appliquée (`fs.read:content`) |
 | 9 · Distribution | **fait** (hors TLS et hors UI) | registres, signatures, archives, `ShardPkg` |
 
 Ajouts qui n'étaient pas dans le plan d'origine : budget mémoire compté, `ShardAssetValidator` comme hôte d'outils, `--check-plugins`, safe mode après un crash, `plugins.lock`, `SHARD_JOB_THREADS`, et, avec l'ABI C, une couche de gameplay complète dans le SDK (scripts, acteurs, input, physique, audio, mondes, panneaux d'éditeur).
@@ -64,7 +64,7 @@ Désactiver = tout retirer, garder la bibliothèque ; activer = relancer `OnLoad
 | Singletons passés par une struct `PluginHostLinks` à terme remplacée par un contexte passé en paramètre | `HostLinks` + `LinkHostGlobals` + des registres qui n'exposent que des pointeurs vers les objets de l'hôte | `GetEngine()` n'est pas supprimé (phase 2 du tableau d'architecture, pas faite). Le `PluginContext` ne touche aucun global du plugin ; ce qui vit dans un `static` (extensions de monde, filtres de JSON de monde) passe par des `std::function` fournies par l'hôte |
 | Notifier un plugin désactivé sans le décharger | idem | désactiver retire tout, donc `OnLoad` est relancé à l'activation |
 | Archives `.shardplugin` compressées | écriture « stored », lecture stored + deflate | pas de dépendance zlib sous Windows ; la lecture couvre tout ce que produisent les outils usuels |
-| Sandbox WASM (phase 8) | refusé, pas implémenté | décision |
+| Sandbox WASM (phase 8) | d'abord exclu, repris le 2026-10-23 sur Wasmtime | une fois l'ABI C faite, la sandbox réutilise ses interfaces ; un interpréteur maison a été écrit puis retiré le même jour : maintenir le moteur WebAssembly, c'est porter la sécurité de la sandbox (`wasm-sandbox.fr.md` §4) |
 | `render.feature` & co. laissés aux sous-systèmes | lus par le renderer, le moteur (assets) et l'éditeur | sinon le point d'extension n'était qu'un nom |
 | `https://` | refusé | rien ne parle TLS dans le moteur ; l'index et les archives sont protégés par hash et signature |
 
@@ -164,9 +164,9 @@ Le handshake est prêt, il n'y a pas de transport de jeu (UDP fiable, réplicati
 * Lister les plugins `simulation.affects` dans l'en-tête de session et dans le message de reconnexion.
 * **Sortie** : un client et un serveur avec des plugins différents ne peuvent pas jouer ensemble, et le message dit lequel.
 
-### R6 · Sandbox (tier 2), exclu pour l'instant
+### R6 · Sandbox (tier 2) : commencée (2026-10-23)
 
-Quand ce sera repris : WebAssembly (déterministe, carburant mesurable), ABI d'imports = les interfaces C de R2 (faites : les handles et `ShardStr` s'y prêtent, seuls les pointeurs deviennent des décalages dans la mémoire linéaire), permissions réellement appliquées (`fs.read:content`, `net`, `render.feature`), budget CPU et mémoire par instance.
+Plan et avancement : `wasm-sandbox.fr.md`. Fait : le runtime sur Wasmtime 50 (C API précompilé téléchargé par CMake, carburant, mémoire bornée, NaN canoniques), le chargement d'un tier 2 `abi "wasm1"` comme un plugin C (sans signature), les budgets par image, les imports `log`, `cvars`, `commands`, `content.read` (permission `fs.read:content`), et un vrai plugin C compilé par Clang et lié par `wasm-ld` qui tourne dans la sandbox. Reste : les autres interfaces (générées depuis les en-têtes), leurs permissions, le SDK C++ en wasm, l'étalonnage du budget et la mesure contre le natif.
 
 ### R7 · Durcissement (au fil de l'eau)
 
@@ -186,7 +186,7 @@ Premier vrai client du système : Voxel (après le noyau ECS et le snapshot de r
 ```
 R0 ──► R1
 R2 (fait) ──► R8
-          └──► R6 (si un jour)
+          └──► R6 (commencée)
 R3 ──► R4
 R5 attend le transport réseau
 R7 au fil de l'eau, TLS/index signé avant d'ouvrir un registre public

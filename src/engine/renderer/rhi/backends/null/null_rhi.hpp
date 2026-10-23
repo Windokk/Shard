@@ -16,6 +16,7 @@
 #include "engine/renderer/rhi/resources/texture/cubemap/cubemap.hpp"
 #include "engine/renderer/rhi/resources/texture/cubemap/envmap.hpp"
 #include "engine/renderer/rhi/resources/texture/texture.hpp"
+#include "engine/renderer/rhi/resources/texture/texture_array.hpp"
 #include "engine/renderer/rhi/shader/compute_shader.hpp"
 #include "engine/renderer/rhi/shader/shader.hpp"
 
@@ -201,6 +202,16 @@ namespace Shard::Engine::Rendering::Null {
         uint32_t m_Handle = NextHandle();
     };
 
+    class NullTexture2DArray final : public Texture2DArray {
+    public:
+        NullTexture2DArray(const TextureSpecifications& specs, uint32_t layers) { m_Specifications = specs; m_Layers = layers; }
+        void Bind(uint32_t slot = 0) const override { (void)slot; }
+        uint32_t GetHandle() const override { return m_Handle; }
+        bool IsValid() const override { return true; }
+    private:
+        uint32_t m_Handle = NextHandle();
+    };
+
     class NullEnvironmentMap final : public EnvironmentMap {
     public:
         explicit NullEnvironmentMap(const TextureSpecifications& infos);
@@ -237,6 +248,7 @@ namespace Shard::Engine::Rendering::Null {
         void SetSamplesCount(uint32_t samples) override { m_Specifications.samplesCount = samples; }
         void AttachCubemapArray(uint32_t texture) override { (void)texture; }
         void DetachCubemapArray() override {}
+        void AttachDepthLayer(uint32_t texture, uint32_t layer) override { (void)texture; (void)layer; }
         void CopyFrom(std::shared_ptr<Framebuffer> src) override { (void)src; }
         void CopyDepthFrom(std::shared_ptr<Framebuffer> src) override { (void)src; }
         void BlitToScreen(uint32_t screenWidth, uint32_t screenHeight) override { (void)screenWidth; (void)screenHeight; }

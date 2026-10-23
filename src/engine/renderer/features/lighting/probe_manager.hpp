@@ -36,12 +36,11 @@ namespace Shard::Engine::Rendering {
     };
 
     // Max number of ProbeVolumes that can be simultaneously active. Kept as a small fixed cap (rather
-    // than a truly dynamic count) so lit.frag can declare fixed-size sampler/uniform/SSBO arrays - see
-    // MAX_PROBE_VOLUMES in lit.frag, which must match this value exactly. Capped at 2 (not higher) : each
-    // extra volume costs 2 fragment-shader samplers (one irradiance + one distance atlas), and lit.frag
-    // is already close to some drivers' hard "profile doesn't support more than 32 samplers" limit (seen
-    // in practice on an NVIDIA driver, GL error C7612) once the existing albedo/IBL/shadow-map samplers
-    // are counted - see the binding layout comment in lit.frag.
+    // than a truly dynamic count) so lit.frag can declare fixed-size uniform/SSBO arrays - see
+    // MAX_PROBE_VOLUMES in lit.frag, which must match this value exactly. The atlases no longer cost a
+    // sampler unit (lit.frag reads them through bindless handles) : what a third volume needs is its
+    // own probe state SSBO (one named block per volume, bindings 14, 15 - see DDGI_ProbeState in
+    // lit.frag) and the bindings that go with it in scene_binding.cpp.
     constexpr int kMaxProbeVolumes = 2;
 
     // Upper bound on ProbeVolume::raysPerProbe (a 16x16 octahedral tile). MUST match MAX_TILE_TEXELS in

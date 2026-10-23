@@ -34,6 +34,8 @@ Shaders are written in GLSL 4.3. For Vulkan, `ShardShaderCompiler` compiles them
 - resources are assigned a descriptor set by kind: 0 textures, 1 storage buffers, 2 storage images, 3 uniforms, 4 bindless textures
 - `sampler2D(handle)` reads from the bindless array
 
+Some drivers allow only 32 samplers in a fragment shader. `lit.frag` uses 11 : the material's textures (or the G-buffer), the sky, the reflection probe, one array per kind of shadow map, and the emission map. The engine's other textures (AO, reflections, lightmap pages, GI probe atlases) are read through bindless handles. The layout is listed at the top of `lit.frag`.
+
 SPIRV-Reflect runs on the output. A compiled program is saved as a `.spvpack` (SPIR-V plus reflection data), keyed on a hash of the sources, defines and compiler version, so a stale file is never loaded.
 
 ```
@@ -70,6 +72,8 @@ The shadow settings are in *Project Settings > Rendering*, in the *Shadows*, *Di
 The suns share 9 cascade map slots, and each takes one per cascade : with 3 cascades 3 suns cast shadows, with 4 or 5 only 2, with 6 only 1. The suns beyond that are unshadowed.
 
 Resolutions are the side of a square map in texels. A sun has one map per cascade (three by default), so its memory is the number of cascades times the square of its resolution.
+
+The maps of each kind of light are the layers of one texture array : one for the suns' cascades, one for the spot lights, one cube map array for the point lights. `lit.frag` reads each array through a single sampler, so the number of shadowed lights does not use up sampler units. The arrays are sized to the lights that have a shadow slot, and are rebuilt when one is added beyond their size.
 
 | Setting | Key | Default | |
 |---|---|---|---|
@@ -114,7 +118,7 @@ A **Reflection Probe** (*Add Component > Reflection Probe*) is a box of the worl
 | Blend Distance | 1 | Distance inside the edge of the box over which the reflection fades into the sky's. |
 | Box Projection | on | Corrects the lookup for the size of the box, so the reflection of a wall lands where the wall is. Turn it off for an open area. |
 
-Only a material with *useEnvReflections* reflects a probe. **One probe is used at a time**, the one nearest to the camera (the smaller box when the camera is inside several) : `lit.frag` has no texture unit left for a second, it sits on the 32 samplers some drivers allow a fragment stage.
+Only a material with *useEnvReflections* reflects a probe. **One probe is used at a time**, the one nearest to the camera (the smaller box when the camera is inside several).
 
 ## Screen-space reflections
 

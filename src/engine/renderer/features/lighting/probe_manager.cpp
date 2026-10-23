@@ -985,7 +985,7 @@ namespace Shard::Engine::Rendering {
             m_TemporalBlendShader->SetFloat("uHysteresis", hysteresis);
 
             // TextureFetch (not just ImageAccess) : this is the last writer before the forward pass
-            // samples the atlas through `sampler2D ddgi_irradianceAtlas*` in lit.frag -
+            // samples the atlas through its bindless handle (`ddgi_irradianceAtlasHandle` in lit.frag) -
             // GL_SHADER_IMAGE_ACCESS_BARRIER_BIT only orders subsequent imageLoad/imageStore, not
             // sampler reads, so without it the driver is free to let lit.frag see stale/incoherent atlas
             // data every frame (probe volumes silently doing nothing).

@@ -83,7 +83,8 @@ namespace Shard::Engine::Plugins {
         std::string abiFingerprint;                      ///< empty : not checked (a datapack, a static module)
 
         /// "cpp" : the C++ descriptor (shard_plugin_describe), checked with the full build fingerprint ; "c1" : the C ABI of sdk/include/shard
-        /// (shard_plugin_entry), checked with the ABI version only
+        /// (shard_plugin_entry), checked with the ABI version only ; "wasm1" : a WebAssembly module run in the sandbox (binaries["wasm"],
+        /// docs/design-notes/wasm-sandbox.fr.md), the only kind a sandboxed (tier 2) plugin can be
         std::string abi = "cpp";
 
         std::map<std::string, std::string> binaries;    ///< platform key -> path relative to the plugin folder

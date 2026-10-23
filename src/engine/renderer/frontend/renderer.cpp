@@ -1058,7 +1058,7 @@ namespace Shard::Engine::Rendering{
             // The shadow maps have no colour : their depth, stretched between the nearest and the farthest texel that holds geometry
             // (white is the cleared depth, nothing drawn). A cascade that comes out empty, cut or striped says what the lit pass compares to.
             auto dumpDepth = [&](const std::string& name, const std::shared_ptr<Framebuffer>& target) {
-                if (!target || target->GetSpecifications().hasColor || !target->GetSpecifications().hasDepth || !written.insert(target.get()).second)
+                if (!target || target->GetSpecifications().hasColor || !target->HasDepthTarget() || !written.insert(target.get()).second)
                     return;
 
                 std::vector<float> depth;

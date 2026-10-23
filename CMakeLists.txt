@@ -48,6 +48,9 @@ include(${CMAKE_SOURCE_DIR}/cmake/ShardPlugin.cmake)
 # Subdirs (Third party)
 add_subdirectory(submodules/freetype SYSTEM)
 
+# Wasmtime : the runtime of sandboxed plugins, a prebuilt release (not a submodule : building it needs Rust), see cmake/ShardWasmtime.cmake
+include(${CMAKE_SOURCE_DIR}/cmake/ShardWasmtime.cmake)
+
 # SDL3 : window system, input, clipboard, dialogs (only the platform layer sees it). Shared, so that SDL3.dll sits next to the executables.
 set(SDL_SHARED ON CACHE BOOL "" FORCE)
 set(SDL_STATIC OFF CACHE BOOL "" FORCE)

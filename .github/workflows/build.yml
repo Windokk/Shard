@@ -57,6 +57,12 @@ jobs:
         if: runner.os == 'Linux'
         run: bash scripts/install_linux_deps.sh
 
+      # Clang and wasm-ld : the sandboxed test plugin is built for wasm32 and run by the engine (WasmSdkPluginTest, Wasm.SdkSignatures).
+      # Without them those tests are skipped, not failed. (Wasmtime itself is a prebuilt archive CMake downloads, cmake/ShardWasmtime.cmake.)
+      - name: Install Clang and wasm-ld (Linux)
+        if: runner.os == 'Linux'
+        run: sudo apt-get install -y --no-install-recommends clang lld
+
       - name: Install the MinGW-w64 toolchain
         if: runner.os == 'Windows'
         uses: msys2/setup-msys2@v2
@@ -68,6 +74,8 @@ jobs:
             mingw-w64-x86_64-cmake
             mingw-w64-x86_64-ninja
             mingw-w64-x86_64-zlib
+            mingw-w64-x86_64-clang
+            mingw-w64-x86_64-lld
 
       # Same manual step as in the README ("Modify imgui submodule to use our vulkan.h") : without it the editor does not compile
       - name: Patch imgui to use the engine's vulkan.h

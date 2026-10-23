@@ -58,6 +58,13 @@ namespace Shard::Engine::Rendering {
 
             virtual void DetachCubemapArray() = 0;
 
+            /// @brief Draws into one layer of a depth Texture2DArray instead of a depth attachment of its own (the framebuffer is made with
+            /// hasDepth = false and the array's size). `texture` 0 detaches it.
+            virtual void AttachDepthLayer(uint32_t texture, uint32_t layer) = 0;
+
+            /// @brief Whether the framebuffer draws into a depth : its own, or a layer it was given (see AttachDepthLayer)
+            virtual bool HasDepthTarget() const { return m_Specifications.hasDepth; }
+
             virtual void CopyFrom(std::shared_ptr<Framebuffer> src) = 0;
 
             /// @brief Copies only the depth of `src` into this framebuffer's depth. Both have to be the same size, and the same

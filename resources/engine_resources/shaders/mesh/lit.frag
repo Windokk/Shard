@@ -1,8 +1,8 @@
 #version 430 core
-// Needed only for ssaoTextureHandle's sampler2D(uvec2) reconstruction below (see its declaration) - the
-// blurred AO texture is passed as a bindless handle rather than a `layout(binding=N)` sampler because
-// this shader is already close to a real, driver-documented texture-unit limit (see kMaxProbeVolumes in
-// probe_manager.hpp).
+// For the sampler2D(uvec2) reconstructions below : the textures the engine owns and that change from frame to frame or
+// from volume to volume (the AO, the reflections, the lightmap page, the GI probe atlases) are bindless handles rather than
+// `layout(binding=N)` samplers, so that they cost none of the fragment stage's sampler units (32 on some drivers). See
+// the sampler layout below for what still takes one.
 #extension GL_ARB_bindless_texture : enable
 
 #include "../common/light.glsl"
@@ -142,30 +142,30 @@ layout(binding = 5) uniform samplerCube ibl_prefilteredEnvMap;
 // probe volume's grid contains the shading point (DDGI_PickVolume returns -1). Up to this many
 // ProbeVolumes can be active at once, each with its own grid/atlases; DDGI_PickVolume picks the
 // smallest one containing the point, so a dense local volume overrides a coarse room-scale one it's
-// nested in. MUST equal ProbeManager::kMaxProbeVolumes - gl_api.cpp fills ddgi_*[0 .. volumeCount-1].
+// nested in. MUST equal ProbeManager::kMaxProbeVolumes - scene_binding.cpp fills ddgi_*[0 .. volumeCount-1].
 #define MAX_PROBE_VOLUMES 2
 
 // Kernel weight under which a probe of the blend is skipped, see DDGI_SampleVolume
 #define DDGI_MIN_TAP_WEIGHT 0.004
 
-// One octahedral irradiance tile atlas + one (mean dist, mean dist^2) distance atlas per volume. These
-// are scalar samplers on hand-picked units (7,8,9,19 - the gaps left between the material/IBL block
-// and the shadow-map ranges at 10/20/30) rather than sampler2D[MAX_PROBE_VOLUMES] arrays : GLSL
-// sampler-array indexing must be dynamically uniform (the volume index here is per-fragment), and a
-// 2-element array from binding 7 would also push the distance atlas onto unit 32, past the 32-unit
-// limit some drivers enforce (see kMaxProbeVolumes in probe_manager.hpp). The distance atlas feeds
-// DDGI_VisibilityWeight, which stops an occluded probe (wall between it and the shading point) from
-// leaking light/shadow through the trilinear blend. Add a third volume -> add ddgi_*Atlas2 here, in
-// DDGI_Sample*Atlas below, in DDGI_ProbeState, and bump MAX_PROBE_VOLUMES / kMaxProbeVolumes together.
-layout(binding = 7)  uniform sampler2D ddgi_irradianceAtlas0;
-layout(binding = 8)  uniform sampler2D ddgi_irradianceAtlas1;
-layout(binding = 9)  uniform sampler2D ddgi_distanceAtlas0;
-layout(binding = 19) uniform sampler2D ddgi_distanceAtlas1;
+// One octahedral irradiance tile atlas + one (mean dist, mean dist^2) distance atlas per volume, as bindless handles
+// (low/high 32 bits, like ssaoTextureHandle) : no sampler unit, and the volumes' atlases need not share a size. The
+// distance atlas feeds DDGI_VisibilityWeight, which stops an occluded probe (wall between it and the shading point) from
+// leaking light/shadow through the trilinear blend. The volume a fragment reads is per-fragment, so DDGI_Sample*Atlas
+// never index these with it : they walk the volumes with a constant index, which keeps every handle uniform.
+uniform uvec2 ddgi_irradianceAtlasHandle[MAX_PROBE_VOLUMES];
+uniform uvec2 ddgi_distanceAtlasHandle[MAX_PROBE_VOLUMES];
+
+// ---- Sampler units : what still takes one (11 of the 32 some drivers allow a fragment stage) ----
+//   0-3   the material's textures (forward) or the G-buffer (deferred lighting)
+//   4-5   the sky's irradiance and prefiltered environment
+//   6     the reflection probe
+//   7-9   the shadow maps : one array per kind of light, a light's map is a layer of it
+//   10    the emission map (forward) or the G-buffer's depth (deferred lighting)
 
 // Reflection probe (see ReflectionProbe) : a baked picture of the surroundings of a point, prefiltered by roughness the way the skybox's is,
 // which the surfaces inside the probe's box reflect instead of the sky. ONE probe at a time (the one nearest to the camera, picked by
-// scene_binding.cpp) : this shader sits exactly on the 32 samplers some drivers allow a fragment stage, and the only unit it could free is
-// the BRDF table's (binding 6, see IBL_Specular), which the probe's cubemap takes.
+// scene_binding.cpp).
 layout(binding = 6) uniform samplerCube rp_prefilter;
 uniform bool rp_enabled;
 uniform vec3 rp_center;                // where the picture was taken, and the centre of the box
@@ -194,20 +194,20 @@ vec4 DDGI_ProbeState(int v, int probeIndex) {
     return ddgi_probeState1[probeIndex];
 }
 
-layout(binding = 10) uniform sampler2DShadow dirShadowMaps[NUM_CASCADES];
-layout(binding = 20) uniform sampler2D spotShadowMaps[10];
-
-layout(binding = 30) uniform samplerCubeArray pointShadowMapArray;
+// The shadow maps (see ShadowManager::SyncLayeredShadowTargets) : sun k's cascade c is layer k * dirCascadeCount + c of the
+// first array, spot light s is layer s of the second, point light p is cube p of the third. The layer is a coordinate, so it
+// may differ from one fragment to the next (a sampler array could only be indexed uniformly).
+layout(binding = 7) uniform sampler2DArrayShadow dirShadowMapArray;
+layout(binding = 8) uniform sampler2DArray spotShadowMapArray;
+layout(binding = 9) uniform samplerCubeArray pointShadowMapArray;
 
 // Emission map - a material texture slot like albedo/metallicMap/roughnessMap/normalMap, so it has to be
 // a real sampler (GLMaterial::Bind binds material textures per unit, by this binding) rather than a
-// bindless handle like ssaoTextureHandle. Parked on unit 31, the last of the 32 units : 0-30 are all taken
-// above, so there is NO free unit left - a new sampler means freeing one first (e.g. shrinking the
-// cascade/spot/point shadow ranges), not just picking a number.
+// bindless handle like ssaoTextureHandle.
 #ifdef SHARD_DEFERRED_LIGHTING
-layout(binding = 31) uniform GBUFFER_SAMPLER gDepthTex;
+layout(binding = 10) uniform GBUFFER_SAMPLER gDepthTex;
 #else
-layout(binding = 31) uniform sampler2D emissiveMap;
+layout(binding = 10) uniform sampler2D emissiveMap;
 #endif
 
 // PBR values
@@ -228,7 +228,7 @@ uniform vec3 emissive;
 // Screen-space ambient occlusion (see SSAOManager) - ssaoTextureHandle is a bindless texture handle
 // (low/high 32 bits of an ARB_bindless_texture handle), reconstructed into a
 // sampler only at the point of use (SampleSSAO below) via GLSL's sampler2D(uvec2) constructor - NOT
-// declared as `uniform sampler2D`, which would consume one of this shader's already-scarce texture
+// declared as `uniform sampler2D`, which would consume one of this shader's texture
 // units. ssaoIntensity blends toward "no occlusion" in SampleSSAO,
 // so it's a cheap post-hoc strength control that doesn't need the SSAO passes themselves rerun.
 uniform bool ssaoEnabled;
@@ -305,8 +305,8 @@ uniform bool useEnvReflections;
 // previews - sets this, and gets the display transform (a fixed filmic curve) here instead.
 uniform bool outputDisplayColors;
 
-// Baked lighting (see LightmapManager) : the page of the lightmap atlas this draw reads, as a bindless handle (the sampler
-// units are all taken, see emissiveMap), and what maps the mesh's lightmap coordinates onto it (uv * xy + zw). The page holds
+// Baked lighting (see LightmapManager) : the page of the lightmap atlas this draw reads, as a bindless handle (no sampler
+// unit, see the layout at the top), and what maps the mesh's lightmap coordinates onto it (uv * xy + zw). The page holds
 // the irradiance the surface receives from the sky, the Static lights and the bounces of all of it, which replaces the probes
 // and the skybox for the diffuse ambient term. Set per draw : lightmapEnabled is false for a mesh without a lightmap.
 uniform bool lightmapEnabled;
@@ -332,13 +332,13 @@ int selectCascade(int lightIndex){
 
 // worldNormal must be the GEOMETRIC (interpolated vertex) normal, not the normal-mapped one : the bias below is a statement about
 // the surface the shadow map actually stored, and a weave normal map makes it flicker per texel of the cloth (the mosaic).
-float ShadowCalculationDir(sampler2DShadow shadowMap, mat4 lightSpaceMatrix, vec3 lightDir, vec3 worldPos, vec3 worldNormal){
+float ShadowCalculationDir(int cascade, mat4 lightSpaceMatrix, vec3 lightDir, vec3 worldPos, vec3 worldNormal){
     mat3 M = mat3(lightSpaceMatrix);
     // The cascade is an orthographic box : the scale of each axis of the light space gives the size of a shadow texel and the
     // world depth range of the map
     float scaleX = length(vec3(M[0][0], M[1][0], M[2][0]));
     float scaleZ = length(vec3(M[0][2], M[1][2], M[2][2]));
-    vec2 mapSize = vec2(textureSize(shadowMap, 0));
+    vec2 mapSize = vec2(textureSize(dirShadowMapArray, 0).xy);
     float texelWorld = 2.0 / (scaleX * mapSize.x);
     float zPerWorld = 0.5 * scaleZ;                 // shadow depth (0..1) per world unit
 
@@ -382,7 +382,7 @@ float ShadowCalculationDir(sampler2DShadow shadowMap, mat4 lightSpaceMatrix, vec
         for (int y = -radius; y <= radius; ++y) {
             vec2 offset = vec2(x, y) * texelSize * dirShadowFilterSpread;
             float planeDepth = dot(depthSlope, offset);
-            visibility += texture(shadowMap, vec3(proj.xy + offset, proj.z + planeDepth - constBias));
+            visibility += texture(dirShadowMapArray, vec4(proj.xy + offset, float(cascade), proj.z + planeDepth - constBias));
         }
     }
 
@@ -390,7 +390,7 @@ float ShadowCalculationDir(sampler2DShadow shadowMap, mat4 lightSpaceMatrix, vec
     return visibility / (taps * taps);
 }
 
-float ShadowCalculationSpot(sampler2D shadowMap, vec3 lightDir, mat4 lightSpaceMatrix, vec3 worldNormal) {
+float ShadowCalculationSpot(int slot, vec3 lightDir, mat4 lightSpaceMatrix, vec3 worldNormal) {
     vec4 fragPosLightSpace = lightSpaceMatrix * vec4(worldPos, 1.0);
     vec3 projCoords = fragPosLightSpace.xyz / fragPosLightSpace.w;
     projCoords = projCoords * 0.5 + 0.5;
@@ -404,12 +404,12 @@ float ShadowCalculationSpot(sampler2D shadowMap, vec3 lightDir, mat4 lightSpaceM
     float bias = max(spotShadowDepthBias * (1.0 - dot(normalize(worldNormal), lightDir)), spotShadowMinDepthBias);
 
     float shadow = 0.0;
-    vec2 texelSize = 1.0 / vec2(textureSize(shadowMap, 0));
+    vec2 texelSize = 1.0 / vec2(textureSize(spotShadowMapArray, 0).xy);
 
     int radius = clamp(spotShadowFilterRadius, 0, 4);
     for (int x = -radius; x <= radius; ++x) {
         for (int y = -radius; y <= radius; ++y) {
-            float closestDepth = texture(shadowMap, projCoords.xy + vec2(x, y) * texelSize * spotShadowFilterSpread).r;
+            float closestDepth = texture(spotShadowMapArray, vec3(projCoords.xy + vec2(x, y) * texelSize * spotShadowFilterSpread, float(slot))).r;
             shadow += (projCoords.z - bias) < closestDepth ? 1.0 : 0.0;
         }
     }
@@ -469,17 +469,24 @@ vec3 IBL_Diffuse(vec3 N, vec3 albedo, float metallic) {
 #include "../common/ddgi_atlas.glsl"
 #include "../common/ddgi_visibility.glsl"
 
-// Per-fragment volume select over the scalar atlas samplers (see their declaration for why they're
-// not arrays). Hard-codes MAX_PROBE_VOLUMES == 2, same as DDGI_ProbeState above.
+// Per-fragment volume select over the atlas handles : the loop's index is a constant for every fragment, so the handle each
+// texture() is made from is uniform (only whether it runs differs), which is all GL_ARB_bindless_texture and the Vulkan
+// build's bindless array ask for. The sampler is made where it is read (a Vulkan build cannot keep it in a variable).
 // textureLod(.., 0) not texture() : the atlases have no mips, and the select below is non-uniform
 // control flow where implicit-LOD derivatives are undefined.
 vec3 DDGI_SampleIrradianceAtlas(int v, vec2 uv) {
-    return (v == 0) ? textureLod(ddgi_irradianceAtlas0, uv, 0.0).rgb
-                    : textureLod(ddgi_irradianceAtlas1, uv, 0.0).rgb;
+    vec3 value = vec3(0.0);
+    for (int i = 0; i < MAX_PROBE_VOLUMES; i++)
+        if (i == v)
+            value = textureLod(sampler2D(ddgi_irradianceAtlasHandle[i]), uv, 0.0).rgb;
+    return value;
 }
 vec2 DDGI_SampleDistanceAtlas(int v, vec2 uv) {
-    return (v == 0) ? textureLod(ddgi_distanceAtlas0, uv, 0.0).rg
-                    : textureLod(ddgi_distanceAtlas1, uv, 0.0).rg;
+    vec2 value = vec2(0.0);
+    for (int i = 0; i < MAX_PROBE_VOLUMES; i++)
+        if (i == v)
+            value = textureLod(sampler2D(ddgi_distanceAtlasHandle[i]), uv, 0.0).rg;
+    return value;
 }
 
 // Samples one probe's octahedral tile in volume v's irradiance atlas in direction N - see
@@ -830,7 +837,7 @@ vec4 ShadeSurface(vec4 baseColor, float metallicValue, float roughnessValue, vec
 
             int cascadeIdx = selectCascade(l.shadowIndex);
             vec3 L = -normalize(l.direction.xyz);
-            float visibility = ShadowCalculationDir(dirShadowMaps[cascadeIdx], dirLightSpaceMatrices[cascadeIdx], L, worldPos, normalize(N));
+            float visibility = ShadowCalculationDir(cascadeIdx, dirLightSpaceMatrices[cascadeIdx], L, worldPos, normalize(N));
 
             vec4 ls = dirLightSpaceMatrices[cascadeIdx] * vec4(worldPos, 1.0);
             vec3 proj = ls.xyz / ls.w * 0.5 + 0.5;
@@ -863,7 +870,7 @@ vec4 ShadeSurface(vec4 baseColor, float metallicValue, float roughnessValue, vec
 
         if (showShadows && shadowsEnabled && l.castShadow == 1 && l.shadowIndex >= 0) {
             int cascadeIdx = selectCascade(l.shadowIndex);
-            visibility = ShadowCalculationDir(dirShadowMaps[cascadeIdx], dirLightSpaceMatrices[cascadeIdx], L, worldPos, normalize(N));
+            visibility = ShadowCalculationDir(cascadeIdx, dirLightSpaceMatrices[cascadeIdx], L, worldPos, normalize(N));
         }
 
         result += ComputeLightDisney(l, L, V, TerminatorNormal(N, worldNormal, L), baseColor.rgb, roughnessValue, metallicValue, visibility * TerminatorSoften(N, L), 1.0);
@@ -924,7 +931,7 @@ vec4 ShadeSurface(vec4 baseColor, float metallicValue, float roughnessValue, vec
             attenuation *= spotIntensity;
 
             if (showShadows && shadowsEnabled && l.castShadow == 1 && l.shadowIndex >= 0) {
-                visibility = ShadowCalculationSpot(spotShadowMaps[l.shadowIndex], L, spotLightSpaceMatrices[l.shadowIndex], worldNormal);
+                visibility = ShadowCalculationSpot(l.shadowIndex, L, spotLightSpaceMatrices[l.shadowIndex], worldNormal);
             }
         }
 

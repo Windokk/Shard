@@ -291,6 +291,7 @@ namespace Shard::Engine::Plugins {
         // loading
         bool LoadRecord(PluginRecord& record);
         bool LoadLibrary(PluginRecord& record);
+        bool LoadSandbox(PluginRecord& record);       ///< abi "wasm1" : wasm/wasm_plugin.hpp
         bool CreateContext(PluginRecord& record);
         void RunLoad(PluginRecord& record);
         void RunInitialize(PluginRecord& record);

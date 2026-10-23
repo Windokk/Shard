@@ -8,6 +8,7 @@
 #include "engine/renderer/rhi/resources/mesh/mesh.hpp"
 #include "engine/renderer/rhi/resources/texture/texture.hpp"
 #include "engine/renderer/rhi/resources/texture/cubemap/cubemap.hpp"
+#include "engine/renderer/rhi/resources/texture/texture_array.hpp"
 #include "engine/renderer/rhi/pipelines/pipeline.hpp"
 #include "engine/renderer/rhi/resources/framebuffer/framebuffer.hpp"
 
@@ -480,16 +481,9 @@ namespace Shard::Engine::Rendering{
                 }
             }
 
-            TextureSpecifications textureSpecs;
-            textureSpecs.borderColor = COL_RGBA(1.0f);
-            textureSpecs.compareMode = TextureCompareMode::None;
-            textureSpecs.minFilter = TextureFilter::Linear;
-            textureSpecs.magFilter = TextureFilter::Linear;
-            textureSpecs.wrapS = TextureWrap::ClampBorder;
-            textureSpecs.wrapT = TextureWrap::ClampBorder;
-            textureSpecs.wrapR = TextureWrap::ClampBorder;
-            textureSpecs.internalFormat = TextureInternalFormat::Depth32F;
-            textureSpecs.format = TextureFormat::Depth;
+            // The framebuffers of a sun or a spot draw into layers of the arrays SyncLayeredShadowTargets points them at
+            sm.attachedArray = 0;
+            sm.attachedBaseLayer = -2;
 
             // New resources creation
             switch (currentType)
@@ -533,16 +527,13 @@ namespace Shard::Engine::Rendering{
                 {
                     sm.resolution = m_DirShadowsResolution;
 
-                    TextureSpecifications dirTextureSpecs = textureSpecs;
-                    dirTextureSpecs.compareMode = TextureCompareMode::CompareRefToTexture;
-                    dirTextureSpecs.compareFunc = TextureCompareFunc::LessOrEqual;
-
                     FramebufferSpecifications specs{};
                     specs.width  = m_DirShadowsResolution;
                     specs.height = m_DirShadowsResolution;
-                    specs.hasDepth = true;
+                    specs.hasDepth = false;
                     specs.hasColor = false;
-                    specs.depthSpecs = dirTextureSpecs;
+                    specs.multisampled = false;
+                    specs.depthSpecs.internalFormat = TextureInternalFormat::Depth32F;
 
                     sm.cascadeCount = m_Settings.CascadeCount();
                     for (uint32_t c = 0; c < sm.cascadeCount; ++c) {
@@ -558,9 +549,10 @@ namespace Shard::Engine::Rendering{
                     FramebufferSpecifications specs{};
                     specs.width  = m_SpotShadowsResolution;
                     specs.height = m_SpotShadowsResolution;
-                    specs.hasDepth = true;
+                    specs.hasDepth = false;
                     specs.hasColor = false;
-                    specs.depthSpecs = textureSpecs;
+                    specs.multisampled = false;
+                    specs.depthSpecs.internalFormat = TextureInternalFormat::Depth32F;
 
                     sm.framebuffer[0] = Framebuffer::Create(specs);
                     sm.lightMatrix[0] = light->GetLightMatrix(glm::mat4(1.0f), -1, -1, -1, -1, -1, sm.light.outerCutoff);
@@ -606,6 +598,105 @@ namespace Shard::Engine::Rendering{
                 case (int)LightType::Point:
                     sm.lightPtr->shadowIndex = (sm.cubeArrayLayer < MAX_POINT_LIGHTS) ? sm.cubeArrayLayer : -1;
                     break;
+            }
+        }
+
+        SyncLayeredShadowTargets();
+    }
+
+    std::shared_ptr<Texture2DArray> ShadowManager::CreateShadowArray(int resolution, uint32_t layers, bool compare) const
+    {
+        TextureSpecifications specs;
+        specs.width = uint32_t(resolution);
+        specs.height = uint32_t(resolution);
+        specs.borderColor = COL_RGBA(1.0f);
+        specs.compareMode = compare ? TextureCompareMode::CompareRefToTexture : TextureCompareMode::None;
+        specs.compareFunc = TextureCompareFunc::LessOrEqual;
+        specs.minFilter = TextureFilter::Linear;
+        specs.magFilter = TextureFilter::Linear;
+        specs.wrapS = TextureWrap::ClampBorder;
+        specs.wrapT = TextureWrap::ClampBorder;
+        specs.wrapR = TextureWrap::ClampBorder;
+        specs.internalFormat = TextureInternalFormat::Depth32F;
+        specs.format = TextureFormat::Depth;
+        specs.generateMips = false;
+
+        return Texture2DArray::Create(specs, layers);
+    }
+
+    void ShadowManager::SyncLayeredShadowTargets()
+    {
+        // The layers the lights that have a slot need : a sun takes one per cascade
+        uint32_t dirLayers = 0, spotLayers = 0;
+        for (const auto& [lightIndex, sm] : m_ShadowMaps)
+        {
+            if (!sm.lightPtr || sm.lightPtr->shadowIndex < 0)
+                continue;
+
+            const uint32_t slot = uint32_t(sm.lightPtr->shadowIndex);
+            if (sm.light.type == (int)LightType::Directional)
+                dirLayers = std::max(dirLayers, (slot + 1) * sm.cascadeCount);
+            else if (sm.light.type == (int)LightType::Spot)
+                spotLayers = std::max(spotLayers, slot + 1);
+        }
+
+        // An array is made again when it lacks layers or has the wrong size (the resolution changed), and let go of when no light
+        // needs it. The suns' never has more than NUM_CASCADES layers : it is made exactly as big. The spots' grows geometrically,
+        // since each growth throws away (and has every spot draw again) the maps it held.
+        bool recreated = false;
+        auto fit = [&](std::shared_ptr<Texture2DArray>& array, uint32_t needed, uint32_t capacity, int resolution, bool compare)
+        {
+            if (needed == 0)
+            {
+                recreated |= array != nullptr;
+                array.reset();
+                return;
+            }
+
+            if (array && array->GetLayerCount() >= needed && array->GetWidth() == uint32_t(resolution))
+                return;
+
+            array = CreateShadowArray(resolution, capacity, compare);
+            recreated = true;
+        };
+
+        const uint32_t spotCapacity = std::min<uint32_t>(MAX_SPOT_LIGHTS, std::max(spotLayers, m_SpotArrayTex ? m_SpotArrayTex->GetLayerCount() * 2 : 1u));
+        fit(m_DirArrayTex, dirLayers, dirLayers, m_DirShadowsResolution, true);
+        fit(m_SpotArrayTex, spotLayers, spotCapacity, m_SpotShadowsResolution, false);
+
+        for (auto& [lightIndex, sm] : m_ShadowMaps)
+        {
+            const bool directional = sm.light.type == (int)LightType::Directional;
+            if (!directional && sm.light.type != (int)LightType::Spot)
+                continue;
+
+            const std::shared_ptr<Texture2DArray>& array = directional ? m_DirArrayTex : m_SpotArrayTex;
+            const uint32_t count = directional ? sm.cascadeCount : 1u;
+            const bool hasSlot = sm.lightPtr && sm.lightPtr->shadowIndex >= 0 && array;
+
+            const uint32_t wantedArray = hasSlot ? array->GetHandle() : 0;
+            const int wantedBase = hasSlot ? sm.lightPtr->shadowIndex * int(count) : -1;
+
+            if (!recreated && wantedArray == sm.attachedArray && wantedBase == sm.attachedBaseLayer)
+                continue;
+
+            sm.attachedArray = wantedArray;
+            sm.attachedBaseLayer = wantedBase;
+
+            for (uint32_t c = 0; c < count; ++c)
+            {
+                if (sm.framebuffer[c] && sm.framebuffer[c]->IsValid())
+                    sm.framebuffer[c]->AttachDepthLayer(wantedArray, hasSlot ? uint32_t(wantedBase) + c : 0u);
+
+                if (c >= sm.passes.size())
+                    continue;
+
+                // A light without a slot draws nowhere (and lit.frag never reads it) ; the others draw their new layer on the next frame
+                if (std::shared_ptr<RenderPass> pass = Core::GetEngine().GetRenderContext()->GetRenderPass(sm.passes[c]))
+                {
+                    pass->enabled = hasSlot;
+                    pass->hasCachedState = false;
+                }
             }
         }
     }
@@ -719,11 +810,6 @@ namespace Shard::Engine::Rendering{
 
                     for (uint32_t c = 0; c < sm.second.cascadeCount; ++c)
                     {
-                        material->SetTextureParameter(
-                            "dirShadowMaps[" + std::to_string(base + c) + "]",
-                            sm.second.framebuffer[c]->GetDepthAttachment()
-                        );
-
                         material->SetScalarParameter(
                             "dirLightSpaceMatrices[" + std::to_string(base + c) + "]",
                             sm.second.lightMatrix[c]
@@ -739,12 +825,6 @@ namespace Shard::Engine::Rendering{
             // Spot lights
             else if (light.type == static_cast<int>(LightType::Spot))
             {
-                // Set sampler uniform
-                material->SetTextureParameter(
-                    "spotShadowMaps[" + std::to_string(shadowIndex) + "]",
-                    sm.second.framebuffer[0]->GetDepthAttachment()
-                );
-
                 material->SetScalarParameter(
                     "spotLightSpaceMatrices[" + std::to_string(shadowIndex) + "]",
                     sm.second.lightMatrix[0]
@@ -760,7 +840,10 @@ namespace Shard::Engine::Rendering{
             }
         }
 
-        // Bind point light cube map array
+        // One sampler for each kind of light : the layer a light reads is its slot (and its cascade), see SyncLayeredShadowTargets
+        // (0 when there is none : the material must not keep the name of an array that was let go of)
+        material->SetTextureParameter("dirShadowMapArray", m_DirArrayTex ? m_DirArrayTex->GetHandle() : 0);
+        material->SetTextureParameter("spotShadowMapArray", m_SpotArrayTex ? m_SpotArrayTex->GetHandle() : 0);
         if(m_CurrentPointLightCapacity && m_CubeArrayTex)
             material->SetTextureParameter("pointShadowMapArray", m_CubeArrayTex->GetHandle());
     }
@@ -807,5 +890,7 @@ namespace Shard::Engine::Rendering{
         m_PointLightCount = 0;
         m_CurrentPointLightCapacity = 0;
         m_CubeArrayTex.reset();
+        m_DirArrayTex.reset();
+        m_SpotArrayTex.reset();
     }
 }

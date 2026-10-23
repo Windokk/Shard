@@ -16,17 +16,19 @@ namespace Shard::Engine::Rendering {
     class Texture2D;
     class Cubemap;
     class CubemapArray;
+    class Texture2DArray;
     class Framebuffer;
     struct DrawCommand;
     
-    // Most cascades one light can have, and the cascade shadow map slots lit.frag has (its dirShadowMaps array) : the suns share them,
+    // Most cascades one light can have, and the cascade shadow map slots lit.frag has (its dirLightSpaceMatrices array, the layers of the suns' array) : the suns share them,
     // each taking as many as the project's cascade count, so fewer suns can cast shadows when there are more cascades
     static constexpr uint32_t MAX_CASCADES_PER_LIGHT = Projects::ShadowSettings::MaxCascades;
     static constexpr uint32_t NUM_CASCADES = (LightManager::MAX_DIRECTIONAL_LIGHTS * 3);
 
-    // Mirrors the fixed-size shadow sampler arrays in lit.frag (spotShadowMaps[10], the point cube
-    // array's implicit layer cap) - a shadow-casting light beyond these caps gets shadowIndex = -1
-    // (see ShadowManager::ReassignShadowIndices) and renders unshadowed rather than reading garbage.
+    // Mirrors the fixed-size arrays of light matrices / far planes in lit.frag (spotLightSpaceMatrices[10],
+    // pointLightFarPlanes[10]) : the maps themselves are layers of one texture each and cost no sampler unit
+    // per light. A shadow-casting light beyond these caps gets shadowIndex = -1 (see
+    // ShadowManager::ReassignShadowIndices) and renders unshadowed rather than reading garbage.
     static constexpr int MAX_SPOT_LIGHTS = 10;
     static constexpr int MAX_POINT_LIGHTS = 10;
 
@@ -39,8 +41,13 @@ namespace Shard::Engine::Rendering {
         std::shared_ptr<LightData> lightPtr;
 
         // Directional and spot
-        std::shared_ptr<Framebuffer> framebuffer[MAX_CASCADES_PER_LIGHT] = {nullptr};       // One FBO per cascade (only 1 used for spot)
-        
+        std::shared_ptr<Framebuffer> framebuffer[MAX_CASCADES_PER_LIGHT] = {nullptr};       // One FBO per cascade (only 1 used for spot), each drawing into a layer of the suns' / the spots' array
+
+        // The array the framebuffers draw into and the layer of the first one (the cascades follow it) : 0 / -1 when they draw nowhere
+        // (no shadow slot), -2 before the first sync. Kept to tell when SyncLayeredShadowTargets has to point them somewhere else.
+        uint32_t attachedArray = 0;
+        int attachedBaseLayer = -2;
+
         // Directional (CSM)
         glm::mat4 lightMatrix[MAX_CASCADES_PER_LIGHT];                                      // One matrix per cascade
         float cascadeSplits[MAX_CASCADES_PER_LIGHT];                                        // Only used for directional lights
@@ -143,6 +150,15 @@ namespace Shard::Engine::Rendering {
         // callers must ensure LightManager::Update() runs afterward so the new indices reach the GPU.
         void ReassignShadowIndices();
 
+        // The suns' and the spot lights' shadow maps are the layers of one texture array each (lit.frag reads every one through a
+        // single sampler). Run after ReassignShadowIndices : sizes the arrays to the lights that have a slot, points each light's
+        // framebuffers at the layers of its slot (shadowIndex * cascades + cascade for a sun, shadowIndex for a spot), and turns off
+        // the passes of a light that has none. A pass whose layer changed draws again, even if nothing it hashes did.
+        void SyncLayeredShadowTargets();
+
+        // An array of `layers` maps of `resolution`, for the suns (compare : read through a sampler2DArrayShadow) or the spots
+        std::shared_ptr<Texture2DArray> CreateShadowArray(int resolution, uint32_t layers, bool compare) const;
+
         // Every point light's framebuffer is the whole (layered) cube map array : a pass clearing it would wipe the other lights' layers.
         // The array is cleared once per frame by this pass instead, and every point light's pass comes after it without clearing.
         void AddPointClearPass();
@@ -150,6 +166,8 @@ namespace Shard::Engine::Rendering {
 
         std::map<int, ShadowMap> m_ShadowMaps;
         std::shared_ptr<CubemapArray> m_CubeArrayTex;
+        std::shared_ptr<Texture2DArray> m_DirArrayTex;      // every cascade of every sun that has a slot
+        std::shared_ptr<Texture2DArray> m_SpotArrayTex;     // every spot light that has a slot (grown geometrically, up to MAX_SPOT_LIGHTS)
         std::shared_ptr<Framebuffer> m_PointClearTarget;
         std::shared_ptr<Shader> m_DirShader;
         std::shared_ptr<Shader> m_SpotShader;

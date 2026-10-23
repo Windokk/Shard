@@ -113,9 +113,15 @@ namespace Shard::Engine::Rendering{
 
         if (ddgiReady)
         {
-            const auto& samplers = shader->GetActiveSamplersMap();
             int volumeCount = 0;
             int lastReady = -1;
+
+            // The atlases are bindless handles (lit.frag has no sampler unit for them), low and high 32 bits
+            auto setHandle = [&](const std::string& name, const std::shared_ptr<Texture2D>& atlas)
+            {
+                const uint64_t handle = atlas ? atlas->GetBindlessHandle() : 0;
+                shader->SetUVec2(name, static_cast<uint32_t>(handle & 0xFFFFFFFFu), static_cast<uint32_t>(handle >> 32));
+            };
 
             for (int i = 0; i < probeManager->GetActiveVolumeCount(); i++)
             {
@@ -123,15 +129,9 @@ namespace Shard::Engine::Rendering{
                     continue;
 
                 std::string idx = "[" + std::to_string(volumeCount) + "]"; // ddgi_* uniform-array element
-                std::string num = std::to_string(volumeCount);              // ddgi_*Atlas<n> scalar sampler
 
-                auto atlasSampler = samplers.find("ddgi_irradianceAtlas" + num);
-                if (atlasSampler != samplers.end())
-                    api.BindTextureUnit(atlasSampler->second.binding, probeManager->GetIrradianceAtlas(i)->GetHandle());
-
-                auto distAtlasSampler = samplers.find("ddgi_distanceAtlas" + num);
-                if (distAtlasSampler != samplers.end())
-                    api.BindTextureUnit(distAtlasSampler->second.binding, probeManager->GetDistanceAtlas(i)->GetHandle());
+                setHandle("ddgi_irradianceAtlasHandle" + idx, probeManager->GetIrradianceAtlas(i));
+                setHandle("ddgi_distanceAtlasHandle" + idx, probeManager->GetDistanceAtlas(i));
 
                 auto probeStateBuffer = probeManager->GetProbeStateBuffer(i);
                 if (probeStateBuffer)
@@ -151,15 +151,10 @@ namespace Shard::Engine::Rendering{
 
             for (int s = volumeCount; lastReady >= 0 && s < kMaxProbeVolumes; s++)
             {
-                std::string num = std::to_string(s);
+                std::string idx = "[" + std::to_string(s) + "]";
 
-                auto atlasSampler = samplers.find("ddgi_irradianceAtlas" + num);
-                if (atlasSampler != samplers.end())
-                    api.BindTextureUnit(atlasSampler->second.binding, probeManager->GetIrradianceAtlas(lastReady)->GetHandle());
-
-                auto distAtlasSampler = samplers.find("ddgi_distanceAtlas" + num);
-                if (distAtlasSampler != samplers.end())
-                    api.BindTextureUnit(distAtlasSampler->second.binding, probeManager->GetDistanceAtlas(lastReady)->GetHandle());
+                setHandle("ddgi_irradianceAtlasHandle" + idx, probeManager->GetIrradianceAtlas(lastReady));
+                setHandle("ddgi_distanceAtlasHandle" + idx, probeManager->GetDistanceAtlas(lastReady));
 
                 auto padStateBuffer = probeManager->GetProbeStateBuffer(lastReady);
                 if (padStateBuffer)
@@ -170,7 +165,7 @@ namespace Shard::Engine::Rendering{
         }
 
         // Reflection probe : the one nearest to the view among those that have a baked picture (the camera inside a box is at distance 0, the
-        // smaller box among those). One at a time : lit.frag has no sampler unit left for a second. A studio view brings its own environment,
+        // smaller box among those). One at a time : lit.frag reads a single probe (one sampler unit). A studio view brings its own environment,
         // so it never reflects the world's probes.
         {
             const ReflectionProbeProxy* best = nullptr;

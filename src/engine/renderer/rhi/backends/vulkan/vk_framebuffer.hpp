@@ -30,6 +30,10 @@ namespace Shard::Engine::Rendering {
             void AttachCubemapArray(uint32_t texture) override;
             void DetachCubemapArray() override;
 
+            void AttachDepthLayer(uint32_t texture, uint32_t layer) override;
+
+            bool HasDepthTarget() const override { return m_Specifications.hasDepth || m_AttachedLayerTexture != 0; }
+
             void CopyFrom(std::shared_ptr<Framebuffer> src) override;
             void CopyDepthFrom(std::shared_ptr<Framebuffer> src) override;
             void BlitToScreen(uint32_t screenWidth, uint32_t screenHeight) override;
@@ -72,6 +76,8 @@ namespace Shard::Engine::Rendering {
             std::vector<std::unique_ptr<VK::TextureResource>> m_ExtraColors;     // colour attachments 1 and on (a G-buffer)
 
             uint32_t m_AttachedCubemap = 0;         ///< the texture (id) that replaces the depth attachment, 0 : none
+            uint32_t m_AttachedLayerTexture = 0;    ///< the array (id) one layer of which replaces the depth attachment, 0 : none
+            uint32_t m_AttachedLayer = 0;
             uint32_t m_Handle = 0;
             bool m_Destroyed = false;
             int64_t m_GpuBytes = 0;

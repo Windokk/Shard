@@ -16,6 +16,7 @@
 #include "engine/core/tags/tag_registry.hpp"
 #include "engine/platform/crash/crash_handler.hpp"
 #include "engine/plugins/abi/c_plugin.hpp"
+#include "engine/plugins/wasm/wasm_plugin.hpp"
 #include "engine/plugins/archive.hpp"
 #include "engine/plugins/declared_component.hpp"
 #include "engine/world/engine.hpp"
@@ -814,6 +815,23 @@ namespace Shard::Engine::Plugins {
         return true;
     }
 
+    bool PluginManager::LoadSandbox(PluginRecord& r)
+    {
+        const std::string bin = r.manifest.BinaryForThisPlatform();
+        if (bin.empty()) { Fail(r, "its manifest gives no \"wasm\" binary"); return false; }
+        const std::string source = fs::path(bin).is_absolute() ? bin : r.manifest.rootDir + "/" + bin;
+        std::error_code ec;
+        if (!fs::is_regular_file(source, ec)) { Fail(r, "binary '" + source + "' does not exist"); return false; }
+        // Nothing is mapped into the process : no temporary copy, no build fingerprint, no safe mode marker (a trap cannot crash the host)
+        m_ActivePlugin = r.owner;
+        auto plugin = CreateWasmPlugin(r.owner, r.manifest, source);
+        m_ActivePlugin = 0;
+        if (!plugin) { Fail(r, "sandbox : " + plugin.GetError().message); return false; }
+        r.loadedFrom = source;
+        r.instance = plugin.Value();
+        return true;
+    }
+
     bool PluginManager::LoadRecord(PluginRecord& r)
     {
         if (r.isStatic) {
@@ -822,8 +840,12 @@ namespace Shard::Engine::Plugins {
         } else if (r.manifest.moduleKind == ModuleKind::Datapack) {
             r.instance = new DatapackModule();
         } else {
-            if (r.manifest.tier == TrustTier::Sandboxed) { Fail(r, "sandboxed plugins (tier 2) are not supported by this engine build"); return false; }
-            if (!LoadLibrary(r)) return false;
+            if (r.manifest.abi == "wasm1") {
+                if (!LoadSandbox(r)) return false;
+            } else if (r.manifest.tier == TrustTier::Sandboxed) {
+                Fail(r, "a sandboxed plugin (tier 2) must be a WebAssembly module (\"abi\": \"wasm1\")");
+                return false;
+            } else if (!LoadLibrary(r)) return false;
         }
         if (!r.instance) { Fail(r, "no instance"); return false; }
 
@@ -832,8 +854,8 @@ namespace Shard::Engine::Plugins {
         r.serverPlugin = dynamic_cast<ServerPlugin*>(r.instance);
         r.toolPlugin = dynamic_cast<ToolPlugin*>(r.instance);
         if (!r.module) r.module = dynamic_cast<IModule*>(r.instance);
-        if (r.manifest.abi == "c1") {
-            // A C plugin is one object whatever callbacks it fills : the kinds it also is are objects of their own
+        if (r.manifest.abi == "c1" || r.manifest.abi == "wasm1") {
+            // A C plugin (a sandboxed one is a C plugin to the host) is one object whatever callbacks it fills : the kinds it also is are objects of their own
             const CPluginFacets facets = GetCPluginFacets(r.instance);
             r.enginePlugin = facets.engine;
             r.toolPlugin = facets.tool;
@@ -1089,6 +1111,7 @@ namespace Shard::Engine::Plugins {
         r.enginePlugin = nullptr; r.editorPlugin = nullptr; r.serverPlugin = nullptr; r.toolPlugin = nullptr; r.module = nullptr;
         r.desc = nullptr;
         if (!keepLibrary) {
+            ReleaseWasmPlugin(r.owner);
             r.library.Close();
             r.loadedFrom.clear();
         }
@@ -1145,6 +1168,7 @@ namespace Shard::Engine::Plugins {
     {
         if (!m_Started || !m_EngineReady) return;
         m_FrameCounter = frame;
+        BeginWasmFrame();
 
         // What the systems reported since last frame. A plugin that keeps throwing is switched off here, outside the scheduler.
         std::vector<std::pair<PluginOwner, std::string>> errors;

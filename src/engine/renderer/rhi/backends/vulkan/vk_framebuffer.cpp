@@ -245,6 +245,20 @@ namespace Shard::Engine::Rendering {
                 target.samples = cubemap->image.samples;
             }
         }
+        else if (m_AttachedLayerTexture != 0)
+        {
+            // A layer of the shadow maps of the suns or of the spot lights : the others are left as they are
+            TextureResource* array = TextureResource::Find(m_AttachedLayerTexture);
+            if (array && array->image.IsValid() && m_AttachedLayer < array->image.layers)
+            {
+                target.depth = &array->image;
+                target.depthView = array->image.SubView(0, 1, m_AttachedLayer, 1, VK_IMAGE_VIEW_TYPE_2D);
+                target.width = array->image.width;
+                target.height = array->image.height;
+                if (!target.color)
+                    target.samples = array->image.samples;
+            }
+        }
         else if (m_Depth && m_Depth->image.IsValid())
         {
             target.depth = &m_Depth->image;
@@ -284,6 +298,14 @@ namespace Shard::Engine::Rendering {
     void VKFramebuffer::DetachCubemapArray()
     {
         m_AttachedCubemap = 0;
+        if (VKRendererAPI* api = VKRendererAPI::Get())
+            api->ForgetTarget(this);
+    }
+
+    void VKFramebuffer::AttachDepthLayer(uint32_t texture, uint32_t layer)
+    {
+        m_AttachedLayerTexture = texture;
+        m_AttachedLayer = layer;
         if (VKRendererAPI* api = VKRendererAPI::Get())
             api->ForgetTarget(this);
     }

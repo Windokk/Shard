@@ -140,12 +140,12 @@ If the process crashes while plugin code runs or loads, the crash handler notes 
 | `version` | semantic version `major.minor.patch` |
 | `kind`, `moduleKind` | `plugin` or `module` ; for a module `engine`, `genre`, `code` (the default), `mod` or `datapack` |
 | `linkage` | `static` for what is compiled into the executable, `dynamic` (default) for a library on disk |
-| `tier` | `0` first-party, `1` native third-party, `3` datapack (`2`, a sandboxed plugin, is refused by this build). Defaults to 0 for code, 3 for a datapack |
+| `tier` | `0` first-party, `1` native third-party, `2` sandboxed (a WebAssembly module, `"abi": "wasm1"`, experimental), `3` datapack. Defaults to 0 for code, 3 for a datapack |
 | `hosts` | `engine` (= `editor`, `player` and `headless`), `editor`, `player`, `headless`, `tool` |
 | `engine.api` | the plugin API it was built against. Refused if the major differs or the minor is above the engine's |
 | `engine.versions` | engine versions it works with |
 | `engine.requires` | engine features it needs : `largeWorld`, `determinism`, `headless`, `editor`, `physics`, `audio`, `renderer` |
-| `abi` | how the library talks to the engine : `cpp` (default) for a plugin that links the engine, `c1` for a plugin built with the [SDK](#the-c-abi-and-the-sdk). `shard_sdk_add_plugin` and `shard_add_plugin(... ABI c1)` write it for you |
+| `abi` | how the library talks to the engine : `cpp` (default) for a plugin that links the engine, `c1` for a plugin built with the [SDK](#the-c-abi-and-the-sdk), `wasm1` for a sandboxed WebAssembly module (its binary is `"binaries": { "wasm": "plugin.wasm" }`, the same file on every platform). `shard_sdk_add_plugin` and `shard_add_plugin(... ABI c1)` write it for you |
 | `abiFingerprint` | optional, `cpp` plugins only : the build it expects (see [Building](#building)). A `c1` plugin is not checked against the build fingerprint |
 | `binaries`, `entry` | the library per platform (`linux-x86_64`, `windows-x86_64`, `macos-arm64`...), and its entry point (`shard_plugin_describe` for `cpp`, `shard_plugin_entry` for `c1`) |
 | `dependencies`, `conflicts` | other plugins by id and version range ; `optional` for a dependency that may be absent. `service:<name>` stands for any plugin that provides that service |
@@ -672,7 +672,7 @@ Everything is checked when the pack loads ; a pack with a file that doesn't have
 |---|---|---|
 | 0 | first-party code : the engine's modules, your game | native, in the process, built with the engine |
 | 1 | a third-party native plugin | native, in the process. Has to be signed by a trusted publisher, or allowed by the project |
-| 2 | a sandboxed plugin | **not available** : a manifest with `tier: 2` is refused |
+| 2 | a sandboxed plugin | **experimental** : a WebAssembly module (`"abi": "wasm1"`) compiled and run by [Wasmtime](https://wasmtime.dev/). It sees only its own memory, each callback has a budget of instructions (`budgets.frameMs`) and its memory a ceiling (`budgets.memoryMB`) ; a trap or an exhausted budget stops the plugin, not the engine. It needs no signature. For now it reaches the host through its lifecycle callbacks, the log, its cvars, console commands and the files of its own content folder (with the permission `fs.read:content`) : the imports, and how to build a module with Clang and `wasm-ld`, are in `shard/shard_wasm.h`. Only C plugins can be built for it yet |
 | 3 | a datapack | no code, validated against the formats above |
 
 A native plugin can do anything the process can. The `permissions` list tells the user what the plugin means to do, but nothing holds it to that. Install native plugins only from publishers you trust. What Shard checks is who made the files, not what they do.

@@ -423,7 +423,7 @@ namespace Shard::Engine::Rendering{
     bool GLFramebuffer::ReadDepthFloat(std::vector<float>& outDepth)
     {
         SHARD_ASSERT_GRAPHICS_THREAD();
-        if (!m_Specifications.hasDepth || m_Specifications.multisampled)
+        if (!HasDepthTarget() || m_Specifications.multisampled)
             return false;
 
         const uint32_t width = m_Specifications.width;
@@ -526,6 +526,29 @@ namespace Shard::Engine::Rendering{
 
         glDrawBuffer(GL_NONE);
         glReadBuffer(GL_NONE);
+
+        glBindFramebuffer(GL_FRAMEBUFFER, 0);
+    }
+
+    void GLFramebuffer::AttachDepthLayer(uint32_t texture, uint32_t layer)
+    {
+        SHARD_ASSERT_GRAPHICS_THREAD();
+        glBindFramebuffer(GL_FRAMEBUFFER, m_FBO);
+
+        if (texture != 0)
+            glFramebufferTextureLayer(GL_FRAMEBUFFER, GL_DEPTH_ATTACHMENT, texture, 0, static_cast<GLint>(layer));
+        else
+            glFramebufferTexture(GL_FRAMEBUFFER, GL_DEPTH_ATTACHMENT, 0, 0);
+        m_DepthLayerTexture = texture;
+
+        glDrawBuffer(GL_NONE);
+        glReadBuffer(GL_NONE);
+
+        if (texture != 0) {
+            GLenum status = glCheckFramebufferStatus(GL_FRAMEBUFFER);
+            if (status != GL_FRAMEBUFFER_COMPLETE)
+                DEBUG_ERROR("Framebuffer error (", m_FBO, ") after AttachDepthLayer : status 0x", std::hex, status, std::dec);
+        }
 
         glBindFramebuffer(GL_FRAMEBUFFER, 0);
     }

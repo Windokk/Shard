@@ -63,7 +63,8 @@ namespace Shard::Engine::Plugins {
 
     std::string PluginManifest::BinaryForThisPlatform() const
     {
-        auto it = binaries.find(CurrentPlatformKey());
+        // A WebAssembly module is the same file on every platform
+        auto it = binaries.find(abi == "wasm1" ? std::string("wasm") : CurrentPlatformKey());
         return it == binaries.end() ? std::string() : it->second;
     }
 
@@ -256,8 +257,8 @@ namespace Shard::Engine::Plugins {
             }
         }
         m.abi = r.String("abi", m.abi);
-        if (m.abi != "cpp" && m.abi != "c1") errors.push_back("'abi' must be \"cpp\" or \"c1\", not \"" + m.abi + "\"");
-        if (m.abi == "c1") m.entry = "shard_plugin_entry";
+        if (m.abi != "cpp" && m.abi != "c1" && m.abi != "wasm1") errors.push_back("'abi' must be \"cpp\", \"c1\" or \"wasm1\", not \"" + m.abi + "\"");
+        if (m.abi == "c1" || m.abi == "wasm1") m.entry = "shard_plugin_entry";
         m.entry = r.String("entry", m.entry);
         if (m.moduleKind == ModuleKind::Datapack && !m.binaries.empty()) errors.push_back("a datapack has no binaries");
 

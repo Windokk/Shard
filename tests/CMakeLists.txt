@@ -162,6 +162,39 @@ add_test(NAME Plugins.ServerHandshake
         -P ${CMAKE_SOURCE_DIR}/tests/plugin_fixtures/run_check_server.cmake)
 set_tests_properties(Plugins.ServerHandshake PROPERTIES FIXTURES_REQUIRED determinism_engine_resources TIMEOUT 200 RUN_SERIAL TRUE)
 
+# Sandboxed plugins : a C plugin compiled for wasm32 by Clang (when it is there and knows the target) has the signatures the host links
+find_program(SHARD_WASM_CLANG NAMES clang)
+if(SHARD_WASM_CLANG)
+    add_test(NAME Wasm.SdkSignatures
+        COMMAND ${CMAKE_COMMAND} -DCLANG=${SHARD_WASM_CLANG} -DSOURCE=${CMAKE_SOURCE_DIR}/tests/plugin_fixtures/wasm_plugin/wasm_plugin.c
+            -DINCLUDE=${CMAKE_SOURCE_DIR}/sdk/include -DOUT=${CMAKE_BINARY_DIR}/wasm_plugin.s
+            -P ${CMAKE_SOURCE_DIR}/tests/plugin_fixtures/run_wasm_signatures.cmake)
+endif()
+# ... and with wasm-ld, the same plugin linked into a real .wasm, in a tier 2 plugin folder that ShardTests loads (WasmSdkPluginTest)
+find_program(SHARD_WASM_LD NAMES wasm-ld wasm-ld-20 wasm-ld-19 wasm-ld-18)
+if(SHARD_WASM_CLANG AND SHARD_WASM_LD)
+    set(SHARD_TEST_WASM_DIR ${CMAKE_BINARY_DIR}/test_plugins/shard.test.wasm)
+    file(MAKE_DIRECTORY ${SHARD_TEST_WASM_DIR}/content)
+    file(WRITE ${SHARD_TEST_WASM_DIR}/content/hello.txt "hello")
+    file(WRITE ${SHARD_TEST_WASM_DIR}/shard-plugin.json [=[{
+  "schema": 1, "id": "shard.test.wasm", "version": "1.0.0", "kind": "module", "moduleKind": "code", "linkage": "dynamic", "hosts": ["engine"],
+  "tier": 2, "abi": "wasm1", "binaries": { "wasm": "plugin.wasm" }, "permissions": ["fs.read:content"], "content": { "mount": "content" }
+}
+]=])
+    file(GLOB SHARD_SDK_C_HEADERS ${CMAKE_SOURCE_DIR}/sdk/include/shard/*.h)
+    # Compiled by Clang, linked by wasm-ld itself (whatever wasm-ld Clang would have looked for)
+    add_custom_command(OUTPUT ${SHARD_TEST_WASM_DIR}/plugin.wasm
+        COMMAND ${SHARD_WASM_CLANG} --target=wasm32 -ffreestanding -nostdlib -std=c11 -Wall -Wextra -pedantic -Werror -O2
+            -I${CMAKE_SOURCE_DIR}/sdk/include -c ${CMAKE_SOURCE_DIR}/tests/plugin_fixtures/wasm_plugin/wasm_plugin.c -o ${CMAKE_BINARY_DIR}/wasm_plugin.o
+        COMMAND ${SHARD_WASM_LD} --no-entry --export=shard_plugin_entry --export-table -o ${SHARD_TEST_WASM_DIR}/plugin.wasm ${CMAKE_BINARY_DIR}/wasm_plugin.o
+        DEPENDS ${CMAKE_SOURCE_DIR}/tests/plugin_fixtures/wasm_plugin/wasm_plugin.c ${SHARD_SDK_C_HEADERS}
+        COMMENT "Building the sandboxed test plugin (wasm32)"
+        VERBATIM)
+    add_custom_target(ShardTestWasmPlugin ALL DEPENDS ${SHARD_TEST_WASM_DIR}/plugin.wasm)
+    add_dependencies(ShardTests ShardTestWasmPlugin)
+    target_compile_definitions(ShardTests PRIVATE SHARD_TEST_WASM_PLUGIN_DIR="${SHARD_TEST_WASM_DIR}")
+endif()
+
 # The SDK outside the repository : installed alone, the template built against it in a folder of its own and loaded by the headless engine
 # (see plugin_fixtures/run_sdk_out_of_tree.cmake). SHARD_SDK_TEST_CXX builds the template with another compiler than the engine's ;
 # SHARD_SDK_TEST_VCVARS (the vcvars64.bat of a Visual Studio) adds the same test with MSVC : a plugin of another toolchain, loaded by this engine.

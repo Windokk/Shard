@@ -126,6 +126,8 @@ target_compile_definitions(ShardRenderer PRIVATE BUILD_ENGINE)
 target_link_libraries(ShardRenderer PUBLIC ShardRHI ShardWorld ShardAssets ShardPlatform ShardCore)
 
 target_link_libraries(ShardEngine PUBLIC ShardRenderer ShardRHI ShardPhysics ShardAudio ShardWorld ShardAssets ShardPlatform ShardCore)
+# The sandbox of tier 2 plugins (plugins/wasm/wasm_runtime.cpp is the only file that includes it)
+target_link_libraries(ShardEngine PRIVATE ShardWasmtime)
 
 set(COMMON_INCLUDE_DIRS 
     "${CMAKE_SOURCE_DIR}/src/"

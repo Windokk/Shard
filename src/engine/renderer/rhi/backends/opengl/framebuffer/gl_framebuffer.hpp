@@ -33,6 +33,10 @@ namespace Shard::Engine::Rendering{
 
             void DetachCubemapArray() override;
 
+            void AttachDepthLayer(uint32_t texture, uint32_t layer) override;
+
+            bool HasDepthTarget() const override { return m_Specifications.hasDepth || m_DepthLayerTexture != 0; }
+
             uint32_t GetHandle() const override;
 
             void Resize(uint32_t width, uint32_t height) override;
@@ -64,7 +68,8 @@ namespace Shard::Engine::Rendering{
             uint32_t m_FBO = 0;
             uint32_t m_ColorAttachment = 0;
             uint32_t m_DepthAttachment = 0;
-            std::vector<uint32_t> m_ExtraColorAttachments;      // colour attachments 1 and on (a G-buffer)
+            uint32_t m_DepthLayerTexture = 0;                   // the array whose layer stands for the depth attachment (see AttachDepthLayer)
+            std::vector<uint32_t> m_ExtraColorAttachments;     // colour attachments 1 and on (a G-buffer)
 
             /// Creates / re-specifies the extra colour attachments at the given size and attaches them (expects m_FBO bound), then sets the draw buffers
             void CreateExtraColorAttachments(uint32_t width, uint32_t height);
