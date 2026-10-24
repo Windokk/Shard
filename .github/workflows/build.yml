@@ -59,9 +59,19 @@ jobs:
 
       # Clang and wasm-ld : the sandboxed test plugin is built for wasm32 and run by the engine (WasmSdkPluginTest, Wasm.SdkSignatures).
       # Without them those tests are skipped, not failed. (Wasmtime itself is a prebuilt archive CMake downloads, cmake/ShardWasmtime.cmake.)
+      # The wasi-sdk 34 libc++ needs Clang 21 or later (it uses #pragma clang attribute with __visibility__) : the Ubuntu one is too old,
+      # so LLVM 21 comes from apt.llvm.org, and clang / clang++ / wasm-ld (the names the CMake files look for) are put on the PATH.
       - name: Install Clang and wasm-ld (Linux)
         if: runner.os == 'Linux'
-        run: sudo apt-get install -y --no-install-recommends clang lld
+        run: |
+          curl -fsSL --retry 3 -o llvm.sh https://apt.llvm.org/llvm.sh
+          chmod +x llvm.sh
+          sudo ./llvm.sh 21
+          sudo apt-get install -y --no-install-recommends lld-21
+          sudo ln -sf "$(command -v clang-21)" /usr/local/bin/clang
+          sudo ln -sf "$(command -v clang++-21)" /usr/local/bin/clang++
+          sudo ln -sf "$(command -v wasm-ld-21)" /usr/local/bin/wasm-ld
+          clang++ --version
 
       - name: Install the MinGW-w64 toolchain
         if: runner.os == 'Windows'
