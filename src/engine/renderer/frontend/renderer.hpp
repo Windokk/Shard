@@ -21,6 +21,7 @@
 #include "engine/renderer/features/immediate/thumbnail_service.hpp"
 #include "engine/renderer/features/culling/occlusion_culling_manager.hpp"
 #include "engine/renderer/features/billboards/billboard_renderer.hpp"
+#include "engine/renderer/features/sprites/sprite_renderer.hpp"
 #include "engine/assets/project/project.hpp"
 
 #include <atomic>
@@ -320,6 +321,11 @@ bool GetCurrentView(RenderView& out) override;
             std::shared_ptr<RenderPass> m_TonemapPass;
             void EnsureTonemapPass();
 
+            /// The overlays plugins recorded (shard.render), drawn with the API's own 2D path : the ones that draw into a texture first (a surface
+            /// of the world may show them), the ones over the viewport after everything else.
+            void DrawPluginOverlays(bool intoTextures);
+            std::shared_ptr<RenderPass> m_OverlayPass;
+
             /// End of the forward pass : resolves the HDR scene, gives the viewport its depth (what the overlays are tested
             /// against) and maps the light of the scene onto it - exposure, tonemapper, sRGB curve.
             void ResolveSceneToViewport();
@@ -337,6 +343,7 @@ bool GetCurrentView(RenderView& out) override;
             std::shared_ptr<SSRManager> m_SSRManager;
             std::shared_ptr<LightCullingManager> m_LightCullingManager;
             BillboardRenderer m_BillboardRenderer;
+            SpriteRenderer m_SpriteRenderer;
             std::shared_ptr<OcclusionCullingManager> m_OcclusionCulling;
             std::atomic<bool> m_OcclusionCullingEnabled{true};
             // 0 = not occlusion culling, 1/2 = which phase ExecuteRenderPass is currently issuing draws for

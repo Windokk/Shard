@@ -18,6 +18,8 @@ namespace Shard::Engine::Rendering {
 
     class Mesh;
     class Material;
+    class Texture2D;
+    class Framebuffer;
     class EnvironmentMap;
 
     // Render proxies : what the renderer knows of the simulation. Plain data, no pointer back to an actor, a component
@@ -72,6 +74,69 @@ namespace Shard::Engine::Rendering {
         glm::vec4 tint = glm::vec4(1,1,1,1);
         BillboardProxyFacing facing = BillboardProxyFacing::Camera;
         uint8_t flags = BillboardFlag::ScreenSpaceSize | BillboardFlag::DepthTest;
+    };
+
+    // ---- What plugins put on screen (shard.render) ----
+
+    /// A sprite of a batch, positions already in render space. Mirrors ShardSprite (sdk/include/shard/shard_render.h).
+    struct SpriteInstance {
+        glm::vec3 position = glm::vec3(0);
+        float rotation = 0;
+        glm::vec2 size = glm::vec2(1);
+        uint32_t color = 0xFFFFFFFFu;               // r | g << 8 | b << 16 | a << 24
+        glm::vec4 uv = glm::vec4(0, 0, 1, 1);
+        glm::vec3 axis = glm::vec3(0, 1, 0);
+        float custom = 0;
+    };
+
+    /// A batch of camera-facing (or axis-aligned) quads that share a texture and a blend mode : particles, flares. Drawn by the SpriteRenderer.
+    struct SpriteBatchProxy {
+        uint64_t key = 0;
+        std::shared_ptr<Texture2D> texture;         // null : a white texel
+        uint8_t facing = 0;                         // SHARD_SPRITE_FACE_*
+        uint8_t blend = 2;                          // SHARD_BLEND_*
+        uint8_t sort = 0;                           // SHARD_SPRITE_SORT_*
+        uint8_t flags = 0;                          // SHARD_SPRITE_*
+        std::vector<SpriteInstance> sprites;
+    };
+
+    /// 2D geometry a plugin draws again and again (an element of a UI). The data is immutable ; the backend keeps what it uploaded in `gpu`
+    /// (graphics thread only), and lets go of it when the geometry dies.
+    struct OverlayVertex {
+        float x = 0, y = 0;
+        uint32_t color = 0xFFFFFFFFu;               // premultiplied alpha, r | g << 8 | b << 16 | a << 24
+        float u = 0, v = 0;
+    };
+
+    struct OverlayGeometry {
+        std::vector<OverlayVertex> vertices;
+        std::vector<uint32_t> indices;
+        uint32_t gpu[3] = {0, 0, 0};                // the backend's buffers (vertex array, vertex buffer, index buffer)
+        ~OverlayGeometry();
+    };
+
+    struct OverlayCommand {
+        enum class Kind : uint8_t { Geometry, Triangles, Scissor, Transform, ClipMask, Clear };
+        Kind kind = Kind::Geometry;
+        std::shared_ptr<OverlayGeometry> geometry;  // Geometry, ClipMask
+        std::shared_ptr<Texture2D> texture;         // Geometry, Triangles
+        glm::vec2 translation = glm::vec2(0);       // Geometry, ClipMask
+        glm::mat4 transform = glm::mat4(1.0f);      // Transform (identity : none)
+        int32_t scissor[4] = {0, 0, 0, 0};          // Scissor : x, y, width, height
+        bool enabled = false;                       // Scissor
+        uint32_t operation = 0;                     // ClipMask : SHARD_CLIP_*
+        glm::vec4 color = glm::vec4(0);             // Clear
+        uint32_t first = 0, count = 0;              // Triangles : the range of the proxy's inline indices
+    };
+
+    /// What one overlay drew this frame, in order, over `target` (null : the viewport)
+    struct OverlayProxy {
+        int order = 0;
+        std::shared_ptr<Framebuffer> target;
+        uint32_t width = 0, height = 0;
+        std::vector<OverlayCommand> commands;
+        std::vector<OverlayVertex> inlineVertices;  // for Triangles
+        std::vector<uint32_t> inlineIndices;
     };
 
     enum class LightProxyType : uint32_t { Directional = 0, Point = 1, Spot = 2 };
@@ -206,6 +271,8 @@ namespace Shard::Engine::Rendering {
         std::vector<ProbeVolumeProxy> probeVolumes;
         std::vector<ReflectionProbeProxy> reflectionProbes;
         std::vector<BillboardProxy> billboards;
+        std::vector<SpriteBatchProxy> spriteBatches;    // from the plugins (shard.render)
+        std::vector<OverlayProxy> overlays;             // idem, in the order they are drawn
 
         /// Empties the lists but keeps their memory : the next extraction refills the same buffers.
         void Reset()
@@ -220,6 +287,8 @@ namespace Shard::Engine::Rendering {
             probeVolumes.clear();
             reflectionProbes.clear();
             billboards.clear();
+            spriteBatches.clear();
+            overlays.clear();
         }
 
         /// The proxy of the previous snapshot with the same key, or null

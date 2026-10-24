@@ -96,6 +96,14 @@ namespace Shard::Engine::Core::Platform {
 
         /// @brief DPI scale of the monitor the window is on (1.0 = 96 dpi).
         virtual float GetContentScale() const { return 1.0f; }
+
+        /// @brief The mouse cursor's shape while it is over the window : 0 arrow, 1 text, 2 hand, 3 crosshair, 4 resize east-west, 5 resize
+        /// north-south, 6 resize north-west to south-east, 7 resize north-east to south-west, 8 move, 9 not allowed. Nothing for a window with no cursor.
+        virtual void SetCursorShape(int shape) { (void)shape; }
+
+        /// @brief A text field has the focus : the system sends TextInput events (and may show an on screen keyboard or an IME's window next to the
+        /// box x, y, width, height, in pixels of the window). Off when the field loses it.
+        virtual void SetTextInputActive(bool active, int x, int y, int width, int height) { (void)active; (void)x; (void)y; (void)width; (void)height; }
     };
 
 }

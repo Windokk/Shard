@@ -328,6 +328,7 @@ namespace Shard::Engine::Rendering{
         m_OcclusionCulling->Init(this);
 
         m_BillboardRenderer.Init(this);
+        m_SpriteRenderer.Init(this);
 
         // The render pipelines : the engine's own, then the assets (the engine's, the project's)
         RegisterBuiltinRenderPipelines();
@@ -1424,6 +1425,7 @@ namespace Shard::Engine::Rendering{
         m_LightmapManager->Sync(GetSnapshot());
         SyncSceneDrawLists();
         m_BillboardRenderer.Sync(GetSnapshot());
+        m_SpriteRenderer.Sync(GetSnapshot());
         m_LightManager->Sync(GetSnapshot().lights);
         m_PublishedLightCount = m_LightManager->GetLightsCount();
         m_PublishedPassCount = static_cast<uint32_t>(m_RenderPasses.size());
@@ -1482,6 +1484,8 @@ namespace Shard::Engine::Rendering{
         // Hash of each external draw list (the shadow list is shared by every shadow pass), computed at most
         // once per frame and only if a cacheable pass actually asks for it.
         std::unordered_map<const std::vector<DrawCommand>*, uint64_t> drawListHashes;
+
+        DrawPluginOverlays(true);
 
         for (size_t orderIndex = 0; orderIndex < m_ExecutionOrder.size(); orderIndex++)
         {
@@ -1657,6 +1661,45 @@ namespace Shard::Engine::Rendering{
             EndRenderPass();
         }
 
+        DrawPluginOverlays(false);
+    }
+
+    void Renderer::DrawPluginOverlays(bool intoTextures)
+    {
+        const RenderSnapshot& snapshot = GetSnapshot();
+        if (snapshot.overlays.empty())
+            return;
+        for (const OverlayProxy& overlay : snapshot.overlays)
+        {
+            if ((overlay.target != nullptr) != intoTextures)
+                continue;
+            std::shared_ptr<RenderPass> pass;
+            if (overlay.target)
+            {
+                pass = std::make_shared<RenderPass>();
+                pass->target = overlay.target;
+            }
+            else
+            {
+                if (!m_ViewportBuffer)
+                    continue;
+                if (!m_OverlayPass)
+                {
+                    m_OverlayPass = std::make_shared<RenderPass>();
+                    m_OverlayPass->target = m_ViewportBuffer;
+                }
+                pass = m_OverlayPass;
+                pass->target = m_ViewportBuffer;
+            }
+            pass->clearColor = false;
+            pass->clearDepth = false;
+            pass->allowResize = false;
+            pass->allowCulling = false;
+            BeginRenderPass(pass);
+            m_RendererAPI->DrawOverlay(overlay, pass->target->GetWidth(), pass->target->GetHeight());
+            EndRenderPass();
+        }
+        m_CurrentPass = nullptr;
     }
 
     void Renderer::EnsureTonemapPass()

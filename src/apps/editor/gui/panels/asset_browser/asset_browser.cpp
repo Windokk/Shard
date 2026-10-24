@@ -8,6 +8,8 @@
 #include "engine/assets/resources_manager.hpp"
 #include "engine/assets/hot_reloader.hpp"
 #include "engine/assets/asset_importer.hpp"
+#include "engine/plugins/manager.hpp"
+#include "engine/plugins/plugin.hpp"
 #include "engine/platform/clipboard/clipboard.hpp"
 #include "engine/platform/windowing/iwindow.hpp"
 #include "engine/renderer/frontend/renderer.hpp"
@@ -1378,7 +1380,20 @@ namespace Shard::Editor::GUI{
         else if (item.type == Engine::Filesystem::Type::T_WORLD)
             RequestOpenWorld(item.path);
         else
+        {
+            // A plugin that opens assets of this extension
+            std::string extension = std::filesystem::path(item.path.full).extension().string();
+            std::transform(extension.begin(), extension.end(), extension.begin(), [](unsigned char c) { return char(std::tolower(c)); });
+            for (const auto& opener : Engine::Plugins::PluginManager::Get().Extensions().Get<Engine::Plugins::EditorAssetOpenerItem>("editor.assetopener"))
+            {
+                if (opener->extension == extension && opener->open)
+                {
+                    opener->open(item.nameInProject);
+                    return;
+                }
+            }
             AssetEditorRegistry::Instance().TryOpen(item.type, item.path);
+        }
     }
 
     std::vector<const Asset*> AssetBrowser::GetSelectedItems() const
@@ -1463,6 +1478,21 @@ namespace Shard::Editor::GUI{
                     pendingAction = Action::NewMaterial;
                 if (ImGui::MenuItem("World"))
                     pendingAction = Action::NewWorld;
+                // What the plugins add: a new file of their own kind
+                for (const auto& tpl : Engine::Plugins::PluginManager::Get().Extensions().Get<Engine::Plugins::EditorAssetTemplateItem>("editor.assettemplate"))
+                {
+                    if (!ImGui::MenuItem(tpl->label.c_str()))
+                        continue;
+                    Engine::Filesystem::Path created;
+                    const AssetOperations::Result r = AssetOperations::CreateFromBytes(currentPath, tpl->defaultName, tpl->bytes, created);
+                    if (r.ok)
+                    {
+                        BeginRename(created);
+                        pendingAction = Action::Refresh;
+                    }
+                    else
+                        ReportFailures("Create", { r.message });
+                }
                 ImGui::EndMenu();
             }
 

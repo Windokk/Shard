@@ -1190,6 +1190,8 @@ namespace Shard::Engine::Plugins {
             }
         }
 
+        try { BeginCFrame(frame); } catch (const std::exception& e) { DEBUG_ERROR(std::string("Plugins : the start of the frame threw : ") + e.what()); }
+
         Hooks::PreFrame hook(frame);
         try { m_Hooks.Emit(hook); } catch (const std::exception& e) { DEBUG_ERROR(std::string("Plugins : PreFrame handler threw : ") + e.what()); }
 
@@ -1212,6 +1214,7 @@ namespace Shard::Engine::Plugins {
             const double ms = std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - start).count();
             r->frameMsAverage = r->frameMsAverage * 0.9 + ms * 0.1;
         }
+        try { EndCFrame(frame); } catch (const std::exception& e) { DEBUG_ERROR(std::string("Plugins : the end of the frame threw : ") + e.what()); }
         // What the C plugins' systems emitted during the frame
         try { FlushCEvents(m_Events); } catch (const std::exception& e) { DEBUG_ERROR(std::string("Plugins : a named event handler threw : ") + e.what()); }
         Hooks::PostFrame hook(frame);

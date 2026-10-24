@@ -346,6 +346,9 @@ namespace Shard::Engine::Physics
 
         RaycastResult RayCast(RaycastRequest request);
 
+        /// The physics component of a body (null for a body no component made : the colliders plugins build, see shard.physics)
+        Objects::Components::PhysicsBody* ComponentOf(JPH::BodyID id) const { return FindComponent(id); }
+
         /// World units per second squared. Expressed in the project's own units, so a project where
         /// one unit isn't one metre needs this scaled accordingly rather than left at 9.81.
         void SetGravity(glm::vec3 gravity);
@@ -386,6 +389,9 @@ namespace Shard::Engine::Physics
 
         JPH::BodyID CreateBody(const JPH::BodyCreationSettings& settings, Objects::Components::PhysicsBody* component, JPH::EActivation activation = JPH::EActivation::Activate);
         void RemoveBody(JPH::BodyID id);
+
+        /// False before Init() and after Shutdown() : the bodies are gone with the system, nothing may be asked of it
+        bool IsInitialized() const { return initialized; }
 
         JPH::BodyInterface& GetBodyInterface() {
             if(!initialized)

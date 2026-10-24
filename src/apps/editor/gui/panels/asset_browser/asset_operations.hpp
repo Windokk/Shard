@@ -44,6 +44,8 @@ namespace Shard::Editor::GUI::AssetOperations
     // Creation : each returns the new item's path in `created` (empty on failure).
     Result CreateFolder(const Engine::Filesystem::Path& dir, Engine::Filesystem::Path& created);
     Result CreateMaterial(const Engine::Filesystem::Path& dir, Engine::Filesystem::Path& created);
+    /// A new file with these bytes, under `defaultName` (made unique) in `dir`. For the templates plugins add to the Create menu.
+    Result CreateFromBytes(const Engine::Filesystem::Path& dir, const std::string& defaultName, const std::string& bytes, Engine::Filesystem::Path& created);
     Result CreateWorld(const Engine::Filesystem::Path& dir, Engine::Filesystem::Path& created);
 
     struct ImportSummary

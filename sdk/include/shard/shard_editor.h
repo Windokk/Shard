@@ -1,4 +1,4 @@
-/* Interface "shard.editor" 1.1 : the editor's windows, menus, toolbar, inspectors and gizmos, drawn with a small set of widgets.
+/* Interface "shard.editor" 1.2 : the editor's windows, menus, toolbar, inspectors and gizmos, drawn with a small set of widgets.
  *
  * ImGui has no stable ABI, so a plugin does not draw with it : it adds a panel and draws the contents with the widgets of ShardUiApi, which
  * the editor implements with its own ImGui. The panel is a window of the editor's Window menu (hidden until the user opens it). Its draw
@@ -13,7 +13,12 @@
  * "##" ("Speed##enemy1"), as in ImGui, to tell apart two widgets with the same text.
  *
  * 1.1 added to ShardUiApi (from text_disabled on) : more text, vectors, multiline text, groups, children, disabled sections, tabs, tables, menus,
- * popups, item queries, and to ShardEditorApi (from add_menu_item on) : menu items, toolbar buttons, inspectors, gizmos, the selection, notifications. */
+ * popups, item queries, and to ShardEditorApi (from add_menu_item on) : menu items, toolbar buttons, inspectors, gizmos, the selection, notifications.
+ *
+ * 1.2 added to ShardUiApi (from draw_line on) what a node editor, a timeline or a curve editor needs : a draw list (lines, shapes, Bezier curves,
+ * text, clipping) in the window's coordinates, the cursor and mouse queries to build interactions on top of it, hit areas, images, and drag and
+ * drop ; and to ShardEditorApi (from undo_push on) : the undo history, opening an asset of a plugin's type with a double click, and the entries
+ * of the content browser's "Create" menu. A graph editor (visual scripting, behaviour trees, animation graphs) is made of exactly these. */
 #ifndef SHARD_EDITOR_H
 #define SHARD_EDITOR_H
 
@@ -139,6 +144,67 @@ typedef struct ShardUiApi {
     int32_t (SHARD_CALL *is_item_clicked)(int32_t button);
     int32_t (SHARD_CALL *is_item_active)(void);
     int32_t (SHARD_CALL *is_item_double_clicked)(void);
+
+    /* ---- 1.2 ----
+     * Positions are in pixels of the editor's window ("screen" coordinates, the origin at the top left of the main window), the same ones
+     * get_cursor_screen_pos and get_mouse_pos give, so a canvas is drawn at what it was told. Colours are r | g << 8 | b << 16 | a << 24. */
+
+    /* The draw list of the window being drawn. Shapes are clipped to the window and to the clip rectangles pushed. */
+    void    (SHARD_CALL *draw_line)(const float a[2], const float b[2], uint32_t color, float thickness);
+    void    (SHARD_CALL *draw_polyline)(const float* points, uint32_t count, uint32_t color, int32_t closed, float thickness);
+    void    (SHARD_CALL *draw_rect)(const float min[2], const float max[2], uint32_t color, float rounding, float thickness);
+    void    (SHARD_CALL *draw_rect_filled)(const float min[2], const float max[2], uint32_t color, float rounding);
+    void    (SHARD_CALL *draw_circle)(const float center[2], float radius, uint32_t color, float thickness);
+    void    (SHARD_CALL *draw_circle_filled)(const float center[2], float radius, uint32_t color);
+    void    (SHARD_CALL *draw_triangle_filled)(const float a[2], const float b[2], const float c[2], uint32_t color);
+    /* A cubic Bezier curve from p0 to p3 : the wire between two nodes */
+    void    (SHARD_CALL *draw_bezier)(const float p0[2], const float p1[2], const float p2[2], const float p3[2], uint32_t color, float thickness);
+    void    (SHARD_CALL *draw_text)(const float position[2], uint32_t color, ShardStr text);
+    /* Nothing is drawn outside the rectangle until pop_clip_rect. intersect SHARD_TRUE : cut down to the current clip too. */
+    void    (SHARD_CALL *push_clip_rect)(const float min[2], const float max[2], int32_t intersect);
+    void    (SHARD_CALL *pop_clip_rect)(void);
+
+    /* Where the next widget goes, the room left, and the rectangle of the widget drawn last */
+    void    (SHARD_CALL *get_cursor_screen_pos)(float out[2]);
+    void    (SHARD_CALL *set_cursor_screen_pos)(const float position[2]);
+    void    (SHARD_CALL *get_content_region_avail)(float out[2]);
+    void    (SHARD_CALL *get_item_rect_min)(float out[2]);
+    void    (SHARD_CALL *get_item_rect_max)(float out[2]);
+    void    (SHARD_CALL *calc_text_size)(ShardStr text, float out[2]);
+    /* A hit area of that size at the cursor, with no look of its own : the surface of a canvas or a node. SHARD_TRUE on the frame it is
+     * pressed ; is_item_hovered, is_item_active... then tell the rest. */
+    int32_t (SHARD_CALL *invisible_button)(ShardStr id, float width, float height);
+
+    /* The mouse and keyboard, as the window sees them this frame. `button` : SHARD_MOUSE_*, `key` : SHARD_KEY_*. */
+    void    (SHARD_CALL *get_mouse_pos)(float out[2]);
+    void    (SHARD_CALL *get_mouse_drag_delta)(int32_t button, float out[2]);
+    void    (SHARD_CALL *reset_mouse_drag_delta)(int32_t button);
+    float   (SHARD_CALL *get_mouse_wheel)(void);
+    int32_t (SHARD_CALL *is_mouse_down)(int32_t button);
+    int32_t (SHARD_CALL *is_mouse_clicked)(int32_t button);
+    int32_t (SHARD_CALL *is_mouse_released)(int32_t button);
+    int32_t (SHARD_CALL *is_mouse_double_clicked)(int32_t button);
+    int32_t (SHARD_CALL *is_key_down)(int32_t key);
+    int32_t (SHARD_CALL *is_key_pressed)(int32_t key);
+    /* SHARD_MOD_* (shard_input.h) held now */
+    uint32_t (SHARD_CALL *get_modifiers)(void);
+    int32_t (SHARD_CALL *is_window_hovered)(void);
+    int32_t (SHARD_CALL *is_window_focused)(void);
+
+    /* A texture of shard.render (a preview of a UI document, of a mesh being animated, of an atlas) of that size in pixels */
+    void    (SHARD_CALL *image)(uint64_t texture, float width, float height);
+    int32_t (SHARD_CALL *selectable_size)(ShardStr label, int32_t selected, float width, float height);
+
+    /* Drag and drop between widgets (and from the content browser : a payload of type "shard.asset" is the asset's path in the project, as
+     * UTF-8). Source : after the widget, begin_drag_drop_source ; when it returns SHARD_TRUE set the payload and call end_drag_drop_source.
+     * Target : after the widget, begin_drag_drop_target ; when SHARD_TRUE ask for the payloads it takes with accept_drag_drop_payload (SHARD_TRUE
+     * on the frame it is dropped, then `out` holds it) and call end_drag_drop_target. `type` is at most 32 characters. */
+    int32_t (SHARD_CALL *begin_drag_drop_source)(void);
+    void    (SHARD_CALL *set_drag_drop_payload)(ShardStr type, const void* data, uint64_t size);
+    void    (SHARD_CALL *end_drag_drop_source)(void);
+    int32_t (SHARD_CALL *begin_drag_drop_target)(void);
+    int32_t (SHARD_CALL *accept_drag_drop_payload)(ShardStr type, void* out, uint64_t capacity, uint64_t* size);
+    void    (SHARD_CALL *end_drag_drop_target)(void);
 } ShardUiApi;
 
 /* What an inspector or a gizmo draws with over the viewport (ShardGizmoFn) : lines in the world, in the units of the project, with a colour
@@ -167,6 +233,10 @@ typedef void (SHARD_CALL *ShardInspectorFn)(void* user, const ShardUiApi* ui, Sh
 typedef void (SHARD_CALL *ShardGizmoFn)(void* user, const ShardGizmoApi* gizmo, ShardActor actor);
 /* The selection changed : the selected actors, the primary one (the last selected) last. Valid for the call. */
 typedef void (SHARD_CALL *ShardSelectionFn)(void* user, const ShardActor* actors, uint32_t count);
+/* Undo or redo of a change the plugin recorded with undo_push */
+typedef void (SHARD_CALL *ShardUndoFn)(void* user);
+/* The user opened (double click, "Open") the asset at `path` in the project, of an extension the plugin registered with add_asset_opener */
+typedef void (SHARD_CALL *ShardOpenAssetFn)(void* user, ShardStr path);
 
 #define SHARD_EDITOR_NOTIFY_INFO     0
 #define SHARD_EDITOR_NOTIFY_WARNING  1
@@ -200,6 +270,18 @@ typedef struct ShardEditorApi {
     ShardResult (SHARD_CALL *notify)(ShardPluginCtx ctx, uint32_t level, ShardStr message);
     /* Shows or hides one of this plugin's panels. SHARD_E_NOT_FOUND : no such panel. thread : main */
     ShardResult (SHARD_CALL *set_panel_visible)(ShardPluginCtx ctx, ShardStr title, int32_t visible);
+
+    /* ---- 1.2 : thread : main ---- */
+    /* Records a change the plugin just made (a node moved, a wire cut) in the editor's undo history, under `label`. undo puts it back, redo
+     * does it again ; the editor's Ctrl+Z / Ctrl+Y call them in order with the edits of the editor itself. The two are called with `user`
+     * and may run after the panel closed : keep what they need alive (the history is dropped when the plugin is disabled). */
+    ShardResult (SHARD_CALL *undo_push)(ShardPluginCtx ctx, ShardStr label, ShardUndoFn undo, ShardUndoFn redo, void* user);
+    /* Opens assets of that extension (".bt") in the plugin : a double click in the content browser calls `open`, which usually makes a panel
+     * visible and loads the file. SHARD_E_ALREADY_EXISTS : the engine or another plugin opens that extension. */
+    ShardResult (SHARD_CALL *add_asset_opener)(ShardPluginCtx ctx, ShardStr extension, ShardOpenAssetFn open, void* user);
+    /* An entry "label" of the content browser's Create menu that writes a new file with these bytes (copied) under `default_name`
+     * ("NewTree.bt") in the folder shown. The file is renamed by the user like any other. */
+    ShardResult (SHARD_CALL *add_asset_template)(ShardPluginCtx ctx, ShardStr label, ShardStr default_name, const void* data, uint64_t size);
 } ShardEditorApi;
 
 #ifdef __cplusplus

@@ -1,5 +1,7 @@
 #include <algorithm>
 #include <atomic>
+#include <cctype>
+#include <map>
 #include <memory>
 #include <mutex>
 
@@ -264,12 +266,94 @@ namespace Shard::Engine::Plugins {
                     return SHARD_E_NOT_FOUND;
                 } catch (...) { return SHARD_E_INTERNAL; }
             }
+
+            // ---- 1.2 ----
+
+            // Whether a plugin's undo / redo functions may still be called : false once its context released everything
+            std::mutex gUndoMutex;
+            std::map<PluginOwner, std::shared_ptr<std::atomic<bool>>> gUndoAlive;
+
+            ShardResult SHARD_CALL UndoPush(ShardPluginCtx handle, ShardStr label, ShardUndoFn undo, ShardUndoFn redo, void* user)
+            {
+                try {
+                    ShardResult result;
+                    PluginContext* ctx = Contribution(handle, result);
+                    if (!ctx) return result;
+                    if (!undo || !redo) return SHARD_E_INVALID_ARG;
+                    const EditorUiBackend* backend = gBackend.load();
+                    if (!backend || !backend->pushUndo) return SHARD_E_UNSUPPORTED;
+                    const PluginOwner owner = PluginOwner(handle);
+                    std::shared_ptr<std::atomic<bool>> alive;
+                    {
+                        std::lock_guard<std::mutex> lock(gUndoMutex);
+                        auto& slot = gUndoAlive[owner];
+                        if (!slot) {
+                            slot = std::make_shared<std::atomic<bool>>(true);
+                            ctx->OnRelease("editor-undo", [owner] {
+                                std::lock_guard<std::mutex> lock(gUndoMutex);
+                                auto it = gUndoAlive.find(owner);
+                                if (it != gUndoAlive.end()) { *it->second = false; gUndoAlive.erase(it); }
+                            });
+                        }
+                        alive = slot;
+                    }
+                    std::atomic<uint32_t>* active = ActiveCounter(*ctx);
+                    auto report = ctx->Bindings().reportError;
+                    auto call = [alive, active, owner, report, user](ShardUndoFn fn, const char* what) {
+                        return [=] {
+                            if (!alive->load()) return;
+                            Guarded(active, owner, report, what, [&] { fn(user); });
+                        };
+                    };
+                    backend->pushUndo(ToString(label), call(undo, "undo"), call(redo, "redo"));
+                    return SHARD_OK;
+                } catch (...) { return SHARD_E_INTERNAL; }
+            }
+
+            ShardResult SHARD_CALL AddAssetOpener(ShardPluginCtx handle, ShardStr extension, ShardOpenAssetFn open, void* user)
+            {
+                try {
+                    ShardResult result;
+                    PluginContext* ctx = Contribution(handle, result);
+                    if (!ctx) return result;
+                    std::string ext = ToString(extension);
+                    if (!open || ext.size() < 2 || ext[0] != '.') return SHARD_E_INVALID_ARG;
+                    for (char& c : ext) c = char(std::tolower((unsigned char)c));
+                    for (const auto& existing : PluginManager::Get().Extensions().Get<EditorAssetOpenerItem>("editor.assetopener"))
+                        if (existing->extension == ext) return SHARD_E_ALREADY_EXISTS;
+                    std::atomic<uint32_t>* active = ActiveCounter(*ctx);
+                    auto report = ctx->Bindings().reportError;
+                    const PluginOwner owner = PluginOwner(handle);
+                    auto item = std::make_shared<EditorAssetOpenerItem>();
+                    item->extension = ext;
+                    item->open = [ext, open, user, active, report, owner](const std::string& path) {
+                        Guarded(active, owner, report, "asset opener of '" + ext + "'", [&] { open(user, ToStr(path)); });
+                    };
+                    return ctx->Assets().Add<EditorAssetOpenerItem>("editor.assetopener", ext, std::move(item)) ? SHARD_OK : SHARD_E_ALREADY_EXISTS;
+                } catch (...) { return SHARD_E_INTERNAL; }
+            }
+
+            ShardResult SHARD_CALL AddAssetTemplate(ShardPluginCtx handle, ShardStr label, ShardStr defaultName, const void* data, uint64_t size)
+            {
+                try {
+                    ShardResult result;
+                    PluginContext* ctx = Contribution(handle, result);
+                    if (!ctx) return result;
+                    const std::string name = ToString(label), file = ToString(defaultName);
+                    if (name.empty() || file.empty() || file.find('/') != std::string::npos || file.find('\\') != std::string::npos || file.find("..") != std::string::npos || (!data && size)) return SHARD_E_INVALID_ARG;
+                    auto item = std::make_shared<EditorAssetTemplateItem>();
+                    item->label = name;
+                    item->defaultName = file;
+                    if (size) item->bytes.assign(static_cast<const char*>(data), size_t(size));
+                    return ctx->Assets().Add<EditorAssetTemplateItem>("editor.assettemplate", name, std::move(item)) ? SHARD_OK : SHARD_E_ALREADY_EXISTS;
+                } catch (...) { return SHARD_E_INTERNAL; }
+            }
         }
 
         const void* EditorApi()
         {
             static const ShardEditorApi api = { sizeof(ShardEditorApi), &AddPanel, &AddMenuItem, &AddToolbarButton, &AddInspector, &AddGizmo,
-                                                &SubscribeSelection, &GetSelection, &Notify, &SetPanelVisible };
+                                                &SubscribeSelection, &GetSelection, &Notify, &SetPanelVisible, &UndoPush, &AddAssetOpener, &AddAssetTemplate };
             return &api;
         }
     }

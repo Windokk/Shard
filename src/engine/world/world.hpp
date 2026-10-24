@@ -70,6 +70,8 @@ namespace Shard::Engine::Worlds{
             void Clear();
 
             void Tick();
+            /// The scripts that run in the editor's edit mode (Script::RunsInEditMode) get their OnEditTick
+            void EditTick();
             void FixedTick();
             void LateTick();
             void Play();

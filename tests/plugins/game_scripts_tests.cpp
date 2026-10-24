@@ -3,6 +3,7 @@
 #include <cmath>
 #include <cstdio>
 #include <cstring>
+#include <functional>
 #include <set>
 #include <string>
 #include <vector>
@@ -75,6 +76,7 @@ namespace {
         Audio::AudioManager audio;
         Audio::AudioIDManager audioIds;
         Core::Platform::IInput* GetInputManager() const override { return const_cast<FakeInput*>(&input); }
+        Rendering::IRenderContext* GetRenderContext() const override { return nullptr; }           // a headless engine : nothing is drawn
         Time::TimeManager time;
         FakeInput input;
     };
@@ -531,6 +533,7 @@ namespace {
         {
             actors.clear();
             world.reset();
+            PluginManager::Get().ResetForTests();       // the plugins' colliders leave the physics world first
             physics.Shutdown();
             context.physicsManager = nullptr;
             GameScriptsTest::TearDown();
@@ -909,4 +912,215 @@ TEST_F(TypedComponentsTest, TheFieldFunctionsReadSetAndEraseByPath)
     const ShardActor gone = handle;
     actor->Destroy();
     EXPECT_EQ(api->set_component_field(gone, S("light"), S("intensity"), S("1")), SHARD_E_STALE_HANDLE);
+}
+
+// ABI 1.7 : the interfaces a plugin of a particle system, a navigation mesh, voxels, a UI, an animation system, a network layer or a visual
+// scripting editor builds on (tests/plugin_fixtures/game_scripts/src/platform_demo.cpp), through the SDK's wrappers
+TEST_F(GamePhysicsTest, AScriptRunsInEditModeAndIsToldOfItsFieldChanges)
+{
+    Start();
+    auto actor = NewActor("Probe");
+    auto script = actor->AddComponentByName(Type("PlatformProbe"));
+    ASSERT_NE(script, nullptr);
+    auto stat = Export<double (*)(const char*)>("plat_stat");
+    EXPECT_EQ(stat("editTicks"), -1000.0);
+
+    world->EditTick();
+    world->EditTick();
+    EXPECT_EQ(stat("editTicks"), 2.0);                              // the world is not playing : the edit-mode script runs
+    world->Play();
+    world->Stop();
+
+    EXPECT_TRUE(script->ApplyField("speed", 4.0));
+    EXPECT_EQ(stat("fieldChanges"), 1.0);
+    EXPECT_EQ(stat("lastField"), 1.0);                              // "speed" is the second field
+    EXPECT_TRUE(script->ApplyField("level", 9));
+    EXPECT_EQ(stat("lastField"), 0.0);
+    EXPECT_EQ(Rec()->errorCount, 0u);
+}
+
+TEST_F(GamePhysicsTest, TheNewInterfacesAnswerThroughTheSdk)
+{
+    Start();
+    auto ground = Body("Ground", glm::vec3(0.0f, -0.5f, 0.0f), glm::vec3(40.0f, 1.0f, 40.0f), JPH::EMotionType::Static);
+    auto actor = NewActor("Probe");
+    auto script = actor->AddComponentByName(Type("PlatformProbe"));
+    ASSERT_NE(script, nullptr);
+    script->Deserialize(json::parse(R"({"active":true,"level":8})"));
+    auto stat = Export<double (*)(const char*)>("plat_stat");
+
+    world->Play();
+    EXPECT_EQ(stat("level"), 8.0);
+    EXPECT_EQ(stat("fieldLevel"), 0.0);
+    EXPECT_EQ(stat("fieldSpeed"), 1.0);
+    EXPECT_EQ(stat("fieldNone"), -1.0);
+
+    // Jobs
+    EXPECT_GE(stat("workers"), 1.0);
+    EXPECT_EQ(stat("jobRan"), 42.0);
+    EXPECT_EQ(stat("parallelSum"), 332833500.0);                    // sum of i*i for i < 1000
+    EXPECT_EQ(stat("asyncCount"), 500.0);
+    EXPECT_EQ(stat("postedToMain"), -1000.0);                       // waits for the start of a frame
+    pm().BeginFrame(1);
+    EXPECT_EQ(stat("postedToMain"), 1.0);
+    pm().EndFrame(1);
+
+    // Time
+    EXPECT_NEAR(stat("fixedDt"), 1.0 / 60.0, 1e-6);
+    EXPECT_EQ(stat("timeScale"), 1.0);
+    EXPECT_EQ(stat("hashStable"), 1.0);
+
+    // Reflection
+    EXPECT_EQ(stat("reflectSum"), 3.5);
+    EXPECT_EQ(stat("reflectMissing"), 0.0);
+    EXPECT_EQ(stat("reflectListed"), 1.0);
+    EXPECT_GE(stat("reflectComponents"), 1.0);
+    EXPECT_EQ(stat("reflectDuplicate"), 1.0);                       // a name taken is refused
+
+    // Sockets : a datagram over the loopback
+    EXPECT_GT(stat("udpPort"), 0.0);
+    EXPECT_EQ(stat("udpDatagrams"), 1.0);
+    EXPECT_STREQ(Export<const char* (*)()>("plat_text")(), "ping");
+    EXPECT_EQ(stat("udpClosed"), 1.0);
+    EXPECT_EQ(stat("tcpAccepted"), 1.0);                            // a stream : accepted, connected, bytes each way, and the close is seen
+    EXPECT_EQ(stat("tcpConnected"), 1.0);
+    EXPECT_EQ(stat("tcpToServer"), 1.0);
+    EXPECT_EQ(stat("tcpToClient"), 1.0);
+    EXPECT_EQ(stat("tcpServerSawClose"), 1.0);
+
+    // Assets : nothing of that name
+    EXPECT_EQ(stat("assetResolved"), 0.0);
+    EXPECT_EQ(stat("assetExists"), 0.0);
+    EXPECT_EQ(stat("assetInfo"), 0.0);
+    EXPECT_EQ(stat("assetMesh"), 0.0);
+    EXPECT_EQ(stat("assetPathOf"), 0.0);
+
+    // Console commands run from a plugin
+    EXPECT_EQ(stat("commandOk"), 1.0);
+    EXPECT_EQ(stat("commandFound"), 1.0);
+    EXPECT_EQ(stat("commandRefused"), 1.0);
+    EXPECT_EQ(stat("commandMissing"), 1.0);
+    EXPECT_EQ(stat("commandOutput"), 1.0);
+    EXPECT_EQ(stat("undoPushed"), 0.0);                             // no editor : refused
+
+    // Actors : the stable id finds the actor again
+    EXPECT_EQ(stat("stableId"), 1.0);
+    EXPECT_EQ(stat("stableRoundTrip"), 1.0);
+    EXPECT_EQ(stat("inSphere"), 2.0);                               // the actor itself and the ground, whose center is just under it
+    EXPECT_EQ(stat("inBox"), 2.0);
+
+    // Physics queries : the ground, then a collider of the plugin that has no actor
+    EXPECT_EQ(stat("rayAll"), 1.0);
+    EXPECT_NEAR(stat("rayAllDistance"), 5.0, 0.05);
+    EXPECT_EQ(stat("rayAllActor"), 1.0);
+    EXPECT_GE(stat("overlapSphere"), 1.0);
+    EXPECT_EQ(stat("overlapFar"), 0.0);
+    EXPECT_EQ(stat("sweep"), 1.0);
+    EXPECT_NEAR(stat("sweepDistance"), 4.5, 0.1);                   // the sphere's radius stops it above the face
+    EXPECT_EQ(stat("rayCollidersOnly"), 0.0);                       // the ground is a body, not a collider
+    EXPECT_EQ(stat("colliderMade"), 1.0);
+    EXPECT_EQ(stat("colliderPose"), 1.0);
+    physics.StepSimulation(1.0f / 60.0f, false);
+    pm().BeginFrame(2);
+    physics.StepSimulation(1.0f / 60.0f, false);
+    pm().EndFrame(2);
+    auto rayCollider = Export<int (*)()>("plat_ray_collider");
+    EXPECT_EQ(rayCollider(), 1);
+    EXPECT_NEAR(stat("colliderDistance"), 7.0, 0.05);               // the top face is at y = 3
+    EXPECT_EQ(stat("colliderUserData"), 77.0);
+    EXPECT_EQ(stat("colliderHandle"), 1.0);
+    EXPECT_EQ(stat("colliderHasActor"), 0.0);
+    Export<void (*)()>("plat_release_collider")();
+    physics.StepSimulation(1.0f / 60.0f, false);
+    EXPECT_EQ(rayCollider(), 0);                                    // released : gone from the world
+
+    EXPECT_EQ(stat("meshVertices"), 4.0);
+    EXPECT_EQ(stat("meshIndices"), 6.0);
+    EXPECT_EQ(stat("meshCreated"), 1.0);                            // resources are CPU-side until a renderer draws them
+    EXPECT_EQ(stat("textureCreated"), 1.0);
+    EXPECT_EQ(stat("textureWidth"), 2.0);
+    EXPECT_EQ(stat("debugEnabled"), 0.0);                           // nothing to draw on without a renderer : the calls are accepted and dropped
+    EXPECT_EQ(Rec()->errorCount, 0u);
+}
+
+TEST_F(GamePhysicsTest, AComponentIsToldWhenItJoinsIsEditedAndLeaves)
+{
+    Start();
+    auto actor = NewActor("Lamp");
+    auto stat = Export<double (*)(const char*)>("plat_stat");
+    auto beacon = actor->AddComponentByName(Type("Beacon"));
+    ASSERT_NE(beacon, nullptr);
+    EXPECT_EQ(stat("beaconAdded"), 1.0);
+    EXPECT_EQ(stat("beaconActorOk"), 1.0);
+    EXPECT_EQ(stat("beaconRemoved"), -1000.0);
+
+    EXPECT_TRUE(beacon->ApplyField("power", 7));
+    EXPECT_EQ(stat("beaconChanged"), 1.0);
+    EXPECT_EQ(stat("beaconField"), 0.0);                            // "power" is the first field
+    EXPECT_EQ(stat("beaconPowerChanged"), 7.0);                     // the block already holds the new value
+
+    actor->RemoveComponent(beacon);
+    EXPECT_EQ(stat("beaconRemoved"), 1.0);
+    EXPECT_EQ(stat("beaconPowerAtRemoval"), 7.0);                   // the block is intact when it is told
+    EXPECT_EQ(Rec()->errorCount, 0u);
+}
+
+namespace {
+    struct Undoable {
+        std::string label;
+        std::function<void()> undo, redo;
+    };
+    std::vector<Undoable>& Undos()
+    {
+        static std::vector<Undoable> undos;
+        return undos;
+    }
+}
+
+TEST_F(GamePhysicsTest, TheEditorKeepsWhatAPluginAddsToItsContentBrowserAndUndoHistory)
+{
+    Undos().clear();
+    static const EditorUiBackend backend = [] {
+        EditorUiBackend b = *EditorFakes::Backend();
+        b.pushUndo = [](const std::string& label, std::function<void()> undo, std::function<void()> redo) { Undos().push_back({ label, std::move(undo), std::move(redo) }); };
+        return b;
+    }();
+    SetEditorUiBackend(&backend);
+    Start();
+    auto stat = Export<double (*)(const char*)>("plat_stat");
+
+    // A double click on a file of the plugin's extension, and an entry of the Create menu
+    const auto openers = pm().Extensions().Get<EditorAssetOpenerItem>("editor.assetopener");
+    ASSERT_EQ(openers.size(), 1u);
+    EXPECT_EQ(openers[0]->extension, ".beacon");
+    openers[0]->open("levels/lamp.beacon");
+    EXPECT_EQ(stat("opened"), 1.0);
+    EXPECT_STREQ(Export<const char* (*)()>("plat_text")(), "levels/lamp.beacon");
+    const auto templates = pm().Extensions().Get<EditorAssetTemplateItem>("editor.assettemplate");
+    ASSERT_EQ(templates.size(), 1u);
+    EXPECT_EQ(templates[0]->label, "Beacon");
+    EXPECT_EQ(templates[0]->defaultName, "new_beacon.beacon");
+    EXPECT_EQ(templates[0]->bytes, "{\"power\":3}");
+
+    // The plugin's edit is in the editor's history, and its undo and redo reach the plugin
+    auto actor = NewActor("Probe");
+    ASSERT_NE(actor->AddComponentByName(Type("PlatformProbe")), nullptr);
+    world->Play();
+    EXPECT_EQ(stat("undoPushed"), 1.0);
+    ASSERT_EQ(Undos().size(), 1u);
+    EXPECT_EQ(Undos()[0].label, "probe edit");
+    Undos()[0].undo();
+    EXPECT_EQ(stat("undone"), 1.0);
+    Undos()[0].redo();
+    EXPECT_EQ(stat("redone"), 1.0);
+
+    // Once the plugin is gone its history entries do nothing instead of calling into a library that left
+    const Undoable kept = Undos()[0];
+    std::string error;
+    ASSERT_TRUE(pm().Disable(kId, true, &error)) << error;
+    kept.undo();
+    kept.redo();
+    EXPECT_TRUE(pm().Extensions().Get<EditorAssetOpenerItem>("editor.assetopener").empty());
+    Undos().clear();
+    SetEditorUiBackend(nullptr);
 }

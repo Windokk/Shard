@@ -1,5 +1,6 @@
 #include "viewport_window.hpp"
 #include "apps/editor/gui/plugin_ui.hpp"
+#include "engine/c_abi_render.hpp"
 
 #include "engine/world/engine.hpp"
 #include "engine/platform/windowing/iplatform.hpp"
@@ -245,6 +246,12 @@ namespace Shard::Editor::GUI {
 
         viewportImageMin = ImGui::GetItemRectMin();
         viewportImageMax = ImGui::GetItemRectMax();
+
+        // The overlays of plugins draw in this image : their UI maps the window positions of the input events into it
+        {
+            const ImVec2 windowPos = ImGui::GetMainViewport()->Pos;
+            Engine::Plugins::CAbi::SetPluginOverlayOrigin(viewportImageMin.x - windowPos.x, viewportImageMin.y - windowPos.y);
+        }
 
         // The game view only looks : nothing to drop, and no key may edit what is not shown (Delete on a hidden selection)
         if (!gameView)

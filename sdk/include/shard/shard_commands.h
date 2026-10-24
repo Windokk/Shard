@@ -1,4 +1,5 @@
-/* Interface "shard.commands" 1.0 : console commands. The command is removed with the plugin (disable or unload). */
+/* Interface "shard.commands" 1.1 : console commands. The command is removed with the plugin (disable or unload).
+ * 1.1 added `execute`: running a command of the console (the engine's, a plugin's) from code -- what a UI button, a graph node or a script does. */
 #ifndef SHARD_COMMANDS_H
 #define SHARD_COMMANDS_H
 
@@ -21,6 +22,13 @@ typedef struct ShardCommandsApi {
      * (case does not matter). A name another plugin or the engine already uses is replaced for as long as this plugin lives : the prefix is
      * what keeps commands apart. thread : main */
     ShardResult (SHARD_CALL *add)(ShardPluginCtx ctx, ShardStr name, ShardStr help, ShardCommandFn run, void* user);
+
+    /* ---- 1.1 ---- */
+    /* Runs a console line ("world.load arena", "render.thread 0") as if it was typed. The command's output is copied as a "text out" : at most
+     * `capacity` bytes into `output` (may be NULL), the full length in *size (may be NULL). SHARD_OK if the command succeeded, SHARD_E_NOT_FOUND
+     * if the line names no command, SHARD_E_INVALID_ARG if it failed (the output says why). A command that changes what the game simulates is
+     * the caller's to run from the simulation thread. thread : main */
+    ShardResult (SHARD_CALL *execute)(ShardPluginCtx ctx, ShardStr line, char* output, uint64_t capacity, uint64_t* size);
 } ShardCommandsApi;
 
 #ifdef __cplusplus

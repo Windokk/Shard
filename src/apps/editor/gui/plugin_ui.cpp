@@ -9,7 +9,9 @@
 #include "imgui/imgui.h"
 
 #include <shard/shard_editor.h>
+#include <shard/shard_input.h>
 
+#include "apps/editor/commands/command_stack.hpp"
 #include "apps/editor/gui/main_window.hpp"
 #include "apps/editor/gui/notifications.hpp"
 #include "engine/plugins/abi/c_plugin.hpp"
@@ -161,6 +163,124 @@ namespace Shard::Editor::GUI {
         int32_t SHARD_CALL IsItemActive() { return ImGui::IsItemActive() ? SHARD_TRUE : SHARD_FALSE; }
         int32_t SHARD_CALL IsItemDoubleClicked() { return ImGui::IsItemHovered() && ImGui::IsMouseDoubleClicked(ImGuiMouseButton_Left) ? SHARD_TRUE : SHARD_FALSE; }
 
+        // ---- 1.2 : a draw list, the mouse and keyboard, hit areas, images, drag and drop ----
+
+        ImVec2 V2(const float v[2]) { return ImVec2(v[0], v[1]); }
+
+        void SHARD_CALL DrawLine(const float a[2], const float b[2], uint32_t color, float thickness) { ImGui::GetWindowDrawList()->AddLine(V2(a), V2(b), color, thickness); }
+        void SHARD_CALL DrawPolyline(const float* points, uint32_t count, uint32_t color, int32_t closed, float thickness)
+        {
+            if (!points || count < 2) return;
+            ImGui::GetWindowDrawList()->AddPolyline(reinterpret_cast<const ImVec2*>(points), int(count), color, closed ? ImDrawFlags_Closed : ImDrawFlags_None, thickness);
+        }
+        void SHARD_CALL DrawRect(const float lo[2], const float hi[2], uint32_t color, float rounding, float thickness) { ImGui::GetWindowDrawList()->AddRect(V2(lo), V2(hi), color, rounding, 0, thickness); }
+        void SHARD_CALL DrawRectFilled(const float lo[2], const float hi[2], uint32_t color, float rounding) { ImGui::GetWindowDrawList()->AddRectFilled(V2(lo), V2(hi), color, rounding); }
+        void SHARD_CALL DrawCircle(const float c[2], float radius, uint32_t color, float thickness) { ImGui::GetWindowDrawList()->AddCircle(V2(c), radius, color, 0, thickness); }
+        void SHARD_CALL DrawCircleFilled(const float c[2], float radius, uint32_t color) { ImGui::GetWindowDrawList()->AddCircleFilled(V2(c), radius, color); }
+        void SHARD_CALL DrawTriangleFilled(const float a[2], const float b[2], const float c[2], uint32_t color) { ImGui::GetWindowDrawList()->AddTriangleFilled(V2(a), V2(b), V2(c), color); }
+        void SHARD_CALL DrawBezier(const float p0[2], const float p1[2], const float p2[2], const float p3[2], uint32_t color, float thickness) { ImGui::GetWindowDrawList()->AddBezierCubic(V2(p0), V2(p1), V2(p2), V2(p3), color, thickness); }
+        void SHARD_CALL DrawText(const float position[2], uint32_t color, ShardStr text)
+        {
+            ImGui::GetWindowDrawList()->AddText(V2(position), color, text.data ? text.data : "", text.data ? text.data + text.size : nullptr);
+        }
+        void SHARD_CALL PushClipRect(const float lo[2], const float hi[2], int32_t intersect) { ImGui::GetWindowDrawList()->PushClipRect(V2(lo), V2(hi), intersect != 0); }
+        void SHARD_CALL PopClipRect() { ImGui::GetWindowDrawList()->PopClipRect(); }
+
+        void SHARD_CALL GetCursorScreenPos(float out[2]) { const ImVec2 p = ImGui::GetCursorScreenPos(); out[0] = p.x; out[1] = p.y; }
+        void SHARD_CALL SetCursorScreenPos(const float position[2]) { ImGui::SetCursorScreenPos(V2(position)); }
+        void SHARD_CALL GetContentRegionAvail(float out[2]) { const ImVec2 p = ImGui::GetContentRegionAvail(); out[0] = p.x; out[1] = p.y; }
+        void SHARD_CALL GetItemRectMin(float out[2]) { const ImVec2 p = ImGui::GetItemRectMin(); out[0] = p.x; out[1] = p.y; }
+        void SHARD_CALL GetItemRectMax(float out[2]) { const ImVec2 p = ImGui::GetItemRectMax(); out[0] = p.x; out[1] = p.y; }
+        void SHARD_CALL CalcTextSize(ShardStr text, float out[2])
+        {
+            const ImVec2 p = ImGui::CalcTextSize(text.data ? text.data : "", text.data ? text.data + text.size : nullptr);
+            out[0] = p.x; out[1] = p.y;
+        }
+        int32_t SHARD_CALL InvisibleButton(ShardStr id, float w, float h) { return ImGui::InvisibleButton(Z(id), ImVec2(w, h)) ? SHARD_TRUE : SHARD_FALSE; }
+
+        ImGuiMouseButton Button(int32_t button) { return button == SHARD_MOUSE_RIGHT ? ImGuiMouseButton_Right : button == SHARD_MOUSE_MIDDLE ? ImGuiMouseButton_Middle : ImGuiMouseButton_Left; }
+
+        void SHARD_CALL GetMousePos(float out[2]) { const ImVec2 p = ImGui::GetMousePos(); out[0] = p.x; out[1] = p.y; }
+        void SHARD_CALL GetMouseDragDelta(int32_t button, float out[2]) { const ImVec2 p = ImGui::GetMouseDragDelta(Button(button), 0.0f); out[0] = p.x; out[1] = p.y; }
+        void SHARD_CALL ResetMouseDragDelta(int32_t button) { ImGui::ResetMouseDragDelta(Button(button)); }
+        float SHARD_CALL GetMouseWheel() { return ImGui::GetIO().MouseWheel; }
+        int32_t SHARD_CALL IsMouseDown(int32_t button) { return ImGui::IsMouseDown(Button(button)) ? SHARD_TRUE : SHARD_FALSE; }
+        int32_t SHARD_CALL IsMouseClicked(int32_t button) { return ImGui::IsMouseClicked(Button(button)) ? SHARD_TRUE : SHARD_FALSE; }
+        int32_t SHARD_CALL IsMouseReleased(int32_t button) { return ImGui::IsMouseReleased(Button(button)) ? SHARD_TRUE : SHARD_FALSE; }
+        int32_t SHARD_CALL IsMouseDoubleClicked(int32_t button) { return ImGui::IsMouseDoubleClicked(Button(button)) ? SHARD_TRUE : SHARD_FALSE; }
+
+        // SHARD_KEY_* -> ImGui's keys (the ones a panel needs)
+        ImGuiKey KeyOf(int32_t key)
+        {
+            if (key >= SHARD_KEY_A && key <= SHARD_KEY_A + 25) return ImGuiKey(int(ImGuiKey_A) + (key - SHARD_KEY_A));
+            if (key >= SHARD_KEY_0 && key <= SHARD_KEY_0 + 9) return ImGuiKey(int(ImGuiKey_0) + (key - SHARD_KEY_0));
+            if (key >= SHARD_KEY_F1 && key <= SHARD_KEY_F1 + 11) return ImGuiKey(int(ImGuiKey_F1) + (key - SHARD_KEY_F1));
+            switch (key) {
+                case SHARD_KEY_SPACE: return ImGuiKey_Space;
+                case SHARD_KEY_ENTER: return ImGuiKey_Enter;
+                case SHARD_KEY_ESCAPE: return ImGuiKey_Escape;
+                case SHARD_KEY_TAB: return ImGuiKey_Tab;
+                case SHARD_KEY_BACKSPACE: return ImGuiKey_Backspace;
+                case SHARD_KEY_DELETE: return ImGuiKey_Delete;
+                case SHARD_KEY_INSERT: return ImGuiKey_Insert;
+                case SHARD_KEY_LEFT: return ImGuiKey_LeftArrow;
+                case SHARD_KEY_RIGHT: return ImGuiKey_RightArrow;
+                case SHARD_KEY_UP: return ImGuiKey_UpArrow;
+                case SHARD_KEY_DOWN: return ImGuiKey_DownArrow;
+                case SHARD_KEY_HOME: return ImGuiKey_Home;
+                case SHARD_KEY_END: return ImGuiKey_End;
+                case SHARD_KEY_PAGE_UP: return ImGuiKey_PageUp;
+                case SHARD_KEY_PAGE_DOWN: return ImGuiKey_PageDown;
+                case SHARD_KEY_LEFT_SHIFT: return ImGuiKey_LeftShift;
+                case SHARD_KEY_RIGHT_SHIFT: return ImGuiKey_RightShift;
+                case SHARD_KEY_LEFT_CONTROL: return ImGuiKey_LeftCtrl;
+                case SHARD_KEY_RIGHT_CONTROL: return ImGuiKey_RightCtrl;
+                case SHARD_KEY_LEFT_ALT: return ImGuiKey_LeftAlt;
+                case SHARD_KEY_RIGHT_ALT: return ImGuiKey_RightAlt;
+                default: return ImGuiKey_None;
+            }
+        }
+        int32_t SHARD_CALL IsKeyDown(int32_t key) { const ImGuiKey k = KeyOf(key); return k != ImGuiKey_None && ImGui::IsKeyDown(k) ? SHARD_TRUE : SHARD_FALSE; }
+        int32_t SHARD_CALL IsKeyPressed(int32_t key) { const ImGuiKey k = KeyOf(key); return k != ImGuiKey_None && ImGui::IsKeyPressed(k) ? SHARD_TRUE : SHARD_FALSE; }
+        uint32_t SHARD_CALL GetModifiers()
+        {
+            const ImGuiIO& io = ImGui::GetIO();
+            return (io.KeyShift ? SHARD_MOD_SHIFT : 0u) | (io.KeyCtrl ? SHARD_MOD_CONTROL : 0u) | (io.KeyAlt ? SHARD_MOD_ALT : 0u) | (io.KeySuper ? SHARD_MOD_SUPER : 0u);
+        }
+        int32_t SHARD_CALL IsWindowHovered() { return ImGui::IsWindowHovered() ? SHARD_TRUE : SHARD_FALSE; }
+        int32_t SHARD_CALL IsWindowFocused() { return ImGui::IsWindowFocused() ? SHARD_TRUE : SHARD_FALSE; }
+
+        void SHARD_CALL Image(uint64_t texture, float w, float h)
+        {
+            // A texture of shard.render : its native id exists once the render thread made it (the engine root knows)
+            bool flipV = false;
+            const uint64_t native = Engine::Plugins::RenderTextureForImGui(texture, &flipV);
+            if (native) ImGui::Image(ImTextureID(native), ImVec2(w, h), ImVec2(0.0f, flipV ? 1.0f : 0.0f), ImVec2(1.0f, flipV ? 0.0f : 1.0f));      // a render target is bottom first
+            else ImGui::Dummy(ImVec2(w, h));
+        }
+        int32_t SHARD_CALL SelectableSize(ShardStr l, int32_t selected, float w, float h) { return ImGui::Selectable(Z(l), selected != 0, 0, ImVec2(w, h)) ? SHARD_TRUE : SHARD_FALSE; }
+
+        int32_t SHARD_CALL BeginDragDropSource() { return ImGui::BeginDragDropSource() ? SHARD_TRUE : SHARD_FALSE; }
+        void SHARD_CALL SetDragDropPayload(ShardStr type, const void* data, uint64_t size)
+        {
+            std::string name = Z(type);
+            if (name.size() > 32) name.resize(32);
+            ImGui::SetDragDropPayload(name.c_str(), data, size_t(size));
+        }
+        void SHARD_CALL EndDragDropSource() { ImGui::EndDragDropSource(); }
+        int32_t SHARD_CALL BeginDragDropTarget() { return ImGui::BeginDragDropTarget() ? SHARD_TRUE : SHARD_FALSE; }
+        int32_t SHARD_CALL AcceptDragDropPayload(ShardStr type, void* out, uint64_t capacity, uint64_t* size)
+        {
+            std::string name = Z(type);
+            if (name.size() > 32) name.resize(32);
+            const ImGuiPayload* payload = ImGui::AcceptDragDropPayload(name.c_str());
+            if (!payload) return SHARD_FALSE;
+            if (size) *size = uint64_t(payload->DataSize);
+            if (out && capacity && payload->Data) std::memcpy(out, payload->Data, size_t(std::min<uint64_t>(capacity, uint64_t(payload->DataSize))));
+            return SHARD_TRUE;
+        }
+        void SHARD_CALL EndDragDropTarget() { ImGui::EndDragDropTarget(); }
+
         ShardUiApi MakeWidgets()
         {
             ShardUiApi w;
@@ -187,6 +307,17 @@ namespace Shard::Editor::GUI {
             w.begin_menu = &BeginMenu; w.end_menu = &EndMenu; w.menu_item = &MenuItem; w.open_popup = &OpenPopup; w.begin_popup = &BeginPopup;
             w.end_popup = &EndPopup; w.close_current_popup = &CloseCurrentPopup; w.begin_popup_context_item = &BeginPopupContextItem;
             w.is_item_clicked = &IsItemClicked; w.is_item_active = &IsItemActive; w.is_item_double_clicked = &IsItemDoubleClicked;
+            w.draw_line = &DrawLine; w.draw_polyline = &DrawPolyline; w.draw_rect = &DrawRect; w.draw_rect_filled = &DrawRectFilled;
+            w.draw_circle = &DrawCircle; w.draw_circle_filled = &DrawCircleFilled; w.draw_triangle_filled = &DrawTriangleFilled;
+            w.draw_bezier = &DrawBezier; w.draw_text = &DrawText; w.push_clip_rect = &PushClipRect; w.pop_clip_rect = &PopClipRect;
+            w.get_cursor_screen_pos = &GetCursorScreenPos; w.set_cursor_screen_pos = &SetCursorScreenPos; w.get_content_region_avail = &GetContentRegionAvail;
+            w.get_item_rect_min = &GetItemRectMin; w.get_item_rect_max = &GetItemRectMax; w.calc_text_size = &CalcTextSize; w.invisible_button = &InvisibleButton;
+            w.get_mouse_pos = &GetMousePos; w.get_mouse_drag_delta = &GetMouseDragDelta; w.reset_mouse_drag_delta = &ResetMouseDragDelta;
+            w.get_mouse_wheel = &GetMouseWheel; w.is_mouse_down = &IsMouseDown; w.is_mouse_clicked = &IsMouseClicked; w.is_mouse_released = &IsMouseReleased;
+            w.is_mouse_double_clicked = &IsMouseDoubleClicked; w.is_key_down = &IsKeyDown; w.is_key_pressed = &IsKeyPressed; w.get_modifiers = &GetModifiers;
+            w.is_window_hovered = &IsWindowHovered; w.is_window_focused = &IsWindowFocused; w.image = &Image; w.selectable_size = &SelectableSize;
+            w.begin_drag_drop_source = &BeginDragDropSource; w.set_drag_drop_payload = &SetDragDropPayload; w.end_drag_drop_source = &EndDragDropSource;
+            w.begin_drag_drop_target = &BeginDragDropTarget; w.accept_drag_drop_payload = &AcceptDragDropPayload; w.end_drag_drop_target = &EndDragDropTarget;
             return w;
         }
 
@@ -208,7 +339,24 @@ namespace Shard::Editor::GUI {
         bool BeginWindow(const char* title, bool* open) { return ImGui::Begin(title, open); }
         void EndWindow() { ImGui::End(); }
 
-        const Engine::Plugins::EditorUiBackend kBackend = { &kWidgets, &BeginWindow, &EndWindow, &Notify, &Selection };
+        // An edit a plugin made, in the editor's history
+        class PluginCommand final : public Commands::Command {
+        public:
+            PluginCommand(std::string label, std::function<void()> undo, std::function<void()> redo) : m_Name(std::move(label)), m_Undo(std::move(undo)), m_Redo(std::move(redo)) {}
+            void Undo() override { if (m_Undo) m_Undo(); }
+            void Redo() override { if (m_Redo) m_Redo(); }
+            const std::string& GetName() const override { return m_Name; }
+        private:
+            std::string m_Name;
+            std::function<void()> m_Undo, m_Redo;
+        };
+
+        void PushUndo(const std::string& label, std::function<void()> undo, std::function<void()> redo)
+        {
+            Commands::CommandStack::Get().Record(std::make_unique<PluginCommand>(label, std::move(undo), std::move(redo)));
+        }
+
+        const Engine::Plugins::EditorUiBackend kBackend = { &kWidgets, &BeginWindow, &EndWindow, &Notify, &Selection, &PushUndo };
     }
 
     namespace {

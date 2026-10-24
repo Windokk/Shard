@@ -39,6 +39,8 @@ namespace Shard::Engine::Core::Platform {
         SystemInfos GetSystemInfos() const override;
         std::vector<MonitorInfos> GetMonitors() const override;
         float GetContentScale() const override;
+        void SetCursorShape(int shape) override;
+        void SetTextInputActive(bool active, int x, int y, int width, int height) override;
 
         /// @brief Asks the application to close (ShouldClose becomes true), like the close button would.
         void RequestClose() { m_ShouldClose = true; }

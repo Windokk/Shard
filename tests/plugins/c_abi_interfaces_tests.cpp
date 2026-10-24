@@ -722,18 +722,29 @@ TEST_F(CAbiTest, TheInterfacesOfEachRevisionAreOffered)
     const ShardHostApi* api = GetCHostApi();
     const void* table = nullptr;
     auto ask = [&](const char* id, uint32_t minor) { return api->query_interface(ShardStr{ id, std::strlen(id) }, 1, minor, &table); };
-    EXPECT_EQ(ask(SHARD_IFACE_COMPONENTS, 3), SHARD_OK);            // 1.5 : actor references and accessor strings (1.3 : text and assets)
-    EXPECT_EQ(ask(SHARD_IFACE_COMPONENTS, 4), SHARD_E_NOT_FOUND);
+    EXPECT_EQ(ask(SHARD_IFACE_COMPONENTS, 4), SHARD_OK);            // 1.7 : life cycle callbacks (1.5 : actor references and accessor strings)
+    EXPECT_EQ(ask(SHARD_IFACE_COMPONENTS, 5), SHARD_E_NOT_FOUND);
     EXPECT_EQ(ask(SHARD_IFACE_ECS, 1), SHARD_OK);                   // 1.3 : set_local_transform
     EXPECT_EQ(ask(SHARD_IFACE_ECS, 2), SHARD_E_NOT_FOUND);
-    EXPECT_EQ(ask(SHARD_IFACE_ACTORS, 1), SHARD_OK);                // 1.4 : actors, scripts, input (1.5 : one field of a component at a time)
-    EXPECT_EQ(ask(SHARD_IFACE_ACTORS, 2), SHARD_E_NOT_FOUND);
-    EXPECT_EQ(ask(SHARD_IFACE_SCRIPTS, 1), SHARD_OK);               // 1.5 : contacts, accessor strings
-    EXPECT_EQ(ask(SHARD_IFACE_SCRIPTS, 2), SHARD_E_NOT_FOUND);
-    EXPECT_EQ(ask(SHARD_IFACE_INPUT, 0), SHARD_OK);
-    EXPECT_EQ(ask(SHARD_IFACE_PHYSICS, 0), SHARD_OK);               // 1.5 : physics, audio, worlds
+    EXPECT_EQ(ask(SHARD_IFACE_ACTORS, 2), SHARD_OK);                // 1.7 : stable ids, bounds, neighbours (1.4 : actors, 1.5 : one field of a component at a time)
+    EXPECT_EQ(ask(SHARD_IFACE_ACTORS, 3), SHARD_E_NOT_FOUND);
+    EXPECT_EQ(ask(SHARD_IFACE_SCRIPTS, 2), SHARD_OK);               // 1.7 : edit mode, field changes (1.5 : contacts, accessor strings)
+    EXPECT_EQ(ask(SHARD_IFACE_SCRIPTS, 3), SHARD_E_NOT_FOUND);
+    EXPECT_EQ(ask(SHARD_IFACE_INPUT, 1), SHARD_OK);                 // 1.7 : events, clipboard, capture
+    EXPECT_EQ(ask(SHARD_IFACE_INPUT, 2), SHARD_E_NOT_FOUND);
+    EXPECT_EQ(ask(SHARD_IFACE_PHYSICS, 1), SHARD_OK);               // 1.7 : volume queries and colliders (1.5 : physics, audio, worlds)
+    EXPECT_EQ(ask(SHARD_IFACE_PHYSICS, 2), SHARD_E_NOT_FOUND);
     EXPECT_EQ(ask(SHARD_IFACE_AUDIO, 0), SHARD_OK);
-    EXPECT_EQ(ask(SHARD_IFACE_WORLDS, 0), SHARD_OK);
+    EXPECT_EQ(ask(SHARD_IFACE_WORLDS, 1), SHARD_OK);                // 1.7 : world_at
+    EXPECT_EQ(ask(SHARD_IFACE_COMMANDS, 1), SHARD_OK);              // 1.7 : execute
+    EXPECT_EQ(ask(SHARD_IFACE_JOBS, 0), SHARD_OK);                  // 1.7 : the new interfaces
+    EXPECT_EQ(ask(SHARD_IFACE_TIME, 0), SHARD_OK);
+    EXPECT_EQ(ask(SHARD_IFACE_ASSETS, 0), SHARD_OK);
+    EXPECT_EQ(ask(SHARD_IFACE_RENDER, 0), SHARD_OK);
+    EXPECT_EQ(ask(SHARD_IFACE_DEBUG, 0), SHARD_OK);
+    EXPECT_EQ(ask(SHARD_IFACE_REFLECT, 0), SHARD_OK);
+    EXPECT_EQ(ask(SHARD_IFACE_NET, 0), SHARD_OK);
+    EXPECT_EQ(ask(SHARD_IFACE_NET, 1), SHARD_E_NOT_FOUND);
     EXPECT_EQ(ask(SHARD_IFACE_EDITOR, 0), SHARD_E_NOT_FOUND);       // only the editor has it
-    EXPECT_EQ(SHARD_ABI_MINOR, 6);                                  // 1.6 : shard.editor 1.1 (menus, toolbar, inspectors, gizmos, selection, more widgets)
+    EXPECT_EQ(SHARD_ABI_MINOR, 7);                                  // 1.7 : the interfaces for particles, navigation, voxels, UI, animation, networking, visual scripting
 }

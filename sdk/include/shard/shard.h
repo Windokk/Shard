@@ -24,6 +24,13 @@
 #include "shard_content.h"
 #include "shard_state.h"
 #include "shard_experimental.h"
+#include "shard_jobs.h"
+#include "shard_time.h"
+#include "shard_assets.h"
+#include "shard_render.h"
+#include "shard_debug.h"
+#include "shard_reflect.h"
+#include "shard_net.h"
 
 /* Compiled for wasm32 (a sandboxed plugin) : the interfaces are imports of the host, see shard_wasm.h */
 #if defined(__wasm__)

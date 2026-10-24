@@ -56,6 +56,8 @@ namespace Shard::Engine::Objects::Components {
             std::shared_ptr<Component> CreateBuiltinComponent(const std::string& typeName, Core::IEngineContext* engine, std::shared_ptr<Actor> actor, uint32_t localId);
 
             bool IsBuiltinComponent(const std::string& typeName) const;
+            /// The names of the engine's own component types ("model", "light"...), sorted
+            std::vector<std::string> BuiltinNames() const;
 
             /// Adds the resources a serialized component references (nothing for an unknown type)
             void CollectAssetRefs(const std::string& typeName, const nlohmann::json& component, std::vector<Core::Resources::ResourceKey>& out) const;

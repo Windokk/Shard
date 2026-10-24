@@ -27,6 +27,7 @@ namespace Shard::Engine::Plugins::Wasm {
             { "plugin.has_permission", { { L, I }, { I } }, false },
             { "plugin.random_stream", { { L, I, I }, { I } }, false },
             { "commands.add", { { L, I, I, I, I }, { I } }, true },
+            { "commands.execute", { { L, I, I, L, I }, { I } }, false },
             { "cvars.create_bool", { { L, I, I, I, I, I }, { I } }, false },
             { "cvars.create_int", { { L, I, I, I, I, I, I, I }, { I } }, false },
             { "cvars.create_float", { { L, I, F, I, I, F, F, I }, { I } }, false },
@@ -108,6 +109,12 @@ namespace Shard::Engine::Plugins::Wasm {
             { "actors.get_component_field", { { L, I, I, I, L, I }, { I } }, false },
             { "actors.set_component_field", { { L, I, I, I }, { I } }, false },
             { "actors.erase_component_field", { { L, I, I }, { I } }, false },
+            { "actors.get_stable_id", { { L, I }, { I } }, false },
+            { "actors.find_by_stable_id", { { L, I }, { I } }, false },
+            { "actors.get_world_id", { { L, I }, { I } }, false },
+            { "actors.get_world_bounds", { { L, I, I }, { I } }, false },
+            { "actors.find_in_sphere", { { L, I, F, I, I, I, I }, { I } }, false },
+            { "actors.find_in_box", { { L, I, I, I, I, I, I }, { I } }, false },
             { "scripts.register_script", { { L, I }, { I } }, true },
             { "scripts.get_object", { { L, L, I, I }, { I } }, true },
             { "scripts.add_to_actor", { { L, L, I, I }, { I } }, true },
@@ -126,6 +133,15 @@ namespace Shard::Engine::Plugins::Wasm {
             { "input.gamepad_button_released", { { I, I }, { I } }, false },
             { "input.gamepad_axis", { { I, I, F }, { F } }, false },
             { "input.gamepad_rumble", { { I, F, F, I }, { I } }, false },
+            { "input.event_count", { {  }, { I } }, false },
+            { "input.event_at", { { I, I }, { I } }, false },
+            { "input.modifiers", { {  }, { I } }, false },
+            { "input.window_size", { { I, I, I }, { I } }, false },
+            { "input.clipboard_get", { { I, L, I }, { I } }, false },
+            { "input.clipboard_set", { { I }, { I } }, false },
+            { "input.set_cursor_shape", { { I }, { I } }, false },
+            { "input.set_text_input", { { I, I, I, I, I }, { I } }, false },
+            { "input.capture", { { L, I }, { I } }, false },
             { "physics.get_velocity", { { L, I }, { I } }, false },
             { "physics.set_velocity", { { L, I }, { I } }, false },
             { "physics.get_angular_velocity", { { L, I }, { I } }, false },
@@ -139,6 +155,16 @@ namespace Shard::Engine::Plugins::Wasm {
             { "physics.get_gravity", { { L, I }, { I } }, false },
             { "physics.set_custom_gravity", { { L, I }, { I } }, false },
             { "physics.raycast", { { I, I, F, I, L, I }, { I } }, false },
+            { "physics.raycast_all", { { I, I, F, I, I, I, I }, { I } }, false },
+            { "physics.overlap_sphere", { { I, F, I, I, I, I }, { I } }, false },
+            { "physics.overlap_box", { { I, I, I, I, I, I, I }, { I } }, false },
+            { "physics.overlap_capsule", { { I, I, F, I, I, I, I }, { I } }, false },
+            { "physics.sweep_sphere", { { I, F, I, F, I, I }, { I } }, false },
+            { "physics.sweep_box", { { I, I, I, I, F, I, I }, { I } }, false },
+            { "physics.collider_create", { { L, I, I }, { I } }, false },
+            { "physics.collider_set_pose", { { L, L, I, I }, { I } }, false },
+            { "physics.collider_update", { { L, L, I }, { I } }, false },
+            { "physics.collider_destroy", { { L, L }, { I } }, false },
             { "audio.play", { { L }, { I } }, false },
             { "audio.pause", { { L }, { I } }, false },
             { "audio.set_volume", { { L, F }, { I } }, false },
@@ -147,6 +173,7 @@ namespace Shard::Engine::Plugins::Wasm {
             { "worlds.is_loading", { {  }, { I } }, false },
             { "worlds.loaded_count", { {  }, { I } }, false },
             { "worlds.spawn_prefab", { { L, I, L, I }, { I } }, false },
+            { "worlds.world_at", { { I, I, I, L, I, I }, { I } }, false },
             { "editor.add_panel", { { L, I, I, I }, { I } }, true },
             { "editor.add_menu_item", { { L, I, I, I, I }, { I } }, true },
             { "editor.add_toolbar_button", { { L, I, I, I, I }, { I } }, true },
@@ -156,6 +183,9 @@ namespace Shard::Engine::Plugins::Wasm {
             { "editor.get_selection", { { I, I, I }, { I } }, false },
             { "editor.notify", { { L, I, I }, { I } }, false },
             { "editor.set_panel_visible", { { L, I, I }, { I } }, false },
+            { "editor.undo_push", { { L, I, I, I, I }, { I } }, false },
+            { "editor.add_asset_opener", { { L, I, I, I }, { I } }, false },
+            { "editor.add_asset_template", { { L, I, I, I, L }, { I } }, false },
             { "ui.text", { { I }, {  } }, false },
             { "ui.text_colored", { { I, I }, {  } }, false },
             { "ui.text_wrapped", { { I }, {  } }, false },
@@ -233,6 +263,45 @@ namespace Shard::Engine::Plugins::Wasm {
             { "ui.is_item_clicked", { { I }, { I } }, false },
             { "ui.is_item_active", { {  }, { I } }, false },
             { "ui.is_item_double_clicked", { {  }, { I } }, false },
+            { "ui.draw_line", { { I, I, I, F }, {  } }, false },
+            { "ui.draw_polyline", { { I, I, I, I, F }, {  } }, false },
+            { "ui.draw_rect", { { I, I, I, F, F }, {  } }, false },
+            { "ui.draw_rect_filled", { { I, I, I, F }, {  } }, false },
+            { "ui.draw_circle", { { I, F, I, F }, {  } }, false },
+            { "ui.draw_circle_filled", { { I, F, I }, {  } }, false },
+            { "ui.draw_triangle_filled", { { I, I, I, I }, {  } }, false },
+            { "ui.draw_bezier", { { I, I, I, I, I, F }, {  } }, false },
+            { "ui.draw_text", { { I, I, I }, {  } }, false },
+            { "ui.push_clip_rect", { { I, I, I }, {  } }, false },
+            { "ui.pop_clip_rect", { {  }, {  } }, false },
+            { "ui.get_cursor_screen_pos", { { I }, {  } }, false },
+            { "ui.set_cursor_screen_pos", { { I }, {  } }, false },
+            { "ui.get_content_region_avail", { { I }, {  } }, false },
+            { "ui.get_item_rect_min", { { I }, {  } }, false },
+            { "ui.get_item_rect_max", { { I }, {  } }, false },
+            { "ui.calc_text_size", { { I, I }, {  } }, false },
+            { "ui.invisible_button", { { I, F, F }, { I } }, false },
+            { "ui.get_mouse_pos", { { I }, {  } }, false },
+            { "ui.get_mouse_drag_delta", { { I, I }, {  } }, false },
+            { "ui.reset_mouse_drag_delta", { { I }, {  } }, false },
+            { "ui.get_mouse_wheel", { {  }, { F } }, false },
+            { "ui.is_mouse_down", { { I }, { I } }, false },
+            { "ui.is_mouse_clicked", { { I }, { I } }, false },
+            { "ui.is_mouse_released", { { I }, { I } }, false },
+            { "ui.is_mouse_double_clicked", { { I }, { I } }, false },
+            { "ui.is_key_down", { { I }, { I } }, false },
+            { "ui.is_key_pressed", { { I }, { I } }, false },
+            { "ui.get_modifiers", { {  }, { I } }, false },
+            { "ui.is_window_hovered", { {  }, { I } }, false },
+            { "ui.is_window_focused", { {  }, { I } }, false },
+            { "ui.image", { { L, F, F }, {  } }, false },
+            { "ui.selectable_size", { { I, I, F, F }, { I } }, false },
+            { "ui.begin_drag_drop_source", { {  }, { I } }, false },
+            { "ui.set_drag_drop_payload", { { I, I, L }, {  } }, false },
+            { "ui.end_drag_drop_source", { {  }, {  } }, false },
+            { "ui.begin_drag_drop_target", { {  }, { I } }, false },
+            { "ui.accept_drag_drop_payload", { { I, I, L, I }, { I } }, false },
+            { "ui.end_drag_drop_target", { {  }, {  } }, false },
             { "gizmo.line", { { I, I, I }, {  } }, false },
             { "gizmo.point", { { I, F, I }, {  } }, false },
             { "gizmo.circle", { { I, I, F, I }, {  } }, false },
@@ -292,6 +361,20 @@ namespace Shard::Engine::Plugins::Wasm {
                 OutArg<ShardRandomState> p2(in, a[2]); if (!p2.ok) return false;
                 const auto rv = api->random_stream(s.ctx, ToStr(p1), &p2.value);
                 if (!p2.Commit()) return false;
+                r[0] = uint32_t(rv);
+                return true;
+            });
+        }
+
+        // ---- shard.commands ----
+        {
+            const ShardCommandsApi* api = apis.commands;
+            imports.Add("commands.execute", { { L, I, I, L, I }, { I } }, [&s, api](Instance& in, const uint64_t* a, uint64_t* r) -> bool {
+                (void)in; (void)a; (void)r;
+                if (!api || !SHARD_HAS(api, execute)) { r[0] = uint32_t(SHARD_E_UNSUPPORTED); return true; }
+                std::string p1; if (!ReadStr(in, a[1], p1)) return false;
+                ShardResult rv = SHARD_OK;
+                if (!TextOut(in, a[2], a[3], a[4], rv, [&](char* tb, uint64_t tc, uint64_t* ts) { return api->execute(s.ctx, ToStr(p1), tb, tc, ts); })) return false;
                 r[0] = uint32_t(rv);
                 return true;
             });
@@ -886,6 +969,65 @@ namespace Shard::Engine::Plugins::Wasm {
                 r[0] = uint32_t(rv);
                 return true;
             });
+            imports.Add("actors.get_stable_id", { { L, I }, { I } }, [&s, api](Instance& in, const uint64_t* a, uint64_t* r) -> bool {
+                (void)in; (void)a; (void)r;
+                if (!api || !SHARD_HAS(api, get_stable_id)) { r[0] = uint32_t(SHARD_E_UNSUPPORTED); return true; }
+                OutArg<uint64_t> p1(in, a[1]); if (!p1.ok) return false;
+                const auto rv = api->get_stable_id(static_cast<ShardActor>(a[0]), &p1.value);
+                if (!p1.Commit()) return false;
+                r[0] = uint32_t(rv);
+                return true;
+            });
+            imports.Add("actors.find_by_stable_id", { { L, I }, { I } }, [&s, api](Instance& in, const uint64_t* a, uint64_t* r) -> bool {
+                (void)in; (void)a; (void)r;
+                if (!api || !SHARD_HAS(api, find_by_stable_id)) { r[0] = uint32_t(SHARD_E_UNSUPPORTED); return true; }
+                OutArg<ShardActor> p1(in, a[1]); if (!p1.ok) return false;
+                const auto rv = api->find_by_stable_id(static_cast<uint64_t>(a[0]), &p1.value);
+                if (!p1.Commit()) return false;
+                r[0] = uint32_t(rv);
+                return true;
+            });
+            imports.Add("actors.get_world_id", { { L, I }, { I } }, [&s, api](Instance& in, const uint64_t* a, uint64_t* r) -> bool {
+                (void)in; (void)a; (void)r;
+                if (!api || !SHARD_HAS(api, get_world_id)) { r[0] = uint32_t(SHARD_E_UNSUPPORTED); return true; }
+                OutArg<int32_t> p1(in, a[1]); if (!p1.ok) return false;
+                const auto rv = api->get_world_id(static_cast<ShardActor>(a[0]), &p1.value);
+                if (!p1.Commit()) return false;
+                r[0] = uint32_t(rv);
+                return true;
+            });
+            imports.Add("actors.get_world_bounds", { { L, I, I }, { I } }, [&s, api](Instance& in, const uint64_t* a, uint64_t* r) -> bool {
+                (void)in; (void)a; (void)r;
+                if (!api || !SHARD_HAS(api, get_world_bounds)) { r[0] = uint32_t(SHARD_E_UNSUPPORTED); return true; }
+                FloatArray<3> p1(in, a[1]); if (!p1.ok) return false;
+                FloatArray<3> p2(in, a[2]); if (!p2.ok) return false;
+                const auto rv = api->get_world_bounds(static_cast<ShardActor>(a[0]), p1.v, p2.v);
+                if (!p1.Commit()) return false;
+                if (!p2.Commit()) return false;
+                r[0] = uint32_t(rv);
+                return true;
+            });
+            imports.Add("actors.find_in_sphere", { { L, I, F, I, I, I, I }, { I } }, [&s, api](Instance& in, const uint64_t* a, uint64_t* r) -> bool {
+                (void)in; (void)a; (void)r;
+                if (!api || !SHARD_HAS(api, find_in_sphere)) { r[0] = uint32_t(SHARD_E_UNSUPPORTED); return true; }
+                FloatArray<3> p1(in, a[1]); if (!p1.ok) return false;
+                std::string p3; if (!ReadStr(in, a[3], p3)) return false;
+                ShardResult rv = SHARD_OK;
+                if (!ArrayOut<ShardActor>(in, a[4], a[5], a[6], rv, [&](ShardActor* tb, uint32_t tc, uint32_t* ts) { return api->find_in_sphere(static_cast<ShardActor>(a[0]), p1.v, F32(a[2]), ToStr(p3), tb, tc, ts); })) return false;
+                r[0] = uint32_t(rv);
+                return true;
+            });
+            imports.Add("actors.find_in_box", { { L, I, I, I, I, I, I }, { I } }, [&s, api](Instance& in, const uint64_t* a, uint64_t* r) -> bool {
+                (void)in; (void)a; (void)r;
+                if (!api || !SHARD_HAS(api, find_in_box)) { r[0] = uint32_t(SHARD_E_UNSUPPORTED); return true; }
+                FloatArray<3> p1(in, a[1]); if (!p1.ok) return false;
+                FloatArray<3> p2(in, a[2]); if (!p2.ok) return false;
+                std::string p3; if (!ReadStr(in, a[3], p3)) return false;
+                ShardResult rv = SHARD_OK;
+                if (!ArrayOut<ShardActor>(in, a[4], a[5], a[6], rv, [&](ShardActor* tb, uint32_t tc, uint32_t* ts) { return api->find_in_box(static_cast<ShardActor>(a[0]), p1.v, p2.v, ToStr(p3), tb, tc, ts); })) return false;
+                r[0] = uint32_t(rv);
+                return true;
+            });
         }
 
         // ---- shard.input ----
@@ -997,6 +1139,79 @@ namespace Shard::Engine::Plugins::Wasm {
                 (void)in; (void)a; (void)r;
                 if (!api || !SHARD_HAS(api, gamepad_rumble) || !s.Allowed(Permission::Input)) { r[0] = 0; return true; }
                 const auto rv = api->gamepad_rumble(static_cast<int32_t>(int32_t(uint32_t(a[0]))), F32(a[1]), F32(a[2]), static_cast<int32_t>(int32_t(uint32_t(a[3]))));
+                r[0] = uint32_t(rv);
+                return true;
+            });
+            imports.Add("input.event_count", { {  }, { I } }, [&s, api](Instance& in, const uint64_t* a, uint64_t* r) -> bool {
+                (void)in; (void)a; (void)r;
+                if (!api || !SHARD_HAS(api, event_count) || !s.Allowed(Permission::Input)) { r[0] = 0; return true; }
+                const auto rv = api->event_count();
+                r[0] = uint32_t(rv);
+                return true;
+            });
+            imports.Add("input.event_at", { { I, I }, { I } }, [&s, api](Instance& in, const uint64_t* a, uint64_t* r) -> bool {
+                (void)in; (void)a; (void)r;
+                if (!api || !SHARD_HAS(api, event_at) || !s.Allowed(Permission::Input)) { r[0] = uint32_t(SHARD_E_UNSUPPORTED); return true; }
+                OutArg<ShardInputEvent> p1(in, a[1]); if (!p1.ok) return false;
+                const auto rv = api->event_at(static_cast<uint32_t>(uint32_t(a[0])), &p1.value);
+                if (!p1.Commit()) return false;
+                r[0] = uint32_t(rv);
+                return true;
+            });
+            imports.Add("input.modifiers", { {  }, { I } }, [&s, api](Instance& in, const uint64_t* a, uint64_t* r) -> bool {
+                (void)in; (void)a; (void)r;
+                if (!api || !SHARD_HAS(api, modifiers) || !s.Allowed(Permission::Input)) { r[0] = 0; return true; }
+                const auto rv = api->modifiers();
+                r[0] = uint32_t(rv);
+                return true;
+            });
+            imports.Add("input.window_size", { { I, I, I }, { I } }, [&s, api](Instance& in, const uint64_t* a, uint64_t* r) -> bool {
+                (void)in; (void)a; (void)r;
+                if (!api || !SHARD_HAS(api, window_size) || !s.Allowed(Permission::Input)) { r[0] = uint32_t(SHARD_E_UNSUPPORTED); return true; }
+                OutArg<int32_t> p0(in, a[0]); if (!p0.ok) return false;
+                OutArg<int32_t> p1(in, a[1]); if (!p1.ok) return false;
+                OutArg<float> p2(in, a[2]); if (!p2.ok) return false;
+                const auto rv = api->window_size(&p0.value, &p1.value, &p2.value);
+                if (!p0.Commit()) return false;
+                if (!p1.Commit()) return false;
+                if (!p2.Commit()) return false;
+                r[0] = uint32_t(rv);
+                return true;
+            });
+            imports.Add("input.clipboard_get", { { I, L, I }, { I } }, [&s, api](Instance& in, const uint64_t* a, uint64_t* r) -> bool {
+                (void)in; (void)a; (void)r;
+                if (!api || !SHARD_HAS(api, clipboard_get) || !s.Allowed(Permission::Input)) { r[0] = uint32_t(SHARD_E_UNSUPPORTED); return true; }
+                ShardResult rv = SHARD_OK;
+                if (!TextOut(in, a[0], a[1], a[2], rv, [&](char* tb, uint64_t tc, uint64_t* ts) { return api->clipboard_get(tb, tc, ts); })) return false;
+                r[0] = uint32_t(rv);
+                return true;
+            });
+            imports.Add("input.clipboard_set", { { I }, { I } }, [&s, api](Instance& in, const uint64_t* a, uint64_t* r) -> bool {
+                (void)in; (void)a; (void)r;
+                if (!api || !SHARD_HAS(api, clipboard_set) || !s.Allowed(Permission::Input)) { r[0] = uint32_t(SHARD_E_UNSUPPORTED); return true; }
+                std::string p0; if (!ReadStr(in, a[0], p0)) return false;
+                const auto rv = api->clipboard_set(ToStr(p0));
+                r[0] = uint32_t(rv);
+                return true;
+            });
+            imports.Add("input.set_cursor_shape", { { I }, { I } }, [&s, api](Instance& in, const uint64_t* a, uint64_t* r) -> bool {
+                (void)in; (void)a; (void)r;
+                if (!api || !SHARD_HAS(api, set_cursor_shape) || !s.Allowed(Permission::Input)) { r[0] = uint32_t(SHARD_E_UNSUPPORTED); return true; }
+                const auto rv = api->set_cursor_shape(static_cast<int32_t>(int32_t(uint32_t(a[0]))));
+                r[0] = uint32_t(rv);
+                return true;
+            });
+            imports.Add("input.set_text_input", { { I, I, I, I, I }, { I } }, [&s, api](Instance& in, const uint64_t* a, uint64_t* r) -> bool {
+                (void)in; (void)a; (void)r;
+                if (!api || !SHARD_HAS(api, set_text_input) || !s.Allowed(Permission::Input)) { r[0] = uint32_t(SHARD_E_UNSUPPORTED); return true; }
+                const auto rv = api->set_text_input(static_cast<int32_t>(int32_t(uint32_t(a[0]))), static_cast<int32_t>(int32_t(uint32_t(a[1]))), static_cast<int32_t>(int32_t(uint32_t(a[2]))), static_cast<int32_t>(int32_t(uint32_t(a[3]))), static_cast<int32_t>(int32_t(uint32_t(a[4]))));
+                r[0] = uint32_t(rv);
+                return true;
+            });
+            imports.Add("input.capture", { { L, I }, { I } }, [&s, api](Instance& in, const uint64_t* a, uint64_t* r) -> bool {
+                (void)in; (void)a; (void)r;
+                if (!api || !SHARD_HAS(api, capture) || !s.Allowed(Permission::Input)) { r[0] = uint32_t(SHARD_E_UNSUPPORTED); return true; }
+                const auto rv = api->capture(s.ctx, static_cast<uint32_t>(uint32_t(a[1])));
                 r[0] = uint32_t(rv);
                 return true;
             });
@@ -1117,6 +1332,49 @@ namespace Shard::Engine::Plugins::Wasm {
                 r[0] = uint32_t(rv);
                 return true;
             });
+            imports.Add("physics.raycast_all", { { I, I, F, I, I, I, I }, { I } }, [&s, api](Instance& in, const uint64_t* a, uint64_t* r) -> bool {
+                (void)in; (void)a; (void)r;
+                if (true || !s.Allowed(Permission::Physics)) { r[0] = uint32_t(SHARD_E_UNSUPPORTED); return true; }
+            });
+            imports.Add("physics.overlap_sphere", { { I, F, I, I, I, I }, { I } }, [&s, api](Instance& in, const uint64_t* a, uint64_t* r) -> bool {
+                (void)in; (void)a; (void)r;
+                if (true || !s.Allowed(Permission::Physics)) { r[0] = uint32_t(SHARD_E_UNSUPPORTED); return true; }
+            });
+            imports.Add("physics.overlap_box", { { I, I, I, I, I, I, I }, { I } }, [&s, api](Instance& in, const uint64_t* a, uint64_t* r) -> bool {
+                (void)in; (void)a; (void)r;
+                if (true || !s.Allowed(Permission::Physics)) { r[0] = uint32_t(SHARD_E_UNSUPPORTED); return true; }
+            });
+            imports.Add("physics.overlap_capsule", { { I, I, F, I, I, I, I }, { I } }, [&s, api](Instance& in, const uint64_t* a, uint64_t* r) -> bool {
+                (void)in; (void)a; (void)r;
+                if (true || !s.Allowed(Permission::Physics)) { r[0] = uint32_t(SHARD_E_UNSUPPORTED); return true; }
+            });
+            imports.Add("physics.sweep_sphere", { { I, F, I, F, I, I }, { I } }, [&s, api](Instance& in, const uint64_t* a, uint64_t* r) -> bool {
+                (void)in; (void)a; (void)r;
+                if (true || !s.Allowed(Permission::Physics)) { r[0] = uint32_t(SHARD_E_UNSUPPORTED); return true; }
+            });
+            imports.Add("physics.sweep_box", { { I, I, I, I, F, I, I }, { I } }, [&s, api](Instance& in, const uint64_t* a, uint64_t* r) -> bool {
+                (void)in; (void)a; (void)r;
+                if (true || !s.Allowed(Permission::Physics)) { r[0] = uint32_t(SHARD_E_UNSUPPORTED); return true; }
+            });
+            imports.Add("physics.collider_create", { { L, I, I }, { I } }, [&s, api](Instance& in, const uint64_t* a, uint64_t* r) -> bool {
+                (void)in; (void)a; (void)r;
+                if (true || !s.Allowed(Permission::Physics)) { r[0] = uint32_t(SHARD_E_UNSUPPORTED); return true; }
+            });
+            imports.Add("physics.collider_set_pose", { { L, L, I, I }, { I } }, [&s, api](Instance& in, const uint64_t* a, uint64_t* r) -> bool {
+                (void)in; (void)a; (void)r;
+                if (true || !s.Allowed(Permission::Physics)) { r[0] = uint32_t(SHARD_E_UNSUPPORTED); return true; }
+            });
+            imports.Add("physics.collider_update", { { L, L, I }, { I } }, [&s, api](Instance& in, const uint64_t* a, uint64_t* r) -> bool {
+                (void)in; (void)a; (void)r;
+                if (true || !s.Allowed(Permission::Physics)) { r[0] = uint32_t(SHARD_E_UNSUPPORTED); return true; }
+            });
+            imports.Add("physics.collider_destroy", { { L, L }, { I } }, [&s, api](Instance& in, const uint64_t* a, uint64_t* r) -> bool {
+                (void)in; (void)a; (void)r;
+                if (!api || !SHARD_HAS(api, collider_destroy) || !s.Allowed(Permission::Physics)) { r[0] = uint32_t(SHARD_E_UNSUPPORTED); return true; }
+                const auto rv = api->collider_destroy(s.ctx, static_cast<ShardCollider>(a[1]));
+                r[0] = uint32_t(rv);
+                return true;
+            });
         }
 
         // ---- shard.audio ----
@@ -1189,6 +1447,21 @@ namespace Shard::Engine::Plugins::Wasm {
                 r[0] = uint32_t(rv);
                 return true;
             });
+            imports.Add("worlds.world_at", { { I, I, I, L, I, I }, { I } }, [&s, api](Instance& in, const uint64_t* a, uint64_t* r) -> bool {
+                (void)in; (void)a; (void)r;
+                if (!api || !SHARD_HAS(api, world_at)) { r[0] = uint32_t(SHARD_E_UNSUPPORTED); return true; }
+                OutArg<int32_t> p1(in, a[1]); if (!p1.ok) return false;
+                InOutText p2(in, a[2], a[3]); if (!p2.ok) return false;
+                OutArg<uint64_t> p4(in, a[4]); if (!p4.ok) return false;
+                OutArg<ShardActor> p5(in, a[5]); if (!p5.ok) return false;
+                const auto rv = api->world_at(static_cast<int32_t>(int32_t(uint32_t(a[0]))), &p1.value, p2.Data(), p2.Capacity(), &p4.value, &p5.value);
+                if (!p1.Commit()) return false;
+                if (!p2.Commit()) return false;
+                if (!p4.Commit()) return false;
+                if (!p5.Commit()) return false;
+                r[0] = uint32_t(rv);
+                return true;
+            });
         }
 
         // ---- shard.editor ----
@@ -1215,6 +1488,24 @@ namespace Shard::Engine::Plugins::Wasm {
                 if (!api || !SHARD_HAS(api, set_panel_visible) || !s.Allowed(Permission::Editor)) { r[0] = uint32_t(SHARD_E_UNSUPPORTED); return true; }
                 std::string p1; if (!ReadStr(in, a[1], p1)) return false;
                 const auto rv = api->set_panel_visible(s.ctx, ToStr(p1), static_cast<int32_t>(int32_t(uint32_t(a[2]))));
+                r[0] = uint32_t(rv);
+                return true;
+            });
+            imports.Add("editor.undo_push", { { L, I, I, I, I }, { I } }, [&s, api](Instance& in, const uint64_t* a, uint64_t* r) -> bool {
+                (void)in; (void)a; (void)r;
+                if (true || !s.Allowed(Permission::Editor)) { r[0] = uint32_t(SHARD_E_UNSUPPORTED); return true; }
+            });
+            imports.Add("editor.add_asset_opener", { { L, I, I, I }, { I } }, [&s, api](Instance& in, const uint64_t* a, uint64_t* r) -> bool {
+                (void)in; (void)a; (void)r;
+                if (true || !s.Allowed(Permission::Editor)) { r[0] = uint32_t(SHARD_E_UNSUPPORTED); return true; }
+            });
+            imports.Add("editor.add_asset_template", { { L, I, I, I, L }, { I } }, [&s, api](Instance& in, const uint64_t* a, uint64_t* r) -> bool {
+                (void)in; (void)a; (void)r;
+                if (!api || !SHARD_HAS(api, add_asset_template) || !s.Allowed(Permission::Editor)) { r[0] = uint32_t(SHARD_E_UNSUPPORTED); return true; }
+                std::string p1; if (!ReadStr(in, a[1], p1)) return false;
+                std::string p2; if (!ReadStr(in, a[2], p2)) return false;
+                std::vector<uint8_t> p3; if (!ReadBytes(in, a[3], a[4], p3)) return false;
+                const auto rv = api->add_asset_template(s.ctx, ToStr(p1), ToStr(p2), p3.empty() ? nullptr : p3.data(), uint64_t(a[4]));
                 r[0] = uint32_t(rv);
                 return true;
             });
@@ -1865,6 +2156,331 @@ namespace Shard::Engine::Plugins::Wasm {
                 if (!api || !SHARD_HAS(api, is_item_double_clicked) || !s.Allowed(Permission::Editor)) { r[0] = 0; return true; }
                 const auto rv = api->is_item_double_clicked();
                 r[0] = uint32_t(rv);
+                return true;
+            });
+            imports.Add("ui.draw_line", { { I, I, I, F }, {  } }, [&s](Instance& in, const uint64_t* a, uint64_t* r) -> bool {
+                (void)in; (void)a; (void)r;
+                const ShardUiApi* api = s.ui;
+                if (!api || !SHARD_HAS(api, draw_line) || !s.Allowed(Permission::Editor)) {  return true; }
+                FloatArray<2> p0(in, a[0]); if (!p0.ok) return false;
+                FloatArray<2> p1(in, a[1]); if (!p1.ok) return false;
+                api->draw_line(p0.v, p1.v, static_cast<uint32_t>(uint32_t(a[2])), F32(a[3]));
+                return true;
+            });
+            imports.Add("ui.draw_polyline", { { I, I, I, I, F }, {  } }, [&s](Instance& in, const uint64_t* a, uint64_t* r) -> bool {
+                (void)in; (void)a; (void)r;
+                const ShardUiApi* api = s.ui;
+                if (!api || !SHARD_HAS(api, draw_polyline) || !s.Allowed(Permission::Editor)) {  return true; }
+                InArg<float> p0(in, a[0]); if (!p0.ok) return false;
+                api->draw_polyline(&p0.value, static_cast<uint32_t>(uint32_t(a[1])), static_cast<uint32_t>(uint32_t(a[2])), static_cast<int32_t>(int32_t(uint32_t(a[3]))), F32(a[4]));
+                return true;
+            });
+            imports.Add("ui.draw_rect", { { I, I, I, F, F }, {  } }, [&s](Instance& in, const uint64_t* a, uint64_t* r) -> bool {
+                (void)in; (void)a; (void)r;
+                const ShardUiApi* api = s.ui;
+                if (!api || !SHARD_HAS(api, draw_rect) || !s.Allowed(Permission::Editor)) {  return true; }
+                FloatArray<2> p0(in, a[0]); if (!p0.ok) return false;
+                FloatArray<2> p1(in, a[1]); if (!p1.ok) return false;
+                api->draw_rect(p0.v, p1.v, static_cast<uint32_t>(uint32_t(a[2])), F32(a[3]), F32(a[4]));
+                return true;
+            });
+            imports.Add("ui.draw_rect_filled", { { I, I, I, F }, {  } }, [&s](Instance& in, const uint64_t* a, uint64_t* r) -> bool {
+                (void)in; (void)a; (void)r;
+                const ShardUiApi* api = s.ui;
+                if (!api || !SHARD_HAS(api, draw_rect_filled) || !s.Allowed(Permission::Editor)) {  return true; }
+                FloatArray<2> p0(in, a[0]); if (!p0.ok) return false;
+                FloatArray<2> p1(in, a[1]); if (!p1.ok) return false;
+                api->draw_rect_filled(p0.v, p1.v, static_cast<uint32_t>(uint32_t(a[2])), F32(a[3]));
+                return true;
+            });
+            imports.Add("ui.draw_circle", { { I, F, I, F }, {  } }, [&s](Instance& in, const uint64_t* a, uint64_t* r) -> bool {
+                (void)in; (void)a; (void)r;
+                const ShardUiApi* api = s.ui;
+                if (!api || !SHARD_HAS(api, draw_circle) || !s.Allowed(Permission::Editor)) {  return true; }
+                FloatArray<2> p0(in, a[0]); if (!p0.ok) return false;
+                api->draw_circle(p0.v, F32(a[1]), static_cast<uint32_t>(uint32_t(a[2])), F32(a[3]));
+                return true;
+            });
+            imports.Add("ui.draw_circle_filled", { { I, F, I }, {  } }, [&s](Instance& in, const uint64_t* a, uint64_t* r) -> bool {
+                (void)in; (void)a; (void)r;
+                const ShardUiApi* api = s.ui;
+                if (!api || !SHARD_HAS(api, draw_circle_filled) || !s.Allowed(Permission::Editor)) {  return true; }
+                FloatArray<2> p0(in, a[0]); if (!p0.ok) return false;
+                api->draw_circle_filled(p0.v, F32(a[1]), static_cast<uint32_t>(uint32_t(a[2])));
+                return true;
+            });
+            imports.Add("ui.draw_triangle_filled", { { I, I, I, I }, {  } }, [&s](Instance& in, const uint64_t* a, uint64_t* r) -> bool {
+                (void)in; (void)a; (void)r;
+                const ShardUiApi* api = s.ui;
+                if (!api || !SHARD_HAS(api, draw_triangle_filled) || !s.Allowed(Permission::Editor)) {  return true; }
+                FloatArray<2> p0(in, a[0]); if (!p0.ok) return false;
+                FloatArray<2> p1(in, a[1]); if (!p1.ok) return false;
+                FloatArray<2> p2(in, a[2]); if (!p2.ok) return false;
+                api->draw_triangle_filled(p0.v, p1.v, p2.v, static_cast<uint32_t>(uint32_t(a[3])));
+                return true;
+            });
+            imports.Add("ui.draw_bezier", { { I, I, I, I, I, F }, {  } }, [&s](Instance& in, const uint64_t* a, uint64_t* r) -> bool {
+                (void)in; (void)a; (void)r;
+                const ShardUiApi* api = s.ui;
+                if (!api || !SHARD_HAS(api, draw_bezier) || !s.Allowed(Permission::Editor)) {  return true; }
+                FloatArray<2> p0(in, a[0]); if (!p0.ok) return false;
+                FloatArray<2> p1(in, a[1]); if (!p1.ok) return false;
+                FloatArray<2> p2(in, a[2]); if (!p2.ok) return false;
+                FloatArray<2> p3(in, a[3]); if (!p3.ok) return false;
+                api->draw_bezier(p0.v, p1.v, p2.v, p3.v, static_cast<uint32_t>(uint32_t(a[4])), F32(a[5]));
+                return true;
+            });
+            imports.Add("ui.draw_text", { { I, I, I }, {  } }, [&s](Instance& in, const uint64_t* a, uint64_t* r) -> bool {
+                (void)in; (void)a; (void)r;
+                const ShardUiApi* api = s.ui;
+                if (!api || !SHARD_HAS(api, draw_text) || !s.Allowed(Permission::Editor)) {  return true; }
+                FloatArray<2> p0(in, a[0]); if (!p0.ok) return false;
+                std::string p2; if (!ReadStr(in, a[2], p2)) return false;
+                api->draw_text(p0.v, static_cast<uint32_t>(uint32_t(a[1])), ToStr(p2));
+                return true;
+            });
+            imports.Add("ui.push_clip_rect", { { I, I, I }, {  } }, [&s](Instance& in, const uint64_t* a, uint64_t* r) -> bool {
+                (void)in; (void)a; (void)r;
+                const ShardUiApi* api = s.ui;
+                if (!api || !SHARD_HAS(api, push_clip_rect) || !s.Allowed(Permission::Editor)) {  return true; }
+                FloatArray<2> p0(in, a[0]); if (!p0.ok) return false;
+                FloatArray<2> p1(in, a[1]); if (!p1.ok) return false;
+                api->push_clip_rect(p0.v, p1.v, static_cast<int32_t>(int32_t(uint32_t(a[2]))));
+                return true;
+            });
+            imports.Add("ui.pop_clip_rect", { {  }, {  } }, [&s](Instance& in, const uint64_t* a, uint64_t* r) -> bool {
+                (void)in; (void)a; (void)r;
+                const ShardUiApi* api = s.ui;
+                if (!api || !SHARD_HAS(api, pop_clip_rect) || !s.Allowed(Permission::Editor)) {  return true; }
+                api->pop_clip_rect();
+                return true;
+            });
+            imports.Add("ui.get_cursor_screen_pos", { { I }, {  } }, [&s](Instance& in, const uint64_t* a, uint64_t* r) -> bool {
+                (void)in; (void)a; (void)r;
+                const ShardUiApi* api = s.ui;
+                if (!api || !SHARD_HAS(api, get_cursor_screen_pos) || !s.Allowed(Permission::Editor)) {  return true; }
+                FloatArray<2> p0(in, a[0]); if (!p0.ok) return false;
+                api->get_cursor_screen_pos(p0.v);
+                if (!p0.Commit()) return false;
+                return true;
+            });
+            imports.Add("ui.set_cursor_screen_pos", { { I }, {  } }, [&s](Instance& in, const uint64_t* a, uint64_t* r) -> bool {
+                (void)in; (void)a; (void)r;
+                const ShardUiApi* api = s.ui;
+                if (!api || !SHARD_HAS(api, set_cursor_screen_pos) || !s.Allowed(Permission::Editor)) {  return true; }
+                FloatArray<2> p0(in, a[0]); if (!p0.ok) return false;
+                api->set_cursor_screen_pos(p0.v);
+                return true;
+            });
+            imports.Add("ui.get_content_region_avail", { { I }, {  } }, [&s](Instance& in, const uint64_t* a, uint64_t* r) -> bool {
+                (void)in; (void)a; (void)r;
+                const ShardUiApi* api = s.ui;
+                if (!api || !SHARD_HAS(api, get_content_region_avail) || !s.Allowed(Permission::Editor)) {  return true; }
+                FloatArray<2> p0(in, a[0]); if (!p0.ok) return false;
+                api->get_content_region_avail(p0.v);
+                if (!p0.Commit()) return false;
+                return true;
+            });
+            imports.Add("ui.get_item_rect_min", { { I }, {  } }, [&s](Instance& in, const uint64_t* a, uint64_t* r) -> bool {
+                (void)in; (void)a; (void)r;
+                const ShardUiApi* api = s.ui;
+                if (!api || !SHARD_HAS(api, get_item_rect_min) || !s.Allowed(Permission::Editor)) {  return true; }
+                FloatArray<2> p0(in, a[0]); if (!p0.ok) return false;
+                api->get_item_rect_min(p0.v);
+                if (!p0.Commit()) return false;
+                return true;
+            });
+            imports.Add("ui.get_item_rect_max", { { I }, {  } }, [&s](Instance& in, const uint64_t* a, uint64_t* r) -> bool {
+                (void)in; (void)a; (void)r;
+                const ShardUiApi* api = s.ui;
+                if (!api || !SHARD_HAS(api, get_item_rect_max) || !s.Allowed(Permission::Editor)) {  return true; }
+                FloatArray<2> p0(in, a[0]); if (!p0.ok) return false;
+                api->get_item_rect_max(p0.v);
+                if (!p0.Commit()) return false;
+                return true;
+            });
+            imports.Add("ui.calc_text_size", { { I, I }, {  } }, [&s](Instance& in, const uint64_t* a, uint64_t* r) -> bool {
+                (void)in; (void)a; (void)r;
+                const ShardUiApi* api = s.ui;
+                if (!api || !SHARD_HAS(api, calc_text_size) || !s.Allowed(Permission::Editor)) {  return true; }
+                std::string p0; if (!ReadStr(in, a[0], p0)) return false;
+                FloatArray<2> p1(in, a[1]); if (!p1.ok) return false;
+                api->calc_text_size(ToStr(p0), p1.v);
+                if (!p1.Commit()) return false;
+                return true;
+            });
+            imports.Add("ui.invisible_button", { { I, F, F }, { I } }, [&s](Instance& in, const uint64_t* a, uint64_t* r) -> bool {
+                (void)in; (void)a; (void)r;
+                const ShardUiApi* api = s.ui;
+                if (!api || !SHARD_HAS(api, invisible_button) || !s.Allowed(Permission::Editor)) { r[0] = 0; return true; }
+                std::string p0; if (!ReadStr(in, a[0], p0)) return false;
+                const auto rv = api->invisible_button(ToStr(p0), F32(a[1]), F32(a[2]));
+                r[0] = uint32_t(rv);
+                return true;
+            });
+            imports.Add("ui.get_mouse_pos", { { I }, {  } }, [&s](Instance& in, const uint64_t* a, uint64_t* r) -> bool {
+                (void)in; (void)a; (void)r;
+                const ShardUiApi* api = s.ui;
+                if (!api || !SHARD_HAS(api, get_mouse_pos) || !s.Allowed(Permission::Editor)) {  return true; }
+                FloatArray<2> p0(in, a[0]); if (!p0.ok) return false;
+                api->get_mouse_pos(p0.v);
+                if (!p0.Commit()) return false;
+                return true;
+            });
+            imports.Add("ui.get_mouse_drag_delta", { { I, I }, {  } }, [&s](Instance& in, const uint64_t* a, uint64_t* r) -> bool {
+                (void)in; (void)a; (void)r;
+                const ShardUiApi* api = s.ui;
+                if (!api || !SHARD_HAS(api, get_mouse_drag_delta) || !s.Allowed(Permission::Editor)) {  return true; }
+                FloatArray<2> p1(in, a[1]); if (!p1.ok) return false;
+                api->get_mouse_drag_delta(static_cast<int32_t>(int32_t(uint32_t(a[0]))), p1.v);
+                if (!p1.Commit()) return false;
+                return true;
+            });
+            imports.Add("ui.reset_mouse_drag_delta", { { I }, {  } }, [&s](Instance& in, const uint64_t* a, uint64_t* r) -> bool {
+                (void)in; (void)a; (void)r;
+                const ShardUiApi* api = s.ui;
+                if (!api || !SHARD_HAS(api, reset_mouse_drag_delta) || !s.Allowed(Permission::Editor)) {  return true; }
+                api->reset_mouse_drag_delta(static_cast<int32_t>(int32_t(uint32_t(a[0]))));
+                return true;
+            });
+            imports.Add("ui.get_mouse_wheel", { {  }, { F } }, [&s](Instance& in, const uint64_t* a, uint64_t* r) -> bool {
+                (void)in; (void)a; (void)r;
+                const ShardUiApi* api = s.ui;
+                if (!api || !SHARD_HAS(api, get_mouse_wheel) || !s.Allowed(Permission::Editor)) { r[0] = 0; return true; }
+                const auto rv = api->get_mouse_wheel();
+                r[0] = Bits(rv);
+                return true;
+            });
+            imports.Add("ui.is_mouse_down", { { I }, { I } }, [&s](Instance& in, const uint64_t* a, uint64_t* r) -> bool {
+                (void)in; (void)a; (void)r;
+                const ShardUiApi* api = s.ui;
+                if (!api || !SHARD_HAS(api, is_mouse_down) || !s.Allowed(Permission::Editor)) { r[0] = 0; return true; }
+                const auto rv = api->is_mouse_down(static_cast<int32_t>(int32_t(uint32_t(a[0]))));
+                r[0] = uint32_t(rv);
+                return true;
+            });
+            imports.Add("ui.is_mouse_clicked", { { I }, { I } }, [&s](Instance& in, const uint64_t* a, uint64_t* r) -> bool {
+                (void)in; (void)a; (void)r;
+                const ShardUiApi* api = s.ui;
+                if (!api || !SHARD_HAS(api, is_mouse_clicked) || !s.Allowed(Permission::Editor)) { r[0] = 0; return true; }
+                const auto rv = api->is_mouse_clicked(static_cast<int32_t>(int32_t(uint32_t(a[0]))));
+                r[0] = uint32_t(rv);
+                return true;
+            });
+            imports.Add("ui.is_mouse_released", { { I }, { I } }, [&s](Instance& in, const uint64_t* a, uint64_t* r) -> bool {
+                (void)in; (void)a; (void)r;
+                const ShardUiApi* api = s.ui;
+                if (!api || !SHARD_HAS(api, is_mouse_released) || !s.Allowed(Permission::Editor)) { r[0] = 0; return true; }
+                const auto rv = api->is_mouse_released(static_cast<int32_t>(int32_t(uint32_t(a[0]))));
+                r[0] = uint32_t(rv);
+                return true;
+            });
+            imports.Add("ui.is_mouse_double_clicked", { { I }, { I } }, [&s](Instance& in, const uint64_t* a, uint64_t* r) -> bool {
+                (void)in; (void)a; (void)r;
+                const ShardUiApi* api = s.ui;
+                if (!api || !SHARD_HAS(api, is_mouse_double_clicked) || !s.Allowed(Permission::Editor)) { r[0] = 0; return true; }
+                const auto rv = api->is_mouse_double_clicked(static_cast<int32_t>(int32_t(uint32_t(a[0]))));
+                r[0] = uint32_t(rv);
+                return true;
+            });
+            imports.Add("ui.is_key_down", { { I }, { I } }, [&s](Instance& in, const uint64_t* a, uint64_t* r) -> bool {
+                (void)in; (void)a; (void)r;
+                const ShardUiApi* api = s.ui;
+                if (!api || !SHARD_HAS(api, is_key_down) || !s.Allowed(Permission::Editor)) { r[0] = 0; return true; }
+                const auto rv = api->is_key_down(static_cast<int32_t>(int32_t(uint32_t(a[0]))));
+                r[0] = uint32_t(rv);
+                return true;
+            });
+            imports.Add("ui.is_key_pressed", { { I }, { I } }, [&s](Instance& in, const uint64_t* a, uint64_t* r) -> bool {
+                (void)in; (void)a; (void)r;
+                const ShardUiApi* api = s.ui;
+                if (!api || !SHARD_HAS(api, is_key_pressed) || !s.Allowed(Permission::Editor)) { r[0] = 0; return true; }
+                const auto rv = api->is_key_pressed(static_cast<int32_t>(int32_t(uint32_t(a[0]))));
+                r[0] = uint32_t(rv);
+                return true;
+            });
+            imports.Add("ui.get_modifiers", { {  }, { I } }, [&s](Instance& in, const uint64_t* a, uint64_t* r) -> bool {
+                (void)in; (void)a; (void)r;
+                const ShardUiApi* api = s.ui;
+                if (!api || !SHARD_HAS(api, get_modifiers) || !s.Allowed(Permission::Editor)) { r[0] = 0; return true; }
+                const auto rv = api->get_modifiers();
+                r[0] = uint32_t(rv);
+                return true;
+            });
+            imports.Add("ui.is_window_hovered", { {  }, { I } }, [&s](Instance& in, const uint64_t* a, uint64_t* r) -> bool {
+                (void)in; (void)a; (void)r;
+                const ShardUiApi* api = s.ui;
+                if (!api || !SHARD_HAS(api, is_window_hovered) || !s.Allowed(Permission::Editor)) { r[0] = 0; return true; }
+                const auto rv = api->is_window_hovered();
+                r[0] = uint32_t(rv);
+                return true;
+            });
+            imports.Add("ui.is_window_focused", { {  }, { I } }, [&s](Instance& in, const uint64_t* a, uint64_t* r) -> bool {
+                (void)in; (void)a; (void)r;
+                const ShardUiApi* api = s.ui;
+                if (!api || !SHARD_HAS(api, is_window_focused) || !s.Allowed(Permission::Editor)) { r[0] = 0; return true; }
+                const auto rv = api->is_window_focused();
+                r[0] = uint32_t(rv);
+                return true;
+            });
+            imports.Add("ui.image", { { L, F, F }, {  } }, [&s](Instance& in, const uint64_t* a, uint64_t* r) -> bool {
+                (void)in; (void)a; (void)r;
+                const ShardUiApi* api = s.ui;
+                if (!api || !SHARD_HAS(api, image) || !s.Allowed(Permission::Editor)) {  return true; }
+                api->image(static_cast<uint64_t>(a[0]), F32(a[1]), F32(a[2]));
+                return true;
+            });
+            imports.Add("ui.selectable_size", { { I, I, F, F }, { I } }, [&s](Instance& in, const uint64_t* a, uint64_t* r) -> bool {
+                (void)in; (void)a; (void)r;
+                const ShardUiApi* api = s.ui;
+                if (!api || !SHARD_HAS(api, selectable_size) || !s.Allowed(Permission::Editor)) { r[0] = 0; return true; }
+                std::string p0; if (!ReadStr(in, a[0], p0)) return false;
+                const auto rv = api->selectable_size(ToStr(p0), static_cast<int32_t>(int32_t(uint32_t(a[1]))), F32(a[2]), F32(a[3]));
+                r[0] = uint32_t(rv);
+                return true;
+            });
+            imports.Add("ui.begin_drag_drop_source", { {  }, { I } }, [&s](Instance& in, const uint64_t* a, uint64_t* r) -> bool {
+                (void)in; (void)a; (void)r;
+                const ShardUiApi* api = s.ui;
+                if (!api || !SHARD_HAS(api, begin_drag_drop_source) || !s.Allowed(Permission::Editor)) { r[0] = 0; return true; }
+                const auto rv = api->begin_drag_drop_source();
+                r[0] = uint32_t(rv);
+                return true;
+            });
+            imports.Add("ui.set_drag_drop_payload", { { I, I, L }, {  } }, [&s](Instance& in, const uint64_t* a, uint64_t* r) -> bool {
+                (void)in; (void)a; (void)r;
+                const ShardUiApi* api = s.ui;
+                if (!api || !SHARD_HAS(api, set_drag_drop_payload) || !s.Allowed(Permission::Editor)) {  return true; }
+                std::string p0; if (!ReadStr(in, a[0], p0)) return false;
+                std::vector<uint8_t> p1; if (!ReadBytes(in, a[1], a[2], p1)) return false;
+                api->set_drag_drop_payload(ToStr(p0), p1.empty() ? nullptr : p1.data(), uint64_t(a[2]));
+                return true;
+            });
+            imports.Add("ui.end_drag_drop_source", { {  }, {  } }, [&s](Instance& in, const uint64_t* a, uint64_t* r) -> bool {
+                (void)in; (void)a; (void)r;
+                const ShardUiApi* api = s.ui;
+                if (!api || !SHARD_HAS(api, end_drag_drop_source) || !s.Allowed(Permission::Editor)) {  return true; }
+                api->end_drag_drop_source();
+                return true;
+            });
+            imports.Add("ui.begin_drag_drop_target", { {  }, { I } }, [&s](Instance& in, const uint64_t* a, uint64_t* r) -> bool {
+                (void)in; (void)a; (void)r;
+                const ShardUiApi* api = s.ui;
+                if (!api || !SHARD_HAS(api, begin_drag_drop_target) || !s.Allowed(Permission::Editor)) { r[0] = 0; return true; }
+                const auto rv = api->begin_drag_drop_target();
+                r[0] = uint32_t(rv);
+                return true;
+            });
+            imports.Add("ui.accept_drag_drop_payload", { { I, I, L, I }, { I } }, [&s](Instance& in, const uint64_t* a, uint64_t* r) -> bool {
+                (void)in; (void)a; (void)r;
+                const ShardUiApi* api = s.ui;
+                if (true || !s.Allowed(Permission::Editor)) { r[0] = 0; return true; }
+            });
+            imports.Add("ui.end_drag_drop_target", { {  }, {  } }, [&s](Instance& in, const uint64_t* a, uint64_t* r) -> bool {
+                (void)in; (void)a; (void)r;
+                const ShardUiApi* api = s.ui;
+                if (!api || !SHARD_HAS(api, end_drag_drop_target) || !s.Allowed(Permission::Editor)) {  return true; }
+                api->end_drag_drop_target();
                 return true;
             });
         }

@@ -25,8 +25,8 @@ Get it with `cmake --install build --component sdk --prefix <dir>` (it lands in 
 | `shard_host.h` | `ShardHostApi` (what the host gives), `ShardPluginInfo` and `ShardPluginCallbacks` (what the plugin returns), `shard_plugin_entry` |
 | `shard_plugin.h` | `shard.plugin` 1.1 : the plugin's id, version, folder, host, permissions |
 | `shard_cvars.h` | `shard.cvars` 1.0 : variables the plugin owns (bool, int, float, string) |
-| `shard_commands.h` | `shard.commands` 1.0 : console commands |
-| `shard_components.h` | `shard.components` 1.3 : component types described field by field (an ECS component and an actor component at once) ; blobs, text and asset fields ; in a script, references to other actors and strings the plugin owns |
+| `shard_commands.h` | `shard.commands` 1.1 : console commands ; running a console line |
+| `shard_components.h` | `shard.components` 1.4 : component types described field by field (an ECS component and an actor component at once) ; blobs, text and asset fields ; in a script, references to other actors and strings the plugin owns ; `on_added` / `on_removed` / `on_changed` |
 | `shard_ecs.h` | `shard.ecs` 1.1 : queries, component access and structural changes, from a system ; the engine's components it can read ; moving an actor |
 | `shard_systems.h` | `shard.systems` 1.0 : systems in the scheduler's phases |
 | `shard_events.h` | `shard.events` 1.1 : events by name |
@@ -35,13 +35,20 @@ Get it with `cmake --install build --component sdk --prefix <dir>` (it lands in 
 | `shard_extensions.h` | `shard.extensions` 1.0 : asset validators, asset types, asset importers |
 | `shard_content.h` | `shard.content` 1.0 : the modules' content (`mod://`, logical paths) |
 | `shard_state.h` | `shard.state` 1.0 : what survives a hot reload |
-| `shard_actors.h` | `shard.actors` 1.0 : the actors of a world : pose, hierarchy, tags, creating and finding, the engine's components as JSON |
-| `shard_scripts.h` | `shard.scripts` 1.1 : a plugin's classes living on actors, called back as the engine's own scripts are ; physics contacts |
-| `shard_input.h` | `shard.input` 1.0 : keyboard, mouse and gamepads, polled |
-| `shard_physics.h` | `shard.physics` 1.0 : velocities, forces, impulses, gravity and ray casts |
+| `shard_actors.h` | `shard.actors` 1.2 : the actors of a world : pose, hierarchy, tags, creating and finding, the engine's components as JSON ; stable ids, world bounds, finding in a sphere or a box |
+| `shard_scripts.h` | `shard.scripts` 1.2 : a plugin's classes living on actors, called back as the engine's own scripts are ; physics contacts ; running in the editor's edit mode, told of the fields the inspector edits |
+| `shard_input.h` | `shard.input` 1.1 : keyboard, mouse and gamepads, polled ; the events of the frame, modifiers, clipboard, cursor shape, text input, capturing the input for a UI |
+| `shard_physics.h` | `shard.physics` 1.1 : velocities, forces, impulses, gravity and ray casts ; every hit of a ray, overlaps, sweeps, static colliders without an actor (voxel chunks, navigation obstacles) |
 | `shard_audio.h` | `shard.audio` 1.0 : playing the sound of an actor, one shot sounds |
-| `shard_worlds.h` | `shard.worlds` 1.0 : loading a world, spawning a prefab by name |
-| `shard_editor.h` | `shard.editor` 1.1 : panels, menu items, toolbar buttons, inspectors, viewport gizmos and the selection of the editor, drawn with a set of widgets (`ShardUiApi`, `ShardGizmoApi`). Offered by the editor only |
+| `shard_worlds.h` | `shard.worlds` 1.1 : loading a world, spawning a prefab by name ; the loaded worlds |
+| `shard_editor.h` | `shard.editor` 1.2 : panels, menu items, toolbar buttons, inspectors, viewport gizmos and the selection of the editor, drawn with a set of widgets (`ShardUiApi`, `ShardGizmoApi`) ; a drawing canvas (lines, shapes, text, images, mouse and keys) for node graphs, undo entries, asset openers and templates. Offered by the editor only |
+| `shard_jobs.h` | `shard.jobs` 1.0 : the engine's worker threads : jobs, parallel loops, handing a result back to the main thread |
+| `shard_time.h` | `shard.time` 1.0 : the frame, fixed step and simulation time, the time scale, a hash of the simulation state (to check a replay or a network peer) |
+| `shard_assets.h` | `shard.assets` 1.0 : the project's assets by path or id : listing, reading and writing files, reading the triangles of a mesh and the pixels of an image |
+| `shard_reflect.h` | `shard.reflect` 1.0 : the component and event types with their fields, and functions plugins register and call by name (the blocks of a visual script) |
+| `shard_net.h` | `shard.net` 1.0 : UDP and TCP sockets, polled at the start of the frame. A plugin declares the permission `net` |
+| `shard_render.h` | `shard.render` 1.0 : meshes, textures and materials made by the plugin, objects drawn in the world, instanced and sprite batches (particles), skinned meshes, a 2D overlay over the viewport (a UI), the camera |
+| `shard_debug.h` | `shard.debug` 1.0 : lines, shapes and texts drawn for a duration (paths, volumes, forces) |
 | `shard_experimental.h` | `shard.experimental.world_ecs` 0.1 : the engine's entities from the main thread. No compatibility promise |
 
 A plugin sets `"abi": "c1"` in its `shard-plugin.json` and exports `shard_plugin_entry` (`shard_sdk_add_plugin` and `SHARD_C_PLUGIN` do both). In the engine's repository, `tests/plugin_fixtures/c_plugin/c_plugin.c` is a plugin in C that uses every interface, `tests/plugin_fixtures/sdk_spin/spin.cpp` one in C++, and `tests/plugin_fixtures/game_scripts` a game of several files with the gameplay layer.
@@ -61,6 +68,7 @@ A plugin sets `"abi": "c1"` in its `shard-plugin.json` and exports `shard_plugin
 | 1.4 | `shard.scripts` 1.0, `shard.actors` 1.0, `shard.input` 1.0 : gameplay classes on actors, the world, the keyboard ; the C++ gameplay layer (`shard/game.hpp`) |
 | 1.5 | `shard.physics` 1.0, `shard.audio` 1.0, `shard.worlds` 1.0, `shard.editor` 1.0 ; `shard.scripts` 1.1 : `on_contact_*`, `text_get` / `text_set` ; `shard.components` 1.3 : `SHARD_FIELD_ACTOR`, `SHARD_FIELD_ACCESSOR` ; `shard.plugin` 1.2 : `random_stream` |
 | 1.6 | `shard.editor` 1.1 : many more widgets (tabs, tables, menus, popups, groups, disabled sections...), menu items, toolbar buttons, inspectors, gizmos over the viewport, the selection, notifications ; a sandboxed plugin may use it with the permission `editor` |
+| 1.7 | the base for particle systems, AI and navigation, voxels, a runtime UI, animation, networking and visual scripting. New : `shard.jobs`, `shard.time`, `shard.assets`, `shard.reflect`, `shard.net`, `shard.render`, `shard.debug` 1.0. Grown : `shard.physics` 1.1 (queries, colliders), `shard.input` 1.1 (events, clipboard, cursor, capture), `shard.actors` 1.2 (stable ids, spatial queries), `shard.components` 1.4 (lifecycle callbacks), `shard.scripts` 1.2 (edit mode, field changes), `shard.worlds` 1.1, `shard.commands` 1.1 (`execute`), `shard.editor` 1.2 (canvas, undo, asset openers and templates). Limits : no texture arrays, a 2D clip mask is its bounding rectangle, sprites and overlays are drawn by the OpenGL backend only. The sandbox (WebAssembly) does not offer `jobs`, `time`, `assets`, `reflect`, `net`, `render` and `debug` yet : native plugins only |
 
 A copy of the 1.0 headers is frozen in `tests/plugin_fixtures/abi_1_0` : a plugin built against it must keep loading (`tests/plugins/abi_compat_tests.cpp`).
 

@@ -10,6 +10,7 @@
 
 #include <cstddef>
 #include <cstdint>
+#include <functional>
 #include <initializer_list>
 #include <string>
 #include <type_traits>
@@ -172,6 +173,19 @@ namespace Shard {
         explicit operator bool() const { return handle != 0; }
     };
 
+    /// What a plugin is told about the actor components of a type (ABI 1.4 of shard.components) : `block` is the component's values, on the main thread,
+    /// in the editor's edit mode as well as in play mode.
+    ///   onAdded    : the component is on a live entity of an active actor. What you change in `block` is pushed to the entity afterwards.
+    ///   onRemoved  : it is about to leave (removed, its actor destroyed or deactivated, the world unloaded) ; the block is still intact.
+    ///   onChanged  : a field was edited (inspector, SetComponentJson) ; `field` is its index among the registered fields.
+    /// `actor` is the Actor that carries it, `entity` its ECS entity (shard.ecs).
+    template <typename T>
+    struct ComponentEvents {
+        std::function<void(uint64_t actor, uint64_t entity, T& block)> onAdded;
+        std::function<void(uint64_t actor, uint64_t entity, T& block)> onRemoved;
+        std::function<void(uint64_t actor, uint64_t entity, T& block, uint32_t field)> onChanged;
+    };
+
     /// A type of the engine or of another plugin, whose layout the caller knows (shard_ecs.h documents the engine's)
     template <typename T>
     ComponentType<T> AsComponentType(ShardComponentType handle) { return ComponentType<T>{ handle }; }
@@ -183,6 +197,14 @@ namespace Shard {
         /// Registers T as "<plugin id>.<name>" (from OnLoad). Throws Shard::Error if the host refuses it (the log says why).
         template <typename T>
         ComponentType<T> Register(const std::string& name, std::initializer_list<FieldOptions> options = {})
+        {
+            return Register<T>(name, ComponentEvents<T>{}, options);
+        }
+
+        /// The same, told when a component of the type joins an actor, leaves it, or has a field edited (ComponentEvents). The callbacks live as long as
+        /// the plugin is enabled.
+        template <typename T>
+        ComponentType<T> Register(const std::string& name, ComponentEvents<T> events, std::initializer_list<FieldOptions> options = {})
         {
             static_assert(std::is_trivially_copyable<T>::value && std::is_standard_layout<T>::value, "a component is plain data : trivially copyable, standard layout");
             static_assert(ComponentTraits<T>::kDescribed, "describe the fields of this type with SHARD_COMPONENT");
@@ -198,6 +220,25 @@ namespace Shard {
             desc.name = Str(name);
             desc.fields = fields.data();
             desc.defaults = &sample;
+            ShardComponentCallbacks callbacks{};
+            if (events.onAdded || events.onRemoved || events.onChanged) {
+                auto* kept = detail::Keep(std::move(events));
+                callbacks.structSize = sizeof(ShardComponentCallbacks);
+                callbacks.user = kept;
+                callbacks.on_added = [](void* user, ShardPluginCtx, uint64_t actor, uint64_t entity, void* block) {
+                    auto& e = *static_cast<ComponentEvents<T>*>(user);
+                    if (e.onAdded) e.onAdded(actor, entity, *static_cast<T*>(block));
+                };
+                callbacks.on_removed = [](void* user, ShardPluginCtx, uint64_t actor, uint64_t entity, void* block) {
+                    auto& e = *static_cast<ComponentEvents<T>*>(user);
+                    if (e.onRemoved) e.onRemoved(actor, entity, *static_cast<T*>(block));
+                };
+                callbacks.on_changed = [](void* user, ShardPluginCtx, uint64_t actor, uint64_t entity, void* block, uint32_t field) {
+                    auto& e = *static_cast<ComponentEvents<T>*>(user);
+                    if (e.onChanged) e.onChanged(actor, entity, *static_cast<T*>(block), field);
+                };
+                desc.callbacks = &callbacks;
+            }
             ComponentType<T> type;
             detail::Check(Api().register_type(m_Ctx, &desc, &type.handle), "component type '" + name + "'");
             return type;

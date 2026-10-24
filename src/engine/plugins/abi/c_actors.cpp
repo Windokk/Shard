@@ -752,6 +752,122 @@ namespace Shard::Engine::Plugins::CAbi {
         return ActorHandle(found);
     }
 
+    namespace {
+        // ---- 1.2 : identity across machines, bounds, neighbours ----
+
+        ShardResult SHARD_CALL GetStableId(ShardActor actor, uint64_t* out)
+        {
+            try {
+                if (!out) return SHARD_E_INVALID_ARG;
+                std::shared_ptr<Objects::Actor> a;
+                const ShardResult r = Resolve(actor, a);
+                if (r != SHARD_OK) return r;
+                const int32_t world = a->world ? a->world->ResolveAssetID() : -1;
+                *out = (uint64_t(uint32_t(world)) << 32) | uint64_t(uint32_t(a->GetID().GetAsInt()));
+                return SHARD_OK;
+            } catch (...) { return SHARD_E_INTERNAL; }
+        }
+
+        ShardResult SHARD_CALL FindByStableId(uint64_t stableId, ShardActor* out)
+        {
+            try {
+                if (!out) return SHARD_E_INVALID_ARG;
+                *out = 0;
+                if (!OnScriptThread()) return SHARD_E_WRONG_THREAD;
+                Core::ObjectIDManager* objects = Engine()->GetObjectIDManager();
+                if (!objects) return SHARD_E_UNSUPPORTED;
+                auto found = std::dynamic_pointer_cast<Objects::Actor>(objects->GetObjectFromID(Core::ObjectID(int(uint32_t(stableId & 0xFFFFFFFFull)))));
+                if (!found || !found->world) return SHARD_E_NOT_FOUND;
+                if (uint32_t(found->world->ResolveAssetID()) != uint32_t(stableId >> 32)) return SHARD_E_NOT_FOUND;
+                *out = ActorHandle(found);
+                return SHARD_OK;
+            } catch (...) { return SHARD_E_INTERNAL; }
+        }
+
+        ShardResult SHARD_CALL GetWorldId(ShardActor actor, int32_t* out)
+        {
+            try {
+                if (!out) return SHARD_E_INVALID_ARG;
+                std::shared_ptr<Objects::Actor> a;
+                const ShardResult r = Resolve(actor, a);
+                if (r != SHARD_OK) return r;
+                if (!a->world) return SHARD_E_NOT_FOUND;
+                *out = a->world->ResolveAssetID();
+                return SHARD_OK;
+            } catch (...) { return SHARD_E_INTERNAL; }
+        }
+
+        ShardResult SHARD_CALL GetWorldBounds(ShardActor actor, float outMin[3], float outMax[3])
+        {
+            try {
+                if (!outMin || !outMax) return SHARD_E_INVALID_ARG;
+                std::shared_ptr<Objects::Actor> a;
+                const ShardResult r = Resolve(actor, a);
+                if (r != SHARD_OK) return r;
+                return ActorBounds(a, outMin, outMax) ? SHARD_OK : SHARD_E_NOT_FOUND;
+            } catch (...) { return SHARD_E_INTERNAL; }
+        }
+
+        // The active actors of the anchor world that stand where `inside` says, with the tag if one is asked for
+        template <typename Inside>
+        ShardResult Neighbours(ShardActor anchor, ShardStr tag, ShardActor* out, uint32_t capacity, uint32_t* count, Inside&& inside)
+        {
+            if (!count || (capacity && !out)) return SHARD_E_INVALID_ARG;
+            *count = 0;
+            std::shared_ptr<Objects::Actor> a;
+            Worlds::World* world = nullptr;
+            const ShardResult r = WorldOf(anchor, a, world);
+            if (r != SHARD_OK) return r;
+            Core::Tag wanted;
+            const std::string tagName = ToString(tag);
+            if (!tagName.empty()) {
+                wanted = Core::Tag::Request(tagName);
+                if (!wanted.IsValid()) return SHARD_OK;         // nobody has a tag that does not exist
+            }
+            Core::ObjectIDManager* objects = Engine()->GetObjectIDManager();
+            std::vector<Core::ObjectID> ids = world->GetActorsID(true);
+            std::sort(ids.begin(), ids.end());
+            std::vector<std::pair<float, std::shared_ptr<Objects::Actor>>> found;
+            for (const Core::ObjectID& id : ids) {
+                auto actor = std::dynamic_pointer_cast<Objects::Actor>(objects->GetObjectFromID(id));
+                if (!actor || !actor->transform || !actor->IsActive()) continue;
+                if (!tagName.empty() && !actor->GetTags().HasTag(wanted)) continue;
+                float key = 0.0f;
+                if (inside(actor->transform->GetWorldPosition(), key)) found.emplace_back(key, actor);
+            }
+            std::stable_sort(found.begin(), found.end(), [](const auto& x, const auto& y) { return x.first < y.first; });
+            *count = uint32_t(found.size());
+            for (uint32_t i = 0; i < capacity && i < found.size(); ++i) out[i] = ActorHandle(found[i].second);
+            return SHARD_OK;
+        }
+
+        ShardResult SHARD_CALL FindInSphere(ShardActor anchor, const float center[3], float radius, ShardStr tag, ShardActor* out, uint32_t capacity, uint32_t* count)
+        {
+            try {
+                if (!center || !(radius >= 0.0f) || !std::isfinite(radius) || !std::isfinite(center[0]) || !std::isfinite(center[1]) || !std::isfinite(center[2])) return SHARD_E_INVALID_ARG;
+                const glm::vec3 c(center[0], center[1], center[2]);
+                return Neighbours(anchor, tag, out, capacity, count, [&](const glm::vec3& p, float& key) {
+                    const glm::vec3 d = p - c;
+                    key = glm::dot(d, d);       // nearest first
+                    return key <= radius * radius;
+                });
+            } catch (...) { return SHARD_E_INTERNAL; }
+        }
+
+        ShardResult SHARD_CALL FindInBox(ShardActor anchor, const float boxMin[3], const float boxMax[3], ShardStr tag, ShardActor* out, uint32_t capacity, uint32_t* count)
+        {
+            try {
+                if (!boxMin || !boxMax) return SHARD_E_INVALID_ARG;
+                for (int i = 0; i < 3; ++i) if (!std::isfinite(boxMin[i]) || !std::isfinite(boxMax[i])) return SHARD_E_INVALID_ARG;
+                const glm::vec3 lo(boxMin[0], boxMin[1], boxMin[2]), hi(boxMax[0], boxMax[1], boxMax[2]);
+                return Neighbours(anchor, tag, out, capacity, count, [&](const glm::vec3& p, float& key) {
+                    key = 0.0f;                 // the order of the ids (the sort is stable)
+                    return p.x >= lo.x && p.y >= lo.y && p.z >= lo.z && p.x <= hi.x && p.y <= hi.y && p.z <= hi.z;
+                });
+            } catch (...) { return SHARD_E_INTERNAL; }
+        }
+    }
+
     const void* ActorsApi()
     {
         static const ShardActorsApi api = {
@@ -762,7 +878,8 @@ namespace Shard::Engine::Plugins::CAbi {
             &AddTag, &RemoveTag, &HasTag,
             &Create, &Spawn, &FindByName, &FindByTag,
             &AddComponent, &HasComponent, &RemoveComponent, &GetComponent, &SetComponent,
-            &GetComponentField, &SetComponentField, &EraseComponentField };
+            &GetComponentField, &SetComponentField, &EraseComponentField,
+            &GetStableId, &FindByStableId, &GetWorldId, &GetWorldBounds, &FindInSphere, &FindInBox };
         return &api;
     }
 }

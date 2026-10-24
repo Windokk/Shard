@@ -3,12 +3,14 @@
 #include <atomic>
 #include <cstdint>
 #include <string>
+#include <thread>
 #include <vector>
 
 #include <memory>
 
 #include <shard/shard_abi.h>
 #include <shard/shard_actors.h>
+#include <shard/shard_assets.h>
 #include <shard/shard_components.h>
 #include <shard/shard_ecs.h>
 
@@ -70,6 +72,8 @@ namespace Shard::Engine::Plugins::CAbi {
     void NoteMainThread();
     /// True on that thread, outside of a system : where the functions documented "thread : main" may be called
     bool OnMainThread();
+    /// True for the thread the plugins are loaded on (the engine's main thread), whatever it is running
+    bool IsMainThreadId(std::thread::id id);
 
     /// While one lives, this thread runs a callback of a script: the scripts of a world are ticked one after the other, so the functions
     /// documented "thread : script" (actors, input) are safe there, on whatever thread the engine's script systems landed on.
@@ -93,6 +97,20 @@ namespace Shard::Engine::Plugins::CAbi {
     std::string ActorPath(ShardActor handle);
     /// The actor of the world `anchor` is in that has that path (the first of that name at each level, in the order of the ids), 0 if there is none
     ShardActor ActorAtPath(const std::shared_ptr<Objects::Actor>& anchor, const std::string& path);
+
+    /// The box that holds an actor's model, physics body and children's, in the world (false : it has none). Defined by the engine root
+    /// (c_abi_scene.cpp) : the renderer and the physics are above this layer.
+    bool ActorBounds(const std::shared_ptr<Objects::Actor>& actor, float outMin[3], float outMax[3]);
+
+    /// The file a path in the project or a mod:// address names (the plugins' own resource readers : textures, materials)
+    bool ResolveProjectFile(PluginContext& ctx, const std::string& path, std::string& file);
+
+    /// shard.assets, the parts that need the renderer's types (c_abi_assets.cpp in the engine root) : the geometry of a mesh asset and the pixels of
+    /// an image asset
+    ShardResult AssetMeshInfo(int32_t id, ShardMeshInfo* out);
+    ShardResult AssetMeshRead(int32_t id, ShardMeshRead* io);
+    ShardResult AssetImageInfo(int32_t id, uint32_t* width, uint32_t* height);
+    ShardResult AssetImageRead(int32_t id, uint8_t* out, uint64_t capacity, uint64_t* size);
 
     /// The plugin's context releases everything: its script types stop being called (the objects that are still in worlds are left alone)
     void ReleaseScripts(PluginOwner owner);
@@ -164,6 +182,23 @@ namespace Shard::Engine::Plugins::CAbi {
     /// Letters, digits and '_', not a reserved name
     bool IsFieldName(const std::string& name);
 
+    // ---- The frame (c_frame.cpp calls these) ----
+
+    /// shard.jobs : runs what the plugins posted to the main thread
+    void RunMainPosts();
+    /// shard.net : reads the sockets of every plugin and delivers what happened (the start of the frame)
+    void NetPollAll();
+    /// shard.debug : the shapes shown for a duration lose the time of the frame that ended (defined by the engine root, c_abi_overlay.cpp)
+    void DebugEndFrame();
+    /// shard.debug : every shape goes (the last plugin left)
+    void DebugClearAll();
+    /// shard.input : a new frame starts (the events of the last one go) ; a plugin goes (what its UI captured goes with it)
+    void InputBeginFrame(uint64_t frame);
+    void ReleaseInput(PluginOwner owner);
+    /// shard.physics : the colliders plugins built or changed since the last frame go into the physics world. Defined by the engine root
+    /// (c_abi_physics.cpp). Main thread, while the physics world does not step.
+    void PhysicsBeginFrame();
+
     // ---- The interfaces ----
 
     const void* ComponentsApi();
@@ -184,6 +219,13 @@ namespace Shard::Engine::Plugins::CAbi {
     const void* PhysicsApi();
     const void* AudioApi();
     const void* WorldsApi();
+    const void* JobsApi();
+    const void* TimeApi();
+    const void* AssetsApi();
+    const void* ReflectApi();
+    const void* NetApi();
+    const void* RenderApi();
+    const void* DebugApi();
     const void* EditorApi();
     /// True once the editor gave its widgets (SetEditorUiBackend) : shard.editor exists only then
     bool EditorUiAvailable();

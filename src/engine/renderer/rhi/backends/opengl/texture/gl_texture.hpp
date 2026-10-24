@@ -41,6 +41,8 @@ namespace Shard::Engine::Rendering{
 
             bool IsValid() const override;
 
+            bool UpdateRegion(uint32_t x, uint32_t y, uint32_t width, uint32_t height, const void* pixels, uint32_t rowPitchBytes = 0) override;
+
             bool SwapContents(Texture2D& other) override;
 
             uint32_t GetHandle() const override { return ID; }

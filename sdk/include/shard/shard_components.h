@@ -1,4 +1,4 @@
-/* Interface "shard.components" 1.3 : component types described field by field.
+/* Interface "shard.components" 1.4 : component types described field by field.
  *
  * One registration gives a type two faces, under one name ("<plugin id>.<name>", made by the host) :
  *   - an ECS component : a block of `size` bytes on an entity, what systems query and write (shard_ecs.h). Plain data : copied with memcpy,
@@ -22,7 +22,11 @@
  * Text and assets (1.2) : a field SHARD_FIELD_STRING holds a ShardBlob too, whose bytes are the UTF-8 text (no terminator) : the actor
  * component owns it like any blob, but the inspector shows it as a text box and the world file saves it as a JSON string. string_set and
  * string_get read and write it without touching the blob by hand. A field SHARD_FIELD_ASSET is an int32_t, the id of an asset of the project
- * (0 : none) : the inspector shows an asset picker, the world file saves the asset by its name, and the engine knows the component uses it. */
+ * (0 : none) : the inspector shows an asset picker, the world file saves the asset by its name, and the engine knows the component uses it.
+ *
+ * Life cycle (1.4) : a type may ask to be told when one of its components joins an actor, leaves it, or has a field edited (ShardComponentCallbacks).
+ * That is where a plugin makes what the component stands for -- a render object for a chunk of voxels, a navigation agent, a particle emitter's
+ * state -- and drops it, without scanning the ECS every frame to find out what appeared. */
 #ifndef SHARD_COMPONENTS_H
 #define SHARD_COMPONENTS_H
 
@@ -71,6 +75,27 @@ typedef struct ShardFieldDesc {
     ShardStr tooltip;       /* optional */
 } ShardFieldDesc;
 
+/* Told about the actor components of a type (1.4). `actor` is the ShardActor that carries it, `entity` its ECS entity, `block` the component's block
+ * (valid for the call). All of them run on the main thread, outside the systems, in the editor's edit mode as well as in play mode, with the
+ * values the world file or the inspector gave already in the block.
+ *   on_added   : the component became live : its entity exists and its values are in the block. Once per activation (added to an actor that is in
+ *                a world, loaded from a file, copied for the play mode, enabled again after being disabled).
+ *   on_removed : it is about to stop being live (removed, disabled, its actor destroyed, the world unloaded) ; the block is still intact. A
+ *                destroyed actor's handle is still valid in this call.
+ *   on_changed : a field was edited (the inspector, shard.actors' set_component...) ; `field` is its index in the description's `fields`. A system
+ *                writing the block does NOT call it. */
+typedef void (SHARD_CALL *ShardComponentFn)(void* user, ShardPluginCtx ctx, uint64_t actor, uint64_t entity, void* block);
+typedef void (SHARD_CALL *ShardComponentChangedFn)(void* user, ShardPluginCtx ctx, uint64_t actor, uint64_t entity, void* block, uint32_t field);
+
+typedef struct ShardComponentCallbacks {
+    uint32_t structSize;
+    uint32_t reserved;
+    ShardComponentFn        on_added;
+    ShardComponentFn        on_removed;
+    ShardComponentChangedFn on_changed;
+    void* user;                     /* handed back to every callback */
+} ShardComponentCallbacks;
+
 typedef struct ShardComponentDesc {
     uint32_t structSize;
     uint32_t size;                  /* bytes of the block, 1 to SHARD_COMPONENT_MAX_SIZE */
@@ -79,6 +104,8 @@ typedef struct ShardComponentDesc {
     ShardStr name;                  /* "Spin" : the host registers "<plugin id>.Spin" */
     const ShardFieldDesc* fields;   /* read during the call only */
     const void* defaults;           /* `size` bytes : the value of a new component. NULL : zeroes. Read during the call only. */
+    /* ---- 1.4 ---- */
+    const ShardComponentCallbacks* callbacks;   /* optional, copied up to its structSize during the call */
 } ShardComponentDesc;
 
 #define SHARD_COMPONENT_MAX_SIZE    1024u

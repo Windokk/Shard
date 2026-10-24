@@ -560,6 +560,9 @@ namespace Shard::Engine::Rendering {
             volume.volume.changed = !old || Differs(volume, *old);
         }
 
+        for (const SnapshotProvider& provider : m_SnapshotProviders)
+            provider(previous, next);
+
         m_Stats.lights = uint32_t(next.lights.size());
         m_Stats.probeVolumes = uint32_t(next.probeVolumes.size());
         m_Stats.billboards = uint32_t(next.billboards.size());

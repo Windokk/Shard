@@ -88,8 +88,10 @@ MANUAL = {
     'editor.subscribe_selection': 'a callback',
     'ui.combo': 'an array of strings',
 }
-# Always answered SHARD_E_UNSUPPORTED : they would hand the module a path of the host
-DENIED_ALWAYS = {'content.resolve', 'content.resolve_logical'}
+# Always answered SHARD_E_UNSUPPORTED : they would hand the module a path of the host (content.*), or they are new in ABI 1.7 and take a descriptor
+# with pointers or a callback that the sandbox does not marshal yet (physics queries and colliders, the undo history, asset openers, drag and drop).
+# A sandboxed plugin gets SHARD_E_UNSUPPORTED from them ; moving one to MANUAL (and writing its import) is an ordinary addition.
+DENIED_ALWAYS = {'content.resolve', 'content.resolve_logical', 'ShardPhysicsApi.raycast_all', 'physics.raycast_all', 'physics.overlap_sphere', 'physics.overlap_box', 'physics.overlap_capsule', 'physics.sweep_sphere', 'physics.sweep_box', 'physics.collider_create', 'physics.collider_set_pose', 'physics.collider_update', 'editor.undo_push', 'editor.add_asset_opener', 'ui.accept_drag_drop_payload'}
 # Permissions of single functions (the interface may be offered without them)
 FUNCTION_PERMISSIONS = {
     'worlds.load_world': 'worlds.load',

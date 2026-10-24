@@ -83,6 +83,12 @@ namespace Shard::Engine::Rendering {
 
         void AddBillboardProvider(BillboardProvider provider) { m_BillboardProviders.push_back(std::move(provider)); }
 
+        /// @brief What the plugins add to a snapshot that is not made of components : the meshes, sprites and overlays of shard.render. Called last, on
+        /// the Extract thread, with the snapshot being built (its camera and render origin are set) and the previous one. The provider appends its
+        /// meshes after the sorted ones (keys of the world index 0xFFFE) and the batches and overlays in the order they are drawn.
+        using SnapshotProvider = std::function<void(const RenderSnapshot& previous, RenderSnapshot& next)>;
+        void AddSnapshotProvider(SnapshotProvider provider) { m_SnapshotProviders.push_back(std::move(provider)); }
+
         /// @brief Builds the next snapshot from `worlds` and publishes it to `renderer`.
         /// @param jobs may be null (serial)
         void Extract(IRenderContext& renderer, Worlds::WorldManager& worlds, CameraManager& cameras, Core::JobSystem* jobs, uint64_t frame);
@@ -107,6 +113,7 @@ namespace Shard::Engine::Rendering {
         std::vector<MeshSource> m_Sources;              // scratch, kept between frames
         std::vector<int> m_PreviousIndex;
         std::vector<BillboardProvider> m_BillboardProviders;
+        std::vector<SnapshotProvider> m_SnapshotProviders;
         const PoseOffsets* m_PoseOffsets = nullptr;
         Core::WorldPosition m_RenderOrigin;
         double m_RebaseDistance = 4096.0;

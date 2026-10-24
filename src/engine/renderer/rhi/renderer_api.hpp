@@ -19,6 +19,7 @@ namespace Shard::Engine::Rendering {
     class Pipeline;
     class ComputePipeline;
     struct RenderPass;      // a struct (render_pass.hpp) : MSVC mangles class and struct differently
+    struct OverlayProxy;    // render_snapshot.hpp
 
     enum class ClearBit : uint32_t
     {
@@ -215,6 +216,12 @@ namespace Shard::Engine::Rendering {
             /// studio/immediate views). Set by the Renderer around the forward pass.
             virtual void SetDebugView(const DebugViewState& state) { m_DebugView = state; }
             const DebugViewState& GetDebugView() const { return m_DebugView; }
+
+            /// Draws what a plugin's overlay recorded (2D geometry, scissors, clears : shard.render) into the framebuffer that is bound, of
+            /// `width` x `height` pixels. A backend that cannot draws nothing. Graphics thread.
+            virtual void DrawOverlay(const OverlayProxy& overlay, uint32_t width, uint32_t height) { (void)overlay; (void)width; (void)height; }
+            /// Gives back the buffers an OverlayGeometry made (its `gpu` array). Graphics thread.
+            virtual void ReleaseOverlayGeometry(const uint32_t gpu[3]) { (void)gpu; }
 
             /// A frame of the renderer begins / ends : a backend that records commands submits them at the end
             virtual void BeginFrame() {}

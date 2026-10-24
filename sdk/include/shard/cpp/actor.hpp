@@ -85,6 +85,9 @@ namespace Shard {
         Actor SpawnPrefab(std::string_view prefab);
         /// The actors that have the tag or one under it ("Enemy" finds an "Enemy.Undead"), in the order of their ids
         std::vector<Actor> FindWithTag(std::string_view tag) const;
+        /// The actors whose position is within `radius` of `center` (nearest first), or inside the box [lo, hi] (in the order of the ids) ; `tag` restricts them
+        std::vector<Actor> FindInSphere(Vec3 center, float radius, std::string_view tag = {}) const;
+        std::vector<Actor> FindInBox(Vec3 lo, Vec3 hi, std::string_view tag = {}) const;
 
     private:
         ShardActor m_Anchor = 0;
@@ -140,6 +143,23 @@ namespace Shard {
             Pose p = WorldPose();
             p.rotation = LookRotation(target - p.position, up);
             SetWorldPose(p);
+        }
+
+        // ---- Identity across machines (ABI 1.7) ----
+        /// A number two machines running the same game agree on, for a network message, a save or a replay : the world's asset id and the actor's id in it.
+        /// 0 if the actor is gone. Actor::FromStableId finds the actor again.
+        uint64_t StableId() const { uint64_t id = 0; Api().get_stable_id(m_Handle, &id); return id; }
+        static Actor FromStableId(uint64_t id) { ShardActor a = 0; detail::Actors().find_by_stable_id(id, &a); return Actor(a); }
+        /// The asset id of the world the actor is in (-1 : the world has no asset)
+        int32_t WorldId() const { int32_t id = -1; Api().get_world_id(m_Handle, &id); return id; }
+        /// The box that holds the actor's model, physics body and children, in the world. False if it has none : use Position().
+        bool WorldBounds(Vec3& lo, Vec3& hi) const
+        {
+            float a[3], b[3];
+            if (Api().get_world_bounds(m_Handle, a, b) != SHARD_OK) return false;
+            lo = detail::FromArray(a);
+            hi = detail::FromArray(b);
+            return true;
         }
 
         // ---- Hierarchy ----
@@ -303,6 +323,33 @@ namespace Shard {
         if (detail::Actors().find_by_tag(m_Anchor, Str(tag), handles.data(), count, &count) != SHARD_OK) return found;
         for (uint32_t i = 0; i < count && i < handles.size(); ++i) found.push_back(Actor(handles[i]));
         return found;
+    }
+
+    namespace detail {
+        template <typename Call>
+        std::vector<Actor> CollectActors(Call&& call)
+        {
+            std::vector<Actor> found;
+            uint32_t count = 0;
+            if (call(nullptr, 0u, &count) != SHARD_OK || count == 0) return found;
+            std::vector<ShardActor> handles(count);
+            if (call(handles.data(), count, &count) != SHARD_OK) return found;
+            for (uint32_t i = 0; i < count && i < handles.size(); ++i) found.push_back(Actor(handles[i]));
+            return found;
+        }
+    }
+    inline std::vector<Actor> Scene::FindInSphere(Vec3 center, float radius, std::string_view tag) const
+    {
+        float c[3];
+        detail::ToArray(center, c);
+        return detail::CollectActors([&](ShardActor* out, uint32_t capacity, uint32_t* count) { return detail::Actors().find_in_sphere(m_Anchor, c, radius, Str(tag), out, capacity, count); });
+    }
+    inline std::vector<Actor> Scene::FindInBox(Vec3 lo, Vec3 hi, std::string_view tag) const
+    {
+        float a[3], b[3];
+        detail::ToArray(lo, a);
+        detail::ToArray(hi, b);
+        return detail::CollectActors([&](ShardActor* out, uint32_t capacity, uint32_t* count) { return detail::Actors().find_in_box(m_Anchor, a, b, Str(tag), out, capacity, count); });
     }
 
     /// An Actor member of a script is a reference to another actor : the host saves it by the actor's path in the world (SHARD_FIELD_ACTOR) and

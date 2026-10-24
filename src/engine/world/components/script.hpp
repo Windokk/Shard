@@ -39,6 +39,13 @@ namespace Shard::Engine::Objects::Components
             /// @brief Called once per frame, in the Update phase (variable step : use GetDeltaTime())
             virtual void OnTick();
 
+            /// @brief Whether OnEditTick is called : a script that must be seen working in the editor while the world does not play
+            /// (a particle emitter, a UI being laid out...) says so. Read once per frame and script.
+            virtual bool RunsInEditMode() const;
+
+            /// @brief Called once per frame, in the Update phase, while the world does NOT play, if RunsInEditMode (variable step : use GetDeltaTime())
+            virtual void OnEditTick();
+
             /// @brief Called once per fixed simulation step, in the Fixed phase, right before the physics step
             /// @note Runs 0..N times per frame depending on the accumulator. Use GetFixedDeltaTime() : this is the place for forces and
             /// gameplay that must be reproducible.

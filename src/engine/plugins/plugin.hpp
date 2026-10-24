@@ -138,6 +138,20 @@ namespace Shard::Engine::Plugins {
         std::function<void(const ShardUiApi* ui, uint64_t actor)> draw;
     };
 
+    /// @brief A plugin opens the assets of an extension (".bt") : the "editor.assetopener" extension point. A double click in the content browser calls `open`
+    /// with the path of the asset in the project.
+    struct EditorAssetOpenerItem {
+        std::string extension;
+        std::function<void(const std::string& pathInProject)> open;
+    };
+
+    /// @brief An entry of the content browser's Create menu that writes a file with fixed bytes : the "editor.assettemplate" extension point
+    struct EditorAssetTemplateItem {
+        std::string label;
+        std::string defaultName;
+        std::string bytes;
+    };
+
     /// @brief What a plugin draws in the viewport for each selected actor : the "editor.gizmo" extension point
     struct EditorGizmoItem {
         std::string name;

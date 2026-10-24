@@ -342,6 +342,20 @@ namespace Shard::Editor::GUI::AssetOperations
         return {};
     }
 
+    Result CreateFromBytes(const Path& dir, const std::string& defaultName, const std::string& bytes, Path& created)
+    {
+        const fs::path name(defaultName);
+        created = UniquePath(dir, name.stem().string(), name.extension().string());
+        if(!WriteFileBinary(fs::path(created.full), bytes)){
+            created = Path("");
+            return Fail("Couldn't create the file.");
+        }
+
+        Engine::Core::GetEngine().GetFileManager()->RegisterAsset(Path(created.full, true));
+        PersistDatabase();
+        return {};
+    }
+
     Result CreateWorld(const Path& dir, Path& created)
     {
         created = UniquePath(dir, "NewWorld", ".world");

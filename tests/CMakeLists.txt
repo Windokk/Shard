@@ -206,7 +206,7 @@ if(SHARD_TEST_WASM_TOOLCHAIN AND SHARD_WASM_CLANG AND SHARD_WASM_LD)
     include(${CMAKE_SOURCE_DIR}/sdk/cmake/ShardSDKPlugin.cmake)
     set(SHARD_WASM_TOOLCHAIN "${SHARD_TEST_WASM_TOOLCHAIN}")
     set(SHARD_TEST_WASM_GAME_SOURCES ${SHARD_TEST_GAME_SOURCES})
-    list(FILTER SHARD_TEST_WASM_GAME_SOURCES EXCLUDE REGEX "(components_demo|services_demo)\\.cpp$")
+    list(FILTER SHARD_TEST_WASM_GAME_SOURCES EXCLUDE REGEX "(components_demo|services_demo|platform_demo)\\.cpp$")
     shard_sdk_add_plugin(ShardTestWasmGame
         TARGET       wasm
         ID           shard.test.wasmgame

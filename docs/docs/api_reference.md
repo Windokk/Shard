@@ -14,8 +14,8 @@ Every function says which thread may call it : `any`, `system` (from inside a sy
 | [`shard_host.h`](#shard_hosth) | | what a plugin exports and what the host gives it |
 | [`shard_plugin.h`](#shard_pluginh) | `shard.plugin` 1.2 | who the plugin is, as the host read it from the manifest, and where it runs |
 | [`shard_cvars.h`](#shard_cvarsh) | `shard.cvars` 1.0 | variables the plugin owns, readable from the console and the config files like the engine's own |
-| [`shard_commands.h`](#shard_commandsh) | `shard.commands` 1.0 | console commands |
-| [`shard_components.h`](#shard_componentsh) | `shard.components` 1.3 | component types described field by field |
+| [`shard_commands.h`](#shard_commandsh) | `shard.commands` 1.1 | console commands |
+| [`shard_components.h`](#shard_componentsh) | `shard.components` 1.4 | component types described field by field |
 | [`shard_ecs.h`](#shard_ecsh) | `shard.ecs` 1.1 | entities and their components, from inside a system |
 | [`shard_systems.h`](#shard_systemsh) | `shard.systems` 1.0 | functions the engine's scheduler runs every frame, in a phase, in parallel with the systems they do not conflict with |
 | [`shard_events.h`](#shard_eventsh) | `shard.events` 1.1 | events found by NAME, carrying bytes |
@@ -24,15 +24,22 @@ Every function says which thread may call it : `any`, `system` (from inside a sy
 | [`shard_extensions.h`](#shard_extensionsh) | `shard.extensions` 1.0 | what a plugin adds to the engine's subsystems through their extension points |
 | [`shard_content.h`](#shard_contenth) | `shard.content` 1.0 | the content folders of the loaded modules |
 | [`shard_state.h`](#shard_stateh) | `shard.state` 1.0 | what a plugin keeps across a hot reload |
-| [`shard_actors.h`](#shard_actorsh) | | Interface `"shard.actors"` 1.1 (1.0 + the fields of a component, one at a time) |
+| [`shard_actors.h`](#shard_actorsh) | | Interface `"shard.actors"` 1.2 (1.0 + the fields of a component, one at a time in 1.1 ; stable ids, bounds and neighbours in 1.2) |
+| [`shard_assets.h`](#shard_assetsh) | `shard.assets` 1.0 | the assets of the project, by path and by id |
 | [`shard_audio.h`](#shard_audioh) | `shard.audio` 1.0 | sounds |
-| [`shard_editor.h`](#shard_editorh) | `shard.editor` 1.1 | the editor's windows, menus, toolbar, inspectors and gizmos, drawn with a small set of widgets |
+| [`shard_debug.h`](#shard_debugh) | `shard.debug` 1.0 | drawing for the developer, in the world, from anywhere : a navigation mesh, the path an agent follows, a field of view, a voxel chunk's bounds, a bone, a network ghost, the node a graph is running |
+| [`shard_editor.h`](#shard_editorh) | `shard.editor` 1.2 | the editor's windows, menus, toolbar, inspectors and gizmos, drawn with a small set of widgets |
 | [`shard_experimental.h`](#shard_experimentalh) | `shard.experimental.world_ecs` 0.1 | the engine's entities from the main thread, outside the systems |
-| [`shard_input.h`](#shard_inputh) | `shard.input` 1.0 | keyboard, mouse and gamepads, polled |
-| [`shard_physics.h`](#shard_physicsh) | `shard.physics` 1.0 | the rigid bodies of actors, and ray casts |
-| [`shard_scripts.h`](#shard_scriptsh) | `shard.scripts` 1.1 | scripts, the components that carry a plugin's gameplay code |
+| [`shard_input.h`](#shard_inputh) | `shard.input` 1.1 | keyboard, mouse and gamepads, polled ; and the window system's events, in order |
+| [`shard_jobs.h`](#shard_jobsh) | `shard.jobs` 1.0 | the engine's worker threads, for a plugin's own work |
+| [`shard_net.h`](#shard_neth) | `shard.net` 1.0 | UDP and TCP sockets, for the networking a game builds itself |
+| [`shard_physics.h`](#shard_physicsh) | `shard.physics` 1.1 | the rigid bodies of actors, ray casts and volume queries, and colliders a plugin builds itself |
+| [`shard_reflect.h`](#shard_reflecth) | `shard.reflect` 1.0 | what exists in the engine and in the other plugins, described at run time ; and functions plugins offer to be called by name |
+| [`shard_render.h`](#shard_renderh) | `shard.render` 1.0 | what a plugin puts on the screen that the engine's components do not : meshes it builds, textures it fills, sprites, instances and a 2D overlay |
+| [`shard_scripts.h`](#shard_scriptsh) | `shard.scripts` 1.2 | scripts, the components that carry a plugin's gameplay code |
+| [`shard_time.h`](#shard_timeh) | `shard.time` 1.0 | the simulation's clock, and a fingerprint of its state |
 | [`shard_wasm.h`](#shard_wasmh) | | Sandboxed plugins (tier 2, `"abi"`: `"wasm1"`) |
-| [`shard_worlds.h`](#shard_worldsh) | `shard.worlds` 1.0 | loading worlds, and prefabs |
+| [`shard_worlds.h`](#shard_worldsh) | `shard.worlds` 1.1 | loading worlds, and prefabs ; and which worlds are loaded |
 
 ### shard_abi.h
 
@@ -50,7 +57,7 @@ Changing a struct without bumping `SHARD_ABI_MINOR` is a bug : `tests/plugins/ab
 | | Value | |
 |---|---|---|
 | `SHARD_ABI_MAJOR` | `1` |  |
-| `SHARD_ABI_MINOR` | `6` |  |
+| `SHARD_ABI_MINOR` | `7` |  |
 
 Calling convention of every function pointer in the tables. Empty on `x86_64` and arm64.
 
@@ -331,7 +338,7 @@ ShardResult set_string(ShardPluginCtx ctx, ShardCVar cvar, ShardStr value);
 
 ### shard_commands.h
 
-Interface `"shard.commands"` 1.0 : console commands. The command is removed with the plugin (disable or unload).
+Interface `"shard.commands"` 1.1 : console commands. The command is removed with the plugin (disable or unload). 1.1 added `execute`: running a command of the console (the engine's, a plugin's) from code -- what a UI button, a graph node or a script does.
 
 | | Value | |
 |---|---|---|
@@ -355,9 +362,17 @@ The name is used as given : prefix it with your own (`"weather.set"`). `SHARD_E_
 ShardResult add(ShardPluginCtx ctx, ShardStr name, ShardStr help, ShardCommandFn run, void* user);
 ```
 
+**1.1**
+
+Runs a console line (`"world.load arena"`, `"render.thread 0"`) as if it was typed. The command's output is copied as a `"text out"` : at most `capacity` bytes into `output` (may be NULL), the full length in `*size` (may be NULL). `SHARD_OK` if the command succeeded, `SHARD_E_NOT_FOUND` if the line names no command, `SHARD_E_INVALID_ARG` if it failed (the output says why). A command that changes what the game simulates is the caller's to run from the simulation thread. thread : main
+
+```c
+ShardResult execute(ShardPluginCtx ctx, ShardStr line, char* output, uint64_t capacity, uint64_t* size);
+```
+
 ### shard_components.h
 
-Interface `"shard.components"` 1.3 : component types described field by field.
+Interface `"shard.components"` 1.4 : component types described field by field.
 
 One registration gives a type two faces, under one name (`"<plugin id>.<name>"`, made by the host) :
 
@@ -378,6 +393,8 @@ The type lives as long as the plugin is enabled. Its ECS id stays reserved for t
 Blobs (1.1) : bytes the host keeps outside the block, as many as needed (a chunk of voxels), counted against the plugin's memory budget. A field `SHARD_FIELD_BLOB` holds the `ShardBlob` handle. The plugin owns its blobs : `blob_free` gives one back, and all of them go with the plugin (disable, unload). The block is still copied with memcpy, so two blocks may hold the same handle : that is a shared blob, not a copy. The actor component is the exception, it owns the blobs of its blob fields : it saves their bytes with the world (base64), a copy of the actor (play mode) gets copies of them, and removing the component frees them. A system that puts a new blob in such a field frees the one it replaces.
 
 Text and assets (1.2) : a field `SHARD_FIELD_STRING` holds a `ShardBlob` too, whose bytes are the UTF-8 text (no terminator) : the actor component owns it like any blob, but the inspector shows it as a text box and the world file saves it as a JSON string. `string_set` and `string_get` read and write it without touching the blob by hand. A field `SHARD_FIELD_ASSET` is an `int32_t`, the id of an asset of the project (0 : none) : the inspector shows an asset picker, the world file saves the asset by its name, and the engine knows the component uses it.
+
+Life cycle (1.4) : a type may ask to be told when one of its components joins an actor, leaves it, or has a field edited (`ShardComponentCallbacks`). That is where a plugin makes what the component stands for -- a render object for a chunk of voxels, a navigation agent, a particle emitter's state -- and drops it, without scanning the ECS every frame to find out what appeared.
 
 | | Value | |
 |---|---|---|
@@ -428,6 +445,33 @@ ShardStr tooltip;    // optional
 } ShardFieldDesc;
 ```
 
+Told about the actor components of a type (1.4). `actor` is the `ShardActor` that carries it, `entity` its ECS entity, `block` the component's block (valid for the call). All of them run on the main thread, outside the systems, in the editor's edit mode as well as in play mode, with the values the world file or the inspector gave already in the block.
+
+```
+on_added   : the component became live : its entity exists and its values are in the block. Once per activation (added to an actor that is in
+             a world, loaded from a file, copied for the play mode, enabled again after being disabled).
+on_removed : it is about to stop being live (removed, disabled, its actor destroyed, the world unloaded) ; the block is still intact. A
+             destroyed actor's handle is still valid in this call.
+on_changed : a field was edited (the inspector, shard.actors' set_component...) ; `field` is its index in the description's `fields`. A system
+             writing the block does NOT call it.
+```
+
+```c
+typedef void (*ShardComponentFn)(void* user, ShardPluginCtx ctx, uint64_t actor, uint64_t entity, void* block);
+typedef void (*ShardComponentChangedFn)(void* user, ShardPluginCtx ctx, uint64_t actor, uint64_t entity, void* block, uint32_t field);
+```
+
+#### ShardComponentCallbacks
+
+```c
+uint32_t structSize;
+uint32_t reserved;
+ShardComponentFn on_added;
+ShardComponentFn on_removed;
+ShardComponentChangedFn on_changed;
+void* user;    // handed back to every callback
+```
+
 #### ShardComponentDesc
 
 ```c
@@ -438,6 +482,12 @@ uint32_t fieldCount;    // SHARD_COMPONENT_MAX_FIELDS at most
 ShardStr name;    // "Spin" : the host registers "<plugin id>.Spin"
 const ShardFieldDesc* fields;    // read during the call only
 const void* defaults;    // `size` bytes : the value of a new component. NULL : zeroes. Read during the call only.
+```
+
+**1.4**
+
+```c
+const ShardComponentCallbacks* callbacks;    // optional, copied up to its structSize during the call
 ```
 
 | | Value | |
@@ -1093,7 +1143,7 @@ int32_t has(ShardState state, ShardStr key);
 
 ### shard_actors.h
 
-Interface `"shard.actors"` 1.1 (1.0 + the fields of a component, one at a time) : the actors of a world, as a script sees them.
+Interface `"shard.actors"` 1.2 (1.0 + the fields of a component, one at a time in 1.1 ; stable ids, bounds and neighbours in 1.2) : the actors of a world, as a script sees them.
 
 An actor is what a world file holds and the editor's outliner shows : a name, a pose, children, tags and components. A `ShardActor` is a handle to one (a generation and a slot, never a pointer) : it fails with `SHARD_E_STALE_HANDLE` once the actor is destroyed, and a handle of another actor never takes its place. 0 is never valid.
 
@@ -1253,6 +1303,194 @@ Removes an element of an array (`"shapes/1"`) or a key of an object
 ShardResult erase_component_field(ShardActor actor, ShardStr type, ShardStr path);
 ```
 
+**1.2 : identity across machines, and the neighbourhood**
+
+A number that names the actor in a way two machines running the same game agree on : the world's asset id (high 32 bits) and the actor's id in that world (low 32), the ids being given in the order actors are made, which the simulation reproduces. Use it to say `"this actor"` in a network message, a save file or a replay. Not a handle : it never goes stale, it just stops finding anything.
+
+```c
+ShardResult get_stable_id(ShardActor actor, uint64_t* out);
+```
+
+The actor that has that stable id, or `SHARD_E_NOT_FOUND` (it is not made yet, or is destroyed).
+
+```c
+ShardResult find_by_stable_id(uint64_t stable_id, ShardActor* out);
+```
+
+The asset id of the world the actor is in (-1 for a world with no asset).
+
+```c
+ShardResult get_world_id(ShardActor actor, int32_t* out);
+```
+
+The box that holds the actor's visible and physical shapes (its model, its physics body, its children's), in the world, axis aligned. `SHARD_E_NOT_FOUND` : the actor has none of them -- use its position.
+
+```c
+ShardResult get_world_bounds(ShardActor actor, float out_min[3], float out_max[3]);
+```
+
+The actors whose position is within `radius` of `center` (a sphere, in the world), or in the box [min, max]. `tag` restricts them (empty : any). Same array out as `find_by_tag` : up to `capacity` into `out`, how many there are in `*count` ; the deactivated ones are left out. Nearest first for the sphere, the order of the ids for the box. In the world of `anchor`.
+
+```c
+ShardResult find_in_sphere(ShardActor anchor, const float center[3], float radius, ShardStr tag, ShardActor* out, uint32_t capacity, uint32_t* count);
+ShardResult find_in_box(ShardActor anchor, const float box_min[3], const float box_max[3], ShardStr tag, ShardActor* out, uint32_t capacity, uint32_t* count);
+```
+
+### shard_assets.h
+
+Interface `"shard.assets"` 1.0 : the assets of the project, by path and by id.
+
+An asset is a file of the project the engine knows (its asset database gives it an id : the value of a `SHARD_FIELD_ASSET`, `shard_components.h`) under a path in the project (`"models/crate.fbx"`). `shard.content` is the other way in : the files a plugin ships in its own folder, as `mod://` addresses. A path given here is a path in the project ; a `mod://` address is also accepted wherever a file is read.
+
+What a plugin does with it : reads the geometry of the models to bake a navigation mesh or to cut the world into voxels, reads the pixels of an image to pack an atlas, reads and writes the files it owns (a baked navigation mesh, a behaviour tree, a UI document, a voxel chunk) and finds its own asset types' files by extension (`shard.extensions`' `"asset.type"` gives the loader ; `get_asset` gives the resource).
+
+A change to an asset on disk (the user saved it, the importer ran) is the hook `"AssetImported"` of `shard.hooks`, with the path as subject.
+
+thread : main, unless a function says otherwise. A plugin that writes the project declares the permission `"fs.write:project"` in its manifest, one that reads outside its own folder `"fs.read:project"` (a native plugin is trusted whatever it declares, but the user is told).
+
+| | Value | |
+|---|---|---|
+| `SHARD_IFACE_ASSETS` | `"shard.assets"` |  |
+
+What kind of asset a file is. The engine's own kinds ; a plugin's asset type (`shard.extensions`) is `SHARD_ASSET_PLUGIN`, the type name is in `ShardAssetInfo::typeName`.
+
+| | Value | |
+|---|---|---|
+| `SHARD_ASSET_UNKNOWN` | `0u` |  |
+| `SHARD_ASSET_MESH` | `1u` |  |
+| `SHARD_ASSET_TEXTURE` | `2u` |  |
+| `SHARD_ASSET_MATERIAL` | `3u` |  |
+| `SHARD_ASSET_SHADER` | `4u` |  |
+| `SHARD_ASSET_WORLD` | `5u` |  |
+| `SHARD_ASSET_SOUND` | `6u` |  |
+| `SHARD_ASSET_PREFAB` | `7u` |  |
+| `SHARD_ASSET_PLUGIN` | `8u` |  |
+
+#### ShardAssetInfo
+
+```c
+uint32_t structSize;
+int32_t id;
+uint32_t kind;    // SHARD_ASSET_*
+uint32_t reserved;
+ShardStr path;    // in the project, '/' separators. Valid for the call.
+ShardStr typeName;    // SHARD_ASSET_PLUGIN : the name of the asset type ; empty otherwise. Valid for the call.
+uint64_t sizeBytes;    // the file's size, 0 if it is not a file (an engine resource)
+int64_t modifiedTime;    // the file's last write, seconds since 1970 (0 if unknown)
+```
+
+Called once per asset. Return `SHARD_OK` to go on ; anything else stops the listing and is what `list` returns.
+
+```c
+typedef ShardResult (*ShardAssetListFn)(void* user, const ShardAssetInfo* asset);
+```
+
+#### ShardMeshInfo
+
+The geometry of a mesh asset, for the code that bakes something from it. Triangles only, in the mesh's own space (apply the actor's world transform yourself : `shard.actors` `get_world_transform`).
+
+```c
+uint32_t structSize;
+uint32_t vertexCount;
+uint32_t indexCount;
+uint32_t submeshCount;
+float boundsMin[3];
+float boundsMax[3];
+```
+
+#### ShardMeshSlice
+
+```c
+uint32_t indexOffset;    // into the mesh's index array
+uint32_t indexCount;
+uint32_t materialSlot;    // the slot of the Model's material list this slice is drawn with
+```
+
+#### ShardMeshRead
+
+A mesh read into the caller's arrays. Every array is optional (NULL : not wanted) and has the capacity next to it ; the counts come back in `*Count` whatever the capacity (so a first call with capacities of 0 sizes the arrays of the second). Positions and normals are 3 floats a vertex, uvs 2 (the first set), indices are triangle lists.
+
+```c
+uint32_t structSize;
+uint32_t vertexCapacity, indexCapacity, sliceCapacity;
+uint32_t vertexCount, indexCount, sliceCount;    // out
+float* positions;
+float* normals;
+float* uvs;
+uint32_t* indices;
+ShardMeshSlice* slices;
+```
+
+#### ShardAssetsApi
+
+```c
+uint32_t structSize;
+```
+
+**Finding**
+
+The id of the asset at that path in the project (an engine resource's path included : `"materials/default.mat"`). `SHARD_E_NOT_FOUND` otherwise. thread : any
+
+```c
+ShardResult resolve(ShardStr path, int32_t* id);
+```
+
+What is known of an asset. The caller sets out-&gt;structSize. `SHARD_E_NOT_FOUND` : no such id. thread : any
+
+```c
+ShardResult info(int32_t id, ShardAssetInfo* out);
+```
+
+The path of an asset, as the `"text out"` of the ABI. thread : any
+
+```c
+ShardResult path_of(int32_t id, char* buffer, uint64_t capacity, uint64_t* size);
+```
+
+The assets under `subdir` of the project (`""` : all) of that kind (`SHARD_ASSET_UNKNOWN` : any), in the order of their paths.
+
+```c
+ShardResult list(ShardStr subdir, uint32_t kind, ShardAssetListFn fn, void* user);
+```
+
+**Files**
+
+Reads a whole file (a path in the project, or a `mod://` address) into memory from the host's `alloc`, counted against the plugin's budget : free it with the host's `free`. thread : any
+
+```c
+ShardResult read(ShardPluginCtx ctx, ShardStr path, void** data, uint64_t* size);
+```
+
+Writes a file in the project's resources (created or replaced, its folders made) and has the engine index it. `*id` receives its asset id (may be NULL). A path that leaves the project (`".."`) is `SHARD_E_INVALID_ARG`. The file watcher then reports it like any other change. thread : main
+
+```c
+ShardResult write(ShardPluginCtx ctx, ShardStr path, const void* data, uint64_t size, int32_t* id);
+```
+
+`SHARD_TRUE` if the project has that file. thread : any
+
+```c
+int32_t exists(ShardStr path);
+```
+
+**Meshes**
+
+thread : main (the mesh is read back from the GPU if the host does not keep a copy). `SHARD_E_NOT_FOUND` : not a mesh.
+
+```c
+ShardResult mesh_info(int32_t id, ShardMeshInfo* out);
+ShardResult mesh_read(int32_t id, ShardMeshRead* io);
+```
+
+**Images**
+
+The size of an image asset, and the pixels decoded to 8 bit RGBA (4 bytes a pixel, rows from the top), up to `capacity` bytes of them into `out` ; `*size` is the full size, width \* height \* 4 (call with capacity 0 to ask). A compressed image is decoded. thread : any (a job may decode images). `SHARD_E_NOT_FOUND` : not an image.
+
+```c
+ShardResult image_info(int32_t id, uint32_t* width, uint32_t* height);
+ShardResult image_read(int32_t id, uint8_t* out, uint64_t capacity, uint64_t* size);
+```
+
 ### shard_audio.h
 
 Interface `"shard.audio"` 1.0 : sounds.
@@ -1287,9 +1525,86 @@ Plays `clip` once, from `position` in the world when `spatial` is `SHARD_TRUE` (
 ShardResult play_one_shot(ShardStr clip, const float position[3], float volume, int32_t spatial);
 ```
 
+### shard_debug.h
+
+Interface `"shard.debug"` 1.0 : drawing for the developer, in the world, from anywhere : a navigation mesh, the path an agent follows, a field of view, a voxel chunk's bounds, a bone, a network ghost, the node a graph is running.
+
+Unlike the gizmos of `shard.editor` (which draw in the editor, for the selection), this draws in the game's viewport and in the editor's, from a system, a script or a job. Every call adds a shape to this frame's picture ; a shape with a `duration` stays that many seconds (real time), with 0 it is drawn for one frame only, so a system that draws what it computes calls the functions again each frame and never clears anything.
+
+The shapes are projected and drawn over the picture by the host's overlay. `SHARD_DEBUG_DEPTH_TEST` asks that the world's geometry hides them ; a host that cannot do it draws them over everything. Nothing here costs anything in a build that has no debug drawing (a player of a shipped game may turn it off) : the calls are accepted and draw nothing.
+
+Colours are 8 bit r, g, b, a packed as r \| g &lt;&lt; 8 \| b &lt;&lt; 16 \| a &lt;&lt; 24. Positions are in the world ; a large world's are doubles in the rest of the ABI, here floats relative to the camera's region are enough for drawing and the host rebases them.
+
+thread : any. A sandboxed plugin (tier 2) is not offered this interface.
+
+| | Value | |
+|---|---|---|
+| `SHARD_IFACE_DEBUG` | `"shard.debug"` |  |
+| `SHARD_DEBUG_DEPTH_TEST` | `0x01u` | hidden by the geometry in front of it, where the host can |
+
+#### ShardDebugApi
+
+```c
+uint32_t structSize;
+```
+
+`SHARD_FALSE` when this host draws nothing (a server, a shipped player with debug drawing off) : skip the work of computing shapes.
+
+```c
+int32_t enabled(void);
+void line(const float from[3], const float to[3], uint32_t color, float duration, uint32_t flags);
+```
+
+Segments : `count` points (xyz xyz ...), taken two by two -- points 0 and 1 are a segment, 2 and 3 the next one. A polyline of n points is n - 1 segments : the caller repeats the shared points. A navigation mesh's edges go in one call.
+
+```c
+void lines(const float* points, uint32_t count, uint32_t color, float duration, uint32_t flags);
+void point(const float position[3], float size, uint32_t color, float duration, uint32_t flags);
+void arrow(const float from[3], const float to[3], uint32_t color, float duration, uint32_t flags);
+void circle(const float center[3], const float normal[3], float radius, uint32_t color, float duration, uint32_t flags);
+void sphere(const float center[3], float radius, uint32_t color, float duration, uint32_t flags);
+```
+
+A box turned by `rotation` (quaternion x, y, z, w) ; NULL : aligned on the axes.
+
+```c
+void box(const float center[3], const float half_extent[3], const float rotation[4], uint32_t color, float duration, uint32_t flags);
+```
+
+A capsule between two points (the centres of its end spheres).
+
+```c
+void capsule(const float from[3], const float to[3], float radius, uint32_t color, float duration, uint32_t flags);
+```
+
+A cone : its apex, the direction and length of its axis, the angle of its half opening in degrees (a field of view, a light).
+
+```c
+void cone(const float apex[3], const float axis[3], float half_angle_degrees, uint32_t color, float duration, uint32_t flags);
+```
+
+Filled triangles, `count` of them (9 floats each) : a navigation mesh's polygons, a volume's faces. The colour's alpha is honoured.
+
+```c
+void triangles(const float* vertices, uint32_t count, uint32_t color, float duration, uint32_t flags);
+```
+
+Text anchored at a point of the world, or at a pixel of the viewport (x, y from the top left).
+
+```c
+void text(const float position[3], ShardStr text, uint32_t color, float duration, uint32_t flags);
+void text_screen(float x, float y, ShardStr text, uint32_t color, float duration);
+```
+
+Removes every shape that is still being shown for a duration (the ones of this frame go anyway).
+
+```c
+void clear(void);
+```
+
 ### shard_editor.h
 
-Interface `"shard.editor"` 1.1 : the editor's windows, menus, toolbar, inspectors and gizmos, drawn with a small set of widgets.
+Interface `"shard.editor"` 1.2 : the editor's windows, menus, toolbar, inspectors and gizmos, drawn with a small set of widgets.
 
 ImGui has no stable ABI, so a plugin does not draw with it : it adds a panel and draws the contents with the widgets of `ShardUiApi`, which the editor implements with its own ImGui. The panel is a window of the editor's Window menu (hidden until the user opens it). Its draw function runs every frame while the window is open, on the editor's main thread, and may call the widgets then and only then. The same widgets draw an inspector (below a component in the Properties panel) ; `ShardGizmoApi` draws over the viewport.
 
@@ -1298,6 +1613,8 @@ This interface exists only in the editor : in the player, in headless runs and i
 Widgets that take a value change it in place and return `SHARD_TRUE` on the frame the user changed it. A label may carry a hidden id after `"##"` (`"Speed##enemy1"`), as in ImGui, to tell apart two widgets with the same text.
 
 1.1 added to `ShardUiApi` (from `text_disabled` on) : more text, vectors, multiline text, groups, children, disabled sections, tabs, tables, menus, popups, item queries, and to `ShardEditorApi` (from `add_menu_item` on) : menu items, toolbar buttons, inspectors, gizmos, the selection, notifications.
+
+1.2 added to `ShardUiApi` (from `draw_line` on) what a node editor, a timeline or a curve editor needs : a draw list (lines, shapes, Bezier curves, text, clipping) in the window's coordinates, the cursor and mouse queries to build interactions on top of it, hit areas, images, and drag and drop ; and to `ShardEditorApi` (from `undo_push` on) : the undo history, opening an asset of a plugin's type with a double click, and the entries of the content browser's `"Create"` menu. A graph editor (visual scripting, behaviour trees, animation graphs) is made of exactly these.
 
 | | Value | |
 |---|---|---|
@@ -1493,6 +1810,94 @@ int32_t is_item_active(void);
 int32_t is_item_double_clicked(void);
 ```
 
+**1.2**
+
+Positions are in pixels of the editor's window (`"screen"` coordinates, the origin at the top left of the main window), the same ones `get_cursor_screen_pos` and `get_mouse_pos` give, so a canvas is drawn at what it was told. Colours are r \| g &lt;&lt; 8 \| b &lt;&lt; 16 \| a &lt;&lt; 24.
+
+The draw list of the window being drawn. Shapes are clipped to the window and to the clip rectangles pushed.
+
+```c
+void draw_line(const float a[2], const float b[2], uint32_t color, float thickness);
+void draw_polyline(const float* points, uint32_t count, uint32_t color, int32_t closed, float thickness);
+void draw_rect(const float min[2], const float max[2], uint32_t color, float rounding, float thickness);
+void draw_rect_filled(const float min[2], const float max[2], uint32_t color, float rounding);
+void draw_circle(const float center[2], float radius, uint32_t color, float thickness);
+void draw_circle_filled(const float center[2], float radius, uint32_t color);
+void draw_triangle_filled(const float a[2], const float b[2], const float c[2], uint32_t color);
+```
+
+A cubic Bezier curve from p0 to p3 : the wire between two nodes
+
+```c
+void draw_bezier(const float p0[2], const float p1[2], const float p2[2], const float p3[2], uint32_t color, float thickness);
+void draw_text(const float position[2], uint32_t color, ShardStr text);
+```
+
+Nothing is drawn outside the rectangle until `pop_clip_rect`. intersect `SHARD_TRUE` : cut down to the current clip too.
+
+```c
+void push_clip_rect(const float min[2], const float max[2], int32_t intersect);
+void pop_clip_rect(void);
+```
+
+Where the next widget goes, the room left, and the rectangle of the widget drawn last
+
+```c
+void get_cursor_screen_pos(float out[2]);
+void set_cursor_screen_pos(const float position[2]);
+void get_content_region_avail(float out[2]);
+void get_item_rect_min(float out[2]);
+void get_item_rect_max(float out[2]);
+void calc_text_size(ShardStr text, float out[2]);
+```
+
+A hit area of that size at the cursor, with no look of its own : the surface of a canvas or a node. `SHARD_TRUE` on the frame it is pressed ; `is_item_hovered`, `is_item_active`... then tell the rest.
+
+```c
+int32_t invisible_button(ShardStr id, float width, float height);
+```
+
+The mouse and keyboard, as the window sees them this frame. `button` : `SHARD_MOUSE_*`, `key` : `SHARD_KEY_*`.
+
+```c
+void get_mouse_pos(float out[2]);
+void get_mouse_drag_delta(int32_t button, float out[2]);
+void reset_mouse_drag_delta(int32_t button);
+float get_mouse_wheel(void);
+int32_t is_mouse_down(int32_t button);
+int32_t is_mouse_clicked(int32_t button);
+int32_t is_mouse_released(int32_t button);
+int32_t is_mouse_double_clicked(int32_t button);
+int32_t is_key_down(int32_t key);
+int32_t is_key_pressed(int32_t key);
+```
+
+`SHARD_MOD_*` (`shard_input.h`) held now
+
+```c
+uint32_t get_modifiers(void);
+int32_t is_window_hovered(void);
+int32_t is_window_focused(void);
+```
+
+A texture of `shard.render` (a preview of a UI document, of a mesh being animated, of an atlas) of that size in pixels
+
+```c
+void image(uint64_t texture, float width, float height);
+int32_t selectable_size(ShardStr label, int32_t selected, float width, float height);
+```
+
+Drag and drop between widgets (and from the content browser : a payload of type `"shard.asset"` is the asset's path in the project, as UTF-8). Source : after the widget, `begin_drag_drop_source` ; when it returns `SHARD_TRUE` set the payload and call `end_drag_drop_source`. Target : after the widget, `begin_drag_drop_target` ; when `SHARD_TRUE` ask for the payloads it takes with `accept_drag_drop_payload` (`SHARD_TRUE` on the frame it is dropped, then `out` holds it) and call `end_drag_drop_target`. `type` is at most 32 characters.
+
+```c
+int32_t begin_drag_drop_source(void);
+void set_drag_drop_payload(ShardStr type, const void* data, uint64_t size);
+void end_drag_drop_source(void);
+int32_t begin_drag_drop_target(void);
+int32_t accept_drag_drop_payload(ShardStr type, void* out, uint64_t capacity, uint64_t* size);
+void end_drag_drop_target(void);
+```
+
 #### ShardGizmoApi
 
 What an inspector or a gizmo draws with over the viewport (`ShardGizmoFn`) : lines in the world, in the units of the project, with a colour r, g, b, a in 0..1. Valid during the callback only.
@@ -1554,6 +1959,18 @@ The selection changed : the selected actors, the primary one (the last selected)
 
 ```c
 typedef void (*ShardSelectionFn)(void* user, const ShardActor* actors, uint32_t count);
+```
+
+Undo or redo of a change the plugin recorded with `undo_push`
+
+```c
+typedef void (*ShardUndoFn)(void* user);
+```
+
+The user opened (double click, `"Open"`) the asset at `path` in the project, of an extension the plugin registered with `add_asset_opener`
+
+```c
+typedef void (*ShardOpenAssetFn)(void* user, ShardStr path);
 ```
 
 | | Value | |
@@ -1624,6 +2041,26 @@ Shows or hides one of this plugin's panels. `SHARD_E_NOT_FOUND` : no such panel.
 ShardResult set_panel_visible(ShardPluginCtx ctx, ShardStr title, int32_t visible);
 ```
 
+**1.2 : thread : main**
+
+Records a change the plugin just made (a node moved, a wire cut) in the editor's undo history, under `label`. undo puts it back, redo does it again ; the editor's Ctrl+Z / Ctrl+Y call them in order with the edits of the editor itself. The two are called with `user` and may run after the panel closed : keep what they need alive (the history is dropped when the plugin is disabled).
+
+```c
+ShardResult undo_push(ShardPluginCtx ctx, ShardStr label, ShardUndoFn undo, ShardUndoFn redo, void* user);
+```
+
+Opens assets of that extension (`".bt"`) in the plugin : a double click in the content browser calls `open`, which usually makes a panel visible and loads the file. `SHARD_E_ALREADY_EXISTS` : the engine or another plugin opens that extension.
+
+```c
+ShardResult add_asset_opener(ShardPluginCtx ctx, ShardStr extension, ShardOpenAssetFn open, void* user);
+```
+
+An entry `"label"` of the content browser's Create menu that writes a new file with these bytes (copied) under `default_name` (`"NewTree.bt"`) in the folder shown. The file is renamed by the user like any other.
+
+```c
+ShardResult add_asset_template(ShardPluginCtx ctx, ShardStr label, ShardStr default_name, const void* data, uint64_t size);
+```
+
 ### shard_experimental.h
 
 Interface `"shard.experimental.world_ecs"` 0.1 : the engine's entities from the main thread, outside the systems.
@@ -1656,9 +2093,11 @@ ShardResult close(ShardPluginCtx ctx, ShardEcs ecs);
 
 ### shard_input.h
 
-Interface `"shard.input"` 1.0 : keyboard, mouse and gamepads, polled.
+Interface `"shard.input"` 1.1 : keyboard, mouse and gamepads, polled ; and the window system's events, in order.
 
 What the engine's input manager sees this frame, which is also what a recorded run replays : a script that reads input through here behaves in a replay as the game did. The key and button numbers below are part of the ABI (the engine maps them to its own).
+
+1.1 added, from `event_count` on, what a UI needs and polling cannot say : the events of the frame in the order they happened (key, text, mouse, wheel), the modifiers, the window's size, the clipboard, the cursor's shape, an IME's text box, and a way to say that a UI has taken the mouse or the keyboard so that the game stops reacting to it. The events come from the window system, not from the recorded input : a replay does not produce them, so use them for interfaces and never for what the simulation decides.
 
 thread : script, for every function (`shard_actors.h` says where that is).
 
@@ -1764,6 +2203,67 @@ Gamepads : the face buttons are named by position (SOUTH is A on an Xbox pad, Cr
 | `SHARD_AXIS_LEFT_TRIGGER` | `4` | triggers 0 to 1 |
 | `SHARD_AXIS_RIGHT_TRIGGER` | `5` |  |
 
+Modifier keys held (bits of `ShardInputEvent::mods` and of `modifiers`)
+
+| | Value | |
+|---|---|---|
+| `SHARD_MOD_SHIFT` | `1u` |  |
+| `SHARD_MOD_CONTROL` | `2u` |  |
+| `SHARD_MOD_ALT` | `4u` |  |
+| `SHARD_MOD_SUPER` | `8u` |  |
+
+Kinds of event (1.1)
+
+| | Value | |
+|---|---|---|
+| `SHARD_EVENT_KEY_DOWN` | `1u` | key, mods ; flags REPEAT for a key held down |
+| `SHARD_EVENT_KEY_UP` | `2u` |  |
+| `SHARD_EVENT_TEXT` | `3u` | codepoint : one Unicode character typed (an IME's text arrives one character at a time) |
+| `SHARD_EVENT_MOUSE_DOWN` | `4u` | key : the button, x, y in pixels of the window |
+| `SHARD_EVENT_MOUSE_UP` | `5u` |  |
+| `SHARD_EVENT_MOUSE_MOVE` | `6u` | x, y ; dx, dy : the motion since the last event |
+| `SHARD_EVENT_WHEEL` | `7u` | dx, dy : lines scrolled (dy &gt; 0 : away from the user) ; x, y : where the cursor is |
+| `SHARD_EVENT_FOCUS_GAINED` | `8u` |  |
+| `SHARD_EVENT_FOCUS_LOST` | `9u` | release your held keys and buttons : no key up will come |
+| `SHARD_EVENT_RESIZED` | `10u` | x, y : the new size in pixels |
+| `SHARD_EVENT_FLAG_REPEAT` | `1u` |  |
+
+#### ShardInputEvent
+
+```c
+uint32_t structSize;
+uint32_t kind;    // SHARD_EVENT_*
+int32_t key;    // SHARD_KEY_* or SHARD_MOUSE_*
+uint32_t mods;    // SHARD_MOD_* held when it happened
+uint32_t flags;    // SHARD_EVENT_FLAG_*
+uint32_t codepoint;
+float x, y;
+float dx, dy;
+```
+
+Which polled input a UI takes (bits of `capture`)
+
+| | Value | |
+|---|---|---|
+| `SHARD_CAPTURE_MOUSE` | `1u` | `mouse_down` / pressed / released read false, `get_cursor` stays |
+| `SHARD_CAPTURE_KEYBOARD` | `2u` | `key_down` / pressed / released read false |
+| `SHARD_CAPTURE_GAMEPAD` | `4u` |  |
+
+The cursor's shapes (`set_cursor_shape`)
+
+| | Value | |
+|---|---|---|
+| `SHARD_CURSOR_ARROW` | `0` |  |
+| `SHARD_CURSOR_TEXT` | `1` |  |
+| `SHARD_CURSOR_HAND` | `2` |  |
+| `SHARD_CURSOR_CROSSHAIR` | `3` |  |
+| `SHARD_CURSOR_RESIZE_EW` | `4` |  |
+| `SHARD_CURSOR_RESIZE_NS` | `5` |  |
+| `SHARD_CURSOR_RESIZE_NWSE` | `6` |  |
+| `SHARD_CURSOR_RESIZE_NESW` | `7` |  |
+| `SHARD_CURSOR_MOVE` | `8` |  |
+| `SHARD_CURSOR_NOT_ALLOWED` | `9` |  |
+
 #### ShardInputApi
 
 ```c
@@ -1810,11 +2310,278 @@ Strengths 0 to 1. `SHARD_FALSE` : the pad cannot rumble.
 int32_t gamepad_rumble(int32_t pad, float low, float high, int32_t duration_ms);
 ```
 
+**1.1**
+
+The events since the last frame began, in order. `event_at` fills `*out` (the caller sets structSize) ; `SHARD_E_NOT_FOUND` : past the end. The list is the same for every plugin and stays valid for the whole frame.
+
+```c
+uint32_t event_count(void);
+ShardResult event_at(uint32_t index, ShardInputEvent* out);
+```
+
+`SHARD_MOD_*` held now
+
+```c
+uint32_t modifiers(void);
+```
+
+The size of the window's drawing area in pixels, and its content scale (1 on a normal display, 2 on a `"retina"` one). Any of the pointers may be NULL. In the editor this is the editor window, not the viewport the game is shown in : an overlay reads its own size from `ShardOverlayFrame` (and the origin to subtract from the positions of the events).
+
+```c
+ShardResult window_size(int32_t* width, int32_t* height, float* dpi_scale);
+```
+
+The clipboard's text (as a `"text out"`) and setting it. `SHARD_E_UNSUPPORTED` : no window system (a server, the tests).
+
+```c
+ShardResult clipboard_get(char* buffer, uint64_t capacity, uint64_t* size);
+ShardResult clipboard_set(ShardStr text);
+```
+
+The cursor's shape for this frame (`SHARD_CURSOR_*`) : it goes back to the arrow next frame unless it is set again.
+
+```c
+ShardResult set_cursor_shape(int32_t shape);
+```
+
+A text field has the focus : the system may show its on screen keyboard or an IME's candidate window next to the box x, y, w, h (pixels of the window). enabled `SHARD_FALSE` when it loses it.
+
+```c
+ShardResult set_text_input(int32_t enabled, int32_t x, int32_t y, int32_t width, int32_t height);
+```
+
+The UI says which input it takes this frame (`SHARD_CAPTURE_*` bits ; 0 releases it). While any plugin captures, the polled functions above read false for what was captured -- for every script, the capturing plugin's own included, which reads the events instead. Call it every frame from the UI's update : a plugin that stops calling lets go after one frame.
+
+```c
+ShardResult capture(ShardPluginCtx ctx, uint32_t mask);
+```
+
+### shard_jobs.h
+
+Interface `"shard.jobs"` 1.0 : the engine's worker threads, for a plugin's own work.
+
+A plugin that bakes a navigation mesh, meshes a chunk of voxels, finds a path, packs a network message or evaluates a pose should not start threads of its own next to the engine's : the engine already has one pool, sized for the machine and shared by the renderer, the physics and the scheduler. These functions run a plugin's work on it.
+
+What a job may call : the functions the headers document as `"thread : any"` (blobs, `shard.time`, `shard.assets` reads, `shard.render`'s mesh and texture creation, `shard.debug`, `shard.events` emit...) and the plugin's own code. NOT the ones that say `"thread : main"`, `"system"` or `"script"` (actors, ECS, physics, input, editor...) : a job runs beside the frame, and none of those is made for that (`SHARD_E_WRONG_THREAD`). To get a result back to the main thread, call `post_main` from the job.
+
+A job that is still running when the plugin is disabled is waited for first : the host never calls a function of a library it is about to unload. A job that never ends therefore blocks the disabling : keep them short, or check a flag of your own.
+
+thread : any, for every function except `wait` and `parallel_for` (below). A sandboxed plugin (tier 2) is not offered this interface.
+
+| | Value | |
+|---|---|---|
+| `SHARD_IFACE_JOBS` | `"shard.jobs"` |  |
+
+```c
+typedef uint64_t ShardJob;    // a job (or a group of them) in flight ; 0 is never valid
+```
+
+`worker` : 0 for the thread that waits (it helps while it waits), 1.. for the pool's threads. Stable for the call : index a per-worker scratch buffer with it.
+
+```c
+typedef void (*ShardJobFn)(void* user, uint32_t worker);
+```
+
+One slice [begin, end) of a `parallel_for`
+
+```c
+typedef void (*ShardRangeFn)(void* user, uint32_t begin, uint32_t end, uint32_t worker);
+```
+
+thread : main
+
+```c
+typedef void (*ShardMainFn)(void* user);
+```
+
+#### ShardJobsApi
+
+```c
+uint32_t structSize;
+```
+
+How many threads work for the engine, the calling one included : the size to give a per-worker array.
+
+```c
+uint32_t worker_count(void);
+```
+
+Runs `fn` on a worker, as soon as one is free. `out` receives a handle to wait for, or may be NULL : the job is then fire and forget (the host still waits for it when the plugin is disabled). The jobs of a plugin start in the order they were submitted ; they do not end in it.
+
+```c
+ShardResult run(ShardPluginCtx ctx, ShardJobFn fn, void* user, ShardJob* out);
+```
+
+Calls `fn` on slices of [0, count) of about `grain` indices each (0 : the host picks), on every worker at once, and returns when all of them are done. The slices are disjoint ; their order is not defined, so the result must not depend on it (a replay does not reproduce the order : write to a slot per index, then combine in index order). thread : main, script or system.
+
+```c
+ShardResult parallel_for(ShardPluginCtx ctx, uint32_t count, uint32_t grain, ShardRangeFn fn, void* user);
+```
+
+The same, without waiting : `out` is a handle to wait for.
+
+```c
+ShardResult parallel_for_async(ShardPluginCtx ctx, uint32_t count, uint32_t grain, ShardRangeFn fn, void* user, ShardJob* out);
+```
+
+`SHARD_TRUE` once the job (or all the slices) ended. Does not release the handle.
+
+```c
+int32_t is_done(ShardPluginCtx ctx, ShardJob job);
+```
+
+Returns when the job ended, running other jobs meanwhile, and releases the handle. `SHARD_E_STALE_HANDLE` : already waited for, or not this plugin's. thread : main, script or system.
+
+```c
+ShardResult wait(ShardPluginCtx ctx, ShardJob job);
+```
+
+Releases the handle without waiting (the job still runs to its end).
+
+```c
+ShardResult release(ShardPluginCtx ctx, ShardJob job);
+```
+
+Calls `fn` on the main thread, at the start of the next frame, in the order the posts were made by one thread (posts of several threads are ordered by the host, not by you). How a job, a network thread of your own or a callback of a library hands its result to the simulation. Posts that are still waiting when the plugin is disabled are dropped.
+
+```c
+ShardResult post_main(ShardPluginCtx ctx, ShardMainFn fn, void* user);
+```
+
+### shard_net.h
+
+Interface `"shard.net"` 1.0 : UDP and TCP sockets, for the networking a game builds itself.
+
+The engine does not impose a protocol, a topology or a replication scheme : a plugin brings the ones its game wants (`client/server`, lockstep, rollback, a lobby) and this gives it the transport. The sockets are non blocking and driven by the host : it reads and writes them on the frame, and tells the plugin what happened through ONE callback per socket, on the main thread, so a plugin's networking code runs in the same thread as the simulation it feeds and needs no locks. The host polls at the start of every frame ; `poll()` delivers the events that arrived since, for the plugin that wants to read just before a fixed step.
+
+Reliability, ordering, fragmentation, encryption and NAT traversal are the plugin's: UDP gives datagrams (up to 65507 bytes, no promise), TCP a stream (events carry whatever chunk arrived : frame your messages). Addresses are IPv4. Name resolution happens on a worker, never in the frame.
+
+A plugin that uses it declares the permission `"net"` in its manifest (a native plugin is trusted whatever it declares, but the user is told ; a sandboxed plugin is not offered this interface). The host caps a plugin at 64 sockets, 1 MiB queued per TCP socket and 256 events a socket per poll (the rest comes with the next poll) ; sockets are closed with the plugin (disable or unload).
+
+To keep two peers' simulations the same, number your messages with the tick of `shard.time` (`fixedStep`) and compare `shard.time`'s `state_hash`.
+
+thread : main, unless a function says otherwise. A sandboxed plugin (tier 2) is not offered this interface.
+
+| | Value | |
+|---|---|---|
+| `SHARD_IFACE_NET` | `"shard.net"` |  |
+
+```c
+typedef uint64_t ShardSocket;    // 0 is never valid
+```
+
+#### ShardNetAddress
+
+```c
+uint32_t structSize;
+uint32_t port;    // 0 to bind : any free port (local_port tells which)
+ShardStr host;    // a dotted address, a name ("example.com"), or empty : any local address (to bind)
+```
+
+| | Value | |
+|---|---|---|
+| `SHARD_NET_EVENT_CONNECTED` | `1u` | `tcp_connect`: the connection is established |
+| `SHARD_NET_EVENT_ACCEPTED` | `2u` | a listener got a client : `socket` is the new connection (it uses the listener's callback), `peer` its address |
+| `SHARD_NET_EVENT_DATA` | `3u` | data arrived : a chunk of a TCP stream, or one UDP datagram (`peer` is its sender) |
+| `SHARD_NET_EVENT_CLOSED` | `4u` | the peer closed the connection (TCP) ; the socket is closed afterwards |
+| `SHARD_NET_EVENT_ERROR` | `5u` | the connect failed, or the socket broke : `error` is the system's code. The socket is closed afterwards. |
+
+#### ShardNetEvent
+
+```c
+uint32_t structSize;
+uint32_t kind;    // SHARD_NET_EVENT_*
+ShardSocket socket;
+ShardSocket listener;    // ACCEPTED : the listening socket
+ShardStr peer;    // "192.0.2.7:4000" ; valid for the call
+const void* data;    // DATA : valid for the call
+uint64_t size;
+int32_t error;
+int32_t reserved;
+```
+
+thread : main. The socket may be closed from inside.
+
+```c
+typedef void (*ShardNetFn)(void* user, ShardPluginCtx ctx, const ShardNetEvent* event);
+```
+
+| | Value | |
+|---|---|---|
+| `SHARD_NET_OPT_NODELAY` | `1u` | TCP : send small writes at once (no Nagle). Default on. |
+| `SHARD_NET_OPT_BROADCAST` | `2u` | UDP : may send to a broadcast address |
+| `SHARD_NET_OPT_REUSE_ADDR` | `3u` |  |
+| `SHARD_NET_OPT_RECV_BUFFER` | `4u` | bytes the system buffers for reading |
+| `SHARD_NET_OPT_SEND_BUFFER` | `5u` |  |
+
+#### ShardNetApi
+
+```c
+uint32_t structSize;
+```
+
+Opens a UDP socket bound to `bind` (NULL : any local address and port). `SHARD_E_ALREADY_EXISTS` : the address is in use.
+
+```c
+ShardResult udp_open(ShardPluginCtx ctx, const ShardNetAddress* bind, ShardNetFn fn, void* user, ShardSocket* out);
+```
+
+Listens for TCP connections on `bind`. Each client is announced with `SHARD_NET_EVENT_ACCEPTED`.
+
+```c
+ShardResult tcp_listen(ShardPluginCtx ctx, const ShardNetAddress* bind, int32_t backlog, ShardNetFn fn, void* user, ShardSocket* out);
+```
+
+Starts connecting to `remote` (resolving the name first) : the result is an event, CONNECTED or ERROR. The handle is usable for send at once : what is sent before the connection is established is queued, and dropped if it fails.
+
+```c
+ShardResult tcp_connect(ShardPluginCtx ctx, const ShardNetAddress* remote, ShardNetFn fn, void* user, ShardSocket* out);
+```
+
+TCP: queues the bytes (copied). `SHARD_E_OUT_OF_MEMORY` : the socket's queue would pass its limit -- the bytes are NOT queued, send fewer or later (`queued_bytes` tells).
+
+```c
+ShardResult send(ShardPluginCtx ctx, ShardSocket socket, const void* data, uint64_t size);
+```
+
+UDP: sends one datagram. `SHARD_E_INVALID_ARG` : more than 65507 bytes. A datagram the system cannot take right now is dropped, as UDP allows.
+
+```c
+ShardResult send_to(ShardPluginCtx ctx, ShardSocket socket, const ShardNetAddress* remote, const void* data, uint64_t size);
+```
+
+Closes it ; no event follows for a socket the plugin closed itself. `SHARD_E_STALE_HANDLE` : already closed.
+
+```c
+ShardResult close(ShardPluginCtx ctx, ShardSocket socket);
+```
+
+The port a bound socket has (after binding port 0, the one the system chose).
+
+```c
+ShardResult local_port(ShardPluginCtx ctx, ShardSocket socket, uint32_t* port);
+```
+
+Bytes still waiting in the TCP send queue.
+
+```c
+ShardResult queued_bytes(ShardPluginCtx ctx, ShardSocket socket, uint64_t* bytes);
+ShardResult set_option(ShardPluginCtx ctx, ShardSocket socket, uint32_t option, int32_t value);
+```
+
+Reads every socket of this plugin now and delivers the events that arrived. Also flushes the send queues.
+
+```c
+ShardResult poll(ShardPluginCtx ctx);
+```
+
 ### shard_physics.h
 
-Interface `"shard.physics"` 1.0 : the rigid bodies of actors, and ray casts.
+Interface `"shard.physics"` 1.1 : the rigid bodies of actors, ray casts and volume queries, and colliders a plugin builds itself.
 
 A body is the engine's `"physics_body"` component of an actor (add it with `shard.actors`' `add_component`, its shape and mass are fields of the component). These functions move and push the body of an actor : its handle is the actor's. Positions, directions and velocities are in the world, in the units of the project (one unit is one metre unless the project says otherwise), forces in newtons and impulses in newton seconds. Contacts are not asked for here : a script is told about them (on\_contact\_\* in `shard_scripts.h`).
+
+1.1 added, from `raycast_all` on : queries that return every hit (rays, overlaps of a sphere, a box and a capsule, sphere and box sweeps) with a filter (layers, an actor to ignore, a tag), and colliders the plugin builds from triangles or boxes (a voxel chunk, a navigation obstacle, a heightfield cut into a mesh) that exist in the physics world without an actor. A hit on one of them reports its `collider` and `userData`.
 
 thread : script (`shard_actors.h` says where that is). `SHARD_E_NOT_FOUND` : the actor has no physics body, or it has no live body yet. `SHARD_E_UNSUPPORTED` : this host has no physics (an offline tool).
 
@@ -1830,14 +2597,71 @@ The layers a ray looks at (a bit mask)
 | `SHARD_LAYER_MOVING` | `2u` | kinematic and dynamic bodies |
 | `SHARD_LAYER_ALL` | `3u` |  |
 
+```c
+typedef uint64_t ShardCollider;    // a collider of the plugin (below) ; 0 is never valid
+```
+
 #### ShardRayHit
 
 ```c
 uint32_t structSize;
-ShardActor actor;    // the actor whose body the ray hit
+ShardActor actor;    // the actor whose body the ray hit (0 for a plugin collider that has no owner)
 float point[3];    // where, in the world
 float normal[3];    // the surface's normal there, pointing out of the body
-float distance;    // from the origin along the ray
+float distance;    // from the origin along the ray ; for an overlap, how deep the shapes overlap
+```
+
+**1.1 : a function fills what fits in out-&gt;structSize, so a plugin built for 1.0 keeps working**
+
+```c
+ShardCollider collider;    // the plugin collider that was hit, 0 for the body of an actor
+uint64_t userData;    // that collider's userData
+uint32_t triangle;    // a mesh collider : the index of the triangle (its first index is 3 * triangle), otherwise 0
+uint32_t box;    // a box set : the index of the box, otherwise 0
+```
+
+| | Value | |
+|---|---|---|
+| `SHARD_QUERY_COLLIDERS_ONLY` | `1u` | the plugin colliders only, not the bodies of actors |
+| `SHARD_QUERY_NO_COLLIDERS` | `2u` | the bodies of actors only |
+
+#### ShardQueryFilter
+
+What a query looks at
+
+```c
+uint32_t structSize;
+uint32_t layers;    // SHARD_LAYER_* ; 0 : all
+ShardActor ignore;    // an actor whose body the query goes through, or 0
+uint32_t flags;    // SHARD_QUERY_*
+ShardStr tag;    // only the actors that have this tag (or one under it). Empty : any. A plugin collider has no tag.
+```
+
+A collider built from geometry. Static : it never moves by itself (`collider_set_pose` moves it), and bodies collide with it as with any other static body. The geometry is copied during the call.
+
+| | Value | |
+|---|---|---|
+| `SHARD_COLLIDER_MESH` | `1u` | triangles : `vertices` (xyz) and `indices` (triangle list). Hollow : a body inside it falls out. |
+| `SHARD_COLLIDER_BOXES` | `2u` | a union of boxes aligned on the collider's axes : `boxes`, 6 floats each (centre xyz, half extent xyz) |
+
+#### ShardColliderDesc
+
+```c
+uint32_t structSize;
+uint32_t kind;    // SHARD_COLLIDER_*
+uint32_t vertexCount;    // MESH
+uint32_t indexCount;    // MESH : a multiple of 3
+uint32_t boxCount;    // BOXES
+uint32_t reserved;
+const float* vertices;
+const uint32_t* indices;
+const float* boxes;
+ShardActor owner;    // reported as the `actor` of a hit, 0 : none
+uint64_t userData;    // handed back in the hits : a chunk index, an id of your own
+float friction;    // 0.5 is the usual
+float restitution;
+double position[3];    // the pose in the world
+float rotation[4];    // quaternion x, y, z, w
 ```
 
 #### ShardPhysicsApi
@@ -1884,15 +2708,774 @@ The first body a ray meets. `direction` need not be normalized (a zero one is `S
 ShardResult raycast(const float origin[3], const float direction[3], float max_distance, uint32_t layers, ShardActor ignore, ShardRayHit* out);
 ```
 
+**1.1 : queries**
+
+`filter` may be NULL (everything). The ones that return several hits write up to `capacity` of them into `out` and the number found into `*count` (which may be more than `capacity`), `SHARD_OK` even when there is none ; ask with capacity 0. Each hit's structSize must be set.
+
+Every body along the ray, nearest first.
+
+```c
+ShardResult raycast_all(const float origin[3], const float direction[3], float max_distance, const ShardQueryFilter* filter, ShardRayHit* out, uint32_t capacity, uint32_t* count);
+```
+
+The bodies that touch the shape. point : a point of the contact, normal : the direction to push the shape out, distance : by how much. In no particular order, but the same one for the same world state.
+
+```c
+ShardResult overlap_sphere(const float center[3], float radius, const ShardQueryFilter* filter, ShardRayHit* out, uint32_t capacity, uint32_t* count);
+```
+
+`rotation` is a quaternion x, y, z, w (NULL : aligned on the axes)
+
+```c
+ShardResult overlap_box(const float center[3], const float half_extent[3], const float rotation[4], const ShardQueryFilter* filter, ShardRayHit* out, uint32_t capacity, uint32_t* count);
+```
+
+A capsule between the centres of its two end spheres
+
+```c
+ShardResult overlap_capsule(const float from[3], const float to[3], float radius, const ShardQueryFilter* filter, ShardRayHit* out, uint32_t capacity, uint32_t* count);
+```
+
+Moves the shape along `direction` (need not be unit) up to `max_distance` and reports the first body it meets : distance is how far it got, point the contact. `SHARD_E_NOT_FOUND` : nothing in the way. The shape must not start inside what it is tested against.
+
+```c
+ShardResult sweep_sphere(const float origin[3], float radius, const float direction[3], float max_distance, const ShardQueryFilter* filter, ShardRayHit* out);
+ShardResult sweep_box(const float origin[3], const float half_extent[3], const float rotation[4], const float direction[3], float max_distance, const ShardQueryFilter* filter, ShardRayHit* out);
+```
+
+**1.1 : colliders of the plugin**
+
+They are released with the plugin. The body appears in the physics world at the next fixed step (a query before that does not see it).
+
+Building a mesh shape can take a while for a big chunk : call it from a job (thread : any). `SHARD_E_INVALID_ARG` : empty or out of range indices, a value that is not finite.
+
+```c
+ShardResult collider_create(ShardPluginCtx ctx, const ShardColliderDesc* desc, ShardCollider* out);
+```
+
+Moves it. thread : script
+
+```c
+ShardResult collider_set_pose(ShardPluginCtx ctx, ShardCollider collider, const double position[3], const float rotation[4]);
+```
+
+Replaces its geometry, keeping the handle and the pose (a voxel chunk was edited) : the same fields as create. thread : any
+
+```c
+ShardResult collider_update(ShardPluginCtx ctx, ShardCollider collider, const ShardColliderDesc* desc);
+ShardResult collider_destroy(ShardPluginCtx ctx, ShardCollider collider);
+```
+
+### shard_reflect.h
+
+Interface `"shard.reflect"` 1.0 : what exists in the engine and in the other plugins, described at run time ; and functions plugins offer to be called by name.
+
+A tool that does not know the game when it is written needs this : a visual scripting editor lists the components, their fields, the events and the functions it can wire together, a UI binds a label to `"Health.current"` of an actor, a console completes names, a network layer walks the fields of a component to send them. The engine's own components (`"light"`, `"model"`...), the components and scripts of every C plugin, the events described with `shard.events`' `describe` and the functions below are all listed through the same calls.
+
+A FUNCTION is a named piece of code with a typed signature : `"nav.set_destination(actor, vec3) -> bool"`. A plugin registers the ones it wants a graph, a UI binding or a console to call ; anything with a signature that fits is called through `function_call` with `ShardValues`. They are not a way for plugins to call each other in hot code (`shard.services` is) : a call converts its arguments to `ShardValue` and back.
+
+Names live in one flat space. A plugin prefixes its own with its id or a short name of its choice (`"nav.set_destination"`) ; a function another plugin already registered under that name is `SHARD_E_ALREADY_EXISTS`.
+
+thread : main, except where a function says otherwise.
+
+| | Value | |
+|---|---|---|
+| `SHARD_IFACE_REFLECT` | `"shard.reflect"` |  |
+
+The types a value has. Fields of the engine's components are described with these too (more than `shard.components`' `SHARD_FIELD_*` can say).
+
+| | Value | |
+|---|---|---|
+| `SHARD_VALUE_NONE` | `0u` |  |
+| `SHARD_VALUE_BOOL` | `1u` | `ShardValue::i` is 0 or 1 |
+| `SHARD_VALUE_I32` | `2u` | i |
+| `SHARD_VALUE_I64` | `3u` | i |
+| `SHARD_VALUE_F32` | `4u` | f[0] |
+| `SHARD_VALUE_F64` | `5u` | d |
+| `SHARD_VALUE_VEC2` | `6u` | f[0..1] |
+| `SHARD_VALUE_VEC3` | `7u` | f[0..2] |
+| `SHARD_VALUE_VEC4` | `8u` | f[0..3] |
+| `SHARD_VALUE_QUAT` | `9u` | f[0..3] : x, y, z, w |
+| `SHARD_VALUE_COLOR` | `10u` | f[0..3] : r, g, b, a |
+| `SHARD_VALUE_STRING` | `11u` | s : UTF-8 |
+| `SHARD_VALUE_ACTOR` | `12u` | i : a `ShardActor` |
+| `SHARD_VALUE_ASSET` | `13u` | i : an asset id (`shard.assets`), 0 for none |
+| `SHARD_VALUE_JSON` | `14u` | s : any value as JSON text (a list, a struct, what has no type of its own) |
+| `SHARD_VALUE_ENUM` | `15u` | s : the name of the chosen value |
+| `SHARD_VALUE_ANY` | `16u` | a parameter that takes any of the above (a `"print"` node) ; a value itself never has this type |
+
+#### ShardValue
+
+One value, flat so that its layout is plain. Which members are used is said above ; the others are ignored on input and zero on output. A string is valid for the call it is passed to or returned from, and for a returned value until the same function is called again on this thread.
+
+```c
+uint32_t type;    // SHARD_VALUE_*
+uint32_t reserved;
+int64_t i;
+double d;
+float f[4];
+ShardStr s;
+```
+
+**Types**
+
+| | Value | |
+|---|---|---|
+| `SHARD_TYPE_COMPONENT` | `1u` | a component of an actor : the engine's (`"light"`), or a plugin's (`"com.acme.Spin"`, a script too) |
+| `SHARD_TYPE_EVENT` | `2u` | an event by name, with the payload `shard.events`' `describe` gave it |
+
+#### ShardTypeInfo
+
+```c
+uint32_t structSize;
+uint32_t kind;    // SHARD_TYPE_*
+uint32_t fieldCount;
+uint32_t flags;    // SHARD_TYPE_FLAG_*
+ShardStr name;    // valid while the type is registered
+ShardStr plugin;    // the plugin's id, empty for the engine's own
+ShardStr category;    // what the editor groups it under, may be empty
+```
+
+| | Value | |
+|---|---|---|
+| `SHARD_TYPE_FLAG_SCRIPT` | `1u` | a component that is a script (`shard.scripts`) |
+| `SHARD_TYPE_FLAG_ECS` | `2u` | has an ECS side too (`shard.components`) : `find_type` finds it |
+| `SHARD_FIELD_INFO_READONLY` | `1u` | the field is shown but not saved or edited |
+| `SHARD_FIELD_INFO_HIDDEN` | `2u` |  |
+
+#### ShardFieldInfo
+
+A field of a type : name, value type, and what an editor needs to show it.
+
+```c
+uint32_t structSize;
+uint32_t valueType;    // SHARD_VALUE_*
+uint32_t flags;    // SHARD_FIELD_INFO_*
+uint32_t enumCount;    // SHARD_VALUE_ENUM : how many values it has (field_enum_at)
+float min, max;    // an editor's bounds ; equal : none
+ShardStr name;    // valid while the type is registered
+ShardStr tooltip;
+```
+
+**Functions**
+
+| | Value | |
+|---|---|---|
+| `SHARD_PARAM_OPTIONAL` | `1u` | a call may leave it out (a trailing parameter only) |
+
+#### ShardParamDesc
+
+```c
+uint32_t structSize;
+uint32_t type;    // SHARD_VALUE_*
+uint32_t flags;    // SHARD_PARAM_*
+uint32_t reserved;
+ShardStr name;
+ShardStr tooltip;    // optional
+```
+
+| | Value | |
+|---|---|---|
+| `SHARD_FUNCTION_PURE` | `1u` | no side effect and the same result for the same arguments : a graph may skip, cache or reorder the call |
+| `SHARD_FUNCTION_SIMULATION` | `2u` | changes what the game simulates : only called from the simulation (a script's or a system's thread), never from an editor panel |
+| `SHARD_FUNCTION_EDITOR_ONLY` | `4u` | only meaningful in the editor (a bake, a selection) |
+
+Runs the function. `args` has `argCount` values (never fewer than the required parameters) ; fill `results`, which has `resultCount` zeroed values, and return `SHARD_OK`, or an error (`SHARD_E_INVALID_ARG` for a value the function cannot take). thread : the caller's.
+
+```c
+typedef ShardResult (*ShardFunctionFn)(void* user, ShardPluginCtx ctx, const ShardValue* args, uint32_t argCount, ShardValue* results, uint32_t resultCount);
+```
+
+#### ShardFunctionDesc
+
+```c
+uint32_t structSize;
+uint32_t flags;    // SHARD_FUNCTION_*
+uint32_t paramCount;
+uint32_t resultCount;
+ShardStr name;    // "nav.set_destination"
+ShardStr category;    // "AI/Navigation" : how a palette groups it
+ShardStr tooltip;
+const ShardParamDesc* params;    // copied
+const ShardParamDesc* results;    // copied
+ShardFunctionFn call;
+void* user;
+```
+
+#### ShardFunctionInfo
+
+```c
+uint32_t structSize;
+uint32_t flags;
+uint32_t paramCount;
+uint32_t resultCount;
+ShardStr name;    // strings valid while the function is registered
+ShardStr category;
+ShardStr tooltip;
+ShardStr plugin;    // the plugin that registered it
+```
+
+#### ShardReflectApi
+
+```c
+uint32_t structSize;
+```
+
+**Types**
+
+How many types of that kind (`SHARD_TYPE_*`) there are now, and the one at an index (stable while no plugin is loaded or unloaded). The caller sets out-&gt;structSize. `SHARD_E_NOT_FOUND` : the index is out of range. thread : main
+
+```c
+uint32_t type_count(uint32_t kind);
+ShardResult type_at(uint32_t kind, uint32_t index, ShardTypeInfo* out);
+```
+
+A type by its name (`"light"`, `"com.acme.Spin"`, `"com.acme.RainStarted"`). `SHARD_E_NOT_FOUND`.
+
+```c
+ShardResult type_find(uint32_t kind, ShardStr name, ShardTypeInfo* out);
+```
+
+The fields of a type, in the order the inspector shows them. For an event : the fields `describe` gave.
+
+```c
+ShardResult field_at(uint32_t kind, ShardStr type, uint32_t index, ShardFieldInfo* out);
+```
+
+The names a `SHARD_VALUE_ENUM` field takes, by index.
+
+```c
+ShardResult field_enum_at(uint32_t kind, ShardStr type, uint32_t field_index, uint32_t value_index, ShardStr* out);
+```
+
+**Functions**
+
+Registers a function, from `on_load` or later. It goes with the plugin. `SHARD_E_INVALID_ARG` : a bad name, a callback missing, an optional parameter before a required one.
+
+```c
+ShardResult function_add(ShardPluginCtx ctx, const ShardFunctionDesc* desc);
+ShardResult function_remove(ShardPluginCtx ctx, ShardStr name);
+uint32_t function_count(void);
+ShardResult function_at(uint32_t index, ShardFunctionInfo* out);
+ShardResult function_find(ShardStr name, ShardFunctionInfo* out);
+```
+
+A parameter (result == `SHARD_FALSE`) or a result (`SHARD_TRUE`) of a function, by index.
+
+```c
+ShardResult function_param_at(ShardStr name, int32_t result, uint32_t index, ShardParamDesc* out);
+```
+
+Calls it. The arguments are checked against the signature (a missing optional one is left out, a number is converted to the type asked, anything else is `SHARD_E_INVALID_ARG`) ; `results` receives resultCount values. thread : the one the function is made for -- script or main (the host answers `SHARD_E_WRONG_THREAD` otherwise), and not from a job.
+
+```c
+ShardResult function_call(ShardPluginCtx ctx, ShardStr name, const ShardValue* args, uint32_t arg_count, ShardValue* results, uint32_t result_count);
+```
+
+### shard_render.h
+
+Interface `"shard.render"` 1.0 : what a plugin puts on the screen that the engine's components do not : meshes it builds, textures it fills, sprites, instances and a 2D overlay.
+
+The engine draws from a snapshot of the simulation (Extract stage), not from the world, and so does this : a plugin hands the renderer RESOURCES (a mesh, a texture, a material), and RETAINED things that use them (a render object, a batch of sprites, an overlay), which the host copies into each frame's snapshot. Nothing here draws `"now"` : a call records, the frame draws. The GPU work happens on the render thread ; the plugin never waits for it, and a handle can be used at once even if its upload is not done (what is not uploaded yet is not drawn).
+
+```
+- voxels      : a Mesh per chunk (mesh_create from a job), a RenderObject per chunk, a texture array for the atlas
+- particles   : a SpriteBatch (sprite_batch_set every frame from a system), or an InstanceBatch of meshes
+- animation   : a skinned Mesh (JOINTS + WEIGHTS) and object_set_pose with the bone matrices every frame
+```
+
+* runtime UI  : an Overlay (a callback that draws the UI's geometry into the frame), Geometry and Textures for what it draws, and
+```
+an Overlay on a render-target Texture to put a UI on a surface of the world
+```
+
+* navigation, AI, networking : `shard.debug` draws their debug views
+
+Handles are 64 bit, owned by the plugin, 0 is never valid, and all of them are released with the plugin (disable or unload). Positions in the world are the ABI's usual ones (`shard_actors.h`) ; a large world's positions are doubles. Matrices are 16 floats, column major (x axis first). Colours are 8 bit r, g, b, a packed as r \| g &lt;&lt; 8 \| b &lt;&lt; 16 \| a &lt;&lt; 24, straight (not premultiplied) alpha.
+
+thread : any, for the functions that create, update or destroy a resource or a retained thing (they take a lock and record). thread : main for `load_*`, the camera and the overlay's callback. A host without a renderer (a server, a tool, the tests) accepts every call, keeps the handles and draws nothing : `SHARD_E_UNSUPPORTED` only for the functions that read the screen back (`camera_info`, `world_to_screen`...).
+
+| | Value | |
+|---|---|---|
+| `SHARD_IFACE_RENDER` | `"shard.render"` |  |
+
+```c
+typedef uint64_t ShardMesh;
+typedef uint64_t ShardTexture;
+typedef uint64_t ShardMaterial;
+typedef uint64_t ShardRenderObject;
+typedef uint64_t ShardSpriteBatch;
+typedef uint64_t ShardInstanceBatch;
+typedef uint64_t ShardGeometry;
+typedef uint64_t ShardOverlay;
+```
+
+**Meshes**
+
+Vertex attributes, in the order they are laid out in a vertex (interleaved, no padding). POSITION is always there.
+
+| | Value | |
+|---|---|---|
+| `SHARD_VERTEX_POSITION` | `0x01u` | float x3 |
+| `SHARD_VERTEX_NORMAL` | `0x02u` | float x3 |
+| `SHARD_VERTEX_TANGENT` | `0x04u` | float x4 : xyz and the handedness in w |
+| `SHARD_VERTEX_UV0` | `0x08u` | float x2 |
+| `SHARD_VERTEX_UV1` | `0x10u` | float x2 : the lightmap's coordinates, or a second texture's |
+| `SHARD_VERTEX_COLOR` | `0x20u` | uint8 x4, normalised |
+| `SHARD_VERTEX_JOINTS` | `0x40u` | uint16 x4 : the bones this vertex follows (skinning) |
+| `SHARD_VERTEX_WEIGHTS` | `0x80u` | float x4 : how much each of them, summing to 1 (skinning) |
+| `SHARD_MESH_INDEX16` | `1u` | the indices are `uint16_t`, not `uint32_t` |
+| `SHARD_MESH_DYNAMIC` | `2u` | updated often (every frame, or nearly) : the host picks storage that suits |
+
+#### ShardSubmesh
+
+```c
+uint32_t indexOffset;
+uint32_t indexCount;
+uint32_t materialSlot;    // the slot of the object's material list this part is drawn with
+```
+
+#### ShardMeshDesc
+
+```c
+uint32_t structSize;
+uint32_t vertexFlags;    // SHARD_VERTEX_*
+uint32_t vertexCount;
+uint32_t indexCount;    // a multiple of 3 : triangle lists
+uint32_t submeshCount;    // 0 : one part made of all the indices, in slot 0
+uint32_t flags;    // SHARD_MESH_*
+const void* vertices;    // vertexCount vertices as the flags lay them out. Copied before the call returns.
+const void* indices;    // indexCount uint32_t (uint16_t with SHARD_MESH_INDEX16). Copied.
+const ShardSubmesh* submeshes;
+float boundsMin[3];    // the box the frustum culling uses ; both zero : the host computes it from the positions
+float boundsMax[3];
+ShardStr name;    // for the logs and the profiler, optional
+```
+
+#### ShardMeshRange
+
+The area of the vertex array an update replaces
+
+```c
+uint32_t structSize;
+uint32_t firstVertex;
+uint32_t vertexCount;
+uint32_t reserved;
+const void* vertices;    // vertexCount vertices in the mesh's layout. Copied.
+```
+
+**Textures**
+
+| | Value | |
+|---|---|---|
+| `SHARD_TEXTURE_R8` | `1u` |  |
+| `SHARD_TEXTURE_RG8` | `2u` |  |
+| `SHARD_TEXTURE_RGBA8` | `3u` |  |
+| `SHARD_TEXTURE_R16F` | `4u` |  |
+| `SHARD_TEXTURE_RGBA16F` | `5u` |  |
+| `SHARD_TEXTURE_R32F` | `6u` |  |
+| `SHARD_TEXTURE_SRGB` | `0x01u` | RGBA8 only : the colours are in the sRGB curve (an albedo, a UI image), the GPU converts when sampling |
+| `SHARD_TEXTURE_MIPS` | `0x02u` | a mip chain is generated (and regenerated by `update_texture`) |
+| `SHARD_TEXTURE_NEAREST` | `0x04u` | no filtering : pixel art, a voxel atlas |
+| `SHARD_TEXTURE_CLAMP` | `0x08u` | clamp to the edge instead of repeating |
+| `SHARD_TEXTURE_RENDER_TARGET` | `0x10u` | an overlay can draw into it (`add_overlay` with this target), and a material can sample it |
+
+#### ShardTextureDesc
+
+```c
+uint32_t structSize;
+uint32_t width, height;
+uint32_t layers;    // 0 or 1 : a 2D texture ; more : a 2D array of that many layers (a voxel atlas) -- SHARD_E_UNSUPPORTED on a host that has no texture arrays (this one) : use one big 2D atlas
+uint32_t format;    // SHARD_TEXTURE_R8...
+uint32_t flags;    // SHARD_TEXTURE_*
+const void* pixels;    // NULL : zeroes (transparent black). Otherwise width * height * layers texels, rows from the top, copied before returning.
+ShardStr name;    // optional
+```
+
+#### ShardTextureRegion
+
+```c
+uint32_t structSize;
+uint32_t x, y, layer;
+uint32_t width, height;
+uint32_t rowPitch;    // bytes between two rows of `pixels`, 0 : tightly packed
+uint32_t reserved;
+const void* pixels;    // copied before the call returns
+```
+
+**Render objects**
+
+| | Value | |
+|---|---|---|
+| `SHARD_OBJECT_CAST_SHADOWS` | `0x01u` | default on in the C++ SDK |
+| `SHARD_OBJECT_HIDDEN` | `0x02u` |  |
+| `SHARD_OBJECT_STATIC` | `0x04u` | never moves : the renderer may bake lighting for it |
+
+#### ShardRenderTransform
+
+A pose in the world. rotation is a quaternion x, y, z, w.
+
+```c
+double position[3];
+float rotation[4];
+float scale[3];
+```
+
+#### ShardRenderObjectDesc
+
+```c
+uint32_t structSize;
+uint32_t flags;    // SHARD_OBJECT_*
+ShardMesh mesh;
+const ShardMaterial* materials;    // one per material slot of the mesh, copied. A missing one is the engine's default material.
+uint32_t materialCount;
+uint32_t reserved;
+ShardActor pickActor;    // the actor the editor selects when this is clicked, outlined when selected. 0 : not pickable.
+ShardRenderTransform transform;
+```
+
+**Sprite batches (particles, flares, impostors)**
+
+| | Value | |
+|---|---|---|
+| `SHARD_SPRITE_FACE_CAMERA` | `0u` | the quad turns to the camera |
+| `SHARD_SPRITE_FACE_AXIS` | `1u` | it turns around `ShardSprite::axis` to the camera (a grass blade, a beam, a stretched spark) |
+| `SHARD_SPRITE_FACE_FIXED` | `2u` | it lies in the plane perpendicular to `ShardSprite::axis` (a decal-like ground splash) |
+| `SHARD_BLEND_OPAQUE` | `0u` |  |
+| `SHARD_BLEND_CUTOUT` | `1u` | alpha below 0.5 is dropped |
+| `SHARD_BLEND_ALPHA` | `2u` |  |
+| `SHARD_BLEND_ADDITIVE` | `3u` |  |
+| `SHARD_BLEND_PREMULTIPLIED` | `4u` |  |
+| `SHARD_SPRITE_SORT_NONE` | `0u` |  |
+| `SHARD_SPRITE_SORT_FAR_FIRST` | `1u` | the host sorts the sprites by distance to the camera each frame (alpha blending needs it) |
+| `SHARD_SPRITE_DEPTH_TEST` | `0x01u` | hidden by the geometry in front of it (default on in the C++ SDK) |
+| `SHARD_SPRITE_DEPTH_WRITE` | `0x02u` |  |
+| `SHARD_SPRITE_SCREEN_SIZE` | `0x04u` | `size` is in pixels, not world units |
+| `SHARD_SPRITE_SOFT` | `0x08u` | fades out near the geometry behind it, where the host can |
+| `SHARD_SPRITE_HIDDEN` | `0x10u` |  |
+
+#### ShardSprite
+
+```c
+float position[3];    // in the world, relative to the batch's origin
+float rotation;    // radians, around the direction the quad faces
+float size[2];    // width, height
+uint32_t color;    // multiplies the texture
+float uvRect[4];    // u0, v0, u1, v1 : the part of the texture it shows (a flipbook frame)
+float axis[3];    // SHARD_SPRITE_FACE_AXIS / FIXED : the direction, not necessarily unit ; otherwise ignored
+float custom;    // free : reaches the material as `sprite_custom` (a particle's age, 0 to 1, for a gradient or a flipbook blend)
+```
+
+#### ShardSpriteBatchDesc
+
+```c
+uint32_t structSize;
+uint32_t facing;    // SHARD_SPRITE_FACE_*
+uint32_t blend;    // SHARD_BLEND_*
+uint32_t sort;    // SHARD_SPRITE_SORT_*
+uint32_t flags;    // SHARD_SPRITE_*
+uint32_t maxSprites;    // the most one set will hold (the host reserves for it)
+ShardTexture texture;    // 0 : a white texel
+ShardMaterial material;    // reserved : a material that would replace the shading of the sprites (a distortion, a custom shader) ; ignored for now
+double origin[3];    // the sprites' positions are relative to it : keeps float precision in a large world
+```
+
+**Instance batches (debris, grass, props)**
+
+#### ShardInstance
+
+```c
+float position[3];    // relative to the batch's origin
+float rotation[4];    // quaternion x, y, z, w
+float scale[3];
+```
+
+#### ShardInstanceBatchDesc
+
+```c
+uint32_t structSize;
+uint32_t flags;    // SHARD_OBJECT_*
+ShardMesh mesh;
+const ShardMaterial* materials;
+uint32_t materialCount;
+uint32_t maxInstances;
+double origin[3];
+```
+
+**The 2D overlay**
+
+#### ShardVertex2D
+
+The vertex of 2D geometry : the layout of a UI library's vertices (RmlUi, Dear ImGui's draw lists...). position is in pixels of the target, from its top left corner ; the colour multiplies the texture.
+
+```c
+float position[2];
+uint32_t color;
+float uv[2];
+```
+
+| | Value | |
+|---|---|---|
+| `SHARD_CLIP_DISABLE` | `0u` | no mask : what follows is not clipped by one |
+| `SHARD_CLIP_SET` | `1u` | the mask becomes the geometry's area |
+| `SHARD_CLIP_SET_INVERSE` | `2u` | the mask becomes everything but the geometry's area |
+| `SHARD_CLIP_INTERSECT` | `3u` | the mask is cut down to the geometry's area |
+
+#### ShardDrawApi
+
+What the overlay's callback draws with : records commands into the frame. Valid during the callback only. The commands draw in the order they were given, over what the 3D scene drew (and over earlier overlays).
+
+```c
+uint32_t structSize;
+```
+
+Draws a geometry, moved by `translation` pixels, with `texture` (0 : plain colour). The blending is PREMULTIPLIED alpha (source \* 1 + destination
+
+* (1 - source alpha)) : the colours of the vertices and the texels of the textures are expected premultiplied, as a UI library such as RmlUi
+
+produces them. A `texture_load` image is straight alpha : premultiply it, or load it yourself and use `texture_create`.
+
+```c
+void draw_geometry(ShardGeometry geometry, ShardTexture texture, const float translation[2]);
+```
+
+The transform applied to what follows, 16 floats column major, in pixels ; NULL : none.
+
+```c
+void set_transform(const float matrix[16]);
+```
+
+The rectangle (x, y from the top left, width, height, in pixels) nothing is drawn outside of, while `enabled`.
+
+```c
+void set_scissor(int32_t enabled, int32_t x, int32_t y, int32_t width, int32_t height);
+```
+
+A mask by shape (`SHARD_CLIP_*`) : what follows is drawn only inside the area the geometry covers (rounded corners, rotated clips). A host without a stencil buffer (this one, for the viewport) clips to the bounding rectangle of the shape, and `SHARD_CLIP_SET_INVERSE` does not clip.
+
+```c
+void set_clip_mask(uint32_t operation, ShardGeometry geometry, const float translation[2]);
+```
+
+Fills the target with a colour (r, g, b, a floats in 0..1) : the first thing an overlay on a render-target texture does.
+
+```c
+void clear(const float rgba[4]);
+```
+
+Geometry for this frame only (a debug overlay, a one-off quad) : copied, no handle to manage.
+
+```c
+void draw_triangles(const ShardVertex2D* vertices, uint32_t vertexCount, const uint32_t* indices, uint32_t indexCount, ShardTexture texture);
+```
+
+#### ShardOverlayFrame
+
+What an overlay is told when it is asked to draw
+
+```c
+uint32_t structSize;
+uint32_t width, height;    // the target's size in pixels : the viewport, or the render-target texture
+float dpiScale;    // 1 on a normal display, 2 on a "retina" one...
+float deltaTime;    // real seconds since the last frame (not scaled by the time scale : a UI animates while the game is paused)
+uint64_t frame;
+int32_t playing;    // SHARD_TRUE in play mode
+float originX, originY;    // where the target's top left corner is in the window, in pixels : subtract it from the positions of shard.input's events to get positions in the target. 0, 0 in a player and for a render-target texture.
+```
+
+thread : main. Called once per frame for each overlay, after the simulation, before the frame is handed to the renderer.
+
+```c
+typedef void (*ShardOverlayFn)(void* user, ShardPluginCtx ctx, const ShardOverlayFrame* frame, const ShardDrawApi* draw);
+```
+
+| | Value | |
+|---|---|---|
+| `SHARD_OVERLAY_IN_EDITOR` | `0x01u` | also draws in the editor's viewport outside play mode (a UI being designed) ; otherwise only while playing |
+
+#### ShardOverlayDesc
+
+```c
+uint32_t structSize;
+uint32_t flags;    // SHARD_OVERLAY_*
+int32_t order;    // the overlays draw by increasing order, then in the order they were added
+uint32_t reserved;
+ShardStr name;
+ShardTexture target;    // 0 : the screen (the game's viewport). A SHARD_TEXTURE_RENDER_TARGET texture : drawn into it instead.
+ShardOverlayFn draw;
+void* user;
+```
+
+**The camera**
+
+#### ShardCameraInfo
+
+```c
+uint32_t structSize;
+int32_t valid;    // SHARD_FALSE : the world has no usable camera
+uint32_t width, height;    // of the viewport, in pixels
+int32_t orthographic;
+float fovDegrees;    // vertical, perspective only
+float orthoSize;
+float nearPlane, farPlane;
+double position[3];
+float rotation[4];    // quaternion x, y, z, w
+float view[16];    // relative to `position` : positions are brought to the camera before they are multiplied, so a large world keeps its precision
+float projection[16];
+```
+
+#### ShardRenderApi
+
+```c
+uint32_t structSize;
+```
+
+**Meshes**
+
+`SHARD_E_INVALID_ARG` : an inconsistent description (an index out of range, a skinned vertex without both JOINTS and WEIGHTS, a count that is not a multiple of 3...) ; the log says which. `SHARD_E_OUT_OF_MEMORY` : over the plugin's budget. thread : any
+
+```c
+ShardResult mesh_create(ShardPluginCtx ctx, const ShardMeshDesc* desc, ShardMesh* out);
+```
+
+Replaces the whole content (the vertex flags may change ; objects that use the mesh follow). thread : any
+
+```c
+ShardResult mesh_update(ShardPluginCtx ctx, ShardMesh mesh, const ShardMeshDesc* desc);
+```
+
+Replaces some vertices, same layout (soft bodies, a morph target applied on the CPU). thread : any
+
+```c
+ShardResult mesh_update_range(ShardPluginCtx ctx, ShardMesh mesh, const ShardMeshRange* range);
+```
+
+A model asset of the project as a mesh the plugin can use in its own objects. thread : main
+
+```c
+ShardResult mesh_from_asset(ShardPluginCtx ctx, int32_t assetId, ShardMesh* out);
+ShardResult mesh_destroy(ShardPluginCtx ctx, ShardMesh mesh);
+```
+
+**Textures**
+
+```c
+ShardResult texture_create(ShardPluginCtx ctx, const ShardTextureDesc* desc, ShardTexture* out);
+ShardResult texture_update(ShardPluginCtx ctx, ShardTexture texture, const ShardTextureRegion* region);
+```
+
+An image file of the project or a `mod://` address, decoded on a worker : the handle is usable at once, and shows nothing until the image is there (`texture_size` tells). thread : main
+
+```c
+ShardResult texture_load(ShardPluginCtx ctx, ShardStr path, uint32_t flags, ShardTexture* out);
+ShardResult texture_from_asset(ShardPluginCtx ctx, int32_t assetId, ShardTexture* out);
+```
+
+The size once known (0, 0 while a loaded image is not decoded yet). thread : any
+
+```c
+ShardResult texture_size(ShardPluginCtx ctx, ShardTexture texture, uint32_t* width, uint32_t* height);
+ShardResult texture_destroy(ShardPluginCtx ctx, ShardTexture texture);
+```
+
+**Materials**
+
+A private copy of a material asset (a path in the project or a `mod://` address) : its parameters can be set without touching the asset's other users. thread : main
+
+```c
+ShardResult material_load(ShardPluginCtx ctx, ShardStr path, ShardMaterial* out);
+```
+
+A parameter by the name the material's shader declares. `SHARD_E_NOT_FOUND` : no such parameter. thread : any
+
+```c
+ShardResult material_set_float(ShardPluginCtx ctx, ShardMaterial material, ShardStr name, float value);
+ShardResult material_set_vec4(ShardPluginCtx ctx, ShardMaterial material, ShardStr name, const float value[4]);
+ShardResult material_set_texture(ShardPluginCtx ctx, ShardMaterial material, ShardStr name, ShardTexture texture);
+ShardResult material_destroy(ShardPluginCtx ctx, ShardMaterial material);
+```
+
+**Render objects**
+
+```c
+ShardResult object_create(ShardPluginCtx ctx, const ShardRenderObjectDesc* desc, ShardRenderObject* out);
+ShardResult object_set_transform(ShardPluginCtx ctx, ShardRenderObject object, const ShardRenderTransform* transform);
+ShardResult object_set_mesh(ShardPluginCtx ctx, ShardRenderObject object, ShardMesh mesh);
+ShardResult object_set_materials(ShardPluginCtx ctx, ShardRenderObject object, const ShardMaterial* materials, uint32_t count);
+ShardResult object_set_flags(ShardPluginCtx ctx, ShardRenderObject object, uint32_t flags);
+```
+
+The pose of a skinned mesh : `count` matrices of 16 floats, one per bone (the bone's transform in the mesh's space times its inverse bind pose), copied. The vertices follow the bones their JOINTS name. `SHARD_E_INVALID_ARG` : the mesh has no JOINTS and WEIGHTS.
+
+```c
+ShardResult object_set_pose(ShardPluginCtx ctx, ShardRenderObject object, const float* matrices, uint32_t count);
+ShardResult object_destroy(ShardPluginCtx ctx, ShardRenderObject object);
+```
+
+**Sprite and instance batches**
+
+```c
+ShardResult sprite_batch_create(ShardPluginCtx ctx, const ShardSpriteBatchDesc* desc, ShardSpriteBatch* out);
+```
+
+Replaces the batch's sprites (copied ; more than maxSprites are dropped, the rest drawn). Call it every frame from the system that simulates them ; the last set stays on screen until the next. thread : any
+
+```c
+ShardResult sprite_batch_set(ShardPluginCtx ctx, ShardSpriteBatch batch, const ShardSprite* sprites, uint32_t count);
+ShardResult sprite_batch_set_flags(ShardPluginCtx ctx, ShardSpriteBatch batch, uint32_t flags);
+ShardResult sprite_batch_destroy(ShardPluginCtx ctx, ShardSpriteBatch batch);
+ShardResult instance_batch_create(ShardPluginCtx ctx, const ShardInstanceBatchDesc* desc, ShardInstanceBatch* out);
+ShardResult instance_batch_set(ShardPluginCtx ctx, ShardInstanceBatch batch, const ShardInstance* instances, uint32_t count);
+ShardResult instance_batch_destroy(ShardPluginCtx ctx, ShardInstanceBatch batch);
+```
+
+**The overlay**
+
+thread : main
+
+```c
+ShardResult overlay_add(ShardPluginCtx ctx, const ShardOverlayDesc* desc, ShardOverlay* out);
+ShardResult overlay_remove(ShardPluginCtx ctx, ShardOverlay overlay);
+```
+
+Geometry the overlay draws again and again (a UI library compiles its elements once). Copied. thread : any
+
+```c
+ShardResult geometry_create(ShardPluginCtx ctx, const ShardVertex2D* vertices, uint32_t vertexCount, const uint32_t* indices, uint32_t indexCount, ShardGeometry* out);
+ShardResult geometry_destroy(ShardPluginCtx ctx, ShardGeometry geometry);
+```
+
+**The camera**
+
+The active camera of the game's viewport. The caller sets out-&gt;structSize. thread : main or script. `SHARD_E_UNSUPPORTED` : no renderer.
+
+```c
+ShardResult camera_info(ShardCameraInfo* out);
+```
+
+A point of the world as the camera sees it : x, y in pixels of the viewport from its top left, z the distance along the view axis (negative : behind the camera).
+
+```c
+ShardResult world_to_screen(const double position[3], float out[3]);
+```
+
+The ray through a pixel of the viewport : an origin in the world and a unit direction.
+
+```c
+ShardResult screen_to_ray(float x, float y, double origin[3], float direction[3]);
+```
+
 ### shard_scripts.h
 
-Interface `"shard.scripts"` 1.1 : scripts, the components that carry a plugin's gameplay code.
+Interface `"shard.scripts"` 1.2 : scripts, the components that carry a plugin's gameplay code.
 
 A script is an object of the plugin (a C++ class in the SDK) that lives on an actor, as the engine's own Script components do. The host owns its memory and calls it back : it is created with the component, receives the callbacks of the actor's life and of the frame (play, tick, fixed tick, late tick, stop...), in the order of the scripts of the world, and goes with the actor. Its fields are shown by the inspector, saved with the world and copied with the actor (play mode copies the world), exactly as for a component of `shard_components.h` : the same `ShardFieldDesc`, the same field types (text, assets, blobs included), at offsets in the object.
 
 Unlike a component's block, the object is NOT plain data : it is constructed in place in storage the host provides (`size` bytes, aligned on `align`), and destructed there. It is never moved or copied by the host with memcpy. A copy of the actor (play mode) constructs a new object and copies the described fields into it : what is not a field starts fresh, as if the actor was just created.
 
 Threads : every callback runs on the thread that ticks the scripts of the world, one script after the other, never two at once : what a script does with `shard_actors.h` and `shard_input.h` is safe there. The functions of this table are `"thread : main"` (from `on_load`).
+
+Edit mode (1.2) : the engine ticks scripts only while the world plays (`on_create` does run when a script joins an actor in the editor, `on_play` only in play mode). A script that has to be seen working while it is being made -- a particle emitter, a UI being laid out, an animation being scrubbed, a navigation mesh being tuned -- sets `SHARD_SCRIPT_EDIT_MODE` in its description : `on_edit_tick` is then called every frame the world does NOT play (with the real frame time). `on_field_changed` is called when the inspector edits one of a script's fields, in either mode. What a script does in edit mode must not change what gets saved: the world file holds the fields, not the state of an effect.
 
 | | Value | |
 |---|---|---|
@@ -1972,7 +3555,23 @@ void text_get(void* user, void* object, uint32_t offset, ShardStr* out);
 ShardResult text_set(void* user, void* object, uint32_t offset, ShardStr text);
 ```
 
+**1.2**
+
+```c
+ShardScriptTickFn on_edit_tick;    // SHARD_SCRIPT_EDIT_MODE : every frame while the world does not play
+```
+
+A field was edited (inspector, `shard.actors`' `set_component`, an undo) ; `field` is its index in the description's `fields`. Not called for the fields the script changes itself.
+
+```c
+ShardResult on_field_changed(void* user, void* object, uint32_t field);
+```
+
 Callbacks of later ABI revisions go HERE : the host checks structSize before reading them.
+
+| | Value | |
+|---|---|---|
+| `SHARD_SCRIPT_EDIT_MODE` | `1u` | `ShardScriptDesc::flags` : also run in the editor's edit mode, see above |
 
 #### ShardScriptDesc
 
@@ -1985,6 +3584,13 @@ ShardStr name;    // "Health" : the host registers "<plugin id>.Health", the nam
 const ShardFieldDesc* fields;    // offsets in the object. Read during the call only.
 void* user;    // handed back to every callback
 const ShardScriptCallbacks* callbacks;    // copied up to its structSize during the call
+```
+
+**1.2**
+
+```c
+uint32_t flags;    // SHARD_SCRIPT_*
+uint32_t reserved;
 ```
 
 #### ShardScriptsApi
@@ -2009,6 +3615,80 @@ Adds the script `name` to `actor` and returns its object. A script of this plugi
 
 ```c
 ShardResult add_to_actor(ShardPluginCtx ctx, ShardActor actor, ShardStr name, void** out);
+```
+
+### shard_time.h
+
+Interface `"shard.time"` 1.0 : the simulation's clock, and a fingerprint of its state.
+
+A system or a script is handed the step it runs for (`shard_systems.h`, `shard_scripts.h`) ; this is for the rest : a particle emitter that wants the simulation time to seed its randomness, a network layer that numbers its ticks, a UI that animates in real time.
+
+Two kinds of time. The simulation's (`simTime`, `fixedStep`) advances by whole fixed steps and only while the world plays : a replay of the run reproduces it exactly, so anything that changes what the game looks like must use it. The wall clock (`realTime`) is the machine's : for what is not part of the simulation (a loading spinner, a cursor blink, a network time-out) and never for what the game decides. The `time_scale` of the engine (slow motion, pause) acts on the first and not on the second.
+
+thread : any, except the setters (main).
+
+| | Value | |
+|---|---|---|
+| `SHARD_IFACE_TIME` | `"shard.time"` |  |
+
+#### ShardTimeInfo
+
+```c
+uint32_t structSize;
+int32_t playing;    // SHARD_TRUE in play mode (always in a player) ; in the editor's edit mode the simulation does not step
+uint64_t frame;    // frames run so far
+uint64_t fixedStep;    // fixed steps the simulation ran so far : the tick number of a network protocol
+double simTime;    // seconds of simulation : fixedStep * fixedDeltaTime, deterministic
+double realTime;    // seconds since the engine started, on the wall clock : NOT deterministic
+float deltaTime;    // the last frame's variable step, in seconds, before the time scale
+float fixedDeltaTime;    // the fixed step, in seconds
+float timeScale;    // 1 : real time, 0 : paused, 0.5 : slow motion
+float fixedAlpha;    // how far the frame sits between the last fixed step and the next one, in [0, 1) : what to interpolate with
+```
+
+#### ShardStateHash
+
+A fingerprint of the simulation after a frame : what two peers compare to know they stayed in step, and what a replay checks. One hash per kind of state, so that the first difference says where to look. Every hash is the same on every platform when the run was.
+
+```c
+uint32_t structSize;
+uint32_t reserved;
+uint64_t frame;
+uint64_t physicsSteps;
+uint64_t transforms;    // position, rotation, scale of every actor of the loaded worlds
+uint64_t physics;    // pose, velocities and activity of every physics body
+uint64_t scripts;    // the declared fields of every script
+uint64_t total;    // all of the above
+```
+
+#### ShardTimeApi
+
+```c
+uint32_t structSize;
+```
+
+The caller sets out-&gt;structSize ; the host fills what fits.
+
+```c
+ShardResult get(ShardTimeInfo* out);
+```
+
+thread : main. 0 pauses the simulation (the frame still runs : UIs, animations in real time...), negative or not finite is `SHARD_E_INVALID_ARG`. The scale is the user's to change too (a pause menu) : read it back with get before relying on it.
+
+```c
+ShardResult set_time_scale(float scale);
+```
+
+thread : main. The fixed step, in seconds (`1/60` by default) : a network game picks the tick rate it has agreed on. Takes effect on the next frame. Changing it while peers run is the game's problem : every peer must change it on the same fixed step.
+
+```c
+ShardResult set_fixed_delta_time(float seconds);
+```
+
+Hashes the simulation now (between frames : from `on_frame_begin` / `on_frame_end`, a system of the Input or Extract phase, or a job waited for from there). Reads only. thread : main. `SHARD_E_UNSUPPORTED` : this host has no engine (an offline tool).
+
+```c
+ShardResult state_hash(ShardStateHash* out);
 ```
 
 ### shard_wasm.h
@@ -2066,7 +3746,7 @@ wasm-ld ... or clang++ -mexec-model=reactor -Wl,--export=shard_plugin_entry -Wl,
 
 ### shard_worlds.h
 
-Interface `"shard.worlds"` 1.0 : loading worlds, and prefabs.
+Interface `"shard.worlds"` 1.1 : loading worlds, and prefabs ; and which worlds are loaded (1.1).
 
 A world is loaded by its path in the project (`"worlds/arena.world"`). The load is a request : it starts in the background, and the world is swapped in at the start of a following frame, where the old worlds are unloaded (their scripts get `on_destroyed`) and the new one is loaded (the plugin's `on_world_loaded` is called). A script that asks for a load keeps running until then, so nothing it holds is pulled from under it in the middle of a frame.
 
@@ -2106,6 +3786,14 @@ Builds the prefab in the world of `anchor`, under `parent` (0 : at the root), an
 
 ```c
 ShardResult spawn_prefab(ShardActor anchor, ShardStr prefab, ShardActor parent, ShardActor* out);
+```
+
+**1.1**
+
+The loaded world at an index (0 .. `loaded_count` - 1, the order they were loaded in) : its asset id (-1 if it has none), its name as a `"text out"`, and an actor to use as the `anchor` of the functions that work `"in the world of"` one -- its first root actor, or 0 if the world is empty. Any of the pointers may be NULL. `SHARD_E_NOT_FOUND` : past the end.
+
+```c
+ShardResult world_at(int32_t index, int32_t* asset_id, char* name, uint64_t capacity, uint64_t* size, ShardActor* anchor);
 ```
 
 ## The C++ SDK
@@ -2157,6 +3845,7 @@ Shard::Hooks Hooks() const;
 Shard::Services Services() const;
 Shard::Content Content() const;
 Shard::Extensions Extensions() const;
+Shard::Reflect Reflect() const;
 ```
 
 #### `World`
@@ -2333,6 +4022,22 @@ ShardComponentType handle = 0;
 explicit operator bool() const;
 ```
 
+#### `ComponentEvents`
+
+What a plugin is told about the actor components of a type (ABI 1.4 of `shard.components`) : `block` is the component's values, on the main thread, in the editor's edit mode as well as in play mode.
+
+```
+onAdded    : the component is on a live entity of an active actor. What you change in `block` is pushed to the entity afterwards.
+```
+
+onRemoved  : it is about to leave (removed, its actor destroyed or deactivated, the world unloaded) ; the block is still intact. onChanged  : a field was edited (inspector, SetComponentJson) ; `field` is its index among the registered fields. `actor` is the Actor that carries it, `entity` its ECS entity (`shard.ecs`).
+
+```cpp
+std::function<void(uint64_t actor, uint64_t entity, T& block)> onAdded;
+std::function<void(uint64_t actor, uint64_t entity, T& block)> onRemoved;
+std::function<void(uint64_t actor, uint64_t entity, T& block, uint32_t field)> onChanged;
+```
+
 ```cpp
 /// A type of the engine or of another plugin, whose layout the caller knows (shard_ecs.h documents the engine's)
 template <typename T> ComponentType<T> AsComponentType(ShardComponentType handle);
@@ -2343,6 +4048,9 @@ template <typename T> ComponentType<T> AsComponentType(ShardComponentType handle
 ```cpp
 /// Registers T as "<plugin id>.<name>" (from OnLoad). Throws Shard::Error if the host refuses it (the log says why).
 template <typename T> ComponentType<T> Register(const std::string& name, std::initializer_list<FieldOptions> options = {});
+/// The same, told when a component of the type joins an actor, leaves it, or has a field edited (ComponentEvents). The callbacks live as long as
+/// the plugin is enabled.
+template <typename T> ComponentType<T> Register(const std::string& name, ComponentEvents<T> events, std::initializer_list<FieldOptions> options = {});
 /// A blob of `size` bytes, zeroed. Throws Shard::Error over the memory budget, or in an engine older than ABI 1.2. thread : any
 Blob CreateBlob(uint64_t size) const;
 /// Its bytes (null if the blob is not one of this plugin's) ; valid until it is resized or freed. thread : any
@@ -2505,6 +4213,9 @@ using CommandFn = std::function<bool(const std::vector<std::string_view>& args, 
 ```cpp
 /// Named as given : prefix it with your own ("weather.set"). Throws Shard::Error if this plugin has it already. thread : main
 void Add(const std::string& name, const std::string& help, CommandFn fn) const;
+/// Runs a console line ("world.load arena") as if it was typed (ABI 1.7). A command that changes what the game simulates is the caller's to run
+/// from the simulation thread. thread : main
+Result Execute(std::string_view line) const;
 ```
 
 ### shard/cpp/events.hpp
@@ -2712,6 +4423,9 @@ Actor SpawnPrefab(std::string_view prefab, Actor parent);
 Actor SpawnPrefab(std::string_view prefab);
 /// The actors that have the tag or one under it ("Enemy" finds an "Enemy.Undead"), in the order of their ids
 std::vector<Actor> FindWithTag(std::string_view tag) const;
+/// The actors whose position is within `radius` of `center` (nearest first), or inside the box [lo, hi] (in the order of the ids) ; `tag` restricts them
+std::vector<Actor> FindInSphere(Vec3 center, float radius, std::string_view tag = {}) const;
+std::vector<Actor> FindInBox(Vec3 lo, Vec3 hi, std::string_view tag = {}) const;
 ```
 
 #### `Actor`
@@ -2752,6 +4466,14 @@ Vec3 Right() const;
 Vec3 Up() const;
 /// Turns the actor to face a point of the world
 void LookAt(Vec3 target, Vec3 up = { 0.f, 1.f, 0.f }) const;
+/// A number two machines running the same game agree on, for a network message, a save or a replay : the world's asset id and the actor's id in it.
+/// 0 if the actor is gone. Actor::FromStableId finds the actor again.
+uint64_t StableId() const;
+static Actor FromStableId(uint64_t id);
+/// The asset id of the world the actor is in (-1 : the world has no asset)
+int32_t WorldId() const;
+/// The box that holds the actor's model, physics body and children, in the world. False if it has none : use Position().
+bool WorldBounds(Vec3& lo, Vec3& hi) const;
 Actor Parent() const;
 /// parent invalid: the root of the world. keepWorld: the actor stays where it is.
 void SetParent(Actor parent, bool keepWorld = true) const;
@@ -2810,12 +4532,92 @@ inline Actor Scene::Spawn(std::string_view actorJson, Actor parent);
 inline Actor Scene::Spawn(std::string_view actorJson);
 inline Actor Scene::Find(std::string_view name) const;
 inline std::vector<Actor> Scene::FindWithTag(std::string_view tag) const;
+inline std::vector<Actor> Scene::FindInSphere(Vec3 center, float radius, std::string_view tag) const;
+inline std::vector<Actor> Scene::FindInBox(Vec3 lo, Vec3 hi, std::string_view tag) const;
 ```
 
 #### `FieldType<Actor>`
 
 ```cpp
 static constexpr uint32_t value = SHARD_FIELD_ACTOR;
+```
+
+### shard/cpp/assets.hpp
+
+Shard C++ SDK : the assets of the project, by path and by id (`shard_assets.h`).
+
+```cpp
+if (auto id = Shard::Assets::Resolve("models/level.fbx")) {
+    if (auto mesh = Shard::Assets::ReadMesh(*id)) Bake(mesh->positions, mesh->indices);       // a navigation mesh from the level's triangles
+}
+Shard::Assets::Write("navigation/level.nav", bytes.data(), bytes.size());                      // a file of the project, indexed as an asset
+```
+
+A path is a path in the project (`"models/crate.fbx"`) ; a `mod://` address is accepted wherever a file is read. thread : main unless said otherwise.
+
+```cpp
+enum class AssetKind : uint32_t { Unknown = SHARD_ASSET_UNKNOWN, Mesh = SHARD_ASSET_MESH, Texture = SHARD_ASSET_TEXTURE, Material = SHARD_ASSET_MATERIAL, Shader = SHARD_ASSET_SHADER, World = SHARD_ASSET_WORLD, Sound = SHARD_ASSET_SOUND, Prefab = SHARD_ASSET_PREFAB, Plugin = SHARD_ASSET_PLUGIN, };
+```
+
+#### `AssetInfo`
+
+```cpp
+int32_t id = 0;
+AssetKind kind = AssetKind::Unknown;
+std::string path;
+/// a plugin's asset type : its name
+std::string typeName;
+uint64_t sizeBytes = 0;
+int64_t modifiedTime = 0;
+```
+
+#### `MeshData`
+
+The triangles of a mesh asset, in the mesh's own space
+
+```cpp
+/// 3 floats a vertex
+std::vector<float> positions;
+std::vector<float> normals;
+/// 2 floats a vertex
+std::vector<float> uvs;
+/// triangle list
+std::vector<uint32_t> indices;
+std::vector<Slice> slices;
+Vec3 boundsMin, boundsMax;
+uint32_t VertexCount() const;
+```
+
+#### `ImageData`
+
+An image decoded to 8 bit RGBA, rows from the top
+
+```cpp
+uint32_t width = 0, height = 0;
+std::vector<uint8_t> rgba;
+```
+
+#### `Assets`
+
+```cpp
+/// The id of the asset at that path, if the project has one. thread : any
+static std::optional<int32_t> Resolve(std::string_view path);
+/// thread : any
+static std::string PathOf(int32_t id);
+/// thread : any
+static std::optional<AssetInfo> Info(int32_t id);
+/// The assets under `subdir` of the project ("" : all) of that kind, in the order of their paths
+static std::vector<AssetInfo> List(std::string_view subdir = {}, AssetKind kind = AssetKind::Unknown);
+static bool Exists(std::string_view path);
+/// A whole file. Empty optional if there is none. thread : any
+static std::optional<std::vector<uint8_t>> Read(std::string_view path);
+static std::optional<std::string> ReadTextFile(std::string_view path);
+/// Writes a file of the project (its folders made, replaced if it exists) and has the engine index it : its asset id.
+static std::optional<int32_t> Write(std::string_view path, const void* data, uint64_t size);
+/// The geometry of a model asset
+static std::optional<MeshData> ReadMesh(int32_t id);
+/// An image asset decoded. thread : any
+static std::optional<ImageData> ReadImage(int32_t id);
 ```
 
 ### shard/cpp/audio.hpp
@@ -2834,6 +4636,48 @@ Shard::Audio::PlayOneShot("sounds/shot.wav", Owner().WorldPosition());
 static void PlayOneShot(std::string_view clip, Vec3 position, float volume = 1.f, bool spatial = true);
 /// A flat sound, with no place
 static void PlayOneShot(std::string_view clip, float volume = 1.f);
+```
+
+### shard/cpp/debug.hpp
+
+Shard C++ SDK : drawing for the developer, in the world, from anywhere (`shard_debug.h`).
+
+```cpp
+Shard::Debug::Line(agent.position, agent.destination, Shard::Rgba(0, 255, 0));                 // for this frame
+Shard::Debug::Sphere(sensor.center, sensor.radius, Shard::Rgba(255, 255, 0, 128), 2.f);        // for two seconds
+if (Shard::Debug::Enabled()) for (const auto& edge : navmesh.Edges()) Shard::Debug::Line(edge.a, edge.b, kEdge);
+```
+
+A shape lives `duration` seconds (0 : one frame), so a system that draws what it computes calls the functions again every frame. thread : any.
+
+```cpp
+/// 8 bit r, g, b, a packed as the ABI wants
+constexpr uint32_t Rgba(uint32_t r, uint32_t g, uint32_t b, uint32_t a = 255);
+```
+
+#### `Debug`
+
+```cpp
+/// False when this host draws nothing (a server) : skip the work of computing shapes
+static bool Enabled();
+static void Line(Vec3 from, Vec3 to, uint32_t color = Rgba(255, 255, 255), float duration = 0.f, bool depthTest = false);
+/// Segments : the points taken two by two (0-1, 2-3...)
+static void Lines(const std::vector<Vec3>& points, uint32_t color = Rgba(255, 255, 255), float duration = 0.f, bool depthTest = false);
+static void Point(Vec3 position, float size = 0.1f, uint32_t color = Rgba(255, 255, 255), float duration = 0.f);
+static void Arrow(Vec3 from, Vec3 to, uint32_t color = Rgba(255, 255, 255), float duration = 0.f);
+static void Circle(Vec3 center, Vec3 normal, float radius, uint32_t color = Rgba(255, 255, 255), float duration = 0.f);
+static void Sphere(Vec3 center, float radius, uint32_t color = Rgba(255, 255, 255), float duration = 0.f);
+static void Box(Vec3 center, Vec3 halfExtent, uint32_t color = Rgba(255, 255, 255), float duration = 0.f, const Quat* rotation = nullptr);
+static void Capsule(Vec3 from, Vec3 to, float radius, uint32_t color = Rgba(255, 255, 255), float duration = 0.f);
+/// A cone from its apex along `axis` (its length is the cone's) with a half opening of `halfAngleDegrees` : a field of view
+static void Cone(Vec3 apex, Vec3 axis, float halfAngleDegrees, uint32_t color = Rgba(255, 255, 255), float duration = 0.f);
+/// Filled triangles (3 points each), the colour's alpha honoured : a navigation mesh's polygons
+static void Triangles(const std::vector<Vec3>& vertices, uint32_t color, float duration = 0.f);
+static void Text(Vec3 position, std::string_view text, uint32_t color = Rgba(255, 255, 255), float duration = 0.f);
+/// Text at a pixel of the viewport (from the top left)
+static void TextScreen(float x, float y, std::string_view text, uint32_t color = Rgba(255, 255, 255), float duration = 0.f);
+/// Removes the shapes still shown for a duration
+static void Clear();
 ```
 
 ### shard/cpp/editor.hpp
@@ -2939,6 +4783,54 @@ bool BeginPopupContextItem() const;
 bool IsItemClicked(int button = 0) const;
 bool IsItemActive() const;
 bool IsItemDoubleClicked() const;
+bool HasCanvas() const;
+void DrawLine(Vec2 a, Vec2 b, uint32_t color, float thickness = 1.f) const;
+void DrawPolyline(const std::vector<Vec2>& points, uint32_t color, bool closed = false, float thickness = 1.f) const;
+void DrawRect(Vec2 min, Vec2 max, uint32_t color, float rounding = 0.f, float thickness = 1.f) const;
+void DrawRectFilled(Vec2 min, Vec2 max, uint32_t color, float rounding = 0.f) const;
+void DrawCircle(Vec2 center, float radius, uint32_t color, float thickness = 1.f) const;
+void DrawCircleFilled(Vec2 center, float radius, uint32_t color) const;
+void DrawTriangleFilled(Vec2 a, Vec2 b, Vec2 c, uint32_t color) const;
+/// A cubic Bezier curve : the wire between two nodes
+void DrawBezier(Vec2 p0, Vec2 p1, Vec2 p2, Vec2 p3, uint32_t color, float thickness = 1.f) const;
+void DrawText(Vec2 position, uint32_t color, std::string_view text) const;
+void PushClipRect(Vec2 min, Vec2 max, bool intersect = true) const;
+void PopClipRect() const;
+Vec2 CursorScreenPos() const;
+void SetCursorScreenPos(Vec2 position) const;
+Vec2 ContentRegionAvail() const;
+Vec2 ItemRectMin() const;
+Vec2 ItemRectMax() const;
+Vec2 CalcTextSize(std::string_view text) const;
+/// A hit area at the cursor with no look of its own : the surface of a canvas or a node. True on the frame it is pressed.
+bool InvisibleButton(std::string_view id, Vec2 size) const;
+bool SelectableSize(std::string_view label, bool selected, Vec2 size) const;
+Vec2 MousePos() const;
+Vec2 MouseDragDelta(int button = 0) const;
+void ResetMouseDragDelta(int button = 0) const;
+float MouseWheel() const;
+bool IsMouseDown(int button = 0) const;
+bool IsMouseClicked(int button = 0) const;
+bool IsMouseReleased(int button = 0) const;
+bool IsMouseDoubleClicked(int button = 0) const;
+/// `key` : a Shard::Key as an integer (SHARD_KEY_*)
+bool IsKeyDown(int32_t key) const;
+bool IsKeyPressed(int32_t key) const;
+/// SHARD_MOD_* held now
+uint32_t Modifiers() const;
+bool IsWindowHovered() const;
+bool IsWindowFocused() const;
+/// A texture of shard.render (ShardTexture), shown at that size in pixels
+void Image(uint64_t texture, Vec2 size) const;
+/// After the widget : when it returns true set the payload and call EndDragDropSource
+bool BeginDragDropSource() const;
+void SetDragDropPayload(std::string_view type, const void* data, uint64_t size) const;
+void EndDragDropSource() const;
+/// After the widget : when it returns true ask for the payloads it takes and call EndDragDropTarget. A payload of type "shard.asset" is an asset path.
+bool BeginDragDropTarget() const;
+/// True on the frame the payload is dropped : `out` then holds it
+bool AcceptDragDropPayload(std::string_view type, std::vector<uint8_t>& out) const;
+void EndDragDropTarget() const;
 ```
 
 #### `Gizmo`
@@ -2989,6 +4881,13 @@ static std::vector<Actor> SelectedActors();
 void Notify(std::string_view message, uint32_t level = SHARD_EDITOR_NOTIFY_INFO) const;
 /// Shows or hides one of this plugin's panels
 bool SetPanelVisible(const std::string& title, bool visible) const;
+/// Records a change the plugin just made in the editor's undo history. `undo` puts it back, `redo` does it again ; they may run after the panel
+/// closed, so keep what they need alive. False outside the editor or in an editor older than 1.2.
+bool PushUndo(const std::string& label, std::function<void()> undo, std::function<void()> redo) const;
+/// A double click on an asset of that extension (".bt") in the content browser calls `open` with its path in the project
+bool AddAssetOpener(const std::string& extension, std::function<void(std::string_view path)> open) const;
+/// An entry of the content browser Create menu that writes a new file with these bytes
+bool AddAssetTemplate(const std::string& label, const std::string& defaultName, const std::string& bytes) const;
 ```
 
 ```cpp
@@ -3381,6 +5280,35 @@ enum class CursorMode : int32_t { Visible = SHARD_CURSOR_VISIBLE, Hidden = SHARD
 /// The face buttons are named by position: South is A on an Xbox pad, Cross on a PlayStation one
 enum class PadButton : int32_t { South = SHARD_PAD_SOUTH, East = SHARD_PAD_EAST, West = SHARD_PAD_WEST, North = SHARD_PAD_NORTH, Back = SHARD_PAD_BACK, Guide = SHARD_PAD_GUIDE, Start = SHARD_PAD_START, LeftStick = SHARD_PAD_LEFT_STICK, RightStick = SHARD_PAD_RIGHT_STICK, LeftShoulder = SHARD_PAD_LEFT_SHOULDER, RightShoulder = SHARD_PAD_RIGHT_SHOULDER, DpadUp = SHARD_PAD_DPAD_UP, DpadDown = SHARD_PAD_DPAD_DOWN, DpadLeft = SHARD_PAD_DPAD_LEFT, DpadRight = SHARD_PAD_DPAD_RIGHT, };
 enum class PadAxis : int32_t { LeftX = SHARD_AXIS_LEFT_X, LeftY = SHARD_AXIS_LEFT_Y, RightX = SHARD_AXIS_RIGHT_X, RightY = SHARD_AXIS_RIGHT_Y, LeftTrigger = SHARD_AXIS_LEFT_TRIGGER, RightTrigger = SHARD_AXIS_RIGHT_TRIGGER, };
+enum class Modifier : uint32_t { Shift = SHARD_MOD_SHIFT, Control = SHARD_MOD_CONTROL, Alt = SHARD_MOD_ALT, Super = SHARD_MOD_SUPER };
+enum class InputEventKind : uint32_t { KeyDown = SHARD_EVENT_KEY_DOWN, KeyUp = SHARD_EVENT_KEY_UP, Text = SHARD_EVENT_TEXT, MouseDown = SHARD_EVENT_MOUSE_DOWN, MouseUp = SHARD_EVENT_MOUSE_UP, MouseMove = SHARD_EVENT_MOUSE_MOVE, Wheel = SHARD_EVENT_WHEEL, FocusGained = SHARD_EVENT_FOCUS_GAINED, FocusLost = SHARD_EVENT_FOCUS_LOST, Resized = SHARD_EVENT_RESIZED, };
+```
+
+#### `InputEvent`
+
+An event of the window system (ABI 1.7). `key` is a Key or a MouseButton as an integer ; `x`, `y` are in pixels of the window.
+
+```cpp
+InputEventKind kind = InputEventKind::KeyDown;
+int32_t key = 0;
+/// Modifier bits held when it happened
+uint32_t mods = 0;
+/// a key held down
+bool repeat = false;
+/// Text : one Unicode character
+uint32_t codepoint = 0;
+/// where ; Resized : the new size
+float x = 0.f, y = 0.f;
+/// MouseMove : the motion ; Wheel : the lines scrolled
+float dx = 0.f, dy = 0.f;
+bool Has(Modifier m) const;
+```
+
+```cpp
+/// Which polled input a UI takes
+enum class Capture : uint32_t { None = 0, Mouse = SHARD_CAPTURE_MOUSE, Keyboard = SHARD_CAPTURE_KEYBOARD, Gamepad = SHARD_CAPTURE_GAMEPAD };
+constexpr Capture operator|(Capture a, Capture b);
+enum class CursorShape : int32_t { Arrow = SHARD_CURSOR_ARROW, Text = SHARD_CURSOR_TEXT, Hand = SHARD_CURSOR_HAND, Crosshair = SHARD_CURSOR_CROSSHAIR, ResizeEW = SHARD_CURSOR_RESIZE_EW, ResizeNS = SHARD_CURSOR_RESIZE_NS, ResizeNWSE = SHARD_CURSOR_RESIZE_NWSE, ResizeNESW = SHARD_CURSOR_RESIZE_NESW, Move = SHARD_CURSOR_MOVE, NotAllowed = SHARD_CURSOR_NOT_ALLOWED, };
 ```
 
 #### `Input`
@@ -3406,6 +5334,71 @@ static bool WasPadReleased(int pad, PadButton button);
 static float PadAxisValue(int pad, PadAxis axis, float deadZone = 0.1f);
 /// False if the pad cannot rumble
 static bool Rumble(int pad, float low, float high, int durationMs);
+/// The events since the frame began, in the order they happened. They come from the window system, not from the recorded input : a replay does
+/// not produce them, so use them for interfaces and never for what the simulation decides.
+static std::vector<InputEvent> Events();
+static uint32_t Modifiers();
+static bool IsModifierDown(Modifier m);
+/// The size of the window's drawing area in pixels and its content scale
+static bool WindowSize(int32_t& width, int32_t& height, float& dpiScale);
+static std::string Clipboard();
+static bool SetClipboard(std::string_view text);
+/// The cursor's shape for this frame
+static void SetCursorShape(CursorShape shape);
+/// A text field has the focus : the system may show an on screen keyboard or an IME's window next to the box (pixels of the window)
+static void SetTextInput(bool enabled, int x = 0, int y = 0, int width = 0, int height = 0);
+/// A UI takes the mouse and / or the keyboard this frame : the polled functions read false for them, for every script. Call it every frame
+/// (from on_frame_begin or an Input phase system, so that it applies to the same frame's scripts).
+static void CaptureInput(Capture what);
+```
+
+### shard/cpp/jobs.hpp
+
+Shard C++ SDK : the engine's worker threads (`shard_jobs.h`).
+
+```cpp
+// bake something off the frame, then hand the result to the simulation
+auto job = Shard::Jobs::Run([chunk](uint32_t /*worker*/) { chunk->BuildMesh(); });
+...
+job.Wait();                                           // or let it go: ~JobHandle releases it, the work still runs to its end
+
+Shard::Jobs::ParallelFor(agents.size(), [&](uint32_t i, uint32_t /*worker*/) { agents[i].Steer(dt); });     // returns when all are done
+Shard::Jobs::PostMain([] { /* back on the main thread, at the start of the next frame */ });
+```
+
+A job may call what the headers document as `"thread : any"` (blobs, `shard.render`'s resources, `shard.debug`, the maths...) and the plugin's own code, not the actors, the ECS, the physics or the input (they are made for the thread of the simulation). A job that is still running when the plugin is disabled is waited for first.
+
+#### `JobHandle`
+
+A job (or the slices of a ParallelForAsync) in flight. Move only ; letting go of it does not stop the work.
+
+```cpp
+JobHandle& operator=(JobHandle&& other) noexcept;
+JobHandle& operator=(const JobHandle&) = delete;
+/// True once the work ended (a default handle, or one that ran inline, is done)
+bool IsDone() const;
+/// Returns when the work ended, running other jobs meanwhile. thread : main, script or system
+void Wait();
+```
+
+#### `Jobs`
+
+```cpp
+/// The threads that work for the engine, the calling one included : the size of a per-worker scratch array
+static uint32_t WorkerCount();
+/// Runs `fn(worker)` on a worker. Keep the handle to Wait for it ; drop it to let the job go on its own.
+template <typename F> static JobHandle Run(F&& fn);
+/// The same, without a handle : nothing will wait for it
+template <typename F> static void RunDetached(F&& fn);
+/// Calls `fn(index, worker)` for every index of [0, count), on every worker at once, and returns when all are done. The order is not defined :
+/// write to a slot per index, combine in index order. `grain` : how many indices a slice has (0 : the host picks).
+template <typename F> static void ParallelFor(uint32_t count, F&& fn, uint32_t grain = 0);
+/// `fn(begin, end, worker)` on slices of [0, count) : for a body with a setup per slice
+template <typename F> static void ParallelForRange(uint32_t count, F&& fn, uint32_t grain = 0);
+/// The same, without waiting : the closure is kept until the last slice ended
+template <typename F> static JobHandle ParallelForAsync(uint32_t count, F&& fn, uint32_t grain = 0);
+/// Runs `fn()` on the main thread at the start of the next frame : how a job hands its result to the simulation. thread : any
+template <typename F> static void PostMain(F&& fn);
 ```
 
 ### shard/cpp/math.hpp
@@ -3477,6 +5470,93 @@ Vec3 Right() const;
 Vec3 Up() const;
 ```
 
+### shard/cpp/net.hpp
+
+Shard C++ SDK : UDP and TCP sockets, for the networking a game builds itself (`shard_net.h`).
+
+```cpp
+// a server : datagrams on a port
+Shard::Net::UdpSocket server = Shard::Net::OpenUdp(27015, [&](const Shard::Net::Event& e) {
+    if (e.kind == Shard::Net::EventKind::Data) HandleDatagram(e.peer, e.data, e.size);
+});
+server.SendTo({ "192.0.2.7", 27016 }, bytes.data(), bytes.size());
+
+// a client : a stream
+Shard::Net::TcpSocket client = Shard::Net::Connect({ "example.com", 4000 }, [&](const Shard::Net::Event& e) { ... });
+```
+
+The events arrive on the main thread, at the start of the frame (`Net::Poll`() reads just before a fixed step). The plugin declares the permission `"net"` in its manifest. The sockets close with the object, and with the plugin.
+
+```cpp
+enum class EventKind : uint32_t { Connected = SHARD_NET_EVENT_CONNECTED, Accepted = SHARD_NET_EVENT_ACCEPTED, Data = SHARD_NET_EVENT_DATA, Closed = SHARD_NET_EVENT_CLOSED, Error = SHARD_NET_EVENT_ERROR };
+```
+
+#### `Address`
+
+```cpp
+/// a dotted address, a name, or empty (any local address, to bind)
+std::string host;
+uint32_t port = 0;
+```
+
+#### `Event`
+
+```cpp
+EventKind kind = EventKind::Data;
+/// Accepted : the new connection
+ShardSocket socket = 0;
+/// Accepted : the listener
+ShardSocket listener = 0;
+/// "192.0.2.7:4000" ; valid during the callback
+std::string_view peer;
+/// Data : valid during the callback
+const void* data = nullptr;
+uint64_t size = 0;
+int32_t error = 0;
+```
+
+```cpp
+using Handler = std::function<void(const Event&)>;
+inline const ShardNetApi& Api();
+inline void Thunk(void* user, ShardPluginCtx, const ShardNetEvent* e);
+inline ShardNetAddress Convert(const Address& a);
+```
+
+#### `Socket`
+
+A socket the plugin owns : closed with the object. A TCP socket accepted by a listener is wrapped with `Socket::Adopt`.
+
+```cpp
+Socket& operator=(Socket&& o) noexcept;
+Socket& operator=(const Socket&) = delete;
+explicit operator bool() const;
+ShardSocket Handle() const;
+/// TCP : queues the bytes. False if the queue is full (nothing was queued) or the socket is closed.
+bool Send(const void* data, uint64_t size) const;
+bool Send(std::string_view bytes) const;
+/// UDP : one datagram
+bool SendTo(const Address& to, const void* data, uint64_t size) const;
+uint32_t LocalPort() const;
+uint64_t QueuedBytes() const;
+bool SetOption(uint32_t option, int32_t value) const;
+void Close();
+/// A connection a listener accepted (Event::socket of an Accepted event) : it reports to the listener's handler, `handler` is not used for it
+static Socket Adopt(ShardSocket socket);
+```
+
+```cpp
+using UdpSocket = Socket;
+using TcpSocket = Socket;
+/// A UDP socket bound to `port` (0 : any free port, LocalPort() says which). Throws Shard::Error if the address is in use or the plugin is over its limit.
+inline Socket OpenUdp(uint32_t port, Handler handler, std::string_view host = {});
+/// Listens for TCP connections ; each client is an Accepted event
+inline Socket Listen(const Address& bind, Handler handler, int backlog = 16);
+/// Starts connecting (the name is resolved off the frame) : the outcome is a Connected or an Error event. Bytes sent meanwhile are queued.
+inline Socket Connect(const Address& remote, Handler handler);
+/// Reads the sockets now and delivers what arrived (the host also does it at the start of every frame)
+inline void Poll();
+```
+
 ### shard/cpp/physics.hpp
 
 Shard C++ SDK : ray casts (`shard_physics.h`). The forces, impulses and velocities of a body are methods of `Shard::Actor`.
@@ -3503,13 +5583,57 @@ static constexpr uint32_t All = SHARD_LAYER_ALL;
 #### `RayHit`
 
 ```cpp
-/// the actor whose body was hit
+/// the actor whose body was hit (invalid for a collider with no owner)
 Actor actor;
 /// where, in the world
 Vec3 point;
-/// the surface's normal there, pointing out of the body
+/// the surface normal there, pointing out of the body ; for an overlap, the way to push the shape out
 Vec3 normal;
+/// from the origin along the ray ; for an overlap, how deep the shapes overlap
 float distance = 0.f;
+/// a collider of the plugin that was hit (ABI 1.7), 0 for the body of an actor
+ShardCollider collider = 0;
+/// that collider's userData
+uint64_t userData = 0;
+/// a mesh collider : the index of the triangle
+uint32_t triangle = 0;
+/// a box set : the index of the box
+uint32_t box = 0;
+```
+
+#### `QueryFilter`
+
+What a query looks at (ABI 1.7)
+
+```cpp
+uint32_t layers = Layers::All;
+/// an actor whose body the query goes through
+Actor ignore;
+/// only the colliders of plugins
+bool collidersOnly = false;
+/// only the bodies of actors
+bool noColliders = false;
+/// only the actors that have this tag (or one under it)
+std::string tag;
+```
+
+#### `Collider`
+
+A static collider the plugin builds (a voxel chunk, a navigation obstacle, a heightfield cut into a mesh) : it exists in the physics world with no actor and goes with the object. It appears at the next fixed step. (ABI 1.7)
+
+```cpp
+Collider& operator=(Collider&& o) noexcept;
+Collider& operator=(const Collider&) = delete;
+/// Triangles : `vertices` 3 floats each, `indices` a triangle list. thread : any (a mesh shape can take a while : build it in a job).
+static Collider Mesh(const float* vertices, uint32_t vertexCount, const uint32_t* indices, uint32_t indexCount, Vec3 position = {}, Quat rotation = {}, uint64_t userData = 0, Actor owner = Actor());
+/// A union of boxes aligned on the collider axes : 6 floats each (centre xyz, half extent xyz)
+static Collider Boxes(const float* boxes, uint32_t boxCount, Vec3 position = {}, Quat rotation = {}, uint64_t userData = 0, Actor owner = Actor());
+explicit operator bool() const;
+ShardCollider Handle() const;
+bool SetPose(Vec3 position, Quat rotation = {}) const;
+/// Replaces the geometry (a chunk was edited) with a new mesh
+bool UpdateMesh(const float* vertices, uint32_t vertexCount, const uint32_t* indices, uint32_t indexCount) const;
+void Reset();
 ```
 
 #### `Physics`
@@ -3518,6 +5642,15 @@ float distance = 0.f;
 /// The first body the ray meets within `maxDistance`. `direction` need not be normalized. `ignore` : an actor whose body the ray goes
 /// through, usually the one that fires it. Call it from the callbacks of a script.
 static std::optional<RayHit> Raycast(Vec3 origin, Vec3 direction, float maxDistance, uint32_t layers = Layers::All, Actor ignore = Actor());
+/// Every body along the ray, nearest first
+static std::vector<RayHit> RaycastAll(Vec3 origin, Vec3 direction, float maxDistance, const QueryFilter& filter = {});
+/// The bodies that touch the shape
+static std::vector<RayHit> OverlapSphere(Vec3 center, float radius, const QueryFilter& filter = {});
+static std::vector<RayHit> OverlapBox(Vec3 center, Vec3 halfExtent, Quat rotation = {}, const QueryFilter& filter = {});
+static std::vector<RayHit> OverlapCapsule(Vec3 from, Vec3 to, float radius, const QueryFilter& filter = {});
+/// The first body a sphere meets going along `direction` : `distance` is how far it got
+static std::optional<RayHit> SweepSphere(Vec3 origin, float radius, Vec3 direction, float maxDistance, const QueryFilter& filter = {});
+static std::optional<RayHit> SweepBox(Vec3 origin, Vec3 halfExtent, Quat rotation, Vec3 direction, float maxDistance, const QueryFilter& filter = {});
 ```
 
 ### shard/cpp/random.hpp
@@ -3559,6 +5692,107 @@ Vec3 InUnitSphere();
 Vec3 OnUnitSphere();
 ```
 
+### shard/cpp/reflect.hpp
+
+Shard C++ SDK : what exists in the engine and in the plugins, described at run time ; and functions to be called by name (`shard_reflect.h`).
+
+```cpp
+// a visual scripting editor lists what it can wire together
+for (const auto& type : Shard::Reflect::Types(Shard::TypeKind::Component))
+    for (const auto& field : type.fields) AddPin(type.name, field.name, field.type);
+for (const auto& fn : Shard::Reflect::Functions()) AddNode(fn.category, fn.name, fn.params, fn.results);
+
+// a plugin offers a function to the graphs, the UI bindings and the console
+ctx.Reflect().AddFunction("nav.set_destination", "AI/Navigation", "Sends an agent to a point",
+    { { "agent", ValueType::Actor }, { "target", ValueType::Vec3 } }, { { "ok", ValueType::Bool } },
+    [](const std::vector<Shard::Value>& in, std::vector<Shard::Value>& out) { out[0] = Shard::Value(Navigate(in[0].AsActor(), in[1].AsVec3())); return true; });
+
+auto out = Shard::Reflect::Call("math.add", { Shard::Value(1.f), Shard::Value(2.f) });         // std::optional<std::vector<Value>>
+```
+
+```cpp
+enum class ValueType : uint32_t { None = SHARD_VALUE_NONE, Bool = SHARD_VALUE_BOOL, I32 = SHARD_VALUE_I32, I64 = SHARD_VALUE_I64, F32 = SHARD_VALUE_F32, F64 = SHARD_VALUE_F64, Vec2 = SHARD_VALUE_VEC2, Vec3 = SHARD_VALUE_VEC3, Vec4 = SHARD_VALUE_VEC4, Quat = SHARD_VALUE_QUAT, Color = SHARD_VALUE_COLOR, String = SHARD_VALUE_STRING, Actor = SHARD_VALUE_ACTOR, Asset = SHARD_VALUE_ASSET, Json = SHARD_VALUE_JSON, Enum = SHARD_VALUE_ENUM, Any = SHARD_VALUE_ANY, };
+enum class TypeKind : uint32_t { Component = SHARD_TYPE_COMPONENT, Event = SHARD_TYPE_EVENT };
+```
+
+#### `Value`
+
+One value of the ABI's flat `ShardValue`, owning its text
+
+```cpp
+static Value Json(std::string text);
+static Value Enum(std::string name);
+static Value Asset(int32_t id);
+ValueType Type() const;
+bool IsNone() const;
+bool AsBool() const;
+int64_t AsInt() const;
+float AsFloat() const;
+double AsDouble() const;
+Vec2 AsVec2() const;
+Vec3 AsVec3() const;
+Vec4 AsVec4() const;
+Quat AsQuat() const;
+Color AsColor() const;
+const std::string& AsString() const;
+Actor AsActor() const;
+int32_t AsAsset() const;
+/// The ABI's value ; the text points into this object
+ShardValue Raw() const;
+static Value FromRaw(const ShardValue& v);
+```
+
+#### `ParamSpec`
+
+```cpp
+std::string name;
+ValueType type = ValueType::Any;
+bool optional = false;
+std::string tooltip;
+```
+
+#### `FieldEntry`
+
+```cpp
+std::string name;
+ValueType type = ValueType::Json;
+bool readOnly = false, hidden = false;
+float min = 0.f, max = 0.f;
+std::string tooltip;
+std::vector<std::string> enumNames;
+```
+
+#### `TypeEntry`
+
+```cpp
+std::string name, plugin;
+TypeKind kind = TypeKind::Component;
+std::vector<FieldEntry> fields;
+```
+
+#### `FunctionEntry`
+
+```cpp
+std::string name, category, tooltip, plugin;
+uint32_t flags = 0;
+std::vector<ParamSpec> params, results;
+```
+
+#### `Reflect`
+
+```cpp
+using FunctionFn = std::function<bool(const std::vector<Value>& args, std::vector<Value>& results)>;
+/// Registers a function (from OnLoad or later) ; it goes with the plugin. `fn` fills `results` (already sized) and returns false for an error.
+/// Throws Shard::Error if the name is taken or the signature is wrong.
+void AddFunction(std::string name, std::string category, std::string tooltip, std::vector<ParamSpec> params, std::vector<ParamSpec> results, FunctionFn fn, uint32_t flags = 0) const;
+/// Calls a function by name (thread : script or main, the one the function is made for)
+static std::optional<std::vector<Value>> Call(std::string_view name, const std::vector<Value>& args);
+/// The functions registered now (every plugin's), sorted by name
+static std::vector<FunctionEntry> Functions();
+/// The component types (the engine's and the plugins') or the described events, with their fields (thread : main)
+static std::vector<TypeEntry> Types(TypeKind kind);
+```
+
 ### shard/cpp/registry.hpp
 
 Shard C++ SDK : registrations that live where the code lives.
@@ -3577,6 +5811,267 @@ The macros go at global scope, in a source file of the plugin's library (not in 
 /// The body that follows runs in OnLoad, after the components and the scripts are registered: `ctx` is the Shard::Context. `Name` only orders
 /// and names it (unique in the plugin, letters and digits).
 SHARD_ON_LOAD(Name, ctx)
+```
+
+### shard/cpp/render.hpp
+
+Shard C++ SDK : what a plugin puts on the screen (`shard_render.h`) : meshes it builds, textures it fills, sprites, instances and a 2D overlay.
+
+```cpp
+// voxels : a chunk is a mesh and an object
+Shard::MeshBuilder b(SHARD_VERTEX_POSITION | SHARD_VERTEX_NORMAL | SHARD_VERTEX_UV0);
+b.Quad(corner0, corner1, corner2, corner3, normal);
+Shard::Mesh mesh = Shard::Mesh::Create(b);                       // from a job if you like : creating records, the GPU work happens later
+Shard::RenderObject chunk = Shard::RenderObject::Create(mesh, { &material }, { chunkOrigin });
+
+// particles : a batch of sprites, set again every frame
+Shard::SpriteBatchOptions o; o.texture = &tex; o.blend = SHARD_BLEND_ALPHA; o.maxSprites = 4096;
+Shard::SpriteBatch smoke = Shard::SpriteBatch::Create(o);
+smoke.Set(sprites);
+
+// a UI : an overlay draws into the frame
+Shard::Overlay ui = Shard::Overlay::Add("ui", 0, [&](const Shard::OverlayFrame& f, Shard::Canvas& c) { c.DrawGeometry(g, &atlas, { 10.f, 10.f }); });
+```
+
+Every class owns its handle (move only) : the resource goes when the object does, and the host releases whatever is left with the plugin.
+
+```cpp
+constexpr uint32_t PackColor(float r, float g, float b, float a = 1.f);
+constexpr uint32_t PackColor(Color c);
+```
+
+#### `MeshVertex`
+
+A vertex as the builder holds it ; the attributes the builder's flags do not ask for are not sent
+
+```cpp
+Vec3 position;
+Vec3 normal{ 0.f, 1.f, 0.f };
+Vec4 tangent{ 1.f, 0.f, 0.f, 1.f };
+Vec2 uv0, uv1;
+uint32_t color = 0xFFFFFFFFu;
+uint16_t joints[4] = {};
+float weights[4] = { 1.f, 0.f, 0.f, 0.f };
+```
+
+#### `MeshBuilder`
+
+Collects the vertices and triangles of a mesh. Not thread safe (one builder per job).
+
+```cpp
+/// `flags` : the attributes to send (SHARD_VERTEX_*), POSITION is always there
+explicit MeshBuilder(uint32_t flags = SHARD_VERTEX_POSITION | SHARD_VERTEX_NORMAL | SHARD_VERTEX_UV0 | SHARD_VERTEX_COLOR) : m_Flags(flags | SHARD_VERTEX_POSITION);
+uint32_t Flags() const;
+void Clear();
+bool Empty() const;
+uint32_t VertexCount() const;
+uint32_t IndexCount() const;
+void Reserve(size_t vertices, size_t indices);
+/// The index of the vertex
+uint32_t Add(const MeshVertex& v);
+uint32_t Add(Vec3 position, Vec3 normal = { 0.f, 1.f, 0.f }, Vec2 uv = {}, uint32_t color = 0xFFFFFFFFu);
+void Triangle(uint32_t a, uint32_t b, uint32_t c);
+/// Two triangles for the quad a, b, c, d (counter clockwise seen from the front)
+void Quad(uint32_t a, uint32_t b, uint32_t c, uint32_t d);
+/// A flat quad of four corners, counter clockwise, with the uvs of a unit square
+void Quad(Vec3 a, Vec3 b, Vec3 c, Vec3 d, Vec3 normal, uint32_t color = 0xFFFFFFFFu);
+/// What follows (until the next call) is drawn with material slot `slot`
+void BeginSubmesh(uint32_t materialSlot);
+void SetBounds(Vec3 lo, Vec3 hi);
+/// Fills the ABI's description ; the packed vertices live in `storage` for as long as the description is used
+ShardMeshDesc Describe(std::vector<uint8_t>& storage, std::vector<ShardSubmesh>& parts, uint32_t meshFlags = 0);
+```
+
+#### `Mesh`
+
+```cpp
+Mesh() = default;
+explicit Mesh(ShardMesh handle) : Owned(handle);
+ShardMesh Handle() const;
+/// Throws Shard::Error for an inconsistent mesh. Safe from a job (thread : any) : the GPU work is done later.
+static Mesh Create(MeshBuilder& builder, bool dynamic = false);
+/// Replaces the content (the objects that use the mesh follow)
+void Update(MeshBuilder& builder);
+/// A model asset of the project (thread : main)
+static Mesh FromAsset(int32_t assetId);
+```
+
+#### `Texture`
+
+```cpp
+Texture() = default;
+explicit Texture(ShardTexture handle) : Owned(handle);
+ShardTexture Handle() const;
+/// `pixels` : width * height texels in `format` (SHARD_TEXTURE_*), rows from the top ; null : transparent black
+static Texture Create(uint32_t width, uint32_t height, uint32_t format = SHARD_TEXTURE_RGBA8, uint32_t flags = 0, const void* pixels = nullptr);
+/// An image of the project or a mod:// address (thread : main). Straight alpha.
+static Texture Load(std::string_view path, uint32_t flags = 0);
+static Texture FromAsset(int32_t assetId);
+/// Replaces a rectangle (`rowPitch` bytes between rows, 0 : tight)
+bool Update(uint32_t x, uint32_t y, uint32_t width, uint32_t height, const void* pixels, uint32_t rowPitch = 0);
+/// (0, 0) while a loaded image is not decoded yet
+Vec2 Size() const;
+```
+
+#### `Material`
+
+```cpp
+Material() = default;
+explicit Material(ShardMaterial handle) : Owned(handle);
+ShardMaterial Handle() const;
+/// A private copy of a material asset of the project (thread : main)
+static Material Load(std::string_view path);
+bool SetFloat(std::string_view name, float value) const;
+bool SetVec4(std::string_view name, Vec4 v) const;
+bool SetColor(std::string_view name, Color c) const;
+bool SetTexture(std::string_view name, const Texture& texture) const;
+```
+
+#### `RenderPose`
+
+A position in the world with double precision, a rotation and a scale
+
+```cpp
+double position[3] = {};
+Quat rotation;
+Vec3 scale{ 1.f, 1.f, 1.f };
+```
+
+#### `RenderObject`
+
+```cpp
+RenderObject() = default;
+explicit RenderObject(ShardRenderObject handle) : Owned(handle);
+ShardRenderObject Handle() const;
+/// A mesh drawn with `materials` (one per material slot) at `pose`. `pick` : the actor the editor selects when it is clicked.
+static RenderObject Create(const Mesh& mesh, std::initializer_list<const Material*> materials, const RenderPose& pose = {}, uint32_t flags = SHARD_OBJECT_CAST_SHADOWS, Actor pick = Actor());
+bool SetPose(const RenderPose& pose) const;
+bool SetMesh(const Mesh& mesh) const;
+bool SetFlags(uint32_t flags) const;
+bool SetVisible(bool visible, uint32_t otherFlags = SHARD_OBJECT_CAST_SHADOWS) const;
+/// The bone matrices of a skinned mesh, 16 floats each (the bone in the mesh's space times its inverse bind pose)
+bool SetBonePose(const float* matrices, uint32_t boneCount) const;
+static ShardRenderTransform Convert(const RenderPose& pose);
+```
+
+```cpp
+using Sprite = ShardSprite;
+using Instance = ShardInstance;
+```
+
+#### `SpriteBatchOptions`
+
+```cpp
+const Texture* texture = nullptr;
+uint32_t facing = SHARD_SPRITE_FACE_CAMERA;
+uint32_t blend = SHARD_BLEND_ALPHA;
+uint32_t sort = SHARD_SPRITE_SORT_NONE;
+uint32_t flags = SHARD_SPRITE_DEPTH_TEST;
+uint32_t maxSprites = 4096;
+double origin[3] = {};
+```
+
+#### `SpriteBatch`
+
+```cpp
+SpriteBatch() = default;
+explicit SpriteBatch(ShardSpriteBatch handle) : Owned(handle);
+ShardSpriteBatch Handle() const;
+static SpriteBatch Create(const SpriteBatchOptions& o);
+/// The sprites to draw until the next call. thread : any
+bool Set(const Sprite* sprites, uint32_t count) const;
+bool Set(const std::vector<Sprite>& sprites) const;
+bool SetFlags(uint32_t flags) const;
+```
+
+#### `InstanceBatch`
+
+```cpp
+InstanceBatch() = default;
+explicit InstanceBatch(ShardInstanceBatch handle) : Owned(handle);
+ShardInstanceBatch Handle() const;
+static InstanceBatch Create(const Mesh& mesh, std::initializer_list<const Material*> materials, uint32_t maxInstances, uint32_t flags = SHARD_OBJECT_CAST_SHADOWS);
+bool Set(const Instance* instances, uint32_t count) const;
+bool Set(const std::vector<Instance>& instances) const;
+```
+
+```cpp
+using Vertex2D = ShardVertex2D;
+```
+
+#### `Geometry`
+
+2D geometry that an overlay draws again and again (a UI library compiles its elements once)
+
+```cpp
+Geometry() = default;
+explicit Geometry(ShardGeometry handle) : Owned(handle);
+ShardGeometry Handle() const;
+static Geometry Create(const Vertex2D* vertices, uint32_t vertexCount, const uint32_t* indices, uint32_t indexCount);
+```
+
+#### `OverlayFrame`
+
+```cpp
+uint32_t width = 0, height = 0;
+float dpiScale = 1.f;
+float deltaTime = 0.f;
+uint64_t frame = 0;
+bool playing = false;
+/// the viewport's corner in the window : subtract it from the positions of input events
+Vec2 origin;
+```
+
+#### `Canvas`
+
+What an overlay draws with, valid during its callback
+
+```cpp
+void DrawGeometry(const Geometry& g, const Texture* texture, Vec2 translation = {}) const;
+void SetTransform(const float* matrix16) const;
+void SetScissor(bool enabled, int x = 0, int y = 0, int width = 0, int height = 0) const;
+void SetClipMask(uint32_t operation, const Geometry* g = nullptr, Vec2 translation = {}) const;
+void Clear(Color c) const;
+void DrawTriangles(const Vertex2D* vertices, uint32_t vertexCount, const uint32_t* indices, uint32_t indexCount, const Texture* texture = nullptr) const;
+/// A filled rectangle (premultiplied colour)
+void FillRect(Vec2 min, Vec2 max, uint32_t premultipliedColor) const;
+```
+
+#### `Overlay`
+
+```cpp
+using DrawFn = std::function<void(const OverlayFrame&, Canvas&)>;
+Overlay& operator=(Overlay&& other) noexcept;
+Overlay& operator=(const Overlay&) = delete;
+/// Draws every frame, in order of `order`, over the picture (and over the overlays of a lower order). `target` : a render-target Texture to draw into
+/// instead of the screen. thread : main. Keep the object alive as long as the overlay should draw.
+static Overlay Add(std::string_view name, int32_t order, DrawFn fn, uint32_t flags = 0, const Texture* target = nullptr);
+explicit operator bool() const;
+void Reset();
+```
+
+#### `CameraView`
+
+```cpp
+bool valid = false;
+uint32_t width = 0, height = 0;
+bool orthographic = false;
+float fovDegrees = 60.f, orthoSize = 10.f, nearPlane = 0.1f, farPlane = 100.f;
+double position[3] = {};
+Quat rotation;
+float view[16] = {};
+float projection[16] = {};
+```
+
+#### `Render`
+
+```cpp
+/// The active camera of the game's viewport (valid = false when there is none)
+static CameraView Camera();
+/// A point of the world on the viewport : x, y in pixels from the top left, z the distance along the view axis (negative : behind)
+static Vec3 WorldToScreen(const double position[3]);
+/// The ray through a pixel of the viewport
+static bool ScreenToRay(float x, float y, double origin[3], Vec3& direction);
 ```
 
 ### shard/cpp/script.hpp
@@ -3649,10 +6144,21 @@ virtual void OnDeactivated();
 virtual void OnContactAdded(const Contact&);
 virtual void OnContactPersisted(const Contact&);
 virtual void OnContactEnded(const Contact&);
+/// Every frame the world does NOT play (the editor's edit mode), with the real frame time : a particle emitter, a UI being laid out, a preview.
+/// Only for a class that declares `static constexpr bool kExecuteInEditMode = true;`. What it does must not change what gets saved.
+virtual void OnEditTick(float /*deltaTime*/);
+/// The inspector (or an undo, or SetComponentJson) edited a field : its index among the fields the class registered, in the order of the
+/// registration (Shard::FieldIndex<T>("name") finds an index by name). Not called for what the script changes itself.
+virtual void OnFieldChanged(uint32_t /*fieldIndex*/);
 /// The actor this script is on
 const Actor& Owner() const;
 /// The world it is in
 Scene GetScene() const;
+```
+
+```cpp
+/// The index of the field `name` of the script class T (what OnFieldChanged is told), or -1
+template <typename T> int FieldIndex(const std::string& name);
 ```
 
 #### `ScriptTraits`
@@ -3676,6 +6182,7 @@ template <void (Script::*Fn)(const Contact&)> static ShardResult ContactEvent(vo
 static void SHARD_CALL TextGet(void*, void* object, uint32_t offset, ShardStr* out);
 static ShardResult TextSet(void*, void* object, uint32_t offset, ShardStr text);
 template <void (Script::*Fn)(float)> static ShardResult Tick(void*, void* object, float dt);
+static ShardResult FieldChanged(void*, void* object, uint32_t field);
 static const ShardScriptCallbacks& Table();
 ```
 
@@ -3701,6 +6208,60 @@ SHARD_DETAIL_SCRIPT_DECLARED(Class)
 template <typename T> ComponentType<T>& ComponentOf();
 ```
 
+### shard/cpp/time.hpp
+
+Shard C++ SDK : the simulation's clock and a fingerprint of its state (`shard_time.h`).
+
+```cpp
+const auto t = Shard::Time::Now();
+Send(Message{ t.fixedStep, ... });                    // a tick number two peers agree on
+if (t.fixedStep % 60 == 0) Send(Shard::Time::Hash()); // compare it with the other peer's to know they stayed in step
+```
+
+`simTime` and `fixedStep` are the simulation's (a replay reproduces them) ; `realTime` is the machine's, for what is not part of the game.
+
+#### `TimeInfo`
+
+```cpp
+/// play mode (always in a player)
+bool playing = false;
+uint64_t frame = 0;
+/// fixed steps run so far : the tick number of a network protocol
+uint64_t fixedStep = 0;
+/// seconds of simulation, deterministic
+double simTime = 0.0;
+/// seconds since the engine started, on the wall clock : NOT deterministic
+double realTime = 0.0;
+float deltaTime = 0.f;
+float fixedDeltaTime = 0.f;
+float timeScale = 1.f;
+/// how far the frame sits between the last fixed step and the next one
+float fixedAlpha = 0.f;
+```
+
+#### `StateHash`
+
+What a run looks like at one moment, as hashes : two runs (or two peers) that stayed in step have the same ones
+
+```cpp
+uint64_t frame = 0, physicsSteps = 0, transforms = 0, physics = 0, scripts = 0, total = 0;
+bool operator==(const StateHash& o) const;
+bool operator!=(const StateHash& o) const;
+```
+
+#### `Time`
+
+```cpp
+/// thread : any
+static TimeInfo Now();
+/// 0 pauses the simulation (the frame still runs). thread : main
+static bool SetTimeScale(float scale);
+/// The fixed step, in seconds : a network game picks the tick rate it agreed on. thread : main
+static bool SetFixedDeltaTime(float seconds);
+/// Hashes the simulation now (between frames : on_frame_begin, a system of the Input or Extract phase). thread : main
+static StateHash Hash();
+```
+
 ### shard/cpp/worlds.hpp
 
 Shard C++ SDK : loading worlds (`shard_worlds.h`). Prefabs are spawned with `Scene::SpawnPrefab`.
@@ -3720,4 +6281,6 @@ static bool Load(std::string_view pathInProject);
 /// True while a requested load is under way
 static bool IsLoading();
 static int LoadedCount();
+/// The loaded world at an index (0 .. LoadedCount() - 1), if there is one
+static std::optional<Loaded> At(int index);
 ```

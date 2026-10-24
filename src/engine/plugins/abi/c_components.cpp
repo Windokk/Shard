@@ -37,6 +37,7 @@ namespace Shard::Engine::Plugins::CAbi {
             uint32_t size = 0;
             uint32_t align = 0;
             std::vector<unsigned char> defaults;
+            ShardComponentCallbacks callbacks{};    // 1.4 : what to tell the plugin (all null : nothing)
         };
 
         std::mutex gTypesMutex;
@@ -409,12 +410,28 @@ namespace Shard::Engine::Plugins::CAbi {
                 return out;
             }
 
-            void OnFieldChanged(const FieldChangedEvent&) override { Push(); }
+            void OnFieldChanged(const FieldChangedEvent& event) override
+            {
+                Push();
+                if (m_Live && m_Type->callbacks.on_changed && event.field && event.field->name) {
+                    const std::string name = event.field->name;
+                    uint32_t index = 0;
+                    for (const CField& f : m_Type->fields) {
+                        if (f.name == name) {
+                            Call([&](const ShardComponentCallbacks& cb, uint64_t actor, uint64_t entity) { cb.on_changed(cb.user, ShardPluginCtx(m_Type->owner), actor, entity, m_Storage, index); });
+                            break;
+                        }
+                        ++index;
+                    }
+                    Push();
+                }
+            }
             void OnAttached() override { Push(); }
             void Activate() override { Component::Activate(); Push(); }
-            void DeActivate() override { Pull(); Component::DeActivate(); Detach(); }
+            void DeActivate() override { NotifyRemoved(); Pull(); Component::DeActivate(); Detach(); }
             void Destroy() override
             {
+                NotifyRemoved();
                 Pull();
                 Detach();
                 for (const CField* f : m_Type->blobs) {
@@ -451,9 +468,53 @@ namespace Shard::Engine::Plugins::CAbi {
                 Core::Ecs::Registry* ecs = Ecs();
                 const Core::Ecs::Entity entity = EntityOf();
                 if (!ecs || !ecs->IsAlive(entity)) return;
+                PushValues(*ecs, entity);
+                NotifyAdded();
+            }
+
+            void PushValues(Core::Ecs::Registry& ecs, Core::Ecs::Entity entity)
+            {
                 PushTexts();
-                if (void* at = ecs->GetRaw(entity, m_Type->ecs)) { std::memcpy(at, m_Storage, m_Type->size); return; }
-                if (ecs->CanChangeStructure()) ecs->AddRaw(entity, m_Type->ecs, m_Storage);
+                if (void* at = ecs.GetRaw(entity, m_Type->ecs)) { std::memcpy(at, m_Storage, m_Type->size); return; }
+                if (ecs.CanChangeStructure()) ecs.AddRaw(entity, m_Type->ecs, m_Storage);
+            }
+
+            // Calls the plugin (1.4) with the actor and the entity, crediting it with the time and the blame
+            template <typename Fn>
+            void Call(Fn&& fn)
+            {
+                PluginContext* ctx = FindContext(ShardPluginCtx(m_Type->owner));
+                if (!ctx || !parent) return;
+                ActiveScope scope(ActiveCounter(*ctx), m_Type->owner);
+                uint64_t entity = 0;
+                const Core::Ecs::Entity e = EntityOf();
+                static_assert(sizeof(entity) == sizeof(e), "ShardEntity is an Ecs::Entity");
+                std::memcpy(&entity, &e, sizeof(entity));
+                try { fn(m_Type->callbacks, ActorHandle(parent), entity); } catch (...) {}
+            }
+
+            // The first time the component is on a live entity of an active actor
+            void NotifyAdded()
+            {
+                if (m_Live) return;
+                m_Live = true;
+                if (!m_Type->callbacks.on_added) return;
+                Pull();
+                Call([&](const ShardComponentCallbacks& cb, uint64_t actor, uint64_t entity) { cb.on_added(cb.user, ShardPluginCtx(m_Type->owner), actor, entity, m_Storage); });
+                // What the plugin set in the block goes to the entity
+                Core::Ecs::Registry* ecs = Ecs();
+                const Core::Ecs::Entity entity = EntityOf();
+                if (ecs && ecs->IsAlive(entity)) PushValues(*ecs, entity);
+            }
+
+            // Before the component leaves the entity
+            void NotifyRemoved()
+            {
+                if (!m_Live) return;
+                m_Live = false;
+                if (!m_Type->callbacks.on_removed) return;
+                Pull();
+                Call([&](const ShardComponentCallbacks& cb, uint64_t actor, uint64_t entity) { cb.on_removed(cb.user, ShardPluginCtx(m_Type->owner), actor, entity, m_Storage); });
             }
 
             // The text of each string field into the blob its handle designates (a new blob when it has none yet) : what systems read
@@ -495,6 +556,7 @@ namespace Shard::Engine::Plugins::CAbi {
             alignas(16) mutable unsigned char m_Storage[SHARD_COMPONENT_MAX_SIZE];
             mutable std::string m_Text[SHARD_COMPONENT_MAX_STRINGS];        // the string fields, as the inspector and the world file see them
             std::shared_ptr<const CType> m_Type;
+            bool m_Live = false;                                            // on_added was called and on_removed was not
         };
 
         // ---- The table ----
@@ -509,7 +571,8 @@ namespace Shard::Engine::Plugins::CAbi {
                 if (!OnMainThread()) return SHARD_E_WRONG_THREAD;
                 auto refuse = [&](const std::string& why) { ctx->Error("component type : " + why); return SHARD_E_INVALID_ARG; };
 
-                if (desc->structSize < sizeof(ShardComponentDesc)) return refuse("its ShardComponentDesc is too small");
+                // The description of ABI 1.0 to 1.3 ends at `defaults` ; `callbacks` came with 1.4
+                if (desc->structSize < offsetof(ShardComponentDesc, callbacks)) return refuse("its ShardComponentDesc is too small");
                 const std::string local = ToString(desc->name);
                 if (!IsIdentifier(local, true)) return refuse("'" + local + "' is not a type name (letters, digits, '_' and '.')");
                 const std::string full = ctx->Id() + "." + local;
@@ -524,6 +587,10 @@ namespace Shard::Engine::Plugins::CAbi {
                 type->size = desc->size;
                 type->align = desc->align;
                 if (desc->defaults) type->defaults.assign(static_cast<const unsigned char*>(desc->defaults), static_cast<const unsigned char*>(desc->defaults) + desc->size);
+                if (desc->structSize >= sizeof(ShardComponentDesc) && desc->callbacks && desc->callbacks->structSize >= offsetof(ShardComponentCallbacks, user)) {
+                    std::memcpy(&type->callbacks, desc->callbacks, std::min<size_t>(desc->callbacks->structSize, sizeof(ShardComponentCallbacks)));
+                    type->callbacks.structSize = sizeof(ShardComponentCallbacks);
+                }
 
                 std::string why;
                 if (!BuildFieldSet(*type, full, desc->fields, desc->fieldCount, desc->size, CAbiComponent::StorageOffset(), CAbiComponent::TextOffset(0), false, why)) return refuse(why);

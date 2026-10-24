@@ -488,8 +488,8 @@ A plugin asks for interfaces by name and version : `host->query_interface("shard
 |---|---|
 | `shard.plugin` 1.2 | the plugin's id, version and folder. The host it runs in and its permissions (1.1). Random streams (1.2) |
 | `shard.cvars` 1.0 | console and config variables |
-| `shard.commands` 1.0 | console commands |
-| `shard.components` 1.3 | component types described field by field, each one an ECS component and an actor component. Blobs (1.1), text and asset fields (1.2), actor references and plugin-owned strings in scripts (1.3) |
+| `shard.commands` 1.1 | console commands. Running a console line (1.1) |
+| `shard.components` 1.4 | component types described field by field, each one an ECS component and an actor component. Blobs (1.1), text and asset fields (1.2), actor references and plugin-owned strings in scripts (1.3), `on_added` / `on_removed` / `on_changed` (1.4) |
 | `shard.ecs` 1.1 | queries by chunk, component access and structural changes, from inside a system. Moving the actor behind an entity (1.1) |
 | `shard.systems` 1.0 | systems in the scheduler's phases, with their reads, writes and order |
 | `shard.events` 1.1 | events by name, carrying bytes. C++ code reaches the same channel. Describing a payload for the tools (1.1) |
@@ -498,18 +498,25 @@ A plugin asks for interfaces by name and version : `host->query_interface("shard
 | `shard.extensions` 1.0 | asset validators, asset types and asset importers |
 | `shard.content` 1.0 | module content : `mod://` addresses, logical paths, reading files |
 | `shard.state` 1.0 | what a plugin keeps across a hot reload, as JSON text |
-| `shard.scripts` 1.1 | script types : classes of the plugin that live on actors. Physics contacts (1.1) |
-| `shard.actors` 1.0 | the actors of a world : pose, hierarchy, tags, creating and finding them, the engine's components as JSON |
-| `shard.input` 1.0 | keyboard, mouse and gamepads |
-| `shard.physics` 1.0 | velocities, forces, impulses, gravity and ray casts |
+| `shard.scripts` 1.2 | script types : classes of the plugin that live on actors. Physics contacts (1.1), edit mode and field changes (1.2) |
+| `shard.actors` 1.2 | the actors of a world : pose, hierarchy, tags, creating and finding them, the engine's components as JSON. Stable ids, bounds, finding in a sphere or a box (1.2) |
+| `shard.input` 1.1 | keyboard, mouse and gamepads. The events of the frame, clipboard, cursor shape, text input, capturing the input (1.1) |
+| `shard.physics` 1.1 | velocities, forces, impulses, gravity and ray casts. Every hit of a ray, overlaps, sweeps, static colliders without an actor (1.1) |
 | `shard.audio` 1.0 | the sound of an actor, one shot sounds |
-| `shard.worlds` 1.0 | loading a world, spawning a prefab by name |
-| `shard.editor` 1.1 | panels, menu items, toolbar buttons, inspectors, viewport gizmos, the selection and notifications of the editor, with a wide set of widgets. Only the editor offers it ; a sandboxed plugin needs the permission `editor` |
+| `shard.worlds` 1.1 | loading a world, spawning a prefab by name. The loaded worlds (1.1) |
+| `shard.editor` 1.2 | panels, menu items, toolbar buttons, inspectors, viewport gizmos, the selection and notifications of the editor, with a wide set of widgets. A drawing canvas, undo entries, asset openers and templates (1.2). Only the editor offers it ; a sandboxed plugin needs the permission `editor` |
+| `shard.jobs` 1.0 | the engine's worker threads : jobs, parallel loops, posting back to the main thread |
+| `shard.time` 1.0 | frame, fixed step and simulation time, the time scale, a hash of the simulation state |
+| `shard.assets` 1.0 | assets by path or id : listing, reading and writing files, the triangles of a mesh, the pixels of an image |
+| `shard.reflect` 1.0 | the component and event types with their fields, and functions plugins register and call by name |
+| `shard.net` 1.0 | UDP and TCP sockets, polled at the start of the frame (permission `net`) |
+| `shard.render` 1.0 | meshes, textures, materials, objects, instance and sprite batches, a 2D overlay, the camera |
+| `shard.debug` 1.0 | lines, shapes and texts shown for a duration |
 | `shard.experimental.world_ecs` 0.1 | the engine's entities from the main thread, outside systems (experimental, see below) |
 
 The lifecycle callbacks are those of `IPlugin`, plus the frame, content and world callbacks of `EnginePlugin` and `IModule`, and `on_tool_task` of `ToolPlugin`.
 
-The C ABI has no render features or pipelines, no ImGui itself (a plugin draws with the editor's widgets, see below), no physics shapes or joints beyond what the body component's fields describe, no audio mixing or effects, and no network. The engine components that have no interface of their own can still be read and changed as JSON through `shard.actors`. A plugin that needs more is written in C++ against the engine.
+The C ABI has no render pipelines or features of its own (a plugin draws objects, sprites and a 2D overlay into the engine's frame, see below), no ImGui itself (a plugin draws with the editor's widgets, see below), no physics joints or shapes beyond the body component's fields and the static colliders of `shard.physics`, and no audio mixing or effects. The engine components that have no interface of their own can still be read and changed as JSON through `shard.actors`. A plugin that needs more is written in C++ against the engine.
 
 ### Scripts, actors and input
 
@@ -590,6 +597,34 @@ SHARD_ON_LOAD(Follow, ctx) { ctx.Editor().OnSelectionChanged([](const std::vecto
 The widgets of `Ui` go from text, buttons and sliders to tabs, tables, menus, popups, groups, child regions and disabled sections ; `Gizmo` draws lines, points, circles, spheres, boxes, arrows and text in the world. `Editor::SelectedActors()` gives the selection, `Notify` shows a toast. A function a longer editor has and an older one lacks does nothing and returns false. A sandboxed plugin (tier 2) does all of this too, with `"permissions": ["editor"]`.
 
 A call into a script goes through the plugin like any other. The plugin is named as the one running, so a crash is blamed on it. An exception is caught, and an error returned counts as an error of the plugin : at the tenth, the engine fails the plugin, as it does for a system. When the plugin is disabled or unloaded, its scripts stop being called, so a world that still holds them never calls into a library that has left.
+
+### Bigger systems (ABI 1.7)
+
+ABI 1.7 adds what a particle system, AI and navigation, voxels, a runtime UI, animation, networking or a visual scripting editor are built from. None of them is in the engine ; each is a plugin made of these pieces, through the C++ headers `shard/cpp/jobs.hpp`, `time.hpp`, `assets.hpp`, `reflect.hpp`, `net.hpp`, `render.hpp` and `debug.hpp` (all included by `shard/game.hpp`).
+
+| A plugin that makes... | ...is built on |
+|---|---|
+| particles | `SpriteBatch` / `InstanceBatch` (one call per frame, a few thousand quads), `Jobs::ParallelFor` to update them, `Script` with `kExecuteInEditMode` to preview in the editor |
+| AI and navigation | `Assets::ReadMesh` (the triangles to build a navigation mesh), `Physics::Raycast*`, `Overlap*` and `Sweep*` (visibility, steering), `Collider` (obstacles), `Debug` (paths, volumes), `Scene::FindInSphere` |
+| voxels | `Mesh` made by a `MeshBuilder` (`dynamic`, updated when a chunk changes), `Collider::Mesh` or `Collider::Boxes` for the same chunk, `Texture` for an atlas, `Jobs` to mesh chunks off the main thread |
+| a runtime UI | `Overlay::Add` and its `Canvas` (premultiplied-alpha triangles, scissor, textures) ; `Input::Events`, `Modifiers`, `Clipboard`, `CursorShape`, `Capture` to receive input and to keep it from the game |
+| animation | a skinned `Mesh` (joints and weights) with `RenderObject::SetBonePose` (skinning is done on the CPU for now), `Time::Now()`, `Actor::StableId` to save a rig |
+| networking | `Net::OpenUdp` / `Connect` / `Listen`, `Time::Hash()` to compare the simulation with a peer's, `Time::Now().fixedStep` as the tick number, `Jobs::PostMain` to hand a result back |
+| visual scripting | `Reflect::Types` and `Functions` for the nodes, `Reflect::AddFunction` to add some, `Commands::Execute`, `Ui` canvas methods for the graph, `Editor::PushUndo`, `Editor::AddAssetOpener` and `AddAssetTemplate` for a graph asset |
+
+```cpp
+// A static collider and a mesh for the same voxel chunk, built off the main thread
+Shard::Jobs::Run([chunk] {
+    Shard::MeshBuilder builder;
+    chunk->Mesh(builder);                                   // quads for the visible faces
+    Shard::Jobs::PostMain([chunk, builder = std::move(builder)]() mutable {
+        chunk->mesh.Update(builder);                        // main thread : the GPU copy follows
+        chunk->collider = Shard::Collider::Mesh(chunk->vertices.data(), chunk->vertexCount, chunk->indices.data(), chunk->indexCount, chunk->origin);
+    });
+});
+```
+
+What to know. Everything a plugin creates (meshes, textures, objects, batches, overlays, sockets, colliders, jobs) belongs to it and goes with it ; the handle classes of the C++ layer release theirs. Creating and updating a resource only records it (any thread, so a job can build a mesh) : the GPU copy is made by the thread that draws, a frame later. An object whose mesh was destroyed is not drawn. Limits of the first version : no texture arrays, a 2D clip mask is its bounding rectangle (no stencil), sprites and overlays are drawn by the OpenGL backend only, the debug shapes ignore the depth test, and a skinned mesh is skinned on the CPU. The sandbox does not offer these interfaces yet.
 
 ### Components across the ABI
 

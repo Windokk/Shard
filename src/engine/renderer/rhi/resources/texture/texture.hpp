@@ -164,6 +164,15 @@ namespace Shard::Engine::Rendering {
 
             virtual bool IsValid() const = 0;
 
+            /// Replaces a rectangle of the base level with `pixels` (the texture's own format, rows `rowPitchBytes` apart, 0 : tight) and rebuilds the
+            /// mips when the texture has them. Runs on the graphics thread (from another it is forwarded). False if the API cannot, or the rectangle
+            /// is out of the texture. A texture a shader reads by a bindless handle can be updated this way.
+            virtual bool UpdateRegion(uint32_t x, uint32_t y, uint32_t width, uint32_t height, const void* pixels, uint32_t rowPitchBytes = 0)
+            {
+                (void)x; (void)y; (void)width; (void)height; (void)pixels; (void)rowPitchBytes;
+                return false;
+            }
+
             /// Hot reload : takes over the GPU texture and the specifications of `other` (a freshly decoded texture of the
             /// same API), which is left holding the old ones and is to be dropped. This object - and so every shared_ptr to it - stays,
             /// only the raw GL handle changes. Graphics thread. False if the API can't do it.

@@ -98,9 +98,42 @@ namespace Shard::Engine::Plugins::CAbi {
         }
     }
 
+    namespace {
+        ShardResult SHARD_CALL WorldAt(int32_t index, int32_t* assetId, char* name, uint64_t capacity, uint64_t* size, ShardActor* anchor)
+        {
+            try {
+                if (!OnScriptThread()) return SHARD_E_WRONG_THREAD;
+                Worlds::WorldManager* worlds = Manager();
+                if (!worlds) return SHARD_E_UNSUPPORTED;
+                if (index < 0 || index >= int32_t(worlds->GetLoadedWorldCount())) return SHARD_E_NOT_FOUND;
+                Worlds::World* world = worlds->GetWorldAt(index);
+                if (!world) return SHARD_E_NOT_FOUND;
+                if (assetId) *assetId = world->ResolveAssetID();
+                if (name || size) {
+                    uint64_t length = 0;
+                    const ShardResult copied = CopyOut(world->GetName(), name, capacity, size ? size : &length);
+                    if (copied != SHARD_OK) return copied;
+                }
+                if (anchor) {
+                    // The first root actor, in the order of the ids
+                    *anchor = 0;
+                    auto roots = world->GetRootActors();
+                    Core::ObjectID best;
+                    bool found = false;
+                    for (const auto& [id, actor] : roots) {
+                        if (!actor) continue;
+                        if (!found || id.GetAsInt() < best.GetAsInt()) { best = id; found = true; }
+                    }
+                    if (found) *anchor = ActorHandle(roots[best]);
+                }
+                return SHARD_OK;
+            } catch (...) { return SHARD_E_INTERNAL; }
+        }
+    }
+
     const void* WorldsApi()
     {
-        static const ShardWorldsApi api = { sizeof(ShardWorldsApi), &LoadWorld, &IsLoading, &LoadedCount, &SpawnPrefab };
+        static const ShardWorldsApi api = { sizeof(ShardWorldsApi), &LoadWorld, &IsLoading, &LoadedCount, &SpawnPrefab, &WorldAt };
         return &api;
     }
 }

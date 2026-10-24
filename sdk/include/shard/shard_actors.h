@@ -1,4 +1,4 @@
-/* Interface "shard.actors" 1.1 (1.0 + the fields of a component, one at a time) : the actors of a world, as a script sees them.
+/* Interface "shard.actors" 1.2 (1.0 + the fields of a component, one at a time in 1.1 ; stable ids, bounds and neighbours in 1.2) : the actors of a world, as a script sees them.
  *
  * An actor is what a world file holds and the editor's outliner shows : a name, a pose, children, tags and components. A ShardActor is a
  * handle to one (a generation and a slot, never a pointer) : it fails with SHARD_E_STALE_HANDLE once the actor is destroyed, and a handle
@@ -94,6 +94,24 @@ typedef struct ShardActorsApi {
     ShardResult (SHARD_CALL *set_component_field)(ShardActor actor, ShardStr type, ShardStr path, ShardStr value_json);
     /* Removes an element of an array ("shapes/1") or a key of an object */
     ShardResult (SHARD_CALL *erase_component_field)(ShardActor actor, ShardStr type, ShardStr path);
+
+    /* ---- 1.2 : identity across machines, and the neighbourhood ---- */
+    /* A number that names the actor in a way two machines running the same game agree on : the world's asset id (high 32 bits) and the
+     * actor's id in that world (low 32), the ids being given in the order actors are made, which the simulation reproduces. Use it to say
+     * "this actor" in a network message, a save file or a replay. Not a handle : it never goes stale, it just stops finding anything. */
+    ShardResult (SHARD_CALL *get_stable_id)(ShardActor actor, uint64_t* out);
+    /* The actor that has that stable id, or SHARD_E_NOT_FOUND (it is not made yet, or is destroyed). */
+    ShardResult (SHARD_CALL *find_by_stable_id)(uint64_t stable_id, ShardActor* out);
+    /* The asset id of the world the actor is in (-1 for a world with no asset). */
+    ShardResult (SHARD_CALL *get_world_id)(ShardActor actor, int32_t* out);
+    /* The box that holds the actor's visible and physical shapes (its model, its physics body, its children's), in the world, axis aligned.
+     * SHARD_E_NOT_FOUND : the actor has none of them -- use its position. */
+    ShardResult (SHARD_CALL *get_world_bounds)(ShardActor actor, float out_min[3], float out_max[3]);
+    /* The actors whose position is within `radius` of `center` (a sphere, in the world), or in the box [min, max]. `tag` restricts them (empty :
+     * any). Same array out as find_by_tag : up to `capacity` into `out`, how many there are in *count ; the deactivated ones are left out.
+     * Nearest first for the sphere, the order of the ids for the box. In the world of `anchor`. */
+    ShardResult (SHARD_CALL *find_in_sphere)(ShardActor anchor, const float center[3], float radius, ShardStr tag, ShardActor* out, uint32_t capacity, uint32_t* count);
+    ShardResult (SHARD_CALL *find_in_box)(ShardActor anchor, const float box_min[3], const float box_max[3], ShardStr tag, ShardActor* out, uint32_t capacity, uint32_t* count);
 } ShardActorsApi;
 
 #ifdef __cplusplus

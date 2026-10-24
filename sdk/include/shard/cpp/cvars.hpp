@@ -127,6 +127,25 @@ namespace Shard {
             detail::Check(api.add(m_Ctx, Str(name), Str(help), &Trampoline, detail::Keep(Command{ std::move(fn), {} })), "command '" + name + "'");
         }
 
+        /// The outcome of running a console line
+        struct Result {
+            bool ok = false;            ///< the command ran and succeeded
+            bool found = true;          ///< false : the line names no command
+            std::string output;
+        };
+        /// Runs a console line ("world.load arena") as if it was typed (ABI 1.7). A command that changes what the game simulates is the caller's to run
+        /// from the simulation thread. thread : main
+        Result Execute(std::string_view line) const
+        {
+            const ShardCommandsApi* api = detail::Interface<ShardCommandsApi>(SHARD_IFACE_COMMANDS, 1);
+            Result r;
+            if (!api) { r.found = false; return r; }
+            const ShardResult code = ReadText([&](char* b, uint64_t c, uint64_t* s) { return api->execute(m_Ctx, Str(line), b, c, s); }, r.output);
+            r.ok = code == SHARD_OK;
+            r.found = code != SHARD_E_NOT_FOUND;
+            return r;
+        }
+
     private:
         struct Command {
             CommandFn fn;

@@ -29,6 +29,7 @@ namespace Shard::Engine::Plugins::CAbi {
         uint32_t align = 0;
         void* user = nullptr;
         ShardScriptCallbacks cb{};
+        uint32_t flags = 0;                     // SHARD_SCRIPT_*
         std::atomic<uint32_t>* active = nullptr;
         std::function<void(PluginOwner, const std::string&)> report;
         std::atomic<bool> alive{ true };        // false once the plugin's context released everything: its callbacks are not called any more
@@ -92,6 +93,10 @@ namespace Shard::Engine::Plugins::CAbi {
             void OnFixedTick() override { ResolveRefs(); Tick(m_Type->cb.on_fixed_tick, "on_fixed_tick", true); }
             void OnLateTick() override { Tick(m_Type->cb.on_late_tick, "on_late_tick", false); }
 
+            // 1.2 : the editor's edit mode
+            bool RunsInEditMode() const override { return (m_Type->flags & SHARD_SCRIPT_EDIT_MODE) != 0 && m_Type->cb.on_edit_tick != nullptr; }
+            void OnEditTick() override { ResolveRefs(); Tick(m_Type->cb.on_edit_tick, "on_edit_tick", false); }
+
             // ---- Physics contacts ----
 
             void OnContactAdded(const Events::ContactAddedEvent& e) override { if (m_Type->cb.on_contact_added) Contact(m_Type->cb.on_contact_added, "on_contact_added", DecodeContact(e)); }
@@ -145,9 +150,21 @@ namespace Shard::Engine::Plugins::CAbi {
                 return out;
             }
 
-            void OnFieldChanged(const FieldChangedEvent&) override
+            void OnFieldChanged(const FieldChangedEvent& event) override
             {
-                if (m_Constructed) PushTexts(*m_Type, m_Type->owner, Data(), m_Text, &m_Hooks);
+                if (!m_Constructed) return;
+                PushTexts(*m_Type, m_Type->owner, Data(), m_Text, &m_Hooks);
+                if (!m_Type->cb.on_field_changed || !event.field || !event.field->name) return;
+                const std::string name = event.field->name;
+                uint32_t index = 0;
+                for (const CField& f : m_Type->fields) {
+                    if (f.name == name) {
+                        Call("on_field_changed", [&] { return m_Type->cb.on_field_changed(m_Type->user, Data(), index); });
+                        PushTexts(*m_Type, m_Type->owner, Data(), m_Text, &m_Hooks);
+                        return;
+                    }
+                    ++index;
+                }
             }
 
             void Activate() override { Script::Activate(); }
@@ -328,7 +345,8 @@ namespace Shard::Engine::Plugins::CAbi {
                 if (!OnMainThread()) return SHARD_E_WRONG_THREAD;
                 auto refuse = [&](const std::string& why) { ctx->Error("script type : " + why); return SHARD_E_INVALID_ARG; };
 
-                if (desc->structSize < sizeof(ShardScriptDesc)) return refuse("its ShardScriptDesc is too small");
+                // The description of ABI 1.4 and 1.5 ends at `callbacks` ; `flags` came with 1.7
+                if (desc->structSize < offsetof(ShardScriptDesc, flags)) return refuse("its ShardScriptDesc is too small");
                 const std::string local = ToString(desc->name);
                 if (!IsFieldName(local)) return refuse("'" + local + "' is not a script name (letters, digits and '_')");
                 const std::string full = ctx->Id() + "." + local;
@@ -346,6 +364,7 @@ namespace Shard::Engine::Plugins::CAbi {
                 type->size = desc->size;
                 type->align = desc->align;
                 type->user = desc->user;
+                if (desc->structSize >= sizeof(ShardScriptDesc)) type->flags = desc->flags;
                 std::memcpy(&type->cb, desc->callbacks, std::min<size_t>(desc->callbacks->structSize, sizeof(ShardScriptCallbacks)));
                 type->active = ActiveCounter(*ctx);
                 type->report = ctx->Bindings().reportError;

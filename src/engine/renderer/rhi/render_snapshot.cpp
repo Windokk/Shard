@@ -1,6 +1,21 @@
 #include "engine/renderer/rhi/render_snapshot.hpp"
 
+#include "engine/renderer/rhi/render_thread.hpp"
+#include "engine/renderer/rhi/renderer_api.hpp"
+
 namespace Shard::Engine::Rendering {
+
+    OverlayGeometry::~OverlayGeometry()
+    {
+        if (!gpu[0] && !gpu[1] && !gpu[2])
+            return;
+        const uint32_t ids[3] = { gpu[0], gpu[1], gpu[2] };
+        // The buffers belong to the graphics thread
+        RenderThread::Get().Post([ids] {
+            if (RendererAPI* api = RendererAPI::Current())
+                api->ReleaseOverlayGeometry(ids);
+        });
+    }
 
     RenderView BuildView(const CameraProxy& camera)
     {

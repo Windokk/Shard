@@ -138,6 +138,21 @@ namespace Shard {
             return raw;
         }
 
+        /// Runs `fn` and drops what it throws : for the callbacks that have no way to report (a job, a socket handler, a draw function)
+        template <typename Fn>
+        void NoThrow(Fn&& fn) noexcept
+        {
+#if SHARD_SDK_NOEXC
+            fn();
+#else
+            try { fn(); } catch (const std::exception& e) {
+                if (Host()) Host()->log(PluginHandle(), SHARD_LOG_ERROR, Str(std::string("a callback threw : ") + e.what()));
+            } catch (...) {
+                if (Host()) Host()->log(PluginHandle(), SHARD_LOG_ERROR, Str("a callback threw"));
+            }
+#endif
+        }
+
         /// Runs `fn` and turns what it throws into a result, with the message in the host's log
         template <typename Fn>
         ShardResult Guard(ShardPluginCtx ctx, const char* what, Fn&& fn) noexcept

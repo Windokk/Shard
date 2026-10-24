@@ -312,6 +312,31 @@ namespace Shard::Engine::Core::Platform {
         return scale > 0.0f ? scale : 1.0f;
     }
 
+    void SDLWindow::SetCursorShape(int shape)
+    {
+        static const SDL_SystemCursor kShapes[] = {
+            SDL_SYSTEM_CURSOR_DEFAULT, SDL_SYSTEM_CURSOR_TEXT, SDL_SYSTEM_CURSOR_POINTER, SDL_SYSTEM_CURSOR_CROSSHAIR,
+            SDL_SYSTEM_CURSOR_EW_RESIZE, SDL_SYSTEM_CURSOR_NS_RESIZE, SDL_SYSTEM_CURSOR_NWSE_RESIZE, SDL_SYSTEM_CURSOR_NESW_RESIZE,
+            SDL_SYSTEM_CURSOR_MOVE, SDL_SYSTEM_CURSOR_NOT_ALLOWED };
+        constexpr int kCount = int(sizeof(kShapes) / sizeof(kShapes[0]));
+        static SDL_Cursor* cursors[kCount] = {};
+        if (shape < 0 || shape >= kCount) shape = 0;
+        if (!cursors[shape]) cursors[shape] = SDL_CreateSystemCursor(kShapes[shape]);
+        if (cursors[shape]) SDL_SetCursor(cursors[shape]);
+    }
+
+    void SDLWindow::SetTextInputActive(bool active, int x, int y, int width, int height)
+    {
+        if (!m_Window) return;
+        if (!active) {
+            SDL_StopTextInput(m_Window);
+            return;
+        }
+        const SDL_Rect area = { x, y, width, height };
+        SDL_SetTextInputArea(m_Window, &area, 0);
+        SDL_StartTextInput(m_Window);
+    }
+
     std::vector<MonitorInfos> SDLWindow::GetMonitors() const
     {
         std::vector<MonitorInfos> monitors;

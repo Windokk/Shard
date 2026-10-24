@@ -25,6 +25,7 @@
 #include <shard/cpp/editor.hpp>
 #include <shard/cpp/events.hpp>
 #include <shard/cpp/registry.hpp>
+#include <shard/cpp/reflect.hpp>
 #include <shard/cpp/script.hpp>
 #include <shard/cpp/services.hpp>
 #include <shard/cpp/system.hpp>
@@ -66,6 +67,7 @@ namespace Shard {
         Shard::Services Services() const { return Shard::Services(m_Ctx); }
         Shard::Content Content() const { return Shard::Content(m_Ctx); }
         Shard::Extensions Extensions() const { return Shard::Extensions(m_Ctx); }
+        Shard::Reflect Reflect() const { return Shard::Reflect(m_Ctx); }
 
     private:
         static const ShardPluginApi* Plugin() { return detail::Interface<ShardPluginApi>(SHARD_IFACE_PLUGIN); }

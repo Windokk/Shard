@@ -1,4 +1,4 @@
-/* Interface "shard.scripts" 1.1 : scripts, the components that carry a plugin's gameplay code.
+/* Interface "shard.scripts" 1.2 : scripts, the components that carry a plugin's gameplay code.
  *
  * A script is an object of the plugin (a C++ class in the SDK) that lives on an actor, as the engine's own Script components do. The host
  * owns its memory and calls it back : it is created with the component, receives the callbacks of the actor's life and of the frame
@@ -11,7 +11,13 @@
  * new object and copies the described fields into it : what is not a field starts fresh, as if the actor was just created.
  *
  * Threads : every callback runs on the thread that ticks the scripts of the world, one script after the other, never two at once : what a
- * script does with shard_actors.h and shard_input.h is safe there. The functions of this table are "thread : main" (from on_load). */
+ * script does with shard_actors.h and shard_input.h is safe there. The functions of this table are "thread : main" (from on_load).
+ *
+ * Edit mode (1.2) : the engine ticks scripts only while the world plays (on_create does run when a script joins an actor in the editor, on_play
+ * only in play mode). A script that has to be seen working while it is being made -- a particle emitter, a UI being laid out, an animation being
+ * scrubbed, a navigation mesh being tuned -- sets SHARD_SCRIPT_EDIT_MODE in its description : on_edit_tick is then called every frame the world
+ * does NOT play (with the real frame time). on_field_changed is called when the inspector edits one of a script's fields, in either mode. What a
+ * script does in edit mode must not change what gets saved: the world file holds the fields, not the state of an effect. */
 #ifndef SHARD_SCRIPTS_H
 #define SHARD_SCRIPTS_H
 
@@ -79,8 +85,16 @@ typedef struct ShardScriptCallbacks {
     void        (SHARD_CALL *text_get)(void* user, void* object, uint32_t offset, ShardStr* out);
     ShardResult (SHARD_CALL *text_set)(void* user, void* object, uint32_t offset, ShardStr text);
 
+    /* ---- 1.2 ---- */
+    ShardScriptTickFn on_edit_tick;         /* SHARD_SCRIPT_EDIT_MODE : every frame while the world does not play */
+    /* A field was edited (inspector, shard.actors' set_component, an undo) ; `field` is its index in the description's `fields`. Not called for
+     * the fields the script changes itself. */
+    ShardResult (SHARD_CALL *on_field_changed)(void* user, void* object, uint32_t field);
+
     /* Callbacks of later ABI revisions go HERE : the host checks structSize before reading them. */
 } ShardScriptCallbacks;
+
+#define SHARD_SCRIPT_EDIT_MODE  1u          /* ShardScriptDesc::flags : also run in the editor's edit mode, see above */
 
 typedef struct ShardScriptDesc {
     uint32_t structSize;
@@ -91,6 +105,9 @@ typedef struct ShardScriptDesc {
     const ShardFieldDesc* fields;           /* offsets in the object. Read during the call only. */
     void* user;                             /* handed back to every callback */
     const ShardScriptCallbacks* callbacks;  /* copied up to its structSize during the call */
+    /* ---- 1.2 ---- */
+    uint32_t flags;                         /* SHARD_SCRIPT_* */
+    uint32_t reserved;
 } ShardScriptDesc;
 
 typedef struct ShardScriptsApi {

@@ -90,6 +90,12 @@ namespace Shard::Engine::Worlds{
                 }
             }
 
+            void EditTick() {
+                for(auto& world : worldBuffer){
+                    world->EditTick();
+                }
+            }
+
             void FixedTick() {
                 for(auto& world : worldBuffer){
                     world->FixedTick();

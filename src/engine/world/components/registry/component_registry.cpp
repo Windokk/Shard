@@ -1,5 +1,6 @@
 #include "component_registry.hpp"
 
+#include <algorithm>
 #include <iostream>
 
 #include "engine/core/diagnostics/logger.hpp"
@@ -42,6 +43,14 @@ namespace Shard::Engine::Objects::Components {
         if (it == builtins.end())
             return nullptr;
         return it->second.factory(engine, std::move(actor), localId);
+    }
+
+    std::vector<std::string> ComponentRegistry::BuiltinNames() const {
+        std::vector<std::string> names;
+        names.reserve(builtins.size());
+        for (const auto& kv : builtins) names.push_back(kv.first);
+        std::sort(names.begin(), names.end());
+        return names;
     }
 
     bool ComponentRegistry::IsBuiltinComponent(const std::string& typeName) const {

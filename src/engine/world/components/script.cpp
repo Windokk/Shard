@@ -33,6 +33,15 @@ namespace Shard::Engine::Objects::Components
     {
     }
 
+    bool Script::RunsInEditMode() const
+    {
+        return false;
+    }
+
+    void Script::OnEditTick()
+    {
+    }
+
     void Script::OnFixedTick()
     {
     }

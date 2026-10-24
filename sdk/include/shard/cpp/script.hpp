@@ -27,6 +27,9 @@
 
 #include <new>
 #include <string>
+#include <typeindex>
+#include <unordered_map>
+#include <vector>
 #include <type_traits>
 #include <utility>
 
@@ -76,6 +79,12 @@ namespace Shard {
         virtual void OnContactAdded(const Contact&) {}
         virtual void OnContactPersisted(const Contact&) {}
         virtual void OnContactEnded(const Contact&) {}
+        /// Every frame the world does NOT play (the editor's edit mode), with the real frame time : a particle emitter, a UI being laid out, a preview.
+        /// Only for a class that declares `static constexpr bool kExecuteInEditMode = true;`. What it does must not change what gets saved.
+        virtual void OnEditTick(float /*deltaTime*/) {}
+        /// The inspector (or an undo, or SetComponentJson) edited a field : its index among the fields the class registered, in the order of the
+        /// registration (Shard::FieldIndex<T>("name") finds an index by name). Not called for what the script changes itself.
+        virtual void OnFieldChanged(uint32_t /*fieldIndex*/) {}
 
         /// The actor this script is on
         const Actor& Owner() const { return m_Owner; }
@@ -86,6 +95,27 @@ namespace Shard {
         template <typename T> friend struct ScriptThunks;
         Actor m_Owner;
     };
+
+    namespace detail {
+        /// The names of the fields each script class registered, in the order of the registration (the index OnFieldChanged is told)
+        inline std::unordered_map<std::type_index, std::vector<std::string>>& ScriptFieldNames()
+        {
+            static std::unordered_map<std::type_index, std::vector<std::string>> names;
+            return names;
+        }
+        template <typename T, typename = void> struct ExecutesInEditMode : std::false_type {};
+        template <typename T> struct ExecutesInEditMode<T, std::enable_if_t<T::kExecuteInEditMode>> : std::true_type {};
+    }
+
+    /// The index of the field `name` of the script class T (what OnFieldChanged is told), or -1
+    template <typename T>
+    int FieldIndex(const std::string& name)
+    {
+        auto it = detail::ScriptFieldNames().find(std::type_index(typeid(T)));
+        if (it == detail::ScriptFieldNames().end()) return -1;
+        for (size_t i = 0; i < it->second.size(); ++i) if (it->second[i] == name) return int(i);
+        return -1;
+    }
 
     /// Which members of T are its fields : SHARD_REGISTER_SCRIPT specializes it
     template <typename T>
@@ -147,6 +177,10 @@ namespace Shard {
         {
             return detail::Guard(detail::PluginHandle(), "a script", [&] { (static_cast<Script*>(static_cast<T*>(object))->*Fn)(dt); });
         }
+        static ShardResult FieldChanged(void*, void* object, uint32_t field)
+        {
+            return detail::Guard(detail::PluginHandle(), "a script", [&] { static_cast<Script*>(static_cast<T*>(object))->OnFieldChanged(field); });
+        }
 
         static const ShardScriptCallbacks& Table()
         {
@@ -172,6 +206,8 @@ namespace Shard {
                 c.on_contact_ended = &ContactEvent<&Script::OnContactEnded>;
                 c.text_get = &TextGet;
                 c.text_set = &TextSet;
+                c.on_edit_tick = &Tick<&Script::OnEditTick>;
+                c.on_field_changed = &FieldChanged;
                 return c;
             }();
             return table;
@@ -223,8 +259,12 @@ namespace Shard {
             desc.fields = fields.data();
             desc.user = nullptr;
             desc.callbacks = &ScriptThunks<T>::Table();
+            desc.flags = detail::ExecutesInEditMode<T>::value ? SHARD_SCRIPT_EDIT_MODE : 0u;
             detail::Check(detail::ScriptsApi().register_script(m_Ctx, &desc), "script '" + name + "'");
             detail::ScriptNames()[std::type_index(typeid(T))] = name;
+            std::vector<std::string>& names = detail::ScriptFieldNames()[std::type_index(typeid(T))];
+            names.clear();
+            for (const ShardFieldDesc& f : fields) names.push_back(std::string(View(f.name)));
         }
 
     private:

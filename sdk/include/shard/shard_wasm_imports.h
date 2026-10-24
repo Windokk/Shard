@@ -53,6 +53,7 @@ SHARD_WASM_IMPORT("plugin.random_stream") ShardResult shard_wasm_plugin_random_s
 
 /* ---- shard.commands ---- */
 SHARD_WASM_IMPORT("commands.add") ShardResult shard_wasm_commands_add(ShardPluginCtx ctx, ShardStr name, ShardStr help, ShardCommandFn run, void* user);
+SHARD_WASM_IMPORT("commands.execute") ShardResult shard_wasm_commands_execute(ShardPluginCtx ctx, ShardStr line, char* output, uint64_t capacity, uint64_t* size);
 
 /* ---- shard.cvars ---- */
 SHARD_WASM_IMPORT("cvars.create_bool") ShardResult shard_wasm_cvars_create_bool(ShardPluginCtx ctx, ShardStr name, int32_t value, ShardStr help, uint32_t flags, ShardCVar* out);
@@ -150,6 +151,12 @@ SHARD_WASM_IMPORT("actors.set_component") ShardResult shard_wasm_actors_set_comp
 SHARD_WASM_IMPORT("actors.get_component_field") ShardResult shard_wasm_actors_get_component_field(ShardActor actor, ShardStr type, ShardStr path, char* buffer, uint64_t capacity, uint64_t* size);
 SHARD_WASM_IMPORT("actors.set_component_field") ShardResult shard_wasm_actors_set_component_field(ShardActor actor, ShardStr type, ShardStr path, ShardStr value_json);
 SHARD_WASM_IMPORT("actors.erase_component_field") ShardResult shard_wasm_actors_erase_component_field(ShardActor actor, ShardStr type, ShardStr path);
+SHARD_WASM_IMPORT("actors.get_stable_id") ShardResult shard_wasm_actors_get_stable_id(ShardActor actor, uint64_t* out);
+SHARD_WASM_IMPORT("actors.find_by_stable_id") ShardResult shard_wasm_actors_find_by_stable_id(uint64_t stable_id, ShardActor* out);
+SHARD_WASM_IMPORT("actors.get_world_id") ShardResult shard_wasm_actors_get_world_id(ShardActor actor, int32_t* out);
+SHARD_WASM_IMPORT("actors.get_world_bounds") ShardResult shard_wasm_actors_get_world_bounds(ShardActor actor, float out_min[3], float out_max[3]);
+SHARD_WASM_IMPORT("actors.find_in_sphere") ShardResult shard_wasm_actors_find_in_sphere(ShardActor anchor, const float center[3], float radius, ShardStr tag, ShardActor* out, uint32_t capacity, uint32_t* count);
+SHARD_WASM_IMPORT("actors.find_in_box") ShardResult shard_wasm_actors_find_in_box(ShardActor anchor, const float box_min[3], const float box_max[3], ShardStr tag, ShardActor* out, uint32_t capacity, uint32_t* count);
 
 /* ---- shard.scripts ---- */
 SHARD_WASM_IMPORT("scripts.register_script") ShardResult shard_wasm_scripts_register_script(ShardPluginCtx ctx, const ShardScriptDesc* desc);
@@ -172,6 +179,15 @@ SHARD_WASM_IMPORT("input.gamepad_button_pressed") int32_t shard_wasm_input_gamep
 SHARD_WASM_IMPORT("input.gamepad_button_released") int32_t shard_wasm_input_gamepad_button_released(int32_t pad, int32_t button);
 SHARD_WASM_IMPORT("input.gamepad_axis") float shard_wasm_input_gamepad_axis(int32_t pad, int32_t axis, float dead_zone);
 SHARD_WASM_IMPORT("input.gamepad_rumble") int32_t shard_wasm_input_gamepad_rumble(int32_t pad, float low, float high, int32_t duration_ms);
+SHARD_WASM_IMPORT("input.event_count") uint32_t shard_wasm_input_event_count(void);
+SHARD_WASM_IMPORT("input.event_at") ShardResult shard_wasm_input_event_at(uint32_t index, ShardInputEvent* out);
+SHARD_WASM_IMPORT("input.modifiers") uint32_t shard_wasm_input_modifiers(void);
+SHARD_WASM_IMPORT("input.window_size") ShardResult shard_wasm_input_window_size(int32_t* width, int32_t* height, float* dpi_scale);
+SHARD_WASM_IMPORT("input.clipboard_get") ShardResult shard_wasm_input_clipboard_get(char* buffer, uint64_t capacity, uint64_t* size);
+SHARD_WASM_IMPORT("input.clipboard_set") ShardResult shard_wasm_input_clipboard_set(ShardStr text);
+SHARD_WASM_IMPORT("input.set_cursor_shape") ShardResult shard_wasm_input_set_cursor_shape(int32_t shape);
+SHARD_WASM_IMPORT("input.set_text_input") ShardResult shard_wasm_input_set_text_input(int32_t enabled, int32_t x, int32_t y, int32_t width, int32_t height);
+SHARD_WASM_IMPORT("input.capture") ShardResult shard_wasm_input_capture(ShardPluginCtx ctx, uint32_t mask);
 
 /* ---- shard.physics ---- */
 SHARD_WASM_IMPORT("physics.get_velocity") ShardResult shard_wasm_physics_get_velocity(ShardActor actor, float out[3]);
@@ -187,6 +203,16 @@ SHARD_WASM_IMPORT("physics.add_angular_impulse") ShardResult shard_wasm_physics_
 SHARD_WASM_IMPORT("physics.get_gravity") ShardResult shard_wasm_physics_get_gravity(ShardActor actor, float out[3]);
 SHARD_WASM_IMPORT("physics.set_custom_gravity") ShardResult shard_wasm_physics_set_custom_gravity(ShardActor actor, const float gravity[3]);
 SHARD_WASM_IMPORT("physics.raycast") ShardResult shard_wasm_physics_raycast(const float origin[3], const float direction[3], float max_distance, uint32_t layers, ShardActor ignore, ShardRayHit* out);
+SHARD_WASM_IMPORT("physics.raycast_all") ShardResult shard_wasm_physics_raycast_all(const float origin[3], const float direction[3], float max_distance, const ShardQueryFilter* filter, ShardRayHit* out, uint32_t capacity, uint32_t* count);
+SHARD_WASM_IMPORT("physics.overlap_sphere") ShardResult shard_wasm_physics_overlap_sphere(const float center[3], float radius, const ShardQueryFilter* filter, ShardRayHit* out, uint32_t capacity, uint32_t* count);
+SHARD_WASM_IMPORT("physics.overlap_box") ShardResult shard_wasm_physics_overlap_box(const float center[3], const float half_extent[3], const float rotation[4], const ShardQueryFilter* filter, ShardRayHit* out, uint32_t capacity, uint32_t* count);
+SHARD_WASM_IMPORT("physics.overlap_capsule") ShardResult shard_wasm_physics_overlap_capsule(const float from[3], const float to[3], float radius, const ShardQueryFilter* filter, ShardRayHit* out, uint32_t capacity, uint32_t* count);
+SHARD_WASM_IMPORT("physics.sweep_sphere") ShardResult shard_wasm_physics_sweep_sphere(const float origin[3], float radius, const float direction[3], float max_distance, const ShardQueryFilter* filter, ShardRayHit* out);
+SHARD_WASM_IMPORT("physics.sweep_box") ShardResult shard_wasm_physics_sweep_box(const float origin[3], const float half_extent[3], const float rotation[4], const float direction[3], float max_distance, const ShardQueryFilter* filter, ShardRayHit* out);
+SHARD_WASM_IMPORT("physics.collider_create") ShardResult shard_wasm_physics_collider_create(ShardPluginCtx ctx, const ShardColliderDesc* desc, ShardCollider* out);
+SHARD_WASM_IMPORT("physics.collider_set_pose") ShardResult shard_wasm_physics_collider_set_pose(ShardPluginCtx ctx, ShardCollider collider, const double position[3], const float rotation[4]);
+SHARD_WASM_IMPORT("physics.collider_update") ShardResult shard_wasm_physics_collider_update(ShardPluginCtx ctx, ShardCollider collider, const ShardColliderDesc* desc);
+SHARD_WASM_IMPORT("physics.collider_destroy") ShardResult shard_wasm_physics_collider_destroy(ShardPluginCtx ctx, ShardCollider collider);
 
 /* ---- shard.audio ---- */
 SHARD_WASM_IMPORT("audio.play") ShardResult shard_wasm_audio_play(ShardActor actor);
@@ -199,6 +225,7 @@ SHARD_WASM_IMPORT("worlds.load_world") ShardResult shard_wasm_worlds_load_world(
 SHARD_WASM_IMPORT("worlds.is_loading") int32_t shard_wasm_worlds_is_loading(void);
 SHARD_WASM_IMPORT("worlds.loaded_count") int32_t shard_wasm_worlds_loaded_count(void);
 SHARD_WASM_IMPORT("worlds.spawn_prefab") ShardResult shard_wasm_worlds_spawn_prefab(ShardActor anchor, ShardStr prefab, ShardActor parent, ShardActor* out);
+SHARD_WASM_IMPORT("worlds.world_at") ShardResult shard_wasm_worlds_world_at(int32_t index, int32_t* asset_id, char* name, uint64_t capacity, uint64_t* size, ShardActor* anchor);
 
 /* ---- shard.editor ---- */
 SHARD_WASM_IMPORT("editor.add_panel") ShardResult shard_wasm_editor_add_panel(ShardPluginCtx ctx, ShardStr title, ShardPanelFn draw, void* user);
@@ -210,6 +237,9 @@ SHARD_WASM_IMPORT("editor.subscribe_selection") ShardResult shard_wasm_editor_su
 SHARD_WASM_IMPORT("editor.get_selection") ShardResult shard_wasm_editor_get_selection(ShardActor* out, uint32_t capacity, uint32_t* count);
 SHARD_WASM_IMPORT("editor.notify") ShardResult shard_wasm_editor_notify(ShardPluginCtx ctx, uint32_t level, ShardStr message);
 SHARD_WASM_IMPORT("editor.set_panel_visible") ShardResult shard_wasm_editor_set_panel_visible(ShardPluginCtx ctx, ShardStr title, int32_t visible);
+SHARD_WASM_IMPORT("editor.undo_push") ShardResult shard_wasm_editor_undo_push(ShardPluginCtx ctx, ShardStr label, ShardUndoFn undo, ShardUndoFn redo, void* user);
+SHARD_WASM_IMPORT("editor.add_asset_opener") ShardResult shard_wasm_editor_add_asset_opener(ShardPluginCtx ctx, ShardStr extension, ShardOpenAssetFn open, void* user);
+SHARD_WASM_IMPORT("editor.add_asset_template") ShardResult shard_wasm_editor_add_asset_template(ShardPluginCtx ctx, ShardStr label, ShardStr default_name, const void* data, uint64_t size);
 
 /* ---- shard.ui ---- */
 SHARD_WASM_IMPORT("ui.text") void shard_wasm_ui_text(ShardStr text);
@@ -289,6 +319,45 @@ SHARD_WASM_IMPORT("ui.begin_popup_context_item") int32_t shard_wasm_ui_begin_pop
 SHARD_WASM_IMPORT("ui.is_item_clicked") int32_t shard_wasm_ui_is_item_clicked(int32_t button);
 SHARD_WASM_IMPORT("ui.is_item_active") int32_t shard_wasm_ui_is_item_active(void);
 SHARD_WASM_IMPORT("ui.is_item_double_clicked") int32_t shard_wasm_ui_is_item_double_clicked(void);
+SHARD_WASM_IMPORT("ui.draw_line") void shard_wasm_ui_draw_line(const float a[2], const float b[2], uint32_t color, float thickness);
+SHARD_WASM_IMPORT("ui.draw_polyline") void shard_wasm_ui_draw_polyline(const float* points, uint32_t count, uint32_t color, int32_t closed, float thickness);
+SHARD_WASM_IMPORT("ui.draw_rect") void shard_wasm_ui_draw_rect(const float min[2], const float max[2], uint32_t color, float rounding, float thickness);
+SHARD_WASM_IMPORT("ui.draw_rect_filled") void shard_wasm_ui_draw_rect_filled(const float min[2], const float max[2], uint32_t color, float rounding);
+SHARD_WASM_IMPORT("ui.draw_circle") void shard_wasm_ui_draw_circle(const float center[2], float radius, uint32_t color, float thickness);
+SHARD_WASM_IMPORT("ui.draw_circle_filled") void shard_wasm_ui_draw_circle_filled(const float center[2], float radius, uint32_t color);
+SHARD_WASM_IMPORT("ui.draw_triangle_filled") void shard_wasm_ui_draw_triangle_filled(const float a[2], const float b[2], const float c[2], uint32_t color);
+SHARD_WASM_IMPORT("ui.draw_bezier") void shard_wasm_ui_draw_bezier(const float p0[2], const float p1[2], const float p2[2], const float p3[2], uint32_t color, float thickness);
+SHARD_WASM_IMPORT("ui.draw_text") void shard_wasm_ui_draw_text(const float position[2], uint32_t color, ShardStr text);
+SHARD_WASM_IMPORT("ui.push_clip_rect") void shard_wasm_ui_push_clip_rect(const float min[2], const float max[2], int32_t intersect);
+SHARD_WASM_IMPORT("ui.pop_clip_rect") void shard_wasm_ui_pop_clip_rect(void);
+SHARD_WASM_IMPORT("ui.get_cursor_screen_pos") void shard_wasm_ui_get_cursor_screen_pos(float out[2]);
+SHARD_WASM_IMPORT("ui.set_cursor_screen_pos") void shard_wasm_ui_set_cursor_screen_pos(const float position[2]);
+SHARD_WASM_IMPORT("ui.get_content_region_avail") void shard_wasm_ui_get_content_region_avail(float out[2]);
+SHARD_WASM_IMPORT("ui.get_item_rect_min") void shard_wasm_ui_get_item_rect_min(float out[2]);
+SHARD_WASM_IMPORT("ui.get_item_rect_max") void shard_wasm_ui_get_item_rect_max(float out[2]);
+SHARD_WASM_IMPORT("ui.calc_text_size") void shard_wasm_ui_calc_text_size(ShardStr text, float out[2]);
+SHARD_WASM_IMPORT("ui.invisible_button") int32_t shard_wasm_ui_invisible_button(ShardStr id, float width, float height);
+SHARD_WASM_IMPORT("ui.get_mouse_pos") void shard_wasm_ui_get_mouse_pos(float out[2]);
+SHARD_WASM_IMPORT("ui.get_mouse_drag_delta") void shard_wasm_ui_get_mouse_drag_delta(int32_t button, float out[2]);
+SHARD_WASM_IMPORT("ui.reset_mouse_drag_delta") void shard_wasm_ui_reset_mouse_drag_delta(int32_t button);
+SHARD_WASM_IMPORT("ui.get_mouse_wheel") float shard_wasm_ui_get_mouse_wheel(void);
+SHARD_WASM_IMPORT("ui.is_mouse_down") int32_t shard_wasm_ui_is_mouse_down(int32_t button);
+SHARD_WASM_IMPORT("ui.is_mouse_clicked") int32_t shard_wasm_ui_is_mouse_clicked(int32_t button);
+SHARD_WASM_IMPORT("ui.is_mouse_released") int32_t shard_wasm_ui_is_mouse_released(int32_t button);
+SHARD_WASM_IMPORT("ui.is_mouse_double_clicked") int32_t shard_wasm_ui_is_mouse_double_clicked(int32_t button);
+SHARD_WASM_IMPORT("ui.is_key_down") int32_t shard_wasm_ui_is_key_down(int32_t key);
+SHARD_WASM_IMPORT("ui.is_key_pressed") int32_t shard_wasm_ui_is_key_pressed(int32_t key);
+SHARD_WASM_IMPORT("ui.get_modifiers") uint32_t shard_wasm_ui_get_modifiers(void);
+SHARD_WASM_IMPORT("ui.is_window_hovered") int32_t shard_wasm_ui_is_window_hovered(void);
+SHARD_WASM_IMPORT("ui.is_window_focused") int32_t shard_wasm_ui_is_window_focused(void);
+SHARD_WASM_IMPORT("ui.image") void shard_wasm_ui_image(uint64_t texture, float width, float height);
+SHARD_WASM_IMPORT("ui.selectable_size") int32_t shard_wasm_ui_selectable_size(ShardStr label, int32_t selected, float width, float height);
+SHARD_WASM_IMPORT("ui.begin_drag_drop_source") int32_t shard_wasm_ui_begin_drag_drop_source(void);
+SHARD_WASM_IMPORT("ui.set_drag_drop_payload") void shard_wasm_ui_set_drag_drop_payload(ShardStr type, const void* data, uint64_t size);
+SHARD_WASM_IMPORT("ui.end_drag_drop_source") void shard_wasm_ui_end_drag_drop_source(void);
+SHARD_WASM_IMPORT("ui.begin_drag_drop_target") int32_t shard_wasm_ui_begin_drag_drop_target(void);
+SHARD_WASM_IMPORT("ui.accept_drag_drop_payload") int32_t shard_wasm_ui_accept_drag_drop_payload(ShardStr type, void* out, uint64_t capacity, uint64_t* size);
+SHARD_WASM_IMPORT("ui.end_drag_drop_target") void shard_wasm_ui_end_drag_drop_target(void);
 
 /* ---- shard.gizmo ---- */
 SHARD_WASM_IMPORT("gizmo.line") void shard_wasm_gizmo_line(const float from[3], const float to[3], const float rgba[4]);
@@ -315,6 +384,7 @@ static const ShardPluginApi shard_wasm_api_plugin = {
 static const ShardCommandsApi shard_wasm_api_commands = {
     sizeof(ShardCommandsApi),
     shard_wasm_commands_add,
+    shard_wasm_commands_execute,
 };
 static const ShardCVarsApi shard_wasm_api_cvars = {
     sizeof(ShardCVarsApi),
@@ -420,6 +490,12 @@ static const ShardActorsApi shard_wasm_api_actors = {
     shard_wasm_actors_get_component_field,
     shard_wasm_actors_set_component_field,
     shard_wasm_actors_erase_component_field,
+    shard_wasm_actors_get_stable_id,
+    shard_wasm_actors_find_by_stable_id,
+    shard_wasm_actors_get_world_id,
+    shard_wasm_actors_get_world_bounds,
+    shard_wasm_actors_find_in_sphere,
+    shard_wasm_actors_find_in_box,
 };
 static const ShardScriptsApi shard_wasm_api_scripts = {
     sizeof(ShardScriptsApi),
@@ -444,6 +520,15 @@ static const ShardInputApi shard_wasm_api_input = {
     shard_wasm_input_gamepad_button_released,
     shard_wasm_input_gamepad_axis,
     shard_wasm_input_gamepad_rumble,
+    shard_wasm_input_event_count,
+    shard_wasm_input_event_at,
+    shard_wasm_input_modifiers,
+    shard_wasm_input_window_size,
+    shard_wasm_input_clipboard_get,
+    shard_wasm_input_clipboard_set,
+    shard_wasm_input_set_cursor_shape,
+    shard_wasm_input_set_text_input,
+    shard_wasm_input_capture,
 };
 static const ShardPhysicsApi shard_wasm_api_physics = {
     sizeof(ShardPhysicsApi),
@@ -460,6 +545,16 @@ static const ShardPhysicsApi shard_wasm_api_physics = {
     shard_wasm_physics_get_gravity,
     shard_wasm_physics_set_custom_gravity,
     shard_wasm_physics_raycast,
+    shard_wasm_physics_raycast_all,
+    shard_wasm_physics_overlap_sphere,
+    shard_wasm_physics_overlap_box,
+    shard_wasm_physics_overlap_capsule,
+    shard_wasm_physics_sweep_sphere,
+    shard_wasm_physics_sweep_box,
+    shard_wasm_physics_collider_create,
+    shard_wasm_physics_collider_set_pose,
+    shard_wasm_physics_collider_update,
+    shard_wasm_physics_collider_destroy,
 };
 static const ShardAudioApi shard_wasm_api_audio = {
     sizeof(ShardAudioApi),
@@ -474,6 +569,7 @@ static const ShardWorldsApi shard_wasm_api_worlds = {
     shard_wasm_worlds_is_loading,
     shard_wasm_worlds_loaded_count,
     shard_wasm_worlds_spawn_prefab,
+    shard_wasm_worlds_world_at,
 };
 static const ShardEditorApi shard_wasm_api_editor = {
     sizeof(ShardEditorApi),
@@ -486,6 +582,9 @@ static const ShardEditorApi shard_wasm_api_editor = {
     shard_wasm_editor_get_selection,
     shard_wasm_editor_notify,
     shard_wasm_editor_set_panel_visible,
+    shard_wasm_editor_undo_push,
+    shard_wasm_editor_add_asset_opener,
+    shard_wasm_editor_add_asset_template,
 };
 
 typedef struct ShardWasmInterface {
@@ -626,6 +725,45 @@ __attribute__((weak, used)) const ShardUiApi shard_wasm_ui_table = {
     shard_wasm_ui_is_item_clicked,
     shard_wasm_ui_is_item_active,
     shard_wasm_ui_is_item_double_clicked,
+    shard_wasm_ui_draw_line,
+    shard_wasm_ui_draw_polyline,
+    shard_wasm_ui_draw_rect,
+    shard_wasm_ui_draw_rect_filled,
+    shard_wasm_ui_draw_circle,
+    shard_wasm_ui_draw_circle_filled,
+    shard_wasm_ui_draw_triangle_filled,
+    shard_wasm_ui_draw_bezier,
+    shard_wasm_ui_draw_text,
+    shard_wasm_ui_push_clip_rect,
+    shard_wasm_ui_pop_clip_rect,
+    shard_wasm_ui_get_cursor_screen_pos,
+    shard_wasm_ui_set_cursor_screen_pos,
+    shard_wasm_ui_get_content_region_avail,
+    shard_wasm_ui_get_item_rect_min,
+    shard_wasm_ui_get_item_rect_max,
+    shard_wasm_ui_calc_text_size,
+    shard_wasm_ui_invisible_button,
+    shard_wasm_ui_get_mouse_pos,
+    shard_wasm_ui_get_mouse_drag_delta,
+    shard_wasm_ui_reset_mouse_drag_delta,
+    shard_wasm_ui_get_mouse_wheel,
+    shard_wasm_ui_is_mouse_down,
+    shard_wasm_ui_is_mouse_clicked,
+    shard_wasm_ui_is_mouse_released,
+    shard_wasm_ui_is_mouse_double_clicked,
+    shard_wasm_ui_is_key_down,
+    shard_wasm_ui_is_key_pressed,
+    shard_wasm_ui_get_modifiers,
+    shard_wasm_ui_is_window_hovered,
+    shard_wasm_ui_is_window_focused,
+    shard_wasm_ui_image,
+    shard_wasm_ui_selectable_size,
+    shard_wasm_ui_begin_drag_drop_source,
+    shard_wasm_ui_set_drag_drop_payload,
+    shard_wasm_ui_end_drag_drop_source,
+    shard_wasm_ui_begin_drag_drop_target,
+    shard_wasm_ui_accept_drag_drop_payload,
+    shard_wasm_ui_end_drag_drop_target,
 };
 
 /* What a callback of the plugin is handed (ShardGizmoApi) : the module passes its own, built from the imports, and exports it */
@@ -665,9 +803,10 @@ SHARD_WASM_ASSERT(offsetof(ShardPluginApi, directory) == 12, "ShardPluginApi.dir
 SHARD_WASM_ASSERT(offsetof(ShardPluginApi, host) == 16, "ShardPluginApi.host");
 SHARD_WASM_ASSERT(offsetof(ShardPluginApi, has_permission) == 20, "ShardPluginApi.has_permission");
 SHARD_WASM_ASSERT(offsetof(ShardPluginApi, random_stream) == 24, "ShardPluginApi.random_stream");
-SHARD_WASM_ASSERT(sizeof(ShardCommandsApi) == 8 && _Alignof(ShardCommandsApi) == 4, "ShardCommandsApi");
+SHARD_WASM_ASSERT(sizeof(ShardCommandsApi) == 12 && _Alignof(ShardCommandsApi) == 4, "ShardCommandsApi");
 SHARD_WASM_ASSERT(offsetof(ShardCommandsApi, structSize) == 0, "ShardCommandsApi.structSize");
 SHARD_WASM_ASSERT(offsetof(ShardCommandsApi, add) == 4, "ShardCommandsApi.add");
+SHARD_WASM_ASSERT(offsetof(ShardCommandsApi, execute) == 8, "ShardCommandsApi.execute");
 SHARD_WASM_ASSERT(sizeof(ShardCVarsApi) == 52 && _Alignof(ShardCVarsApi) == 4, "ShardCVarsApi");
 SHARD_WASM_ASSERT(offsetof(ShardCVarsApi, structSize) == 0, "ShardCVarsApi.structSize");
 SHARD_WASM_ASSERT(offsetof(ShardCVarsApi, create_bool) == 4, "ShardCVarsApi.create_bool");
@@ -691,7 +830,14 @@ SHARD_WASM_ASSERT(offsetof(ShardFieldDesc, flags) == 28, "ShardFieldDesc.flags")
 SHARD_WASM_ASSERT(offsetof(ShardFieldDesc, min) == 32, "ShardFieldDesc.min");
 SHARD_WASM_ASSERT(offsetof(ShardFieldDesc, max) == 36, "ShardFieldDesc.max");
 SHARD_WASM_ASSERT(offsetof(ShardFieldDesc, tooltip) == 40, "ShardFieldDesc.tooltip");
-SHARD_WASM_ASSERT(sizeof(ShardComponentDesc) == 40 && _Alignof(ShardComponentDesc) == 8, "ShardComponentDesc");
+SHARD_WASM_ASSERT(sizeof(ShardComponentCallbacks) == 24 && _Alignof(ShardComponentCallbacks) == 4, "ShardComponentCallbacks");
+SHARD_WASM_ASSERT(offsetof(ShardComponentCallbacks, structSize) == 0, "ShardComponentCallbacks.structSize");
+SHARD_WASM_ASSERT(offsetof(ShardComponentCallbacks, reserved) == 4, "ShardComponentCallbacks.reserved");
+SHARD_WASM_ASSERT(offsetof(ShardComponentCallbacks, on_added) == 8, "ShardComponentCallbacks.on_added");
+SHARD_WASM_ASSERT(offsetof(ShardComponentCallbacks, on_removed) == 12, "ShardComponentCallbacks.on_removed");
+SHARD_WASM_ASSERT(offsetof(ShardComponentCallbacks, on_changed) == 16, "ShardComponentCallbacks.on_changed");
+SHARD_WASM_ASSERT(offsetof(ShardComponentCallbacks, user) == 20, "ShardComponentCallbacks.user");
+SHARD_WASM_ASSERT(sizeof(ShardComponentDesc) == 48 && _Alignof(ShardComponentDesc) == 8, "ShardComponentDesc");
 SHARD_WASM_ASSERT(offsetof(ShardComponentDesc, structSize) == 0, "ShardComponentDesc.structSize");
 SHARD_WASM_ASSERT(offsetof(ShardComponentDesc, size) == 4, "ShardComponentDesc.size");
 SHARD_WASM_ASSERT(offsetof(ShardComponentDesc, align) == 8, "ShardComponentDesc.align");
@@ -699,6 +845,7 @@ SHARD_WASM_ASSERT(offsetof(ShardComponentDesc, fieldCount) == 12, "ShardComponen
 SHARD_WASM_ASSERT(offsetof(ShardComponentDesc, name) == 16, "ShardComponentDesc.name");
 SHARD_WASM_ASSERT(offsetof(ShardComponentDesc, fields) == 32, "ShardComponentDesc.fields");
 SHARD_WASM_ASSERT(offsetof(ShardComponentDesc, defaults) == 36, "ShardComponentDesc.defaults");
+SHARD_WASM_ASSERT(offsetof(ShardComponentDesc, callbacks) == 40, "ShardComponentDesc.callbacks");
 SHARD_WASM_ASSERT(sizeof(ShardComponentsApi) == 52 && _Alignof(ShardComponentsApi) == 4, "ShardComponentsApi");
 SHARD_WASM_ASSERT(offsetof(ShardComponentsApi, structSize) == 0, "ShardComponentsApi.structSize");
 SHARD_WASM_ASSERT(offsetof(ShardComponentsApi, register_type) == 4, "ShardComponentsApi.register_type");
@@ -791,7 +938,7 @@ SHARD_WASM_ASSERT(offsetof(ShardStateApi, structSize) == 0, "ShardStateApi.struc
 SHARD_WASM_ASSERT(offsetof(ShardStateApi, set) == 4, "ShardStateApi.set");
 SHARD_WASM_ASSERT(offsetof(ShardStateApi, get) == 8, "ShardStateApi.get");
 SHARD_WASM_ASSERT(offsetof(ShardStateApi, has) == 12, "ShardStateApi.has");
-SHARD_WASM_ASSERT(sizeof(ShardActorsApi) == 120 && _Alignof(ShardActorsApi) == 4, "ShardActorsApi");
+SHARD_WASM_ASSERT(sizeof(ShardActorsApi) == 144 && _Alignof(ShardActorsApi) == 4, "ShardActorsApi");
 SHARD_WASM_ASSERT(offsetof(ShardActorsApi, structSize) == 0, "ShardActorsApi.structSize");
 SHARD_WASM_ASSERT(offsetof(ShardActorsApi, is_valid) == 4, "ShardActorsApi.is_valid");
 SHARD_WASM_ASSERT(offsetof(ShardActorsApi, get_name) == 8, "ShardActorsApi.get_name");
@@ -822,13 +969,19 @@ SHARD_WASM_ASSERT(offsetof(ShardActorsApi, set_component) == 104, "ShardActorsAp
 SHARD_WASM_ASSERT(offsetof(ShardActorsApi, get_component_field) == 108, "ShardActorsApi.get_component_field");
 SHARD_WASM_ASSERT(offsetof(ShardActorsApi, set_component_field) == 112, "ShardActorsApi.set_component_field");
 SHARD_WASM_ASSERT(offsetof(ShardActorsApi, erase_component_field) == 116, "ShardActorsApi.erase_component_field");
+SHARD_WASM_ASSERT(offsetof(ShardActorsApi, get_stable_id) == 120, "ShardActorsApi.get_stable_id");
+SHARD_WASM_ASSERT(offsetof(ShardActorsApi, find_by_stable_id) == 124, "ShardActorsApi.find_by_stable_id");
+SHARD_WASM_ASSERT(offsetof(ShardActorsApi, get_world_id) == 128, "ShardActorsApi.get_world_id");
+SHARD_WASM_ASSERT(offsetof(ShardActorsApi, get_world_bounds) == 132, "ShardActorsApi.get_world_bounds");
+SHARD_WASM_ASSERT(offsetof(ShardActorsApi, find_in_sphere) == 136, "ShardActorsApi.find_in_sphere");
+SHARD_WASM_ASSERT(offsetof(ShardActorsApi, find_in_box) == 140, "ShardActorsApi.find_in_box");
 SHARD_WASM_ASSERT(sizeof(ShardContact) == 48 && _Alignof(ShardContact) == 8, "ShardContact");
 SHARD_WASM_ASSERT(offsetof(ShardContact, structSize) == 0, "ShardContact.structSize");
 SHARD_WASM_ASSERT(offsetof(ShardContact, other) == 8, "ShardContact.other");
 SHARD_WASM_ASSERT(offsetof(ShardContact, point) == 16, "ShardContact.point");
 SHARD_WASM_ASSERT(offsetof(ShardContact, normal) == 28, "ShardContact.normal");
 SHARD_WASM_ASSERT(offsetof(ShardContact, penetration) == 40, "ShardContact.penetration");
-SHARD_WASM_ASSERT(sizeof(ShardScriptCallbacks) == 80 && _Alignof(ShardScriptCallbacks) == 4, "ShardScriptCallbacks");
+SHARD_WASM_ASSERT(sizeof(ShardScriptCallbacks) == 88 && _Alignof(ShardScriptCallbacks) == 4, "ShardScriptCallbacks");
 SHARD_WASM_ASSERT(offsetof(ShardScriptCallbacks, structSize) == 0, "ShardScriptCallbacks.structSize");
 SHARD_WASM_ASSERT(offsetof(ShardScriptCallbacks, construct) == 4, "ShardScriptCallbacks.construct");
 SHARD_WASM_ASSERT(offsetof(ShardScriptCallbacks, destruct) == 8, "ShardScriptCallbacks.destruct");
@@ -849,7 +1002,9 @@ SHARD_WASM_ASSERT(offsetof(ShardScriptCallbacks, on_contact_persisted) == 64, "S
 SHARD_WASM_ASSERT(offsetof(ShardScriptCallbacks, on_contact_ended) == 68, "ShardScriptCallbacks.on_contact_ended");
 SHARD_WASM_ASSERT(offsetof(ShardScriptCallbacks, text_get) == 72, "ShardScriptCallbacks.text_get");
 SHARD_WASM_ASSERT(offsetof(ShardScriptCallbacks, text_set) == 76, "ShardScriptCallbacks.text_set");
-SHARD_WASM_ASSERT(sizeof(ShardScriptDesc) == 48 && _Alignof(ShardScriptDesc) == 8, "ShardScriptDesc");
+SHARD_WASM_ASSERT(offsetof(ShardScriptCallbacks, on_edit_tick) == 80, "ShardScriptCallbacks.on_edit_tick");
+SHARD_WASM_ASSERT(offsetof(ShardScriptCallbacks, on_field_changed) == 84, "ShardScriptCallbacks.on_field_changed");
+SHARD_WASM_ASSERT(sizeof(ShardScriptDesc) == 56 && _Alignof(ShardScriptDesc) == 8, "ShardScriptDesc");
 SHARD_WASM_ASSERT(offsetof(ShardScriptDesc, structSize) == 0, "ShardScriptDesc.structSize");
 SHARD_WASM_ASSERT(offsetof(ShardScriptDesc, size) == 4, "ShardScriptDesc.size");
 SHARD_WASM_ASSERT(offsetof(ShardScriptDesc, align) == 8, "ShardScriptDesc.align");
@@ -858,12 +1013,25 @@ SHARD_WASM_ASSERT(offsetof(ShardScriptDesc, name) == 16, "ShardScriptDesc.name")
 SHARD_WASM_ASSERT(offsetof(ShardScriptDesc, fields) == 32, "ShardScriptDesc.fields");
 SHARD_WASM_ASSERT(offsetof(ShardScriptDesc, user) == 36, "ShardScriptDesc.user");
 SHARD_WASM_ASSERT(offsetof(ShardScriptDesc, callbacks) == 40, "ShardScriptDesc.callbacks");
+SHARD_WASM_ASSERT(offsetof(ShardScriptDesc, flags) == 44, "ShardScriptDesc.flags");
+SHARD_WASM_ASSERT(offsetof(ShardScriptDesc, reserved) == 48, "ShardScriptDesc.reserved");
 SHARD_WASM_ASSERT(sizeof(ShardScriptsApi) == 16 && _Alignof(ShardScriptsApi) == 4, "ShardScriptsApi");
 SHARD_WASM_ASSERT(offsetof(ShardScriptsApi, structSize) == 0, "ShardScriptsApi.structSize");
 SHARD_WASM_ASSERT(offsetof(ShardScriptsApi, register_script) == 4, "ShardScriptsApi.register_script");
 SHARD_WASM_ASSERT(offsetof(ShardScriptsApi, get_object) == 8, "ShardScriptsApi.get_object");
 SHARD_WASM_ASSERT(offsetof(ShardScriptsApi, add_to_actor) == 12, "ShardScriptsApi.add_to_actor");
-SHARD_WASM_ASSERT(sizeof(ShardInputApi) == 64 && _Alignof(ShardInputApi) == 4, "ShardInputApi");
+SHARD_WASM_ASSERT(sizeof(ShardInputEvent) == 40 && _Alignof(ShardInputEvent) == 4, "ShardInputEvent");
+SHARD_WASM_ASSERT(offsetof(ShardInputEvent, structSize) == 0, "ShardInputEvent.structSize");
+SHARD_WASM_ASSERT(offsetof(ShardInputEvent, kind) == 4, "ShardInputEvent.kind");
+SHARD_WASM_ASSERT(offsetof(ShardInputEvent, key) == 8, "ShardInputEvent.key");
+SHARD_WASM_ASSERT(offsetof(ShardInputEvent, mods) == 12, "ShardInputEvent.mods");
+SHARD_WASM_ASSERT(offsetof(ShardInputEvent, flags) == 16, "ShardInputEvent.flags");
+SHARD_WASM_ASSERT(offsetof(ShardInputEvent, codepoint) == 20, "ShardInputEvent.codepoint");
+SHARD_WASM_ASSERT(offsetof(ShardInputEvent, x) == 24, "ShardInputEvent.x");
+SHARD_WASM_ASSERT(offsetof(ShardInputEvent, y) == 28, "ShardInputEvent.y");
+SHARD_WASM_ASSERT(offsetof(ShardInputEvent, dx) == 32, "ShardInputEvent.dx");
+SHARD_WASM_ASSERT(offsetof(ShardInputEvent, dy) == 36, "ShardInputEvent.dy");
+SHARD_WASM_ASSERT(sizeof(ShardInputApi) == 100 && _Alignof(ShardInputApi) == 4, "ShardInputApi");
 SHARD_WASM_ASSERT(offsetof(ShardInputApi, structSize) == 0, "ShardInputApi.structSize");
 SHARD_WASM_ASSERT(offsetof(ShardInputApi, key_down) == 4, "ShardInputApi.key_down");
 SHARD_WASM_ASSERT(offsetof(ShardInputApi, key_pressed) == 8, "ShardInputApi.key_pressed");
@@ -880,13 +1048,48 @@ SHARD_WASM_ASSERT(offsetof(ShardInputApi, gamepad_button_pressed) == 48, "ShardI
 SHARD_WASM_ASSERT(offsetof(ShardInputApi, gamepad_button_released) == 52, "ShardInputApi.gamepad_button_released");
 SHARD_WASM_ASSERT(offsetof(ShardInputApi, gamepad_axis) == 56, "ShardInputApi.gamepad_axis");
 SHARD_WASM_ASSERT(offsetof(ShardInputApi, gamepad_rumble) == 60, "ShardInputApi.gamepad_rumble");
-SHARD_WASM_ASSERT(sizeof(ShardRayHit) == 48 && _Alignof(ShardRayHit) == 8, "ShardRayHit");
+SHARD_WASM_ASSERT(offsetof(ShardInputApi, event_count) == 64, "ShardInputApi.event_count");
+SHARD_WASM_ASSERT(offsetof(ShardInputApi, event_at) == 68, "ShardInputApi.event_at");
+SHARD_WASM_ASSERT(offsetof(ShardInputApi, modifiers) == 72, "ShardInputApi.modifiers");
+SHARD_WASM_ASSERT(offsetof(ShardInputApi, window_size) == 76, "ShardInputApi.window_size");
+SHARD_WASM_ASSERT(offsetof(ShardInputApi, clipboard_get) == 80, "ShardInputApi.clipboard_get");
+SHARD_WASM_ASSERT(offsetof(ShardInputApi, clipboard_set) == 84, "ShardInputApi.clipboard_set");
+SHARD_WASM_ASSERT(offsetof(ShardInputApi, set_cursor_shape) == 88, "ShardInputApi.set_cursor_shape");
+SHARD_WASM_ASSERT(offsetof(ShardInputApi, set_text_input) == 92, "ShardInputApi.set_text_input");
+SHARD_WASM_ASSERT(offsetof(ShardInputApi, capture) == 96, "ShardInputApi.capture");
+SHARD_WASM_ASSERT(sizeof(ShardRayHit) == 72 && _Alignof(ShardRayHit) == 8, "ShardRayHit");
 SHARD_WASM_ASSERT(offsetof(ShardRayHit, structSize) == 0, "ShardRayHit.structSize");
 SHARD_WASM_ASSERT(offsetof(ShardRayHit, actor) == 8, "ShardRayHit.actor");
 SHARD_WASM_ASSERT(offsetof(ShardRayHit, point) == 16, "ShardRayHit.point");
 SHARD_WASM_ASSERT(offsetof(ShardRayHit, normal) == 28, "ShardRayHit.normal");
 SHARD_WASM_ASSERT(offsetof(ShardRayHit, distance) == 40, "ShardRayHit.distance");
-SHARD_WASM_ASSERT(sizeof(ShardPhysicsApi) == 56 && _Alignof(ShardPhysicsApi) == 4, "ShardPhysicsApi");
+SHARD_WASM_ASSERT(offsetof(ShardRayHit, collider) == 48, "ShardRayHit.collider");
+SHARD_WASM_ASSERT(offsetof(ShardRayHit, userData) == 56, "ShardRayHit.userData");
+SHARD_WASM_ASSERT(offsetof(ShardRayHit, triangle) == 64, "ShardRayHit.triangle");
+SHARD_WASM_ASSERT(offsetof(ShardRayHit, box) == 68, "ShardRayHit.box");
+SHARD_WASM_ASSERT(sizeof(ShardQueryFilter) == 40 && _Alignof(ShardQueryFilter) == 8, "ShardQueryFilter");
+SHARD_WASM_ASSERT(offsetof(ShardQueryFilter, structSize) == 0, "ShardQueryFilter.structSize");
+SHARD_WASM_ASSERT(offsetof(ShardQueryFilter, layers) == 4, "ShardQueryFilter.layers");
+SHARD_WASM_ASSERT(offsetof(ShardQueryFilter, ignore) == 8, "ShardQueryFilter.ignore");
+SHARD_WASM_ASSERT(offsetof(ShardQueryFilter, flags) == 16, "ShardQueryFilter.flags");
+SHARD_WASM_ASSERT(offsetof(ShardQueryFilter, tag) == 24, "ShardQueryFilter.tag");
+SHARD_WASM_ASSERT(sizeof(ShardColliderDesc) == 104 && _Alignof(ShardColliderDesc) == 8, "ShardColliderDesc");
+SHARD_WASM_ASSERT(offsetof(ShardColliderDesc, structSize) == 0, "ShardColliderDesc.structSize");
+SHARD_WASM_ASSERT(offsetof(ShardColliderDesc, kind) == 4, "ShardColliderDesc.kind");
+SHARD_WASM_ASSERT(offsetof(ShardColliderDesc, vertexCount) == 8, "ShardColliderDesc.vertexCount");
+SHARD_WASM_ASSERT(offsetof(ShardColliderDesc, indexCount) == 12, "ShardColliderDesc.indexCount");
+SHARD_WASM_ASSERT(offsetof(ShardColliderDesc, boxCount) == 16, "ShardColliderDesc.boxCount");
+SHARD_WASM_ASSERT(offsetof(ShardColliderDesc, reserved) == 20, "ShardColliderDesc.reserved");
+SHARD_WASM_ASSERT(offsetof(ShardColliderDesc, vertices) == 24, "ShardColliderDesc.vertices");
+SHARD_WASM_ASSERT(offsetof(ShardColliderDesc, indices) == 28, "ShardColliderDesc.indices");
+SHARD_WASM_ASSERT(offsetof(ShardColliderDesc, boxes) == 32, "ShardColliderDesc.boxes");
+SHARD_WASM_ASSERT(offsetof(ShardColliderDesc, owner) == 40, "ShardColliderDesc.owner");
+SHARD_WASM_ASSERT(offsetof(ShardColliderDesc, userData) == 48, "ShardColliderDesc.userData");
+SHARD_WASM_ASSERT(offsetof(ShardColliderDesc, friction) == 56, "ShardColliderDesc.friction");
+SHARD_WASM_ASSERT(offsetof(ShardColliderDesc, restitution) == 60, "ShardColliderDesc.restitution");
+SHARD_WASM_ASSERT(offsetof(ShardColliderDesc, position) == 64, "ShardColliderDesc.position");
+SHARD_WASM_ASSERT(offsetof(ShardColliderDesc, rotation) == 88, "ShardColliderDesc.rotation");
+SHARD_WASM_ASSERT(sizeof(ShardPhysicsApi) == 96 && _Alignof(ShardPhysicsApi) == 4, "ShardPhysicsApi");
 SHARD_WASM_ASSERT(offsetof(ShardPhysicsApi, structSize) == 0, "ShardPhysicsApi.structSize");
 SHARD_WASM_ASSERT(offsetof(ShardPhysicsApi, get_velocity) == 4, "ShardPhysicsApi.get_velocity");
 SHARD_WASM_ASSERT(offsetof(ShardPhysicsApi, set_velocity) == 8, "ShardPhysicsApi.set_velocity");
@@ -901,19 +1104,30 @@ SHARD_WASM_ASSERT(offsetof(ShardPhysicsApi, add_angular_impulse) == 40, "ShardPh
 SHARD_WASM_ASSERT(offsetof(ShardPhysicsApi, get_gravity) == 44, "ShardPhysicsApi.get_gravity");
 SHARD_WASM_ASSERT(offsetof(ShardPhysicsApi, set_custom_gravity) == 48, "ShardPhysicsApi.set_custom_gravity");
 SHARD_WASM_ASSERT(offsetof(ShardPhysicsApi, raycast) == 52, "ShardPhysicsApi.raycast");
+SHARD_WASM_ASSERT(offsetof(ShardPhysicsApi, raycast_all) == 56, "ShardPhysicsApi.raycast_all");
+SHARD_WASM_ASSERT(offsetof(ShardPhysicsApi, overlap_sphere) == 60, "ShardPhysicsApi.overlap_sphere");
+SHARD_WASM_ASSERT(offsetof(ShardPhysicsApi, overlap_box) == 64, "ShardPhysicsApi.overlap_box");
+SHARD_WASM_ASSERT(offsetof(ShardPhysicsApi, overlap_capsule) == 68, "ShardPhysicsApi.overlap_capsule");
+SHARD_WASM_ASSERT(offsetof(ShardPhysicsApi, sweep_sphere) == 72, "ShardPhysicsApi.sweep_sphere");
+SHARD_WASM_ASSERT(offsetof(ShardPhysicsApi, sweep_box) == 76, "ShardPhysicsApi.sweep_box");
+SHARD_WASM_ASSERT(offsetof(ShardPhysicsApi, collider_create) == 80, "ShardPhysicsApi.collider_create");
+SHARD_WASM_ASSERT(offsetof(ShardPhysicsApi, collider_set_pose) == 84, "ShardPhysicsApi.collider_set_pose");
+SHARD_WASM_ASSERT(offsetof(ShardPhysicsApi, collider_update) == 88, "ShardPhysicsApi.collider_update");
+SHARD_WASM_ASSERT(offsetof(ShardPhysicsApi, collider_destroy) == 92, "ShardPhysicsApi.collider_destroy");
 SHARD_WASM_ASSERT(sizeof(ShardAudioApi) == 20 && _Alignof(ShardAudioApi) == 4, "ShardAudioApi");
 SHARD_WASM_ASSERT(offsetof(ShardAudioApi, structSize) == 0, "ShardAudioApi.structSize");
 SHARD_WASM_ASSERT(offsetof(ShardAudioApi, play) == 4, "ShardAudioApi.play");
 SHARD_WASM_ASSERT(offsetof(ShardAudioApi, pause) == 8, "ShardAudioApi.pause");
 SHARD_WASM_ASSERT(offsetof(ShardAudioApi, set_volume) == 12, "ShardAudioApi.set_volume");
 SHARD_WASM_ASSERT(offsetof(ShardAudioApi, play_one_shot) == 16, "ShardAudioApi.play_one_shot");
-SHARD_WASM_ASSERT(sizeof(ShardWorldsApi) == 20 && _Alignof(ShardWorldsApi) == 4, "ShardWorldsApi");
+SHARD_WASM_ASSERT(sizeof(ShardWorldsApi) == 24 && _Alignof(ShardWorldsApi) == 4, "ShardWorldsApi");
 SHARD_WASM_ASSERT(offsetof(ShardWorldsApi, structSize) == 0, "ShardWorldsApi.structSize");
 SHARD_WASM_ASSERT(offsetof(ShardWorldsApi, load_world) == 4, "ShardWorldsApi.load_world");
 SHARD_WASM_ASSERT(offsetof(ShardWorldsApi, is_loading) == 8, "ShardWorldsApi.is_loading");
 SHARD_WASM_ASSERT(offsetof(ShardWorldsApi, loaded_count) == 12, "ShardWorldsApi.loaded_count");
 SHARD_WASM_ASSERT(offsetof(ShardWorldsApi, spawn_prefab) == 16, "ShardWorldsApi.spawn_prefab");
-SHARD_WASM_ASSERT(sizeof(ShardUiApi) == 312 && _Alignof(ShardUiApi) == 4, "ShardUiApi");
+SHARD_WASM_ASSERT(offsetof(ShardWorldsApi, world_at) == 20, "ShardWorldsApi.world_at");
+SHARD_WASM_ASSERT(sizeof(ShardUiApi) == 468 && _Alignof(ShardUiApi) == 4, "ShardUiApi");
 SHARD_WASM_ASSERT(offsetof(ShardUiApi, structSize) == 0, "ShardUiApi.structSize");
 SHARD_WASM_ASSERT(offsetof(ShardUiApi, text) == 4, "ShardUiApi.text");
 SHARD_WASM_ASSERT(offsetof(ShardUiApi, text_colored) == 8, "ShardUiApi.text_colored");
@@ -992,6 +1206,45 @@ SHARD_WASM_ASSERT(offsetof(ShardUiApi, begin_popup_context_item) == 296, "ShardU
 SHARD_WASM_ASSERT(offsetof(ShardUiApi, is_item_clicked) == 300, "ShardUiApi.is_item_clicked");
 SHARD_WASM_ASSERT(offsetof(ShardUiApi, is_item_active) == 304, "ShardUiApi.is_item_active");
 SHARD_WASM_ASSERT(offsetof(ShardUiApi, is_item_double_clicked) == 308, "ShardUiApi.is_item_double_clicked");
+SHARD_WASM_ASSERT(offsetof(ShardUiApi, draw_line) == 312, "ShardUiApi.draw_line");
+SHARD_WASM_ASSERT(offsetof(ShardUiApi, draw_polyline) == 316, "ShardUiApi.draw_polyline");
+SHARD_WASM_ASSERT(offsetof(ShardUiApi, draw_rect) == 320, "ShardUiApi.draw_rect");
+SHARD_WASM_ASSERT(offsetof(ShardUiApi, draw_rect_filled) == 324, "ShardUiApi.draw_rect_filled");
+SHARD_WASM_ASSERT(offsetof(ShardUiApi, draw_circle) == 328, "ShardUiApi.draw_circle");
+SHARD_WASM_ASSERT(offsetof(ShardUiApi, draw_circle_filled) == 332, "ShardUiApi.draw_circle_filled");
+SHARD_WASM_ASSERT(offsetof(ShardUiApi, draw_triangle_filled) == 336, "ShardUiApi.draw_triangle_filled");
+SHARD_WASM_ASSERT(offsetof(ShardUiApi, draw_bezier) == 340, "ShardUiApi.draw_bezier");
+SHARD_WASM_ASSERT(offsetof(ShardUiApi, draw_text) == 344, "ShardUiApi.draw_text");
+SHARD_WASM_ASSERT(offsetof(ShardUiApi, push_clip_rect) == 348, "ShardUiApi.push_clip_rect");
+SHARD_WASM_ASSERT(offsetof(ShardUiApi, pop_clip_rect) == 352, "ShardUiApi.pop_clip_rect");
+SHARD_WASM_ASSERT(offsetof(ShardUiApi, get_cursor_screen_pos) == 356, "ShardUiApi.get_cursor_screen_pos");
+SHARD_WASM_ASSERT(offsetof(ShardUiApi, set_cursor_screen_pos) == 360, "ShardUiApi.set_cursor_screen_pos");
+SHARD_WASM_ASSERT(offsetof(ShardUiApi, get_content_region_avail) == 364, "ShardUiApi.get_content_region_avail");
+SHARD_WASM_ASSERT(offsetof(ShardUiApi, get_item_rect_min) == 368, "ShardUiApi.get_item_rect_min");
+SHARD_WASM_ASSERT(offsetof(ShardUiApi, get_item_rect_max) == 372, "ShardUiApi.get_item_rect_max");
+SHARD_WASM_ASSERT(offsetof(ShardUiApi, calc_text_size) == 376, "ShardUiApi.calc_text_size");
+SHARD_WASM_ASSERT(offsetof(ShardUiApi, invisible_button) == 380, "ShardUiApi.invisible_button");
+SHARD_WASM_ASSERT(offsetof(ShardUiApi, get_mouse_pos) == 384, "ShardUiApi.get_mouse_pos");
+SHARD_WASM_ASSERT(offsetof(ShardUiApi, get_mouse_drag_delta) == 388, "ShardUiApi.get_mouse_drag_delta");
+SHARD_WASM_ASSERT(offsetof(ShardUiApi, reset_mouse_drag_delta) == 392, "ShardUiApi.reset_mouse_drag_delta");
+SHARD_WASM_ASSERT(offsetof(ShardUiApi, get_mouse_wheel) == 396, "ShardUiApi.get_mouse_wheel");
+SHARD_WASM_ASSERT(offsetof(ShardUiApi, is_mouse_down) == 400, "ShardUiApi.is_mouse_down");
+SHARD_WASM_ASSERT(offsetof(ShardUiApi, is_mouse_clicked) == 404, "ShardUiApi.is_mouse_clicked");
+SHARD_WASM_ASSERT(offsetof(ShardUiApi, is_mouse_released) == 408, "ShardUiApi.is_mouse_released");
+SHARD_WASM_ASSERT(offsetof(ShardUiApi, is_mouse_double_clicked) == 412, "ShardUiApi.is_mouse_double_clicked");
+SHARD_WASM_ASSERT(offsetof(ShardUiApi, is_key_down) == 416, "ShardUiApi.is_key_down");
+SHARD_WASM_ASSERT(offsetof(ShardUiApi, is_key_pressed) == 420, "ShardUiApi.is_key_pressed");
+SHARD_WASM_ASSERT(offsetof(ShardUiApi, get_modifiers) == 424, "ShardUiApi.get_modifiers");
+SHARD_WASM_ASSERT(offsetof(ShardUiApi, is_window_hovered) == 428, "ShardUiApi.is_window_hovered");
+SHARD_WASM_ASSERT(offsetof(ShardUiApi, is_window_focused) == 432, "ShardUiApi.is_window_focused");
+SHARD_WASM_ASSERT(offsetof(ShardUiApi, image) == 436, "ShardUiApi.image");
+SHARD_WASM_ASSERT(offsetof(ShardUiApi, selectable_size) == 440, "ShardUiApi.selectable_size");
+SHARD_WASM_ASSERT(offsetof(ShardUiApi, begin_drag_drop_source) == 444, "ShardUiApi.begin_drag_drop_source");
+SHARD_WASM_ASSERT(offsetof(ShardUiApi, set_drag_drop_payload) == 448, "ShardUiApi.set_drag_drop_payload");
+SHARD_WASM_ASSERT(offsetof(ShardUiApi, end_drag_drop_source) == 452, "ShardUiApi.end_drag_drop_source");
+SHARD_WASM_ASSERT(offsetof(ShardUiApi, begin_drag_drop_target) == 456, "ShardUiApi.begin_drag_drop_target");
+SHARD_WASM_ASSERT(offsetof(ShardUiApi, accept_drag_drop_payload) == 460, "ShardUiApi.accept_drag_drop_payload");
+SHARD_WASM_ASSERT(offsetof(ShardUiApi, end_drag_drop_target) == 464, "ShardUiApi.end_drag_drop_target");
 SHARD_WASM_ASSERT(sizeof(ShardGizmoApi) == 32 && _Alignof(ShardGizmoApi) == 4, "ShardGizmoApi");
 SHARD_WASM_ASSERT(offsetof(ShardGizmoApi, structSize) == 0, "ShardGizmoApi.structSize");
 SHARD_WASM_ASSERT(offsetof(ShardGizmoApi, line) == 4, "ShardGizmoApi.line");
@@ -1001,7 +1254,7 @@ SHARD_WASM_ASSERT(offsetof(ShardGizmoApi, sphere) == 16, "ShardGizmoApi.sphere")
 SHARD_WASM_ASSERT(offsetof(ShardGizmoApi, box) == 20, "ShardGizmoApi.box");
 SHARD_WASM_ASSERT(offsetof(ShardGizmoApi, arrow) == 24, "ShardGizmoApi.arrow");
 SHARD_WASM_ASSERT(offsetof(ShardGizmoApi, text) == 28, "ShardGizmoApi.text");
-SHARD_WASM_ASSERT(sizeof(ShardEditorApi) == 40 && _Alignof(ShardEditorApi) == 4, "ShardEditorApi");
+SHARD_WASM_ASSERT(sizeof(ShardEditorApi) == 52 && _Alignof(ShardEditorApi) == 4, "ShardEditorApi");
 SHARD_WASM_ASSERT(offsetof(ShardEditorApi, structSize) == 0, "ShardEditorApi.structSize");
 SHARD_WASM_ASSERT(offsetof(ShardEditorApi, add_panel) == 4, "ShardEditorApi.add_panel");
 SHARD_WASM_ASSERT(offsetof(ShardEditorApi, add_menu_item) == 8, "ShardEditorApi.add_menu_item");
@@ -1012,6 +1265,9 @@ SHARD_WASM_ASSERT(offsetof(ShardEditorApi, subscribe_selection) == 24, "ShardEdi
 SHARD_WASM_ASSERT(offsetof(ShardEditorApi, get_selection) == 28, "ShardEditorApi.get_selection");
 SHARD_WASM_ASSERT(offsetof(ShardEditorApi, notify) == 32, "ShardEditorApi.notify");
 SHARD_WASM_ASSERT(offsetof(ShardEditorApi, set_panel_visible) == 36, "ShardEditorApi.set_panel_visible");
+SHARD_WASM_ASSERT(offsetof(ShardEditorApi, undo_push) == 40, "ShardEditorApi.undo_push");
+SHARD_WASM_ASSERT(offsetof(ShardEditorApi, add_asset_opener) == 44, "ShardEditorApi.add_asset_opener");
+SHARD_WASM_ASSERT(offsetof(ShardEditorApi, add_asset_template) == 48, "ShardEditorApi.add_asset_template");
 SHARD_WASM_ASSERT(sizeof(ShardStr) == 16 && _Alignof(ShardStr) == 8, "ShardStr");
 SHARD_WASM_ASSERT(offsetof(ShardStr, data) == 0, "ShardStr.data");
 SHARD_WASM_ASSERT(offsetof(ShardStr, size) == 8, "ShardStr.size");

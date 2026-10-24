@@ -570,6 +570,11 @@ namespace Shard::Engine::Worlds{
         ForEachScript(scripts, [](auto& script){ if(script->Active()) script->OnTick(); });
     }
 
+    void World::EditTick()
+    {
+        ForEachScript(scripts, [](auto& script){ if(script->Active() && script->RunsInEditMode()) script->OnEditTick(); });
+    }
+
     void World::FixedTick()
     {
         ForEachScript(scripts, [](auto& script){ if(script->Active()) script->OnFixedTick(); });

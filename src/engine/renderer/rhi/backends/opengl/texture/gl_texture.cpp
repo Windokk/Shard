@@ -293,6 +293,34 @@ namespace Shard::Engine::Rendering{
         return ID != 0;     // a name was generated : the texture lives as long as this object
     }
 
+    bool GLTexture2D::UpdateRegion(uint32_t x, uint32_t y, uint32_t width, uint32_t height, const void* pixels, uint32_t rowPitchBytes)
+    {
+        if (!RenderThread::Get().IsGraphicsThread())
+        {
+            bool done = false;
+            RenderThread::Get().Invoke([&] { done = UpdateRegion(x, y, width, height, pixels, rowPitchBytes); });
+            return done;
+        }
+        if (!ID || !pixels || width == 0 || height == 0 || x + width > m_Specifications.width || y + height > m_Specifications.height)
+            return false;
+
+        const GLTextureSpec glSpecs = GLTextureSpec::FromTextureSpecifications(m_Specifications);
+        // Rows `rowPitchBytes` apart : GL counts them in pixels
+        GLint previousRowLength = 0, previousAlignment = 4;
+        glGetIntegerv(GL_UNPACK_ROW_LENGTH, &previousRowLength);
+        glGetIntegerv(GL_UNPACK_ALIGNMENT, &previousAlignment);
+        const uint32_t pixelBytes = std::max<uint32_t>(1, uint32_t(GetPixelDataSize(0) / std::max<uint32_t>(1, m_Specifications.width * m_Specifications.height)));
+        glPixelStorei(GL_UNPACK_ALIGNMENT, 1);
+        glPixelStorei(GL_UNPACK_ROW_LENGTH, rowPitchBytes ? GLint(rowPitchBytes / pixelBytes) : 0);
+        glBindTexture(GL_TEXTURE_2D, ID);
+        glTexSubImage2D(GL_TEXTURE_2D, 0, GLint(x), GLint(y), GLsizei(width), GLsizei(height), glSpecs.format, glSpecs.type, pixels);
+        glPixelStorei(GL_UNPACK_ROW_LENGTH, previousRowLength);
+        glPixelStorei(GL_UNPACK_ALIGNMENT, previousAlignment);
+        if (m_Specifications.generateMips)
+            glGenerateMipmap(GL_TEXTURE_2D);
+        return true;
+    }
+
     bool GLTexture2D::SwapContents(Texture2D& other)
     {
         SHARD_ASSERT_GRAPHICS_THREAD();

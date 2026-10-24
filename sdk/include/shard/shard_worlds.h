@@ -1,4 +1,4 @@
-/* Interface "shard.worlds" 1.0 : loading worlds, and prefabs.
+/* Interface "shard.worlds" 1.1 : loading worlds, and prefabs ; and which worlds are loaded (1.1).
  *
  * A world is loaded by its path in the project ("worlds/arena.world"). The load is a request : it starts in the background, and the world
  * is swapped in at the start of a following frame, where the old worlds are unloaded (their scripts get on_destroyed) and the new one
@@ -36,6 +36,12 @@ typedef struct ShardWorldsApi {
      * ("mod://com.acme.game/prefabs/crate.json"), a logical path ("prefabs/crate.json"), or a bare name ("crate", read as
      * "prefabs/crate.json"). SHARD_E_NOT_FOUND : no such file. SHARD_E_INVALID_ARG : it is not an actor. */
     ShardResult (SHARD_CALL *spawn_prefab)(ShardActor anchor, ShardStr prefab, ShardActor parent, ShardActor* out);
+
+    /* ---- 1.1 ---- */
+    /* The loaded world at an index (0 .. loaded_count - 1, the order they were loaded in) : its asset id (-1 if it has none), its name as a
+     * "text out", and an actor to use as the `anchor` of the functions that work "in the world of" one -- its first root actor, or 0 if the
+     * world is empty. Any of the pointers may be NULL. SHARD_E_NOT_FOUND : past the end. */
+    ShardResult (SHARD_CALL *world_at)(int32_t index, int32_t* asset_id, char* name, uint64_t capacity, uint64_t* size, ShardActor* anchor);
 } ShardWorldsApi;
 
 #ifdef __cplusplus

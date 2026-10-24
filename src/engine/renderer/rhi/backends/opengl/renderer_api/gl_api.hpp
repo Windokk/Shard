@@ -21,6 +21,9 @@ namespace Shard::Engine::Rendering{
 
             void MemoryBarrier(MemoryBarrierBit barriers) override;
 
+            void DrawOverlay(const OverlayProxy& overlay, uint32_t width, uint32_t height) override;
+            void ReleaseOverlayGeometry(const uint32_t gpu[3]) override;
+
             void PushDebugGroup(const char* name) override;
             void PopDebugGroup() override;
 

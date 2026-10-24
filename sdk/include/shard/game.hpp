@@ -14,17 +14,24 @@
 #pragma once
 
 #include <shard/cpp/actor.hpp>
+#include <shard/cpp/assets.hpp>
 #include <shard/cpp/audio.hpp>
 #include <shard/cpp/component.hpp>
+#include <shard/cpp/debug.hpp>
 #include <shard/cpp/editor.hpp>
 #include <shard/cpp/engine_components.hpp>
 #include <shard/cpp/field.hpp>
 #include <shard/cpp/input.hpp>
+#include <shard/cpp/jobs.hpp>
 #include <shard/cpp/math.hpp>
+#include <shard/cpp/net.hpp>
 #include <shard/cpp/physics.hpp>
 #include <shard/cpp/plugin.hpp>
 #include <shard/cpp/random.hpp>
+#include <shard/cpp/reflect.hpp>
 #include <shard/cpp/registry.hpp>
+#include <shard/cpp/render.hpp>
 #include <shard/cpp/script.hpp>
 #include <shard/cpp/system.hpp>
+#include <shard/cpp/time.hpp>
 #include <shard/cpp/worlds.hpp>

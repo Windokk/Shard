@@ -24,6 +24,13 @@
 #include <shard/shard_extensions.h>
 #include <shard/shard_hooks.h>
 #include <shard/shard_input.h>
+#include <shard/shard_jobs.h>
+#include <shard/shard_time.h>
+#include <shard/shard_assets.h>
+#include <shard/shard_reflect.h>
+#include <shard/shard_net.h>
+#include <shard/shard_render.h>
+#include <shard/shard_debug.h>
 #include <shard/shard_physics.h>
 #include <shard/shard_plugin.h>
 #include <shard/shard_scripts.h>
@@ -93,6 +100,12 @@ namespace Shard::Engine::Plugins {
             gMainThread = std::this_thread::get_id();
         }
 
+        bool IsMainThreadId(std::thread::id id)
+        {
+            std::lock_guard<std::mutex> lock(gThreadMutex);
+            return gHasMainThread && gMainThread == id;
+        }
+
         bool OnMainThread()
         {
             if (SystemRun* run = CurrentRun())
@@ -135,14 +148,18 @@ namespace Shard::Engine::Plugins {
                 CloseWorldEcs(owner);
                 ReleaseBlobs(owner, *ctx);
             }
+            bool last = false;
             {
                 std::lock_guard<std::mutex> lock(gContextMutex);
                 gContexts.erase(owner);
                 ReleaseCVarSlots(owner);
                 gCommandNames.erase(owner);
+                last = gContexts.empty();
             }
+            if (last) DebugClearAll();          // the shapes are shared and have no owner : they stay as long as a plugin is there to draw them
             ReleaseComponents(owner);
             ReleaseServices(owner);
+            ReleaseInput(owner);
         }
 
         // The binding ends when the context releases everything (disable, unload, failure) : its first record, so its last release, after what
@@ -384,6 +401,23 @@ namespace Shard::Engine::Plugins {
             } catch (...) { return SHARD_E_INTERNAL; }
         }
 
+        ShardResult SHARD_CALL CommandExecute(ShardPluginCtx handle, ShardStr line, char* output, uint64_t capacity, uint64_t* size)
+        {
+            try {
+                if (!line.data || line.size == 0) return SHARD_E_INVALID_ARG;
+                if (!FindContext(handle)) return SHARD_E_STALE_HANDLE;
+                if (!OnMainThread()) return SHARD_E_WRONG_THREAD;
+                const Core::CommandResult result = Core::CVarRegistry::Global().Execute(ToString(line));
+                if (size || output) {
+                    uint64_t length = 0;
+                    const ShardResult copied = CopyOut(result.output, output, capacity, size ? size : &length);
+                    if (copied != SHARD_OK) return copied;
+                }
+                if (result.ok) return SHARD_OK;
+                return result.output.rfind("Unknown command", 0) == 0 ? SHARD_E_NOT_FOUND : SHARD_E_INVALID_ARG;
+            } catch (...) { return SHARD_E_INTERNAL; }
+        }
+
         // ---- query_interface ----
 
         struct Interface {
@@ -396,15 +430,15 @@ namespace Shard::Engine::Plugins {
         const std::vector<Interface>& Interfaces()
         {
             static const ShardPluginApi pluginApi = { sizeof(ShardPluginApi), &PluginId, &PluginVersion, &PluginDirectory, &PluginHost, &PluginHasPermission, &PluginRandomStream };
-            static const ShardCommandsApi commandsApi = { sizeof(ShardCommandsApi), &CommandAdd };
+            static const ShardCommandsApi commandsApi = { sizeof(ShardCommandsApi), &CommandAdd, &CommandExecute };
             static const ShardCVarsApi cvarsApi = {
                 sizeof(ShardCVarsApi), &CVarCreateBool, &CVarCreateInt, &CVarCreateFloat, &CVarCreateString,
                 &CVarGetBool, &CVarGetInt, &CVarGetFloat, &CVarGetString, &CVarSetBool, &CVarSetInt, &CVarSetFloat, &CVarSetString };
             static const std::vector<Interface> interfaces = {
                 { SHARD_IFACE_PLUGIN, 1, 2, &pluginApi },
-                { SHARD_IFACE_COMMANDS, 1, 0, &commandsApi },
+                { SHARD_IFACE_COMMANDS, 1, 1, &commandsApi },
                 { SHARD_IFACE_CVARS, 1, 0, &cvarsApi },
-                { SHARD_IFACE_COMPONENTS, 1, 3, ComponentsApi() },
+                { SHARD_IFACE_COMPONENTS, 1, 4, ComponentsApi() },
                 { SHARD_IFACE_ECS, 1, 1, EcsApi() },
                 { SHARD_IFACE_SYSTEMS, 1, 0, SystemsApi() },
                 { SHARD_IFACE_EVENTS, 1, 1, EventsApi() },
@@ -413,13 +447,20 @@ namespace Shard::Engine::Plugins {
                 { SHARD_IFACE_EXTENSIONS, 1, 0, ExtensionsApi() },
                 { SHARD_IFACE_CONTENT, 1, 0, ContentApi() },
                 { SHARD_IFACE_STATE, 1, 0, StateApi() },
-                { SHARD_IFACE_ACTORS, 1, 1, ActorsApi() },
-                { SHARD_IFACE_SCRIPTS, 1, 1, ScriptsApi() },
-                { SHARD_IFACE_INPUT, 1, 0, InputApi() },
-                { SHARD_IFACE_PHYSICS, 1, 0, PhysicsApi() },
+                { SHARD_IFACE_ACTORS, 1, 2, ActorsApi() },
+                { SHARD_IFACE_SCRIPTS, 1, 2, ScriptsApi() },
+                { SHARD_IFACE_INPUT, 1, 1, InputApi() },
+                { SHARD_IFACE_PHYSICS, 1, 1, PhysicsApi() },
                 { SHARD_IFACE_AUDIO, 1, 0, AudioApi() },
-                { SHARD_IFACE_WORLDS, 1, 0, WorldsApi() },
-                { SHARD_IFACE_EDITOR, 1, 1, EditorApi() },
+                { SHARD_IFACE_WORLDS, 1, 1, WorldsApi() },
+                { SHARD_IFACE_JOBS, 1, 0, JobsApi() },
+                { SHARD_IFACE_TIME, 1, 0, TimeApi() },
+                { SHARD_IFACE_ASSETS, 1, 0, AssetsApi() },
+                { SHARD_IFACE_REFLECT, 1, 0, ReflectApi() },
+                { SHARD_IFACE_NET, 1, 0, NetApi() },
+                { SHARD_IFACE_RENDER, 1, 0, RenderApi() },
+                { SHARD_IFACE_DEBUG, 1, 0, DebugApi() },
+                { SHARD_IFACE_EDITOR, 1, 2, EditorApi() },
                 // No promise : major 0, handed out for its exact minor only (see shard_experimental.h)
                 { SHARD_IFACE_EXPERIMENTAL_WORLD_ECS, 0, 1, WorldEcsApi() },
             };

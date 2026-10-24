@@ -50,6 +50,9 @@ namespace Shard::Engine::Plugins {
         void (*notify)(uint32_t level, const char* text) = nullptr;
         /// The selected actors, the primary one last
         std::vector<std::shared_ptr<Objects::Actor>> (*selection)() = nullptr;
+        /// Records an edit a plugin already made in the undo history under `label` (shard_editor.h, undo_push) : `undo` and `redo` are called by the editor's
+        /// own undo and redo, in order with its other edits
+        void (*pushUndo)(const std::string& label, std::function<void()> undo, std::function<void()> redo) = nullptr;
     };
 
     /// The editor tells its plugins the selection changed: the C plugins that subscribed (shard.editor) and the EditorPlugins are called
@@ -59,8 +62,17 @@ namespace Shard::Engine::Plugins {
     /// Called by the editor once its ImGui is up (and with null before it goes): without it, shard.editor is not offered
     void SetEditorUiBackend(const EditorUiBackend* backend);
 
+    /// The native texture id (the graphics API's) of a ShardTexture of shard.render, 0 if it has none (yet). Defined by the engine root, which owns the
+    /// renderer ; the editor draws the textures of plugins with it. Call it on the thread that draws.
+    uint64_t RenderTextureForImGui(uint64_t texture, bool* flipV);
+
     /// Delivers the named events C systems emitted during the frame (main thread, end of the frame)
     void FlushCEvents(Events::EventDispatcher* dispatcher);
+
+    /// Start and end of every frame, from the plugin manager (main thread) : what the C ABI's interfaces do once a frame -- the posts of shard.jobs,
+    /// the sockets of shard.net, the input events of shard.input, the aging of what shard.debug drew
+    void BeginCFrame(uint64_t frame);
+    void EndCFrame(uint64_t frame);
 
     /// Applies the poses C systems set during the phase that just ended to the Transform of their actors (main thread, the scheduler's phase end)
     void FlushCPoses(Core::IEngineContext* engine);

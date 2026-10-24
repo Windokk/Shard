@@ -1,3 +1,4 @@
+#include "engine/c_abi_render.hpp"
 #include "engine/world/engine.hpp"
 #include "engine/plugins/manager.hpp"
 #include "engine/assets/asset_importer.hpp"
@@ -527,7 +528,10 @@ namespace Shard::Engine{
             add("Physics.Step", Phase::Fixed, [this](SystemContext& c){ if(m_PlayMode) StepPhysics(c.fixedStep, c.fixedDeltaTime); });
 
             add("Audio.Tick", Phase::Update, [this](SystemContext&){ if(m_PlayMode) TickAudio(); });
-            add("Scripts.Tick", Phase::Update, [this](SystemContext&){ if(m_PlayMode) TickScripts(ScriptTick::Update); });
+            add("Scripts.Tick", Phase::Update, [this](SystemContext&){
+                if(m_PlayMode) TickScripts(ScriptTick::Update);
+                else m_Context.worldManager->EditTick();        // the scripts that asked to be seen working in the editor
+            });
 
             // Loads the pictures the reflection probes reflect and advances the bake that is running : not gated by the play mode, a probe is
             // baked from the editor
@@ -540,6 +544,8 @@ namespace Shard::Engine{
             auto extractor = std::make_shared<Rendering::RenderExtractor>();
             auto poseOffsets = std::make_shared<Rendering::RenderExtractor::PoseOffsets>();
             extractor->SetPoseOffsets(poseOffsets.get());
+            // What the plugins put on screen (shard.render) joins each snapshot
+            extractor->AddSnapshotProvider(&Plugins::CAbi::ExtractPluginRender);
             add("Render.Extract", Phase::Extract, [this, extractor, poseOffsets](SystemContext& c){
                 extractor->SetRebaseDistance(double(cvRebaseDistance.Get()));
                 // The pacing : the simulation does not get further ahead of the drawn frames than the limit
