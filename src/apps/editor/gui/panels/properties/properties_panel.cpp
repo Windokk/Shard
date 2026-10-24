@@ -1,4 +1,5 @@
 #include "properties_panel.hpp"
+#include "apps/editor/gui/plugin_ui.hpp"
 
 #include "engine/assets/reflection/reflection_fields.hpp"
 #include "engine/world/engine.hpp"
@@ -585,8 +586,11 @@ namespace Shard::Editor::GUI{
                 ImGui::PushID(i);
                 if (DrawComponent(actor->GetComponents()[i]))
                     componentToRemove = actor->GetComponents()[i];
+                if (const ClassDescriptor* described = actor->GetComponents()[i]->GetDescriptor())
+                    DrawPluginInspectors(described->name, actor);       // what plugins draw below this component
                 ImGui::PopID();
             }
+            DrawPluginInspectors("", actor);                           // ... and below all of them
 
             if (componentToRemove)
                 Commands::Actions::EditActor(actor, "Remove Component", [&]{ actor->RemoveComponent(componentToRemove); });

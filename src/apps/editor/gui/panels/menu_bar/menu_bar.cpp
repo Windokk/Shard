@@ -1,4 +1,5 @@
 #include "menu_bar.hpp"
+#include "apps/editor/gui/plugin_ui.hpp"
 #include "engine/plugins/manager.hpp"
 
 #include "apps/editor/gui/main_window.hpp"
@@ -33,6 +34,12 @@ namespace Shard::Editor::GUI{
         DrawEditMenu();
         DrawSelectMenu();
         DrawToolsMenu();
+        for(const std::string& name : GUI::PluginMenuNames()){
+            if(ImGui::BeginMenu(name.c_str())){
+                GUI::DrawPluginMenuItems(name.c_str(), false);
+                ImGui::EndMenu();
+            }
+        }
         DrawWindowMenu();
         DrawHelpMenu();
 
@@ -98,6 +105,7 @@ namespace Shard::Editor::GUI{
             }
         }
 
+        GUI::DrawPluginMenuItems("File");
         ImGui::EndMenu();
     }
 
@@ -209,6 +217,7 @@ namespace Shard::Editor::GUI{
         if (ImGui::MenuItem("Editor Preferences..."))
             parent->panelVisibility.editorPreferences = true;
 
+        GUI::DrawPluginMenuItems("Edit");
         ImGui::EndMenu();
     }
 
@@ -231,6 +240,7 @@ namespace Shard::Editor::GUI{
         if (ImGui::MenuItem("Select Children", nullptr, false, hasSelection))
             parent->SelectChildren();
 
+        GUI::DrawPluginMenuItems("Select");
         ImGui::EndMenu();
     }
 
@@ -276,6 +286,7 @@ namespace Shard::Editor::GUI{
                 parent->RequestPlay();
         }
 
+        GUI::DrawPluginMenuItems("Tools");
         ImGui::EndMenu();
     }
 
@@ -305,6 +316,7 @@ namespace Shard::Editor::GUI{
         ImGui::MenuItem("Project Settings", nullptr, &parent->panelVisibility.projectSettings);
         ImGui::MenuItem("Editor Preferences", nullptr, &parent->panelVisibility.editorPreferences);
 
+        GUI::DrawPluginMenuItems("Window");
         ImGui::EndMenu();
     }
 
@@ -316,6 +328,7 @@ namespace Shard::Editor::GUI{
         if (ImGui::MenuItem("About Shard"))
             openAboutPopup = true;
 
+        GUI::DrawPluginMenuItems("Help");
         ImGui::EndMenu();
     }
 

@@ -198,6 +198,7 @@ namespace Shard::Engine::Plugins {
             if (!Disable(d->manifest.id, true, &e)) return fail(e);
         }
 
+        EditorShutdownOne(*r);                  // its windows go with the plugin, after it had its say
         if (r->state == PluginState::Enabled) Guard(*r, "OnDisable", [&] { r->instance->OnDisable(*r->context); });
         if (r->context) r->context->ReleaseAll();
         r->context.reset();
@@ -256,6 +257,7 @@ namespace Shard::Engine::Plugins {
         if (m_EngineReady) {
             if (!Guard(*r, "OnEnable", [&] { r->instance->OnEnable(*r->context); })) return fail(r->error);
             r->state = PluginState::Enabled;
+            EditorInitOne(*r);                  // the editor is already up : its panels, menus and inspectors are added now
         }
         DEBUG_INFO("Plugins : " + id + " enabled");
         return true;
@@ -304,6 +306,11 @@ namespace Shard::Engine::Plugins {
         for (PluginRecord* d : reversed) Disable(d->manifest.id, true, &e);
 
         const bool wasEnabled = r->state != PluginState::Disabled;
+        // The windows that were open are open again afterwards
+        std::set<std::string> openPanels;
+        for (const auto& item : m_Extensions.List("editor.panel"))
+            if (item.owner == r->owner && std::static_pointer_cast<EditorPanelItem>(item.object)->visible) openPanels.insert(item.name);
+        EditorShutdownOne(*r);
         UnloadRecord(*r, false);
         r->error.clear();
         r->state = PluginState::Resolved;
@@ -315,7 +322,10 @@ namespace Shard::Engine::Plugins {
             if (r->state == PluginState::Initialized) MountContent(*r);
             if (r->state == PluginState::Initialized && wasEnabled && m_EngineReady) {
                 if (Guard(*r, "OnEnable", [&] { r->instance->OnEnable(*r->context); })) r->state = PluginState::Enabled;
+                EditorInitOne(*r);
             }
+            for (const auto& item : m_Extensions.List("editor.panel"))
+                if (item.owner == r->owner && openPanels.count(item.name)) std::static_pointer_cast<EditorPanelItem>(item.object)->visible = true;
             if (r->state == PluginState::Enabled || r->state == PluginState::Initialized) {
                 json data = saved.Data();
                 StateReader reader(data);
@@ -384,23 +394,30 @@ namespace Shard::Engine::Plugins {
         }
     }
 
+    void PluginManager::EditorInitOne(PluginRecord& r)
+    {
+        if (!m_EditorInitialized || !r.IsRunning() || !r.editorPlugin || !r.context) return;
+        EditorContext ec{ *r.context, m_Extensions, m_EditorImGui };
+        Guard(r, "OnEditorInit", [&] { r.editorPlugin->OnEditorInit(ec); });
+    }
+
+    void PluginManager::EditorShutdownOne(PluginRecord& r)
+    {
+        if (!m_EditorInitialized || !r.IsRunning() || !r.editorPlugin || !r.context) return;
+        EditorContext ec{ *r.context, m_Extensions, m_EditorImGui };
+        Guard(r, "OnEditorShutdown", [&] { r.editorPlugin->OnEditorShutdown(ec); });
+    }
+
     void PluginManager::NotifyEditorInit()
     {
-        for (auto& r : m_Records) {
-            if (!r->IsRunning() || !r->editorPlugin) continue;
-            EditorContext ec{ *r->context, m_Extensions, m_EditorImGui };
-            Guard(*r, "OnEditorInit", [&] { r->editorPlugin->OnEditorInit(ec); });
-        }
+        m_EditorInitialized = true;
+        for (auto& r : m_Records) EditorInitOne(*r);
     }
 
     void PluginManager::NotifyEditorShutdown()
     {
-        for (auto it = m_Records.rbegin(); it != m_Records.rend(); ++it) {
-            PluginRecord& r = **it;
-            if (!r.IsRunning() || !r.editorPlugin) continue;
-            EditorContext ec{ *r.context, m_Extensions, m_EditorImGui };
-            Guard(r, "OnEditorShutdown", [&] { r.editorPlugin->OnEditorShutdown(ec); });
-        }
+        for (auto it = m_Records.rbegin(); it != m_Records.rend(); ++it) EditorShutdownOne(**it);
+        m_EditorInitialized = false;
     }
 
     void PluginManager::NotifySelectionChanged(const std::vector<std::string>& actorPaths)

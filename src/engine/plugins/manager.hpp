@@ -290,6 +290,9 @@ namespace Shard::Engine::Plugins {
 
         // loading
         bool LoadRecord(PluginRecord& record);
+        /// An editor plugin that is enabled or disabled while the editor runs gets OnEditorInit / OnEditorShutdown like the ones present at its start
+        void EditorInitOne(PluginRecord& record);
+        void EditorShutdownOne(PluginRecord& record);
         bool LoadLibrary(PluginRecord& record);
         bool LoadSandbox(PluginRecord& record);       ///< abi "wasm1" : wasm/wasm_plugin.hpp
         bool CreateContext(PluginRecord& record);
@@ -333,6 +336,7 @@ namespace Shard::Engine::Plugins {
         std::set<std::string> m_InstalledIds;
         std::string m_InstallDirectory;
         EditorImGui m_EditorImGui;
+        bool m_EditorInitialized = false;          ///< NotifyEditorInit ran and NotifyEditorShutdown has not
         std::set<std::string> m_ProjectAllowUnsigned;
         std::vector<std::string> m_ProjectRegistries;
 

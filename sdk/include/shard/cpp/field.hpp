@@ -136,7 +136,7 @@ namespace Shard {
             for (const DeclaredField& declared : collector.fields) {
                 for (const ShardFieldDesc& other : fields)
                     if (View(other.name) == declared.name)
-                        throw Error(SHARD_E_ALREADY_EXISTS, std::string("the field '") + declared.name + "' is declared twice");
+                        SHARD_THROW(Error(SHARD_E_ALREADY_EXISTS, std::string("the field '") + declared.name + "' is declared twice"));
                 ShardFieldDesc f{};
                 f.structSize = sizeof(ShardFieldDesc);
                 f.type = declared.type;

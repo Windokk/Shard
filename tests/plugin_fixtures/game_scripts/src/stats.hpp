@@ -20,6 +20,10 @@ struct Stats {
     // The typed handles of the engine's components
     int typedRefused = 0, velocitySet = 0, shapeCount = 0, shapeCountAfterRemove = 0, hasListener = 0, hasListenerAfterRemove = -1, noListener = 0;
     float lightIntensity = 0.f, listenerDoppler = 0.f;
+    // 1.6 : the editor
+    int menuRuns = 0, toolbarRuns = 0, inspectorDraws = 0, gizmoDraws = 0, selectionEvents = 0, selectionSize = -1, widgetDraws = 0, tabItems = 0, tableCells = 0, pickedIndex = -1;
+    float contentWidth = -1.f;
+    std::string inspected, gizmoActor;
 };
 
 inline Stats& GetStats()

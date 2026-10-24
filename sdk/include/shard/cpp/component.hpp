@@ -252,13 +252,13 @@ namespace Shard {
         static const ShardComponentsApi& Blobs()
         {
             const ShardComponentsApi* api = detail::Interface<ShardComponentsApi>(SHARD_IFACE_COMPONENTS, 1);
-            if (!api) throw Error(SHARD_E_UNSUPPORTED, "blobs need shard.components 1.1");
+            if (!api) SHARD_THROW(Error(SHARD_E_UNSUPPORTED, "blobs need shard.components 1.1"));
             return *api;
         }
         static const ShardComponentsApi& Texts()
         {
             const ShardComponentsApi* api = detail::Interface<ShardComponentsApi>(SHARD_IFACE_COMPONENTS, 2);
-            if (!api) throw Error(SHARD_E_UNSUPPORTED, "text fields need shard.components 1.2");
+            if (!api) SHARD_THROW(Error(SHARD_E_UNSUPPORTED, "text fields need shard.components 1.2"));
             return *api;
         }
         ShardPluginCtx m_Ctx;

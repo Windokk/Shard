@@ -190,11 +190,15 @@ namespace Shard {
             if (!host || !out) return SHARD_E_INVALID_ARG;
             if (host->abiMajor != SHARD_ABI_MAJOR) return SHARD_E_UNSUPPORTED;
             Host() = host;
+#if SHARD_SDK_NOEXC
+            Instance().reset(create());
+#else
             try {
                 Instance().reset(create());
             } catch (...) {
                 return SHARD_E_INTERNAL;
             }
+#endif
             out->structSize = sizeof(ShardPluginInfo);
             out->abiMajor = SHARD_ABI_MAJOR;
             out->abiMinor = SHARD_ABI_MINOR;

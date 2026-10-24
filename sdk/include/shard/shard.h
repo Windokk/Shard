@@ -25,4 +25,9 @@
 #include "shard_state.h"
 #include "shard_experimental.h"
 
+/* Compiled for wasm32 (a sandboxed plugin) : the interfaces are imports of the host, see shard_wasm.h */
+#if defined(__wasm__)
+#   include "shard_wasm.h"
+#endif
+
 #endif /* SHARD_H */

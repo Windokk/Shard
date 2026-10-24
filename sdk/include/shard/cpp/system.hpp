@@ -15,6 +15,7 @@
 #include <functional>
 #include <memory>
 #include <string>
+#include <string_view>
 #include <type_traits>
 #include <utility>
 #include <vector>
@@ -66,6 +67,15 @@ namespace Shard {
         template <typename F>
         void EachChunk(F&& fn)
         {
+#if SHARD_SDK_NOEXC
+            struct Call { F* fn; } call{ &fn };
+            auto trampoline = [](void* user, const ShardChunk* chunk) -> ShardResult {
+                Invoke(*static_cast<Call*>(user)->fn, chunk, std::index_sequence_for<Cs...>{});
+                return SHARD_OK;
+            };
+            ShardQuery query = Describe();
+            const ShardResult result = Api().each_chunk(m_Ecs, &query, +trampoline, &call);
+#else
             struct Call {
                 F* fn;
                 std::exception_ptr error;
@@ -83,6 +93,7 @@ namespace Shard {
             ShardQuery query = Describe();
             const ShardResult result = Api().each_chunk(m_Ecs, &query, +trampoline, &call);
             if (call.error) std::rethrow_exception(call.error);
+#endif
             detail::Check(result, "a query of a system");
         }
 
@@ -179,7 +190,7 @@ namespace Shard {
         bool SetLocalTransform(Entity e, const Pose& pose) const
         {
             const ShardEcsApi* api = detail::Interface<ShardEcsApi>(SHARD_IFACE_ECS, 1);
-            if (!api) throw Error(SHARD_E_UNSUPPORTED, "set_local_transform needs shard.ecs 1.1");
+            if (!api) SHARD_THROW(Error(SHARD_E_UNSUPPORTED, "set_local_transform needs shard.ecs 1.1"));
             ShardLocalTransform t{};
             std::memcpy(&t, &pose, sizeof(t));
             const ShardResult r = api->set_local_transform(m_Run.ecs, e, &t);
@@ -192,13 +203,14 @@ namespace Shard {
         void SetText(Text& field, std::string_view text) const { Components(m_Ctx).SetText(field, text); }
         std::string GetText(Text field) const { return Components(m_Ctx).GetText(field); }
 
-        /// A named event, delivered at the end of the frame (shard_events.h)
-        void Emit(const std::string& name, const void* payload, size_t size) const
+        /// A named event, delivered at the end of the frame (shard_events.h). Out of line on purpose : emitting is rare, and a call that may throw
+        /// inside the row loop would make every row slower, turn or not
+        SHARD_COLD void Emit(std::string_view name, const void* payload, size_t size) const
         {
             if (const auto* events = detail::Interface<ShardEventsApi>(SHARD_IFACE_EVENTS)) events->emit(m_Ctx, Str(name), payload, uint64_t(size));
         }
         template <typename T>
-        void Emit(const std::string& name, const T& payload) const
+        SHARD_COLD void Emit(std::string_view name, const T& payload) const
         {
             static_assert(std::is_trivially_copyable<T>::value, "an event's payload is copied as bytes");
             Emit(name, &payload, sizeof(T));
@@ -281,7 +293,7 @@ namespace Shard {
             {
                 const void* table = nullptr;
                 if (!detail::Host() || detail::Host()->query_interface(Str(SHARD_IFACE_EXPERIMENTAL_WORLD_ECS), 0, 1, &table) != SHARD_OK)
-                    throw Error(SHARD_E_UNSUPPORTED, "this engine has no shard.experimental.world_ecs 0.1");
+                    SHARD_THROW(Error(SHARD_E_UNSUPPORTED, "this engine has no shard.experimental.world_ecs 0.1"));
                 m_Api = static_cast<const ShardWorldEcsApi*>(table);
                 ShardSystemCtx run{};
                 run.structSize = sizeof(run);

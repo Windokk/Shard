@@ -2,6 +2,10 @@
 
 This tutorial builds a game as a plugin, using only the Shard SDK : a folder of headers and a CMake package. You do not need the engine's source or its libraries, and any C++17 compiler works (GCC, Clang, MSVC), whichever one built the engine. The game ends up as several source files : scripts that live on actors, a component with a system, and a console variable.
 
+## What the SDK is, in a few lines
+
+Your game is compiled apart from the engine, so the two cannot share C++ objects. They talk through a small set of plain C functions, the **C ABI**. The **C++ SDK** is a layer of headers that hides those C functions behind classes and lambdas (`Shard::Script`, `s.Each(...)`), so you write ordinary C++ and never call the C functions yourself. It is compiled into your plugin and costs nothing at run time when the code stays simple. You only need to know C++ syntax (classes, templates used as shown, lambdas) to follow this tutorial. The full picture, and what can make a plugin slower, is in [The C ABI and the SDK](../concepts/plugins.md#the-c-abi-and-the-sdk).
+
 ## 1. Get the SDK
 
 From an engine build :
@@ -171,6 +175,10 @@ SHARD_ON_LOAD(ProjectileSystem, ctx)                  // runs in OnLoad, after e
     });
 }
 ```
+
+Keep the row loop small. The function you give to `Each` runs once per entity, so with 100 000 entities it runs 100 000 times per frame. Put only the arithmetic on the component in it. Read what does not change (`s.DeltaTime()`) once before the loop, and call something heavier (`s.Emit(...)`, `s.Destroy(e)`, a log line) only inside an `if`, when it really happens. Avoid creating a `std::string` or a `std::vector` in it.
+
+This is the only real cost of writing a system with the SDK. The SDK itself adds nothing to a clean loop : measured on 100 000 entities, the same system written as a plugin takes the same time as inside the engine, and about 10 % more with an `Emit` that fires now and then. An `Emit` written in a loop without care cost 1.5 times the engine before the SDK kept it out of line. The C ABI underneath costs one call per chunk of a few hundred entities, which does not show.
 
 A system declares every component type it touches. It cannot use actors, scripts or input, which are only available in script callbacks (scripts run one after another, systems run side by side).
 

@@ -23,7 +23,7 @@ OUT = os.path.join(ROOT, 'docs', 'docs', 'api_reference.md')
 # The reading order ; a header not listed comes after these, by name
 C_ORDER = ['shard_abi.h', 'shard_host.h', 'shard_plugin.h', 'shard_cvars.h', 'shard_commands.h', 'shard_components.h', 'shard_ecs.h',
            'shard_systems.h', 'shard_events.h', 'shard_hooks.h', 'shard_services.h', 'shard_extensions.h', 'shard_content.h', 'shard_state.h']
-C_SKIP = ['shard.h']        # includes the others, nothing of its own
+C_SKIP = ['shard.h', 'shard_wasm_imports.h']        # includes the others, nothing of its own
 CPP_ORDER = ['plugin.hpp', 'component.hpp', 'system.hpp', 'cvars.hpp', 'events.hpp', 'services.hpp', 'content.hpp', 'string.hpp']
 CPP_SKIP = ['detail.hpp']   # what the others share : Shard::Error is the only thing a plugin sees of it, documented in the page's text
 

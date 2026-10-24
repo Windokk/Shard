@@ -33,7 +33,7 @@ namespace Shard {
         static Random Stream(std::string_view name)
         {
             const ShardPluginApi* api = detail::Interface<ShardPluginApi>(SHARD_IFACE_PLUGIN, 2);
-            if (!api) throw Error(SHARD_E_UNSUPPORTED, "this host has no random streams (it needs shard.plugin 1.2)");
+            if (!api) SHARD_THROW(Error(SHARD_E_UNSUPPORTED, "this host has no random streams (it needs shard.plugin 1.2)"));
             ShardRandomState state{};
             detail::Check(api->random_stream(detail::PluginHandle(), Str(name), &state), "random_stream '" + std::string(name) + "'");
             Random r;

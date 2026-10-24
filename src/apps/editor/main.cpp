@@ -8,6 +8,7 @@
 #include "apps/editor/commands/command_stack.hpp"
 #include "engine/platform/windowing/sdl/sdl_platform.hpp"
 #include "apps/editor/gui/main_window.hpp"
+#include "apps/editor/gui/plugin_ui.hpp"
 
 using namespace Shard::Engine;
 using namespace Shard::Engine::Core;
@@ -130,6 +131,9 @@ int main(int argc, char* argv[]) {
     pluginOptions.gameModule = gameModuleLib;
     pluginOptions.project = engineSettings.project;
     pluginOptions.hotReload = true;
+    // shard.editor must exist while the plugins load (their OnLoad adds menus, panels, gizmos) : the widgets only run at draw time, so the backend
+    // goes in now and EnsureImGuiInitialized gives it the window later
+    Shard::Editor::GUI::InstallPluginUi(nullptr);
     if (!StartPlugins(pluginOptions)) {
         early_crash();
     }

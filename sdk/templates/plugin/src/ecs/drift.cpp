@@ -18,6 +18,8 @@ SHARD_ON_LOAD(DriftSystem, ctx)
     ctx.Systems().Add("drift", Shard::Phase::Update)
         .Writes(drift, pose)
         .Run([drift, pose](Shard::SystemCtx& s) {
+            // Read once, before the loop. Anything rare (an event with s.Emit, a log line) belongs in a branch the loop seldom takes : the SDK keeps
+            // those calls out of line, so the loop stays as tight as a system of the engine's
             const float dt = s.DeltaTime() * SpinScale().Get();
             s.Each(drift, [&](Shard::Entity entity, Drift& d) {
                 d.age += dt;

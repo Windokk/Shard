@@ -50,6 +50,11 @@ namespace Shard::Engine::Core::Platform {
         virtual void PollEvents() = 0;
         virtual bool ShouldClose() const = 0;
 
+        /// @brief Called on the simulation thread once Extract has published the frame's snapshot, right before the frame is handed to the render thread.
+        /// What a window submits to the renderer here (draw commands for its overlays) is drawn in this frame, next to the snapshot's meshes : from SwapBuffers
+        /// it would reach the frame after, one behind a moving object.
+        virtual void PrepareFrame() {}
+
         virtual void SwapBuffers() = 0;
 
         /// @brief Turns the vertical sync on or off while the window lives. Applied by the thread that presents, at its next frame.

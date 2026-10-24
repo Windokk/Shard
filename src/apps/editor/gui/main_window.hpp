@@ -49,6 +49,8 @@ namespace Shard::Editor::Core {
         void Init(const std::string& title, const int& width, const int& height, 
                     const bool& fullscreen, const int& vsync, const uint32_t& api) override;
 
+        void PrepareFrame() override;
+
         void SwapBuffers() override;
 
         void DrawLoadingFrame(float progress) override;

@@ -26,7 +26,7 @@ Every function says which thread may call it : `any`, `system` (from inside a sy
 | [`shard_state.h`](#shard_stateh) | `shard.state` 1.0 | what a plugin keeps across a hot reload |
 | [`shard_actors.h`](#shard_actorsh) | | Interface `"shard.actors"` 1.1 (1.0 + the fields of a component, one at a time) |
 | [`shard_audio.h`](#shard_audioh) | `shard.audio` 1.0 | sounds |
-| [`shard_editor.h`](#shard_editorh) | `shard.editor` 1.0 | windows of the editor, with a small set of widgets |
+| [`shard_editor.h`](#shard_editorh) | `shard.editor` 1.1 | the editor's windows, menus, toolbar, inspectors and gizmos, drawn with a small set of widgets |
 | [`shard_experimental.h`](#shard_experimentalh) | `shard.experimental.world_ecs` 0.1 | the engine's entities from the main thread, outside the systems |
 | [`shard_input.h`](#shard_inputh) | `shard.input` 1.0 | keyboard, mouse and gamepads, polled |
 | [`shard_physics.h`](#shard_physicsh) | `shard.physics` 1.0 | the rigid bodies of actors, and ray casts |
@@ -50,7 +50,7 @@ Changing a struct without bumping `SHARD_ABI_MINOR` is a bug : `tests/plugins/ab
 | | Value | |
 |---|---|---|
 | `SHARD_ABI_MAJOR` | `1` |  |
-| `SHARD_ABI_MINOR` | `5` |  |
+| `SHARD_ABI_MINOR` | `6` |  |
 
 Calling convention of every function pointer in the tables. Empty on `x86_64` and arm64.
 
@@ -1289,13 +1289,15 @@ ShardResult play_one_shot(ShardStr clip, const float position[3], float volume, 
 
 ### shard_editor.h
 
-Interface `"shard.editor"` 1.0 : windows of the editor, with a small set of widgets.
+Interface `"shard.editor"` 1.1 : the editor's windows, menus, toolbar, inspectors and gizmos, drawn with a small set of widgets.
 
-ImGui has no stable ABI, so a plugin does not draw with it : it adds a panel and draws the contents with the widgets of `ShardUiApi`, which the editor implements with its own ImGui. The panel is a window of the editor's Window menu (hidden until the user opens it). Its draw function runs every frame while the window is open, on the editor's main thread, and may call the widgets then and only then.
+ImGui has no stable ABI, so a plugin does not draw with it : it adds a panel and draws the contents with the widgets of `ShardUiApi`, which the editor implements with its own ImGui. The panel is a window of the editor's Window menu (hidden until the user opens it). Its draw function runs every frame while the window is open, on the editor's main thread, and may call the widgets then and only then. The same widgets draw an inspector (below a component in the Properties panel) ; `ShardGizmoApi` draws over the viewport.
 
-This interface exists only in the editor : in the player, in headless runs and in the offline tools `query_interface` answers `SHARD_E_NOT_FOUND`, so a plugin that has panels keeps working there. The editor loads a plugin whose manifest `"hosts"` include `"engine"` (the default) or `"editor"`.
+This interface exists only in the editor : in the player, in headless runs and in the offline tools `query_interface` answers `SHARD_E_NOT_FOUND`, so a plugin that has panels keeps working there. The editor loads a plugin whose manifest `"hosts"` include `"engine"` (the default) or `"editor"`. A sandboxed plugin (tier 2) needs the permission `"editor"` in its manifest.
 
 Widgets that take a value change it in place and return `SHARD_TRUE` on the frame the user changed it. A label may carry a hidden id after `"##"` (`"Speed##enemy1"`), as in ImGui, to tell apart two widgets with the same text.
+
+1.1 added to `ShardUiApi` (from `text_disabled` on) : more text, vectors, multiline text, groups, children, disabled sections, tabs, tables, menus, popups, item queries, and to `ShardEditorApi` (from `add_menu_item` on) : menu items, toolbar buttons, inspectors, gizmos, the selection, notifications.
 
 | | Value | |
 |---|---|---|
@@ -1388,9 +1390,177 @@ int32_t is_item_hovered(void);
 void tooltip(ShardStr text);
 ```
 
+**1.1**
+
+More text and vectors
+
+```c
+void text_disabled(ShardStr text);
+void separator_text(ShardStr label);
+```
+
+A radio button that is on when `*value` == `button_value`, and sets it so when clicked
+
+```c
+int32_t radio_button(ShardStr label, int32_t* value, int32_t button_value);
+int32_t drag_float2(ShardStr label, float value[2], float speed, float min, float max);
+int32_t drag_float3(ShardStr label, float value[3], float speed, float min, float max);
+int32_t drag_float4(ShardStr label, float value[4], float speed, float min, float max);
+int32_t color_edit3(ShardStr label, float rgb[3]);
+```
+
+A text box of `width` x `height` pixels (0 : the available width, three lines)
+
+```c
+int32_t input_text_multiline(ShardStr label, char* buffer, uint64_t capacity, float width, float height);
+int32_t button_size(ShardStr label, float width, float height);
+void plot_histogram(ShardStr label, const float* values, int32_t count);
+```
+
+Layout
+
+```c
+void begin_group(void);
+void end_group(void);
+void indent(float width);
+void unindent(float width);
+void dummy(float width, float height);
+void new_line(void);
+void push_item_width(float width);
+void pop_item_width(void);
+```
+
+A scrolling region of its own : draw only when it returns `SHARD_TRUE`, and always call `end_child`
+
+```c
+int32_t begin_child(ShardStr id, float width, float height, int32_t border);
+void end_child(void);
+```
+
+What is drawn between is greyed out and ignores the mouse while `disabled` is `SHARD_TRUE`
+
+```c
+void begin_disabled(int32_t disabled);
+void end_disabled(void);
+void push_text_color(const float rgba[4]);
+void pop_text_color(void);
+float content_width(void);
+```
+
+Tabs : draw the contents of a tab only when `begin_tab_item` returns `SHARD_TRUE`, and call `end_tab_item` then ; `end_tab_bar` after `begin_tab_bar` returned `SHARD_TRUE`
+
+```c
+int32_t begin_tab_bar(ShardStr id);
+void end_tab_bar(void);
+int32_t begin_tab_item(ShardStr label);
+void end_tab_item(void);
+```
+
+Tables : `end_table` after `begin_table` returned `SHARD_TRUE`. `table_next_column` returns `SHARD_TRUE` while the column is visible.
+
+```c
+int32_t begin_table(ShardStr id, int32_t columns);
+void end_table(void);
+void table_setup_column(ShardStr label);
+void table_headers_row(void);
+void table_next_row(void);
+int32_t table_next_column(void);
+```
+
+Menus (inside a popup or a menu) and popups. `begin_menu` / `begin_popup` : call the matching end only when they returned `SHARD_TRUE`.
+
+```c
+int32_t begin_menu(ShardStr label);
+void end_menu(void);
+int32_t menu_item(ShardStr label, ShardStr shortcut, int32_t selected, int32_t enabled);
+void open_popup(ShardStr id);
+int32_t begin_popup(ShardStr id);
+void end_popup(void);
+void close_current_popup(void);
+```
+
+A popup opened by a right click on the widget drawn last
+
+```c
+int32_t begin_popup_context_item(void);
+```
+
+The widget drawn last : `button` is 0 for the left mouse button, 1 for the right one
+
+```c
+int32_t is_item_clicked(int32_t button);
+int32_t is_item_active(void);
+int32_t is_item_double_clicked(void);
+```
+
+#### ShardGizmoApi
+
+What an inspector or a gizmo draws with over the viewport (`ShardGizmoFn`) : lines in the world, in the units of the project, with a colour r, g, b, a in 0..1. Valid during the callback only.
+
+```c
+uint32_t structSize;
+void line(const float from[3], const float to[3], const float rgba[4]);
+void point(const float position[3], float size, const float rgba[4]);
+```
+
+A circle around `center` in the plane whose normal is `normal`
+
+```c
+void circle(const float center[3], const float normal[3], float radius, const float rgba[4]);
+```
+
+Three circles, one per axis
+
+```c
+void sphere(const float center[3], float radius, const float rgba[4]);
+```
+
+A box aligned on the world's axes
+
+```c
+void box(const float center[3], const float half_extent[3], const float rgba[4]);
+```
+
+A line with a head at `to`
+
+```c
+void arrow(const float from[3], const float to[3], const float rgba[4]);
+void text(const float position[3], ShardStr text, const float rgba[4]);
+```
+
 ```c
 typedef void (*ShardPanelFn)(void* user, const ShardUiApi* ui);
 ```
+
+A menu item or a toolbar button was clicked
+
+```c
+typedef void (*ShardEditorActionFn)(void* user);
+```
+
+Drawn below the component of that type in the Properties panel, for the actor that is shown there. `ui` is the panel's widgets.
+
+```c
+typedef void (*ShardInspectorFn)(void* user, const ShardUiApi* ui, ShardActor actor);
+```
+
+Called each frame for every selected actor, while the viewport is drawn
+
+```c
+typedef void (*ShardGizmoFn)(void* user, const ShardGizmoApi* gizmo, ShardActor actor);
+```
+
+The selection changed : the selected actors, the primary one (the last selected) last. Valid for the call.
+
+```c
+typedef void (*ShardSelectionFn)(void* user, const ShardActor* actors, uint32_t count);
+```
+
+| | Value | |
+|---|---|---|
+| `SHARD_EDITOR_NOTIFY_INFO` | `0` |  |
+| `SHARD_EDITOR_NOTIFY_WARNING` | `1` |  |
+| `SHARD_EDITOR_NOTIFY_ERROR` | `2` |  |
 
 #### ShardEditorApi
 
@@ -1402,6 +1572,56 @@ Adds a panel named `title` to the editor's Window menu, from `on_load`. It goes 
 
 ```c
 ShardResult add_panel(ShardPluginCtx ctx, ShardStr title, ShardPanelFn draw, void* user);
+```
+
+**1.1 : everything below goes with the plugin, thread : main, from `on_load`**
+
+An item of a menu of the menu bar. `path` is the menu and the item, separated by '/' (`"Tools/Bake/All levels"`) ; the first part is a menu of the menu bar (`"Tools"` is added when a plugin uses it). `shortcut` is only displayed (`"Ctrl+B"`, or empty). `SHARD_E_ALREADY_EXISTS` : this plugin has an item at that path.
+
+```c
+ShardResult add_menu_item(ShardPluginCtx ctx, ShardStr path, ShardStr shortcut, ShardEditorActionFn run, void* user);
+```
+
+A button in the viewport's toolbar. `SHARD_E_ALREADY_EXISTS` : this plugin has one of that label.
+
+```c
+ShardResult add_toolbar_button(ShardPluginCtx ctx, ShardStr label, ShardStr tooltip, ShardEditorActionFn run, void* user);
+```
+
+Draws below the component `component_type` (`"light"`, `"physics_body"`, `"<plugin id>.<name>"`...) of the actor the Properties panel shows ; an empty type : below all the components, for any actor.
+
+```c
+ShardResult add_inspector(ShardPluginCtx ctx, ShardStr component_type, ShardInspectorFn draw, void* user);
+```
+
+Draws in the viewport for every selected actor. `SHARD_E_ALREADY_EXISTS` : this plugin has a gizmo of that name.
+
+```c
+ShardResult add_gizmo(ShardPluginCtx ctx, ShardStr name, ShardGizmoFn draw, void* user);
+```
+
+Tells when the selection changes.
+
+```c
+ShardResult subscribe_selection(ShardPluginCtx ctx, ShardSelectionFn fn, void* user);
+```
+
+The selected actors, as an `"array out"` : up to `capacity` into `out`, how many there are in `*count`. thread : main
+
+```c
+ShardResult get_selection(ShardActor* out, uint32_t capacity, uint32_t* count);
+```
+
+A notification in the corner of the editor (`SHARD_EDITOR_NOTIFY_*`). thread : main
+
+```c
+ShardResult notify(ShardPluginCtx ctx, uint32_t level, ShardStr message);
+```
+
+Shows or hides one of this plugin's panels. `SHARD_E_NOT_FOUND` : no such panel. thread : main
+
+```c
+ShardResult set_panel_visible(ShardPluginCtx ctx, ShardStr title, int32_t visible);
 ```
 
 ### shard_experimental.h
@@ -1793,51 +2013,56 @@ ShardResult add_to_actor(ShardPluginCtx ctx, ShardActor actor, ShardStr name, vo
 
 ### shard_wasm.h
 
-Sandboxed plugins (tier 2, `"abi"`: `"wasm1"`) : what a WebAssembly module imports from the host (`docs/design-notes/wasm-sandbox.fr.md`). Experimental : the list grows with each step of the note, and it is not covered by the ABI's compatibility promise yet.
+Sandboxed plugins (tier 2, `"abi"`: `"wasm1"`) : the C ABI, for a module built for wasm32 (`docs/design-notes/wasm-sandbox.fr.md`). Experimental : it is not covered by the ABI's compatibility promise yet.
 
-A sandboxed plugin is built for wasm32 and exports `"shard_plugin_entry"` like a native one ; the host passes 0 for `host` (the module has no table of the host's functions : it calls the imports below) and the address of a `ShardPluginInfo` it reserved in the module's memory. The callbacks are ordinary function pointers (indices in the module's table). The `ctx` a callback receives is the one to pass to the imports ; the host ignores any other, an import always acts for the plugin of the sandbox. Everything is declared only when compiling for wasm.
+A sandboxed plugin is the plugin you would write for the C ABI (`shard.h`, or `shard/game.hpp` in C++), compiled to WebAssembly. It can touch nothing but its own memory and what the host gives it : no files, no network, no clock, no randomness of the system. It loads without a signature or a consent, because it cannot do more than the host lets it : the interfaces below, filtered by the `"permissions"` of its manifest. Its time (budgets.frameMs per frame) and its memory (budgets.memoryMB) are bounded ; a trap (a division by zero, an access out of its memory, an `unreachable`), an exhausted budget or an import used wrongly stops the plugin, never the engine.
 
-Building one, in C without a libc (the host runs it with Wasmtime) :
+The same source compiles for the engine and for wasm32. This header is all it takes : including it (`shard.h` does, when compiling for wasm) declares every function of the interfaces as an import of the host and builds the tables (`ShardCVarsApi`...) from them. The `ShardHostApi` that `shard_plugin_entry` receives is `shard_wasm_host_table`, which the module exports ; `query_interface` answers from the module's tables. See `shard_wasm_imports.h` (generated from the other headers) for the list.
+
+What differs from a native plugin :
+
+* the interfaces : `shard.plugin`, commands, cvars, components, ecs, systems, events, state, scripts, actors, input, physics, audio, worlds,
+```
+and shard.content for the plugin's own folder ("fs.read:content"). Not offered : shard.editor, hooks, services, extensions, experimental.
+```
+
+* permissions : `shard.content` needs `"fs.read:content"`, `shard.input` `"input"`, `shard.physics` `"physics"`, `shard.audio` `"audio"` (without it
+```
+query_interface says SHARD_E_NOT_FOUND and the functions answer SHARD_E_UNSUPPORTED, or SHARD_FALSE / 0), worlds.load_world
+"worlds.load", actors.create / actors.spawn / worlds.spawn_prefab "actors.spawn".
+```
+
+* memory of the host is copied : the block of a component that `shard.ecs` hands out, the bytes of a blob and the object of a script
+```
+live in the module, and what the module changed is copied back when the call that made the copy returns (a system, a script's
+callback, a command...). A blob's pointer stays valid until the module resizes or frees the blob. A string the host hands out
+(shard.components string_get) is valid until the call returns.
+```
+
+* the systems of a module run on the main thread, one after the other : a module is never entered by two threads at once.
+* `ShardPluginCtx` : whatever a module passes, an import acts for the plugin the module belongs to.
+* `shard.content.read` gives memory that is freed with `ShardHostApi::free` ; resolve and `resolve_logical` (which would give a path of the
+```
+host) are always SHARD_E_UNSUPPORTED, and read / list only reach the plugin's own mod:// address.
+```
+
+* the host's alloc and free are the module's memory (they count against budgets.memoryMB).
+
+Building one, in C without a libc :
 
 ```
 clang --target=wasm32 -ffreestanding -nostdlib -O2 -I<sdk>/include -c plugin.c -o plugin.o
-wasm-ld --no-entry --export=shard_plugin_entry --export-table -o plugin.wasm plugin.o
+wasm-ld --no-entry --export=shard_plugin_entry --export=shard_wasm_host_table --export-table -o plugin.wasm plugin.o
 ```
 
-The module must export its memory (`"memory"`, wasm-ld's default) and its function table (`"__indirect_function_table"`, --export-table) : the host reads the arguments of the imports in the first and calls the callbacks through the second.
+... and in C++ with wasi-sdk (a libc and a libc++ for wasm32, no exceptions) :
 
-| | Value | |
-|---|---|---|
-| `SHARD_WASM_IMPORT(name)` | `__attribute__((import_module("shard"), import_name(name)))` |  |
-
-The plugin's log, as `ShardHostApi::log`. A message longer than 64 KiB traps.
-
-```c
-SHARD_WASM_IMPORT("log") void shard_wasm_log(ShardPluginCtx ctx, uint32_t level, ShardStr message);
+```
+clang++ --target=wasm32-wasi -fno-exceptions -DSHARD_SDK_NO_EXCEPTIONS -O2 -I<sdk>/include -c a.cpp b.cpp
+wasm-ld ... or clang++ -mexec-model=reactor -Wl,--export=shard_plugin_entry -Wl,--export=shard_wasm_host_table -Wl,--export-table
 ```
 
-`shard.cvars`, as `ShardCVarsApi` : same rules, same results
-
-```c
-SHARD_WASM_IMPORT("cvars.create_int") ShardResult shard_wasm_cvar_create_int(ShardPluginCtx ctx, ShardStr name, int32_t value, ShardStr help, uint32_t flags, int32_t min, int32_t max, ShardCVar* out);
-SHARD_WASM_IMPORT("cvars.create_float") ShardResult shard_wasm_cvar_create_float(ShardPluginCtx ctx, ShardStr name, float value, ShardStr help, uint32_t flags, float min, float max, ShardCVar* out);
-SHARD_WASM_IMPORT("cvars.get_int") ShardResult shard_wasm_cvar_get_int(ShardPluginCtx ctx, ShardCVar cvar, int32_t* out);
-SHARD_WASM_IMPORT("cvars.get_float") ShardResult shard_wasm_cvar_get_float(ShardPluginCtx ctx, ShardCVar cvar, float* out);
-SHARD_WASM_IMPORT("cvars.set_int") ShardResult shard_wasm_cvar_set_int(ShardPluginCtx ctx, ShardCVar cvar, int32_t value);
-SHARD_WASM_IMPORT("cvars.set_float") ShardResult shard_wasm_cvar_set_float(ShardPluginCtx ctx, ShardCVar cvar, float value);
-```
-
-`shard.commands`, as `ShardCommandsApi::add`. The words of the command and its output live in a page of the module's memory the host keeps for itself : valid for the call only. The callback runs with the plugin's budget like any other.
-
-```c
-SHARD_WASM_IMPORT("commands.add") ShardResult shard_wasm_command_add(ShardPluginCtx ctx, ShardStr name, ShardStr help, ShardCommandFn run, void* user);
-```
-
-`shard.content`, permission `"fs.read:content"` (`SHARD_E_UNSUPPORTED` without it) : the file `path` of the plugin's own content folder (no `".."`, nothing absolute : `SHARD_E_INVALID_ARG`). Copies up to `capacity` bytes into `buffer` and stores the whole size in `*size`.
-
-```c
-SHARD_WASM_IMPORT("content.read") ShardResult shard_wasm_content_read(ShardPluginCtx ctx, ShardStr path, void* buffer, uint64_t capacity, uint64_t* size);
-```
+`shard_sdk_add_plugin`(... TARGET wasm) does that (`sdk/cmake/ShardSDKPlugin.cmake`). The module must export its memory (`"memory"`, wasm-ld's default) and its function table (`"__indirect_function_table"`, --export-table) : the host reads the arguments of the imports in the first and calls the callbacks through the second. A module with C++ constructors (or a libc to start) exports `_initialize` (wasi-sdk reactors do) or `__wasm_call_ctors` : the host runs it before the entry point. The module's allocator must get its memory from memory.grow, as wasi-libc's does : the host adds pages of its own after the module's.
 
 ### shard_worlds.h
 
@@ -2203,9 +2428,10 @@ bool SetLocalTransform(Entity e, const Pose& pose) const;
 /// The text of a string field of a component, from inside a system (see Components::SetText / GetText)
 void SetText(Text& field, std::string_view text) const;
 std::string GetText(Text field) const;
-/// A named event, delivered at the end of the frame (shard_events.h)
-void Emit(const std::string& name, const void* payload, size_t size) const;
-template <typename T> void Emit(const std::string& name, const T& payload) const;
+/// A named event, delivered at the end of the frame (shard_events.h). Out of line on purpose : emitting is rare, and a call that may throw
+/// inside the row loop would make every row slower, turn or not
+SHARD_COLD void Emit(std::string_view name, const void* payload, size_t size) const;
+template <typename T> SHARD_COLD void Emit(std::string_view name, const T& payload) const;
 ```
 
 ```cpp
@@ -2623,7 +2849,7 @@ SHARD_EDITOR_PANEL(Spawner, "Enemy spawner", ui)
 }
 ```
 
-The panel appears in the editor's Window menu. In the player, in headless runs and in the offline tools there is no editor : the panel is not added and nothing else changes, so the same plugin runs everywhere. A plugin whose manifest hosts include `"engine"` is loaded by the editor ; `"editor"` alone limits it to the editor.
+The panel appears in the editor's Window menu. Menu items (`SHARD_EDITOR_MENU_ITEM`), toolbar buttons, inspectors below a component, gizmos in the viewport and the selection are in the same header. In the player, in headless runs and in the offline tools there is no editor : the panel is not added and nothing else changes, so the same plugin runs everywhere. A plugin whose manifest hosts include `"engine"` is loaded by the editor ; `"editor"` alone limits it to the editor.
 
 #### `Ui`
 
@@ -2664,10 +2890,78 @@ void PushId(std::string_view id) const;
 void PopId() const;
 bool IsItemHovered() const;
 void Tooltip(std::string_view text) const;
+void TextDisabled(std::string_view text) const;
+void SeparatorText(std::string_view label) const;
+/// On when `value == buttonValue`, sets it so when clicked
+bool RadioButton(std::string_view label, int& value, int buttonValue) const;
+bool DragVec3(std::string_view label, Vec3& value, float speed = 0.1f, float min = 0.f, float max = 0.f) const;
+bool DragVec2(std::string_view label, Vec2& value, float speed = 0.1f, float min = 0.f, float max = 0.f) const;
+bool ColorEdit3(std::string_view label, Color& color) const;
+/// A text box of several lines : edits `value` in place (up to 4095 bytes)
+bool InputTextMultiline(std::string_view label, std::string& value, float width = 0.f, float height = 0.f) const;
+bool Button(std::string_view label, float width, float height) const;
+void PlotHistogram(std::string_view label, const std::vector<float>& values) const;
+void BeginGroup() const;
+void EndGroup() const;
+void Indent(float width = 0.f) const;
+void Unindent(float width = 0.f) const;
+void Dummy(float width, float height) const;
+void NewLine() const;
+void PushItemWidth(float width) const;
+void PopItemWidth() const;
+float ContentWidth() const;
+/// A region that scrolls on its own : always call EndChild
+bool BeginChild(std::string_view id, float width = 0.f, float height = 0.f, bool border = false) const;
+void EndChild() const;
+void BeginDisabled(bool disabled = true) const;
+void EndDisabled() const;
+void PushTextColor(Color color) const;
+void PopTextColor() const;
+bool BeginTabBar(std::string_view id) const;
+void EndTabBar() const;
+bool BeginTabItem(std::string_view label) const;
+void EndTabItem() const;
+bool BeginTable(std::string_view id, int columns) const;
+void EndTable() const;
+void TableSetupColumn(std::string_view label) const;
+void TableHeadersRow() const;
+void TableNextRow() const;
+bool TableNextColumn() const;
+bool BeginMenu(std::string_view label) const;
+void EndMenu() const;
+bool MenuItem(std::string_view label, std::string_view shortcut = {}, bool selected = false, bool enabled = true) const;
+void OpenPopup(std::string_view id) const;
+bool BeginPopup(std::string_view id) const;
+void EndPopup() const;
+void CloseCurrentPopup() const;
+/// A popup opened by a right click on the widget drawn last
+bool BeginPopupContextItem() const;
+bool IsItemClicked(int button = 0) const;
+bool IsItemActive() const;
+bool IsItemDoubleClicked() const;
+```
+
+#### `Gizmo`
+
+What a gizmo draws with, in the world : valid inside its draw function
+
+```cpp
+void Line(Vec3 from, Vec3 to, Color color = {}) const;
+void Point(Vec3 position, float size = 3.f, Color color = {}) const;
+/// A circle around `center`, in the plane whose normal is `normal`
+void Circle(Vec3 center, Vec3 normal, float radius, Color color = {}) const;
+void Sphere(Vec3 center, float radius, Color color = {}) const;
+void Box(Vec3 center, Vec3 halfExtent, Color color = {}) const;
+void Arrow(Vec3 from, Vec3 to, Color color = {}) const;
+void Text(Vec3 position, std::string_view text, Color color = {}) const;
 ```
 
 ```cpp
 using PanelFn = std::function<void(Ui&)>;
+using ActionFn = std::function<void()>;
+using InspectorFn = std::function<void(Ui&, Actor)>;
+using GizmoFn = std::function<void(Gizmo&, Actor)>;
+using SelectionFn = std::function<void(const std::vector<Actor>&)>;
 ```
 
 #### `Editor`
@@ -2678,11 +2972,36 @@ static bool Available();
 /// Adds a panel named `title` to the Window menu. Returns false outside the editor (nothing is added) or when this plugin already has a
 /// panel of that name. `draw` runs every frame while the window is open.
 bool AddPanel(const std::string& title, PanelFn draw);
+/// An item of a menu of the menu bar: `path` is "Menu/Item" or "Menu/Submenu/Item" ("Tools/Bake/All levels"), `shortcut` is only displayed.
+/// False outside the editor, in an editor older than shard.editor 1.1, or when this plugin already has an item there.
+bool AddMenuItem(const std::string& path, ActionFn run, const std::string& shortcut = {});
+/// A button in the viewport's toolbar
+bool AddToolbarButton(const std::string& label, ActionFn run, const std::string& tooltip = {});
+/// Draws below the component `componentType` of the actor the Properties panel shows ("light", "my.plugin.Health"), or below all of them (empty)
+bool AddInspector(const std::string& componentType, InspectorFn draw);
+/// Draws in the viewport for every selected actor
+bool AddGizmo(const std::string& name, GizmoFn draw);
+/// Called when the selection changes: the selected actors, the primary one last
+bool OnSelectionChanged(SelectionFn fn);
+/// The selected actors, the primary one last
+static std::vector<Actor> SelectedActors();
+/// A notification in the corner of the editor
+void Notify(std::string_view message, uint32_t level = SHARD_EDITOR_NOTIFY_INFO) const;
+/// Shows or hides one of this plugin's panels
+bool SetPanelVisible(const std::string& title, bool visible) const;
 ```
 
 ```cpp
 /// A panel of the editor, defined and registered from any file. `ui` is the name of the Shard::Ui the body draws with. At global scope.
 SHARD_EDITOR_PANEL(Name, Title, ui)
+/// An item of a menu of the menu bar ("Tools/My tool"), defined and registered from any file. The body runs when it is clicked. At global scope.
+SHARD_EDITOR_MENU_ITEM(Name, Path)
+/// A button of the viewport's toolbar, defined and registered from any file. At global scope.
+SHARD_EDITOR_TOOLBAR_BUTTON(Name, Label)
+/// What is drawn below the component `ComponentType` ("" : all of them) in the Properties panel. `ui` and `actor` are the names the body uses. At global scope.
+SHARD_EDITOR_INSPECTOR(Name, ComponentType, ui, actor)
+/// A gizmo drawn in the viewport for each selected actor. At global scope.
+SHARD_EDITOR_GIZMO(Name, gizmo, actor)
 ```
 
 ### shard/cpp/engine_components.hpp

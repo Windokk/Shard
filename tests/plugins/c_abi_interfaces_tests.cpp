@@ -735,5 +735,5 @@ TEST_F(CAbiTest, TheInterfacesOfEachRevisionAreOffered)
     EXPECT_EQ(ask(SHARD_IFACE_AUDIO, 0), SHARD_OK);
     EXPECT_EQ(ask(SHARD_IFACE_WORLDS, 0), SHARD_OK);
     EXPECT_EQ(ask(SHARD_IFACE_EDITOR, 0), SHARD_E_NOT_FOUND);       // only the editor has it
-    EXPECT_EQ(SHARD_ABI_MINOR, 5);
+    EXPECT_EQ(SHARD_ABI_MINOR, 6);                                  // 1.6 : shard.editor 1.1 (menus, toolbar, inspectors, gizmos, selection, more widgets)
 }

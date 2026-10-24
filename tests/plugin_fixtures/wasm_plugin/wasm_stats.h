@@ -1,0 +1,11 @@
+/* What the sandboxed test plugin counts (wasm_plugin.c) and the test reads (tests/plugins/wasm_sdk_plugin_tests.cpp) through wasm_stat(). */
+#ifndef SHARD_WASM_STATS_H
+#define SHARD_WASM_STATS_H
+
+enum Stat {
+    S_LOAD, S_INITIALIZE, S_ENABLE, S_DISABLE, S_FRAME_BEGIN, S_FRAME_END, S_SPIN_RUNS, S_SPIN_ENTITIES, S_PING, S_PING_VALUE, S_REENTRANT,
+    S_CREATED, S_PLAYED, S_TICKS, S_DESTROYED, S_CONSTRUCTED, S_DESTRUCTED, S_COUNTER_SET, S_RESTORED, S_STOPPED, S_WORLD_LOADED, S_FAILURES,
+    S_CHECKS, S_HELLO_BYTES, S_LISTED, S_CONTACTS, S_COMMAND_ARGS, S_SPIN_SAME_BLOCK, S_STAT_COUNT
+};
+
+#endif

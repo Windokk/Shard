@@ -51,6 +51,16 @@ namespace Shard::Engine::Plugins::Wasm {
         /// tables or globals, threads, 64-bit or shared memories, relaxed SIMD...) and past the limits.
         static Core::Result<std::shared_ptr<const Module>> Decode(const uint8_t* data, size_t size, const Limits& limits = {});
 
+        /// @brief The compiled code of this module, to keep and give to Deserialize later (Wasmtime's .cwasm). It only suits the same version of
+        /// Wasmtime, configured the same way, on the same kind of machine : a local cache, never something to distribute.
+        Core::Result<std::vector<uint8_t>> Serialize() const;
+        /// @brief A module from the output of Serialize, without compiling it again. The bytes are trusted as machine code : only ever pass
+        /// what this host wrote itself. Fails (and the caller compiles the module from its source) when Wasmtime does not accept them.
+        static Core::Result<std::shared_ptr<const Module>> Deserialize(const uint8_t* data, size_t size, const Limits& limits = {});
+
+        /// The version of the Wasmtime this was built with (a cache key)
+        static const char* RuntimeVersion();
+
         const std::vector<Import>& Imports() const { return m_Imports; }
         const std::vector<Export>& Exports() const { return m_Exports; }
         const Limits& GetLimits() const { return m_Limits; }
@@ -58,6 +68,8 @@ namespace Shard::Engine::Plugins::Wasm {
     private:
         friend class Instance;
         Module() = default;
+        /// Reads the imports and exports of m_Module and applies the sandbox's rules to them
+        Core::Result<bool> Describe();
 
         wasmtime_module* m_Module = nullptr;
         Limits m_Limits;
@@ -101,6 +113,8 @@ namespace Shard::Engine::Plugins::Wasm {
                                                              uint64_t startFuel = 10'000'000);
 
         /// @brief Calls an exported function. Fails with the trap (or a wrong name / argument count). Fuel left is in Fuel() after.
+        /// May be called from inside a host function (the module imported it, it calls back into the module) : the call then runs on the same
+        /// stack and with the fuel that is left. A trap in it comes back as an error, and the host function usually fails too.
         Core::Result<std::vector<uint64_t>> Call(const std::string& exportName, const std::vector<uint64_t>& args);
         /// @brief Calls the function in slot `tableIndex` of the exported table (kTableExport), checking it has the type `expected` : a
         /// callback the module handed over as a function pointer
@@ -119,6 +133,11 @@ namespace Shard::Engine::Plugins::Wasm {
         bool Write(uint32_t offset, const void* data, uint32_t size);
         /// memory.grow from the host : false when the module has no memory or the limit would be passed. `oldPages` : the first new page
         bool GrowMemory(uint32_t pages, uint32_t& oldPages);
+
+        /// The value of an exported global of type i32 or i64 (wasm-ld exports the address of a data symbol that way : --export=name)
+        bool ExportedGlobal(const std::string& name, uint64_t& value);
+        /// True if the module exports a function of that name
+        bool HasFunction(const std::string& name) const;
 
         /// For a host function about to return false
         void HostTrap(std::string message) { m_HostTrapMessage = std::move(message); }
@@ -139,7 +158,7 @@ namespace Shard::Engine::Plugins::Wasm {
         std::unique_ptr<State> m_State;
         Trap m_Trap;
         std::string m_HostTrapMessage;
-        bool m_Running = false;
+        int m_Depth = 0;                        ///< calls into the module that have not returned (more than 1 : a host function called back)
         bool m_HostFailed = false;              ///< a host function of the current call returned false
     };
 

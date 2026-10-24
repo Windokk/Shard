@@ -1,5 +1,9 @@
 #include <gtest/gtest.h>
 
+#include <algorithm>
+#include <chrono>
+#include <cstdio>
+#include <cstdlib>
 #include <string>
 
 #include "engine/core/config/cvar.hpp"
@@ -178,4 +182,82 @@ TEST_F(SdkSpinTest, ATextAnAssetAndAMovingSystemWrittenWithTheSdk)
         EXPECT_EQ(Rec()->errorCount, 0u);
     }
     Core::SetEngine(nullptr);
+}
+
+// The cost per call of the C ABI (docs/design-notes/c-abi-sdk.fr.md, risk of section 11) : the "rotate" system of the plugin over 100 000 entities,
+// against the same system written as an engine system in C++ (same scheduler, same chunks, same body). Build in Release and run with
+// --gtest_also_run_disabled_tests. The speeds are small so that no entity turns : this measures the iteration, not the events.
+namespace {
+    struct NativeSpin {         // the same layout as the fixture's Spin
+        float speed;
+        float angle;
+        float axis[3];
+        int32_t turns;
+    };
+}
+
+TEST_F(SdkSpinTest, DISABLED_MeasuresThePluginSystemAgainstTheSameSystemInTheEngine)
+{
+    Start();
+    const int kEntities = std::getenv("SHARD_BENCH_ENTITIES") ? std::atoi(std::getenv("SHARD_BENCH_ENTITIES")) : 100000;
+    constexpr int kFrames = 50, kRepeats = 7;
+
+    Core::Ecs::Scheduler nativeScheduler;
+    Core::Ecs::Registry nativeRegistry;
+    Core::Ecs::SystemDesc desc;
+    desc.name = "native/rotate";
+    desc.phase = Core::Ecs::Phase::Update;
+    desc.Writes<NativeSpin>();
+    desc.run = [](Core::Ecs::SystemContext& s) {
+        const float k = 1.0f;
+        const float dt = s.deltaTime;
+        s.registry.Each<NativeSpin>([&](NativeSpin& c) {
+            c.angle += c.speed * k * dt;
+            while (c.angle >= 6.2831853f) { c.angle -= 6.2831853f; ++c.turns; }
+        });
+    };
+    ASSERT_NE(nativeScheduler.Add(std::move(desc)), Core::Ecs::Scheduler::kInvalid);
+
+    for (int i = 0; i < kEntities; ++i) {
+        const float speed = 0.001f + 1e-7f * float(i);
+        Spin s{ speed, 0.f, { 0.f, 1.f, 0.f }, 0 };
+        ASSERT_TRUE(registry.AddRaw(registry.Create(), SpinId(), &s));
+        nativeRegistry.Add(nativeRegistry.Create(), NativeSpin{ speed, 0.f, { 0.f, 1.f, 0.f }, 0 });
+    }
+
+    Core::Ecs::Scheduler::FrameTiming timing;
+    timing.deltaTime = 1.0f / 60.0f;
+    auto timeMs = [&](Core::Ecs::Scheduler& sched, Core::Ecs::Registry& reg, bool plugin) {
+        double best = 1e30;
+        for (int r = 0; r < kRepeats; ++r) {
+            const auto t0 = std::chrono::steady_clock::now();
+            for (int f = 0; f < kFrames; ++f) {
+                if (plugin) pm().BeginFrame(++frame);
+                sched.RunFrame(reg, nullptr, timing);
+                if (plugin) pm().EndFrame(frame);
+            }
+            const double ms = std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - t0).count() / kFrames;
+            best = std::min(best, ms);
+        }
+        return best;
+    };
+    timeMs(scheduler, registry, true);                 // warm up
+    timeMs(nativeScheduler, nativeRegistry, false);
+    const double pluginMs = timeMs(scheduler, registry, true);
+    const double nativeMs = timeMs(nativeScheduler, nativeRegistry, false);
+
+    // The floor : the loop alone over the chunks, no scheduler
+    double floorMs = 1e30;
+    for (int r = 0; r < kRepeats; ++r) {
+        const auto t0 = std::chrono::steady_clock::now();
+        for (int f = 0; f < kFrames; ++f)
+            nativeRegistry.EachChunk<NativeSpin>([&](size_t n, const Core::Ecs::Entity*, NativeSpin* c) {
+                for (size_t i = 0; i < n; ++i) c[i].angle += c[i].speed * timing.deltaTime;
+            });
+        floorMs = std::min(floorMs, std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - t0).count() / kFrames);
+    }
+
+    std::printf("[ bench ] %d entities : plugin through the C ABI %.4f ms/frame, same system in the engine %.4f ms/frame (ratio %.2f), bare chunk loop %.4f ms/frame ; %.1f / %.1f ns per entity\n",
+                kEntities, pluginMs, nativeMs, pluginMs / nativeMs, floorMs, pluginMs * 1e6 / kEntities, nativeMs * 1e6 / kEntities);
+    EXPECT_EQ(Rec()->errorCount, 0u);
 }

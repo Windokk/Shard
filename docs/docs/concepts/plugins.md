@@ -274,6 +274,10 @@ Everything a plugin registers goes through its `PluginContext`. The context tags
 | `asset.type` | `Core::Resources::AssetTypeExtension` | a kind of asset with its loader and file extensions. The engine gives it a kind id (`item->kind`), files with its extensions are indexed as assets of the project (`Filesystem::Type::T_CUSTOM`), and what is cached of the kind is dropped when the plugin goes |
 | `asset.importer` | `Filesystem::AssetImporterExtension` | converts a source format into files the engine reads. `asset.import <file> [folder]` runs it, `Filesystem::AssetImporters::Get().Import` does from code |
 | `editor.panel` | `EditorPanelItem` | `AddEditorPanel(ctx, "My window", draw)` from `OnEditorInit` adds a window to the *Window* menu |
+| `editor.menu` | `EditorMenuItem` | an item of a menu of the menu bar (`"Tools/Bake/All"`) |
+| `editor.toolbar` | `EditorToolbarItem` | a button in the viewport's toolbar |
+| `editor.inspector` | `EditorInspectorItem` | what is drawn below a component (or below all of them) in the Properties panel |
+| `editor.gizmo` | `EditorGizmoItem` | what is drawn in the viewport for each selected actor |
 | `tool.validator` | `ToolValidatorItem` | a check `ShardAssetValidator` runs : it gets the project file and returns the problems it found |
 
 Pass the base type explicitly when you add something that derives from it (`Add<Rendering::RenderFeature>(name, std::make_shared<MyFeature>())`), the engine finds items by that type. Other names can be used between plugins and engine code that agree on them.
@@ -368,10 +372,47 @@ Libraries that predate this (they export `InitializeSingletons` and `RegisterGam
 
 A plugin can be written against the Shard SDK (`sdk/include/shard`) instead of the engine's C++ headers. It links nothing of the engine and includes none of its headers. It loads in every engine with the same ABI major revision and a minor revision at least as recent as its own, whichever compiler built either side. A plugin built with MSVC loads in an engine built with MinGW GCC, and one built with Clang loads in an engine built with GCC. The CI checks both.
 
-There are two layers :
+### Two layers, one door
 
-* The C ABI (`shard/shard.h` and the headers it includes) is plain C11. It is the contract between the plugin and the engine.
-* The C++ SDK (`shard/game.hpp` and the `shard/cpp/` headers) is header-only C++17 on top of the C ABI. It is compiled into the plugin, so it can use the standard library freely without affecting the ABI.
+The plugin and the engine are compiled separately, maybe by different compilers, so they cannot share C++ objects : a `std::string` or a class built by one compiler is not readable by the other. They talk through a narrow door instead, made only of plain C : integers, floats, pointers, and tables of functions. That door is the **C ABI** ("ABI" means the binary contract : which functions exist, in which order the fields of a struct are laid out, what each call expects).
+
+Writing to that door by hand is tedious. Registering one component takes a struct describing each field, a table of callbacks, error codes to check after every call. So the SDK adds a second layer, written in C++, that does this for you :
+
+* The **C ABI** (`shard/shard.h` and the headers it includes) is plain C11. It is the contract between the plugin and the engine. The engine implements it.
+* The **C++ SDK** (`shard/game.hpp` and the `shard/cpp/` headers) is header-only C++17 on top of the C ABI. It only wraps the C functions : `s.Each(spin, ...)` ends up calling the C function that walks a chunk of entities. It is compiled into your plugin, so it can use the standard library freely. Nothing of it crosses the door.
+
+A rough picture :
+
+```
+your code  ->  C++ SDK (in your plugin)  ->  C ABI (the door)  ->  the engine
+ Spinner        wraps, checks errors         plain C functions       does the work
+```
+
+| | C ABI alone | C++ SDK on top |
+|---|---|---|
+| Language | C (or anything that can call C) | C++17 |
+| Code to write | long : structs, tables, error codes | short : classes, lambdas, exceptions |
+| Mistakes | yours to catch (an error code ignored is silent) | the SDK checks, and turns a failure into an exception that is caught at the boundary |
+| Speed | what you write | the same, see below |
+| Needs | the headers `shard/*.h` | the same headers and `shard/cpp/*.hpp` |
+
+Both produce the same kind of plugin (`"abi": "c1"`), and the engine cannot tell them apart. You can even mix them in one plugin, for example the SDK for everything and a few direct C calls in a hot loop.
+
+#### Does the SDK make a plugin slower ?
+
+Not by itself. The SDK is made of templates and small inline functions, which the compiler flattens : a loop written with `s.Each` compiles to the same loop as the one written in C. The part that does cost something is the same in both cases : each call across the door is a function call, and the engine hands out entities by **chunk** (a block of several hundred), so a system pays one call per chunk, not one per entity.
+
+What can cost is C++ convenience used in the middle of a hot loop. These are things a C programmer would see as expensive, and the SDK makes them easy to write without noticing :
+
+* Anything that allocates (`std::string`, `std::vector`) inside the per-entity function.
+* A call that may throw an exception, made for every entity. The compiler has to keep the loop ready to unwind, which blocks some optimisations. `SystemCtx::Emit` was one of these : written inside a loop over 100 000 entities it made the system 1.4 to 1.7 times slower than the same system inside the engine. The SDK now keeps it out of line and takes a `std::string_view` (no temporary string), which brings it to about 1.1.
+* A call made once per entity that could be made once per frame (reading `s.DeltaTime()` inside the loop instead of before it).
+
+The rule of thumb : in the function given to `Each`, do the arithmetic on the component, and call anything else only when something happens (an event, a destroy, a log line). Everything outside a system's loop (`OnLoad`, console commands, editor panels, one event per frame) is not measurable. Numbers, for a trivial system on 100 000 entities : same as the engine when the loop is clean, 1.1 times with an `Emit` that fires rarely. A sandboxed (WASM) plugin is a different case : the same loop runs about 20 times slower, which is the price of the isolation, see [the sandbox](#trust-levels).
+
+If a profile ever shows the C++ layer in the way, the C ABI is always there : the headers are included anyway, so that one system can call the tables of `shard_ecs.h` and `shard_systems.h` directly (`tests/plugin_fixtures/c_plugin/c_plugin.c` does it for every interface) while the rest of the plugin stays in the SDK.
+
+### The two levels of the C++ SDK
 
 The C++ SDK itself has two levels. The gameplay level is how a game is written : classes that live on actors, like the engine's own scripts, in as many files as you want.
 
@@ -463,7 +504,7 @@ A plugin asks for interfaces by name and version : `host->query_interface("shard
 | `shard.physics` 1.0 | velocities, forces, impulses, gravity and ray casts |
 | `shard.audio` 1.0 | the sound of an actor, one shot sounds |
 | `shard.worlds` 1.0 | loading a world, spawning a prefab by name |
-| `shard.editor` 1.0 | panels in the editor. Only the editor offers it |
+| `shard.editor` 1.1 | panels, menu items, toolbar buttons, inspectors, viewport gizmos, the selection and notifications of the editor, with a wide set of widgets. Only the editor offers it ; a sandboxed plugin needs the permission `editor` |
 | `shard.experimental.world_ecs` 0.1 | the engine's entities from the main thread, outside systems (experimental, see below) |
 
 The lifecycle callbacks are those of `IPlugin`, plus the frame, content and world callbacks of `EnginePlugin` and `IModule`, and `on_tool_task` of `ToolPlugin`.
@@ -535,6 +576,18 @@ SHARD_EDITOR_PANEL(Spawner, "Enemy spawner", ui)
     if (ui.Button("Spawn")) SpawnEnemies(count);
 }
 ```
+
+**More of the editor** (`shard.editor` 1.1, in the same header `shard/cpp/editor.hpp`). Everything a plugin adds goes with the plugin (disabled, reloaded : the editor calls `OnEditorInit` again, and the windows that were open are open again). Nothing is added outside the editor, and the same plugin runs everywhere.
+
+```cpp
+SHARD_EDITOR_MENU_ITEM(BakeAll, "Tools/Bake/All levels") { BakeEverything(); }          // an item of the menu bar, nested menus with '/'
+SHARD_EDITOR_TOOLBAR_BUTTON(Ping, "Ping") { Shard::Editor(Shard::detail::PluginHandle()).Notify("pinged"); }
+SHARD_EDITOR_INSPECTOR(Health, "my.plugin.Health", ui, actor) { ui.SeparatorText("Debug"); ui.Text(actor.Name()); }   // below that component
+SHARD_EDITOR_GIZMO(Range, gizmo, actor) { gizmo.Sphere(actor.WorldPosition(), 5.f); }       // in the viewport, for each selected actor
+SHARD_ON_LOAD(Follow, ctx) { ctx.Editor().OnSelectionChanged([](const std::vector<Shard::Actor>& selected) { /* ... */ }); }
+```
+
+The widgets of `Ui` go from text, buttons and sliders to tabs, tables, menus, popups, groups, child regions and disabled sections ; `Gizmo` draws lines, points, circles, spheres, boxes, arrows and text in the world. `Editor::SelectedActors()` gives the selection, `Notify` shows a toast. A function a longer editor has and an older one lacks does nothing and returns false. A sandboxed plugin (tier 2) does all of this too, with `"permissions": ["editor"]`.
 
 A call into a script goes through the plugin like any other. The plugin is named as the one running, so a crash is blamed on it. An exception is caught, and an error returned counts as an error of the plugin : at the tenth, the engine fails the plugin, as it does for a system. When the plugin is disabled or unloaded, its scripts stop being called, so a world that still holds them never calls into a library that has left.
 
@@ -672,7 +725,7 @@ Everything is checked when the pack loads ; a pack with a file that doesn't have
 |---|---|---|
 | 0 | first-party code : the engine's modules, your game | native, in the process, built with the engine |
 | 1 | a third-party native plugin | native, in the process. Has to be signed by a trusted publisher, or allowed by the project |
-| 2 | a sandboxed plugin | **experimental** : a WebAssembly module (`"abi": "wasm1"`) compiled and run by [Wasmtime](https://wasmtime.dev/). It sees only its own memory, each callback has a budget of instructions (`budgets.frameMs`) and its memory a ceiling (`budgets.memoryMB`) ; a trap or an exhausted budget stops the plugin, not the engine. It needs no signature. For now it reaches the host through its lifecycle callbacks, the log, its cvars, console commands and the files of its own content folder (with the permission `fs.read:content`) : the imports, and how to build a module with Clang and `wasm-ld`, are in `shard/shard_wasm.h`. Only C plugins can be built for it yet |
+| 2 | a sandboxed plugin | **experimental** : a WebAssembly module (`"abi": "wasm1"`) compiled and run by [Wasmtime](https://wasmtime.dev/). It sees only its own memory, its callbacks share a budget of time per frame (`budgets.frameMs`) and its memory a ceiling (`budgets.memoryMB`) ; a trap or an exhausted budget stops the plugin, not the engine. It needs no signature, and has no files, network, clock or randomness of the system. It is the plugin you write for the C ABI (or the C++ SDK, `shard/game.hpp`), compiled for wasm32 : every interface of the ABI except the editor's, hooks, services and extensions, with the `permissions` of its manifest deciding which it is offered (`fs.read:content`, `input`, `physics`, `audio`, `worlds.load`, `actors.spawn`). Build it with `shard_sdk_add_plugin(... TARGET wasm)` and a wasi-sdk 34 or later (`SHARD_WASM_TOOLCHAIN`) ; what differs from a native plugin is in `shard/shard_wasm.h` |
 | 3 | a datapack | no code, validated against the formats above |
 
 A native plugin can do anything the process can. The `permissions` list tells the user what the plugin means to do, but nothing holds it to that. Install native plugins only from publishers you trust. What Shard checks is who made the files, not what they do.

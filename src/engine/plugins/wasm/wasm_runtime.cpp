@@ -219,16 +219,10 @@ namespace Shard::Engine::Plugins::Wasm {
         if (m_Module) wasmtime_module_delete(m_Module);
     }
 
-    Core::Result<std::shared_ptr<const Module>> Module::Decode(const uint8_t* data, size_t size, const Limits& limits)
+    Core::Result<bool> Module::Describe()
     {
-        if (size > limits.maxModuleSize) return Err("WebAssembly : module too large");
-        std::shared_ptr<Module> module(new Module());
-        module->m_Limits = limits;
-        if (wasmtime_error_t* error = wasmtime_module_new(Engine(), data, size, &module->m_Module))
-            return Err("WebAssembly : " + ErrorMessage(error));
-
         wasm_importtype_vec_t imports;
-        wasmtime_module_imports(module->m_Module, &imports);
+        wasmtime_module_imports(m_Module, &imports);
         std::string problem;
         for (size_t i = 0; i < imports.size && problem.empty(); ++i) {
             const wasm_name_t* mod = wasm_importtype_module(imports.data[i]);
@@ -238,13 +232,13 @@ namespace Shard::Engine::Plugins::Wasm {
             // The sandbox owns its memory, table and globals : it never gets the host's (nor another sandbox's)
             if (wasm_externtype_kind(type) != WASM_EXTERN_FUNC) problem = "only functions can be imported (" + imp.module + "." + imp.name + ")";
             else if (!ReadFuncType(wasm_externtype_as_functype_const(type), imp.type)) problem = "import " + imp.module + "." + imp.name + " takes references";
-            else module->m_Imports.push_back(std::move(imp));
+            else m_Imports.push_back(std::move(imp));
         }
         wasm_importtype_vec_delete(&imports);
         if (!problem.empty()) return Err("WebAssembly : " + problem);
 
         wasm_exporttype_vec_t exports;
-        wasmtime_module_exports(module->m_Module, &exports);
+        wasmtime_module_exports(m_Module, &exports);
         for (size_t i = 0; i < exports.size; ++i) {
             const wasm_name_t* name = wasm_exporttype_name(exports.data[i]);
             const wasm_externtype_t* type = wasm_exporttype_type(exports.data[i]);
@@ -255,9 +249,43 @@ namespace Shard::Engine::Plugins::Wasm {
                 case WASM_EXTERN_MEMORY: e.kind = 2; break;
                 default: e.kind = 3; break;
             }
-            module->m_Exports.push_back(std::move(e));
+            m_Exports.push_back(std::move(e));
         }
         wasm_exporttype_vec_delete(&exports);
+        return Ok(true);
+    }
+
+    Core::Result<std::shared_ptr<const Module>> Module::Decode(const uint8_t* data, size_t size, const Limits& limits)
+    {
+        if (size > limits.maxModuleSize) return Err("WebAssembly : module too large");
+        std::shared_ptr<Module> module(new Module());
+        module->m_Limits = limits;
+        if (wasmtime_error_t* error = wasmtime_module_new(Engine(), data, size, &module->m_Module))
+            return Err("WebAssembly : " + ErrorMessage(error));
+        auto described = module->Describe();
+        if (!described) return Err(described.GetError().message);
+        return Ok(std::shared_ptr<const Module>(std::move(module)));
+    }
+
+    const char* Module::RuntimeVersion() { return WASMTIME_VERSION; }
+
+    Core::Result<std::vector<uint8_t>> Module::Serialize() const
+    {
+        wasm_byte_vec_t bytes;
+        if (wasmtime_error_t* error = wasmtime_module_serialize(m_Module, &bytes)) return Err("WebAssembly : " + ErrorMessage(error));
+        std::vector<uint8_t> out(bytes.data, bytes.data + bytes.size);
+        wasm_byte_vec_delete(&bytes);
+        return Ok(std::move(out));
+    }
+
+    Core::Result<std::shared_ptr<const Module>> Module::Deserialize(const uint8_t* data, size_t size, const Limits& limits)
+    {
+        std::shared_ptr<Module> module(new Module());
+        module->m_Limits = limits;
+        if (wasmtime_error_t* error = wasmtime_module_deserialize(Engine(), data, size, &module->m_Module))
+            return Err("WebAssembly : " + ErrorMessage(error));
+        auto described = module->Describe();
+        if (!described) return Err(described.GetError().message);
         return Ok(std::shared_ptr<const Module>(std::move(module)));
     }
 
@@ -276,6 +304,9 @@ namespace Shard::Engine::Plugins::Wasm {
         std::vector<std::unique_ptr<Host>> hosts;
 
         ~State() { if (store) wasmtime_store_delete(store); }
+
+        /// The context to use right now : inside a host function, the caller's (the store is lent to it), otherwise the store's
+        wasmtime_context_t* Ctx() const { return caller ? wasmtime_caller_context(caller) : context; }
 
         bool CurrentMemory(wasmtime_memory_t& out)
         {
@@ -354,10 +385,10 @@ namespace Shard::Engine::Plugins::Wasm {
 
         in->m_Module = std::move(module);
         in->SetFuel(startFuel);
-        in->m_Running = true;
+        in->m_Depth = 1;
         wasm_trap_t* trap = nullptr;
         wasmtime_error_t* error = wasmtime_linker_instantiate(linker, s.context, in->m_Module->m_Module, &s.instance, &trap);
-        in->m_Running = false;
+        in->m_Depth = 0;
         wasmtime_linker_delete(linker);
         if (error) return Err("WebAssembly : " + ErrorMessage(error));
         if (trap) {
@@ -380,13 +411,13 @@ namespace Shard::Engine::Plugins::Wasm {
 
     void Instance::SetFuel(uint64_t fuel)
     {
-        if (wasmtime_error_t* error = wasmtime_context_set_fuel(m_State->context, fuel)) wasmtime_error_delete(error);
+        if (wasmtime_error_t* error = wasmtime_context_set_fuel(m_State->Ctx(), fuel)) wasmtime_error_delete(error);
     }
 
     uint64_t Instance::Fuel() const
     {
         uint64_t fuel = 0;
-        if (wasmtime_error_t* error = wasmtime_context_get_fuel(m_State->context, &fuel)) { wasmtime_error_delete(error); return 0; }
+        if (wasmtime_error_t* error = wasmtime_context_get_fuel(m_State->Ctx(), &fuel)) { wasmtime_error_delete(error); return 0; }
         return fuel;
     }
 
@@ -394,15 +425,15 @@ namespace Shard::Engine::Plugins::Wasm {
     {
         wasmtime_memory_t memory;
         if (!m_State->CurrentMemory(memory)) return 0;
-        return uint32_t(std::min<size_t>(wasmtime_memory_data_size(m_State->context, &memory), 0xFFFFFFFFu));
+        return uint32_t(std::min<size_t>(wasmtime_memory_data_size(m_State->Ctx(), &memory), 0xFFFFFFFFu));
     }
 
     uint8_t* Instance::MemoryAt(uint32_t offset, uint32_t size)
     {
         wasmtime_memory_t memory;
         if (!m_State->CurrentMemory(memory)) return nullptr;
-        if (uint64_t(offset) + size > wasmtime_memory_data_size(m_State->context, &memory)) return nullptr;
-        return wasmtime_memory_data(m_State->context, &memory) + offset;
+        if (uint64_t(offset) + size > wasmtime_memory_data_size(m_State->Ctx(), &memory)) return nullptr;
+        return wasmtime_memory_data(m_State->Ctx(), &memory) + offset;
     }
     bool Instance::Read(uint32_t offset, void* out, uint32_t size)
     {
@@ -424,9 +455,28 @@ namespace Shard::Engine::Plugins::Wasm {
         wasmtime_memory_t memory;
         if (!m_State->CurrentMemory(memory)) return false;
         uint64_t previous = 0;
-        if (wasmtime_error_t* error = wasmtime_memory_grow(m_State->context, &memory, pages, &previous)) { wasmtime_error_delete(error); return false; }
+        if (wasmtime_error_t* error = wasmtime_memory_grow(m_State->Ctx(), &memory, pages, &previous)) { wasmtime_error_delete(error); return false; }
         oldPages = uint32_t(previous);
         return true;
+    }
+
+    bool Instance::ExportedGlobal(const std::string& name, uint64_t& value)
+    {
+        wasmtime_extern_t item;
+        if (!wasmtime_instance_export_get(m_State->Ctx(), &m_State->instance, name.data(), name.size(), &item) || item.kind != WASMTIME_EXTERN_GLOBAL) return false;
+        wasmtime_val_t v;
+        wasmtime_global_get(m_State->Ctx(), &item.of.global, &v);
+        if (v.kind == WASMTIME_I32) value = uint32_t(v.of.i32);
+        else if (v.kind == WASMTIME_I64) value = uint64_t(v.of.i64);
+        else return false;
+        return true;
+    }
+
+    bool Instance::HasFunction(const std::string& name) const
+    {
+        for (const Module::Export& x : m_Module->m_Exports)
+            if (x.kind == 0 && x.name == name) return true;
+        return false;
     }
 
     Core::Result<std::vector<uint64_t>> Instance::Call(const std::string& exportName, const std::vector<uint64_t>& args)
@@ -435,7 +485,7 @@ namespace Shard::Engine::Plugins::Wasm {
         for (const Module::Export& x : m_Module->m_Exports)
             if (x.kind == 0 && x.name == exportName) e = &x;
         wasmtime_extern_t item;
-        if (!e || !wasmtime_instance_export_get(m_State->context, &m_State->instance, exportName.data(), exportName.size(), &item) ||
+        if (!e || !wasmtime_instance_export_get(m_State->Ctx(), &m_State->instance, exportName.data(), exportName.size(), &item) ||
             item.kind != WASMTIME_EXTERN_FUNC)
             return Err("WebAssembly : no exported function \"" + exportName + "\"");
         return Run(&item.of.func, e->type, args);
@@ -449,10 +499,10 @@ namespace Shard::Engine::Plugins::Wasm {
         };
         if (!m_State->hasTable) return Err(std::string("WebAssembly : the module exports no table (") + kTableExport + ")");
         wasmtime_val_t slot;
-        if (!wasmtime_table_get(m_State->context, &m_State->table, tableIndex, &slot)) return fail(TrapKind::TableOutOfBounds);
+        if (!wasmtime_table_get(m_State->Ctx(), &m_State->table, tableIndex, &slot)) return fail(TrapKind::TableOutOfBounds);
         if (slot.kind != WASMTIME_FUNCREF || slot.of.funcref.store_id == 0) return fail(TrapKind::IndirectCallNull);
         const wasmtime_func_t func = slot.of.funcref;
-        wasm_functype_t* type = wasmtime_func_type(m_State->context, &func);
+        wasm_functype_t* type = wasmtime_func_type(m_State->Ctx(), &func);
         FuncType actual;
         const bool read = ReadFuncType(type, actual);
         wasm_functype_delete(type);
@@ -463,16 +513,16 @@ namespace Shard::Engine::Plugins::Wasm {
     Core::Result<std::vector<uint64_t>> Instance::Run(const void* function, const FuncType& type, const std::vector<uint64_t>& args)
     {
         if (args.size() != type.params.size()) return Err("WebAssembly : wrong argument count");
-        if (m_Running) return Err("WebAssembly : the instance is already running (a host function cannot call back into it)");
+        if (m_Depth > 0 && !m_State->caller) return Err("WebAssembly : the instance is already running");
         m_Trap = {};
         m_HostFailed = false;
         std::vector<wasmtime_val_t> in(args.size()), out(type.results.size());
         for (size_t i = 0; i < args.size(); ++i) in[i] = ToVal(type.params[i], args[i]);
-        m_Running = true;
+        ++m_Depth;
         wasm_trap_t* trap = nullptr;
-        wasmtime_error_t* error = wasmtime_func_call(m_State->context, static_cast<const wasmtime_func_t*>(function), in.data(), in.size(),
+        wasmtime_error_t* error = wasmtime_func_call(m_State->Ctx(), static_cast<const wasmtime_func_t*>(function), in.data(), in.size(),
                                                      out.data(), out.size(), &trap);
-        m_Running = false;
+        --m_Depth;
         if (error || trap) {
             // Wasmtime's text starts with the wasm backtrace : the journal gets the cause, the backtrace stays out
             const TrapKind kind = m_HostFailed ? TrapKind::Host : trap ? KindOf(trap) : TrapKind::Other;

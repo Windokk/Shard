@@ -102,7 +102,11 @@ namespace Shard {
         }
         static void SHARD_CALL Destruct(void*, void* storage)
         {
+#if SHARD_SDK_NOEXC
+            static_cast<T*>(storage)->~T();
+#else
             try { static_cast<T*>(storage)->~T(); } catch (...) {}
+#endif
         }
         static ShardResult Attach(void*, void* object, ShardActor owner)
         {
@@ -197,6 +201,10 @@ namespace Shard {
                 sample = ::new (static_cast<void*>(raw)) T();
             }
             std::vector<ShardFieldDesc> fields;
+#if SHARD_SDK_NOEXC
+            fields = detail::FieldsOf<T, ScriptTraits<T>>(*sample, options);
+            detail::AppendDeclaredFields(declared, fields);
+#else
             try {
                 fields = detail::FieldsOf<T, ScriptTraits<T>>(*sample, options);
                 detail::AppendDeclaredFields(declared, fields);
@@ -204,6 +212,7 @@ namespace Shard {
                 sample->~T();
                 throw;
             }
+#endif
             sample->~T();
             ShardScriptDesc desc{};
             desc.structSize = sizeof(ShardScriptDesc);

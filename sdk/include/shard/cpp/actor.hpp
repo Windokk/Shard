@@ -241,7 +241,7 @@ namespace Shard {
         T* AddScript() const
         {
             const std::string* name = detail::ScriptNameOf(typeid(T));
-            if (!name) throw Error(SHARD_E_NOT_FOUND, std::string("add script : ") + typeid(T).name() + " is not a registered script (SHARD_REGISTER_SCRIPT)");
+            if (!name) SHARD_THROW(Error(SHARD_E_NOT_FOUND, std::string("add script : ") + typeid(T).name() + " is not a registered script (SHARD_REGISTER_SCRIPT)"));
             void* object = nullptr;
             detail::Check(detail::ScriptsApi().add_to_actor(detail::PluginHandle(), m_Handle, Str(*name), &object), "add script '" + *name + "'");
             return static_cast<T*>(object);

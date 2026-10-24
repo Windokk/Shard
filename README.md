@@ -93,20 +93,46 @@ This runs the editor, loads the game module, opens the example project and uses 
 
 ## Credits/Dependencies
 
-- Libraries/Projects :
-  - [SDL3](https://github.com/libsdl-org/SDL)
-  - [GLM](https://github.com/g-truc/glm)
-  - [Jolt](https://github.com/jrouwe/JoltPhysics)
-  - [IconFontCppHeaders](https://github.com/juliettef/IconFontCppHeaders)
-  - [ImGui](https://github.com/ocornut/imgui)
-  - [ImGuizmo](https://github.com/CedricGuillemet/ImGuizmo)
-  - [freetype](https://github.com/freetype/freetype)
-  - [glad](https://github.com/Dav1dde/glad)
-  - [ufbx](https://github.com/ufbx/ufbx)
-  - [json for c++](https://github.com/nlohmann/json)
-  - [miniaudio](https://github.com/mackron/miniaudio)
-  - [ImOGuizmo](https://github.com/fknfilewalker/imoguizmo)
-  - [ImGuiNotify](https://github.com/TyomaVader/ImGuiNotify/tree/Dev)
+- Libraries/Projects (git submodules, built with the project) :
+  - [SDL3](https://github.com/libsdl-org/SDL) : window, input, clipboard, dialogs
+  - [GLM](https://github.com/g-truc/glm) : math
+  - [Jolt Physics](https://github.com/jrouwe/JoltPhysics) : physics (built in cross platform deterministic, double precision mode)
+  - [ImGui](https://github.com/ocornut/imgui) : editor UI
+  - [ImGuizmo](https://github.com/CedricGuillemet/ImGuizmo) : transform gizmos
+  - [FreeType](https://github.com/freetype/freetype) : font rasterization
+  - [stb](https://github.com/nothings/stb) : `stb_image`, `stb_image_write`, `stb_rect_pack`, `stb_dxt` (texture loading, export, atlas packing, BC1/BC3 compression)
+  - [ufbx](https://github.com/ufbx/ufbx) : FBX import
+  - [nlohmann/json](https://github.com/nlohmann/json) : JSON
+  - [miniaudio](https://github.com/mackron/miniaudio) : audio (with its bundled stb_vorbis)
+  - [volk](https://github.com/zeux/volk) : Vulkan loader
+  - [Vulkan-Headers](https://github.com/KhronosGroup/Vulkan-Headers) : Vulkan headers
+  - [vk-bootstrap](https://github.com/charles-lunarg/vk-bootstrap) : Vulkan instance / device / swapchain setup
+  - [Vulkan Memory Allocator](https://github.com/GPUOpen-LibrariesAndSDKs/VulkanMemoryAllocator) : GPU memory allocation
+  - [glslang](https://github.com/KhronosGroup/glslang) : GLSL to SPIR-V
+  - [SPIRV-Headers](https://github.com/KhronosGroup/SPIRV-Headers) and [SPIRV-Reflect](https://github.com/KhronosGroup/SPIRV-Reflect) : SPIR-V definitions and shader reflection
+  - [GoogleTest](https://github.com/google/googletest) : unit tests
+
+- Libraries/Projects (copied into the source tree) :
+  - [glad](https://github.com/Dav1dde/glad) : OpenGL / Vulkan function loader (`src/engine/renderer/rhi/backends/glad`)
+  - [ImOGuizmo](https://github.com/fknfilewalker/imoguizmo) : view orientation gizmo (`src/apps/editor/gui/imoguizmo.hpp`)
+  - [ImGuiNotify](https://github.com/TyomaVader/ImGuiNotify/tree/Dev) : toast notifications (`src/apps/editor/gui/ImGuiNotify.hpp`)
+  - [IconFontCppHeaders](https://github.com/juliettef/IconFontCppHeaders) : icon font codepoints
+
+- Downloaded at configure time :
+  - [Wasmtime](https://github.com/bytecodealliance/wasmtime) 50 : WebAssembly runtime of sandboxed plugins (prebuilt C API, checked by SHA-256, see `cmake/ShardWasmtime.cmake`)
+
+- Graphics APIs and runtime tools (not shipped) :
+  - [OpenGL](https://www.khronos.org/opengl/) 4.6 core and [Vulkan](https://www.vulkan.org/) : rendering backends (the Vulkan loader of the system is loaded at run time)
+  - [Slang](https://github.com/shader-slang/slang) (`slangc`, part of the [Vulkan SDK](https://vulkan.lunarg.com/), or set `SHARD_SLANGC`) : compiles the `.slang` shaders
+
+- Build, test and tooling (optional) :
+  - [CMake](https://cmake.org/), [Ninja](https://ninja-build.org/), GCC / MinGW-w64 ([MSYS2](https://www.msys2.org/)) or Clang, [Python 3](https://www.python.org/)
+  - [LLVM / Clang](https://llvm.org/) and [zlib](https://zlib.net/) : build `ShardReflect`, the reflection generator (skipped when missing)
+  - [liburing](https://github.com/axboe/liburing) : faster async IO on Linux (falls back to a thread pool)
+  - [lld](https://lld.llvm.org/) (`wasm-ld`) and the [wasi-sdk](https://github.com/WebAssembly/wasi-sdk) 34 sysroot : build the WebAssembly plugins of the tests
+  - [Mesa](https://www.mesa3d.org/) (llvmpipe) and [Xvfb](https://www.x.org/wiki/) : software OpenGL on a virtual display, for the CI smoke test
+  - [MkDocs Material](https://squidfunk.github.io/mkdocs-material/) and [mkdocs-redirects](https://github.com/mkdocs/mkdocs-redirects) : the documentation website
+  - [GitHub Actions](https://github.com/features/actions) (`actions/checkout`, `cache`, `upload-artifact`, `setup-python`, `msys2/setup-msys2`) : CI
 
 - Fonts :
   - [Lucide icons](https://lucide.dev/)

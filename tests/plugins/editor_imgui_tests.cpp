@@ -48,3 +48,41 @@ TEST(EditorImGui, ALibraryWithItsOwnImGuiIsHandedTheEditorsContext)
     pm.ResetForTests();
     pm.SetEditorImGui(EditorImGui());
 }
+
+TEST(EditorImGui, AnEditorPluginEnabledWhileTheEditorRunsGetsItsInitAndKeepsItsOpenWindowsAcrossAReload)
+{
+    PluginManager& pm = PluginManager::Get();
+    pm.ResetForTests();
+    PluginManagerConfig config;
+    config.host = Host::Editor;
+    config.registerConsoleCommands = false;
+    config.allowHotReload = true;
+    config.pluginPaths.push_back(std::string(SHARD_TEST_PLUGIN_DIR) + "/shard.test.editor");
+    ASSERT_TRUE(pm.Startup(config));
+    pm.OnEngineSystemsReady(nullptr, nullptr, nullptr);
+    pm.OnEngineInitialized();
+    pm.NotifyEditorInit();
+    ASSERT_EQ(pm.Extensions().Get<EditorPanelItem>("editor.panel").size(), 1u);
+
+    // Switched off, its window goes ; switched on again, the editor is already up and it adds the window by itself
+    ASSERT_TRUE(pm.Disable("shard.test.editor"));
+    EXPECT_TRUE(pm.Extensions().Get<EditorPanelItem>("editor.panel").empty());
+    ASSERT_TRUE(pm.Enable("shard.test.editor"));
+    auto panels = pm.Extensions().Get<EditorPanelItem>("editor.panel");
+    ASSERT_EQ(panels.size(), 1u);
+
+    // Reloaded, the window that was open is open again
+    panels[0]->visible = true;
+    panels.clear();                                                         // an item is code of the library: none is held while it goes
+    std::string error;
+    if (pm.Reload("shard.test.editor", &error)) {
+        panels = pm.Extensions().Get<EditorPanelItem>("editor.panel");
+        ASSERT_EQ(panels.size(), 1u);
+        EXPECT_TRUE(panels[0]->visible);
+    } else {
+        EXPECT_NE(error.find("reload"), std::string::npos) << error;        // a plugin that does not support reloading says so
+    }
+
+    pm.OnEngineDestroying();
+    pm.ResetForTests();
+}

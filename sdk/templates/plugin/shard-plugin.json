@@ -8,6 +8,7 @@
   "moduleKind": "code",
   "hosts": ["engine", "player", "headless", "editor"],
   "engine": { "api": "1.0", "requires": [] },
+  "permissions": ["fs.read:content"],
   "dependencies": [],
   "simulation": { "affects": true, "deterministic": true },
   "content": { "mount": "content" }

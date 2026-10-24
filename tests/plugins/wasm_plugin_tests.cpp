@@ -328,7 +328,7 @@ namespace {
 
 TEST_F(WasmFrameTest, TheBudgetComesBackEveryFrame)
 {
-    Folder(FrameModule(false), { { "budgets", { { "frameMs", 0.01 } } } });     // 10 000 instructions a frame
+    Folder(FrameModule(false), { { "budgets", { { "frameMs", 0.0033 } } } });   // 10 000 units of fuel a frame
     ASSERT_TRUE(pm().Startup(config));
     RunFrames(5);
     EXPECT_EQ(Rec()->state, PluginState::Enabled) << Rec()->error;
@@ -338,7 +338,7 @@ TEST_F(WasmFrameTest, TheBudgetComesBackEveryFrame)
 TEST_F(WasmFrameTest, WhatRunsDuringOneFrameSharesItsBudget)
 {
     // Each callback fits in the budget on its own, both do not
-    Folder(FrameModule(true), { { "budgets", { { "frameMs", 0.01 } } } });
+    Folder(FrameModule(true), { { "budgets", { { "frameMs", 0.0033 } } } });
     ASSERT_TRUE(pm().Startup(config));
     RunFrames(1);
     EXPECT_EQ(Rec()->state, PluginState::Failed);
@@ -346,27 +346,28 @@ TEST_F(WasmFrameTest, WhatRunsDuringOneFrameSharesItsBudget)
 }
 
 namespace {
-    // on_enable reads "hello.txt" of its content folder (5 bytes) into 1024 : it fails unless the read worked and gave "hello"
+    // on_enable reads "hello.txt" of its content folder (5 bytes) : it fails unless the read worked and gave "hello"
     std::vector<uint8_t> ContentModule(const std::string& path)
     {
         Builder b;
         const uint32_t entry = b.Type({ I32, I32 }, { I32 });
         const uint32_t lifecycle = b.Type({ I32, I64 }, { I32 });
-        b.Import("shard", "content.read", b.Type({ I64, I32, I32, I64, I32 }, { I32 }));                // 0
+        b.Import("shard", "content.read", b.Type({ I64, I32, I32, I32 }, { I32 }));                     // 0
         b.memoryMin = 1;
         b.tableSize = 4;
-        b.data.push_back({ 300, path });
-        b.data.push_back({ 336, U32Bytes(300) + U32Bytes(0) + U64Bytes(path.size()) });
+        const std::string uri = std::string("mod://") + kId + "/" + path;
+        b.data.push_back({ 300, uri });
+        b.data.push_back({ 336, U32Bytes(300) + U32Bytes(0) + U64Bytes(uri.size()) });
         std::string callbacks = U32Bytes(4 + 4 * 9) + U32Bytes(0) + U32Bytes(0) + U32Bytes(1);
         for (int i = 0; i < 6; ++i) callbacks += U32Bytes(0);
         b.data.push_back({ 128, callbacks });
         b.Function(entry, Store(0, Get(1), I32Const(40)) + Store(4, Get(1), I32Const(1)) + Store(36, Get(1), I32Const(128)) + I32Const(0) + Op({ 0x0B }),
                    {}, "shard_plugin_entry");
         // result = read(...) ; if result != 0 return result ; return (load8_u(1024) - 'h') | (size != 5)
-        const uint32_t onEnable = b.Function(lifecycle, Get(1) + I32Const(336) + I32Const(1024) + I64Const(64) + I32Const(512) + Call(0) + Set(2) +
+        const uint32_t onEnable = b.Function(lifecycle, Get(1) + I32Const(336) + I32Const(512) + I32Const(520) + Call(0) + Set(2) +
                                                         Get(2) + Op({ 0x04, 0x40 }) + Get(2) + Op({ 0x0F, 0x0B }) +
-                                                        I32Const(1024) + Op({ 0x2D, 0, 0 }) + I32Const('h') + Op({ 0x6B }) +
-                                                        I32Const(512) + Op({ 0x29, 3, 0 }) + I64Const(5) + Op({ 0x52, 0x72, 0x0B }), { { 1, I32 } });
+                                                        I32Const(512) + Op({ 0x28, 2, 0, 0x2D, 0, 0 }) + I32Const('h') + Op({ 0x6B }) +
+                                                        I32Const(520) + Op({ 0x29, 3, 0 }) + I64Const(5) + Op({ 0x52, 0x72, 0x0B }), { { 1, I32 } });
         b.elements.push_back({ 1, { onEnable } });
         return b.Build();
     }

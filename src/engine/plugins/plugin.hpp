@@ -28,6 +28,9 @@ namespace Shard::Engine::Worlds { class World; }
 #   define SHARD_PLUGIN_EXPORT __attribute__((visibility("default")))
 #endif
 
+struct ShardUiApi;
+struct ShardGizmoApi;
+
 namespace Shard::Engine::Plugins {
 
     class PluginContext;
@@ -110,6 +113,35 @@ namespace Shard::Engine::Plugins {
         std::string title;
         std::function<void(bool* open)> draw;
         bool visible = false;
+    };
+
+    /// @brief An item of a menu of the editor's menu bar : the "editor.menu" extension point. `path` is the menu and the item, separated by '/'
+    /// ("Tools/Bake/All levels") ; `shortcut` is only displayed.
+    struct EditorMenuItem {
+        std::string path;
+        std::string shortcut;
+        std::function<void()> run;
+    };
+
+    /// @brief A button in the viewport's toolbar : the "editor.toolbar" extension point
+    struct EditorToolbarItem {
+        std::string label;
+        std::string tooltip;
+        std::function<void()> run;
+    };
+
+    /// @brief What a plugin draws below a component in the Properties panel : the "editor.inspector" extension point. `componentType` is the name
+    /// of the component as the world file writes it ("light", "game.Health"), empty : below all of them. `ui` is the editor's widgets, `actor` the handle of the
+    /// actor shown (shard_actors.h).
+    struct EditorInspectorItem {
+        std::string componentType;
+        std::function<void(const ShardUiApi* ui, uint64_t actor)> draw;
+    };
+
+    /// @brief What a plugin draws in the viewport for each selected actor : the "editor.gizmo" extension point
+    struct EditorGizmoItem {
+        std::string name;
+        std::function<void(const ShardGizmoApi* gizmo, uint64_t actor)> draw;
     };
 
     /// @brief A check a plugin adds to the asset validator : the "tool.validator" extension point. `validate` gets the project file and returns the problems it

@@ -18,6 +18,9 @@
 #       [CONTENT_DIR content]                 # a folder of the source tree copied next to the plugin as its content
 #       [OUTPUT_DIR  <dir>]                   # where plugin folders go (default : <build>/plugins)
 #       [PACKAGE]                             # a target <target>_package that makes a .shardplugin with ShardPkg (SHARD_PKG_EXECUTABLE, or found on PATH)
+#       [TARGET wasm]                         # a sandboxed plugin (tier 2) : compiled to WebAssembly with a wasi-sdk (SHARD_WASM_TOOLCHAIN, see
+#                                             # ShardSDKWasm.cmake), <OUTPUT_DIR>/<id>/plugin.wasm, loaded without signature or consent
+#       [PERMISSIONS fs.read:content input ...]  # what a sandboxed plugin may use beyond the basics (it is refused the rest)
 #   )
 #
 # The result :
@@ -28,6 +31,8 @@
 # pass (-Wall -Wextra -pedantic). Point the engine at the folder : ShardHeadless --plugin <OUTPUT_DIR>/<id>, or the project's plugins folder.
 
 include_guard(GLOBAL)
+
+include("${CMAKE_CURRENT_LIST_DIR}/ShardSDKWasm.cmake")
 
 # The platform key a manifest names its binary under ("windows-x86_64", "linux-arm64"...) : the same as the engine's CurrentPlatformKey()
 function(shard_sdk_platform out)
@@ -66,8 +71,8 @@ endfunction()
 #                            ENGINE_REQUIRES ... AFFECTS true|false [CONTENT] [DESCRIPTION d])
 function(shard_sdk_write_manifest)
     set(options CONTENT)
-    set(one TARGET ROOT PLATFORM ID NAME VERSION KIND MODULE_KIND ABI AFFECTS DESCRIPTION)
-    set(multi HOSTS DEPENDS ENGINE_REQUIRES)
+    set(one TARGET ROOT PLATFORM ID NAME VERSION KIND MODULE_KIND ABI AFFECTS DESCRIPTION BINARY_KEY BINARY_FILE TIER)
+    set(multi HOSTS DEPENDS ENGINE_REQUIRES PERMISSIONS)
     cmake_parse_arguments(M "${options}" "${one}" "${multi}" ${ARGN})
 
     set(_hosts "")
@@ -122,6 +127,27 @@ function(shard_sdk_write_manifest)
         set(_description "\n  \"description\": \"${M_DESCRIPTION}\",")
     endif()
 
+    set(_tier "")
+    if(M_TIER)
+        set(_tier "
+  \"tier\": ${M_TIER},")
+    endif()
+    set(_permissions "")
+    if(M_PERMISSIONS)
+        set(_list "")
+        foreach(_p ${M_PERMISSIONS})
+            if(_list)
+                string(APPEND _list ", ")
+            endif()
+            string(APPEND _list "\"${_p}\"")
+        endforeach()
+        set(_permissions "
+  \"permissions\": [${_list}],")
+    endif()
+    set(_binaries "\"${M_PLATFORM}\": \"bin/${M_PLATFORM}/$<TARGET_FILE_NAME:${M_TARGET}>\"")
+    if(M_BINARY_KEY)
+        set(_binaries "\"${M_BINARY_KEY}\": \"${M_BINARY_FILE}\"")
+    endif()
     file(GENERATE OUTPUT "${M_ROOT}/shard-plugin.json" CONTENT
 "{
   \"schema\": 1,
@@ -129,10 +155,10 @@ function(shard_sdk_write_manifest)
   \"name\": \"${M_NAME}\",${_description}
   \"version\": \"${M_VERSION}\",
   \"kind\": \"${M_KIND}\",${_moduleKind}
-  \"linkage\": \"dynamic\",${_abi}
+  \"linkage\": \"dynamic\",${_abi}${_tier}${_permissions}
   \"hosts\": [${_hosts}],
   \"engine\": { \"api\": \"1.0\", \"requires\": [${_requires}] },
-  \"binaries\": { \"${M_PLATFORM}\": \"bin/${M_PLATFORM}/$<TARGET_FILE_NAME:${M_TARGET}>\" },
+  \"binaries\": { ${_binaries} },
   \"dependencies\": [
     ${_deps}
   ],
@@ -143,8 +169,8 @@ endfunction()
 
 function(shard_sdk_add_plugin target)
     set(options AFFECTS_SIMULATION NO_SIMULATION PACKAGE)
-    set(one ID NAME VERSION KIND MODULE_KIND CONTENT_DIR OUTPUT_DIR DESCRIPTION MANIFEST)
-    set(multi SOURCES SOURCE_DIRS HOSTS DEPENDS ENGINE_REQUIRES)
+    set(one ID NAME VERSION KIND MODULE_KIND CONTENT_DIR OUTPUT_DIR DESCRIPTION MANIFEST TARGET)
+    set(multi SOURCES SOURCE_DIRS HOSTS DEPENDS ENGINE_REQUIRES PERMISSIONS)
     cmake_parse_arguments(P "${options}" "${one}" "${multi}" ${ARGN})
 
     # A game is a folder of files: the ones under SOURCE_DIRS, found again by CMake whenever one is added or removed
@@ -183,29 +209,49 @@ function(shard_sdk_add_plugin target)
     shard_sdk_platform(_platform)
     set(_root "${P_OUTPUT_DIR}/${P_ID}")
 
-    add_library(${target} SHARED ${P_SOURCES})
-    target_include_directories(${target} PRIVATE "${SHARD_SDK_INCLUDE_DIR}")
-    set_target_properties(${target} PROPERTIES C_VISIBILITY_PRESET hidden CXX_VISIBILITY_PRESET hidden VISIBILITY_INLINES_HIDDEN ON PREFIX "")
-    get_target_property(_cxx ${target} CXX_STANDARD)
-    if(NOT _cxx)
-        set_target_properties(${target} PROPERTIES CXX_STANDARD 17 CXX_STANDARD_REQUIRED ON)
+    set(_wasm FALSE)
+    if(P_TARGET STREQUAL "wasm")
+        set(_wasm TRUE)
+    elseif(P_TARGET AND NOT P_TARGET STREQUAL "native")
+        message(FATAL_ERROR "shard_sdk_add_plugin(${target}) : TARGET is wasm or native")
     endif()
-    if(MSVC)
-        target_compile_options(${target} PRIVATE /W4)
+
+    if(_wasm)
+        # A sandboxed plugin : one module for every platform, next to its manifest
+        shard_sdk_add_wasm_module(${target} OUTPUT "${_root}/plugin.wasm" SOURCES ${P_SOURCES} INCLUDE_DIRS "${SHARD_SDK_INCLUDE_DIR}")
     else()
-        target_compile_options(${target} PRIVATE -Wall -Wextra -pedantic)
-        if(MINGW)
-            # The plugin carries its C and C++ runtimes : nothing to install next to the engine for it
-            target_link_options(${target} PRIVATE -static-libgcc -static-libstdc++)
+        add_library(${target} SHARED ${P_SOURCES})
+        target_include_directories(${target} PRIVATE "${SHARD_SDK_INCLUDE_DIR}")
+        set_target_properties(${target} PROPERTIES C_VISIBILITY_PRESET hidden CXX_VISIBILITY_PRESET hidden VISIBILITY_INLINES_HIDDEN ON PREFIX "")
+        get_target_property(_cxx ${target} CXX_STANDARD)
+        if(NOT _cxx)
+            set_target_properties(${target} PROPERTIES CXX_STANDARD 17 CXX_STANDARD_REQUIRED ON)
         endif()
+        if(MSVC)
+            target_compile_options(${target} PRIVATE /W4)
+        else()
+            target_compile_options(${target} PRIVATE -Wall -Wextra -pedantic)
+            if(MINGW)
+                # The plugin carries its C and C++ runtimes : nothing to install next to the engine for it
+                target_link_options(${target} PRIVATE -static-libgcc -static-libstdc++)
+            endif()
+        endif()
+        shard_sdk_place_binary(${target} "${_root}" "${_platform}")
+
     endif()
-    shard_sdk_place_binary(${target} "${_root}" "${_platform}")
 
     if(P_MANIFEST)
         # The manifest as written, plus what only the build knows
-        string(JSON _manifest SET "${_manifest}" abi "\"c1\"")
-        string(JSON _manifest SET "${_manifest}" linkage "\"dynamic\"")
-        string(JSON _manifest SET "${_manifest}" binaries "{ \"${_platform}\": \"bin/${_platform}/$<TARGET_FILE_NAME:${target}>\" }")
+        if(_wasm)
+            string(JSON _manifest SET "${_manifest}" abi "\"wasm1\"")
+            string(JSON _manifest SET "${_manifest}" tier "2")
+            string(JSON _manifest SET "${_manifest}" linkage "\"dynamic\"")
+            string(JSON _manifest SET "${_manifest}" binaries "{ \"wasm\": \"plugin.wasm\" }")
+        else()
+            string(JSON _manifest SET "${_manifest}" abi "\"c1\"")
+            string(JSON _manifest SET "${_manifest}" linkage "\"dynamic\"")
+            string(JSON _manifest SET "${_manifest}" binaries "{ \"${_platform}\": \"bin/${_platform}/$<TARGET_FILE_NAME:${target}>\" }")
+        endif()
         file(GENERATE OUTPUT "${_root}/shard-plugin.json" CONTENT "${_manifest}\n")
     else()
         if(NOT P_NAME)
@@ -228,12 +274,22 @@ function(shard_sdk_add_plugin target)
         if(P_CONTENT_DIR)
             set(_content_flag CONTENT)
         endif()
-        shard_sdk_write_manifest(TARGET ${target} ROOT "${_root}" PLATFORM ${_platform} ID ${P_ID} NAME ${P_NAME} VERSION ${P_VERSION}
-            KIND ${P_KIND} MODULE_KIND "${P_MODULE_KIND}" ABI c1 HOSTS ${P_HOSTS} DEPENDS ${P_DEPENDS} ENGINE_REQUIRES ${P_ENGINE_REQUIRES}
+        set(_abi_name c1)
+        set(_extra "")
+        if(_wasm)
+            set(_abi_name wasm1)
+            set(_extra TIER 2 BINARY_KEY wasm BINARY_FILE plugin.wasm PERMISSIONS ${P_PERMISSIONS})
+        endif()
+        shard_sdk_write_manifest(TARGET ${target} ROOT "${_root}" PLATFORM ${_platform} ID ${P_ID} NAME ${P_NAME} VERSION ${P_VERSION} ${_extra}
+            KIND ${P_KIND} MODULE_KIND "${P_MODULE_KIND}" ABI ${_abi_name} HOSTS ${P_HOSTS} DEPENDS ${P_DEPENDS} ENGINE_REQUIRES ${P_ENGINE_REQUIRES}
             AFFECTS ${_affects} DESCRIPTION "${P_DESCRIPTION}" ${_content_flag})
     endif()
 
-    if(P_CONTENT_DIR)
+    if(P_CONTENT_DIR AND _wasm)
+        add_custom_command(TARGET ${target} POST_BUILD
+            COMMAND ${CMAKE_COMMAND} -E copy_directory "${CMAKE_CURRENT_SOURCE_DIR}/${P_CONTENT_DIR}" "${_root}/content"
+            COMMENT "Copying the content of ${P_ID}")
+    elseif(P_CONTENT_DIR)
         add_custom_command(TARGET ${target} POST_BUILD
             COMMAND ${CMAKE_COMMAND} -E copy_directory "${CMAKE_CURRENT_SOURCE_DIR}/${P_CONTENT_DIR}" "${_root}/content"
             COMMENT "Copying the content of ${P_ID}")

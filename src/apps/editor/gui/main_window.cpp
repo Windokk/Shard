@@ -1,4 +1,5 @@
 #include "main_window.hpp"
+#include "engine/plugins/abi/c_plugin.hpp"
 #include "engine/plugins/manager.hpp"
 #include "apps/editor/gui/plugin_ui.hpp"
 #include <stb/stb_image.h>
@@ -260,6 +261,8 @@ namespace Shard::Editor::Core{
         selectedRefs.clear();
         for(auto& actor : selectedActors)
             selectedRefs.push_back(Editor::Commands::ObjectRefs::Get(actor));
+
+        Engine::Plugins::NotifyEditorSelection(selectedActors);       // the plugins that follow the selection
     }
 
     void EditorMainWindow::SetSelectedActor(std::shared_ptr<Engine::Objects::Actor> newPtr)
@@ -488,6 +491,7 @@ namespace Shard::Editor::Core{
         selectedActors.clear();
         selectedIds.clear();
         selectedRefs.clear();
+        Engine::Plugins::NotifyEditorSelection(selectedActors);
 
         Editor::Commands::CommandStack::Get().Clear();
     }
@@ -636,7 +640,7 @@ namespace Shard::Editor::Core{
         //Init ImGui
         IMGUI_CHECKVERSION();
         ImGui::CreateContext();
-        Shard::Editor::GUI::InstallPluginUi();      // the widgets of the panels C plugins add (shard.editor)
+        Shard::Editor::GUI::InstallPluginUi(this);      // the widgets of the panels C plugins add (shard.editor)
         ImGuiIO& io = ImGui::GetIO();
         io.ConfigFlags |= ImGuiConfigFlags_DockingEnable;
         io.ConfigFlags |= ImGuiConfigFlags_NoMouseCursorChange;
@@ -793,6 +797,32 @@ namespace Shard::Editor::Core{
 
         ImGui_ImplOpenGL3_RenderDrawData(ImGui::GetDrawData());
         SDLWindow::SwapBuffers();
+    }
+
+    void EditorMainWindow::PrepareFrame()
+    {
+        if(!renderPassesInitialized)
+            return;
+
+        // What the editor draws over the scene and does not read from the snapshot : submitted before the frame is handed over,
+        // so it is drawn with this frame's meshes (from SwapBuffers it would be one frame behind them)
+        const bool game = gameView;
+
+        debugDraw.SetLayerVisible(Debug::DebugLayer::Volumes, !game && settings.showGizmos);
+        debugDraw.SetLayerVisible(Debug::DebugLayer::Probes, !game && settings.showDDGIGizmos);
+        debugDraw.SetLayerVisible(Debug::DebugLayer::Physics, !game && settings.showPhysicsShapes);
+        debugDraw.Update();
+
+        // Re-submit the selected actor's model(s) every frame rather than only on selection change -
+        // AddToPass captures the transform's current matrix at call time (see
+        // Mesh::CreateDrawCommands), so without this the mask would keep drawing the object at
+        // whatever position/rotation/scale it had at the moment it got selected, going stale the
+        // instant it's moved by a gizmo drag, a script, or physics. AddOrUpdateCommands treats this
+        // as a cheap update-in-place (matching commandID) rather than a fresh registration.
+        for(auto& actor : selectedActors)
+            for(auto& comp : actor->GetComponents())
+                if(auto model = std::dynamic_pointer_cast<Engine::Objects::Components::Model>(comp))
+                    model->AddToPass("EditorOutlineMaskPass");
     }
 
     void EditorMainWindow::SwapBuffers()
@@ -1045,22 +1075,6 @@ namespace Shard::Editor::Core{
             debugView.showShadows = game || settings.showShadows;
             renderer->SetDebugView(debugView);
             renderer->SetShowEditorBillboards(!game && settings.showBillboards);
-
-            debugDraw.SetLayerVisible(Debug::DebugLayer::Volumes, !game && settings.showGizmos);
-            debugDraw.SetLayerVisible(Debug::DebugLayer::Probes, !game && settings.showDDGIGizmos);
-            debugDraw.SetLayerVisible(Debug::DebugLayer::Physics, !game && settings.showPhysicsShapes);
-            debugDraw.Update();
-
-            // Re-submit the selected actor's model(s) every frame rather than only on selection change -
-            // AddToPass captures the transform's current matrix at call time (see
-            // Mesh::CreateDrawCommands), so without this the mask would keep drawing the object at
-            // whatever position/rotation/scale it had at the moment it got selected, going stale the
-            // instant it's moved by a gizmo drag, a script, or physics. AddOrUpdateCommands treats this
-            // as a cheap update-in-place (matching commandID) rather than a fresh registration.
-            for(auto& actor : selectedActors)
-                for(auto& comp : actor->GetComponents())
-                    if(auto model = std::dynamic_pointer_cast<Engine::Objects::Components::Model>(comp))
-                        model->AddToPass("EditorOutlineMaskPass");
 
             // Grid squares follow the location snap increment (1m when snapping is off).
             const float gridCell = (settings.snapLocation && settings.locationSnap > 0.0f) ? settings.locationSnap : 1.0f;

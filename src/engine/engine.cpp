@@ -952,6 +952,8 @@ namespace Shard::Engine{
             Rendering::Renderer* renderer = m_Context.renderer;
             Debugging::Profiler* profiler = m_Context.profiler;
             const uint64_t frame = m_FrameCount;
+            if(Platform::IWindow* window = GetWindow())
+                window->PrepareFrame();
             Rendering::RenderThread::Get().SubmitFrame([renderer, profiler, frame] {
                 // Only this thread touches it : the start of the previous frame is what the limit is counted from
                 static std::chrono::steady_clock::time_point lastStart = std::chrono::steady_clock::now();

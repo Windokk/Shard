@@ -1,4 +1,5 @@
 #include "viewport_window.hpp"
+#include "apps/editor/gui/plugin_ui.hpp"
 
 #include "engine/world/engine.hpp"
 #include "engine/platform/windowing/iplatform.hpp"
@@ -256,6 +257,13 @@ namespace Shard::Editor::GUI {
         if(!gameView && parent && parent->GetSelectedActor() && parent->settings.showGizmos)
             DrawObjectGizmo();
 
+        // What plugins draw for the selected actors
+        if(!gameView && parent && parent->HasSelection() && parent->settings.showGizmos && camera)
+        {
+            const float low[2] = { viewportImageMin.x, viewportImageMin.y }, high[2] = { viewportImageMax.x, viewportImageMax.y };
+            DrawPluginGizmos(camera->GetProjection() * camera->GetView(), low, high, parent->GetSelectedActors());
+        }
+
         if(marqueeActive)
         {
             ImDrawList* drawList = ImGui::GetWindowDrawList();
@@ -345,6 +353,9 @@ namespace Shard::Editor::GUI {
         // Snap toggle + increment for the selected tool, right next to the tool buttons
         ImGui::SameLine(0.0f, ImGui::GetStyle().ItemSpacing.x * 3.0f);
         DrawSnapControls();
+
+        // What plugins added : with the left-hand controls, since the right-hand group below sits against the edge and would push them out of view
+        DrawPluginToolbar();
 
         ImGui::SameLine();
 

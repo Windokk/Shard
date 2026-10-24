@@ -12,6 +12,8 @@ sdk/
   templates/plugin/         a plugin to start from
 ```
 
+In short : a plugin and the engine cannot share C++ objects, so they talk through plain C functions (the **C ABI**, `include/shard/`). Writing those calls by hand is long, so the **C++ SDK** (`include/shard/cpp/`) wraps them in classes and lambdas, and is compiled into your plugin. It adds no run-time cost to a simple loop ; the few things that can slow a plugin down are listed in `docs/docs/concepts/plugins.md` ("Does the SDK make a plugin slower ?"). Use the C++ SDK by default, and the C headers directly only for a hot spot or from a language other than C++.
+
 Get it with `cmake --install build --component sdk --prefix <dir>` (it lands in `<dir>/sdk`) or the `ShardSDKArchive` target (`build/shard-sdk-<version>.zip`). This folder of the repository is an SDK too. Start with `docs/docs/tutorials/write-a-game-with-the-sdk.md` ("Write a game with the SDK") ; the reference is `docs/docs/api_reference.md` (generated from these headers), the concepts are in `docs/docs/concepts/plugins.md` ("The C ABI and the SDK"), and the plan and its decisions in `docs/design-notes/c-abi-sdk.fr.md`.
 
 ## The C ABI
@@ -39,7 +41,7 @@ Get it with `cmake --install build --component sdk --prefix <dir>` (it lands in 
 | `shard_physics.h` | `shard.physics` 1.0 : velocities, forces, impulses, gravity and ray casts |
 | `shard_audio.h` | `shard.audio` 1.0 : playing the sound of an actor, one shot sounds |
 | `shard_worlds.h` | `shard.worlds` 1.0 : loading a world, spawning a prefab by name |
-| `shard_editor.h` | `shard.editor` 1.0 : panels in the editor, drawn with a small set of widgets. Offered by the editor only |
+| `shard_editor.h` | `shard.editor` 1.1 : panels, menu items, toolbar buttons, inspectors, viewport gizmos and the selection of the editor, drawn with a set of widgets (`ShardUiApi`, `ShardGizmoApi`). Offered by the editor only |
 | `shard_experimental.h` | `shard.experimental.world_ecs` 0.1 : the engine's entities from the main thread. No compatibility promise |
 
 A plugin sets `"abi": "c1"` in its `shard-plugin.json` and exports `shard_plugin_entry` (`shard_sdk_add_plugin` and `SHARD_C_PLUGIN` do both). In the engine's repository, `tests/plugin_fixtures/c_plugin/c_plugin.c` is a plugin in C that uses every interface, `tests/plugin_fixtures/sdk_spin/spin.cpp` one in C++, and `tests/plugin_fixtures/game_scripts` a game of several files with the gameplay layer.
@@ -58,6 +60,7 @@ A plugin sets `"abi": "c1"` in its `shard-plugin.json` and exports `shard_plugin
 | 1.3 | `shard.components` 1.2 : text and asset fields (`SHARD_FIELD_STRING`, `SHARD_FIELD_ASSET`, `string_set` / `string_get`) ; `shard.ecs` 1.1 : `set_local_transform`, a system moves the actor behind an entity |
 | 1.4 | `shard.scripts` 1.0, `shard.actors` 1.0, `shard.input` 1.0 : gameplay classes on actors, the world, the keyboard ; the C++ gameplay layer (`shard/game.hpp`) |
 | 1.5 | `shard.physics` 1.0, `shard.audio` 1.0, `shard.worlds` 1.0, `shard.editor` 1.0 ; `shard.scripts` 1.1 : `on_contact_*`, `text_get` / `text_set` ; `shard.components` 1.3 : `SHARD_FIELD_ACTOR`, `SHARD_FIELD_ACCESSOR` ; `shard.plugin` 1.2 : `random_stream` |
+| 1.6 | `shard.editor` 1.1 : many more widgets (tabs, tables, menus, popups, groups, disabled sections...), menu items, toolbar buttons, inspectors, gizmos over the viewport, the selection, notifications ; a sandboxed plugin may use it with the permission `editor` |
 
 A copy of the 1.0 headers is frozen in `tests/plugin_fixtures/abi_1_0` : a plugin built against it must keep loading (`tests/plugins/abi_compat_tests.cpp`).
 

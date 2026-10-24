@@ -719,6 +719,9 @@ namespace Shard::Engine::Plugins {
         // The code is identified by the version : the same source gives other machine code on each platform, and a replay or a server
         // has to match across platforms. The content (data files) is byte for byte the same everywhere.
         h = Core::HashCombine(h, r.contentHash);
+        // ... except a sandboxed plugin, whose module is the same bytes on every platform : the code itself is part of its identity, so a
+        // module rebuilt under the same version is not taken for the one a replay or a server was recorded with
+        if (r.manifest.tier == TrustTier::Sandboxed) h = Core::HashCombine(h, r.binaryHash);
         r.identityHash = h;
     }
 
@@ -824,7 +827,7 @@ namespace Shard::Engine::Plugins {
         if (!fs::is_regular_file(source, ec)) { Fail(r, "binary '" + source + "' does not exist"); return false; }
         // Nothing is mapped into the process : no temporary copy, no build fingerprint, no safe mode marker (a trap cannot crash the host)
         m_ActivePlugin = r.owner;
-        auto plugin = CreateWasmPlugin(r.owner, r.manifest, source);
+        auto plugin = CreateWasmPlugin(r.owner, r.manifest, source, m_Config.cacheDirectory);
         m_ActivePlugin = 0;
         if (!plugin) { Fail(r, "sandbox : " + plugin.GetError().message); return false; }
         r.loadedFrom = source;
@@ -1213,6 +1216,7 @@ namespace Shard::Engine::Plugins {
         try { FlushCEvents(m_Events); } catch (const std::exception& e) { DEBUG_ERROR(std::string("Plugins : a named event handler threw : ") + e.what()); }
         Hooks::PostFrame hook(frame);
         try { m_Hooks.Emit(hook); } catch (const std::exception& e) { DEBUG_ERROR(std::string("Plugins : PostFrame handler threw : ") + e.what()); }
+        EndWasmFrame();         // what a sandboxed plugin runs from here on has a budget of its own
         if (frame % 120 == 0) UpdateBudgets();
     }
 

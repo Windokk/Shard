@@ -55,7 +55,7 @@ namespace Shard {
             static_assert(std::is_trivially_copyable<T>::value, "an event's payload is copied as bytes");
             static_assert(ComponentTraits<T>::kDescribed, "list the fields of the payload with SHARD_COMPONENT");
             const auto* api = detail::Interface<ShardEventsApi>(SHARD_IFACE_EVENTS, 1);
-            if (!api) throw Error(SHARD_E_UNSUPPORTED, "describing event '" + name + "' needs shard.events 1.1");
+            if (!api) SHARD_THROW(Error(SHARD_E_UNSUPPORTED, "describing event '" + name + "' needs shard.events 1.1"));
             const T sample{};
             const std::vector<ShardFieldDesc> fields = detail::FieldsOf<T>(sample);
             detail::Check(api->describe(m_Ctx, Str(name), uint32_t(sizeof(T)), fields.data(), uint32_t(fields.size())), "event '" + name + "'");

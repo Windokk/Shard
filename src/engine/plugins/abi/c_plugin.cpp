@@ -419,7 +419,7 @@ namespace Shard::Engine::Plugins {
                 { SHARD_IFACE_PHYSICS, 1, 0, PhysicsApi() },
                 { SHARD_IFACE_AUDIO, 1, 0, AudioApi() },
                 { SHARD_IFACE_WORLDS, 1, 0, WorldsApi() },
-                { SHARD_IFACE_EDITOR, 1, 0, EditorApi() },
+                { SHARD_IFACE_EDITOR, 1, 1, EditorApi() },
                 // No promise : major 0, handed out for its exact minor only (see shard_experimental.h)
                 { SHARD_IFACE_EXPERIMENTAL_WORLD_ECS, 0, 1, WorldEcsApi() },
             };

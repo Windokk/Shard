@@ -748,7 +748,7 @@ namespace Shard::Engine::Plugins::CAbi {
             field.accessor = (f.flags & SHARD_FIELD_ACCESSOR) != 0;
             field.actor = f.type == SHARD_FIELD_ACTOR;
             if (uint64_t(f.offset) + layout.size > size) return refuse("'" + full + "' : the field '" + field.name + "' goes past the end of the block");
-            if (f.offset % layout.align != 0) return refuse("'" + full + "' : the field '" + field.name + "' is not aligned");
+            if (!field.accessor && f.offset % layout.align != 0) return refuse("'" + full + "' : the field '" + field.name + "' is not aligned");
             for (const auto& span : spans)
                 if (f.offset < span.second && span.first < f.offset + layout.size) return refuse("'" + full + "' : the field '" + field.name + "' overlaps another");
             spans.emplace_back(f.offset, f.offset + layout.size);

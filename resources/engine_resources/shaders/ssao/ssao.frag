@@ -59,6 +59,13 @@ void main()
     vec3 bitangent = cross(normal, tangent);
     mat3 TBN = mat3(tangent, bitangent, normal);
 
+    // The depth buffer is read at a texel centre, not at the exact UV of the sample : on a surface seen at a grazing angle (the
+    // floor far away) neighbouring texels are metres apart in depth, so that rounding alone puts the stored surface in front
+    // of a sample that sits above it and the floor was drawn with dark horizontal bands. The bias grows with how fast the
+    // depth changes from one pixel to the next (capped, so a silhouette edge does not switch the occlusion off).
+    float texelDepthStep = abs(dFdx(fragPos.z)) + abs(dFdy(fragPos.z));
+    float sampleBias = bias + min(texelDepthStep, 0.1 * abs(fragPos.z));
+
     float occlusion = 0.0;
 
     for (int i = 0; i < KERNEL_SIZE; i++)
@@ -78,7 +85,7 @@ void main()
         // otherwise a nearby tall occluder would darken surfaces far behind it that it can't actually
         // shadow the ambient term of.
         float rangeCheck = smoothstep(0.0, 1.0, radius / max(abs(fragPos.z - sampledViewPos.z), 1e-4));
-        occlusion += (sampledViewPos.z >= samplePos.z + bias ? 1.0 : 0.0) * rangeCheck;
+        occlusion += (sampledViewPos.z >= samplePos.z + sampleBias ? 1.0 : 0.0) * rangeCheck;
     }
 
     float ao = clamp(1.0 - (occlusion / float(KERNEL_SIZE)), 0.0, 1.0);

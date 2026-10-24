@@ -281,7 +281,7 @@ namespace Shard {
     private:
         const char* Needed() const
         {
-            if (!m_Type) throw Error(SHARD_E_INVALID_ARG, "a component handle that was never given a type");
+            if (!m_Type) SHARD_THROW(Error(SHARD_E_INVALID_ARG, "a component handle that was never given a type"));
             return m_Type;
         }
         void Check(ShardResult result, const char* what, std::string_view path) const

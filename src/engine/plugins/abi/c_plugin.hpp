@@ -1,6 +1,8 @@
 #pragma once
 
+#include <memory>
 #include <string>
+#include <vector>
 
 #include <shard/shard_editor.h>
 #include <shard/shard_host.h>
@@ -13,6 +15,7 @@
 // stands for it. The manager treats the result like any other plugin ; the registrars are the ones the C++ plugins use.
 
 namespace Shard::Engine::Events { class EventDispatcher; }
+namespace Shard::Engine::Objects { class Actor; }
 
 namespace Shard::Engine::Plugins {
 
@@ -43,7 +46,16 @@ namespace Shard::Engine::Plugins {
         const ShardUiApi* widgets = nullptr;
         bool (*begin)(const char* title, bool* open) = nullptr;
         void (*end)() = nullptr;
+        /// A notification in the corner of the editor (SHARD_EDITOR_NOTIFY_*)
+        void (*notify)(uint32_t level, const char* text) = nullptr;
+        /// The selected actors, the primary one last
+        std::vector<std::shared_ptr<Objects::Actor>> (*selection)() = nullptr;
     };
+
+    /// The editor tells its plugins the selection changed: the C plugins that subscribed (shard.editor) and the EditorPlugins are called
+    void NotifyEditorSelection(const std::vector<std::shared_ptr<Objects::Actor>>& selected);
+    /// The handle shard_actors.h gives an actor (what an inspector or a gizmo is called with)
+    uint64_t EditorActorHandle(const std::shared_ptr<Objects::Actor>& actor);
     /// Called by the editor once its ImGui is up (and with null before it goes): without it, shard.editor is not offered
     void SetEditorUiBackend(const EditorUiBackend* backend);
 

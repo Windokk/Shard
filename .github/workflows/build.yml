@@ -84,8 +84,15 @@ jobs:
       # The CMake files expect the build folder to be named "build" (like build.sh / build.bat).
       # Release : Debug (the default) is -O0, far slower for Jolt and the engine. ShardReflect is skipped (the generated
       # *.reflection.hpp files are committed, reflection.yml checks that they are up to date).
+      # The wasi-sdk sysroot (libc, libc++, compiler-rt) : the game of tests/plugin_fixtures/game_scripts is built to WebAssembly with the SDK's
+      # TARGET wasm and run in the sandbox (WasmGameTest). Pinned by SHA-256 in the script.
+      - name: wasi sysroot (for the sandboxed game)
+        run: bash scripts/install_wasi_sysroot.sh "$RUNNER_TEMP/wasi" | tee wasi.env
+
       - name: Configure
-        run: cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release -DSHARD_BUILD_REFLECT=OFF
+        run: |
+          . ./wasi.env
+          cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release -DSHARD_BUILD_REFLECT=OFF -DSHARD_TEST_WASM_TOOLCHAIN="$SHARD_WASM_TOOLCHAIN" -DSHARD_WASM_BUILTINS="$SHARD_WASM_BUILTINS"
 
       - name: Build
         run: cmake --build build --parallel

@@ -11,6 +11,28 @@
 #include <shard/shard_host.h>
 #include <shard/cpp/string.hpp>
 
+// Built for a sandboxed plugin (wasm32 without exceptions) : there is nothing to throw. A refusal that would have been thrown stops the plugin
+// instead (the message goes to the host's log, then the module traps : the host sees a failed call, like any other error of the plugin).
+#if defined(SHARD_SDK_NO_EXCEPTIONS) || (!defined(__cpp_exceptions) && !defined(__EXCEPTIONS))
+#   define SHARD_SDK_NOEXC 1
+#else
+#   define SHARD_SDK_NOEXC 0
+#endif
+
+// For what a system does rarely from inside its row loop (an event, a log line) : kept out of line so that the loop stays small and the compiler
+// can optimise it. A call that may throw, written in the loop, costs every row (measured : 1.5x on a trivial system, see c-abi-sdk.fr.md section 13)
+#if defined(_MSC_VER) && !defined(__clang__)
+#   define SHARD_COLD __declspec(noinline)
+#else
+#   define SHARD_COLD __attribute__((noinline, cold))
+#endif
+
+#if SHARD_SDK_NOEXC
+#   define SHARD_THROW(expression) ::Shard::detail::Abort(expression)
+#else
+#   define SHARD_THROW(expression) throw expression
+#endif
+
 namespace Shard {
 
     /// What a registration of the SDK throws when the host refused it. The SDK turns it into an error of the callback it escaped from (the
@@ -42,6 +64,10 @@ namespace Shard {
 
     namespace detail {
 
+#if SHARD_SDK_NOEXC
+        [[noreturn]] inline void Abort(const Error& e);
+#endif
+
         /// The plugin's own handle, known from its first callback (a plugin is one context for its whole life): what lets a value type like
         /// Shard::Text or Shard::Actor reach the host without being handed the context
         inline ShardPluginCtx& PluginHandle()
@@ -70,13 +96,13 @@ namespace Shard {
         const T& Require(const char* id)
         {
             const T* table = Interface<T>(id);
-            if (!table) throw Error(SHARD_E_NOT_FOUND, std::string("this host does not offer the interface ") + id);
+            if (!table) SHARD_THROW(Error(SHARD_E_NOT_FOUND, std::string("this host does not offer the interface ") + id));
             return *table;
         }
 
         inline void Check(ShardResult r, const std::string& what)
         {
-            if (r != SHARD_OK) throw Error(r, what);
+            if (r != SHARD_OK) SHARD_THROW(Error(r, what));
         }
 
         /// The objects the host calls back (system functions, commands, handlers) : they must outlive their registration. The host drops the
@@ -95,6 +121,14 @@ namespace Shard {
             static std::vector<std::unique_ptr<Kept>> kept;
             return kept;
         }
+#if SHARD_SDK_NOEXC
+        [[noreturn]] inline void Abort(const Error& e)
+        {
+            if (Host()) Host()->log(PluginHandle(), SHARD_LOG_ERROR, Str(std::string(e.what())));
+            __builtin_trap();
+        }
+#endif
+
         template <typename F>
         F* Keep(F f)
         {
@@ -108,6 +142,11 @@ namespace Shard {
         template <typename Fn>
         ShardResult Guard(ShardPluginCtx ctx, const char* what, Fn&& fn) noexcept
         {
+#if SHARD_SDK_NOEXC
+            (void)ctx; (void)what;
+            fn();
+            return SHARD_OK;
+#else
             try {
                 fn();
                 return SHARD_OK;
@@ -121,6 +160,7 @@ namespace Shard {
                 if (Host()) Host()->log(ctx, SHARD_LOG_ERROR, Str(std::string(what) + " threw"));
                 return SHARD_E_INTERNAL;
             }
+#endif
         }
     }
 }

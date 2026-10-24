@@ -178,21 +178,48 @@ if(SHARD_WASM_CLANG AND SHARD_WASM_LD)
     file(WRITE ${SHARD_TEST_WASM_DIR}/content/hello.txt "hello")
     file(WRITE ${SHARD_TEST_WASM_DIR}/shard-plugin.json [=[{
   "schema": 1, "id": "shard.test.wasm", "version": "1.0.0", "kind": "module", "moduleKind": "code", "linkage": "dynamic", "hosts": ["engine"],
-  "tier": 2, "abi": "wasm1", "binaries": { "wasm": "plugin.wasm" }, "permissions": ["fs.read:content"], "content": { "mount": "content" }
+  "tier": 2, "abi": "wasm1", "binaries": { "wasm": "plugin.wasm" }, "permissions": ["fs.read:content", "input"], "content": { "mount": "content" }
 }
 ]=])
     file(GLOB SHARD_SDK_C_HEADERS ${CMAKE_SOURCE_DIR}/sdk/include/shard/*.h)
     # Compiled by Clang, linked by wasm-ld itself (whatever wasm-ld Clang would have looked for)
     add_custom_command(OUTPUT ${SHARD_TEST_WASM_DIR}/plugin.wasm
-        COMMAND ${SHARD_WASM_CLANG} --target=wasm32 -ffreestanding -nostdlib -std=c11 -Wall -Wextra -pedantic -Werror -O2
+        COMMAND ${SHARD_WASM_CLANG} --target=wasm32 -ffreestanding -nostdlib -fno-builtin -std=c11 -Wall -Wextra -pedantic -Werror -O2
             -I${CMAKE_SOURCE_DIR}/sdk/include -c ${CMAKE_SOURCE_DIR}/tests/plugin_fixtures/wasm_plugin/wasm_plugin.c -o ${CMAKE_BINARY_DIR}/wasm_plugin.o
-        COMMAND ${SHARD_WASM_LD} --no-entry --export=shard_plugin_entry --export-table -o ${SHARD_TEST_WASM_DIR}/plugin.wasm ${CMAKE_BINARY_DIR}/wasm_plugin.o
+        COMMAND ${SHARD_WASM_LD} --no-entry --export=shard_plugin_entry --export=shard_wasm_host_table --export=shard_wasm_ui_table --export=shard_wasm_gizmo_table --export-table -o ${SHARD_TEST_WASM_DIR}/plugin.wasm
+            ${CMAKE_BINARY_DIR}/wasm_plugin.o
         DEPENDS ${CMAKE_SOURCE_DIR}/tests/plugin_fixtures/wasm_plugin/wasm_plugin.c ${SHARD_SDK_C_HEADERS}
         COMMENT "Building the sandboxed test plugin (wasm32)"
         VERBATIM)
     add_custom_target(ShardTestWasmPlugin ALL DEPENDS ${SHARD_TEST_WASM_DIR}/plugin.wasm)
     add_dependencies(ShardTests ShardTestWasmPlugin)
     target_compile_definitions(ShardTests PRIVATE SHARD_TEST_WASM_PLUGIN_DIR="${SHARD_TEST_WASM_DIR}")
+endif()
+
+# The same game, compiled to WebAssembly with a wasi-sdk (SHARD_TEST_WASM_TOOLCHAIN : its folder, or a wasi sysroot) through the SDK's own
+# TARGET wasm : it runs in the sandbox against the same expectations (WasmGameTest)
+set(SHARD_TEST_WASM_TOOLCHAIN "" CACHE PATH "wasi-sdk (34 or later) or wasi sysroot : adds the sandboxed build of the game fixture")
+if(NOT SHARD_TEST_WASM_TOOLCHAIN AND DEFINED ENV{SHARD_WASM_TOOLCHAIN})
+    set(SHARD_TEST_WASM_TOOLCHAIN "$ENV{SHARD_WASM_TOOLCHAIN}")
+endif()
+if(SHARD_TEST_WASM_TOOLCHAIN AND SHARD_WASM_CLANG AND SHARD_WASM_LD)
+    include(${CMAKE_SOURCE_DIR}/sdk/cmake/ShardSDKPlugin.cmake)
+    set(SHARD_WASM_TOOLCHAIN "${SHARD_TEST_WASM_TOOLCHAIN}")
+    set(SHARD_TEST_WASM_GAME_SOURCES ${SHARD_TEST_GAME_SOURCES})
+    list(FILTER SHARD_TEST_WASM_GAME_SOURCES EXCLUDE REGEX "(components_demo|services_demo)\\.cpp$")
+    shard_sdk_add_plugin(ShardTestWasmGame
+        TARGET       wasm
+        ID           shard.test.wasmgame
+        VERSION      1.0.0
+        KIND         module
+        MODULE_KIND  code
+        HOSTS        engine
+        SOURCES      ${SHARD_TEST_WASM_GAME_SOURCES}
+        CONTENT_DIR  plugin_fixtures/game_scripts/content
+        OUTPUT_DIR   ${CMAKE_BINARY_DIR}/test_plugins
+        PERMISSIONS  fs.read:content input audio physics worlds.load actors.spawn editor)
+    add_dependencies(ShardTests ShardTestWasmGame)
+    target_compile_definitions(ShardTests PRIVATE SHARD_TEST_WASM_GAME_DIR="${CMAKE_BINARY_DIR}/test_plugins/shard.test.wasmgame")
 endif()
 
 # The SDK outside the repository : installed alone, the template built against it in a folder of its own and loaded by the headless engine
@@ -215,6 +242,13 @@ add_test(NAME Sdk.OutOfTree
         -DMAKE_PROGRAM=${CMAKE_MAKE_PROGRAM} -DCXX=${_sdk_cxx}
         -P ${CMAKE_SOURCE_DIR}/tests/plugin_fixtures/run_sdk_out_of_tree.cmake)
 set_tests_properties(Sdk.OutOfTree PROPERTIES FIXTURES_REQUIRED determinism_engine_resources TIMEOUT 400)
+if(SHARD_TEST_WASM_TOOLCHAIN AND SHARD_WASM_CLANG AND SHARD_WASM_LD)
+    add_test(NAME Sdk.OutOfTreeWasm
+        COMMAND ${CMAKE_COMMAND} ${_sdk_test_args} -DWORK=${CMAKE_BINARY_DIR}/sdk_out_of_tree_wasm "-DGENERATOR=${CMAKE_GENERATOR}"
+            -DMAKE_PROGRAM=${CMAKE_MAKE_PROGRAM} "-DTOOLCHAIN=${SHARD_TEST_WASM_TOOLCHAIN}" "-DBUILTINS=${SHARD_WASM_BUILTINS}"
+            -P ${CMAKE_SOURCE_DIR}/tests/plugin_fixtures/run_sdk_out_of_tree_wasm.cmake)
+    set_tests_properties(Sdk.OutOfTreeWasm PROPERTIES FIXTURES_REQUIRED determinism_engine_resources TIMEOUT 400)
+endif()
 if(SHARD_SDK_TEST_VCVARS)
     add_test(NAME Sdk.OutOfTreeMsvc
         COMMAND ${CMAKE_COMMAND} ${_sdk_test_args} -DWORK=${CMAKE_BINARY_DIR}/sdk_out_of_tree_msvc -DVCVARS=${SHARD_SDK_TEST_VCVARS}
@@ -227,6 +261,13 @@ endif()
 find_package(Python3 COMPONENTS Interpreter)
 if(Python3_Interpreter_FOUND)
     add_test(NAME Docs.ApiReference COMMAND Python3::Interpreter ${CMAKE_SOURCE_DIR}/scripts/gen_api_reference.py --check)
+    # What the sandbox of tier 2 plugins agrees with the module on is generated from the same headers (shard_wasm_imports.h, wasm_layout_gen.hpp,
+    # wasm_imports_gen.cpp) : it has to be what they give. Regenerate it with the ShardWasmImports target.
+    add_test(NAME Wasm.GeneratedImports COMMAND Python3::Interpreter ${CMAKE_SOURCE_DIR}/scripts/gen_wasm_imports.py --check)
+    add_custom_target(ShardWasmImports
+        COMMAND Python3::Interpreter ${CMAKE_SOURCE_DIR}/scripts/gen_wasm_imports.py
+        COMMENT "Writing the sandbox's imports from sdk/include"
+        VERBATIM)
     add_custom_target(ShardApiReference
         COMMAND Python3::Interpreter ${CMAKE_SOURCE_DIR}/scripts/gen_api_reference.py
         COMMENT "Writing docs/docs/api_reference.md from sdk/include"

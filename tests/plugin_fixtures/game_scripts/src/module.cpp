@@ -49,6 +49,16 @@ TEST_EXPORT int game_stat(const char* name)
     if (n == "hasListener") return s.hasListener;
     if (n == "hasListenerAfterRemove") return s.hasListenerAfterRemove;
     if (n == "noListener") return s.noListener;
+    if (n == "menuRuns") return s.menuRuns;
+    if (n == "toolbarRuns") return s.toolbarRuns;
+    if (n == "inspectorDraws") return s.inspectorDraws;
+    if (n == "gizmoDraws") return s.gizmoDraws;
+    if (n == "selectionEvents") return s.selectionEvents;
+    if (n == "selectionSize") return s.selectionSize;
+    if (n == "widgetDraws") return s.widgetDraws;
+    if (n == "tabItems") return s.tabItems;
+    if (n == "tableCells") return s.tableCells;
+    if (n == "pickedIndex") return s.pickedIndex;
     return -1000;
 }
 TEST_EXPORT float game_dt() { return GetStats().lastDt; }
@@ -68,6 +78,7 @@ TEST_EXPORT float game_float(const char* name)
     if (n == "sphereZ") return s.sphereZ;
     if (n == "lightIntensity") return s.lightIntensity;
     if (n == "listenerDoppler") return s.listenerDoppler;
+    if (n == "contentWidth") return s.contentWidth;
     return -1000.f;
 }
 TEST_EXPORT const char* game_text(const char* name)
@@ -75,8 +86,12 @@ TEST_EXPORT const char* game_text(const char* name)
     const Stats& s = GetStats();
     const std::string n = name;
     if (n == "lastNote") return s.lastNote.c_str();
+    if (n == "inspected") return s.inspected.c_str();
+    if (n == "gizmoActor") return s.gizmoActor.c_str();
     if (n == "contactOther") return s.contactOther.c_str();
     if (n == "rayActor") return s.rayActor.c_str();
     return "";
 }
 TEST_EXPORT void game_reset() { GetStats() = Stats(); }
+// A buffer the test of a sandboxed build writes the names it passes to game_stat in (it cannot hand the module a pointer of its own)
+TEST_EXPORT char* game_scratch() { static char buffer[128]; return buffer; }

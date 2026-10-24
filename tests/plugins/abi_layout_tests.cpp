@@ -332,8 +332,15 @@ static_assert(offsetof(ShardAudioApi, play_one_shot) == 32, "ShardAudioApi.play_
 static_assert(sizeof(ShardWorldsApi) == 40, "ShardWorldsApi");
 static_assert(offsetof(ShardWorldsApi, load_world) == 8, "ShardWorldsApi.load_world");
 static_assert(offsetof(ShardWorldsApi, spawn_prefab) == 32, "ShardWorldsApi.spawn_prefab");
-static_assert(sizeof(ShardEditorApi) == 16, "ShardEditorApi");
-static_assert(sizeof(ShardUiApi) == 256, "ShardUiApi");
+static_assert(sizeof(ShardEditorApi) == 80, "ShardEditorApi");
+static_assert(offsetof(ShardEditorApi, add_menu_item) == 16, "ShardEditorApi.add_menu_item");
+static_assert(offsetof(ShardEditorApi, subscribe_selection) == 48, "ShardEditorApi.subscribe_selection");
+static_assert(offsetof(ShardEditorApi, set_panel_visible) == 72, "ShardEditorApi.set_panel_visible");
+static_assert(sizeof(ShardGizmoApi) == 64 && offsetof(ShardGizmoApi, text) == 56, "ShardGizmoApi");
+static_assert(sizeof(ShardUiApi) == 624, "ShardUiApi");
+static_assert(offsetof(ShardUiApi, text_disabled) == 256, "ShardUiApi.text_disabled");
+static_assert(offsetof(ShardUiApi, begin_group) == 336, "ShardUiApi.begin_group");
+static_assert(offsetof(ShardUiApi, is_item_double_clicked) == 616, "ShardUiApi.is_item_double_clicked");
 static_assert(offsetof(ShardUiApi, text) == 8, "ShardUiApi.text");
 static_assert(offsetof(ShardUiApi, button) == 48, "ShardUiApi.button");
 static_assert(offsetof(ShardUiApi, slider_float) == 88, "ShardUiApi.slider_float");
@@ -366,7 +373,7 @@ static_assert(SHARD_PHASE_UPDATE == 4 && SHARD_PHASE_LATE == 5 && SHARD_PHASE_EX
 static_assert(SHARD_SYSTEM_EXCLUSIVE == 1 && SHARD_SYSTEM_MAIN_THREAD == 2, "system flags");
 static_assert(SHARD_PRIORITY_EARLIEST == -200 && SHARD_PRIORITY_EARLY == -100 && SHARD_PRIORITY_NORMAL == 0 && SHARD_PRIORITY_LATE == 100 && SHARD_PRIORITY_LATEST == 200, "priorities");
 static_assert(SHARD_LOG_INFO == 0 && SHARD_LOG_WARNING == 1 && SHARD_LOG_ERROR == 2, "log levels");
-static_assert(SHARD_ABI_MAJOR == 1 && SHARD_ABI_MINOR == 5, "the ABI revision of these headers");
+static_assert(SHARD_ABI_MAJOR == 1 && SHARD_ABI_MINOR == 6, "the ABI revision of these headers");
 
 TEST(AbiLayout, HeadersCompileAsCppAndPinTheirLayout)
 {

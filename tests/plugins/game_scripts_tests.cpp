@@ -25,6 +25,7 @@
 #include "engine/world/time_manager.hpp"
 #include "engine/world/world.hpp"
 #include "plugins/asset_test_context.hpp"
+#include "plugins/editor_fakes.hpp"
 #include <shard/shard.h>
 
 // The gameplay layer of the SDK (shard/game.hpp) end to end: tests/plugin_fixtures/game_scripts is a game of several source files (scripts, a
@@ -416,9 +417,11 @@ TEST_F(GameScriptsTest, APanelDrawsWithTheWidgetsOfTheEditor)
     SetEditorUiBackend(&backend);
     Start();
 
-    const auto panels = pm().Extensions().Get<EditorPanelItem>("editor.panel");
+    const auto all = pm().Extensions().Get<EditorPanelItem>("editor.panel");
+    ASSERT_EQ(all.size(), 2u);                                      // this one, and the window of the richer widgets
+    std::vector<std::shared_ptr<EditorPanelItem>> panels;
+    for (const auto& panel : all) if (panel->title == "Game debug") panels.push_back(panel);
     ASSERT_EQ(panels.size(), 1u);
-    EXPECT_EQ(panels[0]->title, "Game debug");
     bool open = true;
     panels[0]->draw(&open);
     EXPECT_EQ(Stat("panelDraws"), 1);
@@ -433,6 +436,85 @@ TEST_F(GameScriptsTest, APanelDrawsWithTheWidgetsOfTheEditor)
     ASSERT_TRUE(pm().Disable(kId, true, &error)) << error;
     EXPECT_TRUE(pm().Extensions().Get<EditorPanelItem>("editor.panel").empty());
     SetEditorUiBackend(nullptr);
+}
+
+// ---- shard.editor 1.1 : menus, toolbar, inspectors, gizmos, selection, notifications, richer widgets ----
+
+TEST_F(GameScriptsTest, AnEditorPluginContributesMenusToolbarInspectorsGizmosAndFollowsTheSelection)
+{
+    EditorFakes::Log().clear();
+    EditorFakes::Notified().clear();
+    SetEditorUiBackend(EditorFakes::Backend());
+    Start();
+    auto& manager = pm();
+
+    // A menu item and a toolbar button
+    const auto menus = manager.Extensions().Get<EditorMenuItem>("editor.menu");
+    ASSERT_EQ(menus.size(), 1u);
+    EXPECT_EQ(menus[0]->path, "Tools/Demo/Bake all");
+    menus[0]->run();
+    EXPECT_EQ(Stat("menuRuns"), 1);
+    const auto toolbar = manager.Extensions().Get<EditorToolbarItem>("editor.toolbar");
+    ASSERT_EQ(toolbar.size(), 1u);
+    toolbar[0]->run();
+    EXPECT_EQ(Stat("toolbarRuns"), 1);
+    ASSERT_EQ(EditorFakes::Notified().size(), 1u);
+    EXPECT_EQ(EditorFakes::Notified()[0].first, uint32_t(SHARD_EDITOR_NOTIFY_WARNING));
+    EXPECT_EQ(EditorFakes::Notified()[0].second, "pinged");
+
+    // An inspector and a gizmo are called with the handle of the actor
+    auto hero = NewActor("Hero");
+    const uint64_t handle = EditorActorHandle(hero);
+    const auto inspectors = manager.Extensions().Get<EditorInspectorItem>("editor.inspector");
+    ASSERT_EQ(inspectors.size(), 1u);
+    inspectors[0]->draw(EditorFakes::Widgets(), handle);
+    EXPECT_EQ(Stat("inspectorDraws"), 1);
+    EXPECT_STREQ(Export<const char* (*)(const char*)>("game_text")("inspected"), "Hero");
+    EXPECT_GE(EditorFakes::Count("separator_text"), 1);
+    EXPECT_GE(EditorFakes::Count("begin_disabled"), 1);
+    EXPECT_GE(EditorFakes::Count("drag_float3"), 1);
+    const auto gizmos = manager.Extensions().Get<EditorGizmoItem>("editor.gizmo");
+    ASSERT_EQ(gizmos.size(), 1u);
+    gizmos[0]->draw(EditorFakes::Gizmos(), handle);
+    EXPECT_EQ(Stat("gizmoDraws"), 1);
+    EXPECT_STREQ(Export<const char* (*)(const char*)>("game_text")("gizmoActor"), "Hero");
+    EXPECT_EQ(EditorFakes::Count("gizmo.line"), 1);
+    EXPECT_EQ(EditorFakes::Count("gizmo.sphere"), 1);
+    EXPECT_EQ(EditorFakes::Count("gizmo.text"), 1);
+
+    // The selection: told to the plugin, and asked by it
+    NotifyEditorSelection({ hero });
+    EXPECT_EQ(Stat("selectionEvents"), 1);
+    EXPECT_EQ(Stat("selectionSize"), 1);
+    NotifyEditorSelection({});
+    EXPECT_EQ(Stat("selectionSize"), 0);
+
+    // A window that uses the richer widgets
+    const auto panels = manager.Extensions().Get<EditorPanelItem>("editor.panel");
+    std::shared_ptr<EditorPanelItem> widgets;
+    for (const auto& panel : panels) if (panel->title == "Demo widgets") widgets = panel;
+    ASSERT_NE(widgets, nullptr);
+    bool open = true;
+    widgets->draw(&open);
+    EXPECT_EQ(Stat("widgetDraws"), 1);
+    EXPECT_EQ(Stat("tabItems"), 1);
+    EXPECT_EQ(Stat("tableCells"), 2);
+    EXPECT_EQ(Stat("pickedIndex"), 2);                              // the combo's answer went back into the plugin's variable
+    EXPECT_EQ(Stat("menuRuns"), 2);                                 // the menu item of its context popup
+    EXPECT_FLOAT_EQ(Export<float (*)(const char*)>("game_float")("contentWidth"), 123.0f);
+    EXPECT_EQ(EditorFakes::Count("begin_tab_bar"), 1);
+    EXPECT_EQ(EditorFakes::Count("end_table"), 1);
+
+    // All of it goes with the plugin
+    std::string error;
+    ASSERT_TRUE(pm().Disable(kId, true, &error)) << error;
+    EXPECT_TRUE(manager.Extensions().Get<EditorMenuItem>("editor.menu").empty());
+    EXPECT_TRUE(manager.Extensions().Get<EditorToolbarItem>("editor.toolbar").empty());
+    EXPECT_TRUE(manager.Extensions().Get<EditorInspectorItem>("editor.inspector").empty());
+    EXPECT_TRUE(manager.Extensions().Get<EditorGizmoItem>("editor.gizmo").empty());
+    NotifyEditorSelection({});                                      // nobody is called any more
+    SetEditorUiBackend(nullptr);
+    EXPECT_EQ(Rec()->errorCount, 0u);
 }
 
 namespace {
