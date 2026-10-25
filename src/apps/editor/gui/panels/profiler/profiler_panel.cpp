@@ -46,7 +46,7 @@ namespace Shard::Editor::GUI{
         ImGui::SetNextItemWidth(150.0f);
         ImGui::SliderFloat("Refresh interval", &refreshIntervalSeconds, 0.05f, 2.0f, "%.2f s");
 
-        ImGui::Text("Frame time: %.2f ms", displayedFrame.frameMs);
+        ImGui::Text("Main thread time: %.2f ms", displayedFrame.frameMs);
         ImGui::Text("Render thread time: %.2f ms", displayedFrame.renderMs);
         if (ImGui::IsItemHovered())
             ImGui::SetTooltip("From the start of the frame on the main thread to the end of its swap on the render thread.");

@@ -624,7 +624,7 @@ Shard::Jobs::Run([chunk] {
 });
 ```
 
-What to know. Everything a plugin creates (meshes, textures, objects, batches, overlays, sockets, colliders, jobs) belongs to it and goes with it ; the handle classes of the C++ layer release theirs. Creating and updating a resource only records it (any thread, so a job can build a mesh) : the GPU copy is made by the thread that draws, a frame later. An object whose mesh was destroyed is not drawn. Limits of the first version : no texture arrays, a 2D clip mask is its bounding rectangle (no stencil), sprites and overlays are drawn by the OpenGL backend only, the debug shapes ignore the depth test, and a skinned mesh is skinned on the CPU. The sandbox does not offer these interfaces yet.
+What to know. Everything a plugin creates (meshes, textures, objects, batches, overlays, sockets, colliders, jobs) belongs to it and goes with it ; the handle classes of the C++ layer release theirs. Creating and updating a resource only records it (any thread, so a job can build a mesh) : the GPU copy is made by the thread that draws, a frame later. An object whose mesh was destroyed is not drawn. Limits of the first version : no texture arrays, a 2D clip mask is its bounding rectangle (no stencil), sprites and overlays are drawn on OpenGL and on Vulkan (on Vulkan an overlay packs its geometries again every frame), the debug shapes ignore the depth test, and a skinned mesh is skinned on the CPU. The sandbox does not offer these interfaces yet.
 
 ### Components across the ABI
 

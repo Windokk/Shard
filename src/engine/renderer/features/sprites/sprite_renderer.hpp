@@ -27,7 +27,7 @@ namespace Shard::Engine::Rendering {
 
     /// @brief Draws the snapshot's sprite batches (shard.render's particles and flares) : one instanced draw of 6 vertices per sprite, a pass per blend
     /// mode and per depth setting, the quads built by the vertex shader.
-    /// @note Graphics thread only. It reads nothing but the snapshot. OpenGL with bindless textures.
+    /// @note Graphics thread only. It reads nothing but the snapshot. OpenGL with bindless textures, or Vulkan (its bindless array, see ShaderCompiler).
     class SpriteRenderer {
         public:
             static constexpr uint32_t kGroups = 8;

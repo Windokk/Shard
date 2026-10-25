@@ -21,6 +21,7 @@ namespace Shard::Engine::Rendering {
     class VKPipeline;
     class VKMesh;
     class VKStorageBuffer;
+    class StorageBuffer;
 
     namespace VK {
 
@@ -95,6 +96,8 @@ namespace Shard::Engine::Rendering {
             void BeginFrame() override;
             void EndFrame() override;
 
+            void DrawOverlay(const OverlayProxy& overlay, uint32_t width, uint32_t height) override;
+
             bool GetUIBackendInfo(UIBackendInfo& out) override;
             void SetUITextureHooks(const UITextureHooks& hooks) override { m_UIHooks = hooks; }
             uint64_t GetUITextureID(uint32_t handle) override;
@@ -167,6 +170,9 @@ namespace Shard::Engine::Rendering {
             /// Builds the descriptor sets the program reads from the tables (texture units, storage buffers, image units) and the uniforms, and binds them
             void BindDescriptors(VKProgram& program, VkPipelineBindPoint bindPoint, bool layoutChanged);
 
+            /// Only what is inside this rectangle (in the target's pixels, from the bottom left) is drawn, until it is cleared
+            void SetScissor(const VkRect2D* rect);
+
             void IssueDraw(const DrawCommand& command, const std::shared_ptr<Pipeline>& pipeline, bool fullscreen, bool depthOnly);
 
             void BindPassData(const std::shared_ptr<RenderPass> pass, std::shared_ptr<Pipeline> pipeline);
@@ -215,6 +221,20 @@ namespace Shard::Engine::Rendering {
             VkPrimitiveTopology m_Topology = VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST;
             VkViewport m_BoundViewport{};
             bool m_BoundViewportValid = false;
+            VkRect2D m_Scissor{};
+            bool m_ScissorSet = false;
+            VkRect2D m_BoundScissor{};
+
+            // The 2D overlay of shard.render (see vk_overlay.cpp)
+            struct OverlayResources
+            {
+                std::shared_ptr<Shader> shader;
+                std::shared_ptr<Pipeline> pipeline;
+                std::shared_ptr<StorageBuffer> vertices, indices;
+                uint32_t vertexCapacity = 0, indexCapacity = 0;     // in bytes
+                bool failed = false;
+            };
+            OverlayResources m_Overlay;
 
             // Depth sweeps and wireframe
             DepthSweep m_Sweep = DepthSweep::None;

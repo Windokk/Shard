@@ -403,6 +403,13 @@ namespace Shard::Engine::Rendering {
             m_HasOverride = false;
     }
 
+    void VKRendererAPI::SetScissor(const VkRect2D* rect)
+    {
+        m_ScissorSet = rect != nullptr;
+        if (rect)
+            m_Scissor = *rect;
+    }
+
     void VKRendererAPI::DrawDirect(const DrawCommand& command, const std::shared_ptr<Pipeline>& pipeline)
     {
         IssueDraw(command, pipeline, false, false);
@@ -928,8 +935,18 @@ namespace Shard::Engine::Rendering {
             vkCmdSetViewport(cmd, 0, 1, &viewport);
             VkRect2D scissor{{0, 0}, {m_ActiveTarget.width, m_ActiveTarget.height}};
             vkCmdSetScissor(cmd, 0, 1, &scissor);
+            m_BoundScissor = scissor;
             m_BoundViewport = viewport;
             m_BoundViewportValid = true;
+        }
+
+        {
+            const VkRect2D scissor = m_ScissorSet ? m_Scissor : VkRect2D{{0, 0}, {m_ActiveTarget.width, m_ActiveTarget.height}};
+            if (std::memcmp(&scissor, &m_BoundScissor, sizeof(scissor)) != 0)
+            {
+                vkCmdSetScissor(cmd, 0, 1, &scissor);
+                m_BoundScissor = scissor;
+            }
         }
 
         if (!m_DynamicStateValid || cull != m_CullMode)
