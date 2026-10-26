@@ -687,6 +687,13 @@ vec3 DDGI_Specular(vec3 radiance, vec3 N, vec3 V, vec3 albedo, float metallic, f
     return radiance * EnvBRDFApprox(F0, roughness, max(dot(N, V), 0.0));
 }
 
+// What a lightmapped surface reflects of the light it receives, for a material without environment reflections : the lightmap is irradiance / PI,
+// the widest lobe there is, so this is the rough-surface answer, the same one DDGI_Specular gives from a probe.
+vec3 LightmapSpecular(vec3 irradiance, vec3 N, vec3 V, vec3 albedo, float metallic, float roughness) {
+    vec3 F0 = mix(vec3(0.04), albedo, metallic);
+    return irradiance * EnvBRDFApprox(F0, roughness, max(dot(N, V), 0.0));
+}
+
 // How much the probe reflects at P : 1 deeper inside its box than the blend distance, fading to 0 at the edge of the box, 0 outside
 float RP_Weight(vec3 P) {
     vec3 d = P - rp_center;
@@ -1000,6 +1007,7 @@ vec4 ShadeSurface(vec4 baseColor, float metallicValue, float roughnessValue, vec
     }
     else if (hasLightmap) {
         ambientDiffuse = DDGI_Diffuse(bakedIrradiance, baseColor.rgb, metallicValue);
+        specularIBL = LightmapSpecular(bakedIrradiance, giNormal, V, baseColor.rgb, metallicValue, roughnessValue);
     }
 
     // Reflection probe : what the room around this point reflects, in place of the sky's reflection (and of the probe grid's coarse one) by the
