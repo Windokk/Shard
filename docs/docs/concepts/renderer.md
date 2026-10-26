@@ -155,7 +155,26 @@ Textures that have mips are sampled with anisotropic filtering, 16x by default (
 
 - Passes are labelled for RenderDoc with `DebugScope`. When RenderDoc is attached, the engine uses its in-app API (`render.renderdoc`, `render.capture`).
 - `render.dump <dir>` saves every pass target as a PNG, along with the graph.
+- `render.screenshot <file>` saves the last frame: a `.hdr` holds the scene in linear light, before exposure and tonemapping; a `.png` holds the picture as shown.
 - `SHARD_VULKAN_VALIDATION=1` turns on the validation layers.
+
+## Comparing against the path tracer
+
+The offline path tracer (`raytrace.render`) is the reference the real-time lighting aims for. To find out which approximation is wrong, both renderers split the light leaving a surface into four terms (`rhi/lighting_terms.hpp`, `LIGHTING_TERM_*` in `light.glsl`):
+
+| Term | What it is | Real time |
+|---|---|---|
+| `direct` | the lights, straight onto the surface, shadowed | clustered lights, shadow maps |
+| `indirect_diffuse` | everything else arriving through the diffuse lobe: sky, bounces, emissive surfaces, ambient floor | GI probes, lightmaps, sky irradiance, SSAO |
+| `indirect_specular` | everything else arriving through the specular lobe | environment map, reflection probes, SSR |
+| `emission` | the surface's own light, and the sky where no surface is seen | emission, skybox |
+
+- `render.lighting_terms <terms>` makes the main view draw only some terms (`all`, `none`, or names joined by `+`). While it is not `all`, SSR keeps the reflections of the last full frame, and the sky is drawn only with `emission`.
+- `raytrace.render <file.hdr> <w> <h> <spp> <bounces> terms` also writes `<file>.<term>.hdr`. Every contribution of a path is tagged by the first surface it leaves (its own emission, the lights sampled from it, or the lobe the path continues by), so the term images add up exactly to the picture.
+- `render.camera <px> <py> <pz> <tx> <ty> <tz> [fov]` draws the frames (and what `raytrace.render` traces) from another view: a position, the point it looks at, the vertical field of view. It leaves the simulation alone. `render.camera off` goes back to the active camera, and `render.camera` alone prints the view and the extent of the meshes.
+- `python scripts/compare_reference.py --world sponza.world` runs both from the world's views in `scripts/reference_views.json` (or its camera) and writes `build/reference_compare/<world>/report.html`. For each term, over all views and for each view, it gives the term's share of the light, the overall bias in stops, the error per area (too bright / too dark), and an error map. With `--keep-reference`, only the real-time side is rendered again.
+
+A lightmapped surface takes the direct light of `Static` lights from its lightmap, so in real time that light counts as `indirect_diffuse`. Compare with Dynamic or Stationary lights to keep the terms apart.
 
 ## Editor on Vulkan
 

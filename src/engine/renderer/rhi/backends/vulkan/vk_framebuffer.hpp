@@ -39,6 +39,7 @@ namespace Shard::Engine::Rendering {
             void BlitToScreen(uint32_t screenWidth, uint32_t screenHeight) override;
 
             bool ReadPixelsRGBA8(std::vector<uint8_t>& outPixels) override;
+            bool ReadPixelsRGBAFloat(std::vector<float>& outPixels) override;
             void UploadColorRegion(uint32_t x, uint32_t y, uint32_t width, uint32_t height, const uint8_t* rgba) override;
             void BlitColorTo(Framebuffer& dst, uint32_t dstX, uint32_t dstY, uint32_t dstWidth, uint32_t dstHeight) override;
 
@@ -64,6 +65,9 @@ namespace Shard::Engine::Rendering {
             VK::Image* ResolvedColorImage();
 
         private:
+
+            /// The texels of the resolved colour image as they are stored (bottom row first, `outFormat`) : what the readbacks convert
+            bool ReadColorTexels(std::vector<uint8_t>& outTexels, VkFormat& outFormat, uint32_t& outWidth, uint32_t& outHeight);
 
             void Allocate();
             void Release();

@@ -47,6 +47,11 @@ namespace Shard::Engine::Rendering::Raytracing {
         // the world's exposure and tonemapper, then the sRGB curve (the .hdr itself stays linear light), so the two can be
         // compared directly
         bool writePreview = true;
+
+        // Also writes the light of the picture split by term (lighting_terms.hpp), one .hdr per term next to the picture :
+        // <name>.direct.hdr, <name>.indirect_diffuse.hdr... The same paths make every term, so they add up to the picture exactly.
+        // What the real-time renderer draws one term at a time (render.lighting_terms) is compared to.
+        bool writeTerms = false;
     };
 
     enum class RaytraceStatus
@@ -148,6 +153,7 @@ namespace Shard::Engine::Rendering::Raytracing {
             std::shared_ptr<StorageBuffer> matBuffer;
             std::shared_ptr<StorageBuffer> lightBuffer;
             std::shared_ptr<Texture2D> outputImage;
+            std::shared_ptr<Texture2D> termImages[4];   // settings.writeTerms : one accumulation per term, in the order of kLightingTerms
             std::shared_ptr<ComputeShader> shader;
             std::shared_ptr<ComputePipeline> pipeline;
 

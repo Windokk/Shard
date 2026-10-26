@@ -29,6 +29,17 @@ The scenario of the stress test, one command per line as `<frame> <command>`: fr
 Benchmark: runs the player on a world (Sponza by default) and prints the `[BENCH]` lines: frame time, CPU time breakdown, GPU time of every pass, render thread, and memory (RAM, VRAM, GPU allocations by kind). Extra arguments are passed to the player (e.g. `+render.thread=0 --view-mode unlit`). Note: `build/` is a Debug build by default, so only the GPU figures are comparable.
 Variables: `SHARD_BENCH_WORLD`, `SHARD_BENCH_FRAMES` (900, the first 120 are ignored), `SHARD_BENCH_VSYNC` (1 keeps it on), and the regression guards `SHARD_BENCH_MIN_FPS` and `SHARD_BENCH_MAX_VRAM_MB`.
 
+### `compare_reference.py`
+Compares the real-time renderer against the path tracer, one lighting term at a time (direct, indirect diffuse, indirect specular, emission: see the renderer docs). It runs the player on a world and, for each view (`render.camera`), renders the reference with `raytrace.render ... terms` and captures one linear frame per term with `render.lighting_terms` + `render.screenshot`. Then, over all views and for each view, it reports each term's share of the light, the overall bias in stops, the error per area (too bright / too dark) and the error relative to the whole picture. Writes `report.html`, `report.json`, `commands.txt` and `player.log` to `build/reference_compare/<world>/`, and one folder per view with its pictures and one `compare.<term>.png` (reference | real time | error map). Standard library only.
+- `python scripts/compare_reference.py --world sponza.world`: 640x360, 256 spp, 900 warm-up frames (live GI probes need about 800 in a Debug build)
+- `--view "name=px py pz tx ty tz [fov]"` (repeatable, `camera` is the world's own camera); by default, the world's views in `reference_views.json`
+- `--keep-reference`: render only the real-time side of the views whose reference is already there (to iterate on the real-time renderer)
+- `--pipeline forward_plus`, `--api vulkan`, `--command "<console command>"`, `--width`/`--height`, `--spp`, `--bounces`, `--warmup`, `--block` (area size in pixels), `--out`
+- `--reuse`: recompute the report from the pictures already in `--out`
+
+### `reference_views.json`
+The views `compare_reference.py` takes of each world (position, point looked at, vertical field of view). Keep them fixed, so the measurements stay comparable from one change to the next.
+
 ## Architecture checks
 
 ### `check_deps.py`

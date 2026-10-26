@@ -127,6 +127,11 @@ bool GetCurrentView(RenderView& out) override;
                 return m_PendingDebugView;
             }
 
+            /// @brief The terms of the lighting the main scene render draws (LightingTerm bits, see lighting_terms.hpp), whatever debug view the
+            /// editor or the player sets : what a comparison against the path tracer draws one at a time. Takes effect at the start of the next frame
+            void SetLightingTerms(uint32_t terms) { m_LightingTerms.store(terms & LightingTermsAll, std::memory_order_relaxed); }
+            uint32_t GetLightingTerms() const { return m_LightingTerms.load(std::memory_order_relaxed); }
+
             ImmediateRenderer* GetImmediateRenderer() override { return &m_ImmediateRenderer; }
             ThumbnailService* GetThumbnailService() override { return &m_ThumbnailService; }
 
@@ -191,6 +196,10 @@ bool GetCurrentView(RenderView& out) override;
             /// @brief A capture of the frame the engine can do without any tool : what the render graph looks like (graph.txt, graph.dot) and the picture
             /// each pass that draws a colour target made (`<n>_<pass>.png`), written in `directory`. Returns what it wrote.
             std::string DumpFrame(const std::string& directory);
+
+            /// @brief Writes the last frame : `.hdr`, the scene in linear light before the display transform (what a path traced render is compared
+            /// to) ; `.png`, the picture as it is shown (display colours, overlays included). False, with the reason in `error`, when nothing was written.
+            bool WriteScreenshot(const std::string& path, std::string& error);
 
             std::string GetDeviceVendor();
             std::string GetRendererName();
@@ -362,6 +371,7 @@ bool GetCurrentView(RenderView& out) override;
             DebugViewState m_DebugView;             // what the frame being drawn uses (see SetDebugView)
             DebugViewState m_PendingDebugView;
             mutable std::mutex m_DebugViewMutex;
+            std::atomic<uint32_t> m_LightingTerms{LightingTermsAll};
             bool m_SkipFullscreenCommands = false;
 
             // The sizes of what only the render thread may look into, as of the last frame (for the statistics of the simulation)

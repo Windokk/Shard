@@ -4,6 +4,7 @@
 
 #include <algorithm>
 #include <cstdio>
+#include <filesystem>
 #include <fstream>
 #include <string>
 #include <vector>
@@ -202,6 +203,30 @@ namespace Shard::Engine::Core {
                 return CommandResult{true, "wrote in " + args[0] + " : " + m_Context.renderer->DumpFrame(args[0])};
             });
 
+        registry.RegisterCommand("render.screenshot", "render.screenshot <file.hdr|file.png> : writes the last frame ; .hdr : the scene in linear light, before the exposure and the tonemapper (what raytrace.render writes too) ; .png : the picture as it is shown",
+            [this](const std::vector<std::string>& args) {
+                if (args.empty() || !m_Context.renderer)
+                    return CommandResult{false, "usage: render.screenshot <file.hdr|file.png>"};
+                std::string error;
+                if (!m_Context.renderer->WriteScreenshot(args[0], error))
+                    return CommandResult{false, error};
+                return CommandResult{true, "wrote " + args[0]};
+            });
+
+        registry.RegisterCommand("render.lighting_terms", "render.lighting_terms [all | direct+indirect_diffuse+indirect_specular+emission] : the terms of the lighting the scene is drawn with, to compare them one at a time against raytrace.render's (see scripts/compare_reference.py)",
+            [this](const std::vector<std::string>& args) {
+                if (!m_Context.renderer)
+                    return CommandResult{false, "no renderer"};
+                if (!args.empty())
+                {
+                    uint32_t terms = Rendering::LightingTermsAll;
+                    if (!Rendering::ParseLightingTerms(args[0], terms))
+                        return CommandResult{false, "usage: render.lighting_terms [all | none | direct+indirect_diffuse+indirect_specular+emission]"};
+                    m_Context.renderer->SetLightingTerms(terms);
+                }
+                return CommandResult{true, "render.lighting_terms = " + Rendering::FormatLightingTerms(m_Context.renderer->GetLightingTerms())};
+            });
+
         registry.RegisterCommand("render.capture", "render.capture [frames] : takes a RenderDoc capture of the next frame(s) (start with SHARD_RENDERDOC=1, or from RenderDoc)",
             [](const std::vector<std::string>& args) {
                 Rendering::RenderDoc& renderDoc = Rendering::RenderDoc::Get();
@@ -325,10 +350,11 @@ namespace Shard::Engine::Core {
                 return CommandResult{true, text.empty() ? std::string("no reflection probe") : text};
             });
 
-        registry.RegisterCommand("raytrace.render", "raytrace.render <file.hdr> [width] [height] [samples] [bounces] : path traces the world from the active camera into a linear HDR file in the project (what the editor's Offline Raytrace window does), blocking until it is done",
+        registry.RegisterCommand("raytrace.render", "raytrace.render <file.hdr> [width] [height] [samples] [bounces] [terms] : path traces the world from the active camera into a linear HDR file (a path relative to the project, or absolute ; what the editor's Offline Raytrace window does), blocking until it is done. terms : also one file per term of the lighting, <file>.<term>.hdr (see render.lighting_terms)",
             [this](const std::vector<std::string>& args) {
+                const char* usage = "usage: raytrace.render <file.hdr> [width] [height] [samples] [bounces] [terms]";
                 if (args.empty() || !m_Context.renderer || !m_Context.fileManager)
-                    return CommandResult{false, "usage: raytrace.render <file.hdr> [width] [height] [samples] [bounces]"};
+                    return CommandResult{false, usage};
 
                 Rendering::Raytracing::RaytraceSettings settings;
                 try {
@@ -337,7 +363,13 @@ namespace Shard::Engine::Core {
                     if (args.size() > 3) settings.samplesPerPixel = uint32_t(std::stoul(args[3]));
                     if (args.size() > 4) settings.maxBounces = uint32_t(std::stoul(args[4]));
                 } catch (...) {
-                    return CommandResult{false, "usage: raytrace.render <file.hdr> [width] [height] [samples] [bounces]"};
+                    return CommandResult{false, usage};
+                }
+                if (args.size() > 5)
+                {
+                    if (args[5] != "terms" || args.size() > 6)
+                        return CommandResult{false, usage};
+                    settings.writeTerms = true;
                 }
                 if (settings.width < 1 || settings.height < 1 || settings.samplesPerPixel < 1 || settings.maxBounces < 1)
                     return CommandResult{false, "every number has to be at least 1"};
@@ -347,7 +379,8 @@ namespace Shard::Engine::Core {
                     return CommandResult{false, "the world has no active camera"};
 
                 Rendering::Raytracing::Raytracer raytracer;
-                const Filesystem::Path output(m_Context.fileManager->GetProjectRoot().full + "/" + args[0], true);
+                const bool absolute = std::filesystem::path(args[0]).is_absolute();
+                const Filesystem::Path output(absolute ? args[0] : m_Context.fileManager->GetProjectRoot().full + "/" + args[0], true);
                 if (!raytracer.Start(scene, scene.camera, settings, output))
                     return CommandResult{false, raytracer.GetStatusMessage()};
 

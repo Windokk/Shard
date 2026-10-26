@@ -79,6 +79,11 @@ namespace Shard::Engine::Rendering {
             /// @return false if there is no color attachment to read
             virtual bool ReadPixelsRGBA8(std::vector<uint8_t>& outPixels) = 0;
 
+            /// @brief The same in floating point, values not clamped (what a HDR target holds), 4 floats a pixel : what a
+            /// comparison of the light against a path traced render reads.
+            /// @return false when there is no color attachment to read, or the backend cannot read it so
+            virtual bool ReadPixelsRGBAFloat(std::vector<float>& outPixels) { (void)outPixels; return false; }
+
             /// @brief Blocking readback of the depth attachment as floats (0..1), top row first : what a capture of a shadow map needs.
             /// @return false when there is no depth attachment to read, or the backend cannot read it
             virtual bool ReadDepthFloat(std::vector<float>& outDepth) { (void)outDepth; return false; }

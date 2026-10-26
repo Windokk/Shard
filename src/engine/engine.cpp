@@ -4,7 +4,9 @@
 #include "engine/assets/asset_importer.hpp"
 
 #include <algorithm>
+#include <cstdio>
 #include <fstream>
+#include <limits>
 #include <iostream>
 #include <string>
 #include <chrono>
@@ -35,6 +37,7 @@
 #include "engine/world/time_manager.hpp"
 #include "engine/renderer/components/camera_manager.hpp"
 #include "engine/renderer/components/render_extractor.hpp"
+#include "engine/renderer/rhi/resources/mesh/mesh.hpp"
 #include "engine/renderer/features/lighting/probe_manager.hpp"
 #include "engine/renderer/features/lighting/lightmap_manager.hpp"
 #include "engine/renderer/components/probe_volume.hpp"
@@ -589,6 +592,57 @@ namespace Shard::Engine{
                     return CommandResult{true, text};
                 });
 
+            CVarRegistry::Global().RegisterCommand("render.camera", "render.camera [off | <px> <py> <pz> <tx> <ty> <tz> [fov]] : the view the frames (and raytrace.render) are seen from in place of the active camera's : a position, the point it looks at, the vertical field of view ; the simulation is left alone. No argument : the view now, and how far the meshes reach",
+                [this, extractor](const std::vector<std::string>& args) {
+                    const char* usage = "usage : render.camera [off | <px> <py> <pz> <tx> <ty> <tz> [fov]]";
+                    if(args.size() == 1 && args[0] == "off")
+                        extractor->SetCameraOverride(std::nullopt);
+                    else if(args.size() == 6 || args.size() == 7){
+                        float v[7] = {0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f};
+                        try {
+                            for(size_t i = 0; i < args.size(); i++)
+                                v[i] = std::stof(args[i]);
+                        } catch(...) {
+                            return CommandResult{false, usage};
+                        }
+                        Rendering::RenderExtractor::CameraOverride view;
+                        view.position = glm::vec3(v[0], v[1], v[2]);
+                        view.target = glm::vec3(v[3], v[4], v[5]);
+                        view.fovDegrees = v[6];
+                        if(glm::length(view.target - view.position) < 1e-4f)
+                            return CommandResult{false, "the camera cannot look at its own position"};
+                        extractor->SetCameraOverride(view);
+                    }
+                    else if(!args.empty())
+                        return CommandResult{false, usage};
+
+                    // What the last snapshot holds (render space : the world's coordinates as long as the render origin has not moved)
+                    const Rendering::RenderSnapshot& snapshot = m_Context.renderer->GetSnapshot();
+                    auto vec = [](const glm::vec3& p) {
+                        char text[96];
+                        std::snprintf(text, sizeof(text), "(%.3f %.3f %.3f)", p.x, p.y, p.z);
+                        return std::string(text);
+                    };
+                    glm::vec3 low(std::numeric_limits<float>::max()), high(std::numeric_limits<float>::lowest());
+                    for(const Rendering::MeshProxy& mesh : snapshot.meshes){
+                        if(!mesh.mesh || mesh.mesh->GetBoundsMin().x > mesh.mesh->GetBoundsMax().x)
+                            continue;
+                        for(int corner = 0; corner < 8; corner++){
+                            const glm::vec3 a = mesh.mesh->GetBoundsMin(), b = mesh.mesh->GetBoundsMax();
+                            const glm::vec3 local((corner & 1) ? b.x : a.x, (corner & 2) ? b.y : a.y, (corner & 4) ? b.z : a.z);
+                            const glm::vec3 p = glm::vec3(mesh.worldMatrix * glm::vec4(local, 1.0f));
+                            low = glm::min(low, p);
+                            high = glm::max(high, p);
+                        }
+                    }
+                    std::string text = std::string(extractor->GetCameraOverride() ? "override" : "active camera") + (args.empty() ? "" : " (from the next frame)");
+                    if(snapshot.camera.valid)
+                        text += " : at " + vec(snapshot.camera.position) + " looking along " + vec(snapshot.camera.forward) + ", fov " + std::to_string(snapshot.camera.fovDegrees);
+                    if(low.x <= high.x)
+                        text += "\nmeshes from " + vec(low) + " to " + vec(high);
+                    return CommandResult{true, text};
+                });
+
             add("Render.Frame", Phase::Extract, [this](SystemContext&){ RenderFrame(); }, true);
 
             RegisterConsoleCommands();
@@ -795,6 +849,7 @@ namespace Shard::Engine{
             m_Context.platform->GetWindow()->Destroy();
 
             CVarRegistry::Global().UnregisterCommand("render.thread");
+            CVarRegistry::Global().UnregisterCommand("render.camera");
             CVarRegistry::Global().UnregisterCommand("asset.import");
             CVarRegistry::Global().UnregisterCommand("render.features");
 

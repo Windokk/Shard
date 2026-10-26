@@ -14,6 +14,14 @@ layout(local_size_x = 8, local_size_y = 8, local_size_z = 1) in;
 
 layout(rgba32f, binding = 0) uniform image2D uAccum;
 
+// uWriteTerms : the same sums split by term of the lighting (see gPathTerms in path_tracing.glsl), one image per term in the order
+// of the LIGHTING_TERM_* bits. Their .a is unused : the sample count is uAccum's.
+uniform bool uWriteTerms;
+layout(rgba32f, binding = 1) uniform image2D uAccumDirect;
+layout(rgba32f, binding = 2) uniform image2D uAccumIndirectDiffuse;
+layout(rgba32f, binding = 3) uniform image2D uAccumIndirectSpecular;
+layout(rgba32f, binding = 4) uniform image2D uAccumEmission;
+
 #include "../common/light.glsl"
 #include "../common/raytracing_types.glsl"
 #include "../common/normal_map.glsl"
@@ -61,8 +69,20 @@ void main()
     }
     vec3 ro = uCameraPos;
 
-    vec3 sampleRadiance = ClampFirefly(TracePath(ro, rd));
+    vec3 traced = TracePath(ro, rd);
+    vec3 sampleRadiance = ClampFirefly(traced);
 
     vec4 prev = uFrameIndex == 0 ? vec4(0.0) : imageLoad(uAccum, pixel);
     imageStore(uAccum, pixel, prev + vec4(sampleRadiance, 1.0));
+
+    if (uWriteTerms)
+    {
+        // A sample the firefly clamp scaled down is scaled down in every term, so that they still add up to the picture
+        float clampScale = dot(traced, vec3(1.0)) > 0.0 ? dot(sampleRadiance, vec3(1.0)) / dot(traced, vec3(1.0)) : 1.0;
+        bool first = uFrameIndex == 0;
+        imageStore(uAccumDirect, pixel, (first ? vec4(0.0) : imageLoad(uAccumDirect, pixel)) + vec4(gPathTerms[0] * clampScale, 0.0));
+        imageStore(uAccumIndirectDiffuse, pixel, (first ? vec4(0.0) : imageLoad(uAccumIndirectDiffuse, pixel)) + vec4(gPathTerms[1] * clampScale, 0.0));
+        imageStore(uAccumIndirectSpecular, pixel, (first ? vec4(0.0) : imageLoad(uAccumIndirectSpecular, pixel)) + vec4(gPathTerms[2] * clampScale, 0.0));
+        imageStore(uAccumEmission, pixel, (first ? vec4(0.0) : imageLoad(uAccumEmission, pixel)) + vec4(gPathTerms[3] * clampScale, 0.0));
+    }
 }

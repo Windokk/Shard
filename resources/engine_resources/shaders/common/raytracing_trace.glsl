@@ -25,6 +25,15 @@ bool IntersectAABB(vec3 ro, vec3 invRd, vec3 boundsMin, vec3 boundsMax, float ma
     return IntersectAABBDist(ro, invRd, boundsMin, boundsMax, maxT) >= 0.0;
 }
 
+// Whether a hit is on a face the raster does not draw, which the closest-hit rays (the camera's, the bounces) then go through :
+// the back face of a single sided material (see GPUMaterialDoubleSided). Not the shadow rays, see IntersectTriangleAny. `det` is Moller-Trumbore's : positive when the ray meets the side the vertices
+// wind counter-clockwise around (e1 x e2 turned toward it), the front face as OpenGL takes it by default (and the Vulkan
+// backend too). Only looked up for a hit, the material read is not paid by the triangles a ray misses.
+bool CulledFace(uint triIdx, float det)
+{
+    return det < 0.0 && (materials[uint(triAttrib[triIdx].uvMatID.w)].flags & MAT_DOUBLE_SIDED_BIT) == 0u;
+}
+
 // Moller-Trumbore. Shrinks `closestT` (the caller's current best hit distance) in place so the BVH
 // walk below can use it to reject farther AABBs/triangles as it goes.
 bool IntersectTriangle(vec3 ro, vec3 rd, uint triIdx, inout float closestT, out vec2 outBary)
@@ -49,7 +58,7 @@ bool IntersectTriangle(vec3 ro, vec3 rd, uint triIdx, inout float closestT, out 
         return false;
 
     float t = dot(e2, q) * invDet;
-    if (t < 1e-4 || t > closestT)
+    if (t < 1e-4 || t > closestT || CulledFace(triIdx, det))
         return false;
 
     closestT = t;
@@ -80,6 +89,8 @@ bool IntersectTriangleAny(vec3 ro, vec3 rd, uint triIdx, float maxT)
     if (v < 0.0 || u + v > 1.0)
         return false;
 
+    // Both faces block a shadow ray, single sided or not : the sun's shadow maps draw both by default (the project's Double-sided
+    // Casters), a roof modelled as one surface shades what is under it
     float t = dot(e2, q) * invDet;
     return t > 1e-4 && t < maxT;
 }

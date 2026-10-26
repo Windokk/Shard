@@ -1,6 +1,6 @@
 // Struct/constant layer of the shared BVH ray-tracing code, split from raytracing_trace.glsl (the
 // actual traversal functions) because of a genuine ordering constraint : the traversal functions
-// reference global SSBO arrays (bvhNodes[], triPos[], triAttrib[]) by name rather than taking them as
+// reference global SSBO arrays (bvhNodes[], triPos[], triAttrib[], materials[]) by name rather than taking them as
 // parameters, so each including file must declare its own `layout(std430, binding = N) buffer ...`
 // blocks - using THESE struct types, and THESE exact array names - in between the two includes :
 //
@@ -8,6 +8,7 @@
 //     layout(std430, binding = N) readonly buffer BVHNodes { BVHNode bvhNodes[]; };
 //     layout(std430, binding = N+1) readonly buffer TrianglePositions { TrianglePos triPos[]; };
 //     layout(std430, binding = N+2) readonly buffer TriangleAttribs { TriangleAttrib triAttrib[]; };
+//     layout(std430, binding = N+3) readonly buffer Materials { GPUMaterial materials[]; };
 //     #include ".../common/raytracing_trace.glsl"
 //
 // Binding indices legitimately differ per consumer (compute/path_trace.comp uses 0-2, compute/probes/
@@ -51,9 +52,13 @@ struct GPUMaterial
     uvec2 roughnessTex;
     uvec2 normalTex;
     uvec2 emissiveTex;
-    uvec2 padding; // rounds the struct to 96 bytes, the std430 array stride - keeps this in step with the
+    uint flags;    // MAT_* below
+    uint padding;  // rounds the struct to 96 bytes, the std430 array stride - keeps this in step with the
                    // C++ GPUMaterial (raytrace_scene.hpp), which spells the same padding out
 };
+
+// GPUMaterial::flags (GPUMaterialFlagBit in raytrace_scene.hpp)
+const uint MAT_DOUBLE_SIDED_BIT = 1u;   // seen from both sides : the rays ignore the back faces of the other materials (see raytracing_trace.glsl)
 
 const uint TEX_ALBEDO_BIT    = 1u;
 const uint TEX_METALLIC_BIT  = 2u;

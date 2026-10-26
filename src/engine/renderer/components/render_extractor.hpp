@@ -3,6 +3,8 @@
 #include <cstdint>
 #include <functional>
 #include <map>
+#include <mutex>
+#include <optional>
 #include <unordered_map>
 #include <vector>
 
@@ -81,6 +83,18 @@ namespace Shard::Engine::Rendering {
         /// @brief The point of the root frame the last snapshot is relative to
         const Core::WorldPosition& GetRenderOrigin() const { return m_RenderOrigin; }
 
+        /// @brief A view the frames are seen from in place of the active camera's (render.camera) : a position and a point it looks at, in the
+        /// camera's frame, with the world's +Y up, and a vertical field of view (0 : the camera's). The simulation is left alone : only what is
+        /// drawn changes (and what raytrace.render traces, which renders the snapshot's camera), so a comparison of renderers can take several
+        /// views of a world.
+        struct CameraOverride {
+            glm::vec3 position = glm::vec3(0.0f);
+            glm::vec3 target = glm::vec3(0.0f, 0.0f, -1.0f);
+            float fovDegrees = 0.0f;
+        };
+        void SetCameraOverride(const std::optional<CameraOverride>& view) { std::lock_guard<std::mutex> lock(m_CameraOverrideMutex); m_CameraOverride = view; }
+        std::optional<CameraOverride> GetCameraOverride() const { std::lock_guard<std::mutex> lock(m_CameraOverrideMutex); return m_CameraOverride; }
+
         void AddBillboardProvider(BillboardProvider provider) { m_BillboardProviders.push_back(std::move(provider)); }
 
         /// @brief What the plugins add to a snapshot that is not made of components : the meshes, sprites and overlays of shard.render. Called last, on
@@ -115,6 +129,8 @@ namespace Shard::Engine::Rendering {
         std::vector<BillboardProvider> m_BillboardProviders;
         std::vector<SnapshotProvider> m_SnapshotProviders;
         const PoseOffsets* m_PoseOffsets = nullptr;
+        std::optional<CameraOverride> m_CameraOverride;
+        mutable std::mutex m_CameraOverrideMutex;
         Core::WorldPosition m_RenderOrigin;
         double m_RebaseDistance = 4096.0;
         std::map<std::pair<const void*, Core::FrameId>, FrameToRender> m_SpaceCache;

@@ -4,6 +4,8 @@
 #include <atomic>
 #include <cmath>
 
+#include <glm/gtc/matrix_transform.hpp>
+
 #include "engine/core/jobs/job_system.hpp"
 #include "engine/core/jobs/parallel_for.hpp"
 #include "engine/core/diagnostics/profiler.hpp"
@@ -270,7 +272,8 @@ namespace Shard::Engine::Rendering {
             }
         }
 
-        CameraProxy MakeCameraProxy(Camera& camera, const RenderExtractor::PoseOffsets* poseOffsets, const FrameToRender& space)
+        CameraProxy MakeCameraProxy(Camera& camera, const RenderExtractor::PoseOffsets* poseOffsets, const FrameToRender& space,
+                                    const std::optional<RenderExtractor::CameraOverride>& view)
         {
             CameraProxy proxy;
             if (!camera.parent || !camera.parent->transform)
@@ -305,6 +308,22 @@ namespace Shard::Engine::Rendering {
                 proxy.forward = glm::normalize(glm::mat3(*offset) * proxy.forward);
                 proxy.right = glm::normalize(glm::mat3(*offset) * proxy.right);
                 proxy.up = glm::normalize(glm::mat3(*offset) * proxy.up);
+            }
+
+            // render.camera : another view, in the same frame (see RenderExtractor::CameraOverride)
+            if (view && glm::length(view->target - view->position) > 1e-6f) {
+                const glm::vec3 forward = glm::normalize(view->target - view->position);
+                const glm::vec3 worldUp = std::abs(forward.y) > 0.999f ? glm::vec3(0.0f, 0.0f, -1.0f) : glm::vec3(0.0f, 1.0f, 0.0f);
+                proxy.position = view->position;
+                proxy.forward = forward;
+                proxy.right = glm::normalize(glm::cross(forward, worldUp));
+                proxy.up = glm::cross(proxy.right, forward);
+                proxy.view = glm::lookAt(view->position, view->target, proxy.up);
+                if (view->fovDegrees > 0.0f && !proxy.orthographic) {
+                    proxy.fovDegrees = view->fovDegrees;
+                    proxy.projection = glm::perspective(glm::radians(proxy.fovDegrees), proxy.AspectRatio(), proxy.nearPlane, proxy.farPlane);
+                }
+                proxy.viewProjection = proxy.projection * proxy.view;
             }
 
             // Into render space : the view is composed with the inverse of the frame's placement (inverted in double)
@@ -519,7 +538,7 @@ namespace Shard::Engine::Rendering {
         m_SpaceCache.clear();
 
         if (camera) {
-            next.camera = MakeCameraProxy(*camera, m_PoseOffsets, SpaceOf(next, camera->parent.get()));
+            next.camera = MakeCameraProxy(*camera, m_PoseOffsets, SpaceOf(next, camera->parent.get()), GetCameraOverride());
             next.camera.changed = Differs(next.camera, previous.camera);
         }
 

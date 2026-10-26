@@ -32,6 +32,8 @@ namespace Shard::Engine::Rendering{
             shader->SetInt("viewMode", studioView ? 0 : static_cast<int>(dv.mode));
             shader->SetBool("showLighting", studioView || dv.showLighting);
             shader->SetBool("showShadows", studioView || dv.showShadows);
+            // The terms left out rather than the ones drawn : a shader no one sets it for (0) draws them all
+            shader->SetInt("excludedLightingTerms", studioView ? 0 : static_cast<int>(LightingTermsAll & ~dv.lightingTerms));
         }
 
         // How the shadows are filtered and biased (the project's rendering settings)

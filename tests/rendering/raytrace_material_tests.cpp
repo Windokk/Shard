@@ -1,5 +1,6 @@
 #include <gtest/gtest.h>
 
+#include <cstddef>
 #include <cstdint>
 #include <memory>
 #include <string>
@@ -46,11 +47,29 @@ TEST(RaytraceMaterial, StrideIsMultipleOfStd430ArrayAlignment)
     EXPECT_EQ(sizeof(GPUMaterial) % 16, 0u);
 }
 
+TEST(RaytraceMaterial, FlagsSitWhereTheShaderReadsThem)
+{
+    // raytracing_types.glsl : uvec2 emissiveTex at 80, then uint flags at 88 - the material's last 8 bytes before its stride
+    EXPECT_EQ(offsetof(GPUMaterial, flags), 88u);
+    EXPECT_EQ(sizeof(GPUMaterial), 96u);
+}
+
+TEST(RaytraceMaterial, DoubleSidedMaterialIsFlagged)
+{
+    auto single = std::make_shared<FakeMaterial>();
+    EXPECT_EQ(ExtractMaterial(single).flags & GPUMaterialDoubleSided, 0u);   // the rays go through its back faces, as the raster culls them
+
+    auto both = std::make_shared<FakeMaterial>();
+    both->SetDoubleSided(true);
+    EXPECT_NE(ExtractMaterial(both).flags & GPUMaterialDoubleSided, 0u);
+}
+
 TEST(RaytraceMaterial, NullMaterialGivesDefaults)
 {
     GPUMaterial gm = ExtractMaterial(nullptr);
 
     EXPECT_EQ(gm.textureFlags, 0u);
+    EXPECT_EQ(gm.flags, 0u);
     EXPECT_EQ(gm.emissive, glm::vec4(0.0f));
     EXPECT_EQ(gm.emissiveTex, glm::uvec2(0));
 }

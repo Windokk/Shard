@@ -54,7 +54,8 @@ namespace Shard::Engine::Rendering::Raytracing {
         glm::uvec2 roughnessTex = glm::uvec2(0);
         glm::uvec2 normalTex    = glm::uvec2(0);
         glm::uvec2 emissiveTex  = glm::uvec2(0);
-        glm::uvec2 padding      = glm::uvec2(0); // std430 rounds a struct containing vec4s up to a multiple
+        uint32_t flags          = 0;             // GPUMaterialFlagBit
+        uint32_t padding        = 0;             // std430 rounds a struct containing vec4s up to a multiple
                                                  // of 16 bytes ; spelled out so the CPU stride matches the
                                                  // GPU's (the matching GLSL struct declares it too)
     };
@@ -71,6 +72,15 @@ namespace Shard::Engine::Rendering::Raytracing {
         GPUMaterialTexRoughness = 1u << 2,
         GPUMaterialTexNormal    = 1u << 3,
         GPUMaterialTexEmissive  = 1u << 4,
+    };
+
+    // GPUMaterial::flags (MAT_* in raytracing_types.glsl)
+    enum GPUMaterialFlagBit : uint32_t
+    {
+        // Seen from both sides. The camera's rays and the bounces go through the back faces of the others, as the raster culls them :
+        // a single sided wall seen from behind is not there. The shadow rays stop on both faces, as the sun's shadow maps draw both
+        // (the project's Double-sided Casters, on by default).
+        GPUMaterialDoubleSided = 1u << 0,
     };
 
     // A triangle that sends light on its own, for the paths that sample the emitters directly (next event estimation, see

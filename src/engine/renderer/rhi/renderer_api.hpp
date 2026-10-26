@@ -11,6 +11,8 @@
 
 #include <glm/glm.hpp>
 
+#include "engine/renderer/rhi/lighting_terms.hpp"
+
 namespace Shard::Engine::Rendering {
 
     class DrawCommand;
@@ -109,6 +111,8 @@ namespace Shard::Engine::Rendering {
         bool showShadows = true;
         /// Rasterize every draw as lines (with a small depth bias so it can overlay a filled sweep).
         bool wireframeRaster = false;
+        /// The terms of the lighting the lit view draws (LightingTerm bits, see lighting_terms.hpp) : render.lighting_terms
+        uint32_t lightingTerms = LightingTermsAll;
     };
 
     /// What a sweep over a pass's draw list is for : an opaque pass can lay its depth down first (Prepass : depth only, cheap

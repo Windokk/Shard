@@ -99,6 +99,9 @@ namespace Shard::Engine::Rendering::Raytracing {
         if (!mat)
             return gm;
 
+        if (mat->IsDoubleSided())
+            gm.flags |= GPUMaterialDoubleSided;
+
         if (auto v = mat->GetScalarParameter("albedo"))
         {
             if (auto* vec3v = std::get_if<glm::vec3>(&*v))

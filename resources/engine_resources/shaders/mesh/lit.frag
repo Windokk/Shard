@@ -78,6 +78,7 @@ uniform bool depthPrepass;
 uniform int viewMode;
 uniform bool showLighting;
 uniform bool showShadows;
+uniform int excludedLightingTerms;   // LIGHTING_TERM_* bits left out of the lighting (render.lighting_terms) ; 0 : none
 
 // The project's shadow settings (see ShadowSettings) : set per draw by Renderer::BindWorldState
 uniform bool shadowsEnabled;
@@ -663,6 +664,7 @@ vec3 EnvBRDFApprox(vec3 F0, float roughness, float NdotV) {
     return F0 * AB.x + AB.y;
 }
 
+
 // Specular indirect from the probe grid - the "coloured reflection" half of GI, and the only source of
 // one for a surface with no skybox behind it. A probe tile is a cosine-lobe-filtered environment map,
 // i.e. an extremely wide specular lobe, so this is only an honest answer for rough surfaces : the
@@ -807,10 +809,12 @@ vec3 ComputeLightDisney(Light light, vec3 L, vec3 V, vec3 N, vec3 baseColor, flo
 }
 
 // A normal map perturbs N.L around the shading terminator : where the geometric surface turns from the light, the weave's
-// normals face it in patches, which cuts the lit area into a ragged edge at the scale of the texture. The geometric N.L fades
-// the direct light out over a short range instead, so the edge follows the folds, not the weave.
+// normals face it in patches, which cuts the lit area into a ragged edge at the scale of the texture. TerminatorNormal (below)
+// takes the patches away ; this only fades the last few degrees before the geometric terminator, where the shadow map's
+// self-shadowing is least reliable. It has to stay narrow : over a wide range (it was 0..0.3) it darkens every surface the
+// light grazes, a third of the direct light of Sponza's views against the path tracer (scripts/compare_reference.py).
 float TerminatorSoften(vec3 geoNormal, vec3 L){
-    return smoothstep(0.0, 0.3, dot(normalize(geoNormal), L));
+    return smoothstep(0.0, 0.05, dot(normalize(geoNormal), L));
 }
 
 // Same terminator, seen from the normal : near it the shading normal is the geometric one, so the weave cannot flip N.L patch by
@@ -1051,7 +1055,20 @@ vec4 ShadeSurface(vec4 baseColor, float metallicValue, float roughnessValue, vec
         }
         return vec4(vec3(ao), 1.0);
     }
-    ambientDiffuse = SampleSSAO(ambientDiffuse);
+    // A lightmap holds the occlusion of the surroundings down to its own texels (a centimetre or two) : SSAO on top of it darkens
+    // the creases a second time. It stays for the probes and the sky's irradiance, which know nothing smaller than a probe cell.
+    if (!hasLightmap)
+        ambientDiffuse = SampleSSAO(ambientDiffuse);
+
+    // render.lighting_terms : the terms left out (see LIGHTING_TERM_*), to compare the others against the path tracer's
+    if ((excludedLightingTerms & LIGHTING_TERM_DIRECT) != 0)
+        result = vec3(0.0);
+    if ((excludedLightingTerms & LIGHTING_TERM_INDIRECT_DIFFUSE) != 0)
+        ambientDiffuse = vec3(0.0);
+    if ((excludedLightingTerms & LIGHTING_TERM_INDIRECT_SPECULAR) != 0)
+        specularIBL = vec3(0.0);
+    if ((excludedLightingTerms & LIGHTING_TERM_EMISSION) != 0)
+        emission = vec3(0.0);
 
     // Emission is light the surface itself gives off, so it goes on after everything else and is not
     // touched by SSAO, shadows or the material's albedo/metallic - it doesn't depend on any incoming light.

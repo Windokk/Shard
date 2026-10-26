@@ -210,6 +210,31 @@ vec3 GetSkyColor(vec3 rd)
 // The path
 // ---------------------------------------------------------------------------
 
+// The share of the light a GGX lobe reflects, over all directions, seen from NdotV (Karis' fit of the split sum : lit.frag's
+// EnvBRDFApprox)
+vec3 SpecularAlbedoApprox(vec3 F0, float roughness, float NdotV)
+{
+    const vec4 c0 = vec4(-1.0, -0.0275, -0.572, 0.022);
+    const vec4 c1 = vec4(1.0, 0.0425, 1.04, -0.04);
+    vec4 r = roughness * c0 + c1;
+    float a004 = min(r.x * r.x, exp2(-9.28 * NdotV)) * r.x + r.y;
+    vec2 AB = vec2(-1.04, 1.04) * a004 + r.zw;
+    return F0 * AB.x + AB.y;
+}
+
+// The light TracePathMIS found, split by term of the lighting (LIGHTING_TERM_* in light.glsl, indexed by the order of their bits :
+// direct, indirect diffuse, indirect specular, emission), for the offline render that writes each term apart (path_trace.comp).
+// The terms are decided at the surface the ray starts from : its own emission and the lights sampled from it are their own terms,
+// everything the path finds past it belongs to the lobe it left that surface by. They add up to what TracePathMIS returns.
+vec3 gPathTerms[4];
+
+// Adds light the path found to its result, and to the term it belongs to (see gPathTerms)
+void AddPathLight(inout vec3 radiance, vec3 light, int term)
+{
+    radiance += light;
+    gPathTerms[term] += light;
+}
+
 #ifdef SHARD_EMISSIVE_NEE
 // Whether a triangle of this material is on the CPU's list of emitters (RaytraceScene::emissiveTriangles) : the two have to agree
 bool EmissiveIsSampled(GPUMaterial mat, float area)
@@ -293,12 +318,17 @@ vec3 TracePathMIS(vec3 ro, vec3 rd, vec3 firstNormal, float firstLobe)
     vec3 prevNormal = firstNormal;
     float prevLobe = firstLobe;
 
+    for (int t = 0; t < 4; t++)
+        gPathTerms[t] = vec3(0.0);
+    // The term of what the path finds (see gPathTerms) : emission until it leaves the first surface, then the lobe it left it by
+    int pathTerm = 3;
+
     for (int bounce = 0; bounce < uMaxBounces; bounce++)
     {
         HitInfo hit;
         if (!TraceRay(ro, rd, 1e30, hit))
         {
-            radiance += throughput * GetSkyColor(rd);
+            AddPathLight(radiance, throughput * GetSkyColor(rd), pathTerm);
             break;
         }
 
@@ -371,25 +401,33 @@ vec3 TracePathMIS(vec3 ro, vec3 rd, vec3 firstNormal, float firstLobe)
             float cosEmitter = max(abs(dot(ng, rd)), 1e-4);
             float pdfLight = lum * hit.t * hit.t / (uEmissivePower * cosEmitter);
             float pdfBsdf = prevLobe * max(dot(rd, prevNormal), 0.0) / PI;
-            radiance += throughput * emission * (pdfBsdf / max(pdfBsdf + pdfLight, 1e-12));
+            AddPathLight(radiance, throughput * emission * (pdfBsdf / max(pdfBsdf + pdfLight, 1e-12)), pathTerm);
         }
         else
 #endif
-        radiance += throughput * emission;
+        AddPathLight(radiance, throughput * emission, pathTerm);
 
         // The world's flat ambient floor, on the surface the ray starts from only (see uAmbientColor)
         if (bounce == 0)
-            radiance += throughput * albedo * uAmbientColor;
+            AddPathLight(radiance, throughput * albedo * uAmbientColor, 1);
 
         vec3 viewDir = normalize(-rd);
         vec3 F0 = mix(vec3(0.04), albedo, metallic);
-        float specProb = clamp(mix(0.04, 1.0, metallic), 0.04, 0.95);
+
+        // The lobe the path goes on by is drawn in proportion to what each one reflects from here, as far as that is known before the
+        // direction is : the specular lobe's directional albedo, the diffuse lobe's colour. Any probability gives the same mean (each
+        // lobe's weight below is divided by its own), this one gives the least noise : drawn by F0 alone, a rough dielectric sent one
+        // path in 25 into its specular lobe though it reflects several times more than 4% toward grazing angles, and the reflections
+        // of a render were a scatter of fireflies.
+        float specWeight = dot(SpecularAlbedoApprox(F0, roughness, max(dot(n, viewDir), 0.0)), vec3(0.2126, 0.7152, 0.0722));
+        float diffuseWeight = dot((vec3(1.0) - F0) * (1.0 - metallic) * albedo, vec3(0.2126, 0.7152, 0.0722));
+        float specProb = clamp(specWeight / max(specWeight + diffuseWeight, 1e-4), 0.04, 0.95);
 
 #ifdef SHARD_EMISSIVE_NEE
         // The emitters, sampled directly for the diffuse lobe (the specular lobe finds them by its own sampling, unweighted)
         {
             vec3 kdDirect = (vec3(1.0) - F0) * (1.0 - metallic);
-            radiance += throughput * (kdDirect * albedo / PI) * EmissiveDirect(hitPos, ng, n, 1.0 - specProb);
+            AddPathLight(radiance, throughput * (kdDirect * albedo / PI) * EmissiveDirect(hitPos, ng, n, 1.0 - specProb), bounce == 0 ? 1 : pathTerm);
         }
 #endif
 
@@ -417,7 +455,7 @@ vec3 TracePathMIS(vec3 ro, vec3 rd, vec3 firstNormal, float firstLobe)
                     vec3 diffuse = kd * albedo / PI;
 
                     // uLightCount factor : we sampled one of uLightCount lights uniformly (pdf = 1 / uLightCount)
-                    radiance += throughput * (diffuse + specular) * incomingRadiance * NdotL * float(uLightCount);
+                    AddPathLight(radiance, throughput * (diffuse + specular) * incomingRadiance * NdotL * float(uLightCount), bounce == 0 ? 0 : pathTerm);
                 }
             }
         }
@@ -426,7 +464,11 @@ vec3 TracePathMIS(vec3 ro, vec3 rd, vec3 firstNormal, float firstLobe)
         vec3 newDir;
         vec3 lobeWeight;
 
-        if (RandomFloat() < specProb)
+        bool specularDraw = RandomFloat() < specProb;
+        if (bounce == 0)
+            pathTerm = specularDraw ? 2 : 1;
+
+        if (specularDraw)
         {
             prevLobe = 0.0;     // not a diffuse draw : an emitter it finds counts whole
             vec3 h = SampleGGX(n, roughness);

@@ -110,6 +110,9 @@ namespace Shard::Engine::Rendering::Raytracing {
         outSpec.generateMips = false;
         outSpec.immutableStorage = true;
         outputImage = Texture2D::Create(outSpec, nullptr);
+        if (settings.writeTerms)
+            for (auto& image : termImages)
+                image = Texture2D::Create(outSpec, nullptr);
 
         // ---- Compute shader / pipeline ----
         Filesystem::Path shaderPath = Core::GetEngine().GetFileManager()->GetEngineResRoot() / "shaders/compute/path_trace.comp";
@@ -189,6 +192,10 @@ namespace Shard::Engine::Rendering::Raytracing {
         lightBuffer->Bind(4);
 
         outputImage->BindImage(0, TextureAccess::ReadWrite);
+        shader->SetBool("uWriteTerms", settings.writeTerms);
+        if (settings.writeTerms)
+            for (uint32_t t = 0; t < 4; t++)
+                termImages[t]->BindImage(1 + t, TextureAccess::ReadWrite);
 
         // The sky : a raw bind on a unit the forward pass never uses (see path_tracing.glsl's uSkyCube)
         const bool useSky = settings.useLevelSky && skyCube != nullptr;
@@ -258,6 +265,27 @@ namespace Shard::Engine::Rendering::Raytracing {
 
         bool success = ImageExport::WriteHDR(outputPath, settings.width, settings.height, 3, rgb.data());
 
+        // The terms, normalized by the sample count of the picture (each of their pixels holds the sum of what the same paths found)
+        if (success && settings.writeTerms)
+        {
+            std::vector<float> term(raw.size());
+            std::vector<float> termRGB(rgb.size());
+            for (uint32_t t = 0; t < 4 && success; t++)
+            {
+                termImages[t]->ReadPixels(term.data(), term.size() * sizeof(float));
+                for (size_t i = 0; i < (size_t)settings.width * settings.height; i++)
+                {
+                    float count = std::max(raw[i * 4 + 3], 1.0f);
+                    for (size_t c = 0; c < 3; c++)
+                        termRGB[i * 3 + c] = term[i * 4 + c] / count;
+                }
+
+                const std::filesystem::path picture(outputPath.full);
+                const std::string termPath = (picture.parent_path() / (picture.stem().string() + "." + LightingTermName(kLightingTerms[t]) + ".hdr")).generic_string();
+                success = ImageExport::WriteHDR(Filesystem::Path(termPath), settings.width, settings.height, 3, termRGB.data());
+            }
+        }
+
         if (success && settings.writePreview)
         {
             std::vector<uint8_t> preview(rgb.size());
@@ -303,6 +331,8 @@ namespace Shard::Engine::Rendering::Raytracing {
         matBuffer.reset();
         lightBuffer.reset();
         outputImage.reset();
+        for (auto& image : termImages)
+            image.reset();
         skyCube.reset();
     }
 

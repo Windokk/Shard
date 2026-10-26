@@ -504,6 +504,7 @@ namespace Shard::Engine::Rendering{
         {
             std::lock_guard<std::mutex> lock(m_DebugViewMutex);
             m_DebugView = m_PendingDebugView;
+            m_DebugView.lightingTerms = m_LightingTerms.load(std::memory_order_relaxed);
         }
 
         m_RendererAPI->BeginFrame();
@@ -1101,6 +1102,70 @@ namespace Shard::Engine::Rendering{
         });
     }
 
+    bool Renderer::WriteScreenshot(const std::string& path, std::string& error)
+    {
+        const std::string extension = Filesystem::Path(path).GetExtensionString();
+        const bool hdr = extension == ".hdr";
+        if (!hdr && extension != ".png")
+        {
+            error = "the file has to be a .hdr (the scene in linear light) or a .png (the picture as shown)";
+            return false;
+        }
+
+        // Queued behind the frames already handed to the render thread : what it reads is the last of them
+        return OnGraphicsThread([&]() -> bool {
+            const std::shared_ptr<Framebuffer> target = hdr ? m_SceneBuffer : m_ViewportBuffer;
+            if (!target)
+            {
+                error = "nothing was drawn yet";
+                return false;
+            }
+            if (target->GetSpecifications().multisampled)
+                target->ResolveMultisampled();
+
+            const uint32_t width = target->GetWidth();
+            const uint32_t height = target->GetHeight();
+            const size_t pixels = size_t(width) * height;
+
+            // The readbacks give the top row first, the file writers expect the bottom row first (a GL texture's order) and flip it
+            bool written = false;
+            if (hdr)
+            {
+                std::vector<float> rgba;
+                if (!target->ReadPixelsRGBAFloat(rgba) || rgba.size() < pixels * 4)
+                {
+                    error = "the scene target cannot be read back in floating point on this graphics API";
+                    return false;
+                }
+
+                std::vector<float> rgb(pixels * 3);
+                for (uint32_t y = 0; y < height; y++)
+                    for (uint32_t x = 0; x < width; x++)
+                        for (uint32_t c = 0; c < 3; c++)
+                            rgb[(size_t(height - 1 - y) * width + x) * 3 + c] = rgba[(size_t(y) * width + x) * 4 + c];
+                written = ImageExport::WriteHDR(Filesystem::Path(path), width, height, 3, rgb.data());
+            }
+            else
+            {
+                std::vector<uint8_t> rgba;
+                if (!target->ReadPixelsRGBA8(rgba) || rgba.size() < pixels * 4)
+                {
+                    error = "the viewport cannot be read back";
+                    return false;
+                }
+
+                const size_t rowBytes = size_t(width) * 4;
+                for (size_t y = 0; y < height / 2; y++)
+                    std::swap_ranges(rgba.begin() + y * rowBytes, rgba.begin() + (y + 1) * rowBytes, rgba.begin() + (height - 1 - y) * rowBytes);
+                written = ImageExport::WritePNG(Filesystem::Path(path), width, height, 4, rgba.data());
+            }
+
+            if (!written)
+                error = "cannot write " + path;
+            return written;
+        });
+    }
+
     std::string Renderer::GetDeviceVendor()
     {
         return OnGraphicsThread([this] { return m_RendererAPI->GetDeviceVendor(); });
@@ -1517,6 +1582,11 @@ namespace Shard::Engine::Rendering{
             {
                 // The reflections of the scene : compute work that reads the SSAO prepass' depth and normals and the last frame's picture (the
                 // HDR scene target still holds it, the forward pass clears it later). It reprograms the API state behind the draw path's back.
+                // While only some terms of the lighting are drawn (render.lighting_terms), the last frame's picture lacks the others : the
+                // reflections of the last frame that drew them all stay (they are the reflections of the full light, and a comparison's camera does not move).
+                if (m_DebugView.lightingTerms != LightingTermsAll)
+                    continue;
+
                 GpuScope passScope(m_RendererAPI->GetGpuProfiler(), passName.c_str());
                 DebugScope passMarker(m_RendererAPI.get(), passName.c_str());
                 m_SSRManager->Execute(m_SceneBuffer->GetResolveColorAttachment());
@@ -1570,8 +1640,9 @@ namespace Shard::Engine::Rendering{
                     state.mode = ViewMode::Lit;
                 state.wireframeRaster = pass->debugViewRole == DebugViewRole::GBuffer && state.mode == ViewMode::Wireframe;
 
-                // The sky (in the lighting pass) only belongs to the filled lit and unlit views, as in the forward pass
-                m_SkipFullscreenCommands = !debugViewIsPlain && m_DebugView.mode != ViewMode::ShadedWireframe;
+                // The sky (in the lighting pass) only belongs to the filled lit and unlit views, as in the forward pass, and to the emission term
+                m_SkipFullscreenCommands = (!debugViewIsPlain && m_DebugView.mode != ViewMode::ShadedWireframe)
+                    || (m_DebugView.lightingTerms & LightingTermEmission) == 0;
                 m_RendererAPI->SetDebugView(state);
                 if (occlusionCulled)
                     ExecuteOcclusionCulledPass(passName, pass);
@@ -1638,6 +1709,8 @@ namespace Shard::Engine::Rendering{
                         break;
 
                     default:
+                        // The sky seen where no surface is is part of the emission term (see lighting_terms.hpp)
+                        m_SkipFullscreenCommands = (state.lightingTerms & LightingTermEmission) == 0;
                         m_RendererAPI->SetDebugView(state);
                         if (occlusionCulled)
                             ExecuteOcclusionCulledPass(passName, pass);
