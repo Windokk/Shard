@@ -395,6 +395,9 @@ namespace Shard::Engine::Rendering{
             }
             BindPipeline(pipeline);
 
+            if(!command.fullscreenTri && command.material && command.material->IsDoubleSided())
+                GLStateCache::SetCullMode(false, GL_BACK);
+
             std::shared_ptr<GLShader> glShader = std::static_pointer_cast<GLShader>(pipeline->GetSpecifications().shader);
             GLuint program = glShader->GetProgram();
 

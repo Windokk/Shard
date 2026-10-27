@@ -227,8 +227,10 @@ namespace Shard::Editor::GUI{
             if(ImGui::Checkbox("Receives Shadows", &receivesShadows))
                 dirty = true;
 
-            if(ImGui::Checkbox("Double Sided", &doubleSided))
+            if(ImGui::Checkbox("Double Sided", &doubleSided)){
                 dirty = true;
+                ApplyDoubleSidedLive();
+            }
             if(ImGui::IsItemHovered())
                 ImGui::SetTooltip("Draws both faces of the triangles instead of culling the back ones (leaves, cloth, planes...).");
 
@@ -456,6 +458,22 @@ namespace Shard::Editor::GUI{
             ImGui::TextDisabled("All shader parameters already added");
 
         ImGui::EndPopup();
+    }
+
+    void MaterialEditorPanel::ApplyDoubleSidedLive()
+    {
+        auto& engine = Core::GetEngine();
+        std::string pathInProject = engine.GetFileManager()->GetFileInfos(path).nameInProject;
+        auto mat = engine.GetResourcesManager()->Get<Engine::Rendering::Material>(Engine::Core::Resources::AssetKind::Material, pathInProject);
+
+        if(!mat || !mat->GetPipeline())
+            return;
+
+        Engine::Rendering::PipelineSpecifications specs = mat->GetPipeline()->GetSpecifications();
+        specs.cullMode = doubleSided ? Engine::Rendering::CullMode::None : Engine::Rendering::CullMode::Back;
+
+        mat->SetDoubleSided(doubleSided);
+        mat->SetPipeline(engine.GetRenderContext()->GetOrAddPipeline(specs));
     }
 
     void MaterialEditorPanel::ApplyParamLive(const MatParam& param)

@@ -71,6 +71,7 @@ namespace Shard::Engine::Rendering{
                 h = HashValue(h, cmd.indexCount);
                 h = HashValue(h, cmd.mesh.get());
                 h = HashValue(h, cmd.material.get());
+                h = HashValue(h, cmd.material && cmd.material->IsDoubleSided());
                 h = HashValue(h, cmd.modelMatrix);
                 h = HashValue(h, cmd.lightmapHandle);
                 h = HashValue(h, cmd.lightmapScaleOffset);

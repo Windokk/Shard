@@ -925,6 +925,8 @@ namespace Shard::Engine::Rendering {
             case CullMode::Front: cull = VK_CULL_MODE_FRONT_BIT; break;
             default:              cull = VK_CULL_MODE_NONE; break;
         }
+        if (!fullscreen && command.material && command.material->IsDoubleSided())
+            cull = VK_CULL_MODE_NONE;
 
         VkViewport viewport = m_ViewportSet ? m_Viewport : VkViewport{0, 0, float(m_ActiveTarget.width), float(m_ActiveTarget.height), 0.0f, 1.0f};
         viewport.minDepth = 0.0f;

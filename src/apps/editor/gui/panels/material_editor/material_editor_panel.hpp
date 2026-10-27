@@ -59,6 +59,7 @@ namespace Shard::Editor::GUI{
             bool DrawParam(MatParam& param);
             void DrawAddParameterPopup();
             void ApplyParamLive(const MatParam& param);
+            void ApplyDoubleSidedLive();
 
             bool isOpen = false;
             bool focusRequested = false;
