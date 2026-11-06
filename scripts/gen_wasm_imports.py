@@ -823,7 +823,7 @@ def emit_host_function(h, cache, w, interfaces, short, struct, iface_perm, fn, f
     denied = full in DENIED_ALWAYS
     w('            imports.Add("%s", %s, [&s%s](Instance& in, const uint64_t* a, uint64_t* r) -> bool {' % (full, sig, '' if dynamic else ', api'))
     w('                (void)in; (void)a; (void)r;')
-    if dynamic:
+    if dynamic and not denied:
         w('                const %s* api = s.%s;' % (struct, dynamic))
     cond = ['!api', '!SHARD_HAS(api, %s)' % fn.name]
     if denied:
