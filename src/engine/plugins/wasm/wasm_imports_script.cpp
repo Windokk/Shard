@@ -9,12 +9,7 @@
 #include "engine/plugins/wasm/wasm_imports.hpp"
 #include "engine/plugins/wasm/wasm_marshal.hpp"
 
-// shard.scripts for a sandboxed plugin. A script type of the sandbox is a script type of the host (shard.scripts, c_scripts.cpp) whose
-// callbacks are trampolines into the module. The object of a script lives in the module's memory, since its code can reach nothing else ;
-// the host keeps storage of the same size for it, in which it reads and writes the object's described fields (the inspector, the world
-// file, a copy of the actor). The two are kept equal field by field : before a callback runs, what the host changed since the last time is
-// copied into the module's object ; after it, what the module changed is copied back. (A field both sides changed in between keeps the host's
-// value : an edit in the inspector wins.) Only the described fields travel : the rest of the object (a std::string, a pointer) is the module's.
+// The object lives in module memory, the host keeps same-size storage for the inspector, world file and copies. Fields are synced both ways around each callback (host changes pushed in first, module changes pulled after). If both changed, the host wins (inspector edit).
 
 namespace Shard::Engine::Plugins::Wasm {
 
@@ -23,7 +18,6 @@ namespace Shard::Engine::Plugins::Wasm {
     namespace {
         constexpr ValType I = ValType::I32, L = ValType::I64, F = ValType::F32;
 
-        // The callbacks of the wasm32 ShardScriptCallbacks, in the order of the struct
         enum Cb : uint32_t {
             CConstruct, CDestruct, CAttach, COnCreate, COnWorldLoaded, COnWorldUnloaded, COnPlay, COnTick, COnFixedTick, COnLateTick, COnStop, COnDestroyed,
             COnActivated, COnDeactivated, COnContactAdded, COnContactPersisted, COnContactEnded, CTextGet, CTextSet, CbCount
@@ -39,13 +33,12 @@ namespace Shard::Engine::Plugins::Wasm {
         };
 
         struct Object {
-            uint32_t at = 0;                        ///< the object, in the module's memory
-            std::vector<uint8_t> shadow;            ///< the described fields as they were when the two sides last agreed
+            uint32_t at = 0;
+            std::vector<uint8_t> shadow;
         };
 
         struct WasmScript;
 
-        // Every object of the sandbox, by the host storage that stands for it
         struct Directory final : Registration {
             Sandbox* sandbox = nullptr;
             std::unordered_map<void*, std::pair<WasmScript*, Object>> objects;
@@ -61,13 +54,12 @@ namespace Shard::Engine::Plugins::Wasm {
             uint32_t user = 0;
             uint32_t size = 0, align = 0;
             uint32_t cb[CbCount] = {};
-            std::vector<std::pair<uint32_t, uint32_t>> ranges;      ///< (offset, size) of the fields both sides share
+            std::vector<std::pair<uint32_t, uint32_t>> ranges;
             uint32_t shadowSize = 0;
             ShardScriptCallbacks native{};
-            std::string text;                                       ///< the answer of the last text_get
+            std::string text;
         };
 
-        // Host -> module, for the fields the host changed since the sides last agreed
         void Push(WasmScript& t, void* storage, Object& o)
         {
             uint8_t* mem = t.sandbox->instance->MemoryAt(o.at, t.size);
@@ -83,7 +75,6 @@ namespace Shard::Engine::Plugins::Wasm {
             }
         }
 
-        // Module -> host, for the fields the module changed (all of them when `force`)
         void Pull(WasmScript& t, void* storage, Object& o, bool force)
         {
             const uint8_t* mem = t.sandbox->instance->MemoryAt(o.at, t.size);
@@ -99,7 +90,6 @@ namespace Shard::Engine::Plugins::Wasm {
             }
         }
 
-        // Runs one callback of the script on the object : the fields are brought up to date first, and the module's changes taken back after
         ShardResult CallObject(WasmScript* t, void* storage, Cb callback, const FuncType& type, std::vector<uint64_t> extra)
         {
             Sandbox& s = *t->sandbox;
@@ -112,7 +102,7 @@ namespace Shard::Engine::Plugins::Wasm {
             std::vector<uint64_t> args{ t->user, o.at };
             args.insert(args.end(), extra.begin(), extra.end());
             const ShardResult result = s.CallResult(t->cb[callback], type, args, Budget::Frame);
-            auto again = t->directory->objects.find(storage);                  // the callback may have destroyed it
+            auto again = t->directory->objects.find(storage);
             if (!s.dead && again != t->directory->objects.end()) Pull(*t, storage, again->second.second, false);
             return result;
         }
@@ -176,7 +166,7 @@ namespace Shard::Engine::Plugins::Wasm {
                 s.heap.Free(at);
                 return result != SHARD_OK ? result : SHARD_E_INTERNAL;
             }
-            Pull(*t, storage, it->second.second, true);                            // its defaults are the host's starting point
+            Pull(*t, storage, it->second.second, true);
             return SHARD_OK;
         }
 
@@ -197,7 +187,6 @@ namespace Shard::Engine::Plugins::Wasm {
             s.heap.Free(at);
         }
 
-        // The strings the plugin keeps itself (accessor fields) : the module writes the answer to a ShardStr, which is copied out
         void SHARD_CALL TextGetTrampoline(void* user, void* object, uint32_t offset, ShardStr* out)
         {
             auto* t = static_cast<WasmScript*>(user);
@@ -240,7 +229,6 @@ namespace Shard::Engine::Plugins::Wasm {
             return CallObject(t, object, CTextSet, type, { offset, at });
         }
 
-        // The module's object behind the host's storage, brought up to date : its changes go back to the host when the outermost call ends
         bool GiveObject(Sandbox& s, Directory& directory, Instance& in, void* storage, uint64_t out)
         {
             auto it = directory.objects.find(storage);
@@ -288,7 +276,6 @@ namespace Shard::Engine::Plugins::Wasm {
             std::vector<ShardFieldDesc> fields;
             if (!ReadStr(in, a[1] + Ls::o_name, name, 256) || !ReadFieldDescs(in, Load<uint32_t>(desc, Ls::o_fields), fieldCount, fields, strings)) return false;
 
-            // The callbacks : table indices ; a slot the module's struct is too short for stays empty
             const uint32_t callbacksAt = Load<uint32_t>(desc, Ls::o_callbacks);
             uint32_t table[CbCount] = {};
             if (callbacksAt) {
@@ -309,7 +296,6 @@ namespace Shard::Engine::Plugins::Wasm {
             t->size = size;
             t->align = align;
             std::memcpy(t->cb, table, sizeof(table));
-            // The fields both sides share : every one but the plugin's own strings
             for (const ShardFieldDesc& f : fields) {
                 if (f.flags & SHARD_FIELD_ACCESSOR) continue;
                 uint32_t fieldSize = 0, fieldAlign = 0;
@@ -318,7 +304,6 @@ namespace Shard::Engine::Plugins::Wasm {
                 t->shadowSize += fieldSize;
             }
 
-            // What the host calls : trampolines, for the slots the module filled
             ShardScriptCallbacks& n = t->native;
             n.structSize = sizeof(ShardScriptCallbacks);
             n.construct = &ConstructTrampoline;

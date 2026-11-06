@@ -50,8 +50,6 @@ namespace Shard::Engine::Plugins {
         json SetToJson(const std::vector<PluginSetEntry>& set) { return PluginSetToJson(set); }
     }
 
-    // ---- Server ----
-
     Core::Result<bool> PluginHandshakeServer::Start(const HandshakeServerOptions& options)
     {
         if (m_Listener) return Core::Err("already running");
@@ -113,7 +111,7 @@ namespace Shard::Engine::Plugins {
         for (const PluginSetEntry& mine : m_Manager.SimulationPluginSet()) {
             if (std::any_of(clientSet.begin(), clientSet.end(), [&](const PluginSetEntry& c) { return c.id == mine.id && c.version == mine.version && c.hash == mine.hash; })) continue;
             const PluginRecord* record = m_Manager.Find(mine.id);
-            if (!record || record->manifest.moduleKind != ModuleKind::Datapack) continue;          // never code
+            if (!record || record->manifest.moduleKind != ModuleKind::Datapack) continue;
             auto bytes = PackDatapack(mine.id);
             if (!bytes) continue;
             offers.push_back({ { "id", mine.id }, { "version", mine.version }, { "size", bytes.Value().size() },
@@ -174,7 +172,7 @@ namespace Shard::Engine::Plugins {
             SocketAddress peer;
             auto socket = m_Listener->Accept(&peer);
             if (!socket) break;
-            if (m_Clients.size() >= m_Options.maxClients) continue;          // closed by going out of scope
+            if (m_Clients.size() >= m_Options.maxClients) continue;
             socket->SetBlocking(false);
             auto client = std::make_unique<Client>();
             client->socket = std::move(socket);
@@ -199,7 +197,6 @@ namespace Shard::Engine::Plugins {
                 if (st == SocketStatus::Closed || st == SocketStatus::Error) client.dropped = true;
                 break;
             }
-            // Whole frames
             while (!client.dropped && client.buffer.size() >= 5) {
                 const uint32_t length = (uint32_t(client.buffer[0]) << 24) | (uint32_t(client.buffer[1]) << 16) | (uint32_t(client.buffer[2]) << 8) | client.buffer[3];
                 const uint8_t kind = client.buffer[4];
@@ -221,8 +218,6 @@ namespace Shard::Engine::Plugins {
             } else ++it;
         }
     }
-
-    // ---- Client ----
 
     void PluginHandshakeClient::Close()
     {
@@ -323,7 +318,6 @@ namespace Shard::Engine::Plugins {
         auto zip = ZipArchive::OpenMemory(bytes);
         if (!zip) return Core::Err(zip.GetError().message);
 
-        // A datapack only : data, no binaries
         auto manifestBytes = zip.Value().Read("shard-plugin.json");
         if (!manifestBytes) return Core::Err("the archive has no shard-plugin.json");
         auto manifest = ParseManifestText(std::string(manifestBytes.Value().begin(), manifestBytes.Value().end()));

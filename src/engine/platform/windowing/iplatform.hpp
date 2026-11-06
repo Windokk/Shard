@@ -13,7 +13,6 @@ namespace Shard::Engine::Core::Platform {
         public:
             virtual ~IPlatform() = default;
 
-            // Core platform components
             virtual IWindow* GetWindow() = 0;
             virtual IInput* GetInput() = 0;
 
@@ -21,7 +20,6 @@ namespace Shard::Engine::Core::Platform {
                             const bool& fullscreen, const int& vsync, const uint32_t& api) = 0;
             virtual void CreateInput() = 0;
 
-            // Utility (see platform/clipboard)
             virtual void SetClipboardText(const std::string& text) = 0;
             virtual std::string GetClipboardText() = 0;
     };

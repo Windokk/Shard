@@ -17,13 +17,8 @@ namespace Shard::Engine::Rendering {
         constexpr char kMagic[4] = { 'S', 'H', 'P', 'B' };
         constexpr uint32_t kVersion = 1;
 
-        // Sanity ceiling on atlasSize when reading : a corrupt header must not be able to make the
-        // decoder try to allocate gigabytes. 16384 is the usual GL max texture size and already far
-        // beyond any real volume (the default 8x4x8 grid is 160x160).
         constexpr uint32_t kMaxAtlasSize = 16384;
 
-        // Followed on disk by the irradiance atlas, the distance atlas and the probe state, in that
-        // order, each with a size fully determined by these fields (see ExpectedPayloadBytes).
         struct FileHeader
         {
             char magic[4];
@@ -44,8 +39,6 @@ namespace Shard::Engine::Rendering {
 
         bool NearlyEqual(const glm::vec3& a, const glm::vec3& b)
         {
-            // 1 mm : far below anything visible, comfortably above the float noise of re-deriving the
-            // origin from the actor's transform on the next load.
             return glm::all(glm::lessThanEqual(glm::abs(a - b), glm::vec3(1e-3f)));
         }
     }
@@ -64,8 +57,6 @@ namespace Shard::Engine::Rendering {
         std::error_code ec;
         std::filesystem::create_directories(std::filesystem::path(path.full).parent_path(), ec);
 
-        // Binary explicitly : Filesystem::Path::WriteFile opens in text mode, which on Windows would
-        // rewrite every 0x0A byte in the payload as CRLF.
         std::ofstream out(path.full, std::ios::binary | std::ios::trunc);
         if (!out.is_open())
         {
@@ -103,7 +94,7 @@ namespace Shard::Engine::Rendering {
         }
 
         out.close();
-        Assets::NoteOwnWrite(path.full);        // the bake's own file : not an outside edit for the hot reload
+        Assets::NoteOwnWrite(path.full);
         return true;
     }
 
@@ -139,8 +130,6 @@ namespace Shard::Engine::Rendering {
             return nullptr;
         }
 
-        // Everything below is derived from the header, so a header that contradicts itself (or the
-        // file's real size) means a truncated or corrupt file. Checked before any allocation.
         const uint64_t expectedProbes = (uint64_t)std::max(header.probeCounts[0], 0) *
                                         (uint64_t)std::max(header.probeCounts[1], 0) *
                                         (uint64_t)std::max(header.probeCounts[2], 0);

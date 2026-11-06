@@ -2,7 +2,6 @@
 
 namespace Shard::Engine::Input {
 
-    // Same layout as SDL's gamepad buttons : the face buttons are named by position (South = A on Xbox, Cross on PlayStation)
     enum class GamepadButton {
         South, East, West, North,
         Back, Guide, Start,
@@ -13,9 +12,9 @@ namespace Shard::Engine::Input {
     };
 
     enum class GamepadAxis {
-        LeftX, LeftY,           // -1 (left / up) .. 1 (right / down)
+        LeftX, LeftY,
         RightX, RightY,
-        LeftTrigger,            // 0 .. 1
+        LeftTrigger,
         RightTrigger,
         Count
     };

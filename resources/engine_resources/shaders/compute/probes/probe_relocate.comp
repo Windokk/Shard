@@ -1,57 +1,29 @@
 #version 430 core
 
-// Fifth stage of the real-time GI probe update (see ProbeManager/probe_trace.comp), dispatched once per
-// frame right after probe_classify.comp - same input, bounce 0's raw ray hits. One invocation per PROBE
-// (not per ray): scans that probe's own tile and nudges the probe by a small, bounded world-space offset
-// so it migrates OUT of geometry it happens to sit inside/too close to, instead of just being switched
-// off. This is RTXGI's "Probe Relocation" (Majercik et al. 2019/2021) - the companion to
-// probe_classify.comp: classification silences a trapped probe, relocation tries to make it useful
-// again by moving it into open space, and a relocated probe then re-classifies as active on a later
-// frame once its rays stop hitting backfaces.
-//
-// The offset lives in the .xyz of the shared per-probe state SSBO (probeState, see the
-// probeStateBuffer comment in probe_manager.hpp - .w is probe_classify.comp's active flag) and is
-// applied wherever a probe's world position is used: probe_trace.comp's main() ray origin and
-// SampleIndirect(), and lit.frag's DDGI_Diffuse. This frame's trace already ran with the PREVIOUS
-// frame's offset, so a freshly-relocated probe's new position takes effect next frame - it converges
-// over a handful of frames, the same as the temporal irradiance blend.
+// Probe relocation (Majercik et al.): nudge a probe out of geometry instead of just switching it off. The new offset takes effect next frame.
 
 layout(local_size_x = 64, local_size_y = 1, local_size_z = 1) in;
 
 layout(rgba16f, binding = 0) uniform readonly image2D uRayAtlas;
 layout(rg16f,   binding = 1) uniform readonly image2D uRayDistAtlas;
 
-// Binding 14 - the same per-probe state buffer probe_classify.comp writes (.w) and probe_trace.comp
-// reads. This pass owns .xyz (the relocation offset) and integrates a new value on top of last frame's
-// each dispatch; it leaves .w alone.
 layout(std430, binding = 14) buffer ProbeState { vec4 probeState[]; };
 
 uniform int uProbeCount;
 uniform int uTileSize;
 uniform int uAtlasProbesPerRow;
 
-// Round-robin probe update - see the identical uniforms in probe_trace.comp. A probe only relocates on
-// the frames its own rays were re-traced, since the whole decision below reads that trace's output.
 uniform int uUpdateStride;
 uniform int uUpdatePhase;
 
-// Must match the rotation probe_trace.comp used for THIS frame's bounce 0 (ProbeManager::UpdateVolume
-// passes the same rayRotation to both dispatches) so the direction reconstructed per texel below is the
-// real direction that texel's ray was traced along.
 uniform mat3 uRayRotation;
 uniform vec3 uGridSpacing;
 
 #include "../../common/octahedral.glsl"
 #include "../../common/ddgi_atlas.glsl"
 
-// A ray hit distance at or beyond this is a sky miss (probe_trace.comp writes 1e4 for those) - counts
-// as "wide open in this direction", never as a nearby surface.
 const float SKY_MISS_DIST = 9.0e3;
 
-// Fraction of a probe's rays that must hit backfaces before the probe is treated as embedded in
-// geometry (same spirit as probe_classify.comp's BACKFACE_RATIO_THRESHOLD, but a lower bar here -
-// classification wants to be sure before silencing a probe, relocation just needs a hint it should try
-// to move).
 const float BACKFACE_RATIO = 0.25;
 
 void main()
@@ -77,8 +49,6 @@ void main()
         {
             ivec2 texel = tileOrigin + ivec2(tx, ty);
 
-            // Alpha < 0.5 == this ray hit a backface (see probe_trace.comp's TraceAndShadeDirect) ==
-            // the probe is on the solid side of that surface in this direction.
             float validity = imageLoad(uRayAtlas, texel).a;
             float dist = imageLoad(uRayDistAtlas, texel).r;
 
@@ -91,8 +61,6 @@ void main()
                 continue;
             }
 
-            // Frontface (or sky) hit: candidate for both the nearest surface (to back away from) and
-            // the most open direction (to escape toward). A sky miss only counts toward the latter.
             if (dist < SKY_MISS_DIST && dist < closestFrontDist)
             {
                 closestFrontDist = dist;
@@ -107,25 +75,21 @@ void main()
     }
 
     float minSpacing = min(min(uGridSpacing.x, uGridSpacing.y), uGridSpacing.z);
-    float maxOffset = 0.45 * minSpacing;   // stay well inside the cell so trilinear weights stay sane
-    float minFrontDist = 0.2 * minSpacing; // desired clearance from any surface
+    float maxOffset = 0.45 * minSpacing;
+    float minFrontDist = 0.2 * minSpacing;
 
     vec3 offset = probeState[probeIndex].xyz;
 
     if (float(backfaceCount) / float(numRays) > BACKFACE_RATIO && farthestFrontDist > 0.0)
     {
-        // Mostly backfaces -> embedded in geometry. Jump toward the most open direction seen.
         offset += farthestFrontDir * min(farthestFrontDist, maxOffset);
     }
     else if (closestFrontDist < minFrontDist)
     {
-        // Grazing a surface -> back away along -closestFrontDir (the scalar is negative here).
         offset += closestFrontDir * (closestFrontDist - minFrontDist);
     }
     else if (dot(offset, offset) > 1.0e-6)
     {
-        // Plenty of room -> ease the offset back toward the true grid position, so a probe doesn't
-        // stay displaced forever after the geometry that pushed it out has moved away.
         offset -= normalize(offset) * min(length(offset), 0.05 * minSpacing);
     }
 
@@ -133,6 +97,5 @@ void main()
     if (len > maxOffset)
         offset *= maxOffset / len;
 
-    // Only .xyz is ours - .w is probe_classify.comp's active flag, written by its own dispatch.
     probeState[probeIndex].xyz = offset;
 }

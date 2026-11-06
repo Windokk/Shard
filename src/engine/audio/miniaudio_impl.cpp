@@ -1,8 +1,4 @@
-// Single translation unit holding the miniaudio implementation, kept apart from audio_manager.cpp so
-// its (huge) header only gets compiled once.
-
-// stb_vorbis (implemented in stb_vorbis_impl.c) must be declared before miniaudio : miniaudio detects it
-// through the header's include guard and enables .ogg decoding.
+// stb_vorbis must be declared before miniaudio, which detects it through the header's include guard to enable .ogg
 #include <stdio.h>
 #define STB_VORBIS_HEADER_ONLY
 extern "C" {

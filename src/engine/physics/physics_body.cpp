@@ -56,7 +56,6 @@ namespace Shard::Engine::Objects::Components{
             return "box";
         }
 
-        /// The params of a shape are a reflected struct (BoxParams, SphereParams...) : they go through its fields
         bool ParseShapeParams(const json& p, Physics::PhysicsShape shape, InstancedStruct& outParams, const std::string& parentName)
         {
             InitShapeParams(outParams, shape);
@@ -68,7 +67,6 @@ namespace Shard::Engine::Objects::Components{
 
             json fields = p;
 
-            // Levels saved before the params went through the reflection wrote a box's half extent flat ({"x","y","z"})
             if (shape == Physics::PhysicsShape::BOX && p.contains("x") && !p.contains("halfExtent"))
                 fields = json{ { "halfExtent", p } };
 
@@ -91,9 +89,7 @@ namespace Shard::Engine::Objects::Components{
 
     JPH::ShapeRefC PhysicsBody::CreateJoltShape(Physics::PhysicsShape shape, const InstancedStruct& params)
     {
-        // Jolt shapes have no scale of their own - their dimensions must be baked in at creation time
-        // from the actor's composed world scale (like Unity sizing colliders from lossyScale), not just
-        // its own local scale, otherwise a shape parented under a scaled actor is built at the wrong size.
+        // Jolt shapes have no scale: bake the composed world scale in at creation, otherwise a shape under a scaled actor is the wrong size.
         glm::vec3 scale = parent->transform->GetWorldScale();
 
         JPH::ShapeRefC result;
@@ -176,8 +172,6 @@ namespace Shard::Engine::Objects::Components{
                 return nullptr;
         }
 
-        // Must match CreateJoltShape()'s choice of scale - this one pre-scales each sub-shape's offset
-        // for the same reason (Jolt's compound/rotated-translated shapes don't apply scale themselves).
         glm::vec3 scale = parent->transform->GetWorldScale();
 
         if (shapes.size() == 1)
@@ -211,17 +205,12 @@ namespace Shard::Engine::Objects::Components{
         if (!m_Shape)
             return;
 
-        // The body is built from the shapes as they are now : a rebuild asked earlier (SetShapeType...) would only
-        // replace it at the next Tick, and drop what was done to it since (an impulse, a velocity)
+        // Build from the current shapes: a rebuild queued earlier would replace the body at the next Tick and drop impulses or velocity applied since.
         shouldUpdateShape = false;
 
         motionType = newMotionType;
 
-        // Jolt only ever simulates in world space, regardless of motion type, so bodies are always
-        // created at the actor's composed world pose - a parented static prop or physics object sits
-        // where it visually appears in the hierarchy. For Dynamic bodies, SyncTransformFromPhysics
-        // converts Jolt's world result back to a parent-relative local value every tick, so this isn't
-        // a one-time snapshot that goes stale if the parent later moves.
+        // Jolt simulates in world space, so create at the composed world pose. Dynamic bodies are converted back to local every tick.
         JPH::BodyCreationSettings settings(
             m_Shape,
             ToJolt(parent->transform->GetWorldPositionD()),
@@ -257,7 +246,6 @@ namespace Shard::Engine::Objects::Components{
 
         if (motionType == EMotionType::Static)
         {
-            // Editor-only: recreate
             CreateBody(EMotionType::Static);
         }
         else if (motionType == EMotionType::Kinematic)
@@ -269,7 +257,7 @@ namespace Shard::Engine::Objects::Components{
                 dt
             );
         }
-        else // Dynamic (editor only)
+        else
         {
             bi.SetPositionAndRotation(
                 m_BodyID,
@@ -284,15 +272,7 @@ namespace Shard::Engine::Objects::Components{
     {
         auto& bi = GetEngineContext()->GetPhysicsManager()->GetBodyInterface();
 
-        // Body position/rotation (not the center of mass!) is what corresponds to the actor's
-        // transform - Jolt tracks the two separately precisely so that a shape offset (single-shape
-        // RotatedTranslatedShape, or a multi-shape compound, both of which recenter internally
-        // around the center of mass) doesn't leak into where the "origin" of the body is. Using
-        // GetCenterOfMassPosition() here would drag the actor's transform towards the shape's COM
-        // instead of its own origin whenever a shape has an offset or there's more than one shape.
-        //
-        // Jolt works in the root frame, in double : the result is brought into the actor's reference frame (small float numbers) here,
-        // which is the space the transform, its world matrix and the pose interpolation all live in.
+        // Use body position, not center of mass: shape offsets recenter around the COM and would drag the actor's origin. Result goes from root frame (double) to the actor's frame.
         glm::vec3 worldPos = parent->transform->RootToFramePosition(ToGLMD(bi.GetPosition(m_BodyID)));
         glm::quat worldRot = parent->transform->RootToFrameRotation(glm::dquat(ToGLM(bi.GetRotation(m_BodyID))));
 
@@ -307,11 +287,7 @@ namespace Shard::Engine::Objects::Components{
             return;
         }
 
-        // Jolt only knows world space and has no idea this actor is parented, so its result has to be
-        // converted back into a parent-relative local value before being written into position/rotation
-        // - otherwise rendering (which composes local against the parent's world matrix) would apply
-        // the parent's transform a second time on top of an already-world value. Scale is deliberately
-        // left untouched: Jolt bodies carry no scale of their own to report back.
+        // Jolt result is world space: convert to parent-relative or the parent transform is applied twice. Scale is left alone.
         glm::mat4 parentWorld = parentActor->transform->GetWorldMatrix();
         glm::mat4 worldMatrix = glm::translate(glm::mat4(1.0f), worldPos) * glm::toMat4(worldRot);
         glm::mat4 localMatrix = glm::inverse(parentWorld) * worldMatrix;
@@ -338,7 +314,6 @@ namespace Shard::Engine::Objects::Components{
         }
         else
         {
-            // Read again within the same step (the Late sync of a frame that ran no step) : nothing new to shift in
             if (step != m_PoseStep)
             {
                 m_PrevPosition = m_CurrPosition;
@@ -379,8 +354,6 @@ namespace Shard::Engine::Objects::Components{
 
         if (!playing)
         {
-            //EDITOR
-
             if (scaleDirty)
             {
                 CreateBody(motionType);
@@ -393,16 +366,13 @@ namespace Shard::Engine::Objects::Components{
         }
         else
         {
-            // GAME
             if (motionType == EMotionType::Dynamic)
             {
                 SyncTransformFromPhysics();
             }
             else if (motionType == EMotionType::Kinematic)
             {
-                // A parented kinematic body's world pose can change purely because an ancestor moved,
-                // which never touches this actor's own local dirty flags - so a parented body has to
-                // be pushed to Jolt every tick rather than only when posDirty/rotDirty fires.
+                // A parent moving never sets this actor's dirty flags, so parented kinematic bodies are pushed every tick.
                 const bool hasParent = std::dynamic_pointer_cast<Actor>(parent->GetParent()) != nullptr;
 
                 if (posDirty || rotDirty || hasParent)
@@ -435,7 +405,6 @@ namespace Shard::Engine::Objects::Components{
 
 
         if(motionType == EMotionType::Dynamic || motionType == EMotionType::Kinematic){
-            // Teleport dynamic/kinematic body : the frames must not slide from where it was
             m_PoseValid = false;
             bi.SetPosition(
                 m_BodyID,
@@ -444,7 +413,6 @@ namespace Shard::Engine::Objects::Components{
             );
         }
         else{
-            // Recreate the static body at a new pos
             CreateBody(motionType);
         }
     }
@@ -507,8 +475,6 @@ namespace Shard::Engine::Objects::Components{
 
         json data = componentData;
 
-        // Levels saved before the serialization went through the reflection : snake_case keys, and the motion
-        // type as a lowercase string
         if (data.is_object())
         {
             static const std::pair<const char*, const char*> legacyKeys[] = {
@@ -534,11 +500,8 @@ namespace Shard::Engine::Objects::Components{
             }
         }
 
-        // ---------------- MOTION & ATTRIBUTES ----------------
-        // Only loaded : the body is built from them below, there is nothing to update yet
         DeserializeReflectedFields(data, false);
 
-        // ---------------- SHAPES ----------------
         std::vector<PhysicsShapeEntry> newShapes;
 
         auto parseOffsetRotation = [&](const json& entryJson, PhysicsShapeEntry& out)
@@ -591,7 +554,6 @@ namespace Shard::Engine::Objects::Components{
         }
         else
         {
-            // Back-compat: pre-multi-shape format ("shape"/"params" directly on the component)
             if (!data.contains("shape") || !data["shape"].is_string())
             {
                 DEBUG_ERROR("Missing physics shape for actor: " + (std::string)parentName);
@@ -629,18 +591,14 @@ namespace Shard::Engine::Objects::Components{
 
         shapes = std::move(newShapes);
 
-        // ---------------- CREATE BODY ----------------
         CreateBody(motionType);
 
-        // ---------------- ACTIVE STATE ----------------
-        // A body is active unless the file says otherwise
         Activate();
         DeserializeActive(data, true);
     }
 
     ordered_json PhysicsBody::Serialize()
     {
-        // The attributes are fields, the shape list is the part the reflection doesn't describe
         ordered_json comp = SerializeReflected("physics_body");
 
         comp["shapes"] = ordered_json::array();
@@ -956,7 +914,6 @@ namespace Shard::Engine::Objects::Components{
 
         GetEngineContext()->GetPhysicsManager()->SetBodyGravity(m_BodyID, gravityMode, customGravity);
 
-        // A body asleep on the old gravity would stay there until something else woke it. Not one that was put to sleep on purpose.
         if (activated && motionType == EMotionType::Dynamic)
             GetEngineContext()->GetPhysicsManager()->GetBodyInterface().ActivateBody(m_BodyID);
     }
@@ -1017,7 +974,6 @@ namespace Shard::Engine::Objects::Components{
 
         if (strcmp(name, "motionType") == 0)
         {
-            // At once when it can be : a script that sets the motion type then the velocity needs the body of the new kind to exist
             Core::IEngineContext* engine = GetEngineContext();
             if (activated && parent && engine && engine->GetPhysicsManager())
                 CreateBody(motionType);

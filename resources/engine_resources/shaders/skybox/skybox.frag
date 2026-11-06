@@ -5,7 +5,6 @@ out vec4 FragColor;
 
 uniform samplerCube uSkybox;
 
-// Inverse matrices
 uniform mat4 uProjection;
 uniform mat4 uView;
 uniform bool uIsOrtho;
@@ -31,7 +30,6 @@ void main()
     }
     else
     {
-        // In ortho, direction is constant (camera forward)
         vec3 forward = normalize((invView * vec4(0, 0, -1, 0)).xyz);
         vec3 right   = normalize((invView * vec4(1, 0, 0, 0)).xyz);
         vec3 up      = normalize((invView * vec4(0, 1, 0, 0)).xyz);

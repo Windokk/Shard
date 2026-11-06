@@ -1,17 +1,5 @@
 #!/bin/bash
-# Smoke test : starts the player (ShardGame) on example_project, loads a world, renders a few frames and shuts down.
-# It fails when the player crashes, hangs, does not get to the end, or logs an [ERROR] / [FATAL] line (a file that
-# cannot be read, a shader that does not compile...). It does not look at the picture : it is there to catch what
-# breaks the engine at boot.
-#
-# Usage : bash scripts/smoke_test.sh     (after a build : it uses build/ShardGame and build/plugins/game/bin/*/libGameModule)
-#
-#   SHARD_SMOKE_WORLD    the world to load (default cornell.world : Sponza, the first world of the project, is a Git LFS
-#                        file a plain checkout does not have, and it is far too heavy for a software OpenGL)
-#   SHARD_SMOKE_FRAMES   how many frames to render (default 30)
-#   SHARD_SMOKE_TIMEOUT  seconds before the run is given up as hung (default 300)
-#
-# On Linux without a display it starts a virtual one (xvfb-run) : OpenGL is then Mesa's software renderer (llvmpipe).
+# Boots ShardGame on example_project, renders a few frames, fails on a crash, a hang or an [ERROR]/[FATAL] log line.
 set -uo pipefail
 
 root="$(cd "$(dirname "$0")/.." && pwd)"
@@ -19,12 +7,12 @@ world="${SHARD_SMOKE_WORLD:-cornell.world}"
 frames="${SHARD_SMOKE_FRAMES:-30}"
 timeout_seconds="${SHARD_SMOKE_TIMEOUT:-300}"
 
-# Errors that say something about the machine, not about the engine : the CI has no sound card.
+# The CI has no sound card, so audio init errors are ignored.
 ignored_errors='ma_engine_init failed'
 
 cd "$root/build" || { echo "[ERROR] no build/ folder : build the project first." >&2; exit 1; }
 
-# The engine resources are copied next to the executable by hand (README) : a fresh CI build does not have them
+# Engine resources are copied by hand (README), a fresh CI build lacks them.
 for dir in engine_resources editor_resources; do
     if [ ! -d "$dir" ]; then
         cp -r "../resources/$dir" "$dir" || { echo "[ERROR] cannot copy resources/$dir to build/." >&2; exit 1; }
@@ -44,7 +32,6 @@ if [ ! -x "$player" ] || [ ! -f "$module" ]; then
     exit 1
 fi
 
-# A window needs a display : make one when there is none (the CI)
 wrapper=()
 if [ "$(uname -s)" = "Linux" ] && [ -z "${DISPLAY:-}" ] && [ -z "${WAYLAND_DISPLAY:-}" ]; then
     if ! command -v xvfb-run > /dev/null 2>&1; then
@@ -59,7 +46,7 @@ trap 'rm -f "$log"' EXIT
 
 echo "[INFO] Smoke test : $world of example_project, $frames frames."
 
-# --vsync switches the vertical sync OFF : nothing to wait for on a virtual display. stdin is closed so that nothing can wait for Enter.
+# --vsync turns vsync off, nothing to wait for on a virtual display. stdin is closed so nothing waits for Enter.
 timeout "$timeout_seconds" "${wrapper[@]}" "$player" \
     --game "$module" \
     --project ../example_project/example_project.json \
@@ -84,9 +71,8 @@ elif ! grep -q "shut down cleanly" "$log"; then
     failed=1
 fi
 
-# Mesa's software OpenGL has no GL_ARB_bindless_texture, which lit.frag needs (SSAO handle) : its compilation fails there,
-# whatever the engine does. When the driver says so, the generic "Couldn't compile / link shader" lines are not counted.
-# (A real shader error on such a machine is hidden too : the full log above is the place to look.)
+# Mesa software GL lacks GL_ARB_bindless_texture, which lit.frag needs (SSAO handle), so its shader compile always fails there.
+# When the driver says so, the generic compile/link lines are not counted. A real shader error is hidden too.
 if grep -q "GL_ARB_bindless_texture' unsupported" "$log"; then
     echo "[WARNING] The OpenGL driver has no GL_ARB_bindless_texture : shader compile / link errors are ignored by this smoke test."
     ignored_errors="$ignored_errors|Couldn't compile shader|Couldn't link shader"

@@ -19,7 +19,6 @@ namespace Shard::Engine::Rendering {
             return text.rfind(prefix, 0) == 0;
         }
 
-        // The two textures a material falls back on for a slot it has nothing bound to (see GLMaterial)
         std::shared_ptr<Texture2D> g_WhiteTexture;
         std::shared_ptr<Texture2D> g_DefaultNormalTexture;
 
@@ -95,7 +94,6 @@ namespace Shard::Engine::Rendering {
         if (it == m_SamplersParameters.end())
             return 0;
 
-        // The place of the texture in the global array : 0 if it is gone
         return VK::TextureResource::Find(it->second) ? it->second : 0;
     }
 

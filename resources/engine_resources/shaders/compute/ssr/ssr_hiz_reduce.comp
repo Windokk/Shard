@@ -1,11 +1,5 @@
 #version 430 core
 
-// One step down the SSR Hi-Z pyramid : each texel of level L is the MIN (closest) depth of the level L-1 texels it covers.
-//
-// A level is floor(size / 2) of the one above (what the texture's mip chain gives), so an odd size leaves a row / column over : the last texel
-// of that dimension also takes it, and so covers up to the edge of the screen. ssr_trace.comp's cell lookup (pixel >> level, clamped to the last
-// texel) and cell extents (the last one reaches the screen's edge) are exactly this, which is what keeps the pyramid conservative.
-
 layout(local_size_x = 8, local_size_y = 8) in;
 
 layout(r32f, binding = 0) readonly uniform image2D uSrc;

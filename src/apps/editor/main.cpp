@@ -23,12 +23,9 @@ Debugging::Level minDebugLevel = Debugging::Level::Log;
 std::string gameModuleLib = "";
 Shard::Engine::PluginStartupOptions pluginOptions;
 
-// --frames : runs that many frames, then closes by itself without waiting for Enter (a non-interactive run, for smoke tests).
-// -1 : a normal run.
 int maxFrames = -1;
 
 EngineCreationSettings ComputeEngineSettings(int argc, char* argv[]) {
-    // "+name=value" or "+name value" : sets a console variable (see engine/core/config/cvar.hpp) before the engine starts
     {
         std::vector<std::string> cvarWarnings;
         Shard::Engine::Core::CVarRegistry::Global().ParseCommandLine(argc, argv, &cvarWarnings);
@@ -112,7 +109,6 @@ void early_crash(){
 
 int main(int argc, char* argv[]) {
     
-    // Engine init parameters
     EngineCreationSettings engineSettings = ComputeEngineSettings(argc, argv);
     
     if(engineSettings.project == ""){
@@ -126,29 +122,23 @@ int main(int argc, char* argv[]) {
 
     Debugging::SetLogger(&Debugging::Logger::GetInstance());
 
-    //Game module loading and init
     pluginOptions.host = Plugins::Host::Editor;
     pluginOptions.gameModule = gameModuleLib;
     pluginOptions.project = engineSettings.project;
     pluginOptions.hotReload = true;
-    // shard.editor must exist while the plugins load (their OnLoad adds menus, panels, gizmos) : the widgets only run at draw time, so the backend
-    // goes in now and EnsureImGuiInitialized gives it the window later
+    // shard.editor must exist while plugins load (OnLoad adds menus, panels, gizmos). Widgets only run at draw time, so install the backend now and EnsureImGuiInitialized gives it the window later.
     Shard::Editor::GUI::InstallPluginUi(nullptr);
     if (!StartPlugins(pluginOptions)) {
         early_crash();
     }
 
     {
-        // Platform creation
         engineSettings.platform = new Shard::Engine::Core::Platform::SDLPlatform<Shard::Editor::Core::EditorMainWindow>();
 
-        // Engine startup
         Core::GetEngine().Init(engineSettings);
         
-        // Editor startup
         Shard::Editor::Commands::CommandStack::Get();
         {
-            // The editor's ImGui, for the plugins that draw their own windows
             Plugins::EditorImGui imgui;
             ImGuiMemAllocFunc allocate = nullptr;
             ImGuiMemFreeFunc free = nullptr;
@@ -163,7 +153,6 @@ int main(int argc, char* argv[]) {
         Plugins::PluginManager::Get().NotifyEditorInit();
     }
 
-    //Main Loop
     int frames = 0;
     while (!Core::GetEngine().ShouldEnd()) {
         if (maxFrames >= 0 && frames >= maxFrames) break;
@@ -173,8 +162,6 @@ int main(int argc, char* argv[]) {
         Core::GetEngine().GetWindow()->ProcessInputs();
         
     }
-
-    //Cleaning
 
     Shard::Editor::GUI::EditorResources::Instance().Shutdown();
 

@@ -32,8 +32,8 @@ namespace Shard::Engine::Rendering{
             void GenerateGLBuffers();
 
             uint32_t m_VAO = 0, m_VBO = 0, m_EBO = 0;
-            int64_t m_GpuBytes = 0;     // what GpuMemory was told this mesh holds
-            size_t m_VertexBytes = 0;   // size of the vertex buffer
+            int64_t m_GpuBytes = 0;
+            size_t m_VertexBytes = 0;
 
     };
 }

@@ -43,23 +43,16 @@ namespace Shard::Engine::Rendering{
 
             void ValidateLocalSize();
 
-            // Uniform locations are resolved once at compile time (see the constructor) and kept in
-            // m_ActiveUniformsMap; looking them up here avoids a glGetUniformLocation() driver
-            // round-trip on every SetXxx call - see the identical GLShader::GetUniformLocationCached
-            // this mirrors. Compute shaders are dispatched every frame (e.g. ProbeManager::Update()'s
-            // per-bounce trace/classify/relocate/convolve passes), so this was a real per-frame cost.
             int32_t GetUniformLocationCached(const std::string& name);
 
             uint32_t m_Program = 0;
-            bool m_CompileFailed = false;      // the shader didn't compile or the program didn't link (the message was logged)
+            bool m_CompileFailed = false;
             uint32_t m_LocalSize[3] = { 0, 0, 0 };
             std::vector<UniformInfo> m_ActiveUniforms;
             std::unordered_map<std::string, UniformInfo> m_ActiveUniformsMap;
             std::vector<SamplerInfo> m_ActiveSamplers;
             std::unordered_map<std::string, SamplerInfo> m_ActiveSamplersMap;
 
-            // Locations for names m_ActiveUniformsMap doesn't cover, memoised (-1 included) so the
-            // driver is still only asked once per name - see GetUniformLocationCached.
             std::unordered_map<std::string, int32_t> m_UnmappedLocations;
     };
 

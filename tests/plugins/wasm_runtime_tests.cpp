@@ -10,8 +10,6 @@
 
 using namespace Shard::Engine::Plugins::Wasm;
 
-// The WebAssembly runtime of sandboxed plugins (docs/design-notes/wasm-sandbox.fr.md, W1), on modules written byte by byte (wasm_test_module.hpp).
-
 using namespace WasmTest;
 
 TEST(WasmRuntime, AddsTwoNumbers)
@@ -22,12 +20,11 @@ TEST(WasmRuntime, AddsTwoNumbers)
     auto in = Make(b);
     ASSERT_TRUE(in);
     EXPECT_EQ(One(*in, "add", { 2, 3 }), 5u);
-    EXPECT_EQ(uint32_t(One(*in, "add", { 0xFFFFFFFFu, 2 })), 1u);          // wraps
+    EXPECT_EQ(uint32_t(One(*in, "add", { 0xFFFFFFFFu, 2 })), 1u);
 }
 
 TEST(WasmRuntime, RecursesWithIfElse)
 {
-    // fact(n) = n == 0 ? 1 : n * fact(n - 1), in i64
     Builder b;
     const uint32_t t = b.Type({ I64 }, { I64 });
     b.Function(t, Get(0) + Op({ 0x50, 0x04, I64 }) + I64Const(1) + Op({ 0x05 }) + Get(0) + Get(0) + I64Const(1) + Op({ 0x7D }) + Call(0) +
@@ -39,12 +36,10 @@ TEST(WasmRuntime, RecursesWithIfElse)
 
 TEST(WasmRuntime, LoopsAndBranches)
 {
-    // sum = 0 ; i = n ; loop { sum += i ; i -= 1 ; br_if i != 0 } ; sum
     Builder b;
     const uint32_t t = b.Type({ I32 }, { I32 });
     b.Function(t, Op({ 0x03, 0x40 }) + Get(1) + Get(0) + Op({ 0x6A }) + Set(1) + Get(0) + I32Const(1) + Op({ 0x6B, 0x22, 0 }) +
                   Op({ 0x0D, 0, 0x0B }) + Get(1) + Op({ 0x0B }), { { 1, I32 } }, "sum");
-    // br_table : 0 -> 10, 1 -> 20, anything else -> 30
     b.Function(t, Op({ 0x02, 0x40, 0x02, 0x40, 0x02, 0x40 }) + Get(0) + Op({ 0x0E, 2, 0, 1, 2, 0x0B }) + I32Const(10) + Op({ 0x0F, 0x0B }) +
                   I32Const(20) + Op({ 0x0F, 0x0B }) + I32Const(30) + Op({ 0x0B }), {}, "pick");
     auto in = Make(b);
@@ -55,7 +50,7 @@ TEST(WasmRuntime, LoopsAndBranches)
     EXPECT_EQ(One(*in, "pick", { 7 }), 30u);
 }
 
-TEST(WasmRuntime, MemoryIsBoundedAndSegmentsAreLaidOut)
+TEST(WasmRuntime, MemoryBoundedSegmentsLaidOut)
 {
     Builder b;
     b.memoryMin = 1; b.memoryMax = 4;
@@ -77,15 +72,15 @@ TEST(WasmRuntime, MemoryIsBoundedAndSegmentsAreLaidOut)
     auto out = in->Call("load8", { 65536 });
     ASSERT_FALSE(out);
     EXPECT_EQ(in->LastTrap().kind, TrapKind::MemoryOutOfBounds);
-    EXPECT_FALSE(in->Call("store", { 65534, 1 }));                          // straddles the end
+    EXPECT_FALSE(in->Call("store", { 65534, 1 }));
 
-    EXPECT_EQ(One(*in, "grow", { 2 }), 1u);                                 // old size in pages
+    EXPECT_EQ(One(*in, "grow", { 2 }), 1u);
     EXPECT_EQ(in->MemorySize(), 3u * 65536);
-    EXPECT_EQ(uint32_t(One(*in, "grow", { 2 })), 0xFFFFFFFFu);             // past the module's maximum
-    EXPECT_FALSE(in->Read(3u * 65536 - 2, &v, 4));                          // the host's view is checked too
+    EXPECT_EQ(uint32_t(One(*in, "grow", { 2 })), 0xFFFFFFFFu);
+    EXPECT_FALSE(in->Read(3u * 65536 - 2, &v, 4));
 }
 
-TEST(WasmRuntime, TheHostLimitOnMemoryWinsOverTheModules)
+TEST(WasmRuntime, HostMemoryLimitWins)
 {
     Builder b;
     b.memoryMin = 1;
@@ -102,10 +97,10 @@ TEST(WasmRuntime, TheHostLimitOnMemoryWinsOverTheModules)
     const std::vector<uint8_t> bytes = b.Build();
     auto module = Module::Decode(bytes.data(), bytes.size(), limits);
     ASSERT_TRUE(module);
-    EXPECT_FALSE(Instance::Create(module.Value(), {}));                     // needs more at start than allowed
+    EXPECT_FALSE(Instance::Create(module.Value(), {}));
 }
 
-TEST(WasmRuntime, AnEndlessLoopRunsOutOfFuelAndTheInstanceStaysUsable)
+TEST(WasmRuntime, EndlessLoopRunsOutOfFuel)
 {
     Builder b;
     const uint32_t t = b.Type({}, {});
@@ -143,14 +138,14 @@ TEST(WasmRuntime, IntegerTraps)
     EXPECT_EQ(One(*in, "rem_s", { 0x80000000u, 0xFFFFFFFFu }), 0u);
     EXPECT_EQ(int32_t(One(*in, "trunc", { Bits(-3.9f) })), -3);
     EXPECT_FALSE(in->Call("trunc", { Bits(3e9f) }));
-    EXPECT_EQ(in->LastTrap().kind, TrapKind::IntegerOverflow);              // what the spec calls a value out of the integer's range
+    EXPECT_EQ(in->LastTrap().kind, TrapKind::IntegerOverflow);
     EXPECT_FALSE(in->Call("trunc", { Bits(std::nanf("")) }));
     EXPECT_EQ(in->LastTrap().kind, TrapKind::InvalidConversion);
     EXPECT_EQ(uint32_t(One(*in, "trunc_sat", { Bits(3e9f) })), 0x7FFFFFFFu);
     EXPECT_EQ(One(*in, "trunc_sat", { Bits(std::nanf("")) }), 0u);
 }
 
-TEST(WasmRuntime, FloatsAreIeeeAndNaNsAreCanonical)
+TEST(WasmRuntime, FloatsAreIeee)
 {
     Builder b;
     const uint32_t t = b.Type({ F32, F32 }, { F32 });
@@ -163,16 +158,16 @@ TEST(WasmRuntime, FloatsAreIeeeAndNaNsAreCanonical)
     ASSERT_TRUE(in);
     EXPECT_EQ(AsF32(One(*in, "div", { Bits(1.f), Bits(4.f) })), 0.25f);
     EXPECT_EQ(uint32_t(One(*in, "div", { Bits(0.f), Bits(0.f) })), 0x7FC00000u);
-    EXPECT_EQ(uint32_t(One(*in, "div", { Bits(-0.f), Bits(0.f) })), 0x7FC00000u);     // positive, whatever the hardware gave
+    EXPECT_EQ(uint32_t(One(*in, "div", { Bits(-0.f), Bits(0.f) })), 0x7FC00000u);     // canonical positive NaN
     EXPECT_EQ(uint32_t(One(*in, "min", { Bits(0.f), Bits(-0.f) })), Bits(-0.f));
     EXPECT_EQ(uint32_t(One(*in, "min", { Bits(1.f), Bits(std::nanf("")) })), 0x7FC00000u);
     double m1 = -1.0; uint64_t bits; std::memcpy(&bits, &m1, 8);
     EXPECT_EQ(One(*in, "sqrt", { bits }), 0x7FF8000000000000ull);
     double h = 2.5; std::memcpy(&bits, &h, 8);
-    EXPECT_EQ(AsF64(One(*in, "nearest", { bits })), 2.0);                // ties to even
+    EXPECT_EQ(AsF64(One(*in, "nearest", { bits })), 2.0);
 }
 
-TEST(WasmRuntime, HostFunctionsReadTheSandboxMemoryAndCanTrap)
+TEST(WasmRuntime, HostFunctionsReadMemory)
 {
     Builder b;
     b.memoryMin = 1;
@@ -205,7 +200,7 @@ TEST(WasmRuntime, HostFunctionsReadTheSandboxMemoryAndCanTrap)
     EXPECT_NE(r.GetError().message.find("message out of the memory"), std::string::npos);
 }
 
-TEST(WasmRuntime, ImportsAreMatchedByNameAndType)
+TEST(WasmRuntime, ImportsMatchedByNameAndType)
 {
     Builder b;
     const uint32_t t = b.Type({ I32 }, {});
@@ -220,7 +215,7 @@ TEST(WasmRuntime, ImportsAreMatchedByNameAndType)
     EXPECT_TRUE(Instance::Create(module.Value(), right));
 }
 
-TEST(WasmRuntime, IndirectCallsCheckTheTableAndTheType)
+TEST(WasmRuntime, IndirectCallsCheckTypes)
 {
     Builder b;
     b.tableSize = 3;
@@ -228,7 +223,6 @@ TEST(WasmRuntime, IndirectCallsCheckTheTableAndTheType)
     const uint32_t v = b.Type({}, {});
     const uint32_t inc = b.Function(ii, Get(0) + I32Const(1) + Op({ 0x6A, 0x0B }));
     const uint32_t nothing = b.Function(v, Op({ 0x0B }));
-    // dispatch(slot, x) = table[slot](x)
     const uint32_t dispatch = b.Type({ I32, I32 }, { I32 });
     b.Function(dispatch, Get(1) + Get(0) + Op({ 0x11, uint8_t(ii), 0, 0x0B }), {}, "dispatch");
     b.elements.push_back({ 0, { inc, nothing } });
@@ -242,7 +236,6 @@ TEST(WasmRuntime, IndirectCallsCheckTheTableAndTheType)
     EXPECT_FALSE(in->Call("dispatch", { 9, 41 }));
     EXPECT_EQ(in->LastTrap().kind, TrapKind::TableOutOfBounds);
 
-    // What the host does with a callback : the plugin hands over a table slot
     FuncType type{ { ValType::I32 }, { ValType::I32 } };
     auto r = in->CallIndirect(0, type, { 1 });
     ASSERT_TRUE(r) << r.GetError().message;
@@ -250,7 +243,7 @@ TEST(WasmRuntime, IndirectCallsCheckTheTableAndTheType)
     EXPECT_FALSE(in->CallIndirect(1, type, { 1 }));
 }
 
-TEST(WasmRuntime, DeepRecursionStopsTheCallNotTheHost)
+TEST(WasmRuntime, DeepRecursionTraps)
 {
     Builder b;
     const uint32_t t = b.Type({}, {});
@@ -261,7 +254,7 @@ TEST(WasmRuntime, DeepRecursionStopsTheCallNotTheHost)
     EXPECT_EQ(in->LastTrap().kind, TrapKind::CallStackExhausted);
 }
 
-TEST(WasmRuntime, TheStartFunctionRunsAtInstantiation)
+TEST(WasmRuntime, StartFunctionRuns)
 {
     Builder b;
     b.memoryMin = 1;
@@ -281,7 +274,7 @@ TEST(WasmRuntime, TheStartFunctionRunsAtInstantiation)
     const std::vector<uint8_t> bytes = loop.Build();
     auto module = Module::Decode(bytes.data(), bytes.size());
     ASSERT_TRUE(module);
-    EXPECT_FALSE(Instance::Create(module.Value(), {}, 1000));              // a start that never ends is refused, not waited for
+    EXPECT_FALSE(Instance::Create(module.Value(), {}, 1000));
 }
 
 TEST(WasmRuntime, MalformedModulesAreRefused)
@@ -290,14 +283,14 @@ TEST(WasmRuntime, MalformedModulesAreRefused)
     EXPECT_TRUE(refused({}));
     EXPECT_TRUE(refused({ 0, 'a', 's', 'n', 1, 0, 0, 0 }));
     EXPECT_TRUE(refused({ 0, 'a', 's', 'm', 2, 0, 0, 0 }));
-    EXPECT_FALSE(refused({ 0, 'a', 's', 'm', 1, 0, 0, 0 }));               // empty is a valid module
+    EXPECT_FALSE(refused({ 0, 'a', 's', 'm', 1, 0, 0, 0 }));
 
     Builder b;
     const uint32_t t = b.Type({}, {});
-    b.Function(t, Op({ 0xFD, 0x00, 0x0B }));                                 // SIMD
+    b.Function(t, Op({ 0xFD, 0x00, 0x0B }));
     EXPECT_TRUE(refused(b.Build()));
     Builder unclosed;
-    unclosed.Function(unclosed.Type({}, {}), Op({ 0x02, 0x40, 0x0B }));      // the block's end, not the function's
+    unclosed.Function(unclosed.Type({}, {}), Op({ 0x02, 0x40, 0x0B }));
     EXPECT_TRUE(refused(unclosed.Build()));
     Builder badLocal;
     badLocal.Function(badLocal.Type({}, {}), Get(3) + Op({ 0x1A, 0x0B }));
@@ -309,34 +302,33 @@ TEST(WasmRuntime, MalformedModulesAreRefused)
     noMemory.Function(noMemory.Type({}, { I32 }), I32Const(0) + Op({ 0x28, 2, 0, 0x0B }));
     EXPECT_TRUE(refused(noMemory.Build()));
 
-    // An imported memory : the sandbox owns its memory, it never gets the host's
+    // Imported memory is refused: the sandbox owns its memory.
     std::vector<uint8_t> importMemory = { 0, 'a', 's', 'm', 1, 0, 0, 0, 2, 12, 1, 3, 'e', 'n', 'v', 3, 'm', 'e', 'm', 2, 0, 1 };
     EXPECT_TRUE(refused(importMemory));
 }
 
-TEST(WasmRuntime, BodiesAreTypeCheckedWhenDecoded)
+TEST(WasmRuntime, BodiesTypeChecked)
 {
     auto refused = [](const Builder& b) { const std::vector<uint8_t> bytes = b.Build(); return !Module::Decode(bytes.data(), bytes.size()); };
     Builder underflow;
-    underflow.Function(underflow.Type({}, { I32 }), Op({ 0x6A, 0x0B }));                         // i32.add on an empty stack
+    underflow.Function(underflow.Type({}, { I32 }), Op({ 0x6A, 0x0B }));
     EXPECT_TRUE(refused(underflow));
     Builder wrongType;
-    wrongType.Function(wrongType.Type({}, { I32 }), I64Const(1) + I32Const(1) + Op({ 0x6A, 0x0B }));     // i32.add of an i64
+    wrongType.Function(wrongType.Type({}, { I32 }), I64Const(1) + I32Const(1) + Op({ 0x6A, 0x0B }));
     EXPECT_TRUE(refused(wrongType));
     Builder wrongResult;
     wrongResult.Function(wrongResult.Type({}, { I32 }), I64Const(1) + Op({ 0x0B }));
     EXPECT_TRUE(refused(wrongResult));
     Builder leftover;
-    leftover.Function(leftover.Type({}, {}), I32Const(1) + Op({ 0x0B }));                       // a value left on the stack
+    leftover.Function(leftover.Type({}, {}), I32Const(1) + Op({ 0x0B }));
     EXPECT_TRUE(refused(leftover));
     Builder ifWithoutElse;
     ifWithoutElse.Function(ifWithoutElse.Type({}, { I32 }), I32Const(1) + Op({ 0x04, I32 }) + I32Const(2) + Op({ 0x0B, 0x0B }));
     EXPECT_TRUE(refused(ifWithoutElse));
     Builder badBranch;
-    badBranch.Function(badBranch.Type({}, { I32 }), Op({ 0x02, I32 }) + I64Const(1) + Op({ 0x0C, 0, 0x0B, 0x0B }));   // br with an i64 to an i32 block
+    badBranch.Function(badBranch.Type({}, { I32 }), Op({ 0x02, I32 }) + I64Const(1) + Op({ 0x0C, 0, 0x0B, 0x0B }));
     EXPECT_TRUE(refused(badBranch));
 
-    // After an unconditional branch anything goes : the rest of the block is never run
     Builder afterBranch;
     afterBranch.Function(afterBranch.Type({}, { I32 }), Op({ 0x02, I32 }) + I32Const(1) + Op({ 0x0C, 0, 0x6A, 0x0B, 0x0B }), {}, "f");
     EXPECT_FALSE(refused(afterBranch));
@@ -345,7 +337,7 @@ TEST(WasmRuntime, BodiesAreTypeCheckedWhenDecoded)
     EXPECT_FALSE(refused(trap));
 }
 
-TEST(WasmRuntime, FlippedBytesNeverCrashTheHost)
+TEST(WasmRuntime, FlippedBytesNeverCrash)
 {
     Builder b;
     b.memoryMin = 1; b.memoryMax = 2;

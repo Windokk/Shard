@@ -131,7 +131,6 @@ namespace Shard::Editor::GUI{
 
     bool SettingsView::GroupMatches() const
     {
-        // Searching for a section or a category shows all of it
         return ContainsNoCase(m_CurrentSection, m_Search) || ContainsNoCase(m_CurrentCategory, m_Search);
     }
 
@@ -146,7 +145,6 @@ namespace Shard::Editor::GUI{
         FlushPendingHeaders();
         m_RowsDrawn++;
 
-        // Scoped by section too : two sections may each have a "Filter Radius"
         ImGui::PushID(m_CurrentSection ? m_CurrentSection : "");
         ImGui::PushID(label);
 
@@ -160,7 +158,6 @@ namespace Shard::Editor::GUI{
 
         if (modified)
         {
-            // Unreal's yellow arrow : the value is not the default any more, one click puts it back
             const float buttonSize = ImGui::GetFrameHeight();
             ImGui::SameLine(startX + labelWidth - buttonSize - ImGui::GetStyle().ItemSpacing.x);
             ImGui::PushStyleColor(ImGuiCol_Button, ImVec4(0, 0, 0, 0));

@@ -22,7 +22,6 @@ namespace Shard::Engine::Rendering {
             return v;
         }
 
-        // The point of a triangle a texel stands for
         struct TexelSample
         {
             glm::vec3 position;
@@ -79,7 +78,7 @@ namespace Shard::Engine::Rendering {
 
                 glm::vec3 world[3];
                 glm::vec3 smooth[3];
-                glm::vec2 texel[3];     // the lightmap coordinates, in texels of the page
+                glm::vec2 texel[3];
                 for (int k = 0; k < 3; k++)
                 {
                     world[k] = glm::vec3(instance.worldMatrix * glm::vec4(ReadVec3(vertex[k], instance.positionOffset), 1.0f));
@@ -99,7 +98,6 @@ namespace Shard::Engine::Rendering {
                 if (std::abs(texelArea2) < 1e-9f)
                     continue;
 
-                // The size of a texel on this triangle : the square root of the world area one texel of the layout covers
                 const float texelWorldSize = std::sqrt(worldArea / (0.5f * std::abs(texelArea2)));
 
                 auto sampleAt = [&](float w0, float w1, float w2) {
@@ -138,7 +136,6 @@ namespace Shard::Engine::Rendering {
                     }
                 }
 
-                // Too thin to contain a texel centre : give the triangle the texel its centre falls in, so it is not left dark
                 if (!coveredAny)
                 {
                     const glm::vec2 centre = (texel[0] + texel[1] + texel[2]) / 3.0f;

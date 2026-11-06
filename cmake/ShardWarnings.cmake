@@ -1,10 +1,3 @@
-# Compiler warnings for Shard's own targets (never the submodules : their code is not ours to fix).
-#
-# shard_enable_warnings(<target>...) turns on -Wall -Wextra for the C++ of each target, and keeps the third party quiet :
-#   - the include directories of the submodules become SYSTEM (-isystem), so their headers do not warn in our files
-#   - the third party sources compiled straight into one of our targets (imgui, ImGuizmo, volk, ufbx, glad...) get -w
-# The submodules added with add_subdirectory(... SYSTEM) in the root CMakeLists.txt already give SYSTEM include directories.
-
 option(SHARD_WARNINGS_AS_ERRORS "Treat the warnings of Shard's own code as errors" OFF)
 
 # What is not our code : the submodules, the vendored third-party folders and the generated GL loader
@@ -13,7 +6,6 @@ set(SHARD_THIRD_PARTY_REGEX "/submodules/|/third-party/|/renderer/rhi/backends/g
 function(shard_enable_warnings)
     foreach(target IN LISTS ARGN)
         if(MSVC)
-            # Not tried yet : the MinGW / GCC build is the one used. /W4 is the MSVC counterpart of -Wall -Wextra.
             target_compile_options(${target} PRIVATE $<$<COMPILE_LANGUAGE:CXX>:/W4>)
             if(SHARD_WARNINGS_AS_ERRORS)
                 target_compile_options(${target} PRIVATE $<$<COMPILE_LANGUAGE:CXX>:/WX>)
@@ -25,8 +17,6 @@ function(shard_enable_warnings)
             endif()
         endif()
 
-        # Third party include directories -> SYSTEM. A directory given both ways is searched as a system one (GCC and Clang
-        # drop the -I), so adding them again is enough.
         foreach(property INCLUDE_DIRECTORIES INTERFACE_INCLUDE_DIRECTORIES)
             get_target_property(directories ${target} ${property})
             if(NOT directories)
@@ -47,7 +37,6 @@ function(shard_enable_warnings)
             endif()
         endforeach()
 
-        # Third party sources compiled into the target
         get_target_property(sources ${target} SOURCES)
         if(sources)
             set(thirdPartySources "")

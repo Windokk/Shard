@@ -41,7 +41,6 @@ namespace Shard::Engine::Debugging{
         }
         auto total = ProfileClock::now() - start;
 
-        // Raw (uncorrected) cost of a pair : the empty scopes above measure nothing but themselves.
         m_SampleOverheadMs = std::chrono::duration<float, std::milli>(total).count() / kIterations;
 
         m_CurrentFrame = FrameProfile{};
@@ -62,13 +61,11 @@ namespace Shard::Engine::Debugging{
 
     void Profiler::BeginRenderFrame(uint64_t frame)
     {
-        // Only the render thread has a side of its own : on the thread that draws inline there is nothing to separate
         if (!t_RenderSide)
             return;
 
         std::lock_guard<std::mutex> lock(m_RenderMutex);
 
-        // What was sampled so far (the frame, its UI, its swap) is the previous frame's : it is complete now
         if (m_RenderFrameValid)
             m_RenderDone[m_RenderFrame] = m_RenderLocal;
 
@@ -137,8 +134,7 @@ namespace Shard::Engine::Debugging{
         m_CurrentFrame = FrameProfile{};
         m_RenderSubSampleCount = 0;
 
-        // A frame is closed once the render thread has begun a later one : its own part of the frame is complete by then.
-        // Without a render thread there is nothing to wait for. The cap keeps a stalled render thread from holding frames back.
+        // A frame closes once the render thread has begun a later one. The cap keeps a stalled render thread from holding frames back.
         constexpr size_t kMaxPending = 8;
         while (!m_Pending.empty())
         {
@@ -161,7 +157,6 @@ namespace Shard::Engine::Debugging{
                     render = it->second;
                     hasRender = true;
                 }
-                // Nothing older than this frame can be claimed any more
                 m_RenderDone.erase(m_RenderDone.begin(), m_RenderDone.upper_bound(front.frame));
             }
 
@@ -175,8 +170,6 @@ namespace Shard::Engine::Debugging{
         FrameProfile frame = pending.profile;
         uint32_t subSampleCount = pending.subSampleCount;
 
-        // `otherThreadMs` is the part of each category that was sampled by the render thread : the rest was sampled by
-        // the simulation thread (e.g. its own Present() wait), which is time that thread did account for.
         std::array<float, kProfileCategoryCount> otherThreadMs{};
         if (render)
         {
@@ -198,7 +191,6 @@ namespace Shard::Engine::Debugging{
 
         frame.frameMs = frame.totalMs + frame.renderMs;
 
-        // Rendering's wall time contains every sub-sample's own bookkeeping : remove it.
         float& renderingMs = frame.categoryMs[static_cast<size_t>(ProfileCategory::Rendering)];
         renderingMs -= subSampleCount * m_SampleOverheadMs;
         if (renderingMs < 0.0f)
@@ -209,7 +201,6 @@ namespace Shard::Engine::Debugging{
         {
             if (static_cast<ProfileCategory>(i) == ProfileCategory::Other)
                 continue;
-            // Time the render thread spent is not time this thread's frame was busy
             tracked += frame.categoryMs[i] - otherThreadMs[i];
         }
 

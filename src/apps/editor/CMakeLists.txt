@@ -13,7 +13,6 @@ file(GLOB_RECURSE EDITOR_SOURCES
 
 add_executable(ShardEditor ${EDITOR_SOURCES})
 
-# The interface draws on the Vulkan backend with the entry points volk loaded for the engine (see ShardRHI)
 target_compile_definitions(ShardEditor PRIVATE BUILD_ENGINE BUILD_EDITOR IMGUI_IMPL_VULKAN_USE_VOLK)
 
 target_include_directories(ShardEditor PRIVATE

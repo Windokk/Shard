@@ -27,7 +27,7 @@ namespace Shard::Engine::Plugins {
         return ~crc;
     }
 
-    // ---- Inflate (RFC 1951), after zlib's "puff" ----
+    // Inflate (RFC 1951), after zlib's puff
 
     namespace {
         constexpr int kMaxBits = 15;
@@ -231,8 +231,6 @@ namespace Shard::Engine::Plugins {
         return Core::Ok(std::move(out));
     }
 
-    // ---- Paths ----
-
     bool IsSafeArchivePath(const std::string& path)
     {
         if (path.empty() || path.size() > 1024) return false;
@@ -249,8 +247,6 @@ namespace Shard::Engine::Plugins {
         }
         return true;
     }
-
-    // ---- ZipArchive ----
 
     namespace {
         uint16_t U16(const uint8_t* p) { return uint16_t(p[0] | (p[1] << 8)); }
@@ -274,7 +270,7 @@ namespace Shard::Engine::Plugins {
     Core::Result<ZipArchive> ZipArchive::OpenMemory(std::vector<uint8_t> bytes, const ArchiveLimits& limits)
     {
         if (bytes.size() < 22) return Core::Err("not a zip archive");
-        // End of central directory : the last 22 bytes, or before a comment of up to 65535 bytes
+        // End of central directory: last 22 bytes, or before a comment of up to 65535 bytes
         size_t eocd = SIZE_MAX;
         const size_t lowest = bytes.size() > 22 + 65535 ? bytes.size() - 22 - 65535 : 0;
         for (size_t i = bytes.size() - 22 + 1; i-- > lowest;) {
@@ -355,7 +351,7 @@ namespace Shard::Engine::Plugins {
             if (e.compressedSize != e.size) return Core::Err("'" + e.path + "' : inconsistent sizes");
             out.assign(m_Bytes.begin() + long(dataAt), m_Bytes.begin() + long(dataAt + e.size));
         } else {
-            auto inflated = Inflate(m_Bytes.data() + dataAt, size_t(e.compressedSize), size_t(e.size));     // dataAt may be the end (no data)
+            auto inflated = Inflate(m_Bytes.data() + dataAt, size_t(e.compressedSize), size_t(e.size));
             if (!inflated) return Core::Err("'" + e.path + "' : " + inflated.GetError().message);
             out = std::move(inflated.Value());
             if (out.size() != e.size) return Core::Err("'" + e.path + "' : its size is not what the archive says");
@@ -373,7 +369,7 @@ namespace Shard::Engine::Plugins {
         size_t written = 0;
         for (const Entry& e : m_Entries) {
             const fs::path target = root / e.path;
-            // Belt and braces : the paths were checked at Open, the result is checked again
+            // Paths were checked at Open, check the extracted result again
             const std::string rel = fs::relative(fs::weakly_canonical(target, ec), root, ec).generic_string();
             if (rel.compare(0, 2, "..") == 0) return Core::Err("'" + e.path + "' would leave the folder");
             if (e.isDirectory) { fs::create_directories(target, ec); continue; }
@@ -388,8 +384,6 @@ namespace Shard::Engine::Plugins {
         }
         return Core::Ok(written);
     }
-
-    // ---- ZipWriter ----
 
     void ZipWriter::Add(const std::string& path, const void* data, size_t size)
     {

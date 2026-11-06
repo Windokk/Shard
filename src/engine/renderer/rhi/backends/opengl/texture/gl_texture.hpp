@@ -30,7 +30,6 @@ namespace Shard::Engine::Rendering{
 
             GLTexture2D(TextureSpecifications& specs, const void* data);
 
-            /// A texture whose blocks are already encoded (BC4 / BC5 / BC7), all mip levels included : uploaded as they are
             GLTexture2D(const TextureSpecifications& specs, const CompressedImage& image, uint32_t firstMip = 0);
 
             void Bind(uint32_t slot = 0) const override;
@@ -49,21 +48,12 @@ namespace Shard::Engine::Rendering{
 
             uint64_t GetBindlessHandle() const override { return GetBindlessHandle(ID); }
 
-            // Returns a resident ARB_bindless_texture handle for the given raw GL texture ID, creating
-            // and residency-registering it on first use (cached thereafter). Returns 0 if glTextureID is
-            // 0 or GL_ARB_bindless_texture isn't supported by the driver - callers should treat 0 as
-            // "no texture available" and fall back to flat scalar values instead.
             static uint64_t GetBindlessHandle(uint32_t glTextureID);
 
-            // Whether a bindless handle has already been minted for this raw GL texture ID.
-            // ARB_bindless_texture freezes a texture as soon as a handle references it - TexImage* on it
-            // is an INVALID_OPERATION from then on - so anything that needs to re-specify a texture
-            // (Framebuffer::Resize) has to check this and recreate the texture object instead.
+            // A bindless handle freezes the texture (TexImage* gives INVALID_OPERATION), so re-specifying means recreating it.
             static bool HasBindlessHandle(uint32_t glTextureID);
 
-            // Makes this texture's handle non-resident and forgets it. A handle can never actually be
-            // destroyed, so the caller must delete the texture object right after - the replacement ID
-            // then gets a fresh handle from the next GetBindlessHandle() call.
+            // A handle can never be destroyed, so delete the texture object right after this.
             static void ReleaseBindlessHandle(uint32_t glTextureID);
 
             ~GLTexture2D();
@@ -74,7 +64,7 @@ namespace Shard::Engine::Rendering{
 
             uint32_t m_GLInternalFormat = 0;
 
-            int64_t m_GpuBytes = 0;     // what GpuMemory was told this texture holds
+            int64_t m_GpuBytes = 0;
 
     };
 

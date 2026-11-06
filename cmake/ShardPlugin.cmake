@@ -1,30 +1,3 @@
-# shard_add_plugin : builds a plugin for Shard and writes its shard-plugin.json next to it.
-#
-#   shard_add_plugin(
-#       NAME         weather                 # the CMake target
-#       ID           com.acme.weather        # the plugin id (reverse DNS, lowercase)
-#       VERSION      1.4.2
-#       SOURCES      weather.cpp ...
-#       [KIND        plugin|module]          # default : plugin
-#       [MODULE_KIND code|genre|mod]         # default : code, when KIND is module
-#       [HOSTS       engine player headless] # default : engine
-#       [DEPENDS     shard.audio "com.acme.clouds@^2.1" ...]   # "id" or "id@range" ; append "?" to the id for an optional one
-#       [ENGINE_REQUIRES largeWorld determinism]
-#       [ABI         cpp|c1]                 # default : cpp. c1 : the C ABI of sdk/include/shard ; the plugin links nothing of the engine (C or C++ sources)
-#       [EDITOR_UI]                          # the plugin draws with ImGui (editor windows) : ImGui is compiled into it, see engine/plugins/editor_imgui.hpp
-#       [AFFECTS_SIMULATION]                 # the plugin changes what the simulation computes (default for modules)
-#       [CONTENT_DIR content]                # a folder of the source tree copied next to the plugin as its content
-#       [OUTPUT_DIR  <dir>]                  # where plugin folders go (default : <build>/plugins)
-#   )
-#
-# The plugin is laid out the way the engine finds it :
-#   <OUTPUT_DIR>/<ID>/shard-plugin.json
-#   <OUTPUT_DIR>/<ID>/bin/<platform>/<library>
-#   <OUTPUT_DIR>/<ID>/content/...
-# ABI cpp links the engine, so it sees the same headers as the game module (BUILD_GAME), and exports its entry point with SHARD_PLUGIN.
-
-# The manifest writer and the layout are the SDK's (sdk/cmake/ShardSDKPlugin.cmake) : a plugin built in the repository and one built against
-# the installed SDK come out the same
 include(${CMAKE_CURRENT_LIST_DIR}/../sdk/cmake/ShardSDKPlugin.cmake)
 
 function(shard_add_plugin)
@@ -68,7 +41,6 @@ function(shard_add_plugin)
     endif()
     add_library(${P_NAME} SHARED ${P_SOURCES} ${_imgui_sources})
     if(P_ABI STREQUAL "c1")
-        # Only the SDK headers : this is what a plugin outside the repository sees. Symbols are hidden but the entry point.
         target_include_directories(${P_NAME} PRIVATE ${CMAKE_SOURCE_DIR}/sdk/include)
         set_target_properties(${P_NAME} PROPERTIES C_VISIBILITY_PRESET hidden CXX_VISIBILITY_PRESET hidden VISIBILITY_INLINES_HIDDEN ON)
     else()
@@ -116,7 +88,6 @@ function(shard_add_plugin)
         shard_enable_warnings(${P_NAME})
     endif()
     if(P_ABI STREQUAL "c1")
-        # The headers promise C11 and C++17 without a warning, pedantic included
         if(MSVC)
             target_compile_options(${P_NAME} PRIVATE /W4 /WX)
         else()

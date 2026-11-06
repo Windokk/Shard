@@ -46,7 +46,6 @@ namespace Shard::Engine::Rendering {
         TextureCubeArray,
         Texture2DMultisampleArray,
 
-        // Shadow samplers
         Texture1DShadow,
         Texture2DShadow,
         TextureCubeShadow,
@@ -145,8 +144,7 @@ namespace Shard::Engine::Rendering {
 
             virtual void SetUVec2(const std::string& name, uint32_t x, uint32_t y) = 0;
 
-            /// Whether the fragment stage has a `depthPrepass` switch that makes it return before any shading : such a
-            /// shader can be drawn twice, depth first (see RendererAPI::SetDepthSweep)
+            // Fragment stage has a `depthPrepass` switch that returns before shading, so it can be drawn twice.
             bool SupportsDepthPrepass()
             {
                 if (m_DepthPrepassSupport < 0)
@@ -154,19 +152,15 @@ namespace Shard::Engine::Rendering {
                 return m_DepthPrepassSupport == 1;
             }
 
-            /// Hot reload : compiles the stages again from their files and, if that works, replaces the program of this
-            /// shader (materials keep pointing at it). A failure leaves the old program running. Graphics thread.
+            // A failed recompile leaves the old program running. Graphics thread.
             virtual bool Reload() { return false; }
 
-            /// @param defines  `NAME` or `NAME=value` : added as #define before the first line of every stage, a permutation of the shader
             static std::shared_ptr<Shader> Create(
                 const Filesystem::Path& vertexPath,
                 const Filesystem::Path& fragmentPath,
                 const Filesystem::Path& geometryPath = Filesystem::Path(""),
                 const std::vector<std::string>& defines = {});
 
-            /// A permutation of this shader : the same files with one more define (`GBUFFER`, `SHARD_DEFERRED_LIGHTING`...). Made the first time it is asked
-            /// for, kept as long as this shader lives, and the parameters of a material apply to it by name as they do to this one.
             std::shared_ptr<Shader> GetVariant(const std::string& define);
 
             const std::vector<std::string>& GetDefines() const { return m_Defines; }
@@ -186,7 +180,7 @@ namespace Shard::Engine::Rendering {
 
         protected:
 
-            int m_DepthPrepassSupport = -1;     // SupportsDepthPrepass(), worked out on first use
+            int m_DepthPrepassSupport = -1;
 
             Filesystem::AssetID m_AssetID;
 

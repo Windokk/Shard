@@ -65,7 +65,6 @@ namespace Shard::Engine::Rendering::ShaderCompiler {
             return "\"" + path.string() + "\"";
         }
 
-        /// One stage of a Slang file, compiled by slangc to SPIR-V (a process per stage : each stage is a module of its own)
         bool CompileSlangStage(const StageSource& stage, const Options& options, std::vector<uint32_t>& words, std::string& log)
         {
             const std::filesystem::path slangc = FindSlangCompiler();
@@ -77,7 +76,7 @@ namespace Shard::Engine::Rendering::ShaderCompiler {
             }
 
             static std::atomic<uint32_t> counter{0};
-            // The thread id and the counter are only unique in this process : two processes (ctest -j) start with the same ones
+            // Thread id and counter are only unique per process. Two processes (ctest -j) start with the same ones.
             static const uint64_t process = (uint64_t(std::random_device{}()) << 32) | std::random_device{}();
             std::error_code ec;
             const std::filesystem::path temp = std::filesystem::temp_directory_path(ec);
@@ -87,14 +86,14 @@ namespace Shard::Engine::Rendering::ShaderCompiler {
 
             const std::string entry = DefaultEntryPoint(SourceLanguage::Slang, stage.kind);
 
-            // The matrices the engine uploads are glm's : column major
+            // glm matrices are column major
             std::string command = Quoted(slangc) + " " + Quoted(stage.file) + " -target spirv -entry " + entry + " -stage " + SlangStageName(stage.kind) +
                                   " -matrix-layout-column-major -o " + Quoted(output);
             for (const auto& [name, value] : options.defines)
                 command += " -D" + name + "=" + value;
             command += " > " + Quoted(diagnostics) + " 2>&1";
 
-            // cmd.exe strips the first and the last quote of a command line that starts with one
+            // cmd.exe strips the first and last quote of a command line that starts with one
 #ifdef _WIN32
             command = "\"" + command + "\"";
 #endif
@@ -124,8 +123,6 @@ namespace Shard::Engine::Rendering::ShaderCompiler {
             return true;
         }
 
-        // ---- Source preparation ------------------------------------------------------------------------------------------------
-
         [[maybe_unused]] std::string ReplaceAll(std::string text, const std::string& from, const std::string& to)
         {
             size_t at = 0;
@@ -142,8 +139,6 @@ namespace Shard::Engine::Rendering::ShaderCompiler {
             return std::isalnum(static_cast<unsigned char>(c)) || c == '_';
         }
 
-        /// `sampler2D(handle)` : the constructor that turns a bindless handle into a sampler. A declaration is `sampler2D name`, the constructor
-        /// is the type name followed by a parenthesis.
         bool UsesBindlessConstructor(const std::string& source)
         {
             size_t at = 0;
@@ -183,7 +178,6 @@ namespace Shard::Engine::Rendering::ShaderCompiler {
             return out;
         }
 
-        /// What the stage's own text has to say before glslang reads it : the version, the extension that does not exist for Vulkan
         std::string PrepareStageSource(const std::string& source)
         {
             std::istringstream in(source);
@@ -199,7 +193,7 @@ namespace Shard::Engine::Rendering::ShaderCompiler {
                 size_t first = line.find_first_not_of(" \t");
                 if (first != std::string::npos && line.compare(first, 8, "#version") == 0)
                 {
-                    // The Vulkan dialect starts at 450 : what a 430 shader says it needs, a 460 one has
+                    // The Vulkan dialect starts at 450. What a 430 shader needs, a 460 one has.
                     out << "#version 460 core\n";
                     versionSeen = true;
                     continue;
@@ -207,7 +201,7 @@ namespace Shard::Engine::Rendering::ShaderCompiler {
 
                 if (first != std::string::npos && line.compare(first, 10, "#extension") == 0 && line.find("GL_ARB_bindless_texture") != std::string::npos)
                 {
-                    out << "\n";     // the bindless array replaces it (see the preamble) ; the line stays, so that the numbers of the log do
+                    out << "\n";
                     continue;
                 }
 
@@ -231,7 +225,7 @@ namespace Shard::Engine::Rendering::ShaderCompiler {
             if (bindless)
             {
                 preamble << "layout(set = " << BindingSets::Bindless << ", binding = 0) uniform sampler2D " << kBindlessArray << "[];\n";
-                // A bindless handle is the pair of uints the CPU wrote : the first is the texture's index in the array
+                // A bindless handle is the pair of uints the CPU wrote. The first is the texture's index in the array.
                 preamble << "#define ShardBindlessSampler2D(handle) " << kBindlessArray << "[nonuniformEXT((handle).x)]\n";
             }
 
@@ -246,8 +240,6 @@ namespace Shard::Engine::Rendering::ShaderCompiler {
                 names.insert((*it)[1].str());
             return names;
         }
-
-        // ---- Reflection --------------------------------------------------------------------------------------------------------
 
         ShaderSamplerType SamplerTypeOf(const SpvReflectImageTraits& image)
         {
@@ -328,7 +320,7 @@ namespace Shard::Engine::Rendering::ShaderCompiler {
 
             if (flags & SPV_REFLECT_TYPE_FLAG_MATRIX)
             {
-                // The columns sit at the stride of the layout (16 bytes for a mat3 in std140)
+                // Columns sit at the layout stride (16 bytes for a mat3 in std140)
                 const uint32_t stride = variable.numeric.matrix.stride ? variable.numeric.matrix.stride : 16;
                 return stride * variable.numeric.matrix.column_count;
             }
@@ -340,19 +332,16 @@ namespace Shard::Engine::Rendering::ShaderCompiler {
             return std::max<uint32_t>(variable.numeric.scalar.width / 8, 4);
         }
 
-        /// The leaves of a block variable, named the way the GLSL names them. `base` : where this instance starts in the block.
         void FlattenBlock(const SpvReflectBlockVariable& variable, const std::string& name, uint32_t base, uint32_t arrayDim,
                           const std::set<std::string>& boolNames, std::vector<ReflectedUniform>& out)
         {
             if (arrayDim < variable.array.dims_count)
             {
                 const uint32_t count = variable.array.dims[arrayDim];
-                // The stride of the outer dimension : the size of everything inside one element of it
                 uint32_t stride = variable.array.stride;
                 for (uint32_t d = arrayDim + 1; d < variable.array.dims_count; d++)
                     stride *= std::max<uint32_t>(variable.array.dims[d], 1);
 
-                // A runtime array (count 0) has nothing to name here
                 for (uint32_t i = 0; i < count; i++)
                     FlattenBlock(variable, name + "[" + std::to_string(i) + "]", base + i * stride, arrayDim + 1, boolNames, out);
                 return;
@@ -368,7 +357,6 @@ namespace Shard::Engine::Rendering::ShaderCompiler {
                 return;
             }
 
-            // The name of an array element carries its index, the bool lookup is for the declared name
             std::string declared = name;
             declared = declared.substr(0, declared.find_first_of("[."));
 
@@ -385,7 +373,6 @@ namespace Shard::Engine::Rendering::ShaderCompiler {
             return binding.name && std::string(binding.name) == kBindlessArray;
         }
 
-        /// Reads one stage's SPIR-V, moves each of its resources to the set of its kind, and adds what it declares to the program's reflection
         bool ReflectAndRemapStage(ShaderStageKind kind, std::vector<uint32_t>& words, ShaderReflection& reflection,
                                   const std::set<std::string>& boolNames, std::string& log)
         {
@@ -405,7 +392,6 @@ namespace Shard::Engine::Rendering::ShaderCompiler {
             for (SpvReflectDescriptorBinding* binding : bindings)
             {
                 ReflectedBinding entry;
-                // A block is named by its type when it has no instance name (`buffer Lights { ... };`)
                 entry.name = binding->name ? binding->name : "";
                 if (entry.name.empty() && binding->type_description && binding->type_description->type_name)
                     entry.name = binding->type_description->type_name;
@@ -426,8 +412,6 @@ namespace Shard::Engine::Rendering::ShaderCompiler {
                         entry.kind = BindingKind::UniformBuffer;
                         entry.blockSize = binding->block.size;
                         newSet = BindingSets::Uniforms;
-                        // The uniforms the shader sets by name are binding 0 of their set : the block glslang made out of the loose ones
-                        // (see setGlobalUniformSet). A block the shader declares itself comes after it.
                         isGlobalBlock = binding->set == BindingSets::Uniforms && binding->binding == 0;
                         if (!isGlobalBlock)
                             newBinding = binding->binding + 1;
@@ -453,7 +437,6 @@ namespace Shard::Engine::Rendering::ShaderCompiler {
                     default:
                         if (binding->descriptor_type == SPV_REFLECT_DESCRIPTOR_TYPE_SAMPLER || binding->descriptor_type == SPV_REFLECT_DESCRIPTOR_TYPE_SAMPLED_IMAGE)
                         {
-                            // A texture and its sampler apart (Slang's Texture2D + SamplerState, GLSL's texture2D + sampler) : the engine binds them as one descriptor
                             log += "The resource '" + entry.name + "' is a " + (binding->descriptor_type == SPV_REFLECT_DESCRIPTOR_TYPE_SAMPLER ? "sampler" : "texture") +
                                    " on its own : a texture and its sampler are one descriptor here (Sampler2D in Slang, sampler2D in GLSL)\n";
                             spvReflectDestroyShaderModule(&module);
@@ -476,7 +459,6 @@ namespace Shard::Engine::Rendering::ShaderCompiler {
                         break;
                 }
 
-                // The uniform block's members are what Shader::SetFloat & co address
                 if (isGlobalBlock)
                 {
                     std::vector<ReflectedUniform> declared;
@@ -486,7 +468,6 @@ namespace Shard::Engine::Rendering::ShaderCompiler {
                         FlattenBlock(member, member.name ? member.name : "", member.offset, 0, boolNames, declared);
                     }
 
-                    // The stages share one buffer : what two of them declare has to be at the same place in both
                     for (const ReflectedUniform& uniform : declared)
                     {
                         const ReflectedUniform* known = reflection.FindUniform(uniform.name);
@@ -561,7 +542,6 @@ namespace Shard::Engine::Rendering::ShaderCompiler {
                 reflection.localSize[2] = entryPoint.local_size.z;
             }
 
-            // The module holds the words that were edited
             const uint32_t* code = spvReflectGetCode(&module);
             const size_t size = spvReflectGetCodeSize(&module) / sizeof(uint32_t);
             words.assign(code, code + size);
@@ -651,7 +631,7 @@ namespace Shard::Engine::Rendering::ShaderCompiler {
 
     const char* ToolchainVersion()
     {
-        // Bump the last number when the way a source is turned into SPIR-V changes without the compiler changing
+        // Bump the last number when the source-to-SPIR-V path changes without the compiler changing.
         return "glslang-vulkan-sdk-1.4.341.0/shard-1";
     }
 
@@ -666,7 +646,6 @@ namespace Shard::Engine::Rendering::ShaderCompiler {
             h = Fnv(h, &kind, 1);
             h = Fnv(h, stage.source.data(), stage.source.size());
 
-            // A GLSL stage hashes as it always did (its binaries stay valid)
             if (stage.language != SourceLanguage::GLSL)
             {
                 const uint8_t language = static_cast<uint8_t>(stage.language);
@@ -754,8 +733,7 @@ namespace Shard::Engine::Rendering::ShaderCompiler {
             shader->setEnvTarget(glslang::EShTargetSpv, glslang::EShTargetSpv_1_6);
             shader->setEnvInputVulkanRulesRelaxed();
 
-            // What a GL driver does when it links : numbers the samplers that have none, matches the locations of one stage's
-            // outputs with the next stage's inputs, and gathers the loose uniforms into one block
+            // Does what a GL driver does at link: numbers unbound samplers, matches stage in/out locations, gathers loose uniforms into one block.
             shader->setAutoMapBindings(true);
             shader->setAutoMapLocations(true);
             shader->setBindingsPerResourceType();
@@ -791,7 +769,6 @@ namespace Shard::Engine::Rendering::ShaderCompiler {
             return result;
         }
 
-        // What slangc compiles comes out as SPIR-V : it joins the stages of glslang at the reflection
         for (const StageSource* stage : slangStages)
         {
             if (!CompileSlangStage(*stage, options, result.binary.spirv[static_cast<size_t>(stage->kind)], result.log))
@@ -827,7 +804,6 @@ namespace Shard::Engine::Rendering::ShaderCompiler {
             }
         }
 
-        // Each stage's resources are moved to the set of their kind : the same decisions in every stage, so that they agree
         for (size_t s = 0; s < result.binary.spirv.size(); s++)
         {
             std::vector<uint32_t>& words = result.binary.spirv[s];
@@ -838,8 +814,6 @@ namespace Shard::Engine::Rendering::ShaderCompiler {
                 return result;
         }
 
-        // The reflection of a block member in a stage that does not use it is as good as the one of a stage that does : the first
-        // stage that has the block wins, the others only add their stage bit to the binding.
         std::sort(result.binary.reflection.bindings.begin(), result.binary.reflection.bindings.end(),
                   [](const ReflectedBinding& a, const ReflectedBinding& b) { return a.set != b.set ? a.set < b.set : a.binding < b.binding; });
 
@@ -870,7 +844,6 @@ namespace Shard::Engine::Rendering::ShaderCompiler {
                 }
             }
 
-            // Each file is spliced in once, wherever it is first included from : the shared headers have no guard of their own
             if (!context.included.insert(normalized).second)
                 return "";
 
@@ -940,11 +913,9 @@ namespace Shard::Engine::Rendering::ShaderCompiler {
 
             if (LanguageOfFile(it->path()) == SourceLanguage::Slang)
             {
-                // One file, every stage : which ones it has is told by the entry points it declares
                 std::ifstream stream(it->path(), std::ios::binary);
                 std::string text((std::istreambuf_iterator<char>(stream)), std::istreambuf_iterator<char>());
 
-                // What the comments say about the entry points is not a declaration of them
                 static const std::regex comments(R"(//[^\n]*|/\*[\s\S]*?\*/)");
                 text = std::regex_replace(text, comments, " ");
 
@@ -983,8 +954,6 @@ namespace Shard::Engine::Rendering::ShaderCompiler {
         std::vector<ProgramFiles> out;
         for (auto& [name, program] : programs)
         {
-            // A graphics program has to have both a vertex and a fragment stage (a depth pass that has no fragment stage would be a
-            // program with a vertex stage alone, which the engine does not write)
             const bool compute = program.Has(ShaderStageKind::Compute);
             const bool graphics = program.Has(ShaderStageKind::Vertex) && program.Has(ShaderStageKind::Fragment);
             if (compute || graphics)

@@ -9,9 +9,7 @@ using Shard::Engine::Time::TimeManager;
 
 namespace {
 
-    // Drives PhysicsManager the way EngineInstance::Run() does - bank each frame's real time, then
-    // run however many fixed steps it paid for - so these tests exercise the actual loop policy and
-    // not just Jolt.
+    // Drives PhysicsManager like EngineInstance::Run(): bank frame time, run the fixed steps it paid for. Tests the real loop policy.
     class FallingBodyFixture : public ::testing::Test {
         protected:
 
@@ -19,8 +17,7 @@ namespace {
 
             void SetUpWorld(glm::vec3 gravity)
             {
-                // A fresh manager per world: JPH::PhysicsSystem is held by value and asserts if it is
-                // initialized twice, so a shut-down PhysicsManager can't be reused.
+                // One manager per world: JPH::PhysicsSystem asserts if initialized twice, so a shut-down manager cannot be reused.
                 TearDownWorld();
                 physics = std::make_unique<PhysicsManager>();
                 physics->Init(gravity);
@@ -33,7 +30,7 @@ namespace {
                     Shard::Engine::Physics::Layers::MOVING
                 );
 
-                // Free fall in a vacuum: damping would make the comparison against 1/2*g*t^2 meaningless.
+                // Free fall in a vacuum. Damping would break the 1/2*g*t^2 comparison.
                 settings.mLinearDamping = 0.0f;
                 settings.mAngularDamping = 0.0f;
 
@@ -54,7 +51,6 @@ namespace {
                 TearDownWorld();
             }
 
-            /// Runs `realSeconds` of wall clock at `fps` and returns how far the body fell.
             float FallOver(float realSeconds, float fps)
             {
                 TimeManager time;
@@ -80,18 +76,14 @@ namespace {
     };
 }
 
-TEST_F(FallingBodyFixture, FallsTheSameDistanceWhateverTheFramerate)
+TEST_F(FallingBodyFixture, FallIndependentOfFramerate)
 {
     const float gravity = 9.81f;
     const float seconds = 1.0f;
 
     const float framerates[] = { 500.0f, 144.0f, 60.0f, 20.0f };
 
-    // Sampled at an arbitrary instant a body can be one step behind: whether the last step of the
-    // second has been paid out yet depends on where the frame boundaries fall, and a frame delta that
-    // isn't exactly representable (1/20 s, say) can leave the accumulator a hair under the threshold.
-    // That step is carried into the next frame rather than dropped, so the bound is one step of
-    // travel at the speed reached - not a drift that grows with time.
+    // Sampled mid-run a body can be one step behind: a frame delta not exactly representable (1/20 s) can leave the accumulator a hair under the threshold. The step carries to the next frame, so the bound is one step of travel, not a growing drift.
     const float oneStepOfTravel = (gravity * seconds) * kFixedStep;
 
     float reference = -1.0f;
@@ -108,13 +100,10 @@ TEST_F(FallingBodyFixture, FallsTheSameDistanceWhateverTheFramerate)
     }
 }
 
-TEST_F(FallingBodyFixture, DoesNotDriftFurtherBehindOverTime)
+TEST_F(FallingBodyFixture, NoDriftOverTime)
 {
     const float gravity = 9.81f;
 
-    // The one-step sampling gap must stay a fixed offset, not accumulate: over 8 seconds a loop that
-    // leaked time would be far more than one step apart, which is exactly the framerate dependence
-    // this whole fixed-step scheme exists to prevent.
     const float seconds = 8.0f;
     const float oneStepOfTravel = (gravity * seconds) * kFixedStep;
 
@@ -127,7 +116,7 @@ TEST_F(FallingBodyFixture, DoesNotDriftFurtherBehindOverTime)
     EXPECT_NEAR(fast, slow, oneStepOfTravel * 1.1f);
 }
 
-TEST_F(FallingBodyFixture, FallsTheTextbookDistanceInRealTime)
+TEST_F(FallingBodyFixture, FallsTextbookDistance)
 {
     const float gravity = 9.81f;
 
@@ -135,15 +124,14 @@ TEST_F(FallingBodyFixture, FallsTheTextbookDistanceInRealTime)
 
     const float fallen = FallOver(1.0f, 60.0f);
 
-    // 1/2*g*t^2 after one real second. The discrete integrator overshoots the closed form slightly
-    // (by half a step of velocity), hence the few percent of slack rather than an exact match.
+    // 1/2*g*t^2 after 1 s. The discrete integrator overshoots by half a step of velocity, hence a few percent of slack.
     const float expected = 0.5f * gravity * 1.0f * 1.0f;
     EXPECT_NEAR(fallen, expected, expected * 0.03f);
 }
 
 TEST_F(FallingBodyFixture, CountsTheStepsItSimulates)
 {
-    // What a body goes by to tell a pose Jolt just produced from the one it already read (the interpolation keeps the last two)
+    // What a body goes by to tell a fresh Jolt pose from the one already read (interpolation keeps the last two).
     SetUpWorld(glm::vec3(0.0f, -9.81f, 0.0f));
     EXPECT_EQ(physics->GetStepCount(), 0u);
 
@@ -152,7 +140,7 @@ TEST_F(FallingBodyFixture, CountsTheStepsItSimulates)
     EXPECT_EQ(physics->GetStepCount(), 2u);
 }
 
-TEST(PoseInterpolation, CarriesTheCurrentPoseToTheInterpolatedOne)
+TEST(PoseInterpolation, CarriesPoseToInterpolated)
 {
     using Shard::Engine::Physics::PoseInterpolationOffset;
 
@@ -160,7 +148,6 @@ TEST(PoseInterpolation, CarriesTheCurrentPoseToTheInterpolatedOne)
     const glm::quat prevRot = glm::angleAxis(0.2f, glm::vec3(0, 1, 0));
     const glm::quat currRot = glm::angleAxis(1.0f, glm::vec3(0, 1, 0));
 
-    // A point of a scaled body, drawn from the pose the transform holds (the last step)
     const glm::vec3 local(0.5f, 1.0f, -0.25f);
     const glm::mat4 world = glm::translate(glm::mat4(1.0f), currPos) * glm::mat4_cast(currRot) * glm::scale(glm::mat4(1.0f), glm::vec3(2.0f));
 
@@ -171,24 +158,22 @@ TEST(PoseInterpolation, CarriesTheCurrentPoseToTheInterpolatedOne)
 
         const glm::vec3 expectedPos = glm::mix(prevPos, currPos, alpha);
         const glm::quat expectedRot = glm::slerp(prevRot, currRot, alpha);
-        const glm::vec3 expected = expectedPos + expectedRot * (local * 2.0f);   // scale is kept, only the pose moves
+        const glm::vec3 expected = expectedPos + expectedRot * (local * 2.0f);
 
         EXPECT_NEAR(drawn.x, expected.x, 1e-4f) << "alpha " << alpha;
         EXPECT_NEAR(drawn.y, expected.y, 1e-4f) << "alpha " << alpha;
         EXPECT_NEAR(drawn.z, expected.z, 1e-4f) << "alpha " << alpha;
     }
 
-    // alpha 1 is the last step itself : nothing to correct
     const glm::mat4 identity = PoseInterpolationOffset(prevPos, prevRot, currPos, currRot, 1.0f);
     for (int c = 0; c < 4; c++)
         for (int r = 0; r < 4; r++)
             EXPECT_NEAR(identity[c][r], glm::mat4(1.0f)[c][r], 1e-4f);
 }
 
-TEST_F(FallingBodyFixture, GravityScalesTheFallForProjectsThatArentMetric)
+TEST_F(FallingBodyFixture, GravityScalesNonMetric)
 {
-    // A project whose unit isn't a metre scales gravity to match - twice the gravity has to cover
-    // twice the distance in the same time, which is what makes a 2x-scaled world read correctly.
+    // A project unit that is not a metre scales gravity: twice the gravity covers twice the distance in the same time.
     SetUpWorld(glm::vec3(0.0f, -9.81f, 0.0f));
     const float metric = FallOver(1.0f, 60.0f);
 

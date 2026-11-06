@@ -28,7 +28,7 @@ TEST(Sha2, KnownDigests)
               "67ba5535a46e3f86dbfbed8cbbaf0125c76ed549ff8b0b9e03e0c88cf90fa634fa7b12b47d77b694de488ace8d9a65967dc96df599727d3292a8d9d447709c97");
 }
 
-TEST(Sha2, StreamingGivesTheSameDigestWhateverTheChunks)
+TEST(Sha2, StreamingMatchesChunks)
 {
     std::string data;
     for (int i = 0; i < 5000; ++i) data += char(i * 7);
@@ -66,7 +66,7 @@ TEST(Ed25519, Rfc8032TestVectorOne)
     EXPECT_TRUE(Verify("", 0, sig, pk));
 }
 
-TEST(Ed25519, MatchesAnotherImplementationOnAnotherKey)
+TEST(Ed25519, MatchesOtherImplementation)
 {
     std::array<uint8_t, 32> seed;
     for (int i = 0; i < 32; ++i) seed[size_t(i)] = uint8_t(i);
@@ -80,7 +80,7 @@ TEST(Ed25519, MatchesAnotherImplementationOnAnotherKey)
     EXPECT_TRUE(Verify(message.data(), message.size(), sig, pk));
 }
 
-TEST(Ed25519, RefusesAWrongMessageKeyOrSignature)
+TEST(Ed25519, RefusesWrongInputs)
 {
     std::array<uint8_t, 32> seed{};
     seed[0] = 42;
@@ -105,7 +105,7 @@ TEST(Ed25519, RefusesAWrongMessageKeyOrSignature)
     EXPECT_FALSE(Verify(message.data(), message.size(), sig, garbage));
 }
 
-TEST(Ed25519, ARandomSeedMakesAWorkingKey)
+TEST(Ed25519, RandomSeedMakesKey)
 {
     std::array<uint8_t, 32> a, b;
     ASSERT_TRUE(RandomSeed(a));
@@ -126,7 +126,7 @@ TEST(Ed25519, AMalleatedSignatureIsRefused)
     SecretKey sk;
     KeyPairFromSeed(seed, pk, sk);
     Signature sig = Sign("m", 1, sk);
-    // S + L is the same point but not a canonical scalar
+    // S + L is the same point but not a canonical scalar.
     static const uint8_t L[32] = { 0xed, 0xd3, 0xf5, 0x5c, 0x1a, 0x63, 0x12, 0x58, 0xd6, 0x9c, 0xf7, 0xa2, 0xde, 0xf9, 0xde, 0x14,
                                    0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0x10 };
     int carry = 0;

@@ -148,9 +148,7 @@ namespace Shard::Engine::Rendering{
         bool depthWrite = true;
         DepthCompareOp depthCompare = DepthCompareOp::Less;
 
-        /// Every pixel a triangle touches is drawn, not only the ones whose centre it covers : what a shadow map needs so a gap thinner
-        /// than a texel is closed instead of being lost between the texel centres. Honoured by OpenGL when the GPU has
-        /// GL_NV_conservative_raster ; ignored elsewhere.
+        // Draws every pixel a triangle touches (closes sub-texel gaps in shadow maps). Needs GL_NV_conservative_raster, ignored elsewhere.
         bool conservativeRaster = false;
 
         bool blending = false;
@@ -168,8 +166,6 @@ namespace Shard::Engine::Rendering{
         std::size_t operator()(const PipelineSpecifications& s) const;
     };
 
-    /// Drops the entries of a pipeline cache (specs -> shared_ptr pipeline, keyed on the shader object) that nothing outside the cache
-    /// holds any more : their shader is kept alive by the key alone, so a shader made again (not reused) would otherwise pile up forever
     template<typename Cache>
     void PruneUnusedPipelines(Cache& cache)
     {
@@ -197,7 +193,6 @@ namespace Shard::Engine::Rendering{
 
             virtual void Bind() = 0;
 
-            /// The same pipeline with a permutation of its shader (see Shader::GetVariant) : what a pass that draws materials with another program uses
             std::shared_ptr<Pipeline> GetVariant(const std::string& define);
 
 

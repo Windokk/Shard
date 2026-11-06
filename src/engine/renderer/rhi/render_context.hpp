@@ -26,9 +26,6 @@ namespace Shard::Engine::Rendering {
     class ImmediateRenderer;
     class ThumbnailService;
 
-    /// @brief What the parts of the renderer that draw or light the world (the features and the components)
-    /// ask of the Renderer that drives the frame : pipelines, passes, draw commands and the other features.
-    /// They only see this interface, the Renderer implements it.
     class IRenderContext{
         public:
             virtual ~IRenderContext() = default;
@@ -54,10 +51,7 @@ namespace Shard::Engine::Rendering {
             virtual bool GetCurrentView(RenderView& out) = 0;
             virtual void RenderImmediate(const std::shared_ptr<RenderPass>& pass, const RenderView& view) = 0;
 
-            /// @brief Where the Extract stage writes the frame : the only way the renderer learns about the simulation.
             virtual RenderSnapshotBuffer& GetSnapshotBuffer() = 0;
-            /// @brief The snapshot the current frame renders (while a frame runs), else the latest published one.
-            /// Immutable ; features read the camera, the lights and the world settings from here, never from the world.
             virtual const RenderSnapshot& GetSnapshot() const = 0;
 
             virtual std::shared_ptr<Framebuffer> GetViewportFramebuffer() const = 0;

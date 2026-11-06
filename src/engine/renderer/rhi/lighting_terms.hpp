@@ -6,19 +6,7 @@
 
 namespace Shard::Engine::Rendering {
 
-    // The terms the light leaving a surface is the sum of. The real-time renderer computes each one its own way (lights and shadow
-    // maps, probes and lightmaps, reflections) where the path tracer computes them all at once : drawing one term alone in both,
-    // and comparing, says which approximation is wrong and by how much (scripts/compare_reference.py).
-    //
-    // A term is defined at the surface the camera sees :
-    // - Direct : the lights (directional, point, spot), straight onto it, shadowed ;
-    // - IndirectDiffuse : everything else that arrives through the diffuse lobe : the sky, the light other surfaces bounce, the
-    //   emissive surfaces, the world's flat ambient floor (real time : probes, lightmaps, the sky's irradiance, SSAO) ;
-    // - IndirectSpecular : everything else that arrives through the specular lobe : the reflections of the sky and of the scene
-    //   (real time : the environment map, reflection probes, SSR) ;
-    // - Emission : the light the surface gives off itself, and the sky where no surface is seen.
-    //
-    // This is the C++ twin of LIGHTING_TERM_* in shaders/common/light.glsl : the bits are the same there, and have to stay so.
+    // Twin of LIGHTING_TERM_* in shaders/common/light.glsl, the bits must match.
 
     enum LightingTerm : uint32_t
     {
@@ -30,7 +18,6 @@ namespace Shard::Engine::Rendering {
         LightingTermsAll = LightingTermDirect | LightingTermIndirectDiffuse | LightingTermIndirectSpecular | LightingTermEmission
     };
 
-    /// Every term, in the order of their bits (the order of the path tracer's term images, see path_trace.comp)
     inline constexpr LightingTerm kLightingTerms[] = { LightingTermDirect, LightingTermIndirectDiffuse, LightingTermIndirectSpecular, LightingTermEmission };
 
     inline const char* LightingTermName(LightingTerm term)
@@ -46,7 +33,6 @@ namespace Shard::Engine::Rendering {
         return "?";
     }
 
-    /// "all", or the names of the terms joined by '+' (in the order of their bits)
     inline std::string FormatLightingTerms(uint32_t terms)
     {
         terms &= LightingTermsAll;
@@ -67,8 +53,6 @@ namespace Shard::Engine::Rendering {
         return text;
     }
 
-    /// Reads "all", "none", or names of terms joined by '+' or ',' (case does not matter) : "direct", "direct+emission"...
-    /// False, `out` untouched, when a name is not one of them.
     inline bool ParseLightingTerms(const std::string& text, uint32_t& out)
     {
         uint32_t terms = 0;

@@ -26,7 +26,6 @@ namespace Shard::Engine::Plugins {
             return s;
         }
 
-        // True if `relative` stays inside the folder it is joined to (no "..", not absolute)
         bool IsSafeRelative(const std::string& relative)
         {
             if (relative.empty()) return false;
@@ -72,8 +71,6 @@ namespace Shard::Engine::Plugins {
         }
     }
 
-    // ---- ContentMounts ----
-
     std::string ContentMounts::Normalize(const std::string& path)
     {
         std::string s = Slash(path);
@@ -87,7 +84,7 @@ namespace Shard::Engine::Plugins {
         const fs::path root = fs::path(manifest.rootDir) / manifest.contentMount;
         std::error_code ec;
         if (!fs::is_directory(root, ec)) {
-            // A module whose content folder is missing is not an error when it never promised content (a code module)
+            // Code modules never promised content, so a missing content folder is only an error for datapacks and mods
             if (manifest.moduleKind == ModuleKind::Datapack || manifest.moduleKind == ModuleKind::Mod) {
                 if (error) *error = "content folder '" + manifest.contentMount + "' is missing";
                 return false;
@@ -189,7 +186,7 @@ namespace Shard::Engine::Plugins {
     {
         for (const std::string& o : mount.overrides) {
             if (o == "*" || o == logicalPath) return true;
-            if (!o.empty() && o.back() == '*' && logicalPath.compare(0, o.size() - 1, o, 0, o.size() - 1) == 0) return true;      // "materials/*"
+            if (!o.empty() && o.back() == '*' && logicalPath.compare(0, o.size() - 1, o, 0, o.size() - 1) == 0) return true;
         }
         return false;
     }
@@ -202,7 +199,7 @@ namespace Shard::Engine::Plugins {
         for (const MountPoint& m : m_Mounts) {
             std::error_code ec;
             if (!fs::is_regular_file(m.root + "/" + path, ec)) continue;
-            if (!winner || Overrides(m, path)) winner = &m;      // a later layer replaces an earlier one only when it says so
+            if (!winner || Overrides(m, path)) winner = &m;
         }
         if (!winner) return std::nullopt;
         return Resolved{ winner->pluginId, winner->root + "/" + path, MakeModUri(winner->pluginId, path) };
@@ -228,7 +225,6 @@ namespace Shard::Engine::Plugins {
             ListFiles(m.root, {}, files);
             std::sort(files.begin(), files.end());
             for (const std::string& f : files) {
-                // Data that is merged on purpose never clashes
                 if (f.compare(0, 7, "tables/") == 0 || f.compare(0, 5, "lang/") == 0 || f.compare(0, 8, "patches/") == 0) continue;
                 auto it = kept.find(f);
                 if (it == kept.end()) { kept[f] = &m; continue; }
@@ -241,7 +237,7 @@ namespace Shard::Engine::Plugins {
 
     Core::Guid ContentMounts::AssetGuid(const std::string& assetNamespace, const std::string& path)
     {
-        // A fixed namespace for every module asset, so that "<ns>/<path>" is all that decides the id
+        // Fixed namespace for all module assets, so "<ns>/<path>" alone decides the id
         static const Core::Guid kModuleAssets = Core::Guid::FromName("shard.module-assets");
         std::string name = assetNamespace + "/" + Normalize(path);
         std::transform(name.begin(), name.end(), name.begin(), [](unsigned char c) { return char(std::tolower(c)); });
@@ -298,7 +294,6 @@ namespace Shard::Engine::Plugins {
         const json table = LoadLanguage(language);
         auto lookup = [&](const json& t) -> std::optional<std::string> {
             if (t.contains(key) && t[key].is_string()) return t[key].get<std::string>();
-            // "ui.start" may also be written nested : { "ui": { "start": "..." } }
             const json* node = &t;
             std::stringstream ss(key);
             std::string part;
@@ -312,8 +307,6 @@ namespace Shard::Engine::Plugins {
         if (auto v = lookup(table)) return *v;
         return fallback.empty() ? key : fallback;
     }
-
-    // ---- Validation ----
 
     namespace {
         void Problem(std::vector<std::string>& out, const std::string& file, const std::string& message)
@@ -436,7 +429,7 @@ namespace Shard::Engine::Plugins {
                 if (p.is_null()) continue;
                 if (!p.is_object() || !p.contains("world") || !p["world"].is_string()) { Problem(problems, f, "a patch needs the \"world\" it applies to"); continue; }
                 if (!p.contains("ops") || !p["ops"].is_array()) { Problem(problems, f, "a patch needs an \"ops\" array"); continue; }
-                // A trial run on an empty world catches the ops that are malformed, not the ones that name missing actors
+                // Trial run on an empty world catches malformed ops, not ops naming missing actors
                 static const std::set<std::string> kOps = { "addActor", "removeActor", "setComponent", "addComponent", "removeComponent", "setSettings" };
                 for (const json& op : p["ops"])
                     if (!op.is_object() || !op.contains("op") || !op["op"].is_string() || !kOps.count(op["op"].get<std::string>()))
@@ -451,8 +444,6 @@ namespace Shard::Engine::Plugins {
         return problems;
     }
 
-    // ---- World patches ----
-
     namespace {
         json* FindChild(json& actors, const std::string& name)
         {
@@ -462,7 +453,6 @@ namespace Shard::Engine::Plugins {
             return nullptr;
         }
 
-        // The actor array that holds the actor at `path`'s parent, and the actor's name
         json* FindActor(json& world, const std::string& path)
         {
             if (!world.contains("actors")) return nullptr;
@@ -507,7 +497,7 @@ namespace Shard::Engine::Plugins {
         if (!world.is_object()) return Err("the world is not a JSON object");
         if (!patch.is_object() || !patch.contains("ops") || !patch["ops"].is_array()) return Err("a patch needs an \"ops\" array");
 
-        json work = world;          // applied to a copy : all or nothing
+        json work = world;          // Applied to a copy, all or nothing
         size_t index = 0;
         for (const json& op : patch["ops"]) {
             const std::string where = "op " + std::to_string(index++) + " : ";

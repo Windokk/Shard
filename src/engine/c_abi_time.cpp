@@ -9,8 +9,6 @@
 #include "engine/world/engine.hpp"
 #include "engine/world/time_manager.hpp"
 
-// shard.time : the simulation's clock and a fingerprint of its state. Lives in the engine root : the fingerprint (simulation_state.hpp) is the root's.
-
 namespace Shard::Engine::Plugins::CAbi {
 
     namespace {

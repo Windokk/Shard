@@ -65,7 +65,6 @@ namespace Shard::Engine::Core::Platform::CrashHandler::Internal {
             }
         }
 
-        // The dump is written through dbghelp, loaded only when a crash happens
         std::string WriteMiniDump(const std::string& basePath, EXCEPTION_POINTERS* pointers)
         {
             HMODULE dbghelp = LoadLibraryA("dbghelp.dll");
@@ -104,7 +103,7 @@ namespace Shard::Engine::Core::Platform::CrashHandler::Internal {
 
             if (g_PreviousFilter)
                 return g_PreviousFilter(pointers);
-            return EXCEPTION_EXECUTE_HANDLER;   // terminate : the OS error dialog would only hide the report
+            return EXCEPTION_EXECUTE_HANDLER;
         }
 
         void TerminateHandler()
@@ -171,7 +170,6 @@ namespace Shard::Engine::Core::Platform::CrashHandler::Internal {
             }
         }
 
-        // Frames of the handler's own stack : the faulting frames are in the minidump
         void* frames[64];
         const USHORT count = CaptureStackBackTrace(0, 64, frames, nullptr);
         report << "\nStack (module+offset) :\n";

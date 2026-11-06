@@ -21,7 +21,6 @@
 using namespace Shard::Engine::Rendering;
 
 namespace {
-    // The null backend as the API the rhi factories pick from, for the length of a test
     class NullBackend : public ::testing::Test {
         protected:
             void SetUp() override {
@@ -45,7 +44,7 @@ namespace {
     }
 }
 
-TEST_F(NullBackend, TheApiIsTheNullOne) {
+TEST_F(NullBackend, ApiIsNull) {
     ASSERT_NE(api, nullptr);
     EXPECT_EQ(api->GetAPI(), RendererAPI::API::Null);
     EXPECT_GT(api->GetComputeLimits().maxWorkGroupInvocations, 0u);
@@ -56,7 +55,7 @@ TEST_F(NullBackend, TheApiIsTheNullOne) {
     EXPECT_EQ(api->GetClearColor(), glm::vec4(0.1f, 0.2f, 0.3f, 0.4f));
 }
 
-TEST_F(NullBackend, AMeshKeepsItsGeometryAndBounds) {
+TEST_F(NullBackend, MeshKeepsGeometry) {
     const float vertices[] = {-1.0f, 0.0f, 2.0f,  3.0f, 4.0f, -5.0f,  0.0f, 1.0f, 0.0f};
     std::vector<uint8_t> bytes(sizeof(vertices));
     std::memcpy(bytes.data(), vertices, sizeof(vertices));
@@ -71,20 +70,17 @@ TEST_F(NullBackend, AMeshKeepsItsGeometryAndBounds) {
     EXPECT_EQ(mesh->GetBoundsMin(), glm::vec3(-1.0f, 0.0f, -5.0f));
     EXPECT_EQ(mesh->GetBoundsMax(), glm::vec3(3.0f, 4.0f, 2.0f));
 
-    // Nothing to read back from : the geometry never left the CPU, so it is simply there
     std::shared_ptr<const MeshCPUCopy> copy = mesh->AcquireCPUData();
     ASSERT_NE(copy, nullptr);
     EXPECT_EQ(copy->vertices, bytes);
     EXPECT_EQ(copy->indices, (std::vector<uint32_t>{0, 1, 2}));
 
-    // The draw commands of a mesh work as they do on a GPU
     std::shared_ptr<Shader> shader = Shader::Create(Shard::Engine::Filesystem::Path("a.vert"), Shard::Engine::Filesystem::Path("a.frag"));
     PipelineSpecifications specs;
     specs.shader = shader;
     std::shared_ptr<Material> material = Material::Create(shader, std::make_shared<Null::NullPipeline>(specs));
     EXPECT_EQ(mesh->CreateDrawCommands(glm::mat4(1.0f), 1, 1, {material}).size(), 1u);
 
-    // An unresolved material slot draws nothing
     EXPECT_TRUE(mesh->CreateDrawCommands(glm::mat4(1.0f), 1, 1, {nullptr}).empty());
 }
 
@@ -135,7 +131,7 @@ TEST_F(NullBackend, TexturesFramebuffersAndBuffersExist) {
     EXPECT_EQ(cubemap->GetWidth(), 8u);
 }
 
-TEST_F(NullBackend, AMaterialKeepsEveryParameterItIsGiven) {
+TEST_F(NullBackend, MaterialKeepsParameters) {
     std::shared_ptr<Shader> shader = Shader::Create(Shard::Engine::Filesystem::Path("a.vert"), Shard::Engine::Filesystem::Path("a.frag"));
     ASSERT_NE(shader, nullptr);
     shader->SetAssetID(Shard::Engine::Filesystem::AssetID(5));
@@ -159,8 +155,8 @@ TEST_F(NullBackend, AMaterialKeepsEveryParameterItIsGiven) {
     EXPECT_EQ(material->GetTextureParameter("albedo"), 12u);
 }
 
-TEST_F(NullBackend, PipelineCacheKeysOnTheShaderObjectNotItsAssetID) {
-    // Shaders made from files directly (the deferred lighting, the tonemap, every compute shader) all have the AssetID 0
+TEST_F(NullBackend, PipelineCacheKeysOnShader) {
+    // Shaders created straight from files all get AssetID 0.
     std::shared_ptr<Shader> a = Shader::Create(Shard::Engine::Filesystem::Path("a.vert"), Shard::Engine::Filesystem::Path("a.frag"));
     std::shared_ptr<Shader> b = Shader::Create(Shard::Engine::Filesystem::Path("b.vert"), Shard::Engine::Filesystem::Path("b.frag"));
     ASSERT_NE(a, nullptr);
@@ -195,7 +191,7 @@ TEST_F(NullBackend, PipelineCacheKeysOnTheShaderObjectNotItsAssetID) {
     EXPECT_FALSE(computeC == computeD);
 }
 
-TEST_F(NullBackend, PipelineCachePruneDropsOnlyWhatNothingElseHolds) {
+TEST_F(NullBackend, PruneDropsUnheldOnly) {
     std::shared_ptr<Shader> kept = Shader::Create(Shard::Engine::Filesystem::Path("a.vert"), Shard::Engine::Filesystem::Path("a.frag"));
     std::shared_ptr<Shader> dropped = Shader::Create(Shard::Engine::Filesystem::Path("b.vert"), Shard::Engine::Filesystem::Path("b.frag"));
     std::weak_ptr<Shader> droppedWatch = dropped;
@@ -209,7 +205,7 @@ TEST_F(NullBackend, PipelineCachePruneDropsOnlyWhatNothingElseHolds) {
     std::shared_ptr<Pipeline> inUse = std::make_shared<Null::NullPipeline>(keptSpecs);
     cache.emplace(keptSpecs, inUse);
     cache.emplace(droppedSpecs, std::make_shared<Null::NullPipeline>(droppedSpecs));
-    cache.emplace(PipelineSpecifications{}, nullptr); // an entry being filled in
+    cache.emplace(PipelineSpecifications{}, nullptr);
     droppedSpecs = {};
     dropped.reset();
 
@@ -220,7 +216,7 @@ TEST_F(NullBackend, PipelineCachePruneDropsOnlyWhatNothingElseHolds) {
     EXPECT_TRUE(droppedWatch.expired()) << "the pruned pipeline released its shader";
 }
 
-TEST_F(NullBackend, HandlesAreNeverZeroAndNeverRepeat) {
+TEST_F(NullBackend, HandlesNonZeroUnique) {
     const uint32_t a = Null::NextHandle();
     const uint32_t b = Null::NextHandle();
     EXPECT_NE(a, 0u);

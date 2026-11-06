@@ -13,9 +13,6 @@
 #include "engine/plugins/manager.hpp"
 #include "engine/world/engine.hpp"
 
-// shard.assets : the assets of the project by path and id, the files the plugin reads and writes in it. What needs the renderer (the geometry of
-// a mesh, the pixels of an image) is asked of the engine root (c_abi_assets.cpp) : the renderer is above this layer.
-
 namespace Shard::Engine::Plugins::CAbi {
 
     namespace {
@@ -47,7 +44,6 @@ namespace Shard::Engine::Plugins::CAbi {
             return s;
         }
 
-        // The name of the plugin asset type that owns an extension ("" : none)
         std::string TypeNameOf(const std::string& extension)
         {
             const std::string wanted = Lower(extension);
@@ -65,7 +61,6 @@ namespace Shard::Engine::Plugins::CAbi {
             return std::chrono::duration_cast<std::chrono::seconds>(time.time_since_epoch()).count();
         }
 
-        // The ShardAssetInfo of an asset ; the strings point into `path` and `typeName`
         ShardAssetInfo Describe(const Filesystem::AssetInfos& infos, std::string& path, std::string& typeName)
         {
             ShardAssetInfo out{};
@@ -170,7 +165,6 @@ namespace Shard::Engine::Plugins::CAbi {
             } catch (...) { return SHARD_E_INTERNAL; }
         }
 
-        // The file a path in the project (or a mod:// address) names
         bool FileOf(PluginContext& ctx, const std::string& path, std::string& file)
         {
             if (ContentMounts::IsModUri(path)) {
@@ -187,7 +181,6 @@ namespace Shard::Engine::Plugins::CAbi {
                 file = infos->baseInfos.path.GetNativePath();
                 return true;
             }
-            // A file that is in the project's resources but not indexed (yet)
             const std::filesystem::path guess = std::filesystem::path(files->GetProjectResRoot().GetNativePath()) / path;
             std::error_code ec;
             if (!std::filesystem::is_regular_file(guess, ec)) return false;
@@ -230,7 +223,7 @@ namespace Shard::Engine::Plugins::CAbi {
                 if (!files) return SHARD_E_UNSUPPORTED;
                 std::string name = ToString(path);
                 std::replace(name.begin(), name.end(), '\\', '/');
-                // Inside the project's resources : no "..", no drive, no absolute path
+                // Must stay inside the project's resources: no "..", drive or absolute path.
                 if (name.empty() || name[0] == '/' || name.find("..") != std::string::npos || name.find(':') != std::string::npos) return SHARD_E_INVALID_ARG;
                 const std::filesystem::path target = std::filesystem::path(files->GetProjectResRoot().GetNativePath()) / name;
                 std::error_code ec;

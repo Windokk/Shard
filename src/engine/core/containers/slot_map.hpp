@@ -11,18 +11,12 @@
 
 namespace Shard::Engine::Core {
 
-    /// @brief A reference to an element of a SlotMap : an index plus a generation. When the element is removed its
-    /// slot's generation changes, so a handle kept past the removal is detected as stale (Get returns nullptr)
-    /// instead of silently pointing at whatever reuses the slot. 8 bytes, trivially copyable, hashable.
-    ///
-    /// `Tag` only makes handles of different containers different types (a Handle<Texture> cannot be passed where a
-    /// Handle<Mesh> is expected).
     template <typename Tag>
     struct Handle {
         static constexpr uint32_t kInvalidIndex = 0xFFFFFFFFu;
 
         uint32_t index = kInvalidIndex;
-        uint32_t generation = 0;            ///< 0 is never a live generation : a default handle is never valid
+        uint32_t generation = 0;
 
         constexpr bool IsValid() const { return index != kInvalidIndex; }
         constexpr explicit operator bool() const { return IsValid(); }
@@ -36,10 +30,7 @@ namespace Shard::Engine::Core {
         friend constexpr bool operator<(Handle a, Handle b) { return a.Pack() < b.Pack(); }
     };
 
-    /// @brief Container that hands out Handles. Insert / Remove / Get are O(1), freed slots are reused, and
-    /// elements NEVER move (storage is chunked), so a pointer from Get stays valid until that element is removed.
-    ///
-    /// Iteration visits the live elements in slot order. Not thread-safe.
+    // Elements never move (chunked storage), so a pointer from Get stays valid until removal. Not thread-safe.
     template <typename T, typename Tag = T>
     class SlotMap {
     public:
@@ -84,20 +75,18 @@ namespace Shard::Engine::Core {
 
         HandleType Insert(T value) { return Emplace(std::move(value)); }
 
-        /// @brief False for a stale or invalid handle.
         bool Remove(HandleType handle) {
             Slot* slot = Find(handle);
             if (!slot) return false;
             reinterpret_cast<T*>(slot->storage)->~T();
             slot->alive = false;
-            if (++slot->generation == 0) slot->generation = 1;      // wrapped : 0 stays reserved
+            if (++slot->generation == 0) slot->generation = 1;
             slot->nextFree = m_FreeHead;
             m_FreeHead = handle.index;
             --m_Size;
             return true;
         }
 
-        /// @brief The element, or nullptr when the handle is invalid or the element was removed.
         T* Get(HandleType handle) {
             Slot* slot = Find(handle);
             return slot ? reinterpret_cast<T*>(slot->storage) : nullptr;
@@ -108,7 +97,6 @@ namespace Shard::Engine::Core {
 
         size_t Size() const { return m_Size; }
         bool Empty() const { return m_Size == 0; }
-        /// Slots ever created (live + free) : the upper bound of the index of any handle.
         size_t SlotCount() const { return m_SlotCount; }
 
         void Clear() {
@@ -118,9 +106,8 @@ namespace Shard::Engine::Core {
                     reinterpret_cast<T*>(slot.storage)->~T();
                     slot.alive = false;
                 }
-                if (++slot.generation == 0) slot.generation = 1;    // every handle given so far becomes stale
+                if (++slot.generation == 0) slot.generation = 1;
             }
-            // All slots go back on the free list, lowest index first
             m_FreeHead = kNone;
             for (uint32_t i = m_SlotCount; i-- > 0;) {
                 SlotAt(i).nextFree = m_FreeHead;
@@ -129,7 +116,6 @@ namespace Shard::Engine::Core {
             m_Size = 0;
         }
 
-        /// @brief Calls fn(handle, element) for every live element.
         template <typename Fn>
         void ForEach(Fn&& fn) {
             for (uint32_t i = 0; i < m_SlotCount; ++i) {
@@ -140,8 +126,6 @@ namespace Shard::Engine::Core {
         template <typename Fn>
         void ForEach(Fn&& fn) const { const_cast<SlotMap*>(this)->ForEach([&](HandleType h, T& v) { fn(h, static_cast<const T&>(v)); }); }
 
-        /// @brief Handle of the live element in slot `index` (invalid if the slot is free) : for code that iterates
-        /// by index.
         HandleType HandleAt(uint32_t index) const {
             if (index >= m_SlotCount) return HandleType{};
             const Slot& slot = const_cast<SlotMap*>(this)->SlotAt(index);

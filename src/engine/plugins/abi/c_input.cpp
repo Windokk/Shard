@@ -14,8 +14,6 @@
 #include "engine/platform/windowing/iwindow.hpp"
 #include "engine/world/engine.hpp"
 
-// shard.input : the engine's input manager (what a replay records) through key numbers of the ABI's own.
-
 namespace Shard::Engine::Plugins::CAbi {
 
     namespace {
@@ -81,13 +79,11 @@ namespace Shard::Engine::Plugins::CAbi {
             return table;
         }
 
-        // What the UIs of the plugins take (shard_input.h, capture) : per plugin, with the frame it was last said, so that a plugin that stops
-        // saying it lets go
         struct Capture { uint32_t mask = 0; uint64_t frame = 0; };
         std::mutex gInputMutex;
         std::unordered_map<PluginOwner, Capture> gCaptures;
         uint64_t gInputFrame = 0;
-        std::atomic<bool> gInputUsed{ false };       // a plugin asked for the events or took the input : until then the window is not looked at (a test has none)
+        std::atomic<bool> gInputUsed{ false };       // Window is not polled until a plugin asks for events or input (tests have no window)
 
         uint32_t Captured()
         {
@@ -97,7 +93,6 @@ namespace Shard::Engine::Plugins::CAbi {
             return mask;
         }
 
-        // The events of the frame, from the window system, in order
         std::vector<ShardInputEvent> gEvents;
         uint32_t gMods = 0;
         bool gListening = false;
@@ -124,7 +119,6 @@ namespace Shard::Engine::Plugins::CAbi {
             return it == reverse.end() ? -1 : it->second;
         }
 
-        // The Unicode characters of a UTF-8 text
         void ForEachCodepoint(const std::string& text, const std::function<void(uint32_t)>& fn)
         {
             for (size_t i = 0; i < text.size();) {
@@ -202,7 +196,7 @@ namespace Shard::Engine::Plugins::CAbi {
         Core::Platform::IInput* Manager()
         {
             if (!OnScriptThread()) return nullptr;
-            // GetEngine() ends the process when no engine is set (an offline tool, a test) : the pointer is read instead
+            // GetEngine() ends the process when no engine is set (offline tools, tests), so read the pointer
             Core::IEngineContext* engine = Core::gSharedEnginePtr;
             return engine ? engine->GetInputManager() : nullptr;
         }
@@ -366,7 +360,7 @@ namespace Shard::Engine::Plugins::CAbi {
         {
             try {
                 Core::Platform::IWindow* window = Window();
-                if (!window || !window->GetNativeHandle()) return SHARD_E_UNSUPPORTED;      // no window system : no clipboard
+                if (!window || !window->GetNativeHandle()) return SHARD_E_UNSUPPORTED;
                 return CopyOut(Core::Platform::Clipboard::GetText(), buffer, capacity, size);
             } catch (...) { return SHARD_E_INTERNAL; }
         }
@@ -421,7 +415,6 @@ namespace Shard::Engine::Plugins::CAbi {
     void InputBeginFrame(uint64_t frame)
     {
         if (!gInputUsed.load()) return;
-        // Listens to the window once there is one (the engine builds the platform before the first frame)
         if (!gListening) {
             if (Core::Platform::IWindow* window = Window()) {
                 window->AddEventListener([](const Core::Platform::OSEvent& e) { try { OnOsEvent(e); } catch (...) {} });
@@ -430,7 +423,7 @@ namespace Shard::Engine::Plugins::CAbi {
         }
         std::lock_guard<std::mutex> lock(gInputMutex);
         gInputFrame = frame;
-        gEvents.clear();        // the events of this frame arrive during its Input phase
+        gEvents.clear();
         for (auto it = gCaptures.begin(); it != gCaptures.end();) {
             if (it->second.frame + 1 < frame) it = gCaptures.erase(it); else ++it;
         }

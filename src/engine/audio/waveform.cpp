@@ -12,11 +12,7 @@ namespace Shard::Engine::Audio
     {
         constexpr ma_uint64 kChunkFrames = 4096;
 
-        // The sound is reduced in a single pass, without knowing its length first (miniaudio can't tell it
-        // for Vorbis, and has to decode the whole file to tell it for MP3) : frames are folded into blocks
-        // of `blockSize` frames, and whenever there are kMaxBlocks of them neighbours are merged in pairs
-        // and the block size doubles. The result is always between kMaxBlocks / 2 and kMaxBlocks blocks
-        // (a few hundred : several per output column), whatever the length. Must stay even.
+        // Single-pass reduction without knowing the length (miniaudio cannot tell it for Vorbis): frames fold into blocks, and at kMaxBlocks neighbours merge in pairs and the block size doubles. Must stay even.
         constexpr size_t kMaxBlocks = 1024;
 
         struct Peak
@@ -45,7 +41,6 @@ namespace Shard::Engine::Audio
         if (!encoded || size == 0 || columns == 0 || maxLanes == 0)
             return false;
 
-        // f32, and the file's own channel count / sample rate (only the shape matters here)
         ma_decoder_config config = ma_decoder_config_init(ma_format_f32, 0, 0);
         ma_decoder decoder;
         if (ma_decoder_init_memory(encoded, size, &config, &decoder) != MA_SUCCESS)
@@ -63,7 +58,7 @@ namespace Shard::Engine::Audio
 
         std::vector<float> chunk(size_t(kChunkFrames) * channels);
 
-        std::vector<Peak> blocks;          // block-major : blocks[block * lanes + lane]
+        std::vector<Peak> blocks;
         std::vector<Peak> current(lanes);
         uint64_t blockSize = 1;
         uint64_t currentFrames = 0;
@@ -116,7 +111,6 @@ namespace Shard::Engine::Audio
         if (totalFrames == 0)
             return false;
 
-        // The partial block at the end of the sound
         if (currentFrames > 0)
             blocks.insert(blocks.end(), current.begin(), current.end());
 

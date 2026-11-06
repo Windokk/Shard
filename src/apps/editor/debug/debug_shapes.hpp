@@ -11,8 +11,6 @@ namespace Shard::Engine::Rendering {
 
 namespace Shard::Editor::Debug {
 
-    /// A wireframe mesh the editor draws over the scene (the colliders, the volumes...). Editor only : none of
-    /// it exists in a game.
     class DebugShape
     {
         public:
@@ -76,8 +74,6 @@ namespace Shard::Editor::Debug {
             void GenerateCylinder(float radius, float halfHeight, COL_RGBA color);
     };
 
-    /// The wireframe of a reflection probe's shape inscribed in the box of `halfExtent` : an ellipsoid, a cylinder or a cone along Y, or a
-    /// pyramid with a rectangular base, the last two narrowing toward +Y (see ReflectionProbeShape).
     class DebugVolumeShape : public DebugShape
     {
         public:
@@ -93,9 +89,6 @@ namespace Shard::Editor::Debug {
             void Generate(Kind kind, glm::vec3 halfExtent, COL_RGBA color);
     };
 
-    // A single merged wireframe mesh containing one small sphere per entry in `centers` (local-space,
-    // relative to whatever transform the owning component submits its draw command with). Used to
-    // visualize a cluster of points (e.g. a GI probe grid) as one draw command instead of one per point.
     class DebugMultiSphere : public DebugShape
     {
         public:

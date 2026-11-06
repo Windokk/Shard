@@ -43,7 +43,7 @@ namespace Shard::Engine::Filesystem
 
     struct FileInfos;
 
-    // Engine resources have IDs up to 500 : the project's start here (see DeserializeAssetDataBase)
+    // Engine resources use IDs up to 500, project IDs start here
     constexpr int kFirstProjectAssetID = 501;
 
     class AssetIDManager {
@@ -93,7 +93,6 @@ namespace Shard::Engine::Filesystem
             std::atomic<int>  m_nextId{0};
             bool m_initialized = false;
             std::unordered_set<int> availableIDs;
-            // Name -> ID cache, validated on every hit (names can change under us, AssetIDMap is public)
             std::unordered_map<std::string, AssetID> m_nameCache;
     };
 }

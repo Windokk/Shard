@@ -45,12 +45,11 @@ namespace {
     }
 }
 
-TEST(RenderGraph, ReadersRunAfterTheProducerWhateverTheDeclarationOrder)
+TEST(RenderGraph, ReadersRunAfterProducer)
 {
     RenderGraph graph;
     graph.DeclareResource(Texture("Screen", 64, 64, 4, true));
 
-    // Declared backwards : the consumer first
     graph.AddPass(Pass("Present", {{"Lit", ResourceUsage::ShaderRead}, {"Screen", ResourceUsage::ColorTarget}}));
     graph.AddPass(Pass("Lighting", {{"GBuffer", ResourceUsage::ShaderRead}, {"Lit", ResourceUsage::ColorTarget}}));
     graph.AddPass(Pass("GeometryPass", {{"GBuffer", ResourceUsage::ColorTarget}}));
@@ -65,7 +64,7 @@ TEST(RenderGraph, ReadersRunAfterTheProducerWhateverTheDeclarationOrder)
     EXPECT_EQ(order[2], "Present");
 }
 
-TEST(RenderGraph, ProducersOfOneResourceKeepTheirDeclarationOrder)
+TEST(RenderGraph, ProducersKeepDeclarationOrder)
 {
     RenderGraph graph;
     graph.DeclareResource(Texture("Screen", 64, 64, 4, true));
@@ -79,7 +78,7 @@ TEST(RenderGraph, ProducersOfOneResourceKeepTheirDeclarationOrder)
     EXPECT_EQ(RunOrder(compiled), (std::vector<std::string>{"Scene", "Grid", "Outline"}));
 }
 
-TEST(RenderGraph, ExplicitDependenciesOrderPassesThatShareNothing)
+TEST(RenderGraph, ExplicitDependenciesOrder)
 {
     RenderGraph graph;
     graph.AddPass(Pass("B", {}, {"A"}));
@@ -90,7 +89,7 @@ TEST(RenderGraph, ExplicitDependenciesOrderPassesThatShareNothing)
     EXPECT_EQ(RunOrder(compiled), (std::vector<std::string>{"A", "B"}));
 }
 
-TEST(RenderGraph, APassNobodyNeedsIsCulledWithWhatOnlyItFed)
+TEST(RenderGraph, UnneededPassCulled)
 {
     RenderGraph graph;
     graph.DeclareResource(Texture("Screen", 64, 64, 4, true));
@@ -109,7 +108,7 @@ TEST(RenderGraph, APassNobodyNeedsIsCulledWithWhatOnlyItFed)
     EXPECT_EQ(compiled.CulledCount(), 2);
 }
 
-TEST(RenderGraph, AConsumerKeepsItsWholeChainAlive)
+TEST(RenderGraph, ConsumerKeepsChainAlive)
 {
     RenderGraph graph;
     graph.DeclareResource(Texture("Screen", 64, 64, 4, true));
@@ -124,7 +123,7 @@ TEST(RenderGraph, AConsumerKeepsItsWholeChainAlive)
     EXPECT_EQ(RunOrder(compiled), (std::vector<std::string>{"Source", "Blur", "Compose"}));
 }
 
-TEST(RenderGraph, ASideEffectAndAPassThatDeclaresNothingAreNeverCulled)
+TEST(RenderGraph, SideEffectPassesNeverCulled)
 {
     RenderGraph graph;
 
@@ -139,7 +138,7 @@ TEST(RenderGraph, ASideEffectAndAPassThatDeclaresNothingAreNeverCulled)
     EXPECT_EQ(compiled.order.size(), 2u);
 }
 
-TEST(RenderGraph, ADisabledPassLeavesTheGraphAndWhatOnlyItFedGoesWithIt)
+TEST(RenderGraph, DisabledPassLeavesGraph)
 {
     RenderGraph graph;
     graph.DeclareResource(Texture("Screen", 64, 64, 4, true));
@@ -174,7 +173,7 @@ TEST(RenderGraph, ACycleIsReported)
     EXPECT_TRUE(compiled.order.empty());
 }
 
-TEST(RenderGraph, ReplacingAPassKeepsItsPlaceAndRemovingOneRenumbers)
+TEST(RenderGraph, ReplaceKeepsPlace)
 {
     RenderGraph graph;
     graph.AddPass(Pass("A"));
@@ -194,7 +193,7 @@ TEST(RenderGraph, ReplacingAPassKeepsItsPlaceAndRemovingOneRenumbers)
     EXPECT_EQ(graph.PassCount(), 2u);
 }
 
-TEST(RenderGraph, ABarrierIsEmittedWhenTheUseOfAResourceChanges)
+TEST(RenderGraph, BarrierOnUseChange)
 {
     RenderGraph graph;
     graph.DeclareResource(Texture("Screen", 64, 64, 4, true));
@@ -215,12 +214,11 @@ TEST(RenderGraph, ABarrierIsEmittedWhenTheUseOfAResourceChanges)
     EXPECT_EQ(scene->barriersBefore[0].to, ResourceUsage::ShaderRead);
     EXPECT_EQ(scene->memoryBarrierBefore & MemoryBarrierBit::TextureFetch, MemoryBarrierBit::TextureFetch);
 
-    // Drawing into the same attachment twice needs nothing between the two
     EXPECT_TRUE(compiled.Find("Overlay")->barriersBefore.empty());
     EXPECT_EQ(compiled.Find("Overlay")->memoryBarrierBefore, MemoryBarrierBit::None);
 }
 
-TEST(RenderGraph, StorageWritesAreOrderedAfterThemselvesAndBeforeTheirReaders)
+TEST(RenderGraph, StorageWritesOrdered)
 {
     RenderGraph graph;
     graph.AddPass(Pass("Build", {{"Grid", ResourceUsage::StorageWrite}}));
@@ -233,7 +231,6 @@ TEST(RenderGraph, StorageWritesAreOrderedAfterThemselvesAndBeforeTheirReaders)
     ASSERT_TRUE(compiled.valid);
     EXPECT_EQ(RunOrder(compiled), (std::vector<std::string>{"Build", "Cull", "Draw"}));
 
-    // Write after write of a storage resource is a hazard : it gets its barrier
     ASSERT_EQ(compiled.Find("Cull")->barriersBefore.size(), 1u);
     EXPECT_EQ(compiled.Find("Cull")->barriersBefore[0].from, ResourceUsage::StorageWrite);
     EXPECT_EQ(compiled.Find("Cull")->barriersBefore[0].to, ResourceUsage::StorageWrite);
@@ -241,11 +238,11 @@ TEST(RenderGraph, StorageWritesAreOrderedAfterThemselvesAndBeforeTheirReaders)
     EXPECT_NE(compiled.Find("Draw")->memoryBarrierBefore & MemoryBarrierBit::ShaderStorage, MemoryBarrierBit::None);
 }
 
-TEST(RenderGraph, ResourcesThatNeverLiveTogetherShareMemory)
+TEST(RenderGraph, DisjointResourcesShareMemory)
 {
     RenderGraph graph;
     graph.DeclareResource(Texture("Screen", 64, 64, 4, true));
-    graph.DeclareResource(Texture("A", 100, 100, 4));        // 40000 bytes
+    graph.DeclareResource(Texture("A", 100, 100, 4));
     graph.DeclareResource(Texture("B", 100, 100, 4));
     graph.DeclareResource(Texture("C", 100, 100, 4));
 
@@ -257,7 +254,6 @@ TEST(RenderGraph, ResourcesThatNeverLiveTogetherShareMemory)
     CompiledGraph compiled = graph.Compile();
     ASSERT_TRUE(compiled.valid);
 
-    // A lives over P1-P2, B over P2-P3, C over P3-P4 : A and C do not overlap, A and B (P2) and B and C (P3) do
     EXPECT_EQ(compiled.transientBytesWithoutAliasing, 3u * 40000u);
     EXPECT_EQ(compiled.aliasSlots.size(), 2u);
     EXPECT_EQ(compiled.transientBytesWithAliasing, 2u * 40000u);
@@ -269,10 +265,10 @@ TEST(RenderGraph, ResourcesThatNeverLiveTogetherShareMemory)
     };
     EXPECT_EQ(slotOf("A"), slotOf("C"));
     EXPECT_NE(slotOf("A"), slotOf("B"));
-    EXPECT_EQ(slotOf("Screen"), -1);        // imported : never aliased
+    EXPECT_EQ(slotOf("Screen"), -1);
 }
 
-TEST(RenderGraph, ASlotGrowsToTheBiggestResourceThatUsesIt)
+TEST(RenderGraph, SlotGrowsToBiggest)
 {
     RenderGraph graph;
     graph.DeclareResource(Texture("Screen", 64, 64, 4, true));
@@ -294,7 +290,7 @@ TEST(RenderGraph, ASlotGrowsToTheBiggestResourceThatUsesIt)
     EXPECT_EQ(largest, 40000u);
 }
 
-TEST(RenderGraph, TheListingAndTheGraphvizNameEveryPass)
+TEST(RenderGraph, ListingNamesEveryPass)
 {
     RenderGraph graph;
     graph.DeclareResource(Texture("Screen", 64, 64, 4, true));
@@ -314,13 +310,12 @@ TEST(RenderGraph, TheListingAndTheGraphvizNameEveryPass)
     EXPECT_NE(dot.find("p_Orphan"), std::string::npos);
 }
 
-TEST(RenderGraph, AnExplicitEdgeDecidesTheOrderOfTheProducersOfOneResource)
+TEST(RenderGraph, ExplicitEdgeOrdersProducers)
 {
     RenderGraph graph;
     graph.DeclareResource(Texture("Scene", 64, 64, 4));
     graph.DeclareResource(Texture("Screen", 64, 64, 4, true));
 
-    // Declared forward first, then lighting : but the forward pass says it comes after the lighting (what a deferred pipeline does)
     graph.AddPass(Pass("Forward", {{"Scene", ResourceUsage::ColorTarget}}, {"Lighting"}));
     graph.AddPass(Pass("Lighting", {{"Scene", ResourceUsage::ColorTarget}}));
     graph.AddPass(Pass("Resolve", {{"Scene", ResourceUsage::ShaderRead}, {"Screen", ResourceUsage::ColorTarget}}));
@@ -330,15 +325,13 @@ TEST(RenderGraph, AnExplicitEdgeDecidesTheOrderOfTheProducersOfOneResource)
     EXPECT_EQ(RunOrder(compiled), (std::vector<std::string>{"Lighting", "Forward", "Resolve"}));
 }
 
-TEST(RenderGraph, APingPongBetweenTwoTargetsFollowsTheDependenciesOfItsPasses)
+TEST(RenderGraph, PingPongFollowsDependencies)
 {
     RenderGraph graph;
     graph.DeclareResource(Texture("A", 64, 64, 16));
     graph.DeclareResource(Texture("B", 64, 64, 16));
     graph.DeclareResource(Texture("Screen", 64, 64, 4, true));
 
-    // A jump flood : each pass reads what the one before it drew (which it names), and draws in the other target. The same two targets are
-    // written several times, so what a pass reads is not the last write of the frame.
     graph.AddPass(Pass("Init", {{"A", ResourceUsage::ColorTarget}}));
     graph.AddPass(Pass("Step0", {{"B", ResourceUsage::ColorTarget}, {"A", ResourceUsage::ShaderRead}}, {"Init"}));
     graph.AddPass(Pass("Step1", {{"A", ResourceUsage::ColorTarget}, {"B", ResourceUsage::ShaderRead}}, {"Step0"}));

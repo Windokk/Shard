@@ -1,5 +1,3 @@
-// The "Tags" category of the Project Settings : the tree of the tags, the project's own edited in place (see docs/concepts/tags.md)
-
 #include "project_settings_panel.hpp"
 
 #include "engine/assets/project/project.hpp"
@@ -35,7 +33,6 @@ namespace Shard::Editor::GUI{
             return name == root || (name.size() > root.size() && name.compare(0, root.size(), root) == 0 && name[root.size()] == '.');
         }
 
-        /// The tag and everything under it is the project's own : the editor may rename or delete it
         bool OwnedByProject(Core::Tag tag)
         {
             std::vector<Core::Tag> tree;
@@ -82,7 +79,6 @@ namespace Shard::Editor::GUI{
             return false;
         }
         settings->tags.emplace(name, std::string());
-        // A redirect away from a name that is declared again would hide it
         settings->redirects.erase(name);
         ApplyTags();
         return true;
@@ -117,7 +113,6 @@ namespace Shard::Editor::GUI{
             return false;
         }
 
-        // Every name of the subtree, the ones only there because of a child included : each one gets its redirect
         std::vector<Core::Tag> tree;
         registry.CollectDescendants(registry.Find(from), tree);
         std::vector<std::pair<std::string, std::string>> renamed;
@@ -131,7 +126,6 @@ namespace Shard::Editor::GUI{
             tags[IsSameOrUnder(name, from) ? to + name.substr(from.size()) : name] = comment;
         settings->tags = std::move(tags);
 
-        // The old redirects that led to a renamed tag now lead to its new name, then the renamed ones are added
         for (auto& [old, target] : settings->redirects)
             if (IsSameOrUnder(target, from))
                 target = to + target.substr(from.size());
@@ -141,7 +135,6 @@ namespace Shard::Editor::GUI{
         }
         ApplyTags();
 
-        // The open world follows at once ; the others when they are loaded, through the redirects
         size_t changed = 0;
         if (Worlds::World* world = OpenWorld()) {
             changed = Worlds::RemapTags(*world, [&](Core::Tag tag) {
@@ -163,7 +156,6 @@ namespace Shard::Editor::GUI{
         m_TagReferences.clear();
         m_TagReferencesOf = tag.ToString();
 
-        // The open world as it is now (what is not saved yet included), the others as their files are
         Worlds::World* world = OpenWorld();
         std::string openWorld;
         if (world) {
@@ -194,7 +186,6 @@ namespace Shard::Editor::GUI{
         if (!info)
             return;
 
-        // Copied : editing the project's tags rebuilds the tree, `info` does not survive it
         const std::string name = info->name;
         const std::vector<Core::Tag> children = info->children;
         const uint8_t sources = info->Sources();
@@ -205,7 +196,6 @@ namespace Shard::Editor::GUI{
         ImGui::PushID(name.c_str());
         ImGui::TableNextRow();
 
-        // Name
         ImGui::TableSetColumnIndex(0);
         ImGuiTreeNodeFlags flags = ImGuiTreeNodeFlags_SpanAvailWidth | ImGuiTreeNodeFlags_DefaultOpen;
         if (children.empty())
@@ -213,7 +203,6 @@ namespace Shard::Editor::GUI{
         const bool open = ImGui::TreeNodeEx(label.c_str(), flags);
         Tooltip(name.c_str());
 
-        // Who declares it
         ImGui::TableSetColumnIndex(1);
         std::string from;
         if (sources & uint8_t(Core::TagSource::Project))
@@ -228,7 +217,6 @@ namespace Shard::Editor::GUI{
         else
             ImGui::TextColored(kSourceColor, "%s", from.c_str());
 
-        // Comment : the project's, editable when the project declares this tag (or only declares what is under it)
         ImGui::TableSetColumnIndex(2);
         Projects::TagSettings* settings = GetEngine().GetCurrentProject()->GetTagSettings();
         auto declared = settings->tags.find(name);
@@ -244,7 +232,6 @@ namespace Shard::Editor::GUI{
         else
             ImGui::TextDisabled("%s", info->Comment().c_str());
 
-        // Actions
         ImGui::TableSetColumnIndex(3);
         if (ImGui::SmallButton(ICON_LC_PLUS)) {
             m_TagPopupTarget = name;
@@ -399,7 +386,6 @@ namespace Shard::Editor::GUI{
                 ImGui::TableSetupColumn("Tag", ImGuiTableColumnFlags_WidthStretch, 3.0f);
                 ImGui::TableSetupColumn("Declared by", ImGuiTableColumnFlags_WidthStretch, 1.5f);
                 ImGui::TableSetupColumn("Comment", ImGuiTableColumnFlags_WidthStretch, 3.0f);
-                // Four small buttons of one icon each
                 const ImGuiStyle& style = ImGui::GetStyle();
                 const float button = ImGui::CalcTextSize(ICON_LC_TRASH_2).x + style.FramePadding.x * 2.0f;
                 ImGui::TableSetupColumn("##Actions", ImGuiTableColumnFlags_WidthFixed, button * 4.0f + style.ItemSpacing.x * 3.0f);

@@ -10,13 +10,11 @@
 
 namespace Shard::Engine::Plugins {
 
-    /// The plugin that registered something (0 : the engine or the application itself). Owners are numbered in load order, so
-    /// sorting by owner is sorting by load order.
+    // 0 is the engine or app itself. Owners are numbered in load order, so sorting by owner sorts by load order.
     using PluginOwner = uint32_t;
 
     enum class Priority : int { Earliest = -200, Early = -100, Normal = 0, Late = 100, Latest = 200 };
 
-    /// What a hook passes to its handlers : any of them may cancel the thing that is about to happen.
     struct HookBase {
         bool cancelled = false;
         std::string reason;
@@ -24,8 +22,7 @@ namespace Shard::Engine::Plugins {
         void Cancel(std::string why = {}) { cancelled = true; reason = std::move(why); }
     };
 
-    /// The points of the engine a plugin can intercept. Each type names itself (kName) : hooks are found by that name, never by
-    /// C++ type identity, which is not reliable between an executable and a library.
+    // Hooks are found by kName, not C++ type identity, which is unreliable between an executable and a library
     namespace Hooks {
         struct PreEngineInit : HookBase { static constexpr const char* kName = "PreEngineInit"; };
         struct PostEngineInit : HookBase { static constexpr const char* kName = "PostEngineInit"; };
@@ -53,7 +50,7 @@ namespace Shard::Engine::Plugins {
         };
         struct PreSave : HookBase {
             static constexpr const char* kName = "PreSave";
-            std::string what;           ///< the world or the project being saved
+            std::string what;
             explicit PreSave(std::string w = {}) : what(std::move(w)) {}
         };
         struct AssetImported : HookBase {
@@ -70,8 +67,6 @@ namespace Shard::Engine::Plugins {
         struct PreShutdown : HookBase { static constexpr const char* kName = "PreShutdown"; };
     }
 
-    /// @brief The handlers plugins attached to the hooks. Handlers run by priority, then by owner (= plugin load order), then in
-    /// the order they were added : the same order on every run.
     class HookRegistry {
     public:
         using Token = uint64_t;
@@ -94,16 +89,14 @@ namespace Shard::Engine::Plugins {
             return list.empty() ? 0 : m_Next;
         }
 
-        /// @brief Runs the handlers of H. A handler that cancels does not stop the ones after it (they can see `cancelled` and
-        /// decide for themselves) ; `cancelledBy` is the first one that cancelled.
-        /// @return false if the hook was cancelled
+        // A handler that cancels does not stop later ones, they can read `cancelled`. cancelledBy is the first canceller.
         template <typename H>
         bool Emit(H& hook)
         {
             auto it = m_Hooks.find(H::kName);
             if (it == m_Hooks.end()) return true;
             ++m_Depth;
-            const std::vector<Entry> snapshot = it->second;      // handlers may add or remove handlers
+            const std::vector<Entry> snapshot = it->second;
             for (const Entry& e : snapshot) {
                 if (std::find(m_Removed.begin(), m_Removed.end(), e.token) != m_Removed.end()) continue;
                 const bool wasCancelled = hook.cancelled;

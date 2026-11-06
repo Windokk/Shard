@@ -12,7 +12,7 @@
 namespace Shard::Engine::Core {
 
     namespace {
-        // Stamps the RFC 4122 variant (10xx) and the version in the right bits
+        // RFC 4122 variant (10xx) and version bits.
         Guid Stamp(uint64_t high, uint64_t low, uint64_t version) {
             high = (high & ~(0xFull << 12)) | (version << 12);
             low = (low & ~(0x3ull << 62)) | (0x2ull << 62);
@@ -20,8 +20,7 @@ namespace Shard::Engine::Core {
         }
 
         uint64_t EntropySeed() {
-            // random_device is the real source ; the clock, a counter and the thread id are mixed in so that two
-            // threads asking at the same instant, or a random_device that is deterministic (some old MinGW), still differ
+            // Mix clock, counter and thread id into random_device: some old MinGW builds have a deterministic one.
             static std::atomic<uint64_t> counter{0};
             std::random_device device;
             uint64_t seed = (uint64_t(device()) << 32) | device();
@@ -31,7 +30,6 @@ namespace Shard::Engine::Core {
             return seed;
         }
 
-        // 128 bits from a text : two FNV-1a runs with different seeds, each finished by a mixer
         Guid HashText(const Guid& ns, std::string_view text) {
             uint64_t a = Fnv1a64(text, 14695981039346656037ull ^ ns.high);
             uint64_t b = Fnv1a64(text, 0x84222325cbf29ce4ull ^ ns.low);
@@ -49,7 +47,7 @@ namespace Shard::Engine::Core {
     }
 
     Guid Guid::Generate() {
-        // A deterministic run counts its GUIDs from the seed : the same run makes the same ones
+        // Deterministic runs count GUIDs from the seed, so the same run makes the same ones.
         if (Determinism::Enabled()) {
             uint64_t high, low;
             Determinism::NextGuidWords(high, low);
@@ -65,7 +63,6 @@ namespace Shard::Engine::Core {
     }
 
     Guid Guid::FromName(std::string_view name) {
-        // Fixed, arbitrary namespace of the engine
         static const Guid engineNamespace(0x5a1d5e2c9f3b4a67ull, 0x8c3e1b0d7f2a9e45ull);
         return FromName(engineNamespace, name);
     }

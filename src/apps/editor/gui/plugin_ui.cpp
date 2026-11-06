@@ -21,7 +21,7 @@
 namespace Shard::Editor::GUI {
 
     namespace {
-        // A ShardStr is not zero terminated and ImGui wants one. The strings are short and used one at a time, so a few buffers rotate.
+        // A ShardStr is not zero terminated and ImGui wants one. A few buffers rotate, strings are short and used one at a time.
         const char* Z(ShardStr s)
         {
             static thread_local std::string buffers[8];
@@ -100,8 +100,6 @@ namespace Shard::Editor::GUI {
         int32_t SHARD_CALL IsItemHovered() { return ImGui::IsItemHovered() ? SHARD_TRUE : SHARD_FALSE; }
         void SHARD_CALL Tooltip(ShardStr t) { if (ImGui::IsItemHovered()) ImGui::SetTooltip("%s", Z(t)); }
 
-        // ---- 1.1 ----
-
         void SHARD_CALL TextDisabled(ShardStr t) { ImGui::TextDisabled("%s", Z(t)); }
         void SHARD_CALL SeparatorText(ShardStr t) { ImGui::SeparatorText(Z(t)); }
         int32_t SHARD_CALL RadioButton(ShardStr l, int32_t* value, int32_t buttonValue) { return value && ImGui::RadioButton(Z(l), reinterpret_cast<int*>(value), buttonValue) ? SHARD_TRUE : SHARD_FALSE; }
@@ -163,8 +161,6 @@ namespace Shard::Editor::GUI {
         int32_t SHARD_CALL IsItemActive() { return ImGui::IsItemActive() ? SHARD_TRUE : SHARD_FALSE; }
         int32_t SHARD_CALL IsItemDoubleClicked() { return ImGui::IsItemHovered() && ImGui::IsMouseDoubleClicked(ImGuiMouseButton_Left) ? SHARD_TRUE : SHARD_FALSE; }
 
-        // ---- 1.2 : a draw list, the mouse and keyboard, hit areas, images, drag and drop ----
-
         ImVec2 V2(const float v[2]) { return ImVec2(v[0], v[1]); }
 
         void SHARD_CALL DrawLine(const float a[2], const float b[2], uint32_t color, float thickness) { ImGui::GetWindowDrawList()->AddLine(V2(a), V2(b), color, thickness); }
@@ -209,7 +205,6 @@ namespace Shard::Editor::GUI {
         int32_t SHARD_CALL IsMouseReleased(int32_t button) { return ImGui::IsMouseReleased(Button(button)) ? SHARD_TRUE : SHARD_FALSE; }
         int32_t SHARD_CALL IsMouseDoubleClicked(int32_t button) { return ImGui::IsMouseDoubleClicked(Button(button)) ? SHARD_TRUE : SHARD_FALSE; }
 
-        // SHARD_KEY_* -> ImGui's keys (the ones a panel needs)
         ImGuiKey KeyOf(int32_t key)
         {
             if (key >= SHARD_KEY_A && key <= SHARD_KEY_A + 25) return ImGuiKey(int(ImGuiKey_A) + (key - SHARD_KEY_A));
@@ -252,10 +247,9 @@ namespace Shard::Editor::GUI {
 
         void SHARD_CALL Image(uint64_t texture, float w, float h)
         {
-            // A texture of shard.render : its native id exists once the render thread made it (the engine root knows)
             bool flipV = false;
             const uint64_t native = Engine::Plugins::RenderTextureForImGui(texture, &flipV);
-            if (native) ImGui::Image(ImTextureID(native), ImVec2(w, h), ImVec2(0.0f, flipV ? 1.0f : 0.0f), ImVec2(1.0f, flipV ? 0.0f : 1.0f));      // a render target is bottom first
+            if (native) ImGui::Image(ImTextureID(native), ImVec2(w, h), ImVec2(0.0f, flipV ? 1.0f : 0.0f), ImVec2(1.0f, flipV ? 0.0f : 1.0f));      // render targets are bottom-first
             else ImGui::Dummy(ImVec2(w, h));
         }
         int32_t SHARD_CALL SelectableSize(ShardStr l, int32_t selected, float w, float h) { return ImGui::Selectable(Z(l), selected != 0, 0, ImVec2(w, h)) ? SHARD_TRUE : SHARD_FALSE; }
@@ -323,7 +317,6 @@ namespace Shard::Editor::GUI {
 
         const ShardUiApi kWidgets = MakeWidgets();
 
-        // The notifications and the selection of the editor, for shard.editor
         Core::EditorMainWindow* gWindow = nullptr;
         void Notify(uint32_t level, const char* text)
         {
@@ -339,7 +332,6 @@ namespace Shard::Editor::GUI {
         bool BeginWindow(const char* title, bool* open) { return ImGui::Begin(title, open); }
         void EndWindow() { ImGui::End(); }
 
-        // An edit a plugin made, in the editor's history
         class PluginCommand final : public Commands::Command {
         public:
             PluginCommand(std::string label, std::function<void()> undo, std::function<void()> redo) : m_Name(std::move(label)), m_Undo(std::move(undo)), m_Redo(std::move(redo)) {}
@@ -362,7 +354,6 @@ namespace Shard::Editor::GUI {
     namespace {
         using Engine::Plugins::EditorMenuItem;
 
-        // "Tools/Bake/All" -> the part before the first '/' and the rest
         std::pair<std::string, std::string> SplitPath(const std::string& path)
         {
             const size_t slash = path.find('/');
@@ -374,7 +365,6 @@ namespace Shard::Editor::GUI {
             std::shared_ptr<EditorMenuItem> item;
         };
 
-        // Items whose paths (relative to the menu being drawn) are `entries`: a path with one part is an item, with more it is under a submenu of its first part
         void DrawEntries(const std::vector<MenuEntry>& entries)
         {
             std::vector<std::string> submenus;

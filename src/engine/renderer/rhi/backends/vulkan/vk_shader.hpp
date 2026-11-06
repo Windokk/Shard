@@ -13,11 +13,8 @@
 
 namespace Shard::Engine::Rendering {
 
-    /// @brief A compiled program on the GPU : the shader modules, the layout of its resources, and what the engine gives it by name.
-    ///
-    /// The uniforms a shader declares loose are one block of memory (see ShaderCompiler) : SetFloat & co write into a copy of it on the CPU, and a
-    /// draw that needs them puts that copy in the uniform ring and binds the slice. The samplers and storage resources are bound to tables of
-    /// the API by number, as OpenGL does with texture units and binding points (see VKRendererAPI).
+    // Loose uniforms are one block: SetFloat & co write a CPU copy, a draw puts it in the uniform ring and binds the slice.
+    // Samplers and storage resources bind to the API's tables by number, like GL texture units.
     class VKProgram
     {
         public:
@@ -27,7 +24,6 @@ namespace Shard::Engine::Rendering {
             VKProgram(const VKProgram&) = delete;
             VKProgram& operator=(const VKProgram&) = delete;
 
-            /// Loads the compiled program of these sources (compiling them if nobody has, or if they changed since) and builds what a draw needs
             bool Load(const std::vector<std::pair<ShaderStageKind, std::string>>& files, const std::string& name, const std::vector<std::string>& defines = {});
 
             void Release();
@@ -41,19 +37,13 @@ namespace Shard::Engine::Rendering {
             VkDescriptorSetLayout GetSetLayout(uint32_t set) const { return m_SetLayouts[set]; }
             const std::string& GetName() const { return m_Name; }
 
-            // ---- What is set by name ----
-
-            /// Writes `size` bytes at the uniform `name` (a no-op if the program has none by that name : the engine sets uniforms every shader may not have)
             bool WriteUniform(const std::string& name, const void* data, uint32_t size, uint32_t stride = 0, uint32_t columns = 0);
             bool HasUniform(const std::string& name) const;
 
-            /// The sampler with this name reads the texture of unit `unit` from now on (OpenGL : glUniform1i on a sampler)
             bool SetSamplerUnit(const std::string& name, uint32_t unit);
 
-            /// The unit a sampler binding reads : its own binding number unless the engine said otherwise
             uint32_t GetSamplerUnit(const ReflectedBinding& binding, uint32_t element) const;
 
-            /// Puts the uniforms in the ring of the frame if they changed since they were last put there. False : the program has none.
             bool FlushUniforms(uint32_t& dynamicOffset);
 
             VkDescriptorSet GetUniformSet() const { return m_UniformSet; }
@@ -84,10 +74,10 @@ namespace Shard::Engine::Rendering {
             uint64_t m_UploadedFrame = ~0ull;
             uint32_t m_UploadedOffset = 0;
 
-            std::unordered_map<std::string, ReflectedUniform> m_Uniforms;       // by name, array elements by their own name (and the array by its first)
+            std::unordered_map<std::string, ReflectedUniform> m_Uniforms;
             std::unordered_map<std::string, UniformInfo> m_UniformInfos;
             std::unordered_map<std::string, SamplerInfo> m_SamplerInfos;
-            std::unordered_map<uint32_t, uint32_t> m_SamplerUnits;              // binding -> unit
+            std::unordered_map<uint32_t, uint32_t> m_SamplerUnits;
             std::unordered_map<std::string, uint32_t> m_SamplerBindingByName;
     };
 
@@ -152,7 +142,6 @@ namespace Shard::Engine::Rendering {
             VKProgram m_Program;
     };
 
-    /// Releases the descriptor set layouts the programs shared (at shutdown, with the device)
     void ClearShaderLayoutCache();
 
 }

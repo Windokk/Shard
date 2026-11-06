@@ -5,7 +5,7 @@
 namespace Shard::Engine::Core {
 
     namespace {
-        thread_local const ThreadPool* tl_pool = nullptr;      // the pool the calling thread belongs to
+        thread_local const ThreadPool* tl_pool = nullptr;
     }
 
     ThreadPool::ThreadPool(ThreadPoolDesc desc) : m_Desc(std::move(desc)) {
@@ -21,7 +21,7 @@ namespace Shard::Engine::Core {
             m_Stopping = true;
         }
         m_Wake.notify_all();
-        for (std::thread& t : m_Threads) t.join();             // the threads leave only once the queue is empty
+        for (std::thread& t : m_Threads) t.join();
     }
 
     void ThreadPool::Enqueue(std::function<void()> task) {
@@ -33,7 +33,7 @@ namespace Shard::Engine::Core {
                 return;
             }
         }
-        task();                                                // being destroyed : do not lose the task, run it here
+        task();
     }
 
     void ThreadPool::WaitIdle() {
@@ -50,14 +50,14 @@ namespace Shard::Engine::Core {
         std::unique_lock<std::mutex> lock(m_Mutex);
         for (;;) {
             m_Wake.wait(lock, [this] { return m_Stopping || !m_Queue.empty(); });
-            if (m_Queue.empty()) break;                        // stopping and drained
+            if (m_Queue.empty()) break;
 
             std::function<void()> task = std::move(m_Queue.front());
             m_Queue.pop_front();
             ++m_Running;
             lock.unlock();
-            task();                                            // outside the lock : other threads keep taking tasks
-            task = nullptr;                                    // destroy the closure before reporting idle
+            task();
+            task = nullptr;
             lock.lock();
             if (--m_Running == 0 && m_Queue.empty()) m_Idle.notify_all();
         }
@@ -67,7 +67,7 @@ namespace Shard::Engine::Core {
     ThreadPools::ThreadPools(ThreadStartFn onThreadStart) : m_OnThreadStart(std::move(onThreadStart)) {}
 
     ThreadPools::~ThreadPools() {
-        // Reverse order : the audio / render work may hand things to the IO threads, not the other way round
+        // Reverse order: audio and render work may hand things to the IO threads, not the other way round
         for (size_t i = kKinds; i-- > 0;) m_Pools[i].reset();
     }
 
@@ -96,8 +96,8 @@ namespace Shard::Engine::Core {
 
     unsigned ThreadPools::DefaultThreadCount(PoolKind kind) {
         switch (kind) {
-            case PoolKind::IO:     return 4;    // they mostly wait on a disk : more than the cores is fine
-            case PoolKind::Render: return 1;    // serial : one thread, tasks in order
+            case PoolKind::IO:     return 4;
+            case PoolKind::Render: return 1;
             case PoolKind::Audio:  return 1;
         }
         return 1;

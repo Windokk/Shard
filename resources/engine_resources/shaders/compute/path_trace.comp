@@ -1,21 +1,10 @@
 #version 430 core
 #extension GL_ARB_bindless_texture : enable
 
-// Offline path tracer. Dispatched once per accumulated sample (see Raytracer::Render) - each dispatch
-// traces one path per pixel and adds its result into `uAccum`, which stores a running (sum, count) pair
-// per pixel in .rgb / .a rather than an average, so accumulation across dispatches is a simple add with
-// no read-modify-normalize step needed here (normalization to a mean happens once, on the CPU, after
-// the last sample - see Raytracer::Render).
-//
-// The path itself (TracePath, the light sampling, the sky) is shared with the lightmap baker, see
-// common/path_tracing.glsl.
-
 layout(local_size_x = 8, local_size_y = 8, local_size_z = 1) in;
 
 layout(rgba32f, binding = 0) uniform image2D uAccum;
 
-// uWriteTerms : the same sums split by term of the lighting (see gPathTerms in path_tracing.glsl), one image per term in the order
-// of the LIGHTING_TERM_* bits. Their .a is unused : the sample count is uAccum's.
 uniform bool uWriteTerms;
 layout(rgba32f, binding = 1) uniform image2D uAccumDirect;
 layout(rgba32f, binding = 2) uniform image2D uAccumIndirectDiffuse;
@@ -26,8 +15,6 @@ layout(rgba32f, binding = 4) uniform image2D uAccumEmission;
 #include "../common/raytracing_types.glsl"
 #include "../common/normal_map.glsl"
 
-// Image binding (unit 0) and SSBO bindings (also numbered from 0) live in separate binding tables in
-// OpenGL, so they don't collide despite sharing index 0.
 layout(std430, binding = 0) readonly buffer BVHNodes       { BVHNode bvhNodes[]; };
 layout(std430, binding = 1) readonly buffer TrianglePositions { TrianglePos triPos[]; };
 layout(std430, binding = 2) readonly buffer TriangleAttribs   { TriangleAttrib triAttrib[]; };
@@ -38,13 +25,13 @@ layout(std430, binding = 4) readonly buffer Lights            { Light lights[]; 
 #include "../common/path_tracing.glsl"
 
 uniform vec3 uCameraPos;
-uniform vec3 uCameraRight;   // basis vector, pre-scaled by tan(fov/2) * aspect
-uniform vec3 uCameraUp;      // basis vector, pre-scaled by tan(fov/2)
+uniform vec3 uCameraRight;
+uniform vec3 uCameraUp;
 uniform vec3 uCameraForward;
-uniform bool uPanorama;      // an equirectangular image of the whole sphere around uCameraPos (a reflection probe), instead of a perspective view
+uniform bool uPanorama;
 uniform vec2 uImageSize;
-uniform vec2 uTileOffset;    // pixel offset of this dispatch's strip within the full image (tiled dispatch)
-uniform int  uFrameIndex;    // which accumulated sample this dispatch is (0-based) - also seeds the RNG
+uniform vec2 uTileOffset;
+uniform int  uFrameIndex;
 
 void main()
 {
@@ -60,8 +47,7 @@ void main()
 
     vec3 rd = normalize(uCameraForward + uCameraRight * ndc.x + uCameraUp * ndc.y);
     if (uPanorama) {
-        // The layout equirectToCubemap.frag reads (u from atan(z, x), v from asin(y), v = 0 at the bottom of the image buffer,
-        // which the file writer flips) : the picture can be loaded as an environment map as it is
+        // Layout read by equirectToCubemap.frag (u from atan(z, x), v from asin(y), v = 0 at the bottom), so the output loads as an environment map.
         vec2 uv = (vec2(pixel) + jitter) / uImageSize;
         float phi = (uv.x - 0.5) * 6.28318530718;
         float theta = (uv.y - 0.5) * 3.14159265359;
@@ -77,7 +63,6 @@ void main()
 
     if (uWriteTerms)
     {
-        // A sample the firefly clamp scaled down is scaled down in every term, so that they still add up to the picture
         float clampScale = dot(traced, vec3(1.0)) > 0.0 ? dot(sampleRadiance, vec3(1.0)) / dot(traced, vec3(1.0)) : 1.0;
         bool first = uFrameIndex == 0;
         imageStore(uAccumDirect, pixel, (first ? vec4(0.0) : imageLoad(uAccumDirect, pixel)) + vec4(gPathTerms[0] * clampScale, 0.0));

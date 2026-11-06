@@ -8,10 +8,6 @@
 
 namespace Shard::Engine::Rendering {
 
-    /// @brief GPU time of named scopes (a render pass, a compute stage), measured with timestamp queries.
-    ///
-    /// Results come back a few frames late (the GPU is still working on them) ; Latest() is the newest complete frame.
-    /// Off by default : the queries cost a little, so it is only switched on while someone looks at the numbers.
     class GpuProfiler {
     public:
         struct Timing {
@@ -24,14 +20,11 @@ namespace Shard::Engine::Rendering {
         virtual void SetEnabled(bool enabled) = 0;
         bool IsEnabled() const { return m_Enabled.load(std::memory_order_relaxed); }
 
-        /// One frame is BeginFrame ... EndFrame, scopes nest
         virtual void BeginFrame() = 0;
         virtual void EndFrame() = 0;
         virtual void Begin(const char* name) = 0;
         virtual void End() = 0;
 
-        /// The newest frame whose results arrived, and its sequence number (changes whenever a new one arrives). Safe to call
-        /// from any thread : the profiler is fed by the render thread.
         std::vector<Timing> Latest() const
         {
             std::lock_guard<std::mutex> lock(m_LatestMutex);
@@ -57,7 +50,6 @@ namespace Shard::Engine::Rendering {
         std::atomic<uint64_t> m_LatestSequence{0};
     };
 
-    /// Times a scope for the lifetime of the object ; does nothing without a profiler or while it is off
     class GpuScope {
     public:
         GpuScope(GpuProfiler* profiler, const char* name) : m_Profiler(profiler && profiler->IsEnabled() ? profiler : nullptr)

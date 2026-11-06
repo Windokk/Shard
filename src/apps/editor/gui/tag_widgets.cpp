@@ -21,7 +21,6 @@ namespace Shard::Editor::GUI::TagWidgets{
         const ImVec4 kUnknownColor(0.95f, 0.70f, 0.30f, 1.0f);
         const ImVec4 kErrorColor(0.90f, 0.35f, 0.35f, 1.0f);
 
-        /// The search box of the tree : one for every tree, it is only ever open in one popup
         char gSearch[128] = "";
 
         bool ContainsNoCase(const std::string& text, const char* search)
@@ -56,7 +55,6 @@ namespace Shard::Editor::GUI::TagWidgets{
             ImGui::EndTooltip();
         }
 
-        /// One branch of the tree. True when a tag was clicked.
         bool TagNode(Core::Tag tag, Core::Tag& picked, const Core::TagContainer* marked)
         {
             const Core::TagRegistry& registry = Core::TagRegistry::Get();
@@ -92,14 +90,12 @@ namespace Shard::Editor::GUI::TagWidgets{
             return clicked;
         }
 
-        /// The chip of one tag. True when it was clicked.
         bool Chip(Core::Tag tag, bool removable)
         {
             const std::string name = tag.ToString();
             const bool known = Core::TagRegistry::Get().IsKnown(tag);
             const std::string label = (known ? "" : ICON_LC_TRIANGLE_ALERT " ") + name + (removable ? "  " ICON_LC_X : "") + "##chip" + name;
 
-            // Wraps to the next line when it does not fit on this one
             const ImGuiStyle& style = ImGui::GetStyle();
             const float width = ImGui::CalcTextSize(label.c_str(), nullptr, true).x + style.FramePadding.x * 2.0f;
             const float right = ImGui::GetWindowPos().x + ImGui::GetWindowContentRegionMax().x;
@@ -118,11 +114,10 @@ namespace Shard::Editor::GUI::TagWidgets{
             return clicked;
         }
 
-        /// What a query field shows while it is edited, by ImGui id (the query itself only changes when the text is valid)
         struct QueryDraft {
             std::string text;
             std::string error;
-            std::string unknown;        // the names nobody declares
+            std::string unknown;
         };
         std::unordered_map<ImGuiID, QueryDraft> gQueryDrafts;
 
@@ -135,7 +130,6 @@ namespace Shard::Editor::GUI::TagWidgets{
                 return;
             for (Core::Tag tag : parsed.GetTags())
                 if (!Core::TagRegistry::Get().IsKnown(tag)) {
-                    // The text of a tag nobody declares is not remembered while typing : the draft has it
                     draft.unknown = "Not declared : a name of this query matches only itself.";
                     break;
                 }
@@ -161,7 +155,6 @@ namespace Shard::Editor::GUI::TagWidgets{
             ImGui::TextDisabled("No tag yet : add some in Project Settings > Tags");
 
         if (gSearch[0] != '\0') {
-            // Searching : the matching tags, by their full name
             for (Core::Tag tag : registry.GetAll()) {
                 const std::string name = tag.ToString();
                 if (!ContainsNoCase(name, gSearch))
@@ -189,7 +182,7 @@ namespace Shard::Editor::GUI::TagWidgets{
         ImGui::PushID(id);
         ImGui::BeginGroup();
 
-        // Sorted by name, like the file : the order of the container is the hashes'
+        // Sorted by name like the file, the container's order is the hashes'.
         std::vector<Core::Tag> sorted(tags.begin(), tags.end());
         std::sort(sorted.begin(), sorted.end(), [](Core::Tag a, Core::Tag b) { return a.ToString() < b.ToString(); });
 
@@ -211,7 +204,6 @@ namespace Shard::Editor::GUI::TagWidgets{
         if (ImGui::BeginPopup("##AddTagPopup")) {
             Core::Tag picked;
             if (TagTree(picked, &tags)) {
-                // Picking a tag that is there removes it : the tree shows a check on the ones the container has
                 changed = tags.HasTagExact(picked) ? tags.Remove(picked) : tags.Add(picked);
                 ImGui::CloseCurrentPopup();
             }
@@ -306,7 +298,6 @@ namespace Shard::Editor::GUI::TagWidgets{
             ImGui::EndTooltip();
         }
 
-        // Applied when the field is left : the text is read again, this time keeping the names it holds
         auto commit = [&]() {
             auto draft = gQueryDrafts.find(key);
             if (draft == gQueryDrafts.end())
@@ -330,7 +321,6 @@ namespace Shard::Editor::GUI::TagWidgets{
         if (ImGui::BeginPopup("##InsertTagPopup")) {
             Core::Tag picked;
             if (TagTree(picked, nullptr)) {
-                // Added as one more term of an `&`, or alone in an empty query
                 const std::string text = query.ToString();
                 Core::TagQuery parsed;
                 if (Core::TagQuery::TryParse(text.empty() ? picked.ToString() : "(" + text + ") & " + picked.ToString(), parsed)) {

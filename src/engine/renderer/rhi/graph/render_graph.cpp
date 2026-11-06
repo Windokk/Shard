@@ -49,8 +49,7 @@ namespace Shard::Engine::Rendering {
         {
             case ResourceUsage::ColorTarget:
             case ResourceUsage::DepthTarget:
-                // Attachment writes are ordered for the next draws by the API itself, but not for a texture sampled through a
-                // handle the driver cannot see (bindless), which is how the passes read each other's targets
+                // Attachment writes are ordered by the API, but not textures sampled through bindless handles.
                 switch (to)
                 {
                     case ResourceUsage::ShaderRead:     return B::TextureFetch;
@@ -87,7 +86,7 @@ namespace Shard::Engine::Rendering {
 
         uint64_t bytes = static_cast<uint64_t>(width) * height * std::max<uint32_t>(layers, 1) * std::max<uint32_t>(samples, 1) * bytesPerTexel;
         if (mipmapped)
-            bytes += bytes / 3;     // the chain of mip levels is a third as big again
+            bytes += bytes / 3;
         return bytes;
     }
 
@@ -178,8 +177,6 @@ namespace Shard::Engine::Rendering {
             live[i] = m_Passes[i].enabled;
         }
 
-        // ---- Edges : producers of a resource one after the other, readers after the last producer, then the explicit ones ----
-
         std::vector<std::set<int>> predecessors(count);
         std::vector<std::set<int>> successors(count);
 
@@ -197,14 +194,13 @@ namespace Shard::Engine::Rendering {
             std::vector<int> readers;
         };
         std::unordered_map<std::string, Users> usersOf;
-        std::vector<std::string> resourceNames;     // in first use order, so that the output does not depend on a hash
+        std::vector<std::string> resourceNames;
 
         for (int i = 0; i < count; i++)
         {
             if (!live[i])
                 continue;
 
-            // What this pass writes, so that a resource it reads and writes counts as a write only
             std::set<std::string> writtenHere;
             for (const PassAccess& access : m_Passes[i].accesses)
             {
@@ -229,8 +225,6 @@ namespace Shard::Engine::Rendering {
             }
         }
 
-        // The explicit order first : it decides the order of the producers of a resource when they were not declared in it (a pass that was
-        // registered later but has to run first)
         std::vector<std::vector<int>> explicitSuccessors(count);
         for (int i = 0; i < count; i++)
         {
@@ -249,7 +243,7 @@ namespace Shard::Engine::Rendering {
             if (memo >= 0)
                 return memo == 1;
 
-            memo = 0;       // a cycle would not come back here
+            memo = 0;
             for (int next : explicitSuccessors[from])
             {
                 if (next == to || reaches(next, to))
@@ -265,7 +259,6 @@ namespace Shard::Engine::Rendering {
         {
             const Users& users = usersOf[name];
 
-            // Declaration order, except where an explicit edge says a producer comes before another
             std::vector<int> producers;
             std::vector<int> remaining = users.writers;
             while (!remaining.empty())
@@ -299,9 +292,7 @@ namespace Shard::Engine::Rendering {
             {
                 for (int reader : users.readers)
                 {
-                    // A reader that names the passes it comes after reads what they wrote, which is not the last write of the frame when
-                    // the resource is written again later (the ping-pong targets of a jump flood read the pass before them, and are
-                    // written again by the passes after). The producers that come after the ones it names have to wait for it.
+                    // A reader naming the passes it follows reads their write, not the frame's last one (jump flood ping-pong targets), so later producers wait for it.
                     int namedProducer = -1;
                     for (size_t k = 0; k < producers.size(); k++)
                     {
@@ -333,8 +324,6 @@ namespace Shard::Engine::Rendering {
                     addEdge(static_cast<int>(it->second), i);
             }
         }
-
-        // ---- Culling : whatever no root needs is skipped ----
 
         std::vector<bool> needed(count, false);
         std::vector<int> stack;
@@ -386,8 +375,6 @@ namespace Shard::Engine::Rendering {
                 out.passes[i].culled = true;
         }
 
-        // ---- Order : Kahn, the pass declared first goes first among the ones that are ready ----
-
         std::vector<int> inDegree(count, 0);
         std::priority_queue<int, std::vector<int>, std::greater<int>> ready;
         int runnable = 0;
@@ -438,8 +425,6 @@ namespace Shard::Engine::Rendering {
             return out;
         }
 
-        // ---- Barriers : a change of use between two passes ----
-
         struct State
         {
             ResourceUsage usage = ResourceUsage::None;
@@ -464,7 +449,6 @@ namespace Shard::Engine::Rendering {
 
                 State& state = states[access.resource];
 
-                // Attachment writes after attachment writes are ordered by the API ; a storage write needs its barrier even after itself
                 const bool sameUse = state.usage == access.usage && access.usage != ResourceUsage::StorageWrite;
 
                 if (state.usage != ResourceUsage::None && !sameUse && emitted.insert({access.resource, access.usage}).second)
@@ -491,8 +475,6 @@ namespace Shard::Engine::Rendering {
             }
         }
 
-        // ---- Lifetimes and aliasing : transient resources that are never live together share memory ----
-
         for (const std::string& name : lifetimeOrder)
         {
             ResourceLifetime lifetime = lifetimes[name];
@@ -512,7 +494,7 @@ namespace Shard::Engine::Rendering {
         }
         std::stable_sort(byStart.begin(), byStart.end(), [&](int a, int b) { return out.resources[a].firstPass < out.resources[b].firstPass; });
 
-        std::vector<int> slotFreeAfter;     // last position of the resource a slot holds
+        std::vector<int> slotFreeAfter;
 
         for (int index : byStart)
         {
@@ -525,7 +507,7 @@ namespace Shard::Engine::Rendering {
             for (size_t slot = 0; slot < out.aliasSlots.size(); slot++)
             {
                 if (slotFreeAfter[slot] >= lifetime.firstPass)
-                    continue;       // still in use when this resource starts
+                    continue;
 
                 const uint64_t growth = lifetime.sizeBytes > out.aliasSlots[slot].sizeBytes ? lifetime.sizeBytes - out.aliasSlots[slot].sizeBytes : 0;
                 if (best < 0 || growth < bestGrowth || (growth == bestGrowth && out.aliasSlots[slot].sizeBytes < out.aliasSlots[best].sizeBytes))

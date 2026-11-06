@@ -12,15 +12,13 @@ namespace Shard::Engine::Core {
     bool TaskGraph::DependsOn(TaskId task, TaskId prerequisite) {
         if (task >= m_Nodes.size() || prerequisite >= m_Nodes.size() || task == prerequisite) return false;
         auto& succ = m_Nodes[prerequisite].successors;
-        if (std::find(succ.begin(), succ.end(), task) != succ.end()) return true;   // already there
+        if (std::find(succ.begin(), succ.end(), task) != succ.end()) return true;
         succ.push_back(task);
         ++m_Nodes[task].dependencyCount;
         return true;
     }
 
     bool TaskGraph::Validate(std::string* error) const {
-        // Kahn's algorithm: repeatedly remove tasks without unfinished prerequisites. Whatever is left is on, or
-        // downstream of, a cycle.
         std::vector<uint32_t> deps(m_Nodes.size());
         std::vector<TaskId> ready;
         for (TaskId i = 0; i < m_Nodes.size(); ++i) {
@@ -64,9 +62,7 @@ namespace Shard::Engine::Core {
     }
 
     void TaskGraph::Execute(JobSystem& js, JobGroup& group, TaskId id) {
-        // Runs `id`, then the successors it unblocked. All but one of them become new jobs (so other threads can take
-        // them); the last one is run by this same job in the loop: no queue round-trip, and the data the finished task
-        // just wrote is still hot in this core's cache.
+        // All but one unblocked successor become new jobs, the last runs in this loop: no queue round trip and its data is still hot in this core's cache.
         std::vector<TaskId> ready;
         for (;;) {
             Node& node = m_Nodes[id];
@@ -74,8 +70,7 @@ namespace Shard::Engine::Core {
 
             ready.clear();
             for (TaskId s : node.successors) {
-                // acq_rel: the release publishes our writes to whoever runs the successor, the acquire (on the thread
-                // that brings the counter to 0) makes every prerequisite's writes visible to it.
+                // acq_rel: release publishes our writes to the successor's runner, acquire on the thread that reaches 0 makes every prerequisite's writes visible.
                 if (m_Remaining[s].fetch_sub(1, std::memory_order_acq_rel) == 1) ready.push_back(s);
             }
             if (ready.empty()) return;

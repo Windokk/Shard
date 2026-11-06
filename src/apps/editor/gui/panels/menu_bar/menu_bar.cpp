@@ -185,7 +185,6 @@ namespace Shard::Editor::GUI{
 
         ImGui::Separator();
 
-        // Shortcuts : the ones of the outliner and the viewport, whichever has the focus
         if (ImGui::MenuItem("Copy", "Ctrl+C", false, hasSelection))
             parent->CopySelection();
 

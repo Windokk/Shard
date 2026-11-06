@@ -13,7 +13,6 @@ namespace Shard::Engine::Rendering {
 
             VKTexture2D(TextureSpecifications& specs, const void* data);
 
-            /// A texture whose blocks are already encoded (BC4 / BC5 / BC7), all mip levels included : uploaded as they are
             VKTexture2D(const TextureSpecifications& specs, const CompressedImage& image, uint32_t firstMip = 0);
 
             ~VKTexture2D() override;
@@ -24,7 +23,7 @@ namespace Shard::Engine::Rendering {
 
             uint32_t GetHandle() const override { return m_Resource.GetId(); }
 
-            /// The place of the texture in the array of bindless textures (what the shaders read as the first of the two uints of a handle)
+            // Slot in the bindless array, shaders read it as the first of the two uints of a handle.
             uint64_t GetBindlessHandle() const override { return m_Resource.image.IsValid() ? m_Resource.GetId() : 0; }
 
             bool IsValid() const override { return m_Resource.image.IsValid(); }
@@ -41,13 +40,11 @@ namespace Shard::Engine::Rendering {
     };
 
     namespace VK {
-        /// The texels of the GPU format, made of what the caller of Texture2D::Create gave (an RGB texture gets its fourth channel, float pixel data becomes half floats...)
         std::vector<uint8_t> ConvertSourcePixels(const TextureSpecifications& specs, const void* data, VkFormat format, uint32_t width, uint32_t height);
         bool SupportsStorage(VkFormat format);
         bool SupportsColorAttachment(VkFormat format);
     }
 
-    /// float -> IEEE half, for the pixel data that goes to a 16 bit float texture
     uint16_t FloatToHalf(float value);
     float HalfToFloat(uint16_t value);
 

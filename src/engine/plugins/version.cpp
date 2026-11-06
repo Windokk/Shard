@@ -17,7 +17,7 @@ namespace Shard::Engine::Plugins {
         bool ParseNumber(std::string_view s, uint32_t& out)
         {
             if (s.empty() || s.size() > 9) return false;
-            if (s.size() > 1 && s.front() == '0') return false;     // no leading zeros
+            if (s.size() > 1 && s.front() == '0') return false;
             uint32_t v = 0;
             auto [ptr, ec] = std::from_chars(s.data(), s.data() + s.size(), v);
             if (ec != std::errc() || ptr != s.data() + s.size()) return false;
@@ -79,7 +79,7 @@ namespace Shard::Engine::Plugins {
         if (minor != o.minor) return minor < o.minor ? -1 : 1;
         if (patch != o.patch) return patch < o.patch ? -1 : 1;
         if (prerelease.empty() && o.prerelease.empty()) return 0;
-        if (prerelease.empty()) return 1;           // a release is above its prereleases
+        if (prerelease.empty()) return 1;
         if (o.prerelease.empty()) return -1;
         const std::vector<std::string> a = Split(prerelease, '.');
         const std::vector<std::string> b = Split(o.prerelease, '.');
@@ -89,7 +89,7 @@ namespace Shard::Engine::Plugins {
                 const unsigned long x = std::stoul(a[i]), y = std::stoul(b[i]);
                 if (x != y) return x < y ? -1 : 1;
             } else if (an != bn) {
-                return an ? -1 : 1;                 // numeric identifiers are lower than alphanumeric ones
+                return an ? -1 : 1;
             } else if (a[i] != b[i]) {
                 return a[i] < b[i] ? -1 : 1;
             }
@@ -107,9 +107,8 @@ namespace Shard::Engine::Plugins {
     }
 
     namespace {
-        // A possibly partial version : "1", "1.2", "1.2.3", with "x", "X" or "*" for a wildcard component
         struct Partial {
-            int count = 0;              // how many leading components are given (0 = anything)
+            int count = 0;
             uint32_t v[3] = { 0, 0, 0 };
             std::string prerelease;
         };
@@ -168,7 +167,6 @@ namespace Shard::Engine::Plugins {
 
         for (const std::string& alt : alternatives) {
             Set set;
-            // Tokens split on spaces ; a comparator may be written apart from its version (">= 1.2")
             std::vector<std::string> tokens;
             {
                 std::string cur;
@@ -205,7 +203,6 @@ namespace Shard::Engine::Plugins {
                 const SemVer low = Make(p.v[0], p.v[1], p.v[2], p.prerelease);
                 if (kind == Kind::Cmp) {
                     if (p.count == 0) {
-                        // ">=*" is everything, "<*" nothing : only the first is useful
                         if (op == Op::Ge || op == Op::Le) set.push_back({ Op::Ge, SemVer{} });
                         else return fail("a comparator needs a version");
                     } else if (op == Op::Gt && p.count < 3) {
@@ -229,7 +226,6 @@ namespace Shard::Engine::Plugins {
                     set.push_back({ Op::Ge, low });
                     set.push_back({ Op::Lt, p.count == 1 ? Make(p.v[0] + 1, 0, 0) : Make(p.v[0], p.v[1] + 1, 0) });
                 } else {
-                    // Plain / wildcard
                     if (p.count == 0) set.push_back({ Op::Ge, SemVer{} });
                     else if (p.count == 3) set.push_back({ Op::Eq, low });
                     else {

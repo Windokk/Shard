@@ -28,7 +28,7 @@ class ComponentSerializationTest : public ::testing::Test {
         std::shared_ptr<Actor> actor;
 };
 
-TEST_F(ComponentSerializationTest, TransformIsWrittenFromItsReflectedFields) {
+TEST_F(ComponentSerializationTest, TransformWrittenFromFields) {
     actor->transform->SetPosition(glm::vec3(1, 2, 3));
     actor->transform->SetScale(glm::vec3(2, 2, 2));
 
@@ -56,7 +56,7 @@ TEST_F(ComponentSerializationTest, TransformRoundTrips) {
     EXPECT_NEAR(other->transform->GetRotation().y, 90.0f, 0.1f);
 }
 
-TEST_F(ComponentSerializationTest, TransformReadsTheFormatLevelsAlwaysUsed) {
+TEST_F(ComponentSerializationTest, TransformReadsLevelFormat) {
     const json legacy = json::parse(R"({
         "type": "transform", "active": true,
         "position": {"x": 1.0, "y": 2.0, "z": 3.0},
@@ -71,14 +71,14 @@ TEST_F(ComponentSerializationTest, TransformReadsTheFormatLevelsAlwaysUsed) {
     EXPECT_NEAR(actor->transform->GetRotation().y, 45.0f, 1e-3f);
 }
 
-TEST_F(ComponentSerializationTest, TransformKeepsItsDefaultsForMissingKeys) {
+TEST_F(ComponentSerializationTest, TransformKeepsDefaults) {
     actor->transform->Deserialize(json::parse(R"({"type": "transform"})"));
 
     EXPECT_EQ(actor->transform->position, glm::vec3(0));
     EXPECT_EQ(actor->transform->scale, glm::vec3(1));
 }
 
-TEST_F(ComponentSerializationTest, CameraIsWrittenFromItsReflectedFields) {
+TEST_F(ComponentSerializationTest, CameraWrittenFromFields) {
     auto camera = actor->AddComponent<Camera>();
     camera->Init(1280, 720, 0.5f, 250.0f, 75.0f, true, 4.0f);
 
@@ -92,9 +92,7 @@ TEST_F(ComponentSerializationTest, CameraIsWrittenFromItsReflectedFields) {
     EXPECT_FLOAT_EQ(out["orthoSize"], 4.0f);
 }
 
-// ---- Baked lighting ----
-
-TEST_F(ComponentSerializationTest, LightKeepsItsSoftShadowSizeAndBakeMode) {
+TEST_F(ComponentSerializationTest, LightKeepsShadowAndBakeMode) {
     auto light = actor->AddComponent<Light>();
     light->SetSourceSize(0.35f);
     light->SetBakeMode(Shard::Engine::Rendering::LightBakeMode::Static);
@@ -104,7 +102,6 @@ TEST_F(ComponentSerializationTest, LightKeepsItsSoftShadowSizeAndBakeMode) {
     EXPECT_FLOAT_EQ(out["sourceSize"], 0.35f);
     EXPECT_EQ(out["bakeMode"], "Static");
 
-    // What the renderer reads is the light's data, which the setters feed
     EXPECT_FLOAT_EQ(light->GetData().sourceSize, 0.35f);
     EXPECT_EQ(light->GetData().bakeMode, int(Shard::Engine::Rendering::LightBakeMode::Static));
 
@@ -114,8 +111,7 @@ TEST_F(ComponentSerializationTest, LightKeepsItsSoftShadowSizeAndBakeMode) {
     EXPECT_EQ(other->GetData().bakeMode, int(Shard::Engine::Rendering::LightBakeMode::Static));
 }
 
-TEST_F(ComponentSerializationTest, ALightWithoutTheBakingKeysIsADynamicHardShadowedOne) {
-    // Every level written before baking existed : no sourceSize, no bakeMode
+TEST_F(ComponentSerializationTest, LightWithoutBakeKeysIsDynamic) {
     auto light = actor->AddComponent<Light>();
     light->Deserialize(json::parse(R"({"type": "light", "active": true, "lightType": "Point", "intensity": 3.0, "radius": 10.0})"));
 
@@ -123,9 +119,7 @@ TEST_F(ComponentSerializationTest, ALightWithoutTheBakingKeysIsADynamicHardShado
     EXPECT_EQ(light->GetData().bakeMode, int(Shard::Engine::Rendering::LightBakeMode::Dynamic));
 }
 
-TEST_F(ComponentSerializationTest, ModelTakesPartInTheBakedLightingUnlessItSaysOtherwise) {
-    // (Serializing a model reaches the asset manager, which this context does not have : the file format of the placement is
-    // checked by the sample world round trip, see lightmaps.world)
+TEST_F(ComponentSerializationTest, ModelJoinsBakeByDefault) {
     auto model = actor->AddComponent<Model>();
 
     EXPECT_TRUE(model->staticLighting);
@@ -137,7 +131,7 @@ TEST_F(ComponentSerializationTest, ModelTakesPartInTheBakedLightingUnlessItSaysO
     EXPECT_EQ(model->lightmapPage, -1);
 }
 
-TEST_F(ComponentSerializationTest, ACopyOfAModelDoesNotShareItsLightmap) {
+TEST_F(ComponentSerializationTest, ModelCopyDropsLightmap) {
     auto model = actor->AddComponent<Model>();
     model->lightmapPage = 1;
 

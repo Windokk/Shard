@@ -40,16 +40,14 @@ namespace Shard::Engine::Rendering {
         struct Triangle
         {
             uint32_t v[3] = { 0, 0, 0 };
-            glm::vec3 normal = glm::vec3(0.0f);     // unit, or zero for a triangle without an area
-            glm::vec3 facing = glm::vec3(0.0f);     // what the charts are grown with : the mesh's smooth normal over the triangle when it has one (see BuildGroupGeometry)
+            glm::vec3 normal = glm::vec3(0.0f);
+            glm::vec3 facing = glm::vec3(0.0f);
             float area = 0.0f;
             int chart = -1;
-            int region = 0;                         // the set of triangles a chart is being grown in (see BuildCharts)
-            bool valid = true;                      // false : an index outside the vertex array, left out
+            int region = 0;
+            bool valid = true;
         };
 
-        // The triangles of one group and which of them share an edge (compressed rows : the neighbours of triangle t are
-        // neighbours[firstNeighbour[t] .. firstNeighbour[t + 1]))
         struct GroupGeometry
         {
             std::vector<Triangle> triangles;
@@ -60,27 +58,23 @@ namespace Shard::Engine::Rendering {
         struct Chart
         {
             size_t group = 0;
-            std::vector<uint32_t> triangles;        // indices in the group's triangle list
-            glm::vec3 normalSum = glm::vec3(0.0f);  // the triangles' normals weighted by their area
-            glm::vec3 axisU = glm::vec3(1, 0, 0);   // the plane the chart is projected onto
+            std::vector<uint32_t> triangles;
+            glm::vec3 normalSum = glm::vec3(0.0f);
+            glm::vec3 axisU = glm::vec3(1, 0, 0);
             glm::vec3 axisV = glm::vec3(0, 0, 1);
-            float cosTurn = 1.0f;                   // the turn applied to the projected points to take the least room
+            float cosTurn = 1.0f;
             float sinTurn = 0.0f;
-            glm::vec2 minCorner = glm::vec2(0.0f);  // of the turned points : what is subtracted to put the chart at the origin
-            float width = 0.0f;                     // of the turned chart, in the mesh's units
+            glm::vec2 minCorner = glm::vec2(0.0f);
+            float width = 0.0f;
             float height = 0.0f;
-            glm::vec2 offset = glm::vec2(0.0f);     // where the layout put the chart's origin, in the unit square
+            glm::vec2 offset = glm::vec2(0.0f);
         };
 
-        // A finely tessellated surface (cloth, scans) has face normals that jitter by tens of degrees from one triangle to the
-        // next while the surface itself is smooth : grown on those, the charts stop after a triangle or two and the lightmap
-        // becomes a heap of slivers. Each triangle's `facing` is its normal averaged (by area) with its neighbours', a few
-        // rings deep, over the neighbours that face about the same way as it does - so noise is averaged out while a real
-        // crease (a wall meeting a floor) is not blurred across, and still cuts a chart.
+        // Fine tessellation jitters face normals, which cuts charts into slivers. Average each triangle's normal with neighbours a few rings deep that face about the same way, so real creases still cut.
         void SmoothFacing(GroupGeometry& geometry)
         {
             constexpr int iterations = 20;
-            constexpr float cosLimit = 0.8f;        // about 37 degrees : the neighbours that count as the same surface
+            constexpr float cosLimit = 0.8f;
             const size_t count = geometry.triangles.size();
             std::vector<glm::vec3> current(count), next(count);
             for (size_t t = 0; t < count; t++)
@@ -100,7 +94,6 @@ namespace Shard::Engine::Rendering {
                     for (uint32_t n = geometry.firstNeighbour[t]; n < geometry.firstNeighbour[t + 1]; n++)
                     {
                         const Triangle& other = geometry.triangles[geometry.neighbours[n]];
-                        // The face normals decide who is a neighbour of the same surface, so the filter cannot creep around a crease
                         if (other.area > 0.0f && glm::dot(other.normal, tri.normal) >= cosLimit)
                             sum += current[geometry.neighbours[n]] * other.area;
                     }
@@ -144,8 +137,7 @@ namespace Shard::Engine::Rendering {
                 tri.facing = tri.normal;
             }
 
-            // Triangles that share an edge are neighbours - judged on the vertices' positions, not their indices : a mesh
-            // splits its vertices wherever a normal or a texture coordinate changes, which must not cut a chart
+            // Neighbours are judged on vertex positions, not indices. Vertices split on normal or UV changes must not cut a chart.
             glm::vec3 boundsMin(std::numeric_limits<float>::max()), boundsMax(std::numeric_limits<float>::lowest());
             for (size_t v = 0; v < group.vertexCount; v++)
             {
@@ -195,7 +187,6 @@ namespace Shard::Engine::Rendering {
                 while (j < edges.size() && edges[j].key == edges[i].key)
                     j++;
 
-                // More than two triangles on an edge is rare (a non manifold mesh) : link the first few of them
                 const size_t count = std::min<size_t>(j - i, 6);
                 for (size_t a = 0; a < count; a++)
                     for (size_t b = a + 1; b < count; b++)
@@ -224,7 +215,6 @@ namespace Shard::Engine::Rendering {
             SmoothFacing(out);
         }
 
-        // The projection plane of a chart : the plane its triangles face on average
         void ChartFrame(Chart& chart)
         {
             const float normalLength = glm::length(chart.normalSum);
@@ -241,7 +231,6 @@ namespace Shard::Engine::Rendering {
             chart.axisV = glm::cross(normal, chart.axisU);
         }
 
-        // Whether two triangles of the plane share some area (touching along an edge or at a corner is not sharing)
         bool TrianglesOverlap(const glm::vec2* a, const glm::vec2* b, float epsilon)
         {
             for (int pass = 0; pass < 2; pass++)
@@ -269,9 +258,7 @@ namespace Shard::Engine::Rendering {
             return true;
         }
 
-        // Whether the chart folds over itself once flattened : two of its triangles land on the same part of the plane. That is
-        // what a patch that winds around (a curl, a horn, a ridge seen from its side) does, and it would give two parts of
-        // the surface the same texels. A bucket grid keeps the test close to linear.
+        // Detects a chart that folds over itself once flattened (two parts of the surface would get the same texels). Bucket grid keeps it near linear.
         bool ChartOverlaps(const Chart& chart, const LightmapUnwrapGroup& group, const GroupGeometry& geometry)
         {
             const size_t count = chart.triangles.size();
@@ -293,8 +280,6 @@ namespace Shard::Engine::Rendering {
             }
 
             const glm::vec2 extent = glm::max(hi - lo, glm::vec2(1e-12f));
-            // Two triangles that overlap by less than a centimeter are the relief of the surface (a weave, a crumpled cloth), not a
-            // part that folds over : the light they would share is the same to within a fraction of a texel
             constexpr float kOverlapTolerance = 0.01f;
             const float epsilon = std::max(1e-5f * std::max(extent.x, extent.y), kOverlapTolerance);
             const int cells = int(std::clamp(std::sqrt(double(count)) * 1.5, 1.0, 256.0));
@@ -327,9 +312,6 @@ namespace Shard::Engine::Rendering {
         void MergeSmallCharts(const LightmapUnwrapGroup& group, GroupGeometry& geometry, const LightmapUnwrapSettings& settings,
                               std::vector<Chart>& charts);
 
-        // Grows the group's charts : from the largest triangle not in a chart yet, across shared edges, for as long as the
-        // neighbour faces about the same way as the chart does. A chart that would fold over itself when flattened is thrown
-        // back and grown again with stricter angles, down to a single triangle.
         void BuildCharts(size_t groupIndex, const LightmapUnwrapGroup& group, GroupGeometry& geometry,
                          const LightmapUnwrapSettings& settings, std::vector<Chart>& charts)
         {
@@ -342,7 +324,6 @@ namespace Shard::Engine::Rendering {
                 if (geometry.triangles[t].valid)
                     pending[0].triangles.push_back(t);
 
-            // While a chart is being grown its triangles carry this tag, which cannot be the index of a chart
             constexpr int kGrowing = std::numeric_limits<int>::max();
 
             int nextRegion = 1;
@@ -392,7 +373,6 @@ namespace Shard::Engine::Rendering {
                             if (candidate.chart >= 0 || candidate.region != regionId)
                                 continue;
 
-                            // A triangle without an area has no facing : it goes along with whatever it touches
                             bool accept = candidate.area <= 0.0f;
                             if (!accept)
                             {
@@ -415,7 +395,6 @@ namespace Shard::Engine::Rendering {
                     ChartFrame(chart);
                     if (chart.triangles.size() > 1 && region.depth < 8 && ChartOverlaps(chart, group, geometry))
                     {
-                        // Grown again with stricter angles, on its own : the triangles are free again for that
                         Region retry;
                         retry.triangles = chart.triangles;
                         retry.angleScale = region.angleScale * 0.6f;
@@ -423,7 +402,7 @@ namespace Shard::Engine::Rendering {
                         for (uint32_t t : retry.triangles)
                         {
                             geometry.triangles[t].chart = -1;
-                            geometry.triangles[t].region = 0;       // out of this region's growth : the retry takes them
+                            geometry.triangles[t].region = 0;
                         }
                         pending.push_back(std::move(retry));
                         continue;
@@ -439,12 +418,7 @@ namespace Shard::Engine::Rendering {
             MergeSmallCharts(group, geometry, settings, charts);
         }
 
-        // The leftovers of the growth above : on a surface with fine relief, the triangles that did not fit a big chart each
-        // end up in a chart of their own, a few triangles wide - a few texels of lightmap with a seam all around them, and a
-        // visible patch of wrong light. Every chart smaller than the settings' minimum is merged into the neighbour it shares
-        // most edges with (smallest first, so a run of slivers collects into one), as long as that neighbour does not face
-        // away from it. What is merged is tiny, so what it gets wrong when projected onto the neighbour's plane stays far
-        // below a texel.
+        // Merge charts under the minimum area into the neighbour sharing most edges, smallest first. Tiny slivers are all seam and show as wrong-light patches.
         void MergeSmallCharts(const LightmapUnwrapGroup& group, GroupGeometry& geometry, const LightmapUnwrapSettings& settings,
                               std::vector<Chart>& charts)
         {
@@ -492,7 +466,6 @@ namespace Shard::Engine::Rendering {
                     const float length = glm::length(candidate.normalSum);
                     if (length <= 1e-12f || glm::dot(candidate.normalSum / length, smallNormal) < cosMerge)
                         continue;
-                    // The most shared edges, then the larger chart, then the lower index : deterministic whatever the map's order
                     if (entry.second > bestCount || (entry.second == bestCount && (area[entry.first] > area[best] || (area[entry.first] == area[best] && entry.first < best))))
                     {
                         best = entry.first;
@@ -512,7 +485,6 @@ namespace Shard::Engine::Rendering {
                 mergedInto[index] = best;
             }
 
-            // Compact : the emptied charts leave, the others keep their order
             std::vector<int> remap(charts.size(), -1);
             std::vector<Chart> kept;
             kept.reserve(charts.size());
@@ -524,7 +496,7 @@ namespace Shard::Engine::Rendering {
                 }
             for (Chart& chart : kept)
             {
-                std::sort(chart.triangles.begin(), chart.triangles.end());       // a merged chart is flattened in a stable order
+                std::sort(chart.triangles.begin(), chart.triangles.end());
                 ChartFrame(chart);
                 for (uint32_t t : chart.triangles)
                     geometry.triangles[t].chart = remap[geometry.triangles[t].chart];
@@ -533,7 +505,7 @@ namespace Shard::Engine::Rendering {
             (void)group;
         }
 
-        // Convex hull of the points (Andrew's monotone chain), counter clockwise, without the first point repeated
+        // Andrew's monotone chain, counter clockwise, first point not repeated
         std::vector<glm::vec2> ConvexHull(std::vector<glm::vec2> points)
         {
             std::sort(points.begin(), points.end(), [](const glm::vec2& a, const glm::vec2& b) {
@@ -565,7 +537,6 @@ namespace Shard::Engine::Rendering {
             return hull;
         }
 
-        // Turns the points (the angle's cosine and sine) and measures the box that holds them
         void MeasureTurned(const std::vector<glm::vec2>& points, float c, float s, glm::vec2& outMin, glm::vec2& outMax)
         {
             outMin = glm::vec2(std::numeric_limits<float>::max());
@@ -578,8 +549,7 @@ namespace Shard::Engine::Rendering {
             }
         }
 
-        // Flattens a chart : projects it onto the plane its triangles face, then turns the result to the angle where the box
-        // that holds it is the smallest (one of the hull's edges lies along a side of the smallest box), longest side first
+        // Project onto the facing plane, then turn to the smallest bounding box (one hull edge lies along a side of it), longest side first.
         void FlattenChart(Chart& chart, const LightmapUnwrapGroup& group, const GroupGeometry& geometry)
         {
             std::vector<glm::vec2> points;
@@ -602,7 +572,6 @@ namespace Shard::Engine::Rendering {
 
             if (hull.size() >= 3)
             {
-                // A curved patch has hundreds of hull edges : a spread of them is enough
                 const size_t step = std::max<size_t>(1, hull.size() / 96);
                 for (size_t i = 0; i < hull.size(); i += step)
                 {
@@ -626,7 +595,6 @@ namespace Shard::Engine::Rendering {
                 }
             }
 
-            // Longest side along u : the layout then packs rows of wide charts
             if (bestMax.y - bestMin.y > bestMax.x - bestMin.x)
             {
                 const float c = -bestSin, s = bestCos;
@@ -642,15 +610,8 @@ namespace Shard::Engine::Rendering {
             chart.height = std::max(bestMax.y - bestMin.y, 1e-6f);
         }
 
-        // ---------------------------------------------------------------------------------------------------------------------
-        // The layout : everything the unwrapping decides, apart from the triangles' own coordinates (which follow from it).
-        // This is what the cache keeps.
-        // ---------------------------------------------------------------------------------------------------------------------
-
         constexpr uint32_t kNoChart = 0xFFFFFFFFu;
 
-        // How a chart is laid on the unit square : project onto (axisU, axisV), turn by (cosTurn, sinTurn), move the corner to the
-        // origin (minCorner), scale and place
         struct ChartPlacement
         {
             glm::vec3 axisU = glm::vec3(1, 0, 0);
@@ -666,7 +627,7 @@ namespace Shard::Engine::Rendering {
         {
             float scale = 0.0f;
             std::vector<ChartPlacement> charts;
-            std::vector<std::vector<uint32_t>> triangleChart;      // per group, per triangle : its chart, or kNoChart
+            std::vector<std::vector<uint32_t>> triangleChart;
         };
 
         glm::vec2 PlacedPoint(const ChartPlacement& chart, float scale, const glm::vec3& p)
@@ -676,8 +637,6 @@ namespace Shard::Engine::Rendering {
             return (turned - chart.minCorner) * scale + chart.offset;
         }
 
-        // Runs body(i) for i in [0, count) on as many threads as there are cores. A stage of the unwrapping is a loop over
-        // groups, or charts, that do not depend on each other.
         template <typename Body>
         void ParallelFor(size_t count, size_t grain, Body&& body)
         {
@@ -711,14 +670,11 @@ namespace Shard::Engine::Rendering {
                 thread.join();
         }
 
-        // The cutting and the flattening of the charts, then the packing of them
         UnwrapLayout ComputeLayout(const std::vector<LightmapUnwrapGroup>& groups, const LightmapUnwrapSettings& settings)
         {
             UnwrapLayout layout;
             layout.triangleChart.resize(groups.size());
 
-            // Charts never span two groups, so each group is cut on its own (a group is usually a material slot, and one of them
-            // is most of a big scene : the groups are the coarse grain, the charts below it the fine one)
             std::vector<GroupGeometry> geometries(groups.size());
             std::vector<std::vector<Chart>> groupCharts(groups.size());
             ParallelFor(groups.size(), 1, [&](size_t g) {
@@ -739,7 +695,6 @@ namespace Shard::Engine::Rendering {
                 groupCharts[g] = std::vector<Chart>();
             }
 
-            // Which chart every triangle is in, now that the charts of all the groups are in one list
             for (size_t g = 0; g < groups.size(); g++)
             {
                 const GroupGeometry& geometry = geometries[g];
@@ -757,7 +712,6 @@ namespace Shard::Engine::Rendering {
                 FlattenChart(charts[i], groups[charts[i].group], geometries[charts[i].group]);
             });
 
-            // ---- Layout : the largest scale at which every chart, with its padding, still fits in the unit square ----
             double chartArea = 0.0;
             for (const Chart& chart : charts)
                 chartArea += double(chart.width) * double(chart.height);
@@ -775,7 +729,6 @@ namespace Shard::Engine::Rendering {
             float padding = std::max(settings.padding, 0.0f);
             const float scaleLimit = float(1.0 / std::sqrt(std::max(chartArea, 1e-30)));
 
-            // A mesh with a great many charts cannot spare the same gap around each : the gap shrinks until they fit at all
             for (int attempt = 0; attempt < 14 && !fits(scaleLimit * 1e-4f, padding); attempt++)
                 padding *= 0.5f;
             if (!fits(scaleLimit * 1e-4f, padding))
@@ -808,7 +761,6 @@ namespace Shard::Engine::Rendering {
             return layout;
         }
 
-        // The vertices cut where a chart ends, with their coordinates in the layout
         LightmapUnwrapResult AssembleResult(const std::vector<LightmapUnwrapGroup>& groups, const UnwrapLayout& layout)
         {
             LightmapUnwrapResult result;
@@ -846,7 +798,6 @@ namespace Shard::Engine::Rendering {
                 }
             });
 
-            // The areas, for whoever sizes a lightmap from them
             for (size_t g = 0; g < groups.size(); g++)
             {
                 const LightmapUnwrapGroupResult& out = result.groups[g];
@@ -868,12 +819,7 @@ namespace Shard::Engine::Rendering {
             return result;
         }
 
-        // ---------------------------------------------------------------------------------------------------------------------
-        // The cache : cutting a mesh of millions of triangles takes seconds, and the same mesh is unwrapped at every load.
-        // The layout is a pure function of the geometry and the settings, so it is kept in a file named after a hash of them.
-        // ---------------------------------------------------------------------------------------------------------------------
-
-        // Changes with every change of the algorithm that would give another layout for the same mesh
+        // Bump when the algorithm would give another layout for the same mesh.
         constexpr uint32_t kAlgorithmVersion = 2;
 
         std::mutex& CacheMutex()
@@ -972,7 +918,6 @@ namespace Shard::Engine::Rendering {
                 header.groupCount != groups.size())
                 return false;
 
-            // The file must be exactly the size its header and the input say it is
             uint64_t expected = sizeof(header) + uint64_t(header.chartCount) * sizeof(ChartPlacement);
             for (const LightmapUnwrapGroup& group : groups)
                 expected += sizeof(uint32_t) * (1 + group.indexCount / 3);
@@ -1014,8 +959,7 @@ namespace Shard::Engine::Rendering {
             std::error_code ec;
             std::filesystem::create_directories(path.parent_path(), ec);
 
-            // Written to a file of its own and moved into place, so a reader (or a second writer, another thread unwrapping
-            // the same mesh) never sees half a file
+            // Written to a temp file then moved into place, so readers and other writers never see half a file.
             static std::atomic<uint64_t> counter{ 0 };
             std::filesystem::path temporary = path;
             temporary += "." + std::to_string(counter.fetch_add(1)) + "." + std::to_string(std::hash<std::thread::id>()(std::this_thread::get_id()) & 0xFFFFFF) + ".tmp";
@@ -1052,7 +996,7 @@ namespace Shard::Engine::Rendering {
             std::filesystem::rename(temporary, path, ec);
             if (ec)
             {
-                // Windows does not replace a file by renaming over it : another thread got there first, its file is as good
+                // Windows cannot rename over an existing file. The other thread's file is as good.
                 std::filesystem::remove(temporary, ec);
             }
         }

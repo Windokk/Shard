@@ -8,11 +8,7 @@
 
 namespace Shard::Engine::Rendering::Raytracing {
 
-    // GPU-facing BVH node - mirrors the GLSL `BVHNode` struct in path_trace.comp field-for-field
-    // (32 bytes, no padding under std430 : a 4-byte scalar right after a vec3 packs into the vec3's own
-    // alignment slack). leftFirst is a nœud interne : index of the left child (right = leftFirst + 1,
-    // children are always allocated as a contiguous pair) - for a leaf, it's the index of the first
-    // triangle. triCount == 0 means "internal node", > 0 means "leaf with triCount triangles".
+    // Mirrors BVHNode in path_trace.comp, 32 bytes std430. triCount 0 is an internal node, right child = leftFirst + 1.
     struct BVHNode
     {
         glm::vec3 boundsMin;
@@ -21,8 +17,6 @@ namespace Shard::Engine::Rendering::Raytracing {
         uint32_t  triCount;
     };
 
-    // Minimal per-primitive info the builder needs - callers build one of these per triangle (or
-    // whatever primitive type) from their own geometry.
     struct BVHPrimitive
     {
         glm::vec3 centroid;
@@ -33,17 +27,7 @@ namespace Shard::Engine::Rendering::Raytracing {
     class BVHBuilder
     {
         public:
-            // Builds a BVH over `primitives` using a top-down, binned-SAH split. Returns the flat node
-            // array (root at index 0) and fills `outOrder` with the permutation applied to the
-            // primitives : outOrder[i] is the ORIGINAL index of the primitive now sitting at slot i.
-            // The caller must reorder its own parallel payload arrays (triangle positions/attributes,
-            // ...) using this same permutation, since leaf nodes address their triangles by contiguous
-            // range in that reordered space (leftFirst / leftFirst + triCount).
-            //
-            // onProgress, if set, is invoked with a monotonically increasing fraction in [0, 1] as the
-            // build advances (roughly, primitives committed to a finished leaf / total). It may be
-            // called many times and from whatever thread Build() runs on - keep it cheap and
-            // thread-safe (the DDGI probe build runs this on a worker thread, see ProbeManager).
+            // outOrder[i] is the original index of the primitive at slot i. Callers must reorder their payload arrays the same way. onProgress is monotonic and may run on a worker thread.
             using ProgressFn = std::function<void(float)>;
             static std::vector<BVHNode> Build(const std::vector<BVHPrimitive>& primitives, std::vector<uint32_t>& outOrder,
                 const ProgressFn& onProgress = {});

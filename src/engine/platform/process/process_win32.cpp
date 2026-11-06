@@ -35,7 +35,6 @@ namespace Shard::Engine::Core::Platform {
             return utf8;
         }
 
-        // Quoting rules of CommandLineToArgvW / the MSVC runtime
         std::wstring QuoteArgument(const std::wstring& arg)
         {
             if (!arg.empty() && arg.find_first_of(L" \t\n\v\"") == std::wstring::npos)

@@ -25,22 +25,18 @@
 #include "engine/world/actor.hpp"
 #include "engine/world/engine.hpp"
 
-// shard.render : the resources a plugin makes (meshes, textures, materials), the things it keeps on screen that use them (render objects, instance
-// batches, sprite batches), and the camera. The plugin records ; the GPU side is made on the main thread, in the Extract stage (the snapshot provider
-// below), and the renderer draws from the snapshot like it does for the components. The 2D overlay is in c_abi_overlay.cpp.
-
 namespace Shard::Engine::Plugins::CAbi {
 
     using namespace Rendering;
 
     namespace {
-        constexpr uint16_t kObjectWorld = 0xFFFE;      // the "world index" in the keys of the proxies of render objects
+        constexpr uint16_t kObjectWorld = 0xFFFE;
         constexpr uint16_t kInstanceWorld = 0xFFFD;
         constexpr uint16_t kSpriteWorld = 0xFFFC;
         constexpr size_t kMaxInstancesPerBatch = 4096;
         constexpr int kUploadsPerFrame = 16;
 
-        // The engine's vertex (mesh.cpp, lit.vert) : the plugin's mesh is converted to it
+        // Engine vertex layout (mesh.cpp, lit.vert). Plugin meshes are converted to it.
         struct EngineVertex {
             glm::vec3 position;
             glm::vec2 texCoord;
@@ -62,8 +58,6 @@ namespace Shard::Engine::Plugins::CAbi {
                 uint32_t(sizeof(EngineVertex)) };
         }
 
-        // ---- Records ----
-
         struct MeshRec {
             PluginOwner owner = 0;
             std::mutex mutex;
@@ -71,13 +65,13 @@ namespace Shard::Engine::Plugins::CAbi {
             std::vector<EngineVertex> vertices;
             std::vector<uint32_t> indices;
             std::vector<ShardSubmesh> submeshes;
-            std::vector<glm::u16vec4> joints;       // skinned meshes only
+            std::vector<glm::u16vec4> joints;
             std::vector<glm::vec4> weights;
             bool skinned = false;
             bool boundsGiven = false;
             glm::vec3 boundsMin = glm::vec3(0), boundsMax = glm::vec3(0);
             std::shared_ptr<Mesh> gpu;
-            std::shared_ptr<Mesh> asset;            // mesh_from_asset : the engine's own, nothing to upload
+            std::shared_ptr<Mesh> asset;
             uint64_t version = 1;
             uint64_t uploaded = 0;
             size_t slots = 1;
@@ -104,7 +98,7 @@ namespace Shard::Engine::Plugins::CAbi {
             ShardRenderTransform transform{};
             std::vector<glm::mat4> pose;
             uint64_t poseVersion = 0;
-            std::shared_ptr<Mesh> skinned;          // the mesh deformed by `pose`, made on the CPU
+            std::shared_ptr<Mesh> skinned;
             uint64_t skinnedPose = 0;
             uint64_t skinnedFrom = 0;
             int componentId = 0;
@@ -139,7 +133,7 @@ namespace Shard::Engine::Plugins::CAbi {
         std::mutex gHookMutex;
         std::map<PluginOwner, bool> gHooked;
         std::atomic<int> gNextComponentId{ 0x40000000 };
-        int gUploads = 0;                           // meshes and textures made this frame (the extract thread)
+        int gUploads = 0;
 
         void HookRelease(PluginContext& ctx, PluginOwner owner)
         {
@@ -174,8 +168,6 @@ namespace Shard::Engine::Plugins::CAbi {
 
         bool FiniteV(const float* v, int n) { for (int i = 0; i < n; ++i) if (!std::isfinite(v[i])) return false; return true; }
 
-        // ---- Meshes ----
-
         uint32_t VertexStride(uint32_t flags)
         {
             return ((flags & SHARD_VERTEX_POSITION) ? 12u : 0u) + ((flags & SHARD_VERTEX_NORMAL) ? 12u : 0u) + ((flags & SHARD_VERTEX_TANGENT) ? 16u : 0u) +
@@ -190,7 +182,7 @@ namespace Shard::Engine::Plugins::CAbi {
                 EngineVertex& a = vertices[indices[i]];
                 EngineVertex& b = vertices[indices[i + 1]];
                 EngineVertex& c = vertices[indices[i + 2]];
-                const glm::vec3 n = glm::cross(b.position - a.position, c.position - a.position);         // area weighted
+                const glm::vec3 n = glm::cross(b.position - a.position, c.position - a.position);
                 a.normal += n; b.normal += n; c.normal += n;
             }
             for (EngineVertex& v : vertices) {
@@ -216,7 +208,6 @@ namespace Shard::Engine::Plugins::CAbi {
             for (EngineVertex& v : vertices) {
                 glm::vec3 t = v.tangent - v.normal * glm::dot(v.normal, v.tangent);
                 if (glm::dot(t, t) < 1e-12f) {
-                    // No UVs, or a degenerate fan : any direction perpendicular to the normal will do
                     const glm::vec3 axis = std::abs(v.normal.x) < 0.9f ? glm::vec3(1, 0, 0) : glm::vec3(0, 1, 0);
                     t = glm::cross(v.normal, axis);
                 }
@@ -224,7 +215,6 @@ namespace Shard::Engine::Plugins::CAbi {
             }
         }
 
-        // The vertices of a stream, laid out as the flags say, into the engine's vertices (and the skin streams). `first` is the vertex it starts at.
         void ReadVertices(MeshRec& m, uint32_t flags, const uint8_t* src, uint32_t first, uint32_t count, bool& hadNormal, bool& hadTangent)
         {
             const uint32_t stride = VertexStride(flags);
@@ -298,7 +288,6 @@ namespace Shard::Engine::Plugins::CAbi {
             return true;
         }
 
-        // The mesh as the renderer wants it (MeshCPUData -> Mesh::CreateFromData)
         std::shared_ptr<Mesh> UploadMesh(const std::vector<EngineVertex>& vertices, const std::vector<uint32_t>& indices, const std::vector<ShardSubmesh>& parts,
                                          bool boundsGiven, const glm::vec3& givenMin, const glm::vec3& givenMax)
         {
@@ -332,20 +321,19 @@ namespace Shard::Engine::Plugins::CAbi {
             return mesh;
         }
 
-        // The GPU mesh of a record, made (or remade after an update) now. Null while the frame's budget of uploads is spent and there is no mesh yet.
+        // Null while the frame's upload budget is spent and no mesh exists yet
         std::shared_ptr<Mesh> GpuMesh(MeshRec& m)
         {
             std::lock_guard<std::mutex> lock(m.mutex);
             if (m.asset) return m.asset;
             if (m.gpu && m.uploaded == m.version) return m.gpu;
-            if (gUploads >= kUploadsPerFrame) return m.gpu;          // keeps showing the old one, the new one comes next frame
+            if (gUploads >= kUploadsPerFrame) return m.gpu;
             ++gUploads;
             m.gpu = UploadMesh(m.vertices, m.indices, m.submeshes, m.boundsGiven, m.boundsMin, m.boundsMax);
             m.uploaded = m.version;
             return m.gpu;
         }
 
-        // A skinned mesh deformed on the CPU by a pose (the host has no GPU skinning yet)
         std::shared_ptr<Mesh> SkinnedMesh(ObjectRec& o, MeshRec& m)
         {
             if (o.skinned && o.skinnedPose == o.poseVersion && o.skinnedFrom == m.version) return o.skinned;
@@ -381,8 +369,6 @@ namespace Shard::Engine::Plugins::CAbi {
             return o.skinned;
         }
 
-        // ---- API: meshes ----
-
         ShardResult SHARD_CALL MeshCreate(ShardPluginCtx handle, const ShardMeshDesc* desc, ShardMesh* out)
         {
             try {
@@ -408,7 +394,7 @@ namespace Shard::Engine::Plugins::CAbi {
                 if (!ctx) return SHARD_E_STALE_HANDLE;
                 std::shared_ptr<MeshRec> rec = gMeshes.Get(PluginOwner(handle), mesh);
                 if (!rec || rec->asset) return SHARD_E_STALE_HANDLE;
-                // Built apart, swapped in whole : a failed update leaves the mesh as it was
+                // Built apart and swapped in whole, so a failed update leaves the mesh as it was
                 MeshRec next;
                 std::string why;
                 if (!FillMesh(next, *desc, why)) { ctx->Error("mesh update : " + why); return SHARD_E_INVALID_ARG; }
@@ -475,8 +461,6 @@ namespace Shard::Engine::Plugins::CAbi {
             return gMeshes.Remove(PluginOwner(handle), mesh) ? SHARD_OK : SHARD_E_STALE_HANDLE;
         }
 
-        // ---- API: textures ----
-
         uint32_t PixelBytes(uint32_t format)
         {
             switch (format) {
@@ -511,7 +495,6 @@ namespace Shard::Engine::Plugins::CAbi {
             return spec;
         }
 
-        // Reads the image file a texture_load asked for (the rows from the top, as the ABI has them)
         void DecodeFile(TextureRec& r)
         {
             r.decoded = true;
@@ -529,7 +512,6 @@ namespace Shard::Engine::Plugins::CAbi {
             stbi_image_free(data);
         }
 
-        // The GPU side of a texture, made if it is not yet ; the updates that were waiting are applied. Main thread.
         void EnsureTexture(TextureRec& r)
         {
             std::lock_guard<std::mutex> lock(r.mutex);
@@ -601,14 +583,13 @@ namespace Shard::Engine::Plugins::CAbi {
                 const uint32_t pitch = region->rowPitch ? region->rowPitch : region->width * pixel;
                 if (pitch < region->width * pixel) return SHARD_E_INVALID_ARG;
                 std::lock_guard<std::mutex> lock(r->mutex);
-                if (!r->texture && !r->decoded) return SHARD_E_INVALID_ARG;          // a file not read yet
+                if (!r->texture && !r->decoded) return SHARD_E_INVALID_ARG;
                 TextureRec::Region copy;
                 copy.x = region->x; copy.y = region->y; copy.w = region->width; copy.h = region->height;
                 copy.bytes.resize(size_t(region->width) * region->height * pixel);
                 for (uint32_t row = 0; row < region->height; ++row)
                     std::memcpy(copy.bytes.data() + size_t(row) * region->width * pixel, static_cast<const uint8_t*>(region->pixels) + size_t(row) * pitch, size_t(region->width) * pixel);
                 if (!r->texture) {
-                    // Not on the GPU yet : into the pixels it will be made from
                     if (r->pixels.empty()) r->pixels.assign(size_t(r->width) * r->height * pixel, 0);
                     for (uint32_t row = 0; row < region->height; ++row)
                         std::memcpy(r->pixels.data() + (size_t(region->y + row) * r->width + region->x) * pixel, copy.bytes.data() + size_t(row) * region->width * pixel, size_t(region->width) * pixel);
@@ -683,8 +664,6 @@ namespace Shard::Engine::Plugins::CAbi {
             return gTextures.Remove(PluginOwner(handle), texture) ? SHARD_OK : SHARD_E_STALE_HANDLE;
         }
 
-        // ---- API: materials ----
-
         ShardResult SHARD_CALL MaterialLoad(ShardPluginCtx handle, ShardStr path, ShardMaterial* out)
         {
             try {
@@ -699,7 +678,6 @@ namespace Shard::Engine::Plugins::CAbi {
                 std::replace(name.begin(), name.end(), '\\', '/');
                 auto source = engine->GetResourcesManager()->Get<Material>(Core::Resources::AssetKind::Material, name);
                 if (!source) return SHARD_E_NOT_FOUND;
-                // A private copy : its parameters are the plugin's to set
                 auto copy = Material::Create(source->GetShader(), source->GetPipeline(), source->GetRecieveShadows(), source->GetOpacity());
                 copy->AssignContent(*source);
                 auto rec = std::make_shared<MaterialRec>();
@@ -754,13 +732,12 @@ namespace Shard::Engine::Plugins::CAbi {
             return gMaterials.Remove(PluginOwner(handle), material) ? SHARD_OK : SHARD_E_STALE_HANDLE;
         }
 
-        // The material with the parameters the plugin set (applied when they changed, or a texture of its became real)
         std::shared_ptr<Material> ResolveMaterial(PluginOwner owner, ShardMaterial handle)
         {
             std::shared_ptr<MaterialRec> r = gMaterials.Get(owner, handle);
             if (!r || !r->material) return nullptr;
             std::lock_guard<std::mutex> lock(r->mutex);
-            // A texture the plugin set can come to exist later (a file being read) : the parameters are applied until all of them hold
+            // A texture the plugin set can appear later (file being read), so apply the parameters until all of them hold
             bool pending = false;
             if (r->applied != r->version || !r->textures.empty()) {
                 for (const auto& [name, value] : r->floats) r->material->SetScalarParameter(name, NumericValue(value));
@@ -778,8 +755,6 @@ namespace Shard::Engine::Plugins::CAbi {
             }
             return r->material;
         }
-
-        // ---- API: render objects ----
 
         ShardResult SHARD_CALL ObjectCreate(ShardPluginCtx handle, const ShardRenderObjectDesc* desc, ShardRenderObject* out)
         {
@@ -872,8 +847,6 @@ namespace Shard::Engine::Plugins::CAbi {
             return gObjects.Remove(PluginOwner(handle), object) ? SHARD_OK : SHARD_E_STALE_HANDLE;
         }
 
-        // ---- API: sprite and instance batches ----
-
         ShardResult SHARD_CALL SpriteBatchCreate(ShardPluginCtx handle, const ShardSpriteBatchDesc* desc, ShardSpriteBatch* out)
         {
             try {
@@ -957,8 +930,6 @@ namespace Shard::Engine::Plugins::CAbi {
             return gInstanceBatches.Remove(PluginOwner(handle), batch) ? SHARD_OK : SHARD_E_STALE_HANDLE;
         }
 
-        // ---- API: the camera ----
-
         const CameraProxy* ActiveCamera()
         {
             Core::IEngineContext* engine = Engine();
@@ -968,7 +939,6 @@ namespace Shard::Engine::Plugins::CAbi {
             return camera.valid ? &camera : nullptr;
         }
 
-        // The camera in the world : its position (the render origin and the offset to it) and the matrix that brings a position relative to it into the view
         struct CameraFrame {
             glm::dvec3 position;
             glm::mat4 rotationView;
@@ -985,7 +955,7 @@ namespace Shard::Engine::Plugins::CAbi {
             const RenderSnapshot& snapshot = engine->GetRenderContext()->GetSnapshotBuffer().Latest();
             out.proxy = camera;
             out.position = Core::WorldPosition::Offset(snapshot.renderOrigin, Core::WorldPosition()) + glm::dvec3(camera->position);
-            // Only the orientation : the positions are brought to the camera before they are multiplied
+            // Orientation only: positions are brought to the camera before they are multiplied
             out.rotationView = glm::mat4(glm::mat3(camera->view));
             out.projection = camera->projection;
             out.width = uint32_t(std::max(snapshot.viewportWidth, 1));
@@ -1011,7 +981,6 @@ namespace Shard::Engine::Plugins::CAbi {
                     info.orthoSize = c.orthoSize;
                     info.nearPlane = c.nearPlane; info.farPlane = c.farPlane;
                     for (int i = 0; i < 3; ++i) info.position[i] = frame.position[i];
-                    // The rotation as a quaternion from the view's rotation (its transpose is the camera's)
                     const glm::quat q = glm::quat_cast(glm::transpose(glm::mat3(c.view)));
                     info.rotation[0] = q.x; info.rotation[1] = q.y; info.rotation[2] = q.z; info.rotation[3] = q.w;
                     std::memcpy(info.view, &frame.rotationView[0][0], sizeof(info.view));
@@ -1034,7 +1003,7 @@ namespace Shard::Engine::Plugins::CAbi {
                 const glm::vec3 relative = glm::vec3(glm::dvec3(position[0], position[1], position[2]) - frame.position);
                 const glm::vec4 view = frame.rotationView * glm::vec4(relative, 1.0f);
                 const glm::vec4 clip = frame.projection * view;
-                out[2] = -view.z;                                       // the distance along the view axis (negative : behind)
+                out[2] = -view.z;
                 if (std::abs(clip.w) < 1e-9f) { out[0] = out[1] = 0.0f; return SHARD_OK; }
                 const glm::vec2 ndc = glm::vec2(clip) / clip.w;
                 out[0] = (ndc.x * 0.5f + 0.5f) * float(frame.width);
@@ -1054,7 +1023,6 @@ namespace Shard::Engine::Plugins::CAbi {
                 const glm::mat4 inverse = glm::inverse(frame.projection);
                 glm::vec4 near = inverse * glm::vec4(ndc, -1.0f, 1.0f), far = inverse * glm::vec4(ndc, 1.0f, 1.0f);
                 near /= near.w; far /= far.w;
-                // In view space the camera is at the origin ; back to the world through the rotation
                 const glm::mat3 toWorld = glm::transpose(glm::mat3(frame.rotationView));
                 const glm::vec3 nearWorld = toWorld * glm::vec3(near);
                 glm::vec3 dir = toWorld * glm::normalize(glm::vec3(far) - glm::vec3(near));
@@ -1068,8 +1036,6 @@ namespace Shard::Engine::Plugins::CAbi {
                 return SHARD_OK;
             } catch (...) { return SHARD_E_INTERNAL; }
         }
-
-        // ---- The snapshot ----
 
         glm::mat4 WorldMatrix(const ShardRenderTransform& t, const Core::WorldPosition& renderOrigin, const glm::dvec3& extra = glm::dvec3(0.0))
         {
@@ -1090,7 +1056,6 @@ namespace Shard::Engine::Plugins::CAbi {
             return material;
         }
 
-        // The materials of an object or a batch, one per slot of its mesh (the missing ones are the default)
         std::vector<std::shared_ptr<Material>> MaterialsOf(PluginOwner owner, const std::vector<ShardMaterial>& handles, size_t slots)
         {
             std::vector<std::shared_ptr<Material>> out;
@@ -1111,8 +1076,6 @@ namespace Shard::Engine::Plugins::CAbi {
             return true;
         }
     }
-
-    // ---- Shared with the overlay file ----
 
     void HookRenderRelease(PluginContext& ctx, PluginOwner owner) { HookRelease(ctx, owner); }
 
@@ -1148,7 +1111,6 @@ namespace Shard::Engine::Plugins::CAbi {
     void ExtractPluginRender(const RenderSnapshot& previous, RenderSnapshot& next)
     {
         gUploads = 0;
-        // The instances of the batches, as one mesh proxy each
         gInstanceBatches.ForEachAll([&](uint64_t handle, InstanceBatchRec& batch, PluginOwner owner) {
             std::shared_ptr<MeshRec> meshRec = gMeshes.Get(owner, batch.mesh);
             if (!meshRec || (batch.flags & SHARD_OBJECT_HIDDEN)) return;
@@ -1173,7 +1135,6 @@ namespace Shard::Engine::Plugins::CAbi {
             }
         });
 
-        // The render objects
         gObjects.ForEachAll([&](uint64_t handle, ObjectRec& object, PluginOwner owner) {
             if (object.flags & SHARD_OBJECT_HIDDEN) return;
             std::shared_ptr<MeshRec> meshRec = gMeshes.Get(owner, object.mesh);
@@ -1199,7 +1160,6 @@ namespace Shard::Engine::Plugins::CAbi {
             next.meshes.push_back(std::move(proxy));
         });
 
-        // The sprite batches
         gSpriteBatches.ForEachAll([&](uint64_t handle, SpriteBatchRec& batch, PluginOwner owner) {
             std::lock_guard<std::mutex> lock(batch.mutex);
             if (batch.sprites.empty()) return;
@@ -1249,7 +1209,6 @@ namespace Shard::Engine::Plugins {
 
     uint64_t RenderTextureForImGui(uint64_t texture, bool* flipV)
     {
-        // The editor asks from its drawing code, on the main thread : the texture is made if it is not yet
         return CAbi::NativeTextureId(texture, flipV);
     }
 }

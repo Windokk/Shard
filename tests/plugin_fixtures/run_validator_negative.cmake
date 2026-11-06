@@ -1,5 +1,3 @@
-# A project with a database entry that has no file, a world with the wrong shape, and a plugin that cannot load : the validator has to say so and exit with 1.
-# Variables : VALIDATOR OUT
 file(REMOVE_RECURSE "${OUT}")
 file(MAKE_DIRECTORY "${OUT}/resources" "${OUT}/plugins/broken")
 file(WRITE "${OUT}/project.json" "{\"versionMajor\":0,\"projectResources\":\"resources\",\"pluginsFolder\":\"plugins\",\"assetDatabase\":\"db.json\",\"buildSettings\":[\"a.world\",\"gone.world\"]}")
@@ -13,11 +11,11 @@ if(result EQUAL 0)
     message(FATAL_ERROR "the validator accepted a broken project\n${output}\n${errors}")
 endif()
 foreach(expected
-        "ghost.png"                    # in the database, not on disk
-        "gone.world"                   # in the build list, not on disk
-        "used twice"                   # the same asset id twice
+        "ghost.png"
+        "gone.world"
+        "used twice"
         "a world needs a name"
-        "has no name")                 # an actor with no name
+        "has no name")
     string(FIND "${errors}" "${expected}" at)
     if(at EQUAL -1)
         message(FATAL_ERROR "the validator did not report : ${expected}\n${errors}")

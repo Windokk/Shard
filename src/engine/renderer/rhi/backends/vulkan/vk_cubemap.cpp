@@ -43,7 +43,6 @@ namespace Shard::Engine::Rendering {
 
         Context& context = Context::Get();
 
-        // Which faces have pixels, and the staging buffer that holds them one after the other
         const uint32_t faceTexels = image.width * image.height;
         const uint32_t texelBytes = TexelSize(format);
         std::vector<uint32_t> layersWithData;
@@ -79,7 +78,6 @@ namespace Shard::Engine::Rendering {
         context.ImmediateSubmit([&](VkCommandBuffer cmd) {
             image.Transition(cmd, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL);
 
-            // Zeros (or the far depth) for what has no pixels
             VkImageSubresourceRange range{depth ? VkImageAspectFlags(VK_IMAGE_ASPECT_DEPTH_BIT) : image.aspect, 0, image.mips, 0, image.layers};
             if (depth)
             {
@@ -94,7 +92,6 @@ namespace Shard::Engine::Rendering {
 
             if (!regions.empty())
             {
-                // The clear and the copies write the same texels : the copies come after
                 VkMemoryBarrier2 barrier{VK_STRUCTURE_TYPE_MEMORY_BARRIER_2};
                 barrier.srcStageMask = VK_PIPELINE_STAGE_2_ALL_TRANSFER_BIT;
                 barrier.srcAccessMask = VK_ACCESS_2_TRANSFER_WRITE_BIT;

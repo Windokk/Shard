@@ -43,7 +43,6 @@ namespace Shard::Engine::Rendering {
             }
         }
 
-        /// A layout with these bindings : shared by every program that declares the same, they are made once
         VkDescriptorSetLayout FindOrCreateSetLayout(const std::vector<VkDescriptorSetLayoutBinding>& bindings)
         {
             std::string key;
@@ -67,7 +66,6 @@ namespace Shard::Engine::Rendering {
 
         std::filesystem::path CachePathFor(const std::filesystem::path& stageFile, const std::vector<std::string>& defines)
         {
-            // A permutation is a binary of its own : its defines are part of the name
             std::string suffix;
             for (const std::string& define : defines)
                 suffix += "." + define;
@@ -80,7 +78,7 @@ namespace Shard::Engine::Rendering {
             const std::filesystem::path directory = stageFile.parent_path();
             const std::string name = stageFile.stem().string();
 
-            // The shader root is the nearest directory called "shaders" : the binaries sit in "shaders_spv" next to it, same layout
+            // Shader root is the nearest directory named "shaders". Binaries sit in "shaders_spv" next to it.
             for (std::filesystem::path root = directory; !root.empty() && root.has_parent_path() && root != root.parent_path(); root = root.parent_path())
             {
                 if (root.filename() == "shaders")
@@ -104,8 +102,6 @@ namespace Shard::Engine::Rendering {
             vkDestroyDescriptorSetLayout(Context::Get().GetDevice(), layout, nullptr);
         g_Layouts.clear();
     }
-
-    // ---- VKProgram -----------------------------------------------------------------------------------------------------------------
 
     VKProgram::~VKProgram()
     {
@@ -206,7 +202,6 @@ namespace Shard::Engine::Rendering {
                 file.write(reinterpret_cast<const char*>(bytes.data()), static_cast<std::streamsize>(bytes.size()));
         }
 
-        // Replace what the program was (a reload) only once the new one is known good
         VKProgram fresh;
         fresh.m_Name = name;
         fresh.m_Binary = std::move(binary);
@@ -232,7 +227,6 @@ namespace Shard::Engine::Rendering {
         if (m_Id == 0)
             m_Id = g_NextProgramId++;
 
-        // `fresh` gave everything away
         fresh.m_Modules = {};
         fresh.m_PipelineLayout = VK_NULL_HANDLE;
         fresh.m_UniformSet = VK_NULL_HANDLE;
@@ -301,7 +295,6 @@ namespace Shard::Engine::Rendering {
         if (VK_CHECK(vkCreatePipelineLayout(context.GetDevice(), &layoutInfo, nullptr, &m_PipelineLayout)) != VK_SUCCESS)
             return false;
 
-        // The uniform block : one persistent set that looks at the whole ring, the draws only move its offset
         if (m_Binary.reflection.uniformBlockSize > 0)
         {
             m_UniformSet = context.AllocatePersistentSet(m_SetLayouts[BindingSets::Uniforms]);
@@ -335,7 +328,6 @@ namespace Shard::Engine::Rendering {
         {
             m_Uniforms[uniform.name] = uniform;
 
-            // The array by its name is its first element, as `glGetUniformLocation("array")` is
             const size_t first = uniform.name.find("[0]");
             if (first != std::string::npos && uniform.name.find('[', first + 3) == std::string::npos && first + 3 == uniform.name.size())
                 m_Uniforms.emplace(uniform.name.substr(0, first), uniform);
@@ -375,7 +367,6 @@ namespace Shard::Engine::Rendering {
         auto it = m_Uniforms.find(name);
         if (it == m_Uniforms.end())
         {
-            // An array named without its index is its first element
             if (name.empty() || name.back() == ']')
                 return false;
             it = m_Uniforms.find(name + "[0]");
@@ -420,7 +411,6 @@ namespace Shard::Engine::Rendering {
 
         Context& context = Context::Get();
 
-        // Already in the ring of this recording, and unchanged since
         if (!m_Dirty && m_UploadedFrame == context.FrameIndex())
         {
             dynamicOffset = m_UploadedOffset;
@@ -443,8 +433,6 @@ namespace Shard::Engine::Rendering {
         dynamicOffset = offset;
         return true;
     }
-
-    // ---- VKShader ------------------------------------------------------------------------------------------------------------------
 
     namespace {
 
@@ -476,7 +464,6 @@ namespace Shard::Engine::Rendering {
         template<typename Program>
         void WriteMat3(Program& program, const std::string& name, const glm::mat3& mat)
         {
-            // std140 : each column of a mat3 takes a vec4
             float padded[12] = {};
             for (int c = 0; c < 3; c++)
                 for (int r = 0; r < 3; r++)
@@ -529,7 +516,6 @@ namespace Shard::Engine::Rendering {
 
     void VKShader::SetInt(const std::string& name, int value)
     {
-        // `glUniform1i` on a sampler says which texture unit it reads
         if (m_Program.SetSamplerUnit(name, static_cast<uint32_t>(value)))
             return;
         m_Program.WriteUniform(name, &value, sizeof(value));
@@ -561,14 +547,11 @@ namespace Shard::Engine::Rendering {
         if (!m_GeometryFilePath.empty())
             files.push_back({ShaderStageKind::Geometry, NativePath(Filesystem::Path(m_GeometryFilePath))});
 
-        // The pipelines that were built from the old modules are recognised by the version they were built for
         const bool ok = m_Program.Load(files, Filesystem::Path(m_VertexFilePath).GetFilename(false), m_Defines);
         if (ok)
             m_DepthPrepassSupport = -1;
         return ok;
     }
-
-    // ---- VKComputeShader -----------------------------------------------------------------------------------------------------------
 
     VKComputeShader::VKComputeShader(const Filesystem::Path& path)
     {

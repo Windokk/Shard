@@ -14,14 +14,12 @@
 namespace Shard::Engine::Core::Platform::AsyncIO {
 
     namespace {
-        // Generic backend : two threads doing blocking reads and writes, on a Core::ThreadPool (a FIFO queue
-        // served by dedicated threads : what blocking IO needs, and what the job system's workers must not do)
+        // Blocking IO on dedicated pool threads. Job workers must not do blocking IO.
         class ThreadPoolBackend : public Backend {
         public:
             ThreadPoolBackend()
                 : m_Pool([]
                   {
-                      // IO threads mostly wait on the disk : two keep it busy without competing with the workers for the cores
                       ThreadPoolDesc desc;
                       desc.name = "Shard IO";
                       desc.threadCount = 2;
@@ -70,7 +68,7 @@ namespace Shard::Engine::Core::Platform::AsyncIO {
                     else
                     {
                         file.write(reinterpret_cast<const char*>(data.data()), static_cast<std::streamsize>(data.size()));
-                        // Flush and close BEFORE the promise is set : the caller may read the file back right away
+                        // Flush and close before setting the promise: the caller may read the file back at once.
                         file.close();
                         result.ok = static_cast<bool>(file);
                         if (!result.ok)
@@ -83,7 +81,7 @@ namespace Shard::Engine::Core::Platform::AsyncIO {
             void Drain() override { m_Pool.WaitIdle(); }
 
         private:
-            ThreadPool m_Pool;   // its destructor completes the requests already queued, then joins
+            ThreadPool m_Pool;
         };
 
         std::mutex g_BackendMutex;

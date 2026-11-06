@@ -22,11 +22,6 @@ namespace Shard::Engine::Rendering::Raytracing {
 
     namespace {
 
-        // Runs fn(begin, end) over disjoint chunks of [0, count), at most `grainSize` elements each, on the engine's
-        // job system (the same pool as everything else : no thread of its own, so overlapping scene builds
-        // - ProbeManager::RebuildScene() supersedes rather than cancels a still-running previous build - share
-        // the machine's cores instead of each assuming they own it). The calling thread executes chunks too
-        // while it waits. Without a job system (no engine) it just runs serially.
         template <typename F>
         void ParallelForRange(size_t count, size_t grainSize, F&& fn)
         {
@@ -89,9 +84,6 @@ namespace Shard::Engine::Rendering::Raytracing {
 
     }
 
-    // Reads scalar parameters, then (when the material has one bound) a bindless handle for each of
-    // the 5 texture slots the raytracer understands - same sampler names the rasterizer's "lit" shader
-    // uses, so any material authored for the rasterizer picks up its textures here for free.
     GPUMaterial ExtractMaterial(const std::shared_ptr<Material>& mat)
     {
         GPUMaterial gm;
@@ -150,8 +142,6 @@ namespace Shard::Engine::Rendering::Raytracing {
             gm.textureFlags |= GPUMaterialTexNormal;
         }
 
-        // Multiplies the `emissive` scalar above (glTF-style, same as lit.frag) rather than replacing it,
-        // so a map with no `emissive` factor stays dark here exactly as it does in the forward pass.
         if (uint64_t h = mat->GetTextureParameter("emissiveMap"))
         {
             gm.emissiveTex = PackBindlessHandle(h);
@@ -188,7 +178,7 @@ namespace Shard::Engine::Rendering::Raytracing {
             modelSnap.mesh = mesh;
             modelSnap.cpu = mesh->AcquireCPUData();
             if (!modelSnap.cpu)
-                continue;       // nothing to read the triangles from
+                continue;
             modelSnap.worldMatrix = proxy.worldMatrix;
             modelSnap.key = proxy.key;
             modelSnap.lightmapResolution = proxy.lightmapResolution;
@@ -196,8 +186,6 @@ namespace Shard::Engine::Rendering::Raytracing {
 
             for (size_t submeshIdx = 0; submeshIdx < submeshes.size(); submeshIdx++)
             {
-                // Submeshes are in FBX material-slot order; use each submesh's own
-                // slot so it lines up with the model component's material list.
                 size_t slot = std::min<size_t>(submeshes[submeshIdx].materialIndex, mats.size() - 1);
                 std::shared_ptr<Material> mat = mats[slot];
 
@@ -231,8 +219,6 @@ namespace Shard::Engine::Rendering::Raytracing {
 
     namespace {
 
-        // Resolved once per model (vertex layout lookups + the world/normal/tangent matrices), read-only
-        // from every worker thread that later flattens one of that model's triangle chunks below.
         struct FlattenModelInfo
         {
             const Mesh* mesh = nullptr;
@@ -245,10 +231,6 @@ namespace Shard::Engine::Rendering::Raytracing {
             glm::mat3 tangentMatrix{ 1.0f };
         };
 
-        // One unit of parallel flatten work : a contiguous run of `triangleCount` triangles starting at
-        // `indexOffset` into its model's index buffer, destined for positions/attribs[destOffset ...].
-        // Kept to at most kChunkTriangles triangles (see BuildFromSnapshot) so one oversized submesh
-        // (e.g. a Sponza floor slab) still gets spread across every worker thread instead of pinning one.
         struct FlattenChunk
         {
             uint32_t modelInfoIdx;
@@ -258,12 +240,6 @@ namespace Shard::Engine::Rendering::Raytracing {
             size_t destOffset;
         };
 
-        // Vertex-fetch + world-space transform for one chunk's triangles - the actual per-triangle cost
-        // that used to run single-threaded in a nested model/submesh/triangle loop. Writes only to
-        // positions/attribs[chunk.destOffset, chunk.destOffset + chunk.triangleCount) - disjoint from
-        // every other chunk's range, so this is safe to call concurrently from multiple threads with no
-        // locking, as long as each chunk is only ever handed to one thread (see the work-stealing loop
-        // in BuildFromSnapshot).
         void FlattenChunkInto(const FlattenChunk& chunk, const FlattenModelInfo& info,
             std::vector<GPUTrianglePos>& positions, std::vector<GPUTriangleAttrib>& attribs)
         {
@@ -324,10 +300,6 @@ namespace Shard::Engine::Rendering::Raytracing {
             }
         }
 
-        // Reports `fraction` through `onProgress` only if it's a new high-water mark - once flatten work
-        // (and, in bvh.cpp, the BVH build itself) runs on multiple worker threads, a slower thread can
-        // finish a chunk after a faster one already reported further along; without this clamp the
-        // progress bar would visibly jump backward. `reported` is shared across every calling thread.
         void ReportMonotonic(std::atomic<float>& reported, float fraction, const char* phase,
             const SceneBuilder::ProgressCallback& onProgress)
         {
@@ -349,12 +321,8 @@ namespace Shard::Engine::Rendering::Raytracing {
 
     RaytraceScene SceneBuilder::BuildFromSnapshot(const RaytraceSceneSnapshot &snapshot, const ProgressCallback& onProgress)
     {
-        // Flatten runs 0 -> kFlattenEnd, BVH build kFlattenEnd -> kBvhEnd, the final payload reorder
-        // kBvhEnd -> 1. The split is a rough guess at the relative cost, not measured.
         constexpr float kFlattenEnd = 0.45f;
         constexpr float kBvhEnd = 0.95f;
-        // Within the flatten phase : laying out chunks (cheap, submesh-count-bound) gets a small fixed
-        // slice, the actual per-triangle vertex flatten below (the expensive part) gets the rest.
         constexpr float kChunkLayoutEnd = kFlattenEnd * 0.1f;
 
         std::atomic<float> reportedFraction{ 0.0f };
@@ -368,10 +336,6 @@ namespace Shard::Engine::Rendering::Raytracing {
         RaytraceScene scene;
         scene.materials = snapshot.materials;
 
-        // ---- Pass 1 : resolve each model's layout/matrices once and lay out every surviving submesh's
-        // triangles into fixed-size chunks, computing each chunk's final destination offset up front.
-        // Cheap - bounded by submesh count, not triangle count - so this stays single-threaded; pass 2
-        // below is what actually parallelizes.
         constexpr size_t kChunkTriangles = 2048;
 
         std::vector<FlattenModelInfo> modelInfos;
@@ -408,8 +372,7 @@ namespace Shard::Engine::Rendering::Raytracing {
 
             info.worldMatrix = modelSnap.worldMatrix;
             info.normalMatrix = glm::transpose(glm::inverse(glm::mat3(info.worldMatrix)));
-            // Tangents are surface directions, not normals - transform with the plain model 3x3 (matching
-            // lit.vert's `mat3(model) * aTangent`), not the inverse-transpose normal matrix above.
+            // Tangents use the plain model 3x3 (like lit.vert), not the inverse-transpose normal matrix.
             info.tangentMatrix = glm::mat3(info.worldMatrix);
 
             uint32_t modelInfoIdx = (uint32_t)modelInfos.size();
@@ -443,15 +406,11 @@ namespace Shard::Engine::Rendering::Raytracing {
 
         report(kChunkLayoutEnd, "Baking scene info");
 
-        // ---- Pass 2 : flatten every chunk's triangles. Each chunk owns a disjoint destination range
-        // (see FlattenChunkInto), so this is a plain parallel-for over the chunk list on the job system.
         std::vector<GPUTrianglePos> positions(totalTriangles);
         std::vector<GPUTriangleAttrib> attribs(totalTriangles);
 
         std::atomic<size_t> chunksDone{ 0 };
 
-        // One job per chunk (grain 1) : chunks are already cut to kChunkTriangles, and a single huge submesh is
-        // spread over every thread because of that.
         ParallelForRange(chunks.size(), 1, [&](size_t begin, size_t end)
         {
             for (size_t idx = begin; idx < end; idx++)
@@ -486,11 +445,6 @@ namespace Shard::Engine::Rendering::Raytracing {
         scene.bvhNodes = BVHBuilder::Build(primitives, order,
             [&](float p) { report(kFlattenEnd + (kBvhEnd - kFlattenEnd) * p, "Building BVH"); });
 
-        // Gather through `order` (BVHBuilder::Build's leaf-triangle permutation) into the final,
-        // BVH-friendly layout - a random-access scatter/gather over up to ~160 bytes/triangle, so on a
-        // large scene this is cache-unfriendly enough to be memory-bandwidth bound rather than
-        // compute bound; splitting it across cores lets several memory-bound streams overlap instead of
-        // one thread alone waiting on cache misses for the whole array.
         scene.trianglePositions.resize(order.size());
         scene.triangleAttribs.resize(order.size());
         ParallelForRange(order.size(), 4096, [&](size_t begin, size_t end)
@@ -502,8 +456,7 @@ namespace Shard::Engine::Rendering::Raytracing {
             }
         });
 
-        // ---- The emitters, for the paths that sample them directly. The test is the one of path_tracing.glsl (EmissiveIsSampled) : the
-        // two have to agree on which triangles are on the list.
+        // Must agree with EmissiveIsSampled in path_tracing.glsl on which triangles are listed.
         {
             std::vector<double> cumulative;
             double total = 0.0;

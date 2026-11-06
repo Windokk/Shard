@@ -2,11 +2,10 @@
 
 #include <shard/game.hpp>
 
-// A script with a reference to another actor and a std::string member, both fields
 class Turret : public Shard::Script {
 public:
-    Shard::Actor target;                // another actor of the world, saved by its path
-    std::string note = "idle";          // the plugin's own string : the host reads it through callbacks
+    Shard::Actor target;
+    std::string note = "idle";
     float power = 1.f;
 
     void OnTick(float deltaTime) override;

@@ -13,8 +13,7 @@ namespace Shard::Engine::Plugins::Wasm {
     namespace {
         constexpr uint64_t kPageSize = 65536;
 
-        // The configuration every sandbox runs with : deterministic (fuel, canonical NaNs, no threads, no relaxed SIMD), the proposals a
-        // plugin built by Clang for wasm32 may use, nothing that would let a module share memory or reach the host
+        // Deterministic config: fuel, canonical NaNs, no threads, no relaxed SIMD. Nothing that lets a module share memory or reach the host.
         wasm_engine_t* Engine()
         {
             static wasm_engine_t* engine = [] {
@@ -30,8 +29,8 @@ namespace Shard::Engine::Plugins::Wasm {
                 wasmtime_config_wasm_exceptions_set(config, false);
                 wasmtime_config_wasm_stack_switching_set(config, false);
                 wasmtime_config_wasm_component_model_set(config, false);
-                wasmtime_config_max_wasm_stack_set(config, 512 * 1024);         // a module that recurses without end traps, the host does not overflow
-                return wasm_engine_new_with_config(config);                    // takes the config
+                wasmtime_config_max_wasm_stack_set(config, 512 * 1024);         // Runaway recursion traps instead of overflowing the host stack
+                return wasm_engine_new_with_config(config);
             }();
             return engine;
         }
@@ -43,7 +42,6 @@ namespace Shard::Engine::Plugins::Wasm {
             std::string text(message.data, message.size);
             wasm_byte_vec_delete(&message);
             wasmtime_error_delete(error);
-            // "failed to parse WebAssembly module\n\nCaused by:\n    0: ...\n    1: unexpected end-of-file" : the lines, one after the other
             std::string joined;
             size_t at = 0;
             while (at <= text.size()) {
@@ -52,7 +50,7 @@ namespace Shard::Engine::Plugins::Wasm {
                 std::string line = text.substr(at, end - at);
                 const size_t first = line.find_first_not_of(" \t\r");
                 line = first == std::string::npos ? std::string() : line.substr(first);
-                if (line.size() > 3 && line[0] >= '0' && line[0] <= '9' && line[1] == ':') line = line.substr(3);    // "0: "
+                if (line.size() > 3 && line[0] >= '0' && line[0] <= '9' && line[1] == ':') line = line.substr(3);
                 if (!line.empty() && line != "Caused by:") joined += (joined.empty() ? "" : " : ") + line;
                 at = end + 1;
             }
@@ -69,7 +67,6 @@ namespace Shard::Engine::Plugins::Wasm {
             return text;
         }
 
-        // The cause at the end of one of Wasmtime's messages (after the backtrace and "Caused by:")
         std::string LastLine(const std::string& text)
         {
             size_t end = text.find_last_not_of(" \r\n\t");
@@ -83,7 +80,7 @@ namespace Shard::Engine::Plugins::Wasm {
         TrapKind KindOf(const wasm_trap_t* trap)
         {
             wasmtime_trap_code_t code;
-            if (!wasmtime_trap_code(trap, &code)) return TrapKind::Host;        // made by a host function
+            if (!wasmtime_trap_code(trap, &code)) return TrapKind::Host;
             switch (code) {
                 case WASMTIME_TRAP_CODE_STACK_OVERFLOW: return TrapKind::CallStackExhausted;
                 case WASMTIME_TRAP_CODE_MEMORY_OUT_OF_BOUNDS: return TrapKind::MemoryOutOfBounds;
@@ -128,7 +125,6 @@ namespace Shard::Engine::Plugins::Wasm {
             return ReadTypes(wasm_functype_params(type), out.params) && ReadTypes(wasm_functype_results(type), out.results);
         }
 
-        // Only numbers cross between the host and a sandbox
         wasm_functype_t* MakeFuncType(const FuncType& type)
         {
             auto vec = [](const std::vector<ValType>& types, wasm_valtype_vec_t& out) {
@@ -184,7 +180,7 @@ namespace Shard::Engine::Plugins::Wasm {
         bool more = true;
         while (more) {
             uint8_t b = value & 0x7F;
-            value >>= 7;                        // arithmetic shift
+            value >>= 7;
             more = !((value == 0 && !(b & 0x40)) || (value == -1 && (b & 0x40)));
             if (more) b |= 0x80;
             out.push_back(b);
@@ -212,8 +208,6 @@ namespace Shard::Engine::Plugins::Wasm {
         return "?";
     }
 
-    // ---- Modules ----
-
     Module::~Module()
     {
         if (m_Module) wasmtime_module_delete(m_Module);
@@ -229,7 +223,6 @@ namespace Shard::Engine::Plugins::Wasm {
             const wasm_name_t* name = wasm_importtype_name(imports.data[i]);
             Module::Import imp{ std::string(mod->data, mod->size), std::string(name->data, name->size), {} };
             const wasm_externtype_t* type = wasm_importtype_type(imports.data[i]);
-            // The sandbox owns its memory, table and globals : it never gets the host's (nor another sandbox's)
             if (wasm_externtype_kind(type) != WASM_EXTERN_FUNC) problem = "only functions can be imported (" + imp.module + "." + imp.name + ")";
             else if (!ReadFuncType(wasm_externtype_as_functype_const(type), imp.type)) problem = "import " + imp.module + "." + imp.name + " takes references";
             else m_Imports.push_back(std::move(imp));
@@ -289,8 +282,6 @@ namespace Shard::Engine::Plugins::Wasm {
         return Ok(std::shared_ptr<const Module>(std::move(module)));
     }
 
-    // ---- Instances ----
-
     struct Instance::State {
         wasmtime_store_t* store = nullptr;
         wasmtime_context_t* context = nullptr;
@@ -298,14 +289,13 @@ namespace Shard::Engine::Plugins::Wasm {
         bool hasMemory = false, hasTable = false;
         wasmtime_memory_t memory{};
         wasmtime_table_t table{};
-        wasmtime_caller_t* caller = nullptr;            // while a host function runs : its memory is reachable before the instance exists (start)
+        wasmtime_caller_t* caller = nullptr;
 
         struct Host { Instance* instance; HostFunction function; FuncType type; };
         std::vector<std::unique_ptr<Host>> hosts;
 
         ~State() { if (store) wasmtime_store_delete(store); }
 
-        /// The context to use right now : inside a host function, the caller's (the store is lent to it), otherwise the store's
         wasmtime_context_t* Ctx() const { return caller ? wasmtime_caller_context(caller) : context; }
 
         bool CurrentMemory(wasmtime_memory_t& out)
@@ -320,7 +310,6 @@ namespace Shard::Engine::Plugins::Wasm {
         }
     };
 
-    // What Wasmtime calls for an import : the arguments as raw bits to the HostFunction, its results back, a false turned into a trap
     struct HostCall {
         static wasm_trap_t* Trampoline(void* env, wasmtime_caller_t* caller, const wasmtime_val_t* args, size_t nargs, wasmtime_val_t* results, size_t nresults)
         {
@@ -347,7 +336,7 @@ namespace Shard::Engine::Plugins::Wasm {
             in.m_State->caller = previous;
             if (!ok) {
                 if (in.m_HostTrapMessage.empty()) in.m_HostTrapMessage = TrapName(TrapKind::Host);
-                in.m_HostFailed = true;             // Wasmtime hands it back as an error of the call, not as a trap with a code
+                in.m_HostFailed = true;
                 return wasmtime_trap_new(in.m_HostTrapMessage.data(), in.m_HostTrapMessage.size());
             }
             for (size_t i = 0; i < nresults; ++i) results[i] = ToVal(host->type.results[i], r[i]);
@@ -365,7 +354,6 @@ namespace Shard::Engine::Plugins::Wasm {
         const Limits& limits = module->m_Limits;
         s.store = wasmtime_store_new(Engine(), nullptr, nullptr);
         s.context = wasmtime_store_context(s.store);
-        // One instance, one memory, one table per store : the limits are those of the module
         wasmtime_store_limiter(s.store, int64_t(limits.maxMemoryPages) * int64_t(kPageSize), int64_t(limits.maxTableSize), 1, 1, 1);
 
         wasmtime_linker_t* linker = wasmtime_linker_new(Engine());
@@ -524,7 +512,6 @@ namespace Shard::Engine::Plugins::Wasm {
                                                      out.data(), out.size(), &trap);
         --m_Depth;
         if (error || trap) {
-            // Wasmtime's text starts with the wasm backtrace : the journal gets the cause, the backtrace stays out
             const TrapKind kind = m_HostFailed ? TrapKind::Host : trap ? KindOf(trap) : TrapKind::Other;
             const std::string text = error ? ErrorMessage(error) : TrapMessage(trap);
             if (trap) wasm_trap_delete(trap);

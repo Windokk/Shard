@@ -23,7 +23,7 @@ namespace Shard::Engine::Core::Platform {
         static const LARGE_INTEGER frequency = [] { LARGE_INTEGER f; QueryPerformanceFrequency(&f); return f; }();
         LARGE_INTEGER counter;
         QueryPerformanceCounter(&counter);
-        // split to not overflow 64 bits : counter * 1e9 overflows after a few hours of uptime
+        // Split to avoid overflow: counter * 1e9 overflows after a few hours of uptime.
         const uint64_t seconds = static_cast<uint64_t>(counter.QuadPart / frequency.QuadPart);
         const uint64_t rest = static_cast<uint64_t>(counter.QuadPart % frequency.QuadPart);
         return seconds * 1'000'000'000ull + rest * 1'000'000'000ull / static_cast<uint64_t>(frequency.QuadPart);
@@ -42,19 +42,18 @@ namespace Shard::Engine::Core::Platform {
         const uint64_t start = NowNanoseconds();
         const uint64_t target = start + static_cast<uint64_t>(seconds * 1e9);
 
-        // The OS sleeps wake up late by up to a scheduler tick : only trust it for what is left over a margin.
         constexpr double kSpinMargin = 0.002;
         const double sleepSeconds = seconds - kSpinMargin;
 
         if (sleepSeconds > 0.0)
         {
         #if defined(_WIN32)
-            // A waitable timer with CREATE_WAITABLE_TIMER_HIGH_RESOLUTION (Windows 10 1803+) wakes up within ~0.5 ms
-            static thread_local HANDLE timer = CreateWaitableTimerExW(nullptr, nullptr, 0x00000002 /*CREATE_WAITABLE_TIMER_HIGH_RESOLUTION*/, TIMER_ALL_ACCESS);
+            // CREATE_WAITABLE_TIMER_HIGH_RESOLUTION (Windows 10 1803+) wakes within ~0.5 ms.
+            static thread_local HANDLE timer = CreateWaitableTimerExW(nullptr, nullptr, 0x00000002, TIMER_ALL_ACCESS);
             if (timer)
             {
                 LARGE_INTEGER due;
-                due.QuadPart = -static_cast<LONGLONG>(sleepSeconds * 1e7);  // 100 ns units, negative = relative
+                due.QuadPart = -static_cast<LONGLONG>(sleepSeconds * 1e7);
                 if (SetWaitableTimer(timer, &due, 0, nullptr, nullptr, FALSE))
                     WaitForSingleObject(timer, INFINITE);
             }

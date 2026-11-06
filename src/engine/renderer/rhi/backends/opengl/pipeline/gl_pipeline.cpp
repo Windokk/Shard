@@ -60,7 +60,6 @@ namespace Shard::Engine::Rendering{
                 break;
         }
 
-        // The driver call is only made when the state changes : every pass binds a pipeline, almost none of them wants it
         if (GLAD_GL_NV_conservative_raster)
         {
             static bool conservative = false;

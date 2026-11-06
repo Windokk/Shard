@@ -84,10 +84,8 @@ namespace Shard::Engine::Objects::Components {
         if (!activated || parent == nullptr || parent->transform == nullptr)
             return;
 
-        // The planes are editable fields, so they can be changed (or left unset) without going through Init()
         SanitizePlanes();
 
-        // Reset matrices
         view = glm::mat4(1.0f);
         projection = glm::mat4(1.0f);
 
@@ -95,17 +93,14 @@ namespace Shard::Engine::Objects::Components {
 
         glm::vec3 position = tr->GetWorldPosition();
 
-        // View matrix
         glm::mat4 rot = glm::mat4_cast(tr->GetWorldRotationQuat());
         glm::mat4 trans = glm::translate(glm::mat4(1.0f), position);
         view = glm::inverse(trans * rot);
 
-        // Avoid division by zero
         float aspect = (height != 0) ? float(width) / float(height) : 1.0f;
 
         if (orthographic)
         {
-            // Orthographic projection
             float right = orthoSize * aspect;
             float left  = -right;
             float top   = orthoSize;
@@ -115,7 +110,6 @@ namespace Shard::Engine::Objects::Components {
         }
         else
         {
-            // Perspective projection
             projection = glm::perspective(
                 glm::radians(fov),
                 aspect,
@@ -124,7 +118,6 @@ namespace Shard::Engine::Objects::Components {
             );
         }
 
-        // Final camera matrix
         cameraMatrix = projection * view;
     }
 
@@ -148,7 +141,6 @@ namespace Shard::Engine::Objects::Components {
     {
         json data = componentData;
 
-        // Levels saved before the serialization went through the reflection call the planes "near" and "far"
         if (data.is_object())
         {
             if (!data.contains("nearPlane") && data.contains("near"))
@@ -163,7 +155,6 @@ namespace Shard::Engine::Objects::Components {
         if (!orthographic && nearPlane < MIN_NEAR_PLANE)
             DEBUG_WARNING("Camera near plane " + std::to_string(nearPlane) + " is too small for a perspective camera, using " + std::to_string(MIN_NEAR_PLANE));
 
-        // The fields are in, the camera has to size its projection from the window and sanitize the planes
         Init(GetEngineContext()->GetWindow()->GetFramebufferWidth(), GetEngineContext()->GetWindow()->GetFramebufferHeight(),
              nearPlane, farPlane, fov, orthographic, orthoSize);
 

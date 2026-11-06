@@ -15,7 +15,6 @@ namespace Shard::Engine::Rendering{
 
         GLTextureSpec glSpecs = GLTextureSpec::FromTextureSpecifications(specs);
 
-        // Tightly packed rows, see GLTexture2D
         glPixelStorei(GL_UNPACK_ALIGNMENT, 1);
 
         for(int i = 0; i < 6; i++){
@@ -65,7 +64,6 @@ namespace Shard::Engine::Rendering{
 
         GLTextureSpec glSpecs = GLTextureSpec::FromTextureSpecifications(specs);
 
-        // Allocate storage
         int mipLevels = specs.generateMips
             ? (int)std::floor(std::log2(std::max(specs.width, specs.height))) + 1
             : 1;
@@ -79,10 +77,8 @@ namespace Shard::Engine::Rendering{
             m_CubemapCount * 6
         );
 
-        // Tightly packed rows, see GLTexture2D
         glPixelStorei(GL_UNPACK_ALIGNMENT, 1);
 
-        // Upload each cubemap face
         for (uint32_t cube = 0; cube < m_CubemapCount; cube++)
         {
             for (int face = 0; face < 6; face++)
@@ -107,7 +103,6 @@ namespace Shard::Engine::Rendering{
             }
         }
 
-        // Texture parameters
         glTexParameteri(GL_TEXTURE_CUBE_MAP_ARRAY, GL_TEXTURE_MIN_FILTER, glSpecs.minFilter);
         glTexParameteri(GL_TEXTURE_CUBE_MAP_ARRAY, GL_TEXTURE_MAG_FILTER, glSpecs.magFilter);
         glTexParameteri(GL_TEXTURE_CUBE_MAP_ARRAY, GL_TEXTURE_WRAP_S, glSpecs.wrapModeS);

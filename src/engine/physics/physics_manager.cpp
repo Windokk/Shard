@@ -21,12 +21,11 @@
 
 namespace Shard::Engine::Physics {
 
-    // Constants
     static constexpr uint cMaxBodies = 65536;
     static constexpr uint cNumBodyMutexes = 0;
     static constexpr uint cMaxBodyPairs = 65536;
     static constexpr uint cMaxContactConstraints = 16384;
-    static constexpr uint cTempAllocatorSize = 64 * 1024 * 1024;   // scales with the body limits (Jolt sizes its per-step buffers from them)
+    static constexpr uint cTempAllocatorSize = 64 * 1024 * 1024;
 
     void PhysicsManager::Init(glm::vec3 gravity, bool deterministic)
     {
@@ -42,14 +41,10 @@ namespace Shard::Engine::Physics {
             };
         )
 
-        // Required factory setup
         JPH::Factory::sInstance = new JPH::Factory();
         JPH::RegisterTypes();
 
-        // Allocator & job system
         m_tempAllocator = new JPH::TempAllocatorImpl(cTempAllocatorSize);
-        // Physics runs on the engine's job system when there is one (it then shares the cores with everything else) ;
-        // without an engine (unit tests) it gets a pool of its own
         Core::JobSystem* engineJobs = Core::gSharedEnginePtr ? Core::gSharedEnginePtr->GetJobSystem() : nullptr;
         if(deterministic)
             m_jobSystem = new JPH::JobSystemSingleThreaded(JPH::cMaxPhysicsJobs);
@@ -58,7 +53,6 @@ namespace Shard::Engine::Physics {
         else
             m_jobSystem = new JPH::JobSystemThreadPool(JPH::cMaxPhysicsJobs, JPH::cMaxPhysicsBarriers, Core::Platform::HardwareConcurrency() - 1);
 
-        // Initialize physics system
         m_physicsSystem.Init(
             cMaxBodies,
             cNumBodyMutexes,
@@ -102,10 +96,7 @@ namespace Shard::Engine::Physics {
         delete JPH::Factory::sInstance;
         JPH::Factory::sInstance = nullptr;
 
-        // The job system and allocator this manager's JPH::PhysicsSystem points at are gone, so every
-        // accessor has to start failing its guard again - otherwise a call that comes in after
-        // shutdown looks valid and dereferences freed memory. Note the manager is not re-initializable
-        // afterwards: JPH::PhysicsSystem is held by value and Init() asserts if run on one twice.
+        // Guards must fail again after shutdown. Not re-initializable: JPH::PhysicsSystem is held by value and Init() asserts if run twice.
         initialized = false;
     }
 
@@ -116,8 +107,6 @@ namespace Shard::Engine::Physics {
 
         m_physicsSystem.SetGravity(JPH::Vec3Arg(gravity.x, gravity.y, gravity.z));
 
-        // Bodies sleeping under the old gravity would otherwise stay put until something else wakes
-        // them, which looks like the new value hasn't been applied at all.
         JPH::BodyIDVector bodies;
         m_physicsSystem.GetBodies(bodies);
         m_physicsSystem.GetBodyInterface().ActivateBodies(bodies.data(), bodies.size());
@@ -156,7 +145,6 @@ namespace Shard::Engine::Physics {
             if (!world)
                 continue;
 
-            // Ordered by id in the world : the same fields always make the same list, whatever the platform
             for (auto& [id, field] : world->Ext<PhysicsWorldData>().gravityFields)
             {
                 if (!field || !field->Active())
@@ -186,7 +174,6 @@ namespace Shard::Engine::Physics {
         else
             m_BodyGravity[id] = BodyGravity{ mode, custom };
 
-        // Whatever it felt before has nothing to do with the new mode
         m_AppliedGravity.erase(id);
     }
 
@@ -214,7 +201,6 @@ namespace Shard::Engine::Physics {
         std::vector<JPH::BodyID> toWake;
         for (const auto& [id, component] : bodyIDToComponentMap)
         {
-            // Its own gravity does not depend on the fields. A body whose component is off was put to sleep on purpose
             if (m_BodyGravity.find(id) != m_BodyGravity.end() || (component && !component->Active()))
                 continue;
 
@@ -237,7 +223,7 @@ namespace Shard::Engine::Physics {
         if (toWake.empty())
             return;
 
-        // The map is in no particular order, and the order the bodies are woken in is the order they are simulated in
+        // Wake in a fixed order: it is the order bodies are simulated in.
         std::sort(toWake.begin(), toWake.end(), [](JPH::BodyID a, JPH::BodyID b) {
             return a.GetIndexAndSequenceNumber() < b.GetIndexAndSequenceNumber();
         });
@@ -246,8 +232,7 @@ namespace Shard::Engine::Physics {
 
     void PhysicsManager::ApplyGravityFields()
     {
-        // The forces are consumed by the one collision step of the Update that follows (Jolt clears them at the end of each one), which
-        // is what StepSimulation runs. With several collision steps per Update the first would take them all.
+        // Forces are consumed by the one collision step of the next Update. With several collision steps the first would take them all.
 
         if (m_GravityFieldsChanged)
         {
@@ -281,7 +266,7 @@ namespace Shard::Engine::Physics {
             if (m_BodyGravity.find(id) == m_BodyGravity.end())
                 m_AppliedGravity[id] = gravity;
 
-            // Jolt adds `gravityFactor * world` itself : what is missing, as a force (a = F / m), is the difference
+            // Jolt already adds `gravityFactor * world`, so apply the difference as a force (a = F / m).
             const glm::vec3 missing = gravity - world;
             if (glm::dot(missing, missing) <= 1e-12f)
                 return;
@@ -291,7 +276,6 @@ namespace Shard::Engine::Physics {
 
         if (m_GravityFields.empty())
         {
-            // Only the bodies that have a gravity of their own are concerned
             std::vector<JPH::BodyID> ids;
             ids.reserve(m_BodyGravity.size());
             for (const auto& [id, gravity] : m_BodyGravity)
@@ -349,8 +333,7 @@ namespace Shard::Engine::Physics {
 
     void PhysicsManager::QueueContact(PendingContact::Kind kind, const Body &body1, const Body &body2, const ContactManifold &contactManifold, const ContactSettings &contactSettings)
     {
-        // Jolt's jobs report contacts concurrently, with the bodies locked : nothing here may run game code, lock a body or touch
-        // the component map (the main thread is waiting in Update, the scripts run once it returns)
+        // Called from Jolt jobs with bodies locked: no game code, no body locks, no component map access.
         std::lock_guard<std::mutex> lock(m_ContactMutex);
         PendingContact& contact = m_PendingContacts.emplace_back();
         contact.kind = kind;
@@ -396,9 +379,7 @@ namespace Shard::Engine::Physics {
         if (m_DispatchedContacts.empty())
             return;
 
-        // Jolt's jobs queued them in whatever order they happened to finish : sorted, so the scripts see the same sequence with
-        // one thread or twenty (and a replay stays a replay). Kind first : the step's new contacts, then the lasting ones, then
-        // the ended ones.
+        // Jolt jobs finish in any order. Sort so scripts see the same sequence on any thread count. New contacts first, then lasting, then ended.
         auto key = [](const PendingContact& c) {
             return std::make_tuple(static_cast<int>(c.kind), c.body1.GetIndexAndSequenceNumber(), c.body2.GetIndexAndSequenceNumber(),
                                    c.subShape1.GetValue(), c.subShape2.GetValue());
@@ -428,16 +409,13 @@ namespace Shard::Engine::Physics {
         if (!self || !other || !self->parent || !other->parent)
             return;
 
-        // Held for the duration of the calls : a script may destroy either actor
         std::shared_ptr<Objects::Actor> selfActor = self->parent;
         std::shared_ptr<Objects::Actor> otherActor = other->parent;
 
-        // The event's own copy : a script may write to it, the contact was already solved so it changes nothing
         ContactSettings settings = contact.settings;
 
         for (const auto& script : ScriptsOf(*selfActor))
         {
-            // A previous callback (of this contact or an earlier one) removed one of the two bodies : the contact went with it
             if (FindComponent(selfID) != self || FindComponent(otherID) != other)
                 return;
 
@@ -464,7 +442,6 @@ namespace Shard::Engine::Physics {
             m_physicsSystem.GetBodyInterface().ActivateBodies(bodies.data(), bodies.size());
         }
 
-        // Many bodies added since the last step : rebuild the broadphase tree once, rather than query a degraded one
         if (m_bodiesAddedSinceOptimize >= 32)
         {
             m_physicsSystem.OptimizeBroadPhase();
@@ -476,7 +453,6 @@ namespace Shard::Engine::Physics {
         m_physicsSystem.Update(deltaTime, 1, m_tempAllocator, m_jobSystem);
         m_StepCount++;
 
-        // Jolt is done with the bodies : the scripts may now read them, move them, destroy their actors
         DispatchContacts();
     }
  
@@ -499,7 +475,6 @@ namespace Shard::Engine::Physics {
     {
         JPH::BodyInterface& bodyInterface = m_physicsSystem.GetBodyInterface();
 
-        // Create body
         JPH::Body* body = bodyInterface.CreateBody(settings);
         if (body == nullptr)
         {
@@ -507,7 +482,6 @@ namespace Shard::Engine::Physics {
             return JPH::BodyID();
         }
 
-        // Add to worlds
         bodyInterface.AddBody(body->GetID(), activation);
         bodyIDToComponentMap[body->GetID()] = component;
         m_bodiesAddedSinceOptimize++;

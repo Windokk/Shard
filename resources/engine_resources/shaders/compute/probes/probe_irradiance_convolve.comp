@@ -1,44 +1,12 @@
 #version 430 core
 
-// Scatter/gather stage of the real-time GI probe update (see ProbeManager/probe_trace.comp).
-// probe_trace.comp writes one *raw, single-sample* radiance value per octahedral texel (no
-// scatter/gather - each ray maps 1:1 to the texel matching its own direction) into uRayAtlas. On its own
-// that atlas is a tiny noisy environment map, not an irradiance map - sampling it directly in a single
-// direction (as DDGI_SampleProbe used to) means a shaded point only picks up bounce light when the one
-// ray exactly along its normal happens to have hit something lit, which is why indirect lighting
-// vanished almost everywhere except right next to directly-lit surfaces.
-//
-// This pass is that missing step : for every output texel of uIrradianceAtlas, it gathers all of that
-// probe's traced rays (same tile layout/size as the ray atlas) weighted by max(0, dot(rayDir, outDir)) *
-// (the solid angle its texel covers) - a cosine-weighted hemisphere integral approximated over a fixed
-// set of directions. The solid-angle factor matters : octahedral texels are NOT equal-area. A texel's
-// solid angle scales as (|x| + |y| + |z|)^3 of its direction, i.e. 1 along the axes up to ~5.2 along the
-// cube diagonals (summing to 4*pi over the tile exactly), so a plain cosine weight over-counts every ray
-// along +-X/+-Y/+-Z relative to the diagonals - by ~4x between neighbouring directions at a 16x16 tile.
-// In an axis-aligned room that is exactly the direction of the walls straight ahead of each probe, so
-// each probe was tinted toward the colour of its axis-facing walls (+2-4% irradiance error in a
-// six-colour-box check, growing with tile size). uIrradianceAtlas is what probe_temporal_blend.comp
-// publishes and DDGI_SampleProbe in lit.frag ultimately samples.
-//
-// ONE WORKGROUP PER PROBE : the gather is all-to-all within a tile (every output texel reads every ray
-// of the same probe), so a naive version re-fetches the same tileSize^2 texels tileSize^2 times over -
-// 4096 texture fetches per probe at the default 8x8 tile, all of them the exact same 64 values. Staging
-// the tile in shared memory once per workgroup turns that into 64 fetches plus on-chip reads, and lets
-// the per-ray direction (an OctDecode + normalize each) be computed once instead of once per output
-// texel.
+// Cosine-weighted gather over the probe's rays. Octahedral texels are not equal-area, so each is also weighted by its solid angle. One workgroup per probe, tile staged in shared memory.
 
 layout(local_size_x = 64, local_size_y = 1, local_size_z = 1) in;
 
-// Sampler bindings start at 42 - see the identical comment in probe_trace.comp for why (avoids
-// GLStateCache going stale on lit.frag's material texture units 1-3, since ProbeManager::Update()'s raw
-// Texture2D::Bind() calls run ahead of the forward pass each frame). Image bindings (0, 2 below) are
-// unaffected - separate binding namespace.
 layout(binding = 42) uniform sampler2D uRayAtlas;
 layout(rgba16f, binding = 0) uniform image2D uIrradianceAtlas;
 
-// Distance atlas equivalents (mean hit distance, mean hit distance^2 per texel) - convolved in the same
-// dispatch as the irradiance atlas above since both loop over the exact same set of rays per output
-// texel. See DIST_SHARPNESS below for why they use a different weight.
 layout(binding = 43) uniform sampler2D uRayDistAtlas;
 layout(rg16f, binding = 2) uniform image2D uDistanceAtlas;
 
@@ -46,44 +14,22 @@ uniform int uProbeCount;
 uniform int uTileSize;
 uniform int uAtlasProbesPerRow;
 
-// Round-robin probe update - see the identical uniforms in probe_trace.comp. One workgroup per entry of
-// that subset, so gl_WorkGroupID.x indexes the subset, not the probe grid.
 uniform int uUpdateStride;
 uniform int uUpdatePhase;
 
-// The same rotation probe_trace.comp applied to this iteration's ray fan (see ProbeManager::UpdateVolume) :
-// texel i's ray was actually traced along uRayRotation * OctDecode(texel i), so THAT is the direction its
-// radiance has to be weighted with. The OUTPUT texel keeps its nominal (unrotated) direction - it is a
-// fixed lookup direction of the published atlas. With a tiny jitter the difference is invisible; with a
-// bake's fully random per-iteration rotation it is what makes each iteration an independent, unbiased
-// quadrature of the sphere (whose error averages away) instead of the same fixed 10x10 cell quadrature
-// every time (whose aliasing error - a small bright emitter is hit by 0 or 5 rays depending on where it
-// falls in a probe's cell grid - never does).
 uniform mat3 uRayRotation;
 
 #include "../../common/octahedral.glsl"
 #include "../../common/ddgi_atlas.glsl"
 
-// Distance wants a much tighter kernel than irradiance's linear cosine lobe : irradiance is meant to be
-// a soft, diffuse-like blur (that's how it's actually used), but a wide blur on distance would smear a
-// nearby occluder's depth across a broad cone and under-detect thin walls in the Chebyshev visibility
-// test that samples this atlas (see DDGI_VisibilityWeight in lit.frag). Raising the cosine weight to a
-// high power keeps the kernel close to "whatever this texel's own ray direction hit" while still
-// pulling in enough neighboring rays to fill gaps between the sparse traced directions. Applied by
-// repeated squaring below rather than pow() - it runs tileSize^4 times per probe, where a transcendental
-// is not a rounding error.
-// float distWeight(float w) => w^8
+// Distance needs a tighter kernel than irradiance or thin walls fail the Chebyshev test. cos^8 by repeated squaring, pow() is too costly at tileSize^4 per probe.
 
-// Upper bound on a probe's ray count, and therefore on the shared staging buffers below : a 16x16
-// octahedral tile. ProbeManager::RebuildGrid clamps ProbeVolume::raysPerProbe to this - 256 rays per
-// probe per frame is already far past the point where adding more is the right way to spend the budget
-// (noise falls with its square root, while cost is linear; the temporal blend is the cheap axis).
 const int MAX_TILE_TEXELS = 256;
 
 shared vec3 sRadiance[MAX_TILE_TEXELS];
 shared vec2 sDistance[MAX_TILE_TEXELS];
 shared vec3 sDirection[MAX_TILE_TEXELS];
-shared float sSolidAngle[MAX_TILE_TEXELS]; // relative solid angle of each texel - see SolidAngleWeight()
+shared float sSolidAngle[MAX_TILE_TEXELS];
 
 vec3 TexelDirection(int tx, int ty, int tileSize)
 {
@@ -91,10 +37,6 @@ vec3 TexelDirection(int tx, int ty, int tileSize)
     return OctDecode(texelUV * 2.0 - 1.0);
 }
 
-// Relative solid angle covered by the octahedral texel whose (unit) direction is `dir`, up to a constant
-// shared by every texel. The octahedron face |x|+|y|+|z| = 1 seen from the origin : a texel's area in the
-// projected (x, y) plane is uniform, and it subtends dOmega = dA / |p|^3 with p = dir / (|x|+|y|+|z|), so
-// dOmega ~ (|x|+|y|+|z|)^3.
 float SolidAngleWeight(vec3 dir)
 {
     float l1 = abs(dir.x) + abs(dir.y) + abs(dir.z);
@@ -103,8 +45,7 @@ float SolidAngleWeight(vec3 dir)
 
 void main()
 {
-    // Uniform across the whole workgroup (it only depends on gl_WorkGroupID), so the early-out below
-    // can't split the barrier() further down across diverging invocations.
+    // Uniform across the workgroup, so the early-out cannot diverge around the barrier() below.
     int probeIndex = uUpdatePhase + int(gl_WorkGroupID.x) * uUpdateStride;
     if (probeIndex >= uProbeCount)
         return;
@@ -112,8 +53,6 @@ void main()
     int tileSize = uTileSize;
     int texelsPerProbe = tileSize * tileSize;
 
-    // Same +2-border stride as the ray atlas (see probe_trace.comp/probe_border_fixup.comp) - both
-    // atlases share identical tile layout/size, only their contents differ.
     ivec2 tileOrigin = DDGI_TileCorner(probeIndex, tileSize, uAtlasProbesPerRow) + ivec2(1, 1);
 
     for (int i = int(gl_LocalInvocationID.x); i < texelsPerProbe; i += int(gl_WorkGroupSize.x))
@@ -122,8 +61,8 @@ void main()
         sRadiance[i]  = texelFetch(uRayAtlas, rayTexel, 0).rgb;
         sDistance[i]  = texelFetch(uRayDistAtlas, rayTexel, 0).rg;
         vec3 texelDir = TexelDirection(i % tileSize, i / tileSize, tileSize);
-        sDirection[i] = uRayRotation * texelDir;      // the direction this texel's ray was really traced along
-        sSolidAngle[i] = SolidAngleWeight(texelDir);  // a property of the texel (cell), not of the rotation
+        sDirection[i] = uRayRotation * texelDir;
+        sSolidAngle[i] = SolidAngleWeight(texelDir);
     }
 
     barrier();
@@ -132,7 +71,7 @@ void main()
     {
         int outX = o % tileSize;
         int outY = o / tileSize;
-        vec3 outDir = TexelDirection(outX, outY, tileSize); // nominal : the atlas' fixed lookup direction
+        vec3 outDir = TexelDirection(outX, outY, tileSize);
 
         vec3 sum = vec3(0.0);
         float weightSum = 0.0;
@@ -152,7 +91,7 @@ void main()
 
             float c2 = c * c;
             float c4 = c2 * c2;
-            float distW = c4 * c4 * sSolidAngle[r]; // cos^8 * solid angle, see DIST_SHARPNESS above
+            float distW = c4 * c4 * sSolidAngle[r];
             distSum += sDistance[r] * distW;
             distWeightSum += distW;
         }

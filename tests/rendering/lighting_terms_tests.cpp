@@ -9,14 +9,13 @@
 using namespace Shard::Engine::Rendering;
 
 TEST(LightingTerms, BitsMatchTheShader) {
-    // light.glsl's LIGHTING_TERM_* : the forward pass and the path tracer read these bits
+    // Must match light.glsl LIGHTING_TERM_*.
     EXPECT_EQ(LightingTermDirect, 1u);
     EXPECT_EQ(LightingTermIndirectDiffuse, 2u);
     EXPECT_EQ(LightingTermIndirectSpecular, 4u);
     EXPECT_EQ(LightingTermEmission, 8u);
     EXPECT_EQ(LightingTermsAll, 15u);
 
-    // The path tracer's term images are in the order of the bits
     for (uint32_t i = 0; i < 4; i++)
         EXPECT_EQ(kLightingTerms[i], 1u << i);
 }
@@ -35,7 +34,7 @@ TEST(LightingTerms, ParsesNamesAndCombinations) {
     EXPECT_EQ(terms, LightingTermIndirectSpecular | LightingTermDirect);
 }
 
-TEST(LightingTerms, RejectsUnknownNamesWithoutTouchingTheValue) {
+TEST(LightingTerms, RejectsUnknownNames) {
     uint32_t terms = LightingTermDirect;
     EXPECT_FALSE(ParseLightingTerms("", terms));
     EXPECT_FALSE(ParseLightingTerms("diffuse", terms));
@@ -57,7 +56,7 @@ TEST(LightingTerms, FormatsBackToWhatParses) {
     }
 }
 
-TEST(LightingTerms, DebugViewDrawsEveryTermByDefault) {
-    // The passes that are not the main view (thumbnails, probes) use a default DebugViewState : they must stay fully lit
+TEST(LightingTerms, DebugViewDrawsAllTerms) {
+    // Non-main-view passes (thumbnails, probes) use a default DebugViewState and must stay fully lit.
     EXPECT_EQ(DebugViewState{}.lightingTerms, LightingTermsAll);
 }

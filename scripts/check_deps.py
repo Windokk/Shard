@@ -23,30 +23,26 @@ from collections import Counter
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 BASELINE = os.path.join(ROOT, "scripts", "deps_baseline.json")
 
-# Lower rank = lower layer. Modules that share a rank are peers and must not include each other.
+# Lower rank = lower layer. Modules with the same rank are peers and must not include each other.
 LAYERS = {
     "engine/core": 0,
     "engine/platform": 1,
     "engine/assets": 2,
     "engine/world": 3,
-    "engine/plugins": 3.5,  # the plugin manager : registers into the world layer and below, loaded by the composition root above
+    "engine/plugins": 3.5,
     "engine/renderer": 4,
     "engine/physics": 4,
     "engine/audio": 4,
     "engine/input": 4,
-    "engine/root": 4.5,  # src/engine/*.cpp : the composition root (EngineInstance, game module), above every layer
+    "engine/root": 4.5,
     "apps/editor": 6,
     "apps/player": 6,
     "apps/game": 6,
     "apps/headless": 6,
     "apps/tools": 6,
 }
-GENRES_RANK = 5  # every src/genres/<name> is its own peer module
+GENRES_RANK = 5
 
-# The renderer is one module for the others, but it has layers of its own (lower rank = lower layer) :
-#   rhi      - the graphics API (resources, shaders, materials, pipelines, backends)
-#   scene    - what draws or lights the world with the rhi (features/, components/)
-#   frontend - the Renderer that drives the frame
 RENDERER_LAYERS = {
     "engine/renderer/rhi": 0,
     "engine/renderer/scene": 1,
@@ -54,11 +50,10 @@ RENDERER_LAYERS = {
 }
 
 SOURCE_EXT = (".cpp", ".hpp", ".h", ".c", ".inl")
-COMMENT = re.compile(r"//[^\n]*|/\*.*?\*/", re.S)  # patterns are matched on code, not comments
+COMMENT = re.compile(r"//[^\n]*|/\*.*?\*/", re.S)
 INCLUDE = re.compile(r'#[ \t]*include[ \t]*["<]([^">\r\n]+)[">]')
 INCLUDE_ROOTS = ("src/",)
 
-# Forbidden patterns: rule name -> (regex, files it applies to, files it never applies to)
 PATTERNS = {
     "gl-call-outside-backend": (
         re.compile(r"\bgl[A-Z][A-Za-z0-9]*\s*\("),
@@ -66,7 +61,6 @@ PATTERNS = {
         lambda p: p.startswith("src/engine/renderer/rhi/backends/"),
     ),
     "sdl-in-engine": (
-        # the library itself (types, constants, calls, include) - not the WindowHost::SDL3 enum value
         re.compile(r'\bSDL_\w+|\bSDL[A-Z]\w*\s*\(|include\s*[<"]SDL3?/'),
         lambda p: p.startswith("src/engine/"),
         lambda p: p.startswith("src/engine/renderer/rhi/backends/") or p.startswith("src/engine/platform/"),
@@ -77,7 +71,6 @@ PATTERNS = {
         lambda p: p.startswith("src/engine/renderer/rhi/backends/glad/"),
     ),
     "os-header-in-engine": (
-        # the OS headers belong to the platform layer (PAL) : everything else asks it through its own API
         re.compile(r'include\s*[<"](windows\.h|winsock2\.h|ws2tcpip\.h|shellapi\.h|dlfcn\.h|unistd\.h|pthread\.h|sys/[a-z_]+\.h|pdh\.h|psapi\.h)[>"]'),
         lambda p: p.startswith("src/engine/"),
         lambda p: p.startswith("src/engine/renderer/rhi/backends/") or p.startswith("src/engine/platform/"),
@@ -88,7 +81,7 @@ PATTERNS = {
 def module_of(path):
     parts = path.split("/")
     if path.startswith("src/engine/renderer/rhi/backends/glad/"):
-        return None  # vendored code
+        return None
     if path.startswith("src/engine/renderer/") and len(parts) > 4:
         return "engine/renderer/" + {"rhi": "rhi", "features": "scene", "components": "scene"}.get(parts[3], "frontend")
     if path.startswith("src/engine/") and len(parts) == 3:
@@ -136,7 +129,7 @@ def collect_files():
 
 def analyse():
     files = collect_files()
-    edges = Counter()   # (a, b) -> number of includes
+    edges = Counter()
     example = {}
     unknown = set()
     patterns = {name: set() for name in PATTERNS}

@@ -41,8 +41,7 @@ namespace Shard::Engine::Core
     class ObjectIDManager {
         public:
 
-            // WARNING: Invalidates all existing ObjectIDs.
-            // Must not be used while IDs are still referenced externally.
+            // WARNING: Invalidates all existing ObjectIDs. Must not be used while IDs are still referenced externally.
             void Reset() {
                 ObjectIDMap.clear();
                 availableIDs.clear();

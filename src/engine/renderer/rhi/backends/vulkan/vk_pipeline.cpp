@@ -33,8 +33,6 @@ namespace Shard::Engine::Rendering {
         }
     }
 
-    // ---- VKPipeline ----------------------------------------------------------------------------------------------------------------
-
     VKPipeline::~VKPipeline()
     {
         std::vector<VkPipeline> pipelines;
@@ -71,8 +69,6 @@ namespace Shard::Engine::Rendering {
 
         const PipelineSpecifications& s = m_Specifications;
 
-        // Everything that is baked into the pipeline. The specifications are read as they are now : a material changes the blending of the
-        // pipeline it was given when it is made.
         uint64_t key = target.Key();
         key = HashCombine64(key, LayoutKey(vertices));
         key = HashCombine64(key, shader->Program().GetVersion());
@@ -116,7 +112,6 @@ namespace Shard::Engine::Rendering {
             stages.push_back(stage);
         }
 
-        // The vertices : the layout of the mesh, the attributes the shader reads
         VkVertexInputBindingDescription binding{0, vertices.GetStride(), VK_VERTEX_INPUT_RATE_VERTEX};
         std::vector<VkVertexInputAttributeDescription> attributes;
         for (const VertexElement& element : vertices.GetElements())
@@ -150,7 +145,7 @@ namespace Shard::Engine::Rendering {
         VkPipelineInputAssemblyStateCreateInfo inputAssembly{VK_STRUCTURE_TYPE_PIPELINE_INPUT_ASSEMBLY_STATE_CREATE_INFO};
         inputAssembly.topology = ToVkTopology(s.topology);
 
-        // OpenGL's clip space is kept (z from -1 to 1) : the depth the shaders see and write is the one they were written for
+        // Keeps OpenGL clip space (z from -1 to 1), the depth the shaders were written for.
         VkPipelineViewportDepthClipControlCreateInfoEXT clipControl{VK_STRUCTURE_TYPE_PIPELINE_VIEWPORT_DEPTH_CLIP_CONTROL_CREATE_INFO_EXT};
         clipControl.negativeOneToOne = VK_TRUE;
 
@@ -163,13 +158,12 @@ namespace Shard::Engine::Rendering {
 
         VkPipelineRasterizationStateCreateInfo rasterization{VK_STRUCTURE_TYPE_PIPELINE_RASTERIZATION_STATE_CREATE_INFO};
         rasterization.polygonMode = lines ? VK_POLYGON_MODE_LINE : VK_POLYGON_MODE_FILL;
-        rasterization.cullMode = VK_CULL_MODE_NONE;                 // dynamic
-        // The viewport is not flipped (the images are stored the way OpenGL stores them), so a front face that is counter clockwise there is clockwise here
+        rasterization.cullMode = VK_CULL_MODE_NONE;
+        // Viewport is not flipped (images are stored GL style), so GL's counter clockwise front face is clockwise here.
         rasterization.frontFace = VK_FRONT_FACE_CLOCKWISE;
         rasterization.lineWidth = 1.0f;
         if (variant.wireframe)
         {
-            // Lines win the depth test against a filled sweep of the same triangles
             rasterization.depthBiasEnable = VK_TRUE;
             rasterization.depthBiasConstantFactor = -1.0f;
             rasterization.depthBiasSlopeFactor = -1.0f;
@@ -242,8 +236,6 @@ namespace Shard::Engine::Rendering {
         SetObjectName(VK_OBJECT_TYPE_PIPELINE, pipeline, s.debugName.empty() ? program.GetName() : s.debugName);
         return pipeline;
     }
-
-    // ---- VKComputePipeline ---------------------------------------------------------------------------------------------------------
 
     VKComputePipeline::~VKComputePipeline()
     {

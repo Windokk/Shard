@@ -17,8 +17,6 @@ namespace Shard::Engine::Rendering {
         bool hasColor = true;
         bool hasDepth = true;
 
-        /// More colour attachments after the first (a G-buffer : each one a render target of the fragment shader's outputs 1, 2, 3...). Only for a
-        /// framebuffer ; they are as big as the framebuffer, have its sample count when it is multisampled, and are never resolved.
         std::vector<TextureSpecifications> extraColorSpecs;
 
         TextureSpecifications colorSpecs = []{
@@ -51,52 +49,33 @@ namespace Shard::Engine::Rendering {
 
             virtual void Resize(uint32_t width, uint32_t height) = 0;
 
-            /// @brief Changes the sample count of a multisampled framebuffer (its contents are lost, like a Resize).
             virtual void SetSamplesCount(uint32_t samples) = 0;
 
             virtual void AttachCubemapArray(uint32_t texture) = 0;
 
             virtual void DetachCubemapArray() = 0;
 
-            /// @brief Draws into one layer of a depth Texture2DArray instead of a depth attachment of its own (the framebuffer is made with
-            /// hasDepth = false and the array's size). `texture` 0 detaches it.
             virtual void AttachDepthLayer(uint32_t texture, uint32_t layer) = 0;
 
-            /// @brief Whether the framebuffer draws into a depth : its own, or a layer it was given (see AttachDepthLayer)
             virtual bool HasDepthTarget() const { return m_Specifications.hasDepth; }
 
             virtual void CopyFrom(std::shared_ptr<Framebuffer> src) = 0;
 
-            /// @brief Copies only the depth of `src` into this framebuffer's depth. Both have to be the same size, and the same
-            /// kind (both multisampled with the same sample count, or both not) : what a frame that is drawn into one target
-            /// and presented from another does to keep the depth the overlays are tested against.
+            // Same size and same multisample kind required on both.
             virtual void CopyDepthFrom(std::shared_ptr<Framebuffer> src) = 0;
 
             virtual void BlitToScreen(uint32_t screenWidth, uint32_t screenHeight) = 0;
 
-            /// @brief Blocking readback of the (resolved) color attachment as tightly packed RGBA8,
-            /// top row first. Call ResolveMultisampled() first if this framebuffer is multisampled.
-            /// @return false if there is no color attachment to read
             virtual bool ReadPixelsRGBA8(std::vector<uint8_t>& outPixels) = 0;
 
-            /// @brief The same in floating point, values not clamped (what a HDR target holds), 4 floats a pixel : what a
-            /// comparison of the light against a path traced render reads.
-            /// @return false when there is no color attachment to read, or the backend cannot read it so
             virtual bool ReadPixelsRGBAFloat(std::vector<float>& outPixels) { (void)outPixels; return false; }
 
-            /// @brief Blocking readback of the depth attachment as floats (0..1), top row first : what a capture of a shadow map needs.
-            /// @return false when there is no depth attachment to read, or the backend cannot read it
             virtual bool ReadDepthFloat(std::vector<float>& outDepth) { (void)outDepth; return false; }
 
-            /// @brief Writes tightly packed RGBA8 pixels, top row first (the layout ReadPixelsRGBA8 produces),
-            /// into a rectangle of this framebuffer's color attachment. Must not be multisampled.
             virtual void UploadColorRegion(uint32_t x, uint32_t y, uint32_t width, uint32_t height, const uint8_t* rgba) = 0;
 
-            /// @brief Copies (and rescales, with filtering) this framebuffer's resolved color attachment
-            /// into a rectangle of `dst`'s color attachment. `dst` must not be multisampled.
             virtual void BlitColorTo(Framebuffer& dst, uint32_t dstX, uint32_t dstY, uint32_t dstWidth, uint32_t dstHeight) = 0;
 
-            /// The colour attachment `index` of the fragment shader's outputs : 0 is GetColorAttachment(), 1 and on are the extra ones (0 : there is none)
             virtual uint32_t GetColorAttachmentAt(uint32_t index) const { return index == 0 ? GetColorAttachment() : 0; }
 
             virtual uint32_t GetColorAttachment() const = 0;

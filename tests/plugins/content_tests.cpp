@@ -33,7 +33,7 @@ TEST(ContentMounts, ModUrisParseAndBuild)
     EXPECT_TRUE(ContentMounts::IsModUri("mod://a/b"));
 }
 
-TEST(ContentMounts, ResolvesReadsAndListsAModulesFiles)
+TEST(ContentMounts, ResolvesReadsLists)
 {
     TempDir dir;
     dir.Write("one/content/materials/stone.mat", "stone");
@@ -64,7 +64,7 @@ TEST(ContentMounts, NeverLeavesTheMountsFolder)
     EXPECT_TRUE(mounts.List("mod.one", "../").empty());
 }
 
-TEST(ContentMounts, LaterLayersOnlyReplaceWhatTheyOverride)
+TEST(ContentMounts, LaterLayersOverride)
 {
     TempDir dir;
     dir.Write("a/content/materials/stone.mat", "from a");
@@ -76,8 +76,8 @@ TEST(ContentMounts, LaterLayersOnlyReplaceWhatTheyOverride)
     ASSERT_TRUE(mounts.Mount(ModuleAt(dir, "a", "mod.a"), 1));
     ASSERT_TRUE(mounts.Mount(ModuleAt(dir, "b", "mod.b", { "materials/wood.mat" }), 2));
 
-    EXPECT_EQ(mounts.ResolveLogical("materials/stone.mat")->pluginId, "mod.a");          // b did not say it replaces it
-    EXPECT_EQ(mounts.ResolveLogical("materials/wood.mat")->pluginId, "mod.b");           // b did
+    EXPECT_EQ(mounts.ResolveLogical("materials/stone.mat")->pluginId, "mod.a");
+    EXPECT_EQ(mounts.ResolveLogical("materials/wood.mat")->pluginId, "mod.b");
     EXPECT_EQ(mounts.ResolveLogical("materials/new.mat")->pluginId, "mod.b");
     EXPECT_FALSE(mounts.ResolveLogical("materials/none.mat"));
 
@@ -123,7 +123,7 @@ TEST(ContentMounts, UnmountRemovesAnOwnersLayers)
     EXPECT_FALSE(mounts.Exists("mod://mod.b/x.txt"));
 }
 
-TEST(ContentMounts, AMissingContentFolderOnlyMattersToDatapacksAndMods)
+TEST(ContentMounts, MissingContentFolder)
 {
     TempDir dir;
     ContentMounts mounts;
@@ -139,7 +139,7 @@ TEST(ContentMounts, AMissingContentFolderOnlyMattersToDatapacksAndMods)
     EXPECT_EQ(mounts.Find("code.mod"), nullptr);
 }
 
-TEST(ContentMounts, AssetGuidsAreStableAndDistinct)
+TEST(ContentMounts, AssetGuidsStable)
 {
     const auto a1 = ContentMounts::AssetGuid("acme.weather", "materials/rain.mat");
     const auto a2 = ContentMounts::AssetGuid("acme.weather", "materials\\rain.mat");
@@ -147,14 +147,14 @@ TEST(ContentMounts, AssetGuidsAreStableAndDistinct)
     const auto b = ContentMounts::AssetGuid("acme.weather", "materials/snow.mat");
     const auto c = ContentMounts::AssetGuid("other.ns", "materials/rain.mat");
     EXPECT_FALSE(a1.IsNull());
-    EXPECT_EQ(a1, a2);              // separators do not matter
-    EXPECT_EQ(a1, a3);              // nor does case : Windows and Linux must agree
+    EXPECT_EQ(a1, a2);
+    EXPECT_EQ(a1, a3);              // Case does not matter either: Windows and Linux must agree.
     EXPECT_NE(a1, b);
     EXPECT_NE(a1, c);
     EXPECT_EQ(a1, ContentMounts::AssetGuid("acme.weather", "materials/rain.mat"));
 }
 
-TEST(ContentMounts, TablesMergeKeyByKeyInLayerOrder)
+TEST(ContentMounts, TablesMergeByKey)
 {
     TempDir dir;
     dir.Write("a/content/tables/weapons.json", R"({ "sword": { "damage": 5, "weight": 2 }, "bow": { "damage": 3 } })");
@@ -169,10 +169,10 @@ TEST(ContentMounts, TablesMergeKeyByKeyInLayerOrder)
     EXPECT_EQ(t["axe"]["damage"], 7);
     EXPECT_EQ(mounts.TableNames(), std::vector<std::string>{ "weapons" });
     EXPECT_TRUE(mounts.LoadTable("none").empty());
-    EXPECT_TRUE(mounts.FindConflicts().empty());          // tables merge on purpose
+    EXPECT_TRUE(mounts.FindConflicts().empty());
 }
 
-TEST(ContentMounts, TranslationsFlatOrNestedWithFallbacks)
+TEST(ContentMounts, TranslationsWithFallbacks)
 {
     TempDir dir;
     dir.Write("a/content/lang/fr.json", R"({ "ui.start": "Jouer", "ui": { "quit": "Quitter" } })");
@@ -188,9 +188,7 @@ TEST(ContentMounts, TranslationsFlatOrNestedWithFallbacks)
     EXPECT_EQ(mounts.Translate("ui.start", "de", "Start"), "Start");
 }
 
-// ---- Validation ----
-
-TEST(ContentValidation, AcceptsGoodContentAndUnknownFolders)
+TEST(ContentValidation, AcceptsGoodContent)
 {
     TempDir dir;
     dir.Write("c/worlds/a.world", R"({ "name": "a", "actors": [ { "name": "Box", "components": [ { "type": "transform" } ], "children": [ { "name": "Lid" } ] } ], "settings": {} })");
@@ -204,7 +202,7 @@ TEST(ContentValidation, AcceptsGoodContentAndUnknownFolders)
     EXPECT_TRUE(ValidateContentFolder(dir.Sub("c")).empty());
 }
 
-TEST(ContentValidation, ReportsEachProblemWithItsFile)
+TEST(ContentValidation, ReportsProblemsWithFile)
 {
     TempDir dir;
     dir.Write("c/worlds/broken.world", "{ not json");
@@ -247,8 +245,6 @@ TEST(DeclaredComponents, ParseFieldsAndDefaults)
     EXPECT_FALSE(ParseDeclaredComponent(json::parse(R"({ "fields": {} })")));
     EXPECT_FALSE(ParseDeclaredComponent(json::parse(R"({ "name": "X" })")));
 }
-
-// ---- World patches ----
 
 namespace {
     json SampleWorld()
@@ -295,7 +291,7 @@ TEST(WorldPatch, ChangesComponentsAndSettings)
     EXPECT_EQ(w["actors"][0]["components"].size(), 1u);
     EXPECT_EQ(w["actors"][1]["components"][0]["type"], "audio_source");
     EXPECT_DOUBLE_EQ(w["settings"]["ssao"]["radius"].get<double>(), 1.5);
-    EXPECT_EQ(w["settings"]["ssao"]["enabled"], true);          // merged, not replaced
+    EXPECT_EQ(w["settings"]["ssao"]["enabled"], true);
     EXPECT_EQ(w["settings"]["fog"], true);
 }
 
@@ -314,7 +310,7 @@ TEST(WorldPatch, AllOrNothing)
 TEST(WorldPatch, RefusesWhatIsMalformed)
 {
     json w = SampleWorld();
-    EXPECT_FALSE(ApplyWorldPatch(w, json::parse(R"({ "ops": [ { "op": "addActor", "actor": { "name": "Table" } } ] })")));          // duplicate name
+    EXPECT_FALSE(ApplyWorldPatch(w, json::parse(R"({ "ops": [ { "op": "addActor", "actor": { "name": "Table" } } ] })")));
     EXPECT_FALSE(ApplyWorldPatch(w, json::parse(R"({ "ops": [ { "op": "setComponent", "path": "Table", "type": "ghost", "fields": {} } ] })")));
     EXPECT_FALSE(ApplyWorldPatch(w, json::parse(R"({ "ops": [ { "op": "nope" } ] })")));
     EXPECT_FALSE(ApplyWorldPatch(w, json::parse(R"({ "ops": [ { "op": "addActor", "parent": "Ghost", "actor": { "name": "X" } } ] })")));

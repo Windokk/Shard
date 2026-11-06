@@ -15,8 +15,6 @@ using namespace Shard::Engine::Rendering;
 using Shard::Engine::Core::PackRGB9E5;
 using Shard::Engine::Core::UnpackRGB9E5;
 
-// ---- RGB9E5 ----
-
 TEST(RGB9E5, RoundTripsWithinItsPrecision) {
     const float values[][3] = {
         { 0.0f, 0.0f, 0.0f }, { 1.0f, 1.0f, 1.0f }, { 0.5f, 0.25f, 0.125f }, { 3.7f, 0.01f, 1.2f }, { 100.0f, 50.0f, 0.3f },
@@ -28,7 +26,6 @@ TEST(RGB9E5, RoundTripsWithinItsPrecision) {
         float r, g, b;
         UnpackRGB9E5(PackRGB9E5(v[0], v[1], v[2]), r, g, b);
 
-        // 9 bits of mantissa : within 1/512 of the largest channel (the others share its exponent)
         const float largest = std::max(v[0], std::max(v[1], v[2]));
         const float tolerance = largest / 256.0f + 1e-7f;
         EXPECT_NEAR(r, v[0], tolerance);
@@ -49,12 +46,10 @@ TEST(RGB9E5, ClampsWhatItCannotHold) {
     EXPECT_TRUE(std::isfinite(r));
 }
 
-TEST(RGB9E5, MatchesTheKnownEncodingOfOne) {
-    // The GL specification : (1, 1, 1) is exponent 16, mantissa 256 on every channel
+TEST(RGB9E5, MatchesKnownEncoding) {
+    // GL spec: (1, 1, 1) is exponent 16, mantissa 256 on every channel.
     EXPECT_EQ(PackRGB9E5(1.0f, 1.0f, 1.0f), (16u << 27) | (256u << 18) | (256u << 9) | 256u);
 }
-
-// ---- The file ----
 
 namespace {
 
@@ -129,7 +124,7 @@ TEST_F(LightmapFile, WriteCreatesMissingDirectories) {
     std::filesystem::remove_all(std::filesystem::temp_directory_path() / "shard_lightmap_dir");
 }
 
-TEST_F(LightmapFile, WriteRefusesAPageThatContradictsItsSize) {
+TEST_F(LightmapFile, WriteRefusesBadPage) {
     LightmapData bad = MakeData();
     bad.pages[1].texels.pop_back();
     EXPECT_FALSE(WriteLightmapFile(path, bad));
@@ -167,15 +162,12 @@ TEST_F(LightmapFile, DamagedFilesAreRejected) {
     EXPECT_EQ(DecodeLightmapFile(path), nullptr) << "unknown version";
 
     std::vector<char> hugePage = good;
-    hugePage[16] = hugePage[17] = hugePage[18] = char(0x7F);        // the first page's width
+    hugePage[16] = hugePage[17] = hugePage[18] = char(0x7F);
     Overwrite(hugePage);
     EXPECT_EQ(DecodeLightmapFile(path), nullptr) << "a page the size of the universe";
 }
 
-// ---- Encoding a baked page ----
-
-TEST(LightmapEncode, TheGutterTakesTheLightOfTheSurfaceNextToIt) {
-    // 8 x 4 page : only column 3 is covered, lit with 2.0 on the top row and 4.0 on the others
+TEST(LightmapEncode, GutterTakesNeighbourLight) {
     const uint32_t w = 8, h = 4;
     std::vector<float> rgba(size_t(w) * h * 4, 0.0f);
     for (uint32_t y = 0; y < h; y++)
@@ -194,19 +186,17 @@ TEST(LightmapEncode, TheGutterTakesTheLightOfTheSurfaceNextToIt) {
         return r;
     };
 
-    EXPECT_NEAR(texel(3, 1), 4.0f, 0.02f);          // the baked texels are as they were
-    EXPECT_GT(texel(2, 1), 0.0f);                   // one ring of gutter on each side...
+    EXPECT_NEAR(texel(3, 1), 4.0f, 0.02f);
+    EXPECT_GT(texel(2, 1), 0.0f);
     EXPECT_GT(texel(4, 1), 0.0f);
-    EXPECT_GT(texel(1, 1), 0.0f);                   // ...and a second one
+    EXPECT_GT(texel(1, 1), 0.0f);
     EXPECT_GT(texel(5, 1), 0.0f);
-    EXPECT_EQ(texel(0, 1), 0.0f);                   // three away from the surface : nothing
+    EXPECT_EQ(texel(0, 1), 0.0f);
     EXPECT_EQ(texel(7, 1), 0.0f);
-    // The average of the three covered texels it touches (2, 4 and 4) : the light of the surface, not a darkened share of it
     EXPECT_NEAR(texel(2, 1), (2.0f + 4.0f + 4.0f) / 3.0f, 0.05f);
 }
 
-TEST(LightmapEncode, AHoleTakesTheLightAroundItHoweverWideItIs) {
-    // 12 x 12 page : a lit surface (3.0), with a 6 x 6 block of texels the baker gave up in the middle
+TEST(LightmapEncode, HoleTakesSurroundingLight) {
     const uint32_t n = 12;
     std::vector<float> rgba(size_t(n) * n * 4, 0.0f);
     for (uint32_t y = 0; y < n; y++)
@@ -228,7 +218,7 @@ TEST(LightmapEncode, AHoleTakesTheLightAroundItHoweverWideItIs) {
         }
 }
 
-TEST(LightmapEncode, NonFiniteLightDoesNotPoisonTheNeighbours) {
+TEST(LightmapEncode, NonFiniteLightContained) {
     std::vector<float> rgba(4 * 4 * 4, 0.0f);
     auto set = [&](uint32_t x, uint32_t y, float v) {
         const size_t i = (size_t(y) * 4 + x) * 4;
@@ -247,23 +237,21 @@ TEST(LightmapEncode, NonFiniteLightDoesNotPoisonTheNeighbours) {
     }
 }
 
-// ---- The atlas layout ----
-
-TEST(LightmapLayout, ResolutionFollowsTheDensityAndTheCoverage) {
+TEST(LightmapLayout, ResolutionFollowsDensity) {
     LightmapSettings settings;
     settings.texelsPerMeter = 16.0f;
     settings.minResolution = 8;
     settings.maxResolution = 512;
 
     LightmapInstanceInput instance;
-    instance.surfaceArea = 16.0f;       // 4 m x 4 m of surface...
-    instance.uvArea = 1.0f;             // ...laid out on the whole square : 4 m * 16 = 64 texels
+    instance.surfaceArea = 16.0f;
+    instance.uvArea = 1.0f;
     EXPECT_EQ(LightmapResolutionFor(instance, settings), 64u);
 
-    instance.uvArea = 0.25f;            // a layout that wastes three quarters of the square needs twice the resolution
+    instance.uvArea = 0.25f;
     EXPECT_EQ(LightmapResolutionFor(instance, settings), 128u);
 
-    instance.uvArea = 1e-9f;            // an absurd layout is no reason to ask for the moon
+    instance.uvArea = 1e-9f;
     EXPECT_EQ(LightmapResolutionFor(instance, settings), settings.minResolution);
 
     instance.surfaceArea = 1e6f;
@@ -276,7 +264,7 @@ TEST(LightmapLayout, ResolutionFollowsTheDensityAndTheCoverage) {
     EXPECT_EQ(LightmapResolutionFor(instance, settings), 512u) << "an override is clamped too";
 }
 
-TEST(LightmapLayout, PacksEveryInstanceInsideOnePageWithoutOverlapOrContact) {
+TEST(LightmapLayout, PacksWithoutOverlap) {
     LightmapSettings settings;
     std::vector<LightmapInstanceInput> instances;
     for (int i = 0; i < 40; i++)
@@ -306,7 +294,6 @@ TEST(LightmapLayout, PacksEveryInstanceInsideOnePageWithoutOverlapOrContact) {
             const LightmapPlacement& b = layout.placements[j];
             if (a.page != b.page)
                 continue;
-            // At least the gap of both between them
             const bool apart = a.x + a.resolution + 2 <= b.x || b.x + b.resolution + 2 <= a.x ||
                                a.y + a.resolution + 2 <= b.y || b.y + b.resolution + 2 <= a.y;
             EXPECT_TRUE(apart) << i << " and " << j;
@@ -314,7 +301,7 @@ TEST(LightmapLayout, PacksEveryInstanceInsideOnePageWithoutOverlapOrContact) {
     }
 }
 
-TEST(LightmapLayout, TheScaleAndOffsetMapTheSquareOntoItsPlace) {
+TEST(LightmapLayout, ScaleOffsetMapSquare) {
     LightmapPlacement placement;
     placement.x = 64;
     placement.y = 128;
@@ -326,12 +313,11 @@ TEST(LightmapLayout, TheScaleAndOffsetMapTheSquareOntoItsPlace) {
     EXPECT_FLOAT_EQ(scaleOffset.z, 0.0625f);
     EXPECT_FLOAT_EQ(scaleOffset.w, 0.125f);
 
-    // The corners of the square land on the corners of the place
     EXPECT_FLOAT_EQ(1.0f * scaleOffset.x + scaleOffset.z, (64.0f + 256.0f) / 1024.0f);
     EXPECT_FLOAT_EQ(1.0f * scaleOffset.y + scaleOffset.w, (128.0f + 256.0f) / 1024.0f);
 }
 
-TEST(LightmapLayout, SpillsToSeveralPagesWhenOneIsNotEnough) {
+TEST(LightmapLayout, SpillsToMorePages) {
     LightmapSettings settings;
     settings.maxPageSize = 256;
     settings.maxResolution = 200;
@@ -373,8 +359,6 @@ TEST(LightmapLayout, IsDeterministicAndHandlesNothing) {
     }
 }
 
-// ---- Drawing a lightmap layout into a page ----
-
 #include "engine/renderer/features/lighting/lightmap_raster.hpp"
 
 #include <cstring>
@@ -383,8 +367,6 @@ TEST(LightmapLayout, IsDeterministicAndHandlesNothing) {
 
 namespace {
 
-    // A quad in the xz plane facing +y, whose lightmap coordinates are its xz coordinates, as the 8 float vertices the
-    // rasterizer reads : position (3), normal (3), lightmap uv (2)
     struct QuadMesh
     {
         std::vector<float> vertices;
@@ -417,14 +399,13 @@ namespace {
     };
 }
 
-TEST(LightmapRaster, EveryTexelOfALightmapGetsItsPointOfTheSurface) {
+TEST(LightmapRaster, TexelsGetSurfacePoints) {
     QuadMesh quad;
     const glm::mat4 world = glm::translate(glm::mat4(1.0f), glm::vec3(1.0f, 2.0f, 3.0f)) * glm::scale(glm::mat4(1.0f), glm::vec3(2.0f));
     const std::shared_ptr<LightmapPageRaster> raster = RasterizeLightmapPage(16, { quad.Instance(world, 2, 3, 8) });
     ASSERT_NE(raster, nullptr);
     ASSERT_EQ(raster->size, 16u);
 
-    // The 8 x 8 texels of the place, and nothing else
     EXPECT_EQ(raster->texelList.size(), size_t(64));
     for (uint32_t y = 0; y < 16; y++)
         for (uint32_t x = 0; x < 16; x++)
@@ -436,7 +417,6 @@ TEST(LightmapRaster, EveryTexelOfALightmapGetsItsPointOfTheSurface) {
         {
             const size_t i = (size_t(y) * 16 + x) * 4;
 
-            // The centre of the texel, mapped onto the quad and moved to where the instance stands
             const float u = (float(x) + 0.5f - 2.0f) / 8.0f, v = (float(y) + 0.5f - 3.0f) / 8.0f;
             EXPECT_NEAR(raster->position[i + 0], 1.0f + 2.0f * u, 1e-4f);
             EXPECT_NEAR(raster->position[i + 1], 2.0f, 1e-4f);
@@ -445,20 +425,17 @@ TEST(LightmapRaster, EveryTexelOfALightmapGetsItsPointOfTheSurface) {
             EXPECT_NEAR(raster->normal[i + 1], 1.0f, 1e-5f);
             EXPECT_NEAR(raster->geometric[i + 1], 1.0f, 1e-5f);
 
-            // The quad is 2 m wide on 8 texels : a texel is a quarter of a meter
             EXPECT_NEAR(raster->position[i + 3], 0.25f, 1e-4f);
         }
     }
 
-    // The list is the covered texels, row after row, as (y << 16) | x
     for (size_t k = 1; k < raster->texelList.size(); k++)
         EXPECT_LT(raster->texelList[k - 1], raster->texelList[k]);
     EXPECT_EQ(raster->texelList.front(), (3u << 16) | 2u);
 }
 
-TEST(LightmapRaster, TheGeometricNormalFollowsTheSideTheSmoothNormalFaces) {
+TEST(LightmapRaster, GeometricNormalFollowsSmooth) {
     QuadMesh quad;
-    // Flip the smooth normals : the triangles still wind counter clockwise seen from +y, the surface now faces -y
     for (size_t v = 0; v < 4; v++)
         quad.vertices[v * 8 + 4] = -1.0f;
 
@@ -468,8 +445,7 @@ TEST(LightmapRaster, TheGeometricNormalFollowsTheSideTheSmoothNormalFaces) {
     EXPECT_NEAR(raster->geometric[i + 1], -1.0f, 1e-5f);
 }
 
-TEST(LightmapRaster, ATriangleTooThinForATexelCentreStillGetsATexel) {
-    // A sliver 3 texels long and a tenth of a texel wide, between two rows of texel centres
+TEST(LightmapRaster, ThinTriangleGetsTexel) {
     std::vector<float> vertices;
     auto vertex = [&](float x, float z, float u, float v) {
         const float vertexData[8] = { x, 0.0f, z, 0.0f, 1.0f, 0.0f, u, v };
@@ -502,7 +478,6 @@ TEST(LightmapRaster, IgnoresWhatItCannotUse) {
     const std::shared_ptr<LightmapPageRaster> raster = RasterizeLightmapPage(8, { noResolution, noVertices });
     EXPECT_TRUE(raster->texelList.empty());
 
-    // A lightmap that sticks out of the page is cut at its edge
     const std::shared_ptr<LightmapPageRaster> clipped = RasterizeLightmapPage(8, { quad.Instance(glm::mat4(1.0f), 4, 4, 8) });
     EXPECT_EQ(clipped->texelList.size(), size_t(16));
 }

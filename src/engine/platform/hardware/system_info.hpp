@@ -20,32 +20,27 @@ namespace Shard::Engine::Core::Platform {
     };
 
     struct MemoryInfo {
-        uint64_t totalPhysical = 0;      // bytes
-        uint64_t availablePhysical = 0;  // bytes
+        uint64_t totalPhysical = 0;
+        uint64_t availablePhysical = 0;
     };
 
     struct OsInfo {
-        std::string name;       // "Windows", "Linux"
-        std::string version;    // "10.0.26200", kernel release
-        std::string arch;       // "x86_64", "arm64"
+        std::string name;
+        std::string version;
+        std::string arch;
     };
 
     struct SystemInfo {
         CpuInfo cpu;
         OsInfo os;
-        MemoryInfo memory;      // sampled when GetSystemInfo is first called, see QueryMemory for the live values
+        MemoryInfo memory;
     };
 
-    /// @brief CPU, OS and memory of the machine. Computed once.
     const SystemInfo& GetSystemInfo();
 
-    /// @brief Live physical memory numbers.
     MemoryInfo QueryMemory();
 
-    /// @brief Physical memory used by this process, in bytes (0 if unknown).
     uint64_t ProcessMemoryUsage();
 
-    /// @brief Dedicated GPU memory used by this process, in bytes (0 when the OS can't tell).
-    /// Windows : PDH "GPU Process Memory" counters. Cheap enough to be called every frame.
     uint64_t ProcessGpuMemoryUsage();
 }

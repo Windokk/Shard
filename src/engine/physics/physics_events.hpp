@@ -10,8 +10,7 @@ namespace Shard::Engine::Objects::Components{
 
 namespace Shard::Engine::Events {
 
-    // Sent once the physics step is over, on the thread that stepped it (see PhysicsManager::StepSimulation) : the scripts may read
-    // and change bodies, or destroy actors. contactSettings is a copy : the contact was already solved, changing it has no effect.
+    // Sent after the step, on the stepping thread. contactSettings is a copy: the contact is already solved.
 
     struct ContactAddedEvent : public Event {
         const Objects::Components::PhysicsBody& otherBody;

@@ -34,7 +34,7 @@ TEST(RenderSnapshot, StartsEmpty) {
     EXPECT_FALSE(BuildMainView(buffer.Latest(), view));
 }
 
-TEST(RenderSnapshot, WrittenSnapshotIsInvisibleUntilPublished) {
+TEST(RenderSnapshot, UnpublishedSnapshotInvisible) {
     RenderSnapshotBuffer buffer;
 
     RenderSnapshot& next = buffer.BeginWrite();
@@ -48,7 +48,7 @@ TEST(RenderSnapshot, WrittenSnapshotIsInvisibleUntilPublished) {
     EXPECT_EQ(buffer.PublishedCount(), 1u);
 }
 
-TEST(RenderSnapshot, BuildMainViewFollowsTheCamera) {
+TEST(RenderSnapshot, BuildMainViewFollowsCamera) {
     RenderSnapshotBuffer buffer;
     RenderSnapshot& next = buffer.BeginWrite();
     next.camera = MakeCamera(5.0f);
@@ -81,11 +81,11 @@ TEST(RenderSnapshot, TwoBuffersAlternate) {
 
     RenderSnapshot& c = buffer.BeginWrite();
     EXPECT_NE(first, second);
-    EXPECT_EQ(&c, first);                       // double buffered : the buffer of two publishes ago is reused
-    EXPECT_EQ(buffer.Latest().frame, 2u);       // ...while the current one is untouched
+    EXPECT_EQ(&c, first);
+    EXPECT_EQ(buffer.Latest().frame, 2u);
 }
 
-TEST(RenderSnapshot, ReaderKeepsItsFrameWhileTheNextOneIsWritten) {
+TEST(RenderSnapshot, ReaderKeepsFrame) {
     RenderSnapshotBuffer buffer;
 
     {
@@ -108,17 +108,16 @@ TEST(RenderSnapshot, ReaderKeepsItsFrameWhileTheNextOneIsWritten) {
     EXPECT_EQ(buffer.Latest().frame, 2u);
 }
 
-TEST(RenderSnapshot, WriterWaitsForTheReaderOfTheBufferItReuses) {
+TEST(RenderSnapshot, WriterWaitsForReader) {
     RenderSnapshotBuffer buffer;
 
-    // frame 1 published into buffer B, then frame 2 into A : B is the one the next write reuses
     buffer.BeginWrite().frame = 1;
     buffer.Publish();
     auto lease = std::make_unique<RenderSnapshotBuffer::ReadLease>(buffer.Acquire());
     buffer.BeginWrite().frame = 2;
     buffer.Publish();
 
-    // The lease holds the buffer of frame 1 : the third write has to wait for its release
+    // The lease holds frame 1's buffer, so the third write must wait for release.
     std::atomic<bool> writing{false};
     std::atomic<bool> wrote{false};
     std::thread writer([&] {
@@ -166,26 +165,24 @@ TEST(RenderSnapshot, FindByKey) {
 
 TEST(RenderSnapshot, CameraAspectRatio) {
     CameraProxy camera;
-    EXPECT_FLOAT_EQ(camera.AspectRatio(), 1.0f);        // no size yet : square rather than a division by zero
+    EXPECT_FLOAT_EQ(camera.AspectRatio(), 1.0f);
     camera.width = 1920;
     camera.height = 1080;
     EXPECT_FLOAT_EQ(camera.AspectRatio(), 1920.0f / 1080.0f);
 }
 
-TEST(RenderSnapshot, ProbeGridFillsTheVolumeInsetByHalfACell) {
+TEST(RenderSnapshot, ProbeGridInsetHalfCell) {
     ProbeVolumeProxy proxy;
     proxy.volume.center = glm::vec3(10.0f, 0.0f, 0.0f);
     proxy.volume.halfExtent = glm::vec3(4.0f, 2.0f, 2.0f);
     proxy.probeCounts = glm::ivec3(4, 2, 2);
 
     EXPECT_EQ(proxy.GridSpacing(), glm::vec3(2.0f, 2.0f, 2.0f));
-    // The box starts at (6, -2, -2) : the first probe sits half a cell inside it
     EXPECT_EQ(proxy.GridOrigin(), glm::vec3(7.0f, -1.0f, -1.0f));
-    // ... and so does the last one, on the other side
     EXPECT_EQ(proxy.GridOrigin() + proxy.GridSpacing() * glm::vec3(3.0f, 1.0f, 1.0f), glm::vec3(13.0f, 1.0f, 1.0f));
 }
 
-TEST(RenderSnapshot, ProbeGridToleratesAZeroCount) {
+TEST(RenderSnapshot, ProbeGridZeroCount) {
     ProbeVolumeProxy proxy;
     proxy.probeCounts = glm::ivec3(0, 0, 0);
     const glm::vec3 spacing = proxy.GridSpacing();

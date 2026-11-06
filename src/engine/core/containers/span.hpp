@@ -9,9 +9,6 @@
 
 namespace Shard::Engine::Core {
 
-    /// @brief A non-owning view of `size` contiguous Ts (pointer + length), the C++17 stand-in for std::span.
-    /// Pass it instead of (const T*, size_t) or `const std::vector<T>&` : it accepts arrays, vectors, std::array and
-    /// sub-ranges alike, and it never copies. The viewed memory must outlive the span.
     template <typename T>
     class Span {
     public:
@@ -39,7 +36,6 @@ namespace Shard::Engine::Core {
         template <typename U, typename A, typename = std::enable_if_t<std::is_convertible_v<const U (*)[], T (*)[]>>>
         Span(const std::vector<U, A>& vector) noexcept : m_Data(vector.data()), m_Size(vector.size()) {}
 
-        /// Span<T> -> Span<const T>
         template <typename U, typename = std::enable_if_t<std::is_convertible_v<U (*)[], T (*)[]> && !std::is_same_v<U, T>>>
         constexpr Span(const Span<U>& other) noexcept : m_Data(other.data()), m_Size(other.size()) {}
 
@@ -57,11 +53,8 @@ namespace Shard::Engine::Core {
         constexpr T& front() const { assert(m_Size > 0); return m_Data[0]; }
         constexpr T& back() const { assert(m_Size > 0); return m_Data[m_Size - 1]; }
 
-        /// @brief The first `count` elements.
         constexpr Span first(size_t count) const { assert(count <= m_Size); return Span(m_Data, count); }
-        /// @brief The last `count` elements.
         constexpr Span last(size_t count) const { assert(count <= m_Size); return Span(m_Data + (m_Size - count), count); }
-        /// @brief `count` elements from `offset` (count defaults to "to the end").
         constexpr Span subspan(size_t offset, size_t count = npos) const {
             assert(offset <= m_Size);
             const size_t available = m_Size - offset;
@@ -82,7 +75,6 @@ namespace Shard::Engine::Core {
     template <typename T>
     Span<const T> MakeSpan(const std::vector<T>& v) { return Span<const T>(v); }
 
-    /// @brief The bytes of a span, for serialisation or uploads.
     template <typename T>
     Span<const unsigned char> AsBytes(Span<T> span) {
         return Span<const unsigned char>(reinterpret_cast<const unsigned char*>(span.data()), span.size_bytes());

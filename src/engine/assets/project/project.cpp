@@ -44,7 +44,6 @@ namespace Shard::Engine::Projects{
     {
         Assets::RemapBuildSettings(buildSettings, projectResourcesRoot, oldName, newName, isDirectory);
 
-        // The saved list, apart from the one being edited : the file gets the rename, not the changes that were not saved
         nlohmann::ordered_json saved = nlohmann::ordered_json::parse(savedState, nullptr, false);
         if(saved.is_discarded() || !saved.is_object())
             return;

@@ -56,7 +56,6 @@ namespace Shard::Engine::Rendering {
             return VKRendererAPI::Get();
         }
 
-        /// A cube map of the generator's images : in the right layout to be drawn into whatever it was doing before
         Image& ImageOf(const std::shared_ptr<Cubemap>& cubemap)
         {
             return static_cast<VKCubemap*>(cubemap.get())->Resource().image;
@@ -165,7 +164,6 @@ namespace Shard::Engine::Rendering {
         texSpecs.wrapT = TextureWrap::ClampEdge;
         texSpecs.wrapR = TextureWrap::ClampEdge;
 
-        // ---- Irradiance ----
         texSpecs.generateMips = false;
         texSpecs.internalFormat = TextureInternalFormat::RGB16F;
         texSpecs.width = 32;
@@ -180,9 +178,7 @@ namespace Shard::Engine::Rendering {
         else
             DEBUG_ERROR("Cubemap irradiance map couldn't be created because shader \"shaders/ibl/irradiance\" is not loaded !");
 
-        // ---- Prefilter : one roughness per level, as the OpenGL generator does ----
         texSpecs.generateMips = true;
-        // Trilinear : the lighting picks a level by lod, which a plain Linear sampler would clamp to the first one
         texSpecs.minFilter = TextureFilter::LinearMipmapLinear;
         texSpecs.width = 128;
         texSpecs.height = 128;
@@ -191,7 +187,6 @@ namespace Shard::Engine::Rendering {
 
         if (std::shared_ptr<Shader> shader = LoadShader("shaders/ibl/prefilter"))
         {
-            // Every level of the chain is drawn : the last ones, which the lighting never reads, are all fully rough
             const uint32_t levels = ImageOf(prefilter).mips;
             for (uint32_t mip = 0; mip < levels; mip++)
             {
@@ -203,7 +198,6 @@ namespace Shard::Engine::Rendering {
         else
             DEBUG_ERROR("Cubemap prefilter map couldn't be created because shader \"shaders/ibl/prefilter\" is not loaded !");
 
-        // ---- BRDF table ----
         texSpecs.generateMips = false;
         texSpecs.internalFormat = TextureInternalFormat::RG16F;
         texSpecs.width = 512;
@@ -249,7 +243,6 @@ namespace Shard::Engine::Rendering {
 
         std::array<Filesystem::Path, 6> files = {imageFiles[0], imageFiles[1], imageFiles[2], imageFiles[3], imageFiles[4], imageFiles[5]};
 
-        // Six ordinary 8 bit pictures : colours in the sRGB curve, which the GPU turns into linear light as it samples them
         specs.srgb = true;
         std::shared_ptr<Cubemap> cubemap = Cubemap::Create(specs, files);
 
@@ -270,7 +263,6 @@ namespace Shard::Engine::Rendering {
 
         std::string file = hdrFile.ReadFile();
 
-        // As floats, in linear light : a Radiance .hdr keeps the radiance it stores. Three channels whatever the file has.
         stbi_set_flip_vertically_on_load_thread(true);
         int width = 0, height = 0, channels = 0;
         void* data = stbi_loadf_from_memory(reinterpret_cast<const unsigned char*>(file.data()), static_cast<int>(file.size()), &width, &height, &channels, 3);
@@ -302,10 +294,9 @@ namespace Shard::Engine::Rendering {
         EnsureGeometry();
 
         std::array<unsigned char*, 6> noData = {nullptr, nullptr, nullptr, nullptr, nullptr, nullptr};
-        specs.internalFormat = TextureInternalFormat::RGB16F;       // the sky keeps its dynamic range
+        specs.internalFormat = TextureInternalFormat::RGB16F;
         specs.width = 512;
         specs.height = 512;
-        // The prefilter samples this cubemap at a lod chosen from the sample's solid angle : it needs a mip filter to read anything but the first level
         specs.minFilter = TextureFilter::LinearMipmapLinear;
         std::shared_ptr<Cubemap> cubemap = Cubemap::Create(specs, noData);
 

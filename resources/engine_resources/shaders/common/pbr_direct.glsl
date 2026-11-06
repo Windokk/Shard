@@ -1,12 +1,4 @@
-// Requires `const float PI` to already be declared by the including file (both current consumers
-// already declare their own before using these).
-//
-// Cook-Torrance GGX terms for evaluating (not importance-sampling) a direct-light specular response,
-// epsilon-clamped throughout so a grazing/degenerate NdotV or NdotL never divides by ~0. Shared by
-// compute/path_trace.comp's NEE term and compute/probes/probe_trace.comp's direct-lighting term - the
-// only two places this exact (clamped) variant is used. NOT shared with mesh/lit.frag's IBL specular
-// path, which uses a different k (roughness^2/2, unclamped) appropriate for a prefiltered environment
-// map rather than a single light sample - do not unify the two, they're intentionally different.
+// Needs `const float PI` declared by the includer. Epsilon-clamped GGX for single light samples. Do not unify with lit.frag's IBL specular, which uses a different k (roughness^2/2).
 float DistributionGGX(vec3 n, vec3 h, float roughness)
 {
     float a = max(roughness * roughness, 1e-4);

@@ -14,8 +14,6 @@ namespace Shard::Engine::Rendering {
 
     using namespace VK;
 
-    // ---- VKMesh --------------------------------------------------------------------------------------------------------------------
-
     VKMesh::~VKMesh()
     {
         GpuMemory::Add(GpuMemory::Kind::Mesh, -m_GpuBytes);
@@ -95,7 +93,6 @@ namespace Shard::Engine::Rendering {
         m_GpuBytes = bytes;
         m_VertexBytes = m_Vertices.size();
 
-        // On the GPU now : the CPU copy is not needed (see Mesh::AcquireCPUData)
         FinishCPUData();
     }
 
@@ -109,8 +106,6 @@ namespace Shard::Engine::Rendering {
         return ReadBuffer(m_Vertex, 0, out.vertices.size(), out.vertices.data()) &&
                ReadBuffer(m_Index, 0, out.indices.size() * sizeof(uint32_t), out.indices.data());
     }
-
-    // ---- VKStorageBuffer -----------------------------------------------------------------------------------------------------------
 
     namespace {
         std::mutex g_BufferMutex;
@@ -161,7 +156,6 @@ namespace Shard::Engine::Rendering {
             return;
         }
 
-        // Zeros : what a buffer nobody has written yet holds
         Context::Get().ImmediateSubmit([&](VkCommandBuffer cmd) { vkCmdFillBuffer(cmd, m_Buffer.buffer, 0, VK_WHOLE_SIZE, 0); });
     }
 
@@ -169,7 +163,6 @@ namespace Shard::Engine::Rendering {
     {
         if (size != m_Size)
         {
-            // A new size is a new buffer : whatever was recorded against the old one still reads it (it is destroyed when they are done)
             GpuMemory::Add(GpuMemory::Kind::Buffer, int64_t(size) - int64_t(m_Size));
 
             m_Buffer.Destroy();

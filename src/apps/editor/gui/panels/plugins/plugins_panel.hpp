@@ -4,8 +4,6 @@
 
 namespace Shard::Editor::GUI{
 
-    /// @brief The plugins of the running editor : their state, what they cost, what they registered, and the buttons to stop,
-    /// start and reload them. What a plugin could not do is written next to it.
     class PluginsPanel
     {
         public:

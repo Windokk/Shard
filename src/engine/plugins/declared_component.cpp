@@ -55,7 +55,6 @@ namespace Shard::Engine::Plugins {
             }
         }
 
-        // Writes the declared default into storage at `at`
         void ConstructValue(const FieldInfo& f, unsigned char* at, const json& value)
         {
             switch (f.type) {
@@ -137,7 +136,6 @@ namespace Shard::Engine::Plugins {
         type->m_Size = cursor;
         for (FieldInfo& f : type->m_FieldInfos) type->m_Descriptor.fields.push_back(&f);
 
-        // The defaults, constructed once in a buffer that has the layout of the storage
         type->m_Defaults.assign(type->m_StorageBase + std::max<size_t>(type->m_Size, 1), 0);
         for (size_t i = 0; i < type->m_FieldInfos.size(); ++i)
             ConstructValue(type->m_FieldInfos[i], type->m_Defaults.data() + type->m_FieldInfos[i].offset, declaration.fields[i].defaultValue);
@@ -146,7 +144,6 @@ namespace Shard::Engine::Plugins {
 
     DeclaredComponentType::~DeclaredComponentType()
     {
-        // The defaults were constructed in a buffer of our own
         if (!m_Defaults.empty())
             for (const FieldInfo& f : m_FieldInfos) f.Destroy(m_Defaults.data() + f.offset);
     }
@@ -159,7 +156,7 @@ namespace Shard::Engine::Plugins {
 
     void DeclaredComponentType::ConstructDefaults(unsigned char* storage) const
     {
-        // `storage` is the start of the component's field storage ; FieldInfo offsets count from the component itself
+        // FieldInfo offsets count from the component itself, storage starts at m_StorageBase
         unsigned char* base = storage - m_StorageBase;
         for (const FieldInfo& f : m_FieldInfos) f.CopyConstruct(base + f.offset, m_Defaults.data() + f.offset);
     }
@@ -177,12 +174,9 @@ namespace Shard::Engine::Plugins {
         for (const FieldInfo& f : m_FieldInfos) f.Assign(tb + f.offset, fb + f.offset);
     }
 
-    // ---- The component ----
-
     DeclaredFieldsComponent::DeclaredFieldsComponent(std::shared_ptr<Objects::Actor> parent, uint32_t localId, std::shared_ptr<const DeclaredComponentType> type)
         : Component(std::move(parent), localId), m_Type(std::move(type))
     {
-        // FieldInfo offsets count from the Component sub-object, which has to be where this object starts
         const auto here = reinterpret_cast<const unsigned char*>(static_cast<const Component*>(this));
         const auto storage = reinterpret_cast<const unsigned char*>(m_Storage);
         if (size_t(storage - here) != DeclaredComponentType::StorageOffset())

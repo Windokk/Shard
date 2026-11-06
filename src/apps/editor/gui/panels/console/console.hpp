@@ -20,7 +20,6 @@ namespace Shard::Editor::Core{
 
 namespace Shard::Editor::GUI{
 
-    /// The console : the log of the engine, and a command line under it (commands and variables of engine/core/config/cvar.hpp).
     class Console
     {
         public:
@@ -31,7 +30,6 @@ namespace Shard::Editor::GUI{
             void SetParentWindow(Core::EditorMainWindow* parent);
             void Draw();
 
-            /// Puts the keyboard focus in the command line, whatever has it now
             void FocusCommandLine() { m_FocusInput = true; m_FocusWindow = true; }
 
             void Clear();
@@ -41,22 +39,22 @@ namespace Shard::Editor::GUI{
             using Suggestion = Engine::Core::CVarRegistry::Suggestion;
 
             enum class Kind : uint8_t {
-                Log,            ///< what the engine logged
-                Command,        ///< a line the user ran
-                Output,         ///< what the command answered
-                OutputError     ///< what the command refused with
+                Log,
+                Command,
+                Output,
+                OutputError
             };
 
             struct Entry {
                 uint64_t id = 0;
                 Kind kind = Kind::Log;
                 Engine::Debugging::Level level = Engine::Debugging::Level::Log;
-                bool continuation = false;      ///< another line of the same message : drawn without time and badge
+                bool continuation = false;
                 std::string time;
-                std::string source;             ///< "file.cpp:123" for what the engine logged
+                std::string source;
                 std::string text;
-                std::string lower;              ///< text, lowercase, for the filter
-                int repeat = 1;                 ///< how many times in a row
+                std::string lower;
+                int repeat = 1;
             };
 
             struct PendingLog {
@@ -64,7 +62,6 @@ namespace Shard::Editor::GUI{
                 std::string text;
             };
 
-            // ---- Log ----
             void AddEntry(Kind kind, Engine::Debugging::Level level, const std::string& text, const std::string& source = {});
             void AddMessage(Kind kind, Engine::Debugging::Level level, const std::string& message, const std::string& source);
             void DrainPending();
@@ -74,7 +71,6 @@ namespace Shard::Editor::GUI{
             void CopyEntries(const std::vector<const Entry*>& entries) const;
             std::string FormatForCopy(const Entry& entry) const;
 
-            // ---- Command line ----
             void DrawCommandLine();
             void DrawSuggestions(float x, float y, float width);
             void DrawHint();
@@ -93,8 +89,7 @@ namespace Shard::Editor::GUI{
 
             Core::EditorMainWindow* m_Parent = nullptr;
 
-            // The logger calls the sink from any thread : lines wait here until the next frame. Shared with the sink, which
-            // the logger keeps for as long as it lives.
+            // The logger calls the sink from any thread. Lines wait here until the next frame. Shared with the sink, which the logger keeps alive.
             struct SharedLog {
                 std::mutex mutex;
                 std::vector<PendingLog> pending;
@@ -107,7 +102,6 @@ namespace Shard::Editor::GUI{
             size_t m_MaxEntries = 5000;
             int m_Counts[5] = {0, 0, 0, 0, 0};
 
-            // Filters and view
             bool m_ShowLevel[5] = {true, true, true, true, true};
             char m_Filter[128] = "";
             bool m_ShowTime = true;
@@ -116,40 +110,37 @@ namespace Shard::Editor::GUI{
             bool m_FocusFilter = false;
             bool m_ScrollToBottom = false;
             float m_ScrollDelta = 0.0f;
-            int m_ScrollJump = 0;               // -1 : to the top, 1 : to the bottom
+            int m_ScrollJump = 0;
             int m_NewSinceBottom = 0;
 
-            // Selection in the log
             std::set<uint64_t> m_Selected;
             uint64_t m_Anchor = 0;
-            std::vector<const Entry*> m_Visible;    // the lines the filters keep, this frame
+            std::vector<const Entry*> m_Visible;
 
-            // Command line
             char m_Input[1024] = "";
             std::vector<std::string> m_History;
-            int m_HistoryPos = -1;              // -1 : typing a new line
-            std::string m_HistoryDraft;         // what was typed before the history was browsed
+            int m_HistoryPos = -1;
+            std::string m_HistoryDraft;
             bool m_FocusInput = false;
             bool m_FocusWindow = false;
-            bool m_SwallowEnter = false;        // Enter picked a suggestion : it must not run the line as well
-            bool m_ReplaceBuffer = false;       // m_Input was changed from outside, the widget has to take it
+            bool m_SwallowEnter = false;
+            bool m_ReplaceBuffer = false;
             bool m_CursorToEnd = false;
 
-            // Suggestions
             std::vector<Suggestion> m_Suggestions;
-            std::vector<std::string> m_HistoryMatches;  // in history-search mode
+            std::vector<std::string> m_HistoryMatches;
             int m_Selection = 0;
-            bool m_SelectionExplicit = false;   // the user moved in the menu : Enter picks it instead of running the line
-            bool m_Suppressed = false;          // closed with Escape, until the text changes
-            bool m_HistorySearch = false;       // Ctrl+R
+            bool m_SelectionExplicit = false;
+            bool m_Suppressed = false;
+            bool m_HistorySearch = false;
             int m_WordStart = 0;
             int m_WordEnd = 0;
-            int m_WordIndex = 0;                // which word of the line is being completed
+            int m_WordIndex = 0;
             std::string m_WordText;
             std::string m_LastText;
-            int m_PendingAccept = -1;           // a click on a suggestion, applied at the next frame
-            std::string m_PendingBuffer;        // the new content of the command line when m_ReplaceBuffer is set
-            int m_PopupTop = 0;                 // first suggestion shown
+            int m_PendingAccept = -1;
+            std::string m_PendingBuffer;
+            int m_PopupTop = 0;
             float m_PopupMinX = 0, m_PopupMinY = 0, m_PopupMaxX = 0, m_PopupMaxY = 0;
             bool m_MouseOverPopup = false;
             bool m_WasAtBottom = true;

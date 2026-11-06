@@ -44,7 +44,7 @@ namespace Shard::Engine::Core::Platform {
                 std::unique_ptr<DialogRequest> request(static_cast<DialogRequest*>(userdata));
 
                 std::vector<std::string> paths;
-                // files == NULL : error, *files == NULL : cancelled
+                // files == NULL is an error, *files == NULL is a cancel.
                 for (int i = 0; files && files[i]; ++i)
                     paths.push_back(files[i]);
 
@@ -57,7 +57,7 @@ namespace Shard::Engine::Core::Platform {
                 auto request = std::make_unique<DialogRequest>();
                 request->callback = std::move(callback);
 
-                // SDL keeps pointers to the strings : they live as long as the request.
+                // SDL keeps pointers to these strings for the life of the request.
                 request->filterNames.reserve(desc.filters.size());
                 request->filterPatterns.reserve(desc.filters.size());
                 for (const FileFilter& filter : desc.filters)

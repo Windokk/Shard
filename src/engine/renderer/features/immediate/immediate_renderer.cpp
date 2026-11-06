@@ -25,9 +25,6 @@
 namespace Shard::Engine::Rendering {
 
     namespace {
-        // Mirrors common/cluster.glsl's CLUSTER_Z_SLICES : a 1x1 grid has one cluster per Z slice, and
-        // the studio view always lands in slice 0 (clusterScaleZ = clusterBiasZ = 0), but size the
-        // buffer for all of them so a shader change can't read past its end.
         constexpr uint32_t kClusterZSlices = 24;
         constexpr uint32_t kMaxTargetSize = 4096;
     }
@@ -77,7 +74,6 @@ namespace Shard::Engine::Rendering {
             }
         }
 
-        // Keep the pool bounded : make room by dropping idle targets of other sizes (oldest first).
         while (m_Pool.size() >= kMaxPooledTargets)
         {
             auto idle = std::find_if(m_Pool.begin(), m_Pool.end(), [](const PoolEntry& e) { return !e.inUse; });
@@ -120,9 +116,6 @@ namespace Shard::Engine::Rendering {
         if (m_StudioLights)
             return;
 
-        // Lights are given by where they sit relative to the subject (the direction TOWARD the light),
-        // tuned for FrameBounds()'s fixed 3/4 view : a warm key from above-front-right, a cool fill from
-        // the left, and a rim from behind to separate the silhouette from the background.
         auto makeLight = [](const glm::vec3& toLight, const glm::vec3& color, float intensity)
         {
             LightData light;
@@ -144,7 +137,6 @@ namespace Shard::Engine::Rendering {
         m_StudioLights = StorageBuffer::Create(sizeof(lights));
         m_StudioLights->SetData(lights, sizeof(lights));
 
-        // One uvec2 (offset, count) per cluster, all zero = no lights anywhere.
         std::vector<uint32_t> emptyGrid(kClusterZSlices * 2, 0);
         m_EmptyClusterGrid = StorageBuffer::Create(uint32_t(emptyGrid.size() * sizeof(uint32_t)));
         m_EmptyClusterGrid->SetData(emptyGrid.data(), uint32_t(emptyGrid.size() * sizeof(uint32_t)));
@@ -159,8 +151,6 @@ namespace Shard::Engine::Rendering {
         if (m_NeutralEnvironment)
             return;
 
-        // EnvironmentMap is only buildable from image files, so write six tiny flat faces to a temp folder
-        // (+X, -X, +Y, -Y, +Z, -Z) : brighter sky, darker ground, mid-grey sides.
         const uint8_t faceGrey[6] = {150, 150, 210, 70, 150, 150};
         constexpr uint32_t kFaceSize = 4;
 
@@ -186,7 +176,6 @@ namespace Shard::Engine::Rendering {
         if (!m_NeutralEnvironment)
             DEBUG_ERROR("ImmediateRenderer : failed to build the neutral environment map");
 
-        // Building it renders into framebuffers behind the API's back.
         m_Renderer->GetRendererAPI()->InvalidateStateCache();
 
         std::filesystem::remove_all(dir, ec);
@@ -246,8 +235,6 @@ namespace Shard::Engine::Rendering {
         pass->allowCulling = false;
         pass->drawList = commands;
 
-        // Both modes use the studio view : Unlit ignores the lights, but still must not depend on
-        // (or touch) the world's lighting state.
         EnsureStudioRig();
         if (desc.lighting == ImmediateLighting::Studio)
             EnsureNeutralEnvironment();
@@ -269,7 +256,6 @@ namespace Shard::Engine::Rendering {
             pass->customUniforms["customColor"] = desc.unlitColor;
             pass->customUniforms["masked"] = false;
 
-            // The pass only skips commands with no material - the pipeline override supplies the shader.
             for (auto& command : pass->drawList)
                 if (!command.material)
                     command.material = m_UnlitMaterial;
@@ -285,13 +271,11 @@ namespace Shard::Engine::Rendering {
 
         m_Renderer->RenderImmediate(pass, view);
 
-        // The main frame's clear color is whatever the app last set - hand it back untouched.
         api->SetClearColor(previousClearColor.r, previousClearColor.g, previousClearColor.b, previousClearColor.a);
 
         framebuffer->ResolveMultisampled();
         framebuffer->Unbind();
 
-        // Slots 0/2/3 are global state : hand them back to the scene's buffers.
         m_Renderer->GetLightManager()->GetSSBO()->Bind(0);
         if (auto culling = m_Renderer->GetLightCullingManager())
             culling->BindShadingBuffers();
@@ -331,7 +315,6 @@ namespace Shard::Engine::Rendering {
         if (radius < 0.001f)
             radius = 1.0f;
 
-        // Fit the bounding sphere in the narrower of the two fields of view, with 30% breathing room.
         float halfFov = glm::radians(fovDegrees * 0.5f);
         if (aspect < 1.0f)
             halfFov = atanf(tanf(halfFov) * aspect);

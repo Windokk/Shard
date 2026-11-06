@@ -15,7 +15,6 @@ namespace Shard::Game::Core::Platform{
     {
         SDLWindow::Init(title, width, height, fullscreen, vsync, api);
 
-        // The framebuffers follow the size of the window
         AddEventListener([](const Engine::Core::Platform::OSEvent& event) {
             if(event.type == Engine::Core::Platform::OSEventType::WindowResized && event.width > 0 && event.height > 0)
                 Engine::Core::GetEngine().GetRenderer()->RescaleFramebuffers(event.width, event.height);
@@ -31,8 +30,6 @@ namespace Shard::Game::Core::Platform{
 
     void PlayerWindow::SwapBuffers()
     {
-        // The frame is on its way to the render thread : the blit to the screen and the swap follow it there. The window size
-        // is read here, on the thread that owns the window.
         const int width = GetFramebufferWidth();
         const int height = GetFramebufferHeight();
         Engine::Rendering::RenderThread::Get().Post([this, width, height] {

@@ -37,12 +37,9 @@ namespace Shard::Editor::GUI {
             void SetGizmoOperation(ImGuizmo::OPERATION op) { currentGizmoOp = op; }
             ImGuizmo::OPERATION GetGizmoOperation() const { return currentGizmoOp; }
 
-            /// @brief Moves the editor camera so the selected actor (and its children) fills the view (F)
             void FocusSelected();
-            /// @brief Drops the selected actor straight down onto whatever lies below it (End)
             void SnapSelectedToFloor();
 
-            // Store previous size
             static ImVec2 prev_size;
             
         private:
@@ -56,15 +53,10 @@ namespace Shard::Editor::GUI {
             void ShowViewportVisSettings();
             void ShowRaytraceSettings();
 
-            /// Delete, Ctrl+C / X / V / D / A / G, F2 and Escape on the selection, while the viewport has the focus
             void HandleShortcuts();
-            /// Ctrl or Shift + left button drags a selection rectangle (a click without moving picks). Returns true while it
-            /// uses the mouse (the camera does not look around then).
             bool HandleMarquee(bool canStart);
             void SelectInRect(const ImVec2& a, const ImVec2& b, bool toggle);
-            /// What the click that picked this actor does to the selection (Ctrl toggles it, Shift adds it, else it replaces it)
             void ApplyPick(const std::shared_ptr<Engine::Objects::Actor>& actor);
-            /// The actor under the pixel (relative to the viewport image), null if none
             std::shared_ptr<Engine::Objects::Actor> PickActor(float localX, float localY);
 
 
@@ -74,15 +66,12 @@ namespace Shard::Editor::GUI {
             ImVec2 viewportPos = ImVec2(0,0);
             bool viewportHovered = false;
             bool viewportFocused = false;
-            // Whether the last frame was the game view : the image changes size without the window doing it
             bool gameViewShown = false;
 
-            // Camera
             std::shared_ptr<Engine::Objects::Actor> cameraActor;
 
             std::shared_ptr<Engine::Objects::Components::Camera> camera;
 
-            // Speed, sensitivity and lens : the editor's preferences (EditorPreferences::camera)
             float pitch = 0.0f;
             float yaw = 0.0f;
 
@@ -97,7 +86,6 @@ namespace Shard::Editor::GUI {
             bool showRaytraceSettings = false;
             bool uiHovered = false;
 
-            // Offline raytrace
             Engine::Rendering::Raytracing::RaytraceSettings raytraceSettings;
             char raytraceOutputPath[256] = "render.hdr";
             std::unique_ptr<Engine::Rendering::Raytracing::Raytracer> raytracer;
@@ -105,11 +93,9 @@ namespace Shard::Editor::GUI {
 
             float firstClickTime = 0;
 
-            // Camera focus animation (see FocusSelected)
             bool focusAnimating = false;
             glm::vec3 focusTarget = glm::vec3(0);
 
-            // Gizmos
             ImGuizmo::OPERATION currentGizmoOp = ImGuizmo::TRANSLATE;
             ImGuizmo::MODE currentGizmoMode = ImGuizmo::LOCAL;
 
@@ -117,14 +103,11 @@ namespace Shard::Editor::GUI {
 
             bool isUsingViewGizmo = false;
 
-            // Selection rectangle (screen coordinates)
             bool marqueePending = false;
             bool marqueeActive = false;
             ImVec2 marqueeStart = ImVec2(0, 0);
             ImVec2 marqueeEnd = ImVec2(0, 0);
 
-            // The gizmo drags the primary actor ; with several selected the others follow, each from where it was
-            // when the drag began
             struct GizmoTarget {
                 std::shared_ptr<Engine::Objects::Actor> actor;
                 glm::mat4 startWorld;

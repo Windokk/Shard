@@ -14,8 +14,6 @@
 #include "engine/world/actor.hpp"
 #include "engine/world/engine.hpp"
 
-// What the C ABI asks of the scene that the plugin layer cannot see : the renderer's meshes and the physics bodies of an actor are above it.
-
 namespace Shard::Engine::Plugins::CAbi {
 
     namespace {

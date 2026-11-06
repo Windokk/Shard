@@ -8,17 +8,15 @@
 namespace Shard::Engine::Core::Noise {
 
     namespace {
-        // Quintic fade (Perlin 2002) : zero first AND second derivative at the lattice points, no visible grid
+        // Perlin 2002 quintic fade: zero first and second derivative at lattice points.
         inline float Fade(float t) { return t * t * t * (t * (t * 6.0f - 15.0f) + 10.0f); }
         inline float Lerp(float a, float b, float t) { return a + (b - a) * t; }
 
         inline float Floor(float v) { return std::floor(v); }
 
-        // [-1, 1] from a hash
         inline float HashToSigned(uint32_t h) { return static_cast<float>(h >> 8) * (2.0f / 16777215.0f) - 1.0f; }
         inline float HashToUnit(uint32_t h) { return static_cast<float>(h >> 8) * (1.0f / 16777216.0f); }
 
-        // 2D gradient : one of 8 directions
         inline float Grad2(uint32_t hash, float x, float y) {
             switch (hash & 7u) {
                 case 0: return  x + y;
@@ -32,7 +30,6 @@ namespace Shard::Engine::Core::Noise {
             }
         }
 
-        // 3D gradient : the 12 edge directions of a cube (Perlin's improved noise), 4 entries repeated
         inline float Grad3(uint32_t hash, float x, float y, float z) {
             const uint32_t h = hash & 15u;
             const float u = h < 8 ? x : y;
@@ -75,7 +72,6 @@ namespace Shard::Engine::Core::Noise {
         const float n01 = Grad2(HashInts(ix, iy + 1, 0, seed), dx, dy - 1.0f);
         const float n11 = Grad2(HashInts(ix + 1, iy + 1, 0, seed), dx - 1.0f, dy - 1.0f);
 
-        // The raw range of this gradient set is about [-1, 1] already (axis-aligned and diagonal gradients)
         return std::clamp(Lerp(Lerp(n00, n10, tx), Lerp(n01, n11, tx), ty), -1.0f, 1.0f);
     }
 
@@ -153,7 +149,7 @@ namespace Shard::Engine::Core::Noise {
         float sum = 0.0f, amplitude = 1.0f, frequency = 1.0f, total = 0.0f;
         for (int i = 0; i < params.octaves; ++i) {
             const float n = 1.0f - std::fabs(Perlin(x * frequency, y * frequency, seed + static_cast<uint32_t>(i) * 0x9e3779b9u));
-            sum += amplitude * n * n;                    // squared : sharper ridges
+            sum += amplitude * n * n;
             total += amplitude;
             amplitude *= params.gain;
             frequency *= params.lacunarity;

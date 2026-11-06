@@ -13,21 +13,20 @@
 #include "engine/plugins/abi/c_internal.hpp"
 #include "engine/world/engine.hpp"
 
-// shard.jobs : the engine's job system for a plugin's own work. The jobs of a plugin that have no handle are all part of one group per plugin, the
-// others have a group of their own : disabling the plugin waits for every one of them (the host never calls into a library that is about to go).
+// One job group per plugin for handle-less jobs. Disabling the plugin waits for all of them, since the host must not call into a library about to unload.
 
 namespace Shard::Engine::Plugins::CAbi {
 
     namespace {
         struct JobEntry {
             Core::JobGroup group;
-            std::atomic<bool> released{ false };        // the plugin let go of the handle ; the entry stays until its work is done
+            std::atomic<bool> released{ false };
         };
 
         struct PluginJobs {
             std::mutex mutex;
             std::deque<std::pair<ShardMainFn, void*>> posts;
-            Core::JobGroup all;                         // every job of the plugin that has no handle of its own
+            Core::JobGroup all;
             bool releaseHooked = false;
         };
 
@@ -41,7 +40,7 @@ namespace Shard::Engine::Plugins::CAbi {
             return engine ? engine->GetJobSystem() : nullptr;
         }
 
-        // The thread that waits (the main thread) is 0 ; the pool's threads get 1.. in the order they first run a job of a plugin
+        // Main (waiting) thread is 0, pool threads get 1.. in the order they first run a plugin job
         uint32_t WorkerIndex()
         {
             thread_local uint32_t cached = ~0u;
@@ -74,7 +73,6 @@ namespace Shard::Engine::Plugins::CAbi {
             }
             if (hook) {
                 const PluginOwner owner = PluginOwner(handle);
-                // Waits for the plugin's jobs while its library is still loaded, and drops its pending posts
                 ctx->OnRelease("jobs", [owner, state] {
                     if (Core::JobSystem* js = Jobs()) {
                         js->Wait(state->all);
@@ -93,7 +91,6 @@ namespace Shard::Engine::Plugins::CAbi {
             return state;
         }
 
-        // Handles the plugin let go of whose work ended
         void Prune(PluginOwner owner)
         {
             std::vector<uint64_t> done;
@@ -123,7 +120,7 @@ namespace Shard::Engine::Plugins::CAbi {
                     ActiveScope scope(active, owner);
                     try { fn(user, WorkerIndex()); } catch (...) {}
                 };
-                if (!js) { body(); if (out) *out = 0; return SHARD_OK; }     // no job system (a tool) : run it here, now
+                if (!js) { body(); if (out) *out = 0; return SHARD_OK; }
                 Prune(owner);
                 if (out) {
                     auto entry = std::make_shared<JobEntry>();
@@ -160,7 +157,6 @@ namespace Shard::Engine::Plugins::CAbi {
                     });
                     return SHARD_OK;
                 }
-                // The slices are separate jobs of the handle's group
                 StateOf(ctx);
                 Prune(owner);
                 auto entry = std::make_shared<JobEntry>();
@@ -189,7 +185,7 @@ namespace Shard::Engine::Plugins::CAbi {
 
         int32_t SHARD_CALL IsDone(ShardPluginCtx ctx, ShardJob job)
         {
-            if (!job) return SHARD_TRUE;                // a job that ran inline, or had no work
+            if (!job) return SHARD_TRUE;
             std::shared_ptr<JobEntry> entry = gJobs.Get(PluginOwner(ctx), job);
             return !entry || entry->group.IsDone() ? SHARD_TRUE : SHARD_FALSE;
         }
@@ -212,7 +208,7 @@ namespace Shard::Engine::Plugins::CAbi {
             if (!job) return SHARD_OK;
             std::shared_ptr<JobEntry> entry = gJobs.Get(PluginOwner(ctx), job);
             if (!entry || entry->released.exchange(true)) return SHARD_E_STALE_HANDLE;
-            // Its work may still run and the group must outlive it : the entry stays in the table until it is done (Prune), or the plugin goes
+            // Work may still be running and the group must outlive it, so the entry stays until Prune or the plugin goes
             if (entry->group.IsDone()) gJobs.Remove(PluginOwner(ctx), job);
             return SHARD_OK;
         }
@@ -237,7 +233,7 @@ namespace Shard::Engine::Plugins::CAbi {
             std::lock_guard<std::mutex> lock(gPluginsMutex);
             for (auto& [owner, state] : gPlugins) plugins.emplace_back(owner, state);
         }
-        // In the order the plugins were loaded (their owner ids), so a replay runs the posts in the same order
+        // Sorted by owner id so a replay runs the posts in the same order
         std::sort(plugins.begin(), plugins.end(), [](const auto& a, const auto& b) { return a.first < b.first; });
         for (auto& [owner, state] : plugins) {
             std::deque<std::pair<ShardMainFn, void*>> posts;

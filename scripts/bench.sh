@@ -1,18 +1,6 @@
 #!/bin/bash
-# Benchmark : runs the player (ShardGame) on a world of example_project for some frames and prints how long a frame took, where
-# the time went (CPU categories, GPU time of every pass, render thread), and how much memory the process holds (RAM, video
-# memory, what the engine allocated on the GPU by kind). The numbers are what the player prints as "[BENCH]" lines.
-#
-# Usage : bash scripts/bench.sh [extra player arguments, e.g. +render.thread=0 +texture.compress=0 --view-mode unlit]
-#
-#   SHARD_BENCH_WORLD    the world to load (default sponza.world)
-#   SHARD_BENCH_FRAMES   frames to render, the first 120 are left out of the figures (default 900)
-#   SHARD_BENCH_VSYNC    1 keeps the vertical sync on (default : off, to measure the engine and not the monitor)
-#   SHARD_BENCH_MIN_FPS  when set, the script fails if the average frame rate is lower (a regression guard)
-#   SHARD_BENCH_MAX_VRAM_MB  when set, the script fails if the process holds more video memory than that
-#
-# The build/ folder is a Debug build unless it was configured with -DCMAKE_BUILD_TYPE=Release (build.bat Release) : the CPU
-# figures of a Debug build are several times worse than the engine's, only the GPU ones are comparable.
+# Usage: bash scripts/bench.sh [player args]. Env: SHARD_BENCH_WORLD, _FRAMES, _VSYNC, _MIN_FPS, _MAX_VRAM_MB.
+# Debug builds give CPU figures several times worse, only the GPU ones compare.
 set -uo pipefail
 
 root="$(cd "$(dirname "$0")/.." && pwd)"
@@ -34,7 +22,7 @@ if [ ! -x "$player" ] || [ ! -f "$module" ]; then
     exit 1
 fi
 
-vsync=(--vsync)       # --vsync switches the vertical sync OFF
+vsync=(--vsync)
 [ "${SHARD_BENCH_VSYNC:-0}" = "1" ] && vsync=()
 
 log="$(mktemp)"

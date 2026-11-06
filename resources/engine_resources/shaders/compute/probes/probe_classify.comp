@@ -1,42 +1,21 @@
 #version 430 core
 
-// Classification stage of the real-time GI probe update (see ProbeManager/probe_trace.comp), dispatched
-// once per frame right after the trace pass. One invocation per UPDATED PROBE (not per ray, unlike most
-// other stages here): scans that probe's own tile of this frame's raw ray hits and marks it inactive if most of
-// its rays hit backfaces - RTXGI calls this "Probe Classification". A high backface ratio almost always
-// means the probe is embedded in solid geometry (most commonly a uniform grid landing inside a
-// protruding piece of geometry - a wall relief, a statue, a pillar - that the grid has no awareness of),
-// and such a probe otherwise bakes biased, self-lit radiance that leaks into whatever surface it's stuck
-// inside via the trilinear blend, no matter how many rays/bounces are thrown at it (it's a placement
-// problem, not a sampling one).
-//
-// Consumed as a hard 0/1 weight by DDGI_Diffuse in lit.frag and SampleIndirect in probe_trace.comp -
-// an inactive probe contributes nothing, the same as a fully-occluded one.
-//
-// The active flag is the .w of the shared per-probe state buffer (probeState); .xyz is the relocation
-// offset owned by probe_relocate.comp, which runs right after this pass on the same buffer. This
-// dispatch only touches .w.
-
 layout(local_size_x = 64, local_size_y = 1, local_size_z = 1) in;
 
 layout(rgba16f, binding = 0) uniform readonly image2D uRayAtlas;
 
-// Binding 14 - see the comment on m_ProbeStateBuffer in probe_manager.hpp for why here specifically.
-// Not writeonly : this pass writes only .w and must leave probe_relocate.comp's .xyz untouched.
+// Binding 14, not writeonly: this pass writes only .w and must leave .xyz (probe_relocate.comp) alone.
 layout(std430, binding = 14) buffer ProbeState { vec4 probeState[]; };
 
 uniform int uProbeCount;
 uniform int uTileSize;
 uniform int uAtlasProbesPerRow;
 
-// Round-robin probe update - see the identical uniforms in probe_trace.comp. Only probes whose rays
-// were actually re-traced this frame are re-classified; the rest keep the flag they were last given.
 uniform int uUpdateStride;
 uniform int uUpdatePhase;
 
 #include "../../common/ddgi_atlas.glsl"
 
-// A probe with more than this fraction of its rays hitting backfaces is considered embedded in geometry.
 const float BACKFACE_RATIO_THRESHOLD = 0.5;
 
 void main()
@@ -54,9 +33,6 @@ void main()
     {
         for (int x = 0; x < uTileSize; x++)
         {
-            // Alpha channel doubles as a backface flag here - see probe_trace.comp's TraceAndShadeDirect
-            // (0.0 = ray hit a backface, 1.0 = frontface hit or sky miss - both are legitimate, "this
-            // probe can see open/valid surface here" outcomes).
             float valid = imageLoad(uRayAtlas, tileOrigin + ivec2(x, y)).a;
             if (valid < 0.5)
                 backfaceCount++;

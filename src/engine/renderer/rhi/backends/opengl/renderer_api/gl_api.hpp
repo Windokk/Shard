@@ -61,21 +61,17 @@ namespace Shard::Engine::Rendering{
             ComputeLimits m_ComputeLimits;
             bool m_ComputeLimitsQueried = false;
 
-            // What the previous ExecuteDrawCommand left bound. A mesh split into spatial chunks issues many
-            // consecutive draws with the same pass, pipeline and material; for those only the per-object
-            // uniforms can differ, so the (string-keyed, hence slow) material / scene / pass uniform uploads
-            // are skipped. Forgotten whenever the GL state cache is (a pass start, a view-mode sweep).
+            // State of the previous draw. Chunked meshes issue many draws with the same pass, pipeline and material, so the slow string-keyed uniform uploads are skipped. Forgotten with the GL state cache.
             struct LastDraw {
                 const RenderPass* pass = nullptr;
                 const Pipeline* pipeline = nullptr;
-                const Material* material = nullptr; // null for a pass that overrides the pipeline
+                const Material* material = nullptr;
                 glm::mat4 modelMatrix = glm::mat4(1.0f);
                 uint32_t objectID = 0;
                 uint64_t lightmapHandle = 0;
                 glm::vec4 lightmapScaleOffset = glm::vec4(1.0f, 1.0f, 0.0f, 0.0f);
             } m_LastDraw;
 
-            // The baked lighting of the draw (the lightmap page it reads and where on it) : per object, like the model matrix
             void BindLightmap(const DrawCommand& command, const std::shared_ptr<Shader>& shader);
 
             void BindMesh(std::shared_ptr<Mesh> mesh);
@@ -96,10 +92,9 @@ namespace Shard::Engine::Rendering{
                 
             void DrawFullScreenTriangle();
 
-            // The depth only draw of a command in the Prepass sweep : no material, no scene state, just the geometry
             void ExecuteDepthOnlyDraw(const DrawCommand& command);
 
             DepthSweep m_Sweep = DepthSweep::None;
-            std::vector<std::shared_ptr<Shader>> m_PrepassShaders;     // the shaders told `depthPrepass = true`, put back after the sweep
+            std::vector<std::shared_ptr<Shader>> m_PrepassShaders;
     };
 }

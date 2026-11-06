@@ -1,8 +1,6 @@
 #version 430 core
 
-// Level 0 of the Hi-Z pyramid (see OcclusionCullingManager) from a MULTISAMPLED depth texture : the farthest of the
-// pixel's samples. Taking the farthest (not the average, not sample 0) is what keeps the occlusion test
-// conservative - a pixel whose samples straddle a silhouette edge only counts as covered up to its farthest sample.
+// Take the farthest sample, not the average, so the occlusion test stays conservative at silhouette edges.
 
 layout(local_size_x = 8, local_size_y = 8) in;
 

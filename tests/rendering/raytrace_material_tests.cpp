@@ -42,14 +42,14 @@ namespace {
 
 }
 
-TEST(RaytraceMaterial, StrideIsMultipleOfStd430ArrayAlignment)
+TEST(RaytraceMaterial, StrideMatchesStd430)
 {
     EXPECT_EQ(sizeof(GPUMaterial) % 16, 0u);
 }
 
-TEST(RaytraceMaterial, FlagsSitWhereTheShaderReadsThem)
+TEST(RaytraceMaterial, FlagsMatchShader)
 {
-    // raytracing_types.glsl : uvec2 emissiveTex at 80, then uint flags at 88 - the material's last 8 bytes before its stride
+    // raytracing_types.glsl: uvec2 emissiveTex at 80, uint flags at 88, the last 8 bytes before the stride.
     EXPECT_EQ(offsetof(GPUMaterial, flags), 88u);
     EXPECT_EQ(sizeof(GPUMaterial), 96u);
 }
@@ -57,7 +57,7 @@ TEST(RaytraceMaterial, FlagsSitWhereTheShaderReadsThem)
 TEST(RaytraceMaterial, DoubleSidedMaterialIsFlagged)
 {
     auto single = std::make_shared<FakeMaterial>();
-    EXPECT_EQ(ExtractMaterial(single).flags & GPUMaterialDoubleSided, 0u);   // the rays go through its back faces, as the raster culls them
+    EXPECT_EQ(ExtractMaterial(single).flags & GPUMaterialDoubleSided, 0u);
 
     auto both = std::make_shared<FakeMaterial>();
     both->SetDoubleSided(true);
@@ -74,7 +74,7 @@ TEST(RaytraceMaterial, NullMaterialGivesDefaults)
     EXPECT_EQ(gm.emissiveTex, glm::uvec2(0));
 }
 
-TEST(RaytraceMaterial, EmissiveScalarVec3IsCopiedWithoutAnyTextureFlag)
+TEST(RaytraceMaterial, EmissiveScalarCopiedNoFlag)
 {
     auto mat = std::make_shared<FakeMaterial>();
     mat->SetScalarParameter("emissive", glm::vec3(2.0f, 0.5f, 0.0f));
@@ -86,7 +86,7 @@ TEST(RaytraceMaterial, EmissiveScalarVec3IsCopiedWithoutAnyTextureFlag)
     EXPECT_EQ(gm.emissiveTex, glm::uvec2(0));
 }
 
-TEST(RaytraceMaterial, EmissiveMapSetsBitAndPacksHandle)
+TEST(RaytraceMaterial, EmissiveMapSetsBit)
 {
     auto mat = std::make_shared<FakeMaterial>();
     mat->SetTextureParameter("emissiveMap", 0xAABBCCDD11223344ull);
@@ -94,11 +94,11 @@ TEST(RaytraceMaterial, EmissiveMapSetsBitAndPacksHandle)
     GPUMaterial gm = ExtractMaterial(mat);
 
     EXPECT_NE(gm.textureFlags & GPUMaterialTexEmissive, 0u);
-    EXPECT_EQ(gm.emissiveTex.x, 0x11223344u); // low 32 bits first, matching sampler2D(uvec2) on the GPU
+    EXPECT_EQ(gm.emissiveTex.x, 0x11223344u); // low 32 bits first, matches sampler2D(uvec2) on the GPU
     EXPECT_EQ(gm.emissiveTex.y, 0xAABBCCDDu);
 }
 
-TEST(RaytraceMaterial, EmissiveMapWithoutFactorStaysDark)
+TEST(RaytraceMaterial, EmissiveMapNoFactorDark)
 {
     auto mat = std::make_shared<FakeMaterial>();
     mat->SetTextureParameter("emissiveMap", 42);
@@ -108,7 +108,7 @@ TEST(RaytraceMaterial, EmissiveMapWithoutFactorStaysDark)
     EXPECT_EQ(glm::vec3(gm.emissive), glm::vec3(0.0f));
 }
 
-TEST(RaytraceMaterial, EmissiveBitIsIndependentOfTheOtherTextureSlots)
+TEST(RaytraceMaterial, EmissiveBitIndependent)
 {
     auto mat = std::make_shared<FakeMaterial>();
     mat->SetTextureParameter("albedo", 1);
@@ -125,6 +125,5 @@ TEST(RaytraceMaterial, EmissiveBitIsIndependentOfTheOtherTextureSlots)
     GPUMaterial withEmissive = ExtractMaterial(mat);
     EXPECT_EQ(withEmissive.textureFlags, withoutEmissive.textureFlags | GPUMaterialTexEmissive);
     EXPECT_EQ(withEmissive.emissiveTex, glm::uvec2(5, 0));
-    // The other slots' handles must not have been disturbed by the new field.
     EXPECT_EQ(withEmissive.normalTex, glm::uvec2(4, 0));
 }

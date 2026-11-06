@@ -18,32 +18,22 @@ namespace Shard::Editor::GUI{
 
     struct ExampleSelectionWithDeletion : ImGuiSelectionBasicStorage
     {
-        // Find which item should be Focused after deletion.
-        // Call _before_ item submission. Return an index in the before-deletion item list, your item loop should call SetKeyboardFocusHere() on it.
-        // The subsequent ApplyDeletionPostLoop() code will use it to apply Selection.
-        // - We cannot provide this logic in core Dear ImGui because we don't have access to selection data.
-        // - We don't actually manipulate the ImVector<> here, only in ApplyDeletionPostLoop(), but using similar API for consistency and flexibility.
-        // - Important: Deletion only works if the underlying ImGuiID for your items are stable: aka not depend on their index, but on e.g. item id/ptr.
-        // FIXME-MULTISELECT: Doesn't take account of the possibility focus target will be moved during deletion. Need refocus or scroll offset.
         int ApplyDeletionPreLoop(ImGuiMultiSelectIO* ms_io, int items_count)
         {
             if (Size == 0)
                 return -1;
 
-            // If focused item is not selected...
-            const int focused_idx = (int)ms_io->NavIdItem;  // Index of currently focused item
-            if (ms_io->NavIdSelected == false)  // This is merely a shortcut, == Contains(adapter->IndexToStorage(items, focused_idx))
+            const int focused_idx = (int)ms_io->NavIdItem;
+            if (ms_io->NavIdSelected == false)
             {
-                ms_io->RangeSrcReset = true;    // Request to recover RangeSrc from NavId next frame. Would be ok to reset even when NavIdSelected==true, but it would take an extra frame to recover RangeSrc when deleting a selected item.
-                return focused_idx;             // Request to focus same item after deletion.
+                ms_io->RangeSrcReset = true;
+                return focused_idx;
             }
 
-            // If focused item is selected: land on first unselected item after focused item.
             for (int idx = focused_idx + 1; idx < items_count; idx++)
                 if (!Contains(GetStorageIdFromIndex(idx)))
                     return idx;
 
-            // If focused item is selected: otherwise return last unselected item before focused item.
             for (int idx = IM_MIN(focused_idx, items_count) - 1; idx >= 0; idx--)
                 if (!Contains(GetStorageIdFromIndex(idx)))
                     return idx;
@@ -51,14 +41,9 @@ namespace Shard::Editor::GUI{
             return -1;
         }
 
-        // Rewrite item list (delete items) + update selection.
-        // - Call after EndMultiSelect()
-        // - We cannot provide this logic in core Dear ImGui because we don't have access to your items, nor to selection data.
         template<typename ITEM_TYPE>
         void ApplyDeletionPostLoop(ImGuiMultiSelectIO* ms_io, ImVector<ITEM_TYPE>& items, int item_curr_idx_to_select)
         {
-            // Rewrite item list (delete items) + convert old selection index (before deletion) to new selection index (after selection).
-            // If NavId was not part of selection, we will stay on same item.
             ImVector<ITEM_TYPE> new_items;
             new_items.reserve(items.Size - Size);
             int item_next_idx_to_select = -1;
@@ -71,7 +56,6 @@ namespace Shard::Editor::GUI{
             }
             items.swap(new_items);
 
-            // Update selection
             Clear();
             if (item_next_idx_to_select != -1 && ms_io->NavIdSelected)
                 SetItemSelected(GetStorageIdFromIndex(item_next_idx_to_select), true);
@@ -88,14 +72,12 @@ namespace Shard::Editor::GUI{
         std::string nameInProject;
         int size = 0;
 
-        // Cached at listing time (sorting, searching and drawing all use them every frame)
         std::string filename;
         std::string lowerName;
-        // The label wrapped into two lines for `wrapWidth`
         std::string line1, line2;
         float wrapWidth = -1.0f;
 
-        const AtlasRegion* icon;  // cached pointer
+        const AtlasRegion* icon;
 
         Asset(ImGuiID id, const Engine::Filesystem::Path& path, const Engine::Filesystem::Type type, bool isDir, const AtlasRegion* icon, const std::string& nameInProject = "", int size = 0)
         {
@@ -173,9 +155,7 @@ namespace Shard::Editor::GUI{
             void NavigateTo(const std::string& path);
             void SetParentWindow(Core::EditorMainWindow* parent);
 
-            /// The one non-folder asset selected in the browser (empty when none or several are), as its nameInProject
             std::string GetSelectedAssetName() const;
-            /// Opens the folder holding the asset, selects it and scrolls to it ("Browse to asset")
             void RevealAsset(const std::string& nameInProject);
 
         private:
@@ -205,15 +185,12 @@ namespace Shard::Editor::GUI{
             void UpdateLayoutSizes(float avail_width);
             void RequestOpenWorld(const Engine::Filesystem::Path &path);
 
-            // Context menu / shortcuts only *request* an action (pendingAction); it runs once per frame
-            // after the item loop (ProcessAction), since most of them rebuild `items`.
+            // Menu and shortcuts only request an action, it runs after the item loop (ProcessAction) since most rebuild `items`.
             enum class Action { None, Open, Cut, Copy, Paste, Duplicate, Rename, Delete, Refresh, NewFolder, NewMaterial, NewWorld, Reveal, CopyPath, RefreshThumbnail, ShowInFolder, Import };
 
             void DrawContextMenu();
             void ProcessAction();
-            /// Opens the OS file dialog ; what it picks is imported into the current folder (see ProcessImports)
             void OpenImportDialog();
-            /// Imports what the file dialog picked since the last frame
             void ProcessImports();
             void DrawDialogs();
             void OpenItem(const Asset& item);
@@ -231,22 +208,21 @@ namespace Shard::Editor::GUI{
             float thumbnailSize = 80.f;
 
             Action pendingAction = Action::None;
-            ImGuiID contextTargetId = 0;                    // item that was right-clicked (0 = empty space)
-            Engine::Filesystem::Path pasteTargetDir;        // folder to paste into (empty = the current folder)
+            ImGuiID contextTargetId = 0;
+            Engine::Filesystem::Path pasteTargetDir;
 
             std::vector<Engine::Filesystem::Path> clipboard;
             bool clipboardCut = false;
 
-            // Import : the file dialog answers from a thread of its own, so what it picked waits here for the next frame. Shared with the
-            // dialog's callback, which may outlive the browser.
+            // The file dialog answers from its own thread. Shared with its callback, which may outlive the browser.
             struct ImportRequest {
-                Engine::Filesystem::Path destination;       // the folder that was open when the dialog was
+                Engine::Filesystem::Path destination;
                 std::vector<std::string> sources;
             };
             struct ImportQueue {
                 std::mutex mutex;
                 std::vector<ImportRequest> requests;
-                std::string lastFolder;                     // where the dialog opens the next time
+                std::string lastFolder;
                 std::atomic<bool> dialogOpen{false};
             };
             std::shared_ptr<ImportQueue> importQueue = std::make_shared<ImportQueue>();
@@ -255,50 +231,42 @@ namespace Shard::Editor::GUI{
             char renameBuffer[256]{};
             bool openRenamePopup = false;
 
-            // Navigation history (back / forward), the current folder is history[historyIndex]
             std::vector<std::string> history;
             int historyIndex = -1;
             bool navigatingHistory = false;
 
-            // Search box : only the items whose name contains it are listed
             char searchBuffer[128]{};
             bool focusSearch = false;
 
-            // RevealAsset : once the listing has been rebuilt, the item at this path gets selected and scrolled to
             std::string pendingRevealPath;
             int pendingScrollItem = -1;
 
-            int visibleItemCount = 0;   // the items of the folder, before the search
-            // View
+            int visibleItemCount = 0;
             SortKey sortKey = SortKey::Name;
             bool sortAscending = true;
             bool listView = false;
             bool showSidebar = true;
             float sidebarWidth = 200.0f;
 
-            // Filters
-            bool typeHidden[14]{};          // by Filesystem::Type
+            bool typeHidden[14]{};
             bool showFolders = true;
-            bool searchSubfolders = true;   // a search looks into the sub folders too
+            bool searchSubfolders = true;
 
-            // Folder tree of the sidebar
             FolderNode folderTree;
             bool treeDirty = true;
-            bool treeRevealCurrent = false; // open the ancestors of the current folder in the tree
-            bool navigationOnly = false;    // the next listing is only a folder change / search : the folder structure did not change
+            bool treeRevealCurrent = false;
+            bool navigationOnly = false;
 
-            std::vector<Asset> items;               // Our items
-            ExampleSelectionWithDeletion selection;     // Our selection (ImGuiSelectionBasicStorage + helper funcs to handle deletion)
-            ImGuiID         nextItemId = 0;             // Unique identifier when creating new items
-            bool            requestSort = false;        // Deferred sort request
-            float           zoomWheelAccum = 0.0f;      // Mouse wheel accumulator to handle smooth wheels better
+            std::vector<Asset> items;
+            ExampleSelectionWithDeletion selection;
+            ImGuiID         nextItemId = 0;
+            bool            requestSort = false;
+            float           zoomWheelAccum = 0.0f;
 
             bool dirty = true;
-            // Assets whose content changed on disk (HotReloader) : their thumbnails are redrawn. Shared with the listener, which
-            // outlives nothing but the engine.
             std::shared_ptr<std::vector<std::string>> staleThumbnails = std::make_shared<std::vector<std::string>>();
             bool hotReloadListening = false;
-            uint64_t hotReloadRevision = 0;      // the asset set the listing was made from (see HotReloader::GetRevision)
+            uint64_t hotReloadRevision = 0;
 
             std::vector<Engine::Filesystem::Type> allowedTypes = {
                 Engine::Filesystem::Type::T_IMAGE,
@@ -320,15 +288,15 @@ namespace Shard::Editor::GUI{
             bool            AllowSorting = true;
             bool            AllowDragUnselected = false;
             bool            AllowBoxSelect = true;
-            ImVec2 ItemSize        = ImVec2(90.0f, 138.0f);  // Full clickable/selectable area
-            ImVec2 ThumbnailSize   = ImVec2(80.0f, 80.0f);    // Actual image size
-            ImVec2 Spacing         = ImVec2(20.0f, 20.0f);    // Horizontal / Vertical spacing
+            ImVec2 ItemSize        = ImVec2(90.0f, 138.0f);
+            ImVec2 ThumbnailSize   = ImVec2(80.0f, 80.0f);
+            ImVec2 Spacing         = ImVec2(20.0f, 20.0f);
             float IconHitSpacing   = 6;
-            float IconTopPadding   = 8.0f;    // Fixed gap between the tile top and the thumbnail
+            float IconTopPadding   = 8.0f;
             bool            StretchSpacing = true;
 
             ImVec2          LayoutItemSize;
-            ImVec2          LayoutItemStep;             // == LayoutItemSize + LayoutItemSpacing
+            ImVec2          LayoutItemStep;
             float           LayoutItemSpacing = 0.0f;
             float           LayoutSelectableSpacing = 0.0f;
             float           LayoutOuterPadding = 0.0f;

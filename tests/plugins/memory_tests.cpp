@@ -14,7 +14,6 @@ using PluginTest::TempDir;
 using nlohmann::json;
 
 namespace {
-    // A host that counts what goes through its allocator
     struct CountingHost {
         std::atomic<int> live{ 0 };
         std::atomic<size_t> bytes{ 0 };
@@ -28,7 +27,7 @@ namespace {
     };
 }
 
-TEST(PluginMemory, CountsWhatIsAllocatedAndFreed)
+TEST(PluginMemory, CountsAllocAndFree)
 {
     CountingHost host;
     PluginMemory memory(host.Bindings(), 0, false);
@@ -41,7 +40,7 @@ TEST(PluginMemory, CountsWhatIsAllocatedAndFreed)
     EXPECT_EQ(memory.Used(), 1100u);
     EXPECT_EQ(memory.Allocations(), 2u);
     EXPECT_EQ(host.live.load(), 2);
-    std::memset(a, 0xAB, 100);          // the whole block is ours
+    std::memset(a, 0xAB, 100);
     std::memset(b, 0xCD, 1000);
     memory.Free(a);
     EXPECT_EQ(memory.Used(), 1000u);
@@ -49,17 +48,17 @@ TEST(PluginMemory, CountsWhatIsAllocatedAndFreed)
     memory.Free(b);
     EXPECT_EQ(memory.Used(), 0u);
     EXPECT_EQ(host.live.load(), 0);
-    memory.Free(nullptr);          // harmless
-    EXPECT_EQ(memory.Allocate(8, 3), nullptr);          // not a power of two
+    memory.Free(nullptr);
+    EXPECT_EQ(memory.Allocate(8, 3), nullptr);
 }
 
-TEST(PluginMemory, ABudgetIsAWarningUnlessEnforced)
+TEST(PluginMemory, BudgetWarnsUnlessEnforced)
 {
     CountingHost host;
     PluginMemory soft(host.Bindings(), 1000, false);
     void* a = soft.Allocate(800);
     void* b = soft.Allocate(800);
-    EXPECT_NE(b, nullptr);                  // over, and allowed
+    EXPECT_NE(b, nullptr);
     EXPECT_TRUE(soft.WentOver());
     EXPECT_EQ(soft.Failures(), 0u);
     soft.Free(a); soft.Free(b);
@@ -70,12 +69,12 @@ TEST(PluginMemory, ABudgetIsAWarningUnlessEnforced)
     EXPECT_EQ(hard.Allocate(800), nullptr);
     EXPECT_EQ(hard.Failures(), 1u);
     EXPECT_EQ(hard.Used(), 800u);
-    EXPECT_NE(hard.Allocate(100), nullptr);          // what fits still fits
+    EXPECT_NE(hard.Allocate(100), nullptr);
     hard.Free(c);
-    EXPECT_NE(hard.Allocate(900), nullptr);          // room again
+    EXPECT_NE(hard.Allocate(900), nullptr);
 }
 
-TEST(PluginMemory, NewAndDeleteRunConstructorsAndDestructors)
+TEST(PluginMemory, NewDeleteRunConstructors)
 {
     CountingHost host;
     PluginMemory memory(host.Bindings(), 0, false);
@@ -123,7 +122,7 @@ TEST(PluginMemory, IsSafeFromSeveralThreads)
     EXPECT_EQ(memory.Allocations(), 8000u);
 }
 
-TEST(PluginMemory, TheBudgetComesFromTheManifestAndShowsInTheReports)
+TEST(PluginMemory, BudgetFromManifestInReports)
 {
     PluginManager& pm = PluginManager::Get();
     pm.ResetForTests();
@@ -150,13 +149,13 @@ TEST(PluginMemory, TheBudgetComesFromTheManifestAndShowsInTheReports)
     ASSERT_NE(r, nullptr);
     auto* hog = static_cast<Hog*>(r->instance);
     EXPECT_NE(hog->block, nullptr);
-    EXPECT_EQ(hog->refused, nullptr);                              // 3 + 3 MB passes the enforced 4 MB
+    EXPECT_EQ(hog->refused, nullptr);
     EXPECT_EQ(r->context->Memory().Failures(), 1u);
     pm.OnEngineSystemsReady(nullptr, nullptr, nullptr);
     pm.OnEngineInitialized();
     pm.UpdateBudgets();
     EXPECT_NEAR(r->memoryMB, 3.0, 0.01);
-    EXPECT_TRUE(r->overMemoryBudget);                              // it went over once, even if refused
+    EXPECT_TRUE(r->overMemoryBudget);
     EXPECT_NE(pm.DescribePlugin("hog").find("counted memory"), std::string::npos);
     pm.OnEngineDestroying();
     pm.ResetForTests();

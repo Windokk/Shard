@@ -20,7 +20,7 @@ TEST(EventDispatcher, GlobalSubscriberReceivesEmittedEvent) {
     EXPECT_EQ(receivedKey, 42);
 }
 
-TEST(EventDispatcher, GlobalSubscriberIgnoresUnrelatedEventType) {
+TEST(EventDispatcher, GlobalIgnoresUnrelatedType) {
     EventDispatcher dispatcher;
     bool called = false;
 
@@ -33,7 +33,7 @@ TEST(EventDispatcher, GlobalSubscriberIgnoresUnrelatedEventType) {
     EXPECT_FALSE(called);
 }
 
-TEST(EventDispatcher, MultipleGlobalSubscribersAllReceiveEvent) {
+TEST(EventDispatcher, AllGlobalSubscribersReceive) {
     EventDispatcher dispatcher;
     int callCount = 0;
 
@@ -45,7 +45,7 @@ TEST(EventDispatcher, MultipleGlobalSubscribersAllReceiveEvent) {
     EXPECT_EQ(callCount, 2);
 }
 
-TEST(EventDispatcher, WorldScopedEventOnlyReachesMatchingWorld) {
+TEST(EventDispatcher, WorldScopedMatchesOnly) {
     EventDispatcher dispatcher;
     bool world1Called = false;
     bool world2Called = false;
@@ -59,13 +59,13 @@ TEST(EventDispatcher, WorldScopedEventOnlyReachesMatchingWorld) {
     EXPECT_FALSE(world2Called);
 }
 
-TEST(EventDispatcher, EmitToWorldWithNoSubscribersDoesNotThrow) {
+TEST(EventDispatcher, EmitToEmptyWorldNoThrow) {
     EventDispatcher dispatcher;
 
     EXPECT_NO_THROW(dispatcher.emitToWorld(99, KeyPressedEvent(1, false, ObjectID(1))));
 }
 
-TEST(EventDispatcher, ActorScopedEventOnlyReachesMatchingActor) {
+TEST(EventDispatcher, ActorScopedMatchesOnly) {
     EventDispatcher dispatcher;
     ObjectID actorA(1);
     ObjectID actorB(2);
@@ -81,7 +81,7 @@ TEST(EventDispatcher, ActorScopedEventOnlyReachesMatchingActor) {
     EXPECT_FALSE(bCalled);
 }
 
-TEST(EventDispatcher, ComponentScopedEventOnlyReachesMatchingComponent) {
+TEST(EventDispatcher, ComponentScopedMatchesOnly) {
     EventDispatcher dispatcher;
     bool called = false;
 
@@ -94,16 +94,14 @@ TEST(EventDispatcher, ComponentScopedEventOnlyReachesMatchingComponent) {
     EXPECT_TRUE(called);
 }
 
-// ---- Named events and their layouts ----
-
-TEST(EventDispatcher, ANamedEventLayoutBelongsToWhoDescribedIt) {
+TEST(EventDispatcher, EventLayoutOwnedByDescriber) {
     EventDispatcher dispatcher;
     NamedEventLayout layout;
     layout.size = 8;
     layout.fields = { { "hits", NamedEventLayout::FieldType::I32, 0 }, { "alive", NamedEventLayout::FieldType::Bool, 4 } };
     EXPECT_TRUE(dispatcher.describeNamed("game.Hit", layout, 7));
-    EXPECT_TRUE(dispatcher.describeNamed("game.Hit", layout, 7));        // its owner may describe it again
-    EXPECT_FALSE(dispatcher.describeNamed("game.Hit", layout, 8));       // not somebody else
+    EXPECT_TRUE(dispatcher.describeNamed("game.Hit", layout, 7));
+    EXPECT_FALSE(dispatcher.describeNamed("game.Hit", layout, 8));
     ASSERT_NE(dispatcher.namedLayout("game.Hit"), nullptr);
     EXPECT_EQ(dispatcher.describedNames(), std::vector<std::string>{ "game.Hit" });
 
@@ -111,7 +109,7 @@ TEST(EventDispatcher, ANamedEventLayoutBelongsToWhoDescribedIt) {
     EXPECT_EQ(dispatcher.namedLayout("game.Hit"), nullptr);
 }
 
-TEST(EventDispatcher, ANamedEventIsFormattedFromItsLayout) {
+TEST(EventDispatcher, NamedEventFormattedFromLayout) {
     NamedEventLayout layout;
     layout.size = 20;
     layout.fields = { { "hits", NamedEventLayout::FieldType::I32, 0 }, { "where", NamedEventLayout::FieldType::Vec3, 4 }, { "alive", NamedEventLayout::FieldType::Bool, 16 } };
@@ -122,5 +120,5 @@ TEST(EventDispatcher, ANamedEventIsFormattedFromItsLayout) {
     std::memcpy(payload + 4, where, 12);
     payload[16] = 1;
     EXPECT_EQ(FormatNamedEvent(layout, payload, sizeof(payload)), "{ hits: 3, where: (1, 2.5, -1), alive: true }");
-    EXPECT_EQ(FormatNamedEvent(layout, payload, 6), "(6 bytes)");      // not the size it was described with
+    EXPECT_EQ(FormatNamedEvent(layout, payload, 6), "(6 bytes)");
 }

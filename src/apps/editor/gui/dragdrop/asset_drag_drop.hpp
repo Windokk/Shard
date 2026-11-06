@@ -13,20 +13,14 @@ namespace Shard::Editor::GUI::DragDrop{
     inline constexpr int kMaxAssetDragItems = 32;
     inline constexpr int kMaxAssetPathLen = 256;
 
-    // Fixed-size POD payload (ImGui just memcpy's whatever's handed to SetDragDropPayload) carrying
-    // each dragged asset's nameInProject : the same key ResourcesManager/AssetIDManager already index
-    // everything by (see Asset::nameInProject in asset_browser.hpp), so a receiver can feed it straight
-    // into GetTexture/GetMesh/GetIDFromNameInProject without rederiving anything from a raw filesystem path.
     struct AssetDragPayload{
         int count = 0;
         char nameInProject[kMaxAssetDragItems][kMaxAssetPathLen];
     };
 
-    // Call from inside an existing ImGui::BeginDragDropSource()/EndDragDropSource() block.
     inline void SetAssetDragDropPayload(const std::vector<std::string>& namesInProject)
     {
-        // static: ImGui re-reads the payload's bytes every frame the drag is held, well after this
-        // function returns, so the buffer backing it can't be a stack temporary.
+        // static: ImGui reads the payload bytes every frame the drag is held, long after this returns.
         static AssetDragPayload payload;
 
         payload.count = std::min((int)namesInProject.size(), kMaxAssetDragItems);
@@ -39,8 +33,6 @@ namespace Shard::Editor::GUI::DragDrop{
         ImGui::SetDragDropPayload(kAssetPayloadType, &payload, sizeof(AssetDragPayload));
     }
 
-    // Call from inside `if (ImGui::BeginDragDropTarget())`. Returns the dropped asset name(s) (empty
-    // if nothing of this payload type was released here this frame).
     inline std::vector<std::string> AcceptAssetDragDropPayload(ImGuiDragDropFlags flags = 0)
     {
         std::vector<std::string> result;
@@ -55,8 +47,6 @@ namespace Shard::Editor::GUI::DragDrop{
         return result;
     }
 
-    // Peek at an in-flight asset drag without accepting it - lets a source/target preview what's
-    // being dragged (e.g. showing "3 assets" under the cursor, or highlighting a compatible target).
     inline std::vector<std::string> PeekAssetDragDropPayload()
     {
         std::vector<std::string> result;

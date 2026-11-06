@@ -47,7 +47,7 @@ void main()
     }
 }
 
-TEST(ShaderCompiler, CompilesAGlProgramForVulkan)
+TEST(ShaderCompiler, CompilesGlForVulkan)
 {
     Result result = Compile(kVertex, kFragment);
     ASSERT_TRUE(result.ok) << result.log;
@@ -57,12 +57,11 @@ TEST(ShaderCompiler, CompilesAGlProgramForVulkan)
     EXPECT_FALSE(result.binary.HasStage(ShaderStageKind::Geometry));
     EXPECT_FALSE(result.binary.IsCompute());
 
-    // SPIR-V starts with its magic number
     EXPECT_EQ(result.binary.Stage(ShaderStageKind::Vertex)[0], 0x07230203u);
     EXPECT_EQ(result.binary.Stage(ShaderStageKind::Fragment)[0], 0x07230203u);
 }
 
-TEST(ShaderCompiler, TheLooseUniformsOfAllTheStagesShareOneBlock)
+TEST(ShaderCompiler, LooseUniformsShareBlock)
 {
     Result result = Compile(kVertex, kFragment);
     ASSERT_TRUE(result.ok) << result.log;
@@ -70,7 +69,6 @@ TEST(ShaderCompiler, TheLooseUniformsOfAllTheStagesShareOneBlock)
     const ShaderReflection& reflection = result.binary.reflection;
     EXPECT_GT(reflection.uniformBlockSize, 0u);
 
-    // Every uniform of the vertex stage and of the fragment stage is in the one block, at one offset
     for (const char* name : {"model", "uViewProjection", "tint", "scale[0]", "scale[2]", "useTint", "mode"})
         EXPECT_NE(reflection.FindUniform(name), nullptr) << name;
 
@@ -81,7 +79,7 @@ TEST(ShaderCompiler, TheLooseUniformsOfAllTheStagesShareOneBlock)
     EXPECT_EQ(model->size, 64u);
     EXPECT_NE(model->offset, viewProjection->offset);
 
-    // std140 : a float array has the stride of a vec4
+    // std140: a float array has the stride of a vec4.
     const ReflectedUniform* scale0 = reflection.FindUniform("scale[0]");
     const ReflectedUniform* scale1 = reflection.FindUniform("scale[1]");
     ASSERT_TRUE(scale0 && scale1);
@@ -92,15 +90,13 @@ TEST(ShaderCompiler, TheLooseUniformsOfAllTheStagesShareOneBlock)
     EXPECT_EQ(reflection.FindUniform("tint")->size, 12u);
     EXPECT_EQ(reflection.FindUniform("mode")->type, ShaderDataType::Int);
 
-    // A bool stays a bool for whoever lists the uniforms, though the block stores it as an integer
     EXPECT_EQ(reflection.FindUniform("useTint")->type, ShaderDataType::Bool);
 
-    // Every offset is inside the block
     for (const ReflectedUniform& uniform : reflection.uniforms)
         EXPECT_LE(uniform.offset + uniform.size, reflection.uniformBlockSize) << uniform.name;
 }
 
-TEST(ShaderCompiler, ASamplerGetsItsTextureUnitInTheTextureSet)
+TEST(ShaderCompiler, SamplerGetsTextureUnit)
 {
     Result result = Compile(kVertex, kFragment);
     ASSERT_TRUE(result.ok) << result.log;
@@ -112,7 +108,6 @@ TEST(ShaderCompiler, ASamplerGetsItsTextureUnitInTheTextureSet)
     EXPECT_EQ(albedo->samplerType, ShaderSamplerType::Texture2D);
     EXPECT_EQ(albedo->stages, ShaderStageBit(ShaderStageKind::Fragment));
 
-    // The uniform block is the binding 0 of its set, used by both stages
     bool foundBlock = false;
     for (const ReflectedBinding& binding : result.binary.reflection.bindings)
     {
@@ -127,7 +122,7 @@ TEST(ShaderCompiler, ASamplerGetsItsTextureUnitInTheTextureSet)
     EXPECT_TRUE(foundBlock);
 }
 
-TEST(ShaderCompiler, TheVertexInputsKeepTheirLocations)
+TEST(ShaderCompiler, VertexInputsKeepLocations)
 {
     Result result = Compile(kVertex, kFragment);
     ASSERT_TRUE(result.ok) << result.log;
@@ -144,7 +139,7 @@ TEST(ShaderCompiler, TheVertexInputsKeepTheirLocations)
     EXPECT_TRUE(position && uv);
 }
 
-TEST(ShaderCompiler, EachKindOfResourceLivesInTheSetOfItsKind)
+TEST(ShaderCompiler, ResourcesInOwnSets)
 {
     const char* compute = R"(#version 430 core
 layout(local_size_x = 8, local_size_y = 4, local_size_z = 1) in;
@@ -161,7 +156,7 @@ void main()
 }
 )";
 
-    // The same binding number in three kinds : what a GL driver keeps apart by kind
+    // Same binding number in three kinds, which a GL driver keeps apart by kind.
     Result result = CompileProgram({{ShaderStageKind::Compute, compute, "test.comp"}});
     ASSERT_TRUE(result.ok) << result.log;
 
@@ -192,7 +187,7 @@ void main()
     EXPECT_NE(reflection.FindUniform("offsetX"), nullptr);
 }
 
-TEST(ShaderCompiler, ABindlessHandleReadsTheGlobalTextureArray)
+TEST(ShaderCompiler, BindlessReadsGlobalArray)
 {
     const char* fragment = R"(#version 430 core
 #extension GL_ARB_bindless_texture : enable
@@ -236,7 +231,6 @@ void main()
 }
 )";
 
-    // Without the define the line is skipped and the program is fine ; with it, it is an error
     EXPECT_TRUE(Compile(kVertex, fragment).ok);
 
     Options options;
@@ -244,7 +238,6 @@ void main()
     Result with = CompileProgram({{ShaderStageKind::Vertex, kVertex, "test.vert"}, {ShaderStageKind::Fragment, fragment, "test.frag"}}, options);
     EXPECT_FALSE(with.ok);
 
-    // Another set of defines is another binary
     Options other;
     other.defines.push_back({"OTHER", "2"});
     const std::vector<StageSource> stages = {{ShaderStageKind::Vertex, kVertex, "test.vert"}, {ShaderStageKind::Fragment, kFragment, "test.frag"}};
@@ -252,14 +245,14 @@ void main()
     EXPECT_EQ(HashSources(stages, Options{}), HashSources(stages, Options{}));
 }
 
-TEST(ShaderCompiler, ASyntaxErrorIsReportedWithItsFile)
+TEST(ShaderCompiler, SyntaxErrorHasFile)
 {
     Result result = Compile(kVertex, "#version 430 core\nvoid main() { this is not glsl }\n");
     EXPECT_FALSE(result.ok);
     EXPECT_NE(result.log.find("test.frag"), std::string::npos) << result.log;
 }
 
-TEST(ShaderCompiler, ACompiledProgramSurvivesItsFile)
+TEST(ShaderCompiler, CompiledProgramSurvivesFile)
 {
     Result result = Compile(kVertex, kFragment);
     ASSERT_TRUE(result.ok) << result.log;
@@ -279,14 +272,13 @@ TEST(ShaderCompiler, ACompiledProgramSurvivesItsFile)
     ASSERT_NE(loaded.reflection.FindUniform("useTint"), nullptr);
     EXPECT_EQ(loaded.reflection.FindUniform("useTint")->type, ShaderDataType::Bool);
 
-    // Garbage is refused, not read
     ShaderBinary refused;
     EXPECT_FALSE(DeserializeShaderBinary(bytes.data(), 3, refused));
     std::vector<uint8_t> truncated(bytes.begin(), bytes.begin() + bytes.size() / 2);
     EXPECT_FALSE(DeserializeShaderBinary(truncated.data(), truncated.size(), refused));
 }
 
-TEST(ShaderCompiler, EveryShaderOfTheEngineCompiles)
+TEST(ShaderCompiler, AllEngineShadersCompile)
 {
     const std::filesystem::path root = std::filesystem::path(SHARD_SOURCE_DIR) / "resources" / "engine_resources" / "shaders";
     ASSERT_TRUE(std::filesystem::exists(root)) << root;
@@ -296,7 +288,6 @@ TEST(ShaderCompiler, EveryShaderOfTheEngineCompiles)
 
     for (const ProgramFiles& program : programs)
     {
-        // A Slang program needs slangc (the Vulkan SDK has it)
         const ShaderStageKind first = program.Has(ShaderStageKind::Compute) ? ShaderStageKind::Compute : ShaderStageKind::Vertex;
         if (LanguageOfFile(program.stages[static_cast<size_t>(first)]) == SourceLanguage::Slang && FindSlangCompiler().empty())
             continue;
@@ -306,12 +297,9 @@ TEST(ShaderCompiler, EveryShaderOfTheEngineCompiles)
     }
 }
 
-// ---- Slang ------------------------------------------------------------------------------------------------------------------------
-
 namespace {
 
-    // The uniforms the engine sets by name are the members of the constant buffer at set 3, binding 0 ; a texture is one descriptor with
-    // its sampler (Sampler2D)
+    // Engine-set uniforms are members of the constant buffer at set 3, binding 0. A texture is one descriptor with its sampler (Sampler2D).
     const char* kSlang = R"(
 struct VSInput  { float3 pos : POSITION; float2 uv : TEXCOORD0; };
 struct VSOutput { float4 position : SV_Position; float2 uv : TEXCOORD0; };
@@ -375,7 +363,6 @@ void computeMain(uint3 id : SV_DispatchThreadID)
         EXPECT_FALSE(reflection.vertexInputs.empty());
     }
 
-    /// A Slang stage as the Vulkan backend gives it : the one file is each of the stages
     StageSource SlangStage(ShaderStageKind kind, const std::filesystem::path& file)
     {
         StageSource stage{kind, kSlang, file.generic_string()};
@@ -385,9 +372,9 @@ void computeMain(uint3 id : SV_DispatchThreadID)
     }
 }
 
-TEST(ShaderCompiler, ATextureWithoutItsSamplerInTheSameDescriptorIsRefused)
+TEST(ShaderCompiler, TextureWithoutSamplerRefused)
 {
-    // A texture that is not paired with a sampler is a descriptor the engine has no way to bind
+    // A texture not paired with a sampler is a descriptor the engine can't bind.
     const std::string fragment = R"(#version 450
 #extension GL_EXT_samplerless_texture_functions : require
 layout(set = 0, binding = 0) uniform texture2D albedo;
@@ -401,7 +388,7 @@ void main() { color = texelFetch(albedo, ivec2(uv), 0); }
     EXPECT_NE(result.log.find("one descriptor"), std::string::npos) << result.log;
 }
 
-TEST(ShaderCompiler, TheLanguageIsTheExtensionOfTheFile)
+TEST(ShaderCompiler, LanguageFromExtension)
 {
     EXPECT_EQ(LanguageOfFile("a/b.vert"), SourceLanguage::GLSL);
     EXPECT_EQ(LanguageOfFile("a/b.comp"), SourceLanguage::GLSL);
@@ -410,7 +397,7 @@ TEST(ShaderCompiler, TheLanguageIsTheExtensionOfTheFile)
     EXPECT_STREQ(DefaultEntryPoint(SourceLanguage::GLSL, ShaderStageKind::Fragment), "main");
 }
 
-TEST(ShaderCompiler, ASlangFileIsOneProgramWithTheStagesItHasEntryPointsFor)
+TEST(ShaderCompiler, SlangFileIsOneProgram)
 {
     const std::filesystem::path root = std::filesystem::temp_directory_path() / "shard_shader_language_test";
     std::filesystem::remove_all(root);
@@ -427,7 +414,6 @@ TEST(ShaderCompiler, ASlangFileIsOneProgramWithTheStagesItHasEntryPointsFor)
     {
         if (program.name == "sub/tint")
         {
-            // The one file is the vertex stage and the fragment stage
             EXPECT_TRUE(program.Has(ShaderStageKind::Vertex) && program.Has(ShaderStageKind::Fragment));
             EXPECT_FALSE(program.Has(ShaderStageKind::Compute));
             EXPECT_EQ(program.stages[static_cast<size_t>(ShaderStageKind::Vertex)], root / "sub" / "tint.slang");
@@ -443,7 +429,7 @@ TEST(ShaderCompiler, ASlangFileIsOneProgramWithTheStagesItHasEntryPointsFor)
     std::filesystem::remove_all(root);
 }
 
-TEST(ShaderCompiler, ASlangProgramCompilesThroughSlangc)
+TEST(ShaderCompiler, SlangCompilesThroughSlangc)
 {
     if (FindSlangCompiler().empty())
         GTEST_SKIP() << "slangc is not installed (the Vulkan SDK has it)";
@@ -461,7 +447,7 @@ TEST(ShaderCompiler, ASlangProgramCompilesThroughSlangc)
     EXPECT_GT(result.binary.reflection.uniformBlockSize, 0u);
 }
 
-TEST(ShaderCompiler, ASlangComputeShaderKeepsItsLocalSizeAndItsBufferSet)
+TEST(ShaderCompiler, SlangComputeKeepsLayout)
 {
     if (FindSlangCompiler().empty())
         GTEST_SKIP() << "slangc is not installed (the Vulkan SDK has it)";
@@ -487,7 +473,7 @@ TEST(ShaderCompiler, ASlangComputeShaderKeepsItsLocalSizeAndItsBufferSet)
     EXPECT_EQ(values->set, BindingSets::StorageBuffers);
 }
 
-TEST(ShaderCompiler, ASlangErrorIsReportedWithItsFile)
+TEST(ShaderCompiler, SlangErrorHasFile)
 {
     if (FindSlangCompiler().empty())
         GTEST_SKIP() << "slangc is not installed (the Vulkan SDK has it)";

@@ -35,7 +35,6 @@ namespace Shard::Engine::Core::Platform {
             return true;
         }
 
-        // 1 : ready, 0 : timeout, -1 : error
         int WaitFd(int fd, short events, int timeoutMs)
         {
             pollfd p{ fd, events, 0 };
@@ -50,8 +49,8 @@ namespace Shard::Engine::Core::Platform {
     }
 
     struct NamedPipe::Impl {
-        int listenFd = -1;      // server : the listening socket
-        int fd = -1;            // the connection
+        int listenFd = -1;
+        int fd = -1;
         bool server = false;
         std::string path;
     };
@@ -67,7 +66,7 @@ namespace Shard::Engine::Core::Platform {
         if (fd < 0)
             return nullptr;
 
-        unlink(path.c_str());   // a previous crashed server left its file behind
+        unlink(path.c_str());
         if (bind(fd, reinterpret_cast<sockaddr*>(&address), sizeof(address)) != 0 || listen(fd, 1) != 0)
         {
             close(fd);
@@ -205,8 +204,6 @@ namespace Shard::Engine::Core::Platform {
         return IpcStatus::Ok;
     }
 
-    // --- Shared memory ---
-
     namespace {
         struct SharedHeader {
             uint64_t size;
@@ -226,7 +223,7 @@ namespace Shard::Engine::Core::Platform {
         const std::string shmName = "/" + name;
         const size_t total = size + sizeof(SharedHeader);
 
-        shm_unlink(shmName.c_str());    // a previous crashed owner left its block behind
+        shm_unlink(shmName.c_str());
         const int fd = shm_open(shmName.c_str(), O_CREAT | O_EXCL | O_RDWR, 0600);
         if (fd < 0)
             return nullptr;

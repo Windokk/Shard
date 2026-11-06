@@ -76,12 +76,10 @@ namespace Shard::Engine::Filesystem{
         infos.extension = path.GetExtensionString();
 
         if(IsPathInside(engineResPath, path)){
-            // This file is part of the engine ressources
             infos.nameInProject = path.RelativeTo(engineResPath).full;
             infos.ID = assetIDs->GetIDFromNameInProject(infos.nameInProject);
         }
         else if(IsPathInside(projectResPath, path)){
-            // This file is part of the project ressources
             infos.nameInProject = path.RelativeTo(projectResPath).full;
             infos.ID = assetIDs->GetIDFromNameInProject(infos.nameInProject);
         }
@@ -105,8 +103,7 @@ namespace Shard::Engine::Filesystem{
             return AssetID{};
         }
 
-        // GetFileInfos() resolves the ID by name, and an unknown name comes back as the default
-        // AssetID - which could coincide with a real asset's ID, hence the name comparison.
+        // An unknown name comes back as the default AssetID, which could coincide with a real one, hence the name comparison
         std::shared_ptr<AssetInfos> existing = assetManager->GetAssetFromID(infos.ID);
         if(existing && existing->baseInfos.nameInProject == infos.nameInProject)
             return infos.ID;
@@ -126,8 +123,6 @@ namespace Shard::Engine::Filesystem{
 
     std::string Path::ReadFile() const
     {
-        // Replace "/" with native dir separator
-
         if(IsDirectory()){
             DEBUG_WARNING("Tried reading a folder : ",full);
             return "";
@@ -151,7 +146,7 @@ namespace Shard::Engine::Filesystem{
     bool Path::WriteFile(const std::string &content) const
     {
         {
-            std::ofstream out(full, std::ios::trunc); // truncate = overwrite if file exists
+            std::ofstream out(full, std::ios::trunc);
             if (!out.is_open()) return false;
 
             try {
@@ -161,7 +156,6 @@ namespace Shard::Engine::Filesystem{
             }
         }
 
-        // Not an outside edit for the hot reload
         Assets::NoteOwnWrite(full);
         return true;
     }
@@ -196,7 +190,6 @@ namespace Shard::Engine::Filesystem{
         const std::string ext = NormalizeExtension(extension);
         if(ext.size() < 2)
             return false;
-        // The engine's own extensions are not for sale : asking for the type of a made-up file tells whether it is known
         {
             std::lock_guard<std::mutex> lock(CustomMutex());
             if(CustomExtensions().count(ext))
@@ -226,37 +219,23 @@ namespace Shard::Engine::Filesystem{
         std::string ext = GetExtensionString();
 
         static const std::unordered_map<std::string, Type> extensionMap = {
-            // Image formats
             {".png", Type::T_IMAGE}, {".jpg", Type::T_IMAGE}, {".jpeg", Type::T_IMAGE}, {".hdr", Type::T_IMAGE},
             {".bmp", Type::T_IMAGE}, {".gif", Type::T_IMAGE}, {".tga", Type::T_IMAGE},
-            // Sound formats
             {".wav", Type::T_SOUND}, {".mp3", Type::T_SOUND}, {".ogg", Type::T_SOUND},
-            // Font formats
             {".ttf", Type::T_FONT}, {".otf", Type::T_FONT}, {".fnt", Type::T_FONT},
-            // Shader formats
             {".geom", Type::T_SHADER}, {".frag", Type::T_SHADER}, {".vert", Type::T_SHADER},
             {".comp", Type::T_COMPUTE_SHADER},
-            // Text formats
             {".txt", Type::T_TEXT}, {".md", Type::T_TEXT},
-            // Script formats
             {".cpp", Type::T_SCRIPT}, {".hpp", Type::T_SCRIPT},
-            // Model formats
             {".fbx", Type::T_MODEL},
-            // Material formats
             {".mat", Type::T_MATERIAL}, {".material", Type::T_MATERIAL},
-            // Baked probe data of a probe volume (Rendering::kProbeBakeExtension)
             {".probes", Type::T_PROBES},
-            // Baked lightmap pages of a world (Rendering::kLightmapExtension)
             {".lightmap", Type::T_LIGHTMAP},
-            // World formats
             {".world", Type::T_WORLD},
-            // Config formats
             {".json", Type::T_CONFIG}, {".ini", Type::T_CONFIG}, {".cfg", Type::T_CONFIG},
-            // Directory (fallback, not based on extension)
-            {"<directory>", Type::T_DIRECTORY}  // special case if needed
+            {"<directory>", Type::T_DIRECTORY}
         };
 
-        // Ensure extension starts with dot
         if (ext.empty() || ext[0] != '.') {
             ext = "." + ext;
         }
@@ -277,7 +256,6 @@ namespace Shard::Engine::Filesystem{
         std::filesystem::path parentPath = std::filesystem::weakly_canonical(parent.GetAbsolutePath());
         std::filesystem::path childPath = std::filesystem::weakly_canonical(child.GetAbsolutePath());
 
-        // Check if childPath starts with parentPath
         auto parentIt = parentPath.begin();
         auto childIt = childPath.begin();
 
@@ -292,7 +270,6 @@ namespace Shard::Engine::Filesystem{
     {
         std::string ext = path.GetExtensionString();
     
-        // Normalize the extension: lowercase and strip leading dot if present
         if (!ext.empty() && ext[0] == '.')
             ext = ext.substr(1);
         
@@ -344,7 +321,7 @@ namespace Shard::Engine::Filesystem{
 
         combined += rhs.full;
 
-        return Path(combined, true);  // Normalize the result
+        return Path(combined, true);
     }
     
     Path operator/(const Path& lhs, const std::string& rhs) {
@@ -485,7 +462,6 @@ namespace Shard::Engine::Filesystem{
         auto childStr = std::filesystem::weakly_canonical(child.full).string();
         auto parentStr = std::filesystem::weakly_canonical(parent.full).string();
     
-        // Ensure parent path ends with a slash to avoid partial match
         if (parentStr.back() != '/' && parentStr.back() != '\\')
             parentStr += '/';
     

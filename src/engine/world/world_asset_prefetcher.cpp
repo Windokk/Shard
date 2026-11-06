@@ -31,9 +31,8 @@ namespace Shard::Engine::Worlds{
             return;
         }
 
-        WaitForDecodes();   // a previous load's decodes point into `jobs`
+        WaitForDecodes();
         jobs.clear();
-        // As many decodes at once as the job system has background threads (the main thread only polls here)
         Core::JobSystem* jobSystem = Core::GetEngine().GetJobSystem();
         maxInFlight = std::max(2, jobSystem ? (int)jobSystem->WorkerCount() : 2);
         completedCount = 0;
@@ -57,7 +56,6 @@ namespace Shard::Engine::Worlds{
         totalCount = (int)jobs.size();
         state = State::Decoding;
         loadStart = std::chrono::steady_clock::now();
-        // Kick off the first decodes right away instead of waiting for the first Pump()
         for(int i = 0; i < (int)jobs.size() && i < maxInFlight; i++)
             StartDecode(jobs[i]);
     }
@@ -75,14 +73,14 @@ namespace Shard::Engine::Worlds{
         {
             try { result->finish = fn(); }
             catch(...) { result->error = std::current_exception(); }
-            result->done.store(true, std::memory_order_release);   // publishes finish / error to Pump()
+            result->done.store(true, std::memory_order_release);
         };
 
         Core::JobSystem* jobSystem = Core::GetEngine().GetJobSystem();
         if(jobSystem)
             jobSystem->Submit(decodeGroup, std::move(decode));
         else
-            decode();   // no job system (no engine) : decode right here
+            decode();
     }
 
     bool AssetPrefetcher::Pump(float uploadBudgetMs)
@@ -112,8 +110,7 @@ namespace Shard::Engine::Worlds{
                 continue;
             }
 
-            // Decoded : upload it, unless this frame's budget is already gone (it then waits, decoded,
-            // for the next call). The first upload of a call is always allowed.
+            // Upload unless this frame's budget is spent (then it waits decoded). The first upload of a call is always allowed.
             if(!unlimited && uploadedAny && std::chrono::duration<float, std::milli>(Clock::now() - begin).count() >= uploadBudgetMs){
                 continue;
             }
@@ -124,7 +121,6 @@ namespace Shard::Engine::Worlds{
             applied++;
         }
 
-        // Keep the worker threads busy with the next assets in line
         for(auto& job : jobs){
             if(inFlight >= maxInFlight)
                 break;
@@ -146,8 +142,7 @@ namespace Shard::Engine::Worlds{
         return true;
     }
 
-    // Never throws : an asset that fails to decode or to upload is reported and left out, the world still loads (an exception out of
-    // here would leave the load pending forever, and no other world could be loaded)
+    // Never throws: an exception out of here would leave the load pending forever and block every other world.
     void AssetPrefetcher::Apply(DecodeJob& job)
     {
         try {

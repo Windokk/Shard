@@ -29,8 +29,8 @@ TEST(WorldPosition, CarriesCellsWhenMoved) {
     EXPECT_NEAR(p.local.x, 76.0, kEps);
 }
 
-TEST(WorldPosition, OffsetStaysExactVeryFarFromTheOrigin) {
-    // 10^15 cells * 1024 m = ~10^18 m : a double cannot even tell two positions a millimetre apart there
+TEST(WorldPosition, OffsetExactFarFromOrigin) {
+    // 10^15 cells * 1024 m is ~10^18 m, where a double cannot resolve 1 mm.
     const CellCoord far{1000000000000000ll, -1000000000000000ll, 7};
     const WorldPosition a(far, DVec3(10.001, 20.0, 30.0));
     const WorldPosition b(far, DVec3(10.0, 20.0, 31.5));
@@ -40,11 +40,10 @@ TEST(WorldPosition, OffsetStaysExactVeryFarFromTheOrigin) {
     EXPECT_NEAR(d.y, 0.0, 1e-12);
     EXPECT_NEAR(d.z, -1.5, 1e-12);
 
-    // The same two positions as plain doubles collapse
     EXPECT_NE(a.ToDVec3().x - b.ToDVec3().x, 0.001);
 }
 
-TEST(WorldPosition, RelativeToIsAFloatOffset) {
+TEST(WorldPosition, RelativeToIsFloat) {
     const WorldPosition camera(CellCoord{123456789, 0, 0}, DVec3(100.0, 5.0, 5.0));
     const WorldPosition object = camera + DVec3(3.0, 1.0, -2.0);
     const Vec3 rel = object.RelativeTo(camera);
@@ -62,7 +61,7 @@ TEST(ReferenceFrames, RootAlwaysExists) {
     EXPECT_EQ(tree.Create("orphan", 99), kInvalidFrame);
 }
 
-TEST(ReferenceFrames, PointToRootThroughNestedFrames) {
+TEST(ReferenceFrames, PointToRootThroughFrames) {
     ReferenceFrameTree tree;
     const FrameId planet = tree.Create("Planet", kRootFrame, WorldPosition::FromDVec3(DVec3(1000.0, 0.0, 0.0)));
     const FrameId ship = tree.Create("Ship", planet, WorldPosition::FromDVec3(DVec3(0.0, 50.0, 0.0)));
@@ -74,7 +73,6 @@ TEST(ReferenceFrames, PointToRootThroughNestedFrames) {
 
 TEST(ReferenceFrames, RotationIsApplied) {
     ReferenceFrameTree tree;
-    // A frame turned a quarter turn around Y : its +X axis points to the root's -Z
     const DQuat quarter = glm::angleAxis(Math::kHalfPi, DVec3(0.0, 1.0, 0.0));
     const FrameId f = tree.Create("Turned", kRootFrame, WorldPosition::FromDVec3(DVec3(10.0, 0.0, 0.0)), quarter);
 
@@ -85,14 +83,12 @@ TEST(ReferenceFrames, RotationIsApplied) {
     EXPECT_TRUE(Near(tree.FromRoot(f, tree.ToRoot(f, p)), p, 1e-9));
 }
 
-TEST(ReferenceFrames, ConvertBetweenSiblingsKeepsThePrecisionOfTheirDistance) {
+TEST(ReferenceFrames, SiblingConversionKeepsPrecise) {
     ReferenceFrameTree tree;
-    // Two frames a few metres apart, both ~10^17 m from the root
     const CellCoord far{100000000000000ll, 0, 0};
     const FrameId a = tree.Create("A", kRootFrame, WorldPosition(far, DVec3(0.0, 0.0, 0.0)));
     const FrameId b = tree.Create("B", kRootFrame, WorldPosition(far, DVec3(4.0, 0.0, 0.0)));
 
-    // The point (0.001, 0, 0) of A is the point (-3.999, 0, 0) of B
     const DVec3 q = tree.ConvertPoint(a, b, DVec3(0.001, 0.0, 0.0));
     EXPECT_NEAR(q.x, -3.999, 1e-9);
     EXPECT_NEAR(q.y, 0.0, 1e-9);
@@ -124,7 +120,7 @@ TEST(ReferenceFrames, RelativePoseOfAFrame) {
     EXPECT_TRUE(tree.GetRelativePose(a, a).IsIdentity());
 }
 
-TEST(ReferenceFrames, SetParentKeepsTheWorldPose) {
+TEST(ReferenceFrames, SetParentKeepsPose) {
     ReferenceFrameTree tree;
     const DQuat q = glm::angleAxis(1.0, DVec3(0.0, 1.0, 0.0));
     const FrameId a = tree.Create("A", kRootFrame, WorldPosition::FromDVec3(DVec3(10.0, 0.0, 0.0)), q);
@@ -136,7 +132,7 @@ TEST(ReferenceFrames, SetParentKeepsTheWorldPose) {
     EXPECT_TRUE(Near(tree.ToRoot(b, DVec3(1.0, 2.0, 3.0)).ToDVec3(), before, 1e-9));
 }
 
-TEST(ReferenceFrames, CannotMakeAFrameItsOwnAncestor) {
+TEST(ReferenceFrames, NoSelfAncestor) {
     ReferenceFrameTree tree;
     const FrameId a = tree.Create("A");
     const FrameId b = tree.Create("B", a);
@@ -145,7 +141,7 @@ TEST(ReferenceFrames, CannotMakeAFrameItsOwnAncestor) {
     EXPECT_EQ(tree.Find(a)->parent, kRootFrame);
 }
 
-TEST(ReferenceFrames, RemoveKeepsChildrenWhereTheyAre) {
+TEST(ReferenceFrames, RemoveKeepsChildren) {
     ReferenceFrameTree tree;
     const FrameId a = tree.Create("A", kRootFrame, WorldPosition::FromDVec3(DVec3(100.0, 0.0, 0.0)));
     const FrameId b = tree.Create("B", a, WorldPosition::FromDVec3(DVec3(0.0, 5.0, 0.0)));
@@ -167,7 +163,7 @@ TEST(ReferenceFrames, VersionChangesWithTheTree) {
     EXPECT_GT(tree.GetVersion(), v1);
 }
 
-TEST(ReferenceFrames, CreateWithIdKeepsTheNextIdAhead) {
+TEST(ReferenceFrames, CreateWithIdAdvancesNextId) {
     ReferenceFrameTree tree;
     ASSERT_TRUE(tree.CreateWithId(7, "Seven", kRootFrame, WorldPosition(), DQuat(1.0, 0.0, 0.0, 0.0)));
     EXPECT_FALSE(tree.CreateWithId(7, "Again", kRootFrame, WorldPosition(), DQuat(1.0, 0.0, 0.0, 0.0)));
@@ -176,7 +172,7 @@ TEST(ReferenceFrames, CreateWithIdKeepsTheNextIdAhead) {
 }
 
 TEST(WorldPosition, ExtremePositionsDoNotOverflow) {
-    // A float position near FLT_MAX is ~10^35 cells : beyond int64. Pinned, finite, no undefined conversion
+    // Float near FLT_MAX is ~10^35 cells, beyond int64. Must pin, stay finite, no UB conversion.
     const WorldPosition huge = WorldPosition::FromDVec3(DVec3(3.0e38, -3.0e38, 0.0));
     EXPECT_TRUE(std::isfinite(glm::length(huge.ToDVec3())));
     EXPECT_GT(huge.cell.x, 0);
@@ -185,12 +181,11 @@ TEST(WorldPosition, ExtremePositionsDoNotOverflow) {
     const WorldPosition inf = WorldPosition::FromDVec3(DVec3(INFINITY, NAN, 1.0));
     EXPECT_TRUE(std::isfinite(glm::length(inf.ToDVec3())));
 
-    // The offset to a sane position is finite, so a renderer can keep working
     EXPECT_TRUE(std::isfinite(glm::length(WorldPosition::Offset(huge, WorldPosition()))));
 }
 
-TEST(WorldPosition, PastTheCellsReachItDegradesToADouble) {
-    // 1e30 m is ~10^27 cells : past int64. The value is still there (not pinned to the edge), and differences stay finite
+TEST(WorldPosition, PastReachDegradesToDouble) {
+    // 1e30 m is ~10^27 cells, past int64. Value is kept (not pinned) and differences stay finite.
     const WorldPosition a = WorldPosition::FromDVec3(DVec3(1.0e30, 0.0, 0.0));
     EXPECT_FALSE(a.InCellRange());
     EXPECT_NEAR(a.ToDVec3().x / 1.0e30, 1.0, 1e-12);
@@ -198,8 +193,8 @@ TEST(WorldPosition, PastTheCellsReachItDegradesToADouble) {
     EXPECT_NEAR(WorldPosition::Offset(a, WorldPosition()).x / 1.0e30, 1.0, 1e-12);
 }
 
-TEST(WorldPosition, NormalisingASaturatedPositionAgainChangesNothing) {
-    // Every operation normalises : a position past the cells must be a fixed point, or its cell grows by 4e18 each time and wraps
+TEST(WorldPosition, NormalisingSaturatedIsNoop) {
+    // Past the cells a position must be a fixed point, or its cell grows by 4e18 per operation and wraps.
     const WorldPosition a = WorldPosition::FromDVec3(DVec3(1.0e30, 5.0, 0.0));
     WorldPosition b = a;
     for (int i = 0; i < 8; i++)
@@ -209,7 +204,7 @@ TEST(WorldPosition, NormalisingASaturatedPositionAgainChangesNothing) {
     EXPECT_EQ(WorldPosition::Offset(a + DVec3(1.0, 0.0, 0.0), a).y, 0.0);
 }
 
-TEST(ReferenceFrames, AFrameAtOneE30HoldsItsObject) {
+TEST(ReferenceFrames, FrameAtE30HoldsObject) {
     ReferenceFrameTree tree;
     const WorldPosition origin = WorldPosition::FromDVec3(DVec3(1.0e30, 0.0, 0.0));
     const FrameId f = tree.Create("far", kRootFrame, origin);

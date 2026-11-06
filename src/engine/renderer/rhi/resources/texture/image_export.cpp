@@ -86,9 +86,7 @@ namespace Shard::Engine::Rendering::ImageExport{
             return false;
         }
 
-        // Textures are loaded with stbi_set_flip_vertically_on_load(true) (see Texture2D::Create), so
-        // row 0 of a GL texture is its bottom row - flip on write too, or an exported image would come
-        // out upside down relative to every other image the engine loads.
+        // Textures load with stbi_set_flip_vertically_on_load(true), so row 0 is the bottom row. Flip on write to match.
         stbi_flip_vertically_on_write(1);
 
         int result = stbi_write_png(path.GetNativePath().c_str(), (int)width, (int)height, (int)channels, data, (int)(width * channels));

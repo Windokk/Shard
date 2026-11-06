@@ -15,25 +15,18 @@
 
 namespace Shard::Engine::Plugins {
 
-    /// @brief The conversation a client and a server have before they play : "these are my plugins" / "these are mine, you may come in, or not".
-    ///
-    /// TCP, frames of `u32 length (big endian) | u8 kind | payload`. Kind 0 is JSON (at most 1 MB), kind 1 is a file (a datapack archive).
-    ///   client > { "type": "hello", "protocol": 1, "name": "...", "plugins": [ {id, version, hash} ] }
-    ///   server > { "type": "welcome", "plugins": [...], "downloads": [ {id, version, size, sha256} ] }      the sets match
-    ///          | { "type": "refused", "reason": "...", "plugins": [...], "downloads": [...] }              they do not, or a plugin said no
-    ///   client > { "type": "fetch", "id": "..." }   server > a kind 1 frame (the .shardplugin of a datapack the server offers) or { "type": "error", ... }
-    /// Only datapacks (no code) are ever offered for download. A refused client that is missing some can fetch them, restart, and come back.
+    // TCP frames: u32 length (big endian) | u8 kind | payload. Kind 0 is JSON (max 1 MB), kind 1 a datapack archive.
+    // hello > welcome | refused, fetch > file | error. Only datapacks (no code) are offered for download.
     inline constexpr uint32_t kHandshakeProtocol = 1;
 
     struct HandshakeServerOptions {
-        uint16_t port = 0;                          ///< 0 : any free port (LocalPort() says which)
-        std::string bindAddress = "";               ///< empty : every interface
-        bool offerDatapacks = false;                ///< let clients that lack a datapack download it
-        int clientTimeoutMs = 5000;                 ///< a client that says nothing for that long is dropped
+        uint16_t port = 0;
+        std::string bindAddress = "";
+        bool offerDatapacks = false;
+        int clientTimeoutMs = 5000;
         size_t maxClients = 64;
     };
 
-    /// @brief The server's half. Single threaded : call Poll() from the server loop (ShardHeadless --server does, every tick).
     class PluginHandshakeServer {
     public:
         explicit PluginHandshakeServer(PluginManager& manager) : m_Manager(manager) {}
@@ -44,7 +37,6 @@ namespace Shard::Engine::Plugins {
         bool IsRunning() const { return m_Listener != nullptr; }
         uint16_t LocalPort() const;
 
-        /// Accepts, reads and answers whatever is ready. Never blocks.
         void Poll();
 
         size_t ConnectedClients() const;
@@ -78,24 +70,21 @@ namespace Shard::Engine::Plugins {
     };
 
     struct HandshakeResult {
-        bool connected = false;                     ///< the server answered
-        bool accepted = false;                      ///< and let us in
-        std::string reason;                         ///< why not
+        bool connected = false;
+        bool accepted = false;
+        std::string reason;
         std::vector<PluginSetEntry> serverPlugins;
         struct Download { std::string id; std::string version; uint64_t size = 0; std::string sha256; };
-        std::vector<Download> downloads;            ///< datapacks the server offers and we lack
+        std::vector<Download> downloads;
     };
 
-    /// @brief The client's half. Blocking, with a timeout : a connecting client is not in the middle of a frame.
     class PluginHandshakeClient {
     public:
         explicit PluginHandshakeClient(int timeoutMs = 5000) : m_TimeoutMs(timeoutMs) {}
         ~PluginHandshakeClient() { Close(); }
 
-        /// Connects and says hello with `plugins` (the simulation plugin set of this client)
         HandshakeResult Connect(const std::string& host, uint16_t port, const std::string& playerName, const std::vector<PluginSetEntry>& plugins);
 
-        /// Asks for a datapack the server offered, checks it against `expectedSha256`, and unpacks it into `directory` (a folder named after it is made)
         Core::Result<std::string> FetchDatapack(const std::string& id, const std::string& expectedSha256, const std::string& directory);
 
         void Close();

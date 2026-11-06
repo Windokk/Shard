@@ -1,6 +1,6 @@
 #include "tutorial_player.hpp"
 
-#include "health.hpp"                       // a script of another file : nothing to link, just a header
+#include "health.hpp"
 
 void Bullet::OnTick(float deltaTime)
 {
@@ -16,12 +16,12 @@ void Player::OnTick(float dt)
     Owner().Translate(Owner().Forward() * (forward * speed * dt));
     Owner().SetRotation(Shard::AxisAngle({ 0.f, 1.f, 0.f }, -turn * 2.f * dt) * Owner().Rotation());
 
-    Shard::Scene scene = GetScene();                        // the world this actor is in
+    Shard::Scene scene = GetScene();
     if (Shard::Input::WasPressed(Shard::Key::Space)) {
         Shard::Actor bullet = scene.Create("Bullet");
         bullet.SetWorldPose(Owner().WorldPose());
-        bullet.AddComponent("light", R"({ "intensity": 3.0 })");        // the engine's own components, by the name a world file gives them
-        bullet.AddScript<Bullet>();                                       // and the scripts of this plugin
+        bullet.AddComponent("light", R"({ "intensity": 3.0 })");
+        bullet.AddScript<Bullet>();
     }
     if (Shard::Actor enemy = scene.Find("Boss"))
         if (Health* health = enemy.GetScript<Health>())

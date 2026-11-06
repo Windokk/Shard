@@ -26,7 +26,7 @@ namespace Shard::Editor::GUI::AssetOperations
 
     namespace {
 
-        // Engine resources have IDs below kFirstProjectAssetID : never touched here.
+        // Engine resources have IDs below kFirstProjectAssetID, never touched here.
         using Engine::Filesystem::kFirstProjectAssetID;
 
         fs::path ProjectRoot()
@@ -34,7 +34,6 @@ namespace Shard::Editor::GUI::AssetOperations
             return fs::path(Engine::Core::GetEngine().GetCurrentProject()->GetProjectResourcesPath().full);
         }
 
-        /// `p` as a path in the project ("models/cube.fbx", "." for the resources root). False if outside it.
         bool NameInProject(const fs::path& p, std::string& out)
         {
             std::error_code ec;
@@ -60,7 +59,6 @@ namespace Shard::Editor::GUI::AssetOperations
 
         using AssetList = std::vector<std::pair<AssetID, std::shared_ptr<AssetInfos>>>;
 
-        /// Project assets that are `name` itself, or (for a folder) anything inside it
         AssetList AssetsAt(const std::string& name, bool isDirectory)
         {
             AssetList list;
@@ -91,7 +89,9 @@ namespace Shard::Editor::GUI::AssetOperations
             return "";
         }
 
-        // Path::WriteFile() opens in text mode, which would turn the \r\n of a file read in binary into \r\r\n
+        // Path::WriteFile() opens in text mode, which turns the \r
+        // of a binary read into \r\r
+        // .
         bool WriteFileBinary(const fs::path& p, const std::string& content)
         {
             std::ofstream out(p, std::ios::binary | std::ios::trunc);
@@ -107,7 +107,6 @@ namespace Shard::Editor::GUI::AssetOperations
 
         void RemapBuildSettings(const std::string& oldName, const std::string& newName, bool isDirectory)
         {
-            // The project file follows the files on disk at once (Project::RemapWorlds)
             auto& engine = Engine::Core::GetEngine();
             engine.GetCurrentProject()->RemapWorlds(oldName, newName, isDirectory,
                 engine.GetSettings().readOnly ? std::string() : engine.GetSettings().project);
@@ -189,7 +188,7 @@ namespace Shard::Editor::GUI::AssetOperations
         if(ec)
             return Fail("Couldn't move \"" + oldName + "\" : " + ec.message());
 
-        // The asset keeps its ID : dependency lists and everything else that stored it stay valid.
+        // The asset keeps its ID so dependency lists stay valid.
         auto* fileManager = Engine::Core::GetEngine().GetFileManager();
         for(auto& [id, info] : affected){
             std::string assetNewName = newName + info->baseInfos.nameInProject.substr(oldName.size());
@@ -228,7 +227,6 @@ namespace Shard::Editor::GUI::AssetOperations
         if(ec)
             return Fail("Couldn't copy \"" + oldName + "\" : " + ec.message());
 
-        // The copies are new assets : new IDs. What they reference is unchanged (same paths in the project).
         RegisterTree(fs::path(to.full));
         PersistDatabase();
 
@@ -315,7 +313,6 @@ namespace Shard::Editor::GUI::AssetOperations
     {
         created = UniquePath(dir, "NewMaterial", ".mat");
 
-        // Same defaults as a fresh lit material : white base, flat normal, mid roughness
         const std::string content =
             "{\n"
             "    \"recievesShadows\": true,\n"
@@ -371,7 +368,6 @@ namespace Shard::Editor::GUI::AssetOperations
         auto* engine = &Engine::Core::GetEngine();
         engine->GetFileManager()->RegisterAsset(Path(created.full, true));
 
-        // Only worlds listed in the build settings can be loaded (they get their build index from it)
         std::string name;
         if(NameInProject(fs::path(created.full), name))
             engine->GetBuildSettings()->AddToBuildSettings(Path(name));
@@ -393,7 +389,6 @@ namespace Shard::Editor::GUI::AssetOperations
         auto* fileManager = Engine::Core::GetEngine().GetFileManager();
 
         for(const std::string& source : sources){
-            // The paths come from the OS dialog, in UTF-8
             const fs::path from = fs::u8path(source);
             const std::string label = from.filename().string();
 
@@ -403,7 +398,6 @@ namespace Shard::Editor::GUI::AssetOperations
                 continue;
             }
 
-            // Already in the project : nothing to copy, it only needs to be known
             std::string insideName;
             if(NameInProject(from, insideName)){
                 fileManager->RegisterAsset(Path(from.string(), true));
@@ -411,7 +405,6 @@ namespace Shard::Editor::GUI::AssetOperations
                 continue;
             }
 
-            // A format the engine does not read : the plugin that brought its importer converts it
             if(Engine::Filesystem::AssetImporters::Get().CanImport(source)){
                 const Engine::Filesystem::ImportResult result = Engine::Filesystem::AssetImporters::Get().Import(source, dir.full);
                 if(!result.ok){
@@ -450,7 +443,6 @@ namespace Shard::Editor::GUI::AssetOperations
         if(!NameInProject(fs::path(dir.full), dirName))
             return "";
 
-        // New files first (skipping hidden ones : .DS_Store, .gitkeep...)
         int added = 0;
         std::error_code ec;
         for(auto& entry : fs::recursive_directory_iterator(dir.full, fs::directory_options::skip_permission_denied, ec)){
@@ -463,7 +455,6 @@ namespace Shard::Editor::GUI::AssetOperations
                 added++;
         }
 
-        // Then entries whose file is gone
         std::vector<AssetID> stale;
         for(auto& [id, info] : assetManager->AssetIDMap){
             if(id.GetAsInt() < kFirstProjectAssetID)

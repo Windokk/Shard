@@ -51,8 +51,7 @@ namespace Shard::Editor::GUI{
         if (ImGui::IsItemHovered())
             ImGui::SetTooltip("From the start of the frame on the main thread to the end of its swap on the render thread.");
 
-        // One frame says little : with the render thread a frame behind, they alternate between a cheap one and one that waits
-        // for the display. The average over the history is the rate that is actually sustained.
+        // With the render thread a frame behind, frames alternate between cheap and waiting on the display. The average over the history is the sustained rate.
         {
             const auto& history = profiler->GetProfileHistory();
             const size_t count = profiler->GetProfileHistoryCount();
@@ -89,15 +88,12 @@ namespace Shard::Editor::GUI{
             return a.ms > b.ms;
         });
 
-        // The render thread runs in parallel and a frame or so behind : what it spent (the render itself, and above all the present, which
-        // blocks on vsync / the GPU) can add up to more than the simulation thread's frame it is shown against. The shares are taken of
-        // the larger of the two, so they add up to 100% and the bar stays in its box.
+        // Render thread time (mostly the present, which blocks on vsync/GPU) can exceed the simulation frame. Shares are taken of the larger of the two so they add up to 100%.
         float categorySum = 0.0f;
         for (const Entry& entry : entries)
             categorySum += entry.ms;
         const float denominator = std::max(frame.totalMs, categorySum);
 
-        // Single bar showing how the frame is split between subsystems, in descending order.
         ImVec2 barPos = ImGui::GetCursorScreenPos();
         ImVec2 barSize = ImVec2(ImGui::GetContentRegionAvail().x, 20.0f);
         ImDrawList* draw = ImGui::GetWindowDrawList();
@@ -130,7 +126,6 @@ namespace Shard::Editor::GUI{
             ImGui::ColorButton("##swatch", swatch, ImGuiColorEditFlags_NoTooltip | ImGuiColorEditFlags_NoBorder, ImVec2(12, 12));
             ImGui::SameLine();
 
-            // Highlight the biggest consumer this frame.
             bool isTop = (i == 0 && entry.ms > 0.0f);
             if (isTop)
                 ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(1.0f, 0.85f, 0.3f, 1.0f));
@@ -138,7 +133,6 @@ namespace Shard::Editor::GUI{
             char label[128];
             snprintf(label, sizeof(label), "%-12s %6.2f ms (%4.1f%%)", Engine::Debugging::ProfileCategoryName(entry.category), entry.ms, pct);
 
-            // Clicking a category toggles its selection, expanding/collapsing its sub-counters below.
             if (ImGui::Selectable(label, isSelected))
                 selectedCategory = isSelected ? -1 : categoryIndex;
 
@@ -152,8 +146,6 @@ namespace Shard::Editor::GUI{
             else if (entry.category == ProfileCategory::Rendering && ImGui::IsItemHovered())
                 ImGui::SetTooltip("Snapshot extraction (simulation thread) plus the render thread's frame.\nThe render thread runs in parallel : this can exceed what the simulation thread's frame leaves for it.");
 
-            // Sub-measures nested within this category (e.g. glDrawElements under Rendering),
-            // only shown while this category is the one selected.
             if (isSelected && entry.category == ProfileCategory::Rendering)
             {
                 float renderingMs = frame.categoryMs[static_cast<size_t>(ProfileCategory::Rendering)];
@@ -186,10 +178,7 @@ namespace Shard::Editor::GUI{
             return;
         }
 
-        // 60 FPS frame budget kept as a floor so the graph doesn't over-zoom on a few cheap frames.
         float maxMs = 16.6f;
-        // The stack is the sum of the categories, which the render thread's time can push past the frame's total : it is that
-        // sum that has to fit.
         for (size_t i = 0; i < count; i++)
         {
             float stack = 0.0f;
@@ -230,7 +219,6 @@ namespace Shard::Editor::GUI{
             }
         }
 
-        // 60 FPS reference line.
         float y60 = p1.y - (16.6f / maxMs) * size.y;
         draw->AddLine(ImVec2(p0.x, y60), ImVec2(p1.x, y60), IM_COL32(255, 255, 255, 130), 3.0f);
 

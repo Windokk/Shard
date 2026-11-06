@@ -1,11 +1,8 @@
 #version 430 core
 
-// The 2D overlay of shard.render on the Vulkan backend : the vertices and the indices are read from two storage buffers by gl_VertexID, there is no
-// vertex buffer (the OpenGL backend has its own small program, see gl_overlay.cpp). A draw is a procedural draw of one vertex per index, from `uFirstIndex`.
-
 struct OverlayVertex {
     float x, y;
-    uint color;             // premultiplied alpha, r | g << 8 | b << 16 | a << 24
+    uint color;
     float u, v;
 };
 

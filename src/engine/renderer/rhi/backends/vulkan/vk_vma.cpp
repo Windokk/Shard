@@ -1,5 +1,3 @@
-// The implementation of VMA : one translation unit, warnings of the library left alone
-
 #if defined(__GNUC__) && !defined(__clang__)
 #pragma GCC diagnostic ignored "-Wunused-variable"
 #pragma GCC diagnostic ignored "-Wunused-parameter"

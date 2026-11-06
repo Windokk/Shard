@@ -1,15 +1,9 @@
-# The SDK outside the repository : installs the SDK alone (cmake --install --component sdk), copies sdk/templates/plugin to a folder of its
-# own, configures and builds it against the installed SDK only (no path into src/), then has the headless engine load it and run the
-# simulation twice (--check-plugins). With another compiler than the engine's (CXX=..., or VCVARS=... for MSVC), it is also the proof that the
-# ABI does not depend on the compiler.
-#
-# Variables : ENGINE_BUILD (the engine's build folder) WORK (a scratch folder) GENERATOR MAKE_PROGRAM [CXX] [VCVARS] HEADLESS GAME PROJECT
-#             WORKDIR (where ShardHeadless runs)
+# SDK outside the repo: install it alone, build the plugin template against it with no path into src/, load it headless and run the simulation twice (--check-plugins).
+# With another compiler (CXX=..., or VCVARS=... for MSVC) it also shows the ABI does not depend on the compiler.
 
 file(REMOVE_RECURSE "${WORK}")
 file(MAKE_DIRECTORY "${WORK}")
 
-# 1. The SDK, installed on its own
 execute_process(COMMAND "${CMAKE_COMMAND}" --install "${ENGINE_BUILD}" --component sdk --prefix "${WORK}/install"
     RESULT_VARIABLE result OUTPUT_VARIABLE out ERROR_VARIABLE err)
 if(NOT result EQUAL 0)
@@ -20,13 +14,11 @@ if(NOT EXISTS "${sdk}/include/shard/shard.h" OR NOT EXISTS "${sdk}/cmake/ShardSD
     message(FATAL_ERROR "the installed SDK is incomplete : ${sdk}")
 endif()
 
-# 2. The template, as a user gets it
 file(COPY "${sdk}/templates/plugin/" DESTINATION "${WORK}/src")
 
-# 3. Configured and built against the installed SDK alone
 set(configure "${CMAKE_COMMAND}" -S "${WORK}/src" -B "${WORK}/build" -DCMAKE_BUILD_TYPE=Release -DCMAKE_EXPORT_COMPILE_COMMANDS=ON "-DCMAKE_PREFIX_PATH=${sdk}")
 if(VCVARS)
-    # MSVC : its environment comes from vcvars64.bat, so the build runs through a batch file
+    # MSVC gets its environment from vcvars64.bat, so the build runs through a batch file.
     file(TO_NATIVE_PATH "${VCVARS}" vcvars)
     file(WRITE "${WORK}/build.bat"
 "@echo off
@@ -64,10 +56,10 @@ if(out MATCHES "[Ww]arning")
     message(FATAL_ERROR "the template does not build without a warning\n${out}")
 endif()
 
-# Nothing of the engine was seen : the compile commands name the installed SDK, never the repository
+# Compile commands must name the installed SDK, never the repository.
 get_filename_component(repository "${CMAKE_CURRENT_LIST_DIR}/../.." ABSOLUTE)
 file(READ "${WORK}/build/compile_commands.json" commands)
-# Some generators put the include folders in response files (MinGW Makefiles : includes_CXX.rsp)
+# Some generators put include folders in response files (MinGW Makefiles: includes_CXX.rsp).
 file(GLOB_RECURSE response_files "${WORK}/build/CMakeFiles/*.rsp")
 foreach(response ${response_files})
     file(READ "${response}" text)
@@ -88,7 +80,6 @@ set(plugin "${WORK}/build/plugins/com.example.template")
 if(NOT EXISTS "${plugin}/shard-plugin.json")
     message(FATAL_ERROR "no plugin folder in ${WORK}/build/plugins")
 endif()
-# The archive the SDK's own ShardPkg made (shard_sdk_add_plugin(... PACKAGE))
 if(NOT EXISTS "${sdk}/bin/ShardPkg${CMAKE_EXECUTABLE_SUFFIX}" AND NOT EXISTS "${sdk}/bin/ShardPkg.exe")
     message(FATAL_ERROR "the installed SDK has no bin/ShardPkg")
 endif()
@@ -101,7 +92,6 @@ if(NOT archive_size GREATER 0)
     message(FATAL_ERROR "${archive} is empty")
 endif()
 
-# 4. The engine loads it and runs the simulation with it, with one job thread and with several
 execute_process(
     COMMAND "${HEADLESS}" --check-plugins --game "${GAME}" --project "${PROJECT}" --plugin "${plugin}" --frames 60
     WORKING_DIRECTORY "${WORKDIR}"

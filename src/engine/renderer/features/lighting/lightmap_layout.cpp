@@ -9,7 +9,6 @@ namespace Shard::Engine::Rendering {
 
     namespace {
 
-        // Space kept around a lightmap in the atlas, on each side
         constexpr uint32_t kGap = 1;
 
         uint32_t NextPowerOfTwo(uint32_t value)
@@ -56,8 +55,6 @@ namespace Shard::Engine::Rendering {
             totalArea += double(side) * side;
         }
 
-        // The smallest page that holds everything : a first guess from the total area (the shelves waste a little of it), then
-        // doubled until it works, up to the largest page there is
         uint32_t pageSize = std::min(maxPage, std::max(16u, NextPowerOfTwo(uint32_t(std::ceil(std::sqrt(totalArea * 1.1))))));
         int bins = -1;
         for (;;)
@@ -70,7 +67,6 @@ namespace Shard::Engine::Rendering {
 
         if (bins != 1)
         {
-            // More than one page of the largest size : every lightmap is smaller than a page (see LightmapResolutionFor)
             pageSize = maxPage;
             bins = Core::PackRectsShelf(rects, float(pageSize), float(pageSize));
         }

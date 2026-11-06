@@ -17,7 +17,7 @@
 namespace Shard::Engine::Core {
 
     namespace {
-        // The ids of a hash table, in ascending order : the order the table iterates in is not part of the state
+        // Ascending ids: the iteration order of a hash table is not part of the state.
         template <typename Map>
         std::vector<int> SortedIds(const Map& map)
         {
@@ -29,8 +29,7 @@ namespace Shard::Engine::Core {
             return ids;
         }
 
-        // Folds together what StateHasher::Float folds together, in a value written as JSON : the text of -0.0 is not the text of 0.0, and
-        // which of the two a computation gives differs between the C runtimes (atan2, asin... of a zero), when the simulation does not
+        // -0.0 and 0.0 print differently, and which one a computation gives differs between C runtimes (atan2, asin of a zero).
         template <typename Json>
         void CanonicalizeFloats(Json& value)
         {
@@ -100,9 +99,6 @@ namespace Shard::Engine::Core {
                         .Vec3(body->GetLinearVelocity()).Vec3(body->GetAngularVelocity());
             }
 
-            // The game's own state : every reflected field of the scripts, the read-only ones too (those are exactly the
-            // runtime state : what the script computed, not what the editor set), in the text form the fields are saved with
-            // (the JSON library prints a float with the shortest text that reads back as the same float, on every platform)
             const Serialization::ReflectionContext context{engine.GetAssetIDManager()};
             for (int id : SortedIds(world->scripts))
             {

@@ -39,8 +39,6 @@ namespace Shard::Engine::Plugins {
         }
     }
 
-    // ---- Plugin sets (replays, servers) ----
-
     uint64_t HashPluginSet(const std::vector<PluginSetEntry>& set)
     {
         std::vector<PluginSetEntry> sorted = set;
@@ -138,7 +136,7 @@ namespace Shard::Engine::Plugins {
         for (const auto& r : m_Records) {
             if (!r->IsLive() || r->state == PluginState::Disabled) continue;
             if (!r->manifest.affectsSimulation) continue;
-            if (r->isStatic && r->manifest.id.compare(0, 6, "shard.") == 0) continue;     // the engine itself
+            if (r->isStatic && r->manifest.id.compare(0, 6, "shard.") == 0) continue;
             set.push_back({ r->manifest.id, r->manifest.version.ToString(), r->identityHash });
         }
         return set;
@@ -149,8 +147,6 @@ namespace Shard::Engine::Plugins {
         const PluginSetDiff diff = ComparePluginSets(SimulationPluginSet(), PluginSetFromJson(clientSet));
         if (!diff.Same()) decision.Refuse("plugins do not match the server's (" + diff.Describe() + ")");
     }
-
-    // ---- Dependents ----
 
     std::vector<PluginRecord*> PluginManager::Dependents(const std::string& id, bool onlyEnabled)
     {
@@ -165,8 +161,6 @@ namespace Shard::Engine::Plugins {
         }
         return out;
     }
-
-    // ---- Enable / disable / reload ----
 
     bool PluginManager::Disable(const std::string& id, bool cascade, std::string* error)
     {
@@ -183,7 +177,6 @@ namespace Shard::Engine::Plugins {
             for (PluginRecord* d : dependents) names += (names.empty() ? "" : ", ") + d->manifest.id;
             return fail("'" + id + "' is needed by " + names);
         }
-        // Components live in the worlds, whose instances run code of the library : nothing is stopped if one of them would have to go
         if (!m_WorldsAside && m_Callbacks.hasLoadedWorlds && m_Callbacks.hasLoadedWorlds()) {
             auto ownsComponents = [](const PluginRecord& p) { return p.context && p.context->Owns("component"); };
             if (ownsComponents(*r)) return fail("'" + id + "' adds components and a world is loaded : unload the worlds first");
@@ -191,14 +184,13 @@ namespace Shard::Engine::Plugins {
                 if (ownsComponents(*d)) return fail("'" + d->manifest.id + "' (needs '" + id + "') adds components and a world is loaded : unload the worlds first");
         }
 
-        // Those that need it stop first, the last loaded first
         std::sort(dependents.begin(), dependents.end(), [](PluginRecord* a, PluginRecord* b) { return a->owner > b->owner; });
         for (PluginRecord* d : dependents) {
             std::string e;
             if (!Disable(d->manifest.id, true, &e)) return fail(e);
         }
 
-        EditorShutdownOne(*r);                  // its windows go with the plugin, after it had its say
+        EditorShutdownOne(*r);
         if (r->state == PluginState::Enabled) Guard(*r, "OnDisable", [&] { r->instance->OnDisable(*r->context); });
         if (r->context) r->context->ReleaseAll();
         r->context.reset();
@@ -220,7 +212,6 @@ namespace Shard::Engine::Plugins {
         if (!r) return fail("no plugin '" + id + "' (it was not found, or the project left it out : see plugin.list)");
         if (r->state == PluginState::Enabled) return true;
 
-        // Whatever it needs runs first
         for (const DependencySpec& d : r->manifest.dependencies) {
             if (d.optional) continue;
             PluginRecord* dep = d.id.compare(0, 8, "service:") == 0 ? nullptr : Find(d.id);
@@ -236,7 +227,6 @@ namespace Shard::Engine::Plugins {
         }
 
         if (r->state == PluginState::Failed || r->state == PluginState::Unloaded) {
-            // Start it over from its files
             UnloadRecord(*r, false);
             r->error.clear();
             r->errorCount = 0;
@@ -257,7 +247,7 @@ namespace Shard::Engine::Plugins {
         if (m_EngineReady) {
             if (!Guard(*r, "OnEnable", [&] { r->instance->OnEnable(*r->context); })) return fail(r->error);
             r->state = PluginState::Enabled;
-            EditorInitOne(*r);                  // the editor is already up : its panels, menus and inspectors are added now
+            EditorInitOne(*r);
         }
         DEBUG_INFO("Plugins : " + id + " enabled");
         return true;
@@ -276,7 +266,6 @@ namespace Shard::Engine::Plugins {
         if (!(r->state == PluginState::Enabled || r->state == PluginState::Initialized || r->state == PluginState::Disabled))
             return fail("'" + id + "' is " + PluginStateName(r->state));
 
-        // What the plugin wants to keep
         StateWriter saved;
         if (r->state != PluginState::Disabled) {
             bool reloadable = false;
@@ -285,7 +274,6 @@ namespace Shard::Engine::Plugins {
             if (!reloadable) return fail("'" + id + "' does not support reloading (OnPrepareReload returned false)");
         }
 
-        // The worlds hold components whose code lives in the library
         const bool worldsLoaded = m_Callbacks.hasLoadedWorlds && m_Callbacks.hasLoadedWorlds();
         bool suspended = false;
         if (worldsLoaded) {
@@ -296,7 +284,6 @@ namespace Shard::Engine::Plugins {
             m_WorldsAside = true;
         }
 
-        // The plugins built on this one stop, and come back after it
         std::vector<PluginRecord*> dependents = Dependents(id, true);
         std::sort(dependents.begin(), dependents.end(), [](PluginRecord* a, PluginRecord* b) { return a->owner < b->owner; });
         std::vector<std::string> dependentIds;
@@ -306,7 +293,6 @@ namespace Shard::Engine::Plugins {
         for (PluginRecord* d : reversed) Disable(d->manifest.id, true, &e);
 
         const bool wasEnabled = r->state != PluginState::Disabled;
-        // The windows that were open are open again afterwards
         std::set<std::string> openPanels;
         for (const auto& item : m_Extensions.List("editor.panel"))
             if (item.owner == r->owner && std::static_pointer_cast<EditorPanelItem>(item.object)->visible) openPanels.insert(item.name);
@@ -343,8 +329,6 @@ namespace Shard::Engine::Plugins {
         DEBUG_INFO("Plugins : " + id + " reloaded");
         return true;
     }
-
-    // ---- Server / editor / tool notifications ----
 
     void PluginManager::NotifyServerStart(bool dedicated)
     {
@@ -458,8 +442,6 @@ namespace Shard::Engine::Plugins {
         return problems;
     }
 
-    // ---- Datapack patches ----
-
     void PluginManager::PatchWorld(const std::string& worldName, json& world)
     {
         for (const ContentMounts::MountPoint& mount : m_Content.Mounts()) {
@@ -475,8 +457,6 @@ namespace Shard::Engine::Plugins {
             }
         }
     }
-
-    // ---- Lockfile ----
 
     json PluginManager::LockfileJson() const
     {
@@ -533,8 +513,6 @@ namespace Shard::Engine::Plugins {
         out << LockfileJson().dump(2) << "\n";
         return bool(out);
     }
-
-    // ---- Reports ----
 
     std::string PluginManager::Describe() const
     {
@@ -636,8 +614,6 @@ namespace Shard::Engine::Plugins {
         return out;
     }
 
-    // ---- Console ----
-
     void PluginManager::RegisterConsole()
     {
         Core::CVarRegistry& reg = Core::CVarRegistry::Global();
@@ -678,7 +654,6 @@ namespace Shard::Engine::Plugins {
             const std::string text = out.str();
             return R{ true, text.empty() ? "no services" : text };
         });
-        // Named events (the channel of the C ABI) : what plugins described, and a look at what goes through
         add("event.list", "event.list : the named events plugins described, and their fields", [this](const Args&) {
             if (!m_Events) return R{ false, "no event dispatcher in this run" };
             std::ostringstream out;

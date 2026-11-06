@@ -1,5 +1,3 @@
-/* A plugin written in plain C against sdk/include/shard only : no engine header, nothing of the engine linked.
- * Loaded by tests/plugins/c_plugin_tests.cpp. The exported c_plugin_* functions let the test see what the host called. */
 #include <stddef.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -21,18 +19,17 @@ static int gEventCount;
 static void* gBlock;
 static char gSeenId[128];
 static char gSeenVersion[32];
-static char gSeenHost[32];                  /* shard.plugin 1.1 */
+static char gSeenHost[32];
 static int gHasNet = -1;
-static uint64_t gUser = 0x5348415244ull;    /* proves `user` comes back untouched */
+static uint64_t gUser = 0x5348415244ull;
 static int gUserOk = 1;
 static const ShardCVarsApi* gCVars;
 static ShardCVar gCounter, gNote, gScale, gLocked;
-static int gCVarResult;                     /* first error the cvar calls returned */
+static int gCVarResult;
 static ShardPluginCtx gCtx;
 static char gEcho[128];
 static int gCommandResult;
 
-/* components, systems, ecs */
 typedef struct Counter {
     float   value;
     int32_t ticks;
@@ -40,7 +37,7 @@ typedef struct Counter {
     uint8_t enabled;
     uint8_t pad[3];
     float   axis[3];
-    uint32_t scratch;           /* private : neither saved nor shown */
+    uint32_t scratch;
 } Counter;
 
 static const ShardComponentsApi* gComponents;
@@ -49,7 +46,6 @@ static const ShardSystemsApi* gSystems;
 static ShardComponentType gCounterType;
 static ShardComponentType gTransformType;
 
-/* ABI 1.2 : a component that keeps its bulk in a blob (shard.components 1.1) */
 typedef struct Chunk {
     uint32_t count;
     uint32_t pad;
@@ -58,10 +54,9 @@ typedef struct Chunk {
 static const ShardComponentsApi* gComponents11;
 static ShardComponentType gChunkType;
 
-/* ABI 1.3 : text and assets in a component (shard.components 1.2), moving an actor from a system (shard.ecs 1.1) */
 typedef struct Label {
-    ShardBlob name;                         /* SHARD_FIELD_STRING */
-    int32_t   icon;                         /* SHARD_FIELD_ASSET */
+    ShardBlob name;
+    int32_t   icon;
     int32_t   visits;
 } Label;
 typedef struct LabelRun {
@@ -71,33 +66,31 @@ typedef struct LabelRun {
 static const ShardComponentsApi* gComponents12;
 static const ShardEcsApi* gEcs11;
 static ShardComponentType gLabelType;
-static int gLabelResult;                    /* first error the label system met */
-static int gLabelNoActor;                   /* entities set_local_transform found no actor behind */
-static int gUndeclaredPose;                 /* what set_local_transform returned to a system that did not declare the transform */
-static int gSetupResult;                    /* first error of the registrations in on_load */
+static int gLabelResult;
+static int gLabelNoActor;
+static int gUndeclaredPose;
+static int gSetupResult;
 static int gSystemRuns;
-static int gUndeclaredGet;                  /* what `get` on a type the system did not declare returned */
-static int gWrongThread;                    /* what a "thread : main" function called from a system returned */
+static int gUndeclaredGet;
+static int gWrongThread;
 static int gSpawned;
 static uint64_t gChunkEntities;
 
-/* events, hooks */
 static const ShardEventsApi* gEventsApi;
 static int gTicksReceived;
 static int32_t gLastTicks;
 static ShardSubscription gSubscription;
 static int gHookCalls;
 
-/* frames, tools, content, state */
 static int gFramesBegun, gFramesEnded;
 static int gContentMounted;
 static char gContentText[64];
 static int gContentFiles;
-static int gPersist;                        /* what a reload must keep */
+static int gPersist;
 static int gRestored = -1;
 static int gUnloadedAssets;
 
-/* Called from every callback the host makes into the plugin : the test sees who the host says is running (crash attribution) */
+// Called from every host callback: the test sees who the host says is running (crash attribution).
 static void (*gProbe)(void);
 static void Probe(void)
 {
@@ -142,8 +135,6 @@ static const void* Query(const char* id)
     return table;
 }
 
-/* ---- Console ---- */
-
 static ShardResult SHARD_CALL CmdEcho(void* user, ShardPluginCtx ctx, const ShardStr* args, uint32_t argCount, ShardStr* output)
 {
     (void)ctx;
@@ -164,8 +155,6 @@ static ShardResult SHARD_CALL CmdPersist(void* user, ShardPluginCtx ctx, const S
     if (argCount == 1) gPersist = atoi(args[0].data);
     return SHARD_OK;
 }
-
-/* ---- The label system : appends a "!" to every name and moves the actor to x = its number of visits ---- */
 
 static ShardResult SHARD_CALL VisitLabels(void* user, const ShardChunk* chunk)
 {
@@ -212,8 +201,6 @@ static ShardResult SHARD_CALL VisitLabel(void* user, ShardPluginCtx ctx, const S
     return gEcs11 && gComponents12 ? gEcs->each_chunk(run->ecs, &query, &VisitLabels, &labelRun) : SHARD_OK;
 }
 
-/* ---- The system ---- */
-
 static ShardResult SHARD_CALL TickChunk(void* user, const ShardChunk* chunk)
 {
     const float dt = *(const float*)user;
@@ -242,15 +229,12 @@ static ShardResult SHARD_CALL Tick(void* user, ShardPluginCtx ctx, const ShardSy
     ++gSystemRuns;
 
     {
-        /* a type this system did not declare : refused */
         void* block = NULL;
         ShardEntity none = 0;
         gUndeclaredGet = gEcs->get(run->ecs, none, gTransformType, &block);
     }
-    /* a main thread function from inside a system : refused */
     gWrongThread = gCVars->set_int(ctx, gCounter, 7);
     if (gEcs11) {
-        /* this system did not declare shard.LocalTransform : it may not move an actor */
         ShardLocalTransform pose;
         memset(&pose, 0, sizeof(pose));
         pose.rotation[3] = 1.0f;
@@ -258,7 +242,6 @@ static ShardResult SHARD_CALL Tick(void* user, ShardPluginCtx ctx, const ShardSy
     }
 
     if (!gSpawned) {
-        /* an entity of its own, with a Counter : created at the end of the phase */
         Counter fresh;
         ShardEntity e = 0;
         memset(&fresh, 0, sizeof(fresh));
@@ -269,14 +252,11 @@ static ShardResult SHARD_CALL Tick(void* user, ShardPluginCtx ctx, const ShardSy
         gSpawned = 1;
     }
     {
-        /* queued : delivered at the end of the frame */
         int32_t ticks = gSystemRuns;
         gEventsApi->emit(ctx, Str("shard.test.cplugin.Ticked"), &ticks, sizeof(ticks));
     }
     return SHARD_OK;
 }
-
-/* ---- Events, hooks ---- */
 
 static void SHARD_CALL OnTicked(void* user, ShardPluginCtx ctx, ShardStr name, const void* payload, uint64_t size)
 {
@@ -297,8 +277,6 @@ static void SHARD_CALL OnPreSave(void* user, ShardPluginCtx ctx, ShardHookArgs* 
     }
 }
 
-/* ---- A service : a table other plugins call ---- */
-
 typedef struct MathService {
     uint32_t structSize;
     int32_t (SHARD_CALL *add)(void* self, int32_t a, int32_t b);
@@ -307,8 +285,6 @@ typedef struct MathService {
 static int32_t gMathBias = 1000;
 static int32_t SHARD_CALL MathAdd(void* self, int32_t a, int32_t b) { return *(const int32_t*)self + a + b; }
 static const MathService kMath = { sizeof(MathService), &MathAdd };
-
-/* ---- Extension items ---- */
 
 static ShardResult SHARD_CALL Validate(void* user, ShardPluginCtx ctx, ShardStr projectFile, const ShardReport* report)
 {
@@ -354,8 +330,6 @@ static void SHARD_CALL UnloadAsset(void* user, ShardPluginCtx ctx, void* resourc
     gHost->free(ctx, resource);
 }
 
-/* ---- The registrations ---- */
-
 static void RegisterAll(void* user, ShardPluginCtx ctx)
 {
     const ShardCommandsApi* commands = (const ShardCommandsApi*)Query(SHARD_IFACE_COMMANDS);
@@ -380,14 +354,12 @@ static void RegisterAll(void* user, ShardPluginCtx ctx)
         if (r != SHARD_OK && !gCVarResult) gCVarResult = r;
         r = gCVars->create_bool(ctx, Str("locked"), 1, Str("read only"), SHARD_CVAR_READONLY, &gLocked);
         if (r != SHARD_OK && !gCVarResult) gCVarResult = r;
-        /* the same name twice must be refused */
         {
             ShardCVar again = 0;
             if (gCVars->create_int(ctx, Str("counter"), 0, Str(""), 0, 0, 1, &again) != SHARD_E_ALREADY_EXISTS && !gCVarResult) gCVarResult = 1000;
         }
     }
 
-    /* A component : the fields the world saves, a private one it does not */
     gComponents = (const ShardComponentsApi*)Query(SHARD_IFACE_COMPONENTS);
     gEcs = (const ShardEcsApi*)Query(SHARD_IFACE_ECS);
     gSystems = (const ShardSystemsApi*)Query(SHARD_IFACE_SYSTEMS);
@@ -419,7 +391,6 @@ static void RegisterAll(void* user, ShardPluginCtx ctx)
         desc.defaults = &defaults;
         Setup(gComponents->register_type(ctx, &desc, &gCounterType));
         {
-            /* the same name again, and a field that goes past the block : refused */
             ShardComponentType again = 0;
             if (gComponents->register_type(ctx, &desc, &again) != SHARD_E_ALREADY_EXISTS) Setup(1001);
             desc.name = Str("Broken");
@@ -462,7 +433,6 @@ static void RegisterAll(void* user, ShardPluginCtx ctx)
         desc.fieldCount = 3;
         desc.fields = fields;
         Setup(gComponents12->register_type(ctx, &desc, &gLabelType));
-        /* a private string is refused : a string is saved and shown */
         fields[0].flags = SHARD_FIELD_PRIVATE;
         desc.name = Str("PrivateLabel");
         if (gComponents12->register_type(ctx, &desc, &again) != SHARD_E_INVALID_ARG) Setup(1006);
@@ -501,7 +471,6 @@ static void RegisterAll(void* user, ShardPluginCtx ctx)
     gEventsApi = (const ShardEventsApi*)Query(SHARD_IFACE_EVENTS);
     if (gEventsApi) Setup(gEventsApi->subscribe(ctx, Str("shard.test.cplugin.Ticked"), &OnTicked, user, &gSubscription));
     {
-        /* shard.events 1.1 : what Ticked carries, for the tools */
         const ShardEventsApi* events11 = NULL;
         if (gHost->query_interface(Str(SHARD_IFACE_EVENTS), 1, 1, (const void**)&events11) == SHARD_OK && events11) {
             ShardFieldDesc ticks;
@@ -510,7 +479,7 @@ static void RegisterAll(void* user, ShardPluginCtx ctx)
             ticks.type = SHARD_FIELD_I32;
             ticks.name = Str("ticks");
             Setup(events11->describe(ctx, Str("shard.test.cplugin.Ticked"), sizeof(int32_t), &ticks, 1));
-            ticks.offset = 2;   /* past the end of the payload : refused */
+            ticks.offset = 2;
             if (events11->describe(ctx, Str("shard.test.cplugin.Broken"), sizeof(int32_t), &ticks, 1) != SHARD_E_INVALID_ARG) Setup(1005);
         } else {
             Setup(SHARD_E_NOT_FOUND);
@@ -555,13 +524,10 @@ static void RegisterAll(void* user, ShardPluginCtx ctx)
     }
 }
 
-/* ---- Callbacks ---- */
-
 static ShardResult SHARD_CALL OnLoad(void* user, ShardPluginCtx ctx)
 {
     const ShardPluginApi* plugin = NULL;
     CheckUser(user);
-    /* 1.1 of the interface : host and has_permission */
     gHost->query_interface(Str(SHARD_IFACE_PLUGIN), 1, 1, (const void**)&plugin);
     Note(EVENT_LOAD);
     gCtx = ctx;
@@ -589,14 +555,14 @@ static ShardResult SHARD_CALL OnEnable(void* user, ShardPluginCtx ctx)
 {
     CheckUser(user);
     Note(EVENT_ENABLE);
-    /* Memory goes through the host so it is counted against the budget */
+    // Memory goes through the host so it counts against the budget.
     if (!gBlock) gBlock = gHost->alloc(ctx, 1024, 16);
     if (gCVars && gCounter) {
         int32_t counter = 0;
         if (gCVars->get_int(ctx, gCounter, &counter) == SHARD_OK) gCVars->set_int(ctx, gCounter, counter + 1);
         gCVars->set_string(ctx, gNote, Str("enabled"));
-        gCVars->set_float(ctx, gScale, 9.0f);       /* above the maximum : clamped by the host */
-        gCVars->set_bool(ctx, gLocked, 0);          /* the owner may change its own read-only variable */
+        gCVars->set_float(ctx, gScale, 9.0f);
+        gCVars->set_bool(ctx, gLocked, 0);
     }
     return gBlock ? SHARD_OK : SHARD_E_OUT_OF_MEMORY;
 }
@@ -728,8 +694,6 @@ SHARD_PLUGIN_EXPORT ShardResult SHARD_CALL shard_plugin_entry(const ShardHostApi
     return SHARD_OK;
 }
 
-/* ---- Entry points that must be refused : a manifest picks one with "entry" ---- */
-
 SHARD_PLUGIN_EXPORT ShardResult SHARD_CALL shard_plugin_entry_future(const ShardHostApi* host, ShardPluginInfo* out)
 {
     ShardResult result = shard_plugin_entry(host, out);
@@ -765,8 +729,6 @@ SHARD_PLUGIN_EXPORT ShardResult SHARD_CALL shard_plugin_entry_refuse(const Shard
     return SHARD_E_UNSUPPORTED;
 }
 
-/* ---- What the test reads ---- */
-
 TEST_EXPORT void c_plugin_set_probe(void (*probe)(void)) { gProbe = probe; }
 TEST_EXPORT int c_plugin_event_count(void) { return gEventCount; }
 TEST_EXPORT int c_plugin_event(int index) { return index >= 0 && index < gEventCount ? gEvents[index] : 0; }
@@ -777,7 +739,6 @@ TEST_EXPORT int c_plugin_has_net(void) { return gHasNet; }
 TEST_EXPORT int c_plugin_user_ok(void) { return gUserOk; }
 TEST_EXPORT int c_plugin_holds_block(void) { return gBlock != NULL; }
 TEST_EXPORT int c_plugin_cvar_error(void) { return gCVarResult; }
-/* what a read of a variable of the previous enable returns once the host destroyed it (the handle is stale) */
 TEST_EXPORT int c_plugin_read_old_counter(void)
 {
     int32_t value = 0;
@@ -807,19 +768,16 @@ TEST_EXPORT const char* c_plugin_content_text(void) { return gContentText; }
 TEST_EXPORT int c_plugin_content_files(void) { return gContentFiles; }
 TEST_EXPORT int c_plugin_restored(void) { return gRestored; }
 TEST_EXPORT int c_plugin_unloaded_assets(void) { return gUnloadedAssets; }
-/* the subscription stops : no more Ticked */
 TEST_EXPORT int c_plugin_unsubscribe(void)
 {
     return gEventsApi ? (int)gEventsApi->unsubscribe(gCtx, gSubscription) : 1;
 }
-/* how another plugin's type looks from here */
 TEST_EXPORT uint64_t c_plugin_chunk_type(void) { return gChunkType; }
 TEST_EXPORT uint64_t c_plugin_label_type(void) { return gLabelType; }
 TEST_EXPORT int c_plugin_label_result(void) { return gLabelResult; }
 TEST_EXPORT int c_plugin_label_no_actor(void) { return gLabelNoActor; }
 TEST_EXPORT int c_plugin_undeclared_pose(void) { return gUndeclaredPose; }
 
-/* A blob of n bytes holding i % 251 at byte i (0 on failure) */
 TEST_EXPORT uint64_t c_plugin_make_blob(uint32_t n)
 {
     ShardBlob blob = 0;
@@ -832,7 +790,6 @@ TEST_EXPORT uint64_t c_plugin_make_blob(uint32_t n)
     return blob;
 }
 
-/* SHARD_OK if the blob holds what c_plugin_make_blob(n) wrote ; its error otherwise, 1 for other bytes */
 TEST_EXPORT int c_plugin_check_blob(uint64_t blob, uint32_t n)
 {
     void* data = NULL;
@@ -845,7 +802,6 @@ TEST_EXPORT int c_plugin_check_blob(uint64_t blob, uint32_t n)
     return SHARD_OK;
 }
 
-/* Resizes, then frees : the results of both (0 when both worked) */
 TEST_EXPORT int c_plugin_resize_and_free(uint64_t blob, uint32_t n)
 {
     ShardResult r = gComponents11->blob_resize(gCtx, blob, n);
@@ -853,7 +809,6 @@ TEST_EXPORT int c_plugin_resize_and_free(uint64_t blob, uint32_t n)
     return (int)gComponents11->blob_free(gCtx, blob);
 }
 
-/* shard.experimental.world_ecs : counts the entities that have a Counter from the main thread, then spawns one more (applied at close) */
 TEST_EXPORT int c_plugin_world_count(uint64_t* count)
 {
     const ShardWorldEcsApi* world = NULL;
@@ -870,13 +825,12 @@ TEST_EXPORT int c_plugin_world_count(uint64_t* count)
     query.withCount = 1;
     query.with = &gCounterType;
     r = gEcs->count(ecs, &query, count);
-    /* a main thread function keeps working while the registry is open */
     if (r == SHARD_OK && gCVars->set_int(gCtx, gCounter, 3) != SHARD_OK) r = 1000;
     memset(&fresh, 0, sizeof(fresh));
     if (r == SHARD_OK) r = gEcs->spawn(ecs, &e);
     if (r == SHARD_OK) r = gEcs->add(ecs, e, gCounterType, &fresh, sizeof(fresh));
     if (world->close(gCtx, ecs) != SHARD_OK && r == SHARD_OK) r = 1001;
-    if (gEcs->count(ecs, &query, count) != SHARD_E_STALE_HANDLE && r == SHARD_OK) r = 1002;     /* closed : stale */
+    if (gEcs->count(ecs, &query, count) != SHARD_E_STALE_HANDLE && r == SHARD_OK) r = 1002;
     return (int)r;
 }
 

@@ -35,7 +35,6 @@ namespace Shard::Engine::Rendering {
 
         const std::string name = DynLib::FileName("renderdoc");
 
-        // Started from RenderDoc : it is in the process already
         bool found = library->OpenIfLoaded(name);
 
         if (!found && loadIfMissing)
@@ -80,7 +79,6 @@ namespace Shard::Engine::Rendering {
         m_Api = api;
         m_Library = library.release();
 
-        // No overlay on top of the picture, the captures in a folder of their own
         Api(m_Api)->SetCaptureOptionU32(eRENDERDOC_Option_AllowVSync, 1);
         DEBUG_INFO("RenderDoc ", Version(), " is attached : `render.capture` takes a capture of the next frame.");
         return true;

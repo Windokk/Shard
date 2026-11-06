@@ -2,9 +2,7 @@
 
 #include <shard/game.hpp>
 
-/// @brief Kicks the physics body of its actor in a random direction every `interval` frames. The reference for gameplay that needs random
-/// numbers : it takes its generator from a stream of the run (Shard::Random::Stream, derived from the run's seed) instead of rand() or
-/// std::random_device, so a replay of the run kicks the same way. The determinism tests use it for that.
+// Takes its generator from a run stream (Shard::Random::Stream, derived from the run's seed) instead of rand() or std::random_device, so a replay kicks the same way. Used by the determinism tests.
 class RandomKicker : public Shard::Script {
 public:
     void OnPlay() override;

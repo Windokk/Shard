@@ -17,23 +17,20 @@ using namespace Shard::Engine::Core;
 using Shard::Engine::Core::Determinism::StateHasher;
 
 namespace {
-    // Every test starts and ends with the global seed and mode forgotten : they are process-wide
     struct DeterminismReset : ::testing::Test {
         void SetUp() override { Determinism::Reset(); }
         void TearDown() override { Determinism::Reset(); }
     };
 }
 
-// ---- StateHasher ------------------------------------------------------------------------------------------------------
-
-TEST(StateHasher, SameValuesSameHashAndOrderMatters) {
+TEST(StateHasher, SameValuesSameHash) {
     const auto hashOf = [](float a, float b) { return StateHasher().Float(a).Float(b).Digest(); };
     EXPECT_EQ(hashOf(1.0f, 2.0f), hashOf(1.0f, 2.0f));
     EXPECT_NE(hashOf(1.0f, 2.0f), hashOf(2.0f, 1.0f));
     EXPECT_NE(StateHasher().Digest(), StateHasher().Byte(0).Digest()) << "an empty state and a state of one zero byte are not the same";
 }
 
-TEST(StateHasher, OneFlippedBitChangesTheHash) {
+TEST(StateHasher, FlippedBitChangesHash) {
     const float a = 1.0f;
     uint32_t bits;
     std::memcpy(&bits, &a, sizeof(bits));
@@ -43,7 +40,7 @@ TEST(StateHasher, OneFlippedBitChangesTheHash) {
     EXPECT_NE(StateHasher().Float(a).Digest(), StateHasher().Float(b).Digest()) << "the last bit of a float counts : that is what the hash is for";
 }
 
-TEST(StateHasher, EqualValuesWithDifferentBitsHashTheSame) {
+TEST(StateHasher, EqualValuesHashSame) {
     EXPECT_EQ(StateHasher().Float(0.0f).Digest(), StateHasher().Float(-0.0f).Digest());
     const float nan1 = std::numeric_limits<float>::quiet_NaN();
     uint32_t bits;
@@ -53,7 +50,6 @@ TEST(StateHasher, EqualValuesWithDifferentBitsHashTheSame) {
     std::memcpy(&nan2, &bits, sizeof(nan2));
     EXPECT_EQ(StateHasher().Float(nan1).Digest(), StateHasher().Float(nan2).Digest());
 
-    // q and -q are the same rotation
     const glm::quat q = glm::normalize(glm::quat(0.7f, 0.1f, -0.3f, 0.2f));
     EXPECT_EQ(StateHasher().Quat(q).Digest(), StateHasher().Quat(-q).Digest());
 }
@@ -63,8 +59,7 @@ TEST(StateHasher, StringsAreLengthPrefixed) {
 }
 
 TEST(StateHasher, ValuesArePinned) {
-    // The same on every platform and compiler, forever : replay files hold hashes made with it. If this test fails the
-    // hash changed, and every recorded replay has to be recorded again (ShardHeadless --write-replay).
+    // Stable on every platform, replay files hold hashes made with it. If this fails, re-record every replay (ShardHeadless --write-replay).
     const uint64_t digest = StateHasher().U32(1).Float(1.5f).Bool(true).String("shard").Vec3(glm::vec3(1.0f, -2.0f, 0.25f)).Digest();
     EXPECT_EQ(Determinism::HashToString(digest), "d1d81970faaa1079");
 }
@@ -83,9 +78,7 @@ TEST(StateHasher, HashTextRoundTrips) {
     EXPECT_FALSE(Determinism::HashFromString("00000000000000001", parsed)) << "17 digits do not fit";
 }
 
-// ---- seed and streams -------------------------------------------------------------------------------------------------
-
-TEST_F(DeterminismReset, AStreamIsAFunctionOfTheSeedAndTheName) {
+TEST_F(DeterminismReset, StreamDependsOnSeedAndName) {
     Determinism::Configure(42, true);
     Random a = Determinism::MakeStream("physics.spawner");
     Random b = Determinism::MakeStream("physics.spawner");
@@ -107,7 +100,7 @@ TEST_F(DeterminismReset, AStreamIsAFunctionOfTheSeedAndTheName) {
     EXPECT_LT(same, 3) << "two seeds give two different sequences";
 }
 
-TEST_F(DeterminismReset, StreamsDoNotDependOnTheOrderTheyAreAskedIn) {
+TEST_F(DeterminismReset, StreamsIgnoreRequestOrder) {
     Determinism::Configure(7, true);
     Random first = Determinism::MakeStream("a");
     Random second = Determinism::MakeStream("b");
@@ -121,21 +114,20 @@ TEST_F(DeterminismReset, StreamsDoNotDependOnTheOrderTheyAreAskedIn) {
 }
 
 TEST_F(DeterminismReset, StreamValuesArePinned) {
-    // PCG32 and the mixers only use integer arithmetic : the same numbers on every platform. Pinned so that a change of
-    // the derivation (which would silently change every recorded replay) is noticed.
+    // PCG32 and the mixers are integer only. Pinned so a change in the derivation does not silently invalidate recorded replays.
     Determinism::Configure(1, true);
     Random r = Determinism::MakeStream("pinned");
     EXPECT_EQ(r.Next(), 2949991208u);
     EXPECT_EQ(r.Next(), 2090037578u);
 }
 
-TEST_F(DeterminismReset, AnUnconfiguredRunDrawsASeedAndKeepsIt) {
+TEST_F(DeterminismReset, UnconfiguredRunKeepsSeed) {
     const uint64_t first = Determinism::Seed();
     EXPECT_EQ(Determinism::Seed(), first);
     EXPECT_FALSE(Determinism::Enabled());
 }
 
-TEST_F(DeterminismReset, GuidsAreCountedInADeterministicRun) {
+TEST_F(DeterminismReset, GuidsCountedWhenDeterministic) {
     Determinism::Configure(5, true);
     const Guid a = Guid::Generate();
     const Guid b = Guid::Generate();
@@ -160,10 +152,8 @@ TEST_F(DeterminismReset, GuidsAreRandomOtherwise) {
     EXPECT_EQ(seen.size(), 100u);
 }
 
-// ---- the random helpers are libm free ----------------------------------------------------------------------------------
-
-TEST(Random, UnitVectorsAreMadeOfExactOperationsOnly) {
-    // Pinned bit patterns : sin / cos differ in the last bit between C libraries, + - * / and sqrt do not
+TEST(Random, UnitVectorsExactOnly) {
+    // Pinned bit patterns: sin / cos differ in the last bit between C libraries, + - * / and sqrt do not.
     Random r(99);
     const glm::vec3 v = r.OnUnitSphere();
     const glm::vec2 c = r.OnUnitCircle();
@@ -177,16 +167,12 @@ TEST(Random, UnitVectorsAreMadeOfExactOperationsOnly) {
     for (int i = 0; i < 5; ++i) EXPECT_EQ(bits[i], expected[i]) << i;
 }
 
-// ---- physics in deterministic mode ------------------------------------------------------------------------------------
-
 namespace {
-    // Jolt calls back into the engine's physics manager when two bodies touch
     struct PhysicsContext : Shard::Tests::TestEngineContext {
         Shard::Engine::Physics::PhysicsManager* GetPhysicsManager() const override { return physics; }
         Shard::Engine::Physics::PhysicsManager* physics = nullptr;
     };
 
-    // Drops a handful of bodies onto a floor, steps, returns what Jolt says about every one of them
     std::vector<float> DropBodies(bool deterministic, Shard::Engine::Core::JobSystem* jobs) {
         Shard::Engine::Physics::PhysicsManager physics;
         PhysicsContext context;
@@ -230,15 +216,14 @@ namespace {
     }
 }
 
-TEST(DeterministicPhysics, TwoRunsGiveTheSameBits) {
+TEST(DeterministicPhysics, TwoRunsSameBits) {
     const std::vector<float> first = DropBodies(true, nullptr);
     const std::vector<float> second = DropBodies(true, nullptr);
     ASSERT_FALSE(first.empty());
     EXPECT_TRUE(SameBits(first, second));
 }
 
-TEST(DeterministicPhysics, TheNumberOfThreadsDoesNotChangeTheResult) {
-    // Jolt's own guarantee, which the deterministic mode builds on : one thread or several, same bits
+TEST(DeterministicPhysics, ThreadCountKeepsResult) {
     Shard::Engine::Core::JobSystemDesc desc;
     desc.workerCount = 3;
     Shard::Engine::Core::JobSystem jobs(desc);

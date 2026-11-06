@@ -69,7 +69,6 @@ namespace Shard::Engine::Rendering{
             }
         }
 
-        // The single submesh spans the whole mesh
         m_Submeshes[0].boundsMin = m_BoundsMin;
         m_Submeshes[0].boundsMax = m_BoundsMax;
 
@@ -78,9 +77,6 @@ namespace Shard::Engine::Rendering{
 
     void GLMesh::CreateFromFBX(const ufbx_mesh *ufbx_mesh, double scene_unit_meters, ufbx_material_list &ufbx_mats, ufbx_node *mesh_node, COL_RGBA vertexColor)
     {
-        // Pure CPU triangulation/dedup/tangent-computation lives in the backend-agnostic
-        // BuildMeshCPUDataFromFBX (mesh.cpp) so it's reusable from the async world loader's
-        // background decode workers - this just uploads the result to the GPU.
         CreateFromData(BuildMeshCPUDataFromFBX(ufbx_mesh, scene_unit_meters, ufbx_mats, mesh_node, vertexColor));
     }
 
@@ -132,7 +128,6 @@ namespace Shard::Engine::Rendering{
 
         glBindVertexArray(m_VAO);
 
-        // Upload vertex data
         glBindBuffer(GL_ARRAY_BUFFER, m_VBO);
         glBufferData(
             GL_ARRAY_BUFFER,
@@ -141,7 +136,6 @@ namespace Shard::Engine::Rendering{
             GL_STATIC_DRAW
         );
 
-        // Upload index data
         glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, m_EBO);
         glBufferData(
             GL_ELEMENT_ARRAY_BUFFER,
@@ -180,7 +174,6 @@ namespace Shard::Engine::Rendering{
         m_GpuBytes = bytes;
         m_VertexBytes = m_Vertices.size();
 
-        // On the GPU now : the CPU copy is not needed (see Mesh::AcquireCPUData)
         FinishCPUData();
     }
 
@@ -193,7 +186,6 @@ namespace Shard::Engine::Rendering{
             out.vertices.resize(m_VertexBytes);
             out.indices.resize(m_IndexCount);
 
-            // The copy targets : binding the element buffer to a VAO would change that VAO
             glBindBuffer(GL_COPY_READ_BUFFER, m_VBO);
             glGetBufferSubData(GL_COPY_READ_BUFFER, 0, static_cast<GLsizeiptr>(out.vertices.size()), out.vertices.data());
             glBindBuffer(GL_COPY_READ_BUFFER, m_EBO);

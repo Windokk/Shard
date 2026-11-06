@@ -28,7 +28,6 @@
 namespace Shard::Engine::Rendering {
 
     namespace {
-        // Same background the mesh-only thumbnails always had, so the asset browser's look doesn't change.
         const glm::vec4 kBackground(0.145f, 0.145f, 0.157f, 1.0f);
 
         uint64_t Fnv1a64(const std::string& text)
@@ -50,7 +49,6 @@ namespace Shard::Engine::Rendering {
 
     void ThumbnailService::Shutdown()
     {
-        // The generators run on the IO pool and point back into this service : its futures do not block when they die
         for (auto& [key, entry] : m_Entries)
             if (entry.pending.valid())
                 entry.pending.wait();
@@ -91,7 +89,6 @@ namespace Shard::Engine::Rendering {
         std::string identity = std::to_string(kRenderVersion) + "|" + std::to_string(kCellSize) + "|"
             + MakeKey(request.kind, request.nameInProject) + "|" + std::to_string(size) + "|"
             + std::to_string(stamp.time_since_epoch().count());
-        // Only when set, so the thumbnails the renderer draws keep the key (and the cache files) they had
         if (request.generatorVersion != 0)
             identity += "|g" + std::to_string(request.generatorVersion);
 
@@ -116,9 +113,7 @@ namespace Shard::Engine::Rendering {
 
         if (slot < 0)
         {
-            // Atlas full : evict the least recently used thumbnail, but never one that was requested this
-            // frame - it is (or is about to be) on screen, and evicting it would just make two visible
-            // tiles fight over slots forever.
+            // Never evict a thumbnail requested this frame, two visible tiles would fight over slots forever.
             uint64_t oldest = m_Frame;
             for (size_t i = 0; i < m_SlotKeys.size(); ++i)
             {
@@ -151,8 +146,6 @@ namespace Shard::Engine::Rendering {
         uint32_t row = slot / kGridDim;
         float cell = 1.0f / static_cast<float>(kGridDim);
 
-        // V flipped (uv0 at the cell's bottom, uv1 at its top) : the atlas is stored the way GL renders
-        // it, and every other render-to-texture result in the editor is shown with the same flip.
         ThumbnailRegion region;
         region.uv0 = glm::vec2(col * cell, (row + 1) * cell);
         region.uv1 = glm::vec2((col + 1) * cell, row * cell);
@@ -205,7 +198,6 @@ namespace Shard::Engine::Rendering {
         std::string cacheFile = CacheFilePath(request);
         bool cached = !cacheFile.empty() && std::filesystem::exists(cacheFile);
 
-        // A sound that isn't cached yet is drawn by a worker thread : not by this frame
         if (!cached && request.kind == ThumbnailKind::Sound)
         {
             StartGenerated(key, request, cacheFile);
@@ -229,7 +221,6 @@ namespace Shard::Engine::Rendering {
 
         if (!ok && request.kind == ThumbnailKind::Sound)
         {
-            // The cache file is unreadable : draw it again
             FreeSlot(slot);
             StartGenerated(key, request, cacheFile);
             return false;
@@ -249,7 +240,6 @@ namespace Shard::Engine::Rendering {
 
         if (!ok)
         {
-            // Don't retry every frame : a mesh that fails to load will keep failing.
             FreeSlot(slot);
             m_Entries[key] = Entry{};
             return false;
@@ -270,12 +260,10 @@ namespace Shard::Engine::Rendering {
     {
         if (!request.generate)
         {
-            // Nothing can draw it : don't ask again
             m_Entries[key] = Entry{};
             return;
         }
 
-        // Ask again next frame
         if (m_ActiveGenerators.load() >= kMaxGeneratorJobs)
             return;
 
@@ -294,7 +282,6 @@ namespace Shard::Engine::Rendering {
             }
             catch (...)
             {
-                // A generator that throws (out of memory on a huge file...) is a failed thumbnail, not a crash
             }
 
             --m_ActiveGenerators;
@@ -304,7 +291,6 @@ namespace Shard::Engine::Rendering {
             return rgba;
         };
 
-        // The IO pool : decoding a file mostly waits on the disk, and must not take a core from the job system
         if (Core::ThreadPool* io = Core::GetEngine().GetThreadPool(Core::PoolKind::IO))
             entry.pending = io->Submit(std::move(generateJob));
         else
@@ -318,7 +304,6 @@ namespace Shard::Engine::Rendering {
         if (entry.pending.wait_for(std::chrono::seconds(0)) != std::future_status::ready)
             return false;
 
-        // Nothing evictable this frame : the pixels stay in the future until there is room
         int slot = AllocateSlot(key);
         if (slot < 0)
             return false;
@@ -326,7 +311,6 @@ namespace Shard::Engine::Rendering {
         std::vector<uint8_t> rgba = entry.pending.get();
         if (rgba.size() != size_t(kCellSize) * kCellSize * 4)
         {
-            // Couldn't be drawn : the entry stays not ready, so it isn't decoded again every frame
             FreeSlot(slot);
             return false;
         }
@@ -350,7 +334,6 @@ namespace Shard::Engine::Rendering {
 
     void ThumbnailService::StoreInAtlas(uint32_t slot, const uint8_t* rgba)
     {
-        // The atlas is a graphics resource : the upload runs on the render thread, the caller waits (and `rgba` stays valid)
         OnGraphicsThread([&] {
             m_Atlas->UploadColorRegion((slot % kGridDim) * kCellSize, (slot / kGridDim) * kCellSize, kCellSize, kCellSize, rgba);
         });
@@ -358,8 +341,7 @@ namespace Shard::Engine::Rendering {
 
     void ThumbnailService::Invalidate(const ThumbnailRequest& request)
     {
-        // The cache key only sees the asset file's own size/date, so an edit that leaves it untouched
-        // (a texture the material uses) would otherwise come back from disk : delete the file too.
+        // The cache key only sees the asset file's size and date, so also delete the file when a dependency was edited.
         std::error_code ec;
 
         auto it = m_Entries.find(MakeKey(request.kind, request.nameInProject));
@@ -369,7 +351,6 @@ namespace Shard::Engine::Rendering {
                 FreeSlot(it->second.slot);
             if (!it->second.cacheFile.empty())
                 std::filesystem::remove(it->second.cacheFile, ec);
-            // A generator still running on a worker thread is waited for here (its future's destructor)
             m_Entries.erase(it);
         }
 
@@ -386,8 +367,6 @@ namespace Shard::Engine::Rendering {
 
         std::vector<char> bytes((std::istreambuf_iterator<char>(file)), std::istreambuf_iterator<char>());
 
-        // The cache file was written flipped (ImageExport::WritePNG), so it is read flipped : whatever the last decode on this
-        // thread left in the setting
         stbi_set_flip_vertically_on_load_thread(true);
 
         int width = 0, height = 0, channels = 0;
@@ -409,7 +388,6 @@ namespace Shard::Engine::Rendering {
         if (m_PreviewSphere)
             return m_PreviewSphere;
 
-        // Same vertex format the mesh importer produces (see mesh.cpp), which lit.vert expects.
         struct Vertex {
             glm::vec3 position;
             glm::vec2 texCoord;
@@ -510,9 +488,6 @@ namespace Shard::Engine::Rendering {
         }
         else
         {
-            // Built fresh from the saved file rather than taken from the resource cache : a resident
-            // material keeps the parameters it was loaded with until the world reloads, so it would keep
-            // showing the pre-edit look after a save or a refresh.
             auto material = Serialization::DeserializeMaterial(request.filePath);
             auto sphere = GetPreviewSphere();
             if (!material || !sphere || sphere->GetIndexCount() == 0)
@@ -536,8 +511,6 @@ namespace Shard::Engine::Rendering {
 
         ImmediateRenderer* immediate = m_Renderer->GetImmediateRenderer();
 
-        // Drawn between two frames of the scene, on the render thread (the caller waits : the commands and the meshes
-        // they point at belong to it meanwhile)
         return OnGraphicsThread([&]() -> bool {
             ImmediateTarget target = immediate->Render(desc, commands);
             if (!target.IsValid())

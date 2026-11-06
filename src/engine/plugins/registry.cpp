@@ -151,8 +151,6 @@ namespace Shard::Engine::Plugins {
         return HttpGet(*url, maxBytes, timeoutMs, 3);
     }
 
-    // ---- Registry ----
-
     Core::Result<bool> Registry::Load(const std::string& source)
     {
         std::string location = source;
@@ -248,8 +246,6 @@ namespace Shard::Engine::Plugins {
         return (fs::path(base).parent_path() / v.file).generic_string();
     }
 
-    // ---- Installer ----
-
     Core::Result<std::vector<RegistryVersion>> PluginInstaller::Plan(const std::string& id, const VersionRange& range, const InstallOptions& options) const
     {
         std::vector<RegistryVersion> plan;
@@ -310,7 +306,7 @@ namespace Shard::Engine::Plugins {
         auto extracted = zip.Value().ExtractAll(staging.string());
         if (!extracted) { fs::remove_all(staging, ec); return Core::Err(version.id + " : " + extracted.GetError().message); }
 
-        // The archive has to hold the plugin it is listed as
+        // The archive must hold the plugin it is listed as
         std::string manifestText;
         {
             std::ifstream in(staging / "shard-plugin.json");
@@ -347,7 +343,7 @@ namespace Shard::Engine::Plugins {
         auto wrote = WriteInstallMarker(staging.string(), marker);
         if (!wrote) { fs::remove_all(staging, ec); return Core::Err(wrote.GetError().message); }
 
-        // Put it in place : the old version goes only once the new one is complete
+        // The old version is removed only once the new one is complete
         const fs::path target = installRoot / version.id;
         const fs::path backup = installRoot / (".replaced-" + version.id);
         fs::remove_all(backup, ec);
@@ -378,7 +374,6 @@ namespace Shard::Engine::Plugins {
         if (!plan) return Core::Err(plan.GetError().message);
         std::vector<InstalledPlugin> installed;
         for (const RegistryVersion& v : plan.Value()) {
-            // Already there at this version : nothing to download
             InstallMarker marker;
             const std::string folder = (fs::path(options.installDirectory) / v.id).generic_string();
             if (ReadInstallMarker(folder, marker) && marker.version == v.version.ToString() && marker.archiveSha256 == v.sha256) {

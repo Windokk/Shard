@@ -37,8 +37,7 @@
 
 namespace {
 
-    // Slab-method ray-vs-AABB test. `dir` is assumed normalized. Only reports a hit closer
-    // than maxDistance (so callers can pass the current-best hit distance to short-circuit).
+    // Slab method. `dir` must be normalized. Only reports a hit closer than maxDistance.
     bool RayIntersectsAABB(const glm::vec3& origin, const glm::vec3& dir,
                             const glm::vec3& boundsMin, const glm::vec3& boundsMax,
                             float maxDistance, float& outT)
@@ -66,9 +65,7 @@ namespace {
         return true;
     }
 
-    // World-space AABB of a mesh's local bounds transformed by worldMatrix. Recomputed from
-    // scratch every call (only used on click, not per-frame) rather than cached, since the
-    // actor's world matrix can change between clicks without any picking-relevant event firing.
+    // Recomputed on every call (click only), the world matrix can change between clicks with no event.
     void ComputeWorldBounds(const glm::vec3& localMin, const glm::vec3& localMax,
                              const glm::mat4& worldMatrix, glm::vec3& worldMin, glm::vec3& worldMax)
     {
@@ -88,7 +85,6 @@ namespace {
         }
     }
 
-    // The actor's ID plus every descendant's - focus and floor-snap treat a hierarchy as one object.
     std::unordered_set<uint32_t> CollectHierarchyIDs(const std::shared_ptr<Shard::Engine::Objects::Actor>& actor)
     {
         std::unordered_set<uint32_t> ids;
@@ -98,8 +94,6 @@ namespace {
         return ids;
     }
 
-    // Merged world AABB of every model in the hierarchy. Returns false when none of them has a mesh
-    // (empty actor, light, ...), in which case callers fall back to the actor's world position.
     bool ComputeHierarchyBounds(Shard::Engine::Worlds::World* world, const std::unordered_set<uint32_t>& ids,
                                 glm::vec3& outMin, glm::vec3& outMax)
     {
@@ -136,11 +130,7 @@ namespace Shard::Editor::GUI {
 
     void ViewportWindow::Draw()
     {
-        // The editor fly-camera must own the viewport whenever we're not in play mode. Loading or
-        // reloading a world rebinds CameraManager's active camera through World::OnLoad() - to a
-        // world camera, or to nothing at all when the scene has no camera actor, which left the
-        // viewport with no active camera ("Failed to find a valid active camera"). Re-assert it
-        // here every editor frame; it's a cheap lookup that no-ops once we're already active.
+        // Loading a world rebinds the active camera (to a world camera or nothing), which left the viewport with none. Re-assert the editor camera every editor frame, it is a cheap no-op once active.
         if (cameraActor && !Engine::Core::GetEngine().IsInPlayMode())
         {
             auto* cameraManager = Engine::Core::GetEngine().GetCameraManager();
@@ -152,7 +142,6 @@ namespace Shard::Editor::GUI {
             }
         }
 
-        // The fly camera's lens is the user's (Editor Preferences > Viewport) ; the orthographic size stays the camera's own
         if (camera && parent && !Engine::Core::GetEngine().IsInPlayMode())
         {
             const Core::CameraPreferences& prefs = parent->preferences.camera;
@@ -160,23 +149,18 @@ namespace Shard::Editor::GUI {
             camera->SetFOV(prefs.fieldOfView);
         }
 
-        // Dispatches one accumulated sample (or, on the first call after Start(), builds the scene/BVH)
-        // per editor frame while a raytrace is active (see Raytracer::Update()'s comments) - called
-        // unconditionally, regardless of whether the raytrace settings window is currently open, so the
-        // render keeps progressing in the background even if the user closes that panel.
+        // One sample per editor frame while a raytrace is active, even with the settings window closed.
         if (raytracer && raytracer->IsActive())
             raytracer->Update();
 
-        // Glide towards the point picked by FocusSelected() - frame-rate independent exponential ease
         if (focusAnimating && cameraActor && !Engine::Core::GetEngine().IsInPlayMode())
         {
             float dt = Engine::Core::GetEngine().GetTimeManager()->GetDeltaTime();
             const float rate = parent ? parent->preferences.camera.focusSpeed : 15.0f;
             glm::vec3 pos = cameraActor->transform->GetPosition();
-            // A rate of 0 jumps straight there
             pos = rate > 0.0f ? glm::mix(pos, focusTarget, 1.0f - std::exp(-rate * dt)) : focusTarget;
 
-            // Relative tolerance : far from the origin a float step is far bigger than a millimetre and the glide would never end
+            // Relative tolerance, far from the origin a float step exceeds a millimetre and the glide would never end.
             const float tolerance = std::max(0.001f, glm::length(focusTarget) * 1.0e-6f);
             if (!(glm::distance(pos, focusTarget) >= tolerance))
             {
@@ -190,8 +174,6 @@ namespace Shard::Editor::GUI {
 
         if (gameView)
         {
-            // The scene alone over the whole window : no title bar, toolbar or padding. A window of its own, so that the docked
-            // "Viewport" keeps its place for the way back.
             const ImGuiViewport* host = ImGui::GetMainViewport();
             ImGui::SetNextWindowPos(host->Pos);
             ImGui::SetNextWindowSize(host->Size);
@@ -211,23 +193,19 @@ namespace Shard::Editor::GUI {
             ImGui::EndChild();
         }
 
-        // Get current size
         ImVec2 current_size = ImGui::GetWindowSize();
 
-        // Rendu texture framebuffer
         uint32_t textureID = Engine::Core::GetEngine().GetRenderer()->GetViewportTextureHandle();
 
         ImVec2 avail = ImGui::GetContentRegionAvail();
         viewportSize = glm::vec2(avail.x, avail.y);
 
-        // The toolbar is not in the game view : the image is taller even when the window is not
         if ((current_size.x != prev_size.x || current_size.y != prev_size.y || gameView != gameViewShown)
             && avail.x > 0 && avail.y > 0)
         {
             Engine::Core::GetEngine().GetRenderer()->RescaleFramebuffers(avail.x, avail.y);
         }
 
-        // Save for next frame
         prev_size = current_size;
         gameViewShown = gameView;
 
@@ -247,13 +225,12 @@ namespace Shard::Editor::GUI {
         viewportImageMin = ImGui::GetItemRectMin();
         viewportImageMax = ImGui::GetItemRectMax();
 
-        // The overlays of plugins draw in this image : their UI maps the window positions of the input events into it
+        // Plugin overlays draw in this image, their UI maps window positions of input events into it.
         {
             const ImVec2 windowPos = ImGui::GetMainViewport()->Pos;
             Engine::Plugins::CAbi::SetPluginOverlayOrigin(viewportImageMin.x - windowPos.x, viewportImageMin.y - windowPos.y);
         }
 
-        // The game view only looks : nothing to drop, and no key may edit what is not shown (Delete on a hidden selection)
         if (!gameView)
         {
             HandleAssetDrop();
@@ -264,7 +241,6 @@ namespace Shard::Editor::GUI {
         if(!gameView && parent && parent->GetSelectedActor() && parent->settings.showGizmos)
             DrawObjectGizmo();
 
-        // What plugins draw for the selected actors
         if(!gameView && parent && parent->HasSelection() && parent->settings.showGizmos && camera)
         {
             const float low[2] = { viewportImageMin.x, viewportImageMin.y }, high[2] = { viewportImageMax.x, viewportImageMax.y };
@@ -322,7 +298,6 @@ namespace Shard::Editor::GUI {
 
         float toolbarWidth = ImGui::GetContentRegionAvail().x;
 
-        // Gizmo Space
         const char* items[2] = { ICON_LC_LOCATE " Local  ", ICON_LC_EARTH " World  " };
         static int item_selected_idx = 0;
         const char* combo_preview_value = items[item_selected_idx];
@@ -342,7 +317,6 @@ namespace Shard::Editor::GUI {
 
         ImGui::SameLine();
 
-        // Gizmo Operations (packed to the left)
         auto DrawGizmoButton = [&](const char* icon, ImGuizmo::OPERATION op)
         {
             bool selected = (currentGizmoOp == op);
@@ -357,18 +331,15 @@ namespace Shard::Editor::GUI {
         ImGui::SameLine();
         DrawGizmoButton(ICON_LC_SCALING, ImGuizmo::SCALE);
 
-        // Snap toggle + increment for the selected tool, right next to the tool buttons
         ImGui::SameLine(0.0f, ImGui::GetStyle().ItemSpacing.x * 3.0f);
         DrawSnapControls();
 
-        // What plugins added : with the left-hand controls, since the right-hand group below sits against the edge and would push them out of view
         DrawPluginToolbar();
 
         ImGui::SameLine();
 
         float playButtonWidth = ImGui::CalcTextSize(ICON_LC_PLAY).x + ImGui::GetStyle().FramePadding.x * 2;
         float centerX = std::max(0.0f, (toolbarWidth - playButtonWidth) / 2.0f);
-        // Never centre the play button on top of the left-hand controls in a narrow viewport
         ImGui::SetCursorPosX(std::max(centerX, ImGui::GetCursorPosX()));
 
         if (Engine::Core::GetEngine().IsInPlayMode())
@@ -391,10 +362,9 @@ namespace Shard::Editor::GUI {
         float cameraWidth = ImGui::CalcTextSize(ICON_LC_CAMERA).x + ImGui::GetStyle().FramePadding.x * 2;
         float eyeWidth = ImGui::CalcTextSize(ICON_LC_EYE_OFF).x + ImGui::GetStyle().FramePadding.x * 2;
         float raytraceWidth = ImGui::CalcTextSize(ICON_LC_APERTURE).x + ImGui::GetStyle().FramePadding.x * 2;
-        float rightX = toolbarWidth - (frameStatsWidth + cameraWidth + eyeWidth + raytraceWidth + 16); // spacing
+        float rightX = toolbarWidth - (frameStatsWidth + cameraWidth + eyeWidth + raytraceWidth + 16);
         ImGui::SetCursorPosX(rightX);
 
-        // Frame Stats Button
         {
             if(showFrameStats)
                 ImGui::PushStyleColor(ImGuiCol_Button, ImGui::GetStyleColorVec4(ImGuiCol_ButtonActive));
@@ -412,7 +382,6 @@ namespace Shard::Editor::GUI {
 
         ImGui::SameLine();
 
-        // Camera settings
         {
             if(showCamSettings)
                 ImGui::PushStyleColor(ImGuiCol_Button, ImGui::GetStyleColorVec4(ImGuiCol_ButtonActive));
@@ -430,7 +399,6 @@ namespace Shard::Editor::GUI {
 
         ImGui::SameLine();
 
-        // Viewport visibility settings
         {
             if(showViewportVisibility)
                 ImGui::PushStyleColor(ImGuiCol_Button, ImGui::GetStyleColorVec4(ImGuiCol_ButtonActive));
@@ -448,7 +416,6 @@ namespace Shard::Editor::GUI {
 
         ImGui::SameLine();
 
-        // Offline raytrace
         {
             if(showRaytraceSettings)
                 ImGui::PushStyleColor(ImGuiCol_Button, ImGui::GetStyleColorVec4(ImGuiCol_ButtonActive));
@@ -511,14 +478,10 @@ namespace Shard::Editor::GUI {
 
     void ViewportWindow::DrawObjectGizmo()
     {
-        // Object gizmo
-
         auto selected = parent->GetSelectedActor();
         if (!selected)
             return;
 
-        // Not in the frame the camera is in : the two sets of numbers do not share an origin, there is nothing sensible to draw or
-        // drag (F brings the camera into the object's frame)
         if (cameraActor && cameraActor->transform && selected->transform->GetFrame() != cameraActor->transform->GetFrame())
             return;
             
@@ -541,14 +504,11 @@ namespace Shard::Editor::GUI {
         glm::mat4 view = cam->GetView();
         glm::mat4 proj = cam->GetProjection();
 
-        // ImGuizmo manipulates in world space (it's driven by the camera's world-space view matrix) -
-        // so hand it the actor's world matrix, and convert back to local when writing the result back.
+        // ImGuizmo works in world space (driven by the camera's world view matrix). Give it the actor's world matrix and convert back to local on write.
         glm::mat4 transform = selected->transform->GetWorldMatrix();
         const glm::mat4 transformBefore = transform;
 
-        // Far from the origin the translations of the view and of the object are huge floats that nearly cancel, and the gizmo
-        // jumps around. Hand ImGuizmo a camera at the origin and the object relative to it (the subtraction in double, then
-        // the camera's position is added back to what comes out).
+        // Far from the origin view and object translations are huge floats that nearly cancel and the gizmo jumps. Give ImGuizmo a camera at the origin and the object relative to it (subtract in double, add the camera position back).
         glm::dvec3 gizmoOffset(0.0);
         if (cameraActor && cameraActor->transform)
         {
@@ -557,8 +517,7 @@ namespace Shard::Editor::GUI {
             transform[3] = glm::vec4(glm::vec3(glm::dvec3(transform[3]) - gizmoOffset), transform[3].w);
         }
 
-        // Only the active mode's increment is handed to ImGuizmo (nullptr = free movement). Translate
-        // reads one step per axis, rotate (degrees) and scale only read the first component.
+        // nullptr = free movement. Translate reads one step per axis, rotate (degrees) and scale read only the first component.
         const auto& settings = parent->settings;
         float snapValues[3] = { 0.0f, 0.0f, 0.0f };
         const float* snap = nullptr;
@@ -595,8 +554,6 @@ namespace Shard::Editor::GUI {
 
             auto& stack = Commands::CommandStack::Get();
 
-            // The selected actors that move with the gizmo : the ones that have no selected ancestor (they carry their
-            // children), in the frame the gizmo is in (the others have no common coordinates with it)
             gizmoTargets.clear();
             for (const auto& actor : Commands::Actions::TopLevel(parent->GetSelectedActors()))
             {
@@ -605,7 +562,6 @@ namespace Shard::Editor::GUI {
                 gizmoTargets.push_back({ actor, actor->transform->GetWorldMatrix() });
             }
 
-            // Where the gizmo was when the drag began (relative to the camera, like the matrix ImGuizmo works on)
             gizmoStartMatrix = transformBefore;
             gizmoStartMatrix[3] = glm::vec4(glm::vec3(glm::dvec3(gizmoStartMatrix[3]) - gizmoOffset), gizmoStartMatrix[3].w);
 
@@ -633,8 +589,6 @@ namespace Shard::Editor::GUI {
             }
             else
             {
-                // What the gizmo did since the drag began, applied to every selected actor from where it was (they turn and
-                // scale around the gizmo, as a group)
                 const glm::mat4 delta = transform * glm::inverse(gizmoStartMatrix);
 
                 for (const auto& target : gizmoTargets)
@@ -668,9 +622,7 @@ namespace Shard::Editor::GUI {
 
         bool jumpToTarget = false;
 
-        // Far from the origin a float cannot say where in a metre it is (at 1e30 its step is 1e23 m) : the camera could not stand next
-        // to the object, it would land inside it. A root actor is placed in a frame near it (automatic : see Transform::PlaceAt), so that
-        // its numbers, and the camera's, are small. Its place in the world does not change.
+        // Far from the origin a float step is huge (1e23 m at 1e30), so the camera would land inside the object. A root actor is placed in a nearby frame (Transform::PlaceAt), its world place does not change.
         if (!std::dynamic_pointer_cast<Engine::Objects::Actor>(selected->GetParent()))
         {
             const Engine::Core::WorldPosition where = selected->transform->GetWorldCoords();
@@ -678,7 +630,6 @@ namespace Shard::Editor::GUI {
             world->SetDirty(true);
         }
 
-        // The camera works in the frame of what it looks at, keeping where it is in the world
         {
             const Engine::Core::FrameId objectFrame = selected->transform->GetFrame();
             if (cameraActor->transform->GetFrame() != objectFrame)
@@ -686,13 +637,11 @@ namespace Shard::Editor::GUI {
                 const Engine::Core::WorldPosition where = cameraActor->transform->GetWorldCoords();
                 cameraActor->transform->frame = objectFrame;
                 cameraActor->transform->SetWorldCoords(where);
-                // Where it was means nothing in the new frame when that is far from it : it jumps to the target instead of gliding
                 const glm::vec3 now = cameraActor->transform->GetPosition();
                 jumpToTarget = !std::isfinite(now.x) || glm::length(now) > 1.0e6f;
             }
         }
 
-        // Everything that is selected, each actor with its descendants
         std::unordered_set<uint32_t> focusIds;
         glm::vec3 center(0.0f);
         int focusCount = 0;
@@ -716,8 +665,6 @@ namespace Shard::Editor::GUI {
             radius = std::max(glm::length(boundsMax - boundsMin) * 0.5f, 0.1f);
         }
 
-        // Back off along the current view direction (rotation is kept) until the bounding sphere fits
-        // the narrowest of the two FOVs, plus a small margin.
         float distance;
         if (camera->IsOrthographic())
         {
@@ -733,8 +680,7 @@ namespace Shard::Editor::GUI {
         }
 
         const glm::vec3 target = center - cameraActor->transform->GetForward() * distance;
-        // Bounds / positions that overflowed (an actor placed near FLT_MAX) give an infinity or a NaN : moving the camera there
-        // would leave it, and the view with it, unusable for good
+        // Overflowed bounds (actor near FLT_MAX) give inf or NaN, moving the camera there would break the view for good.
         if (!std::isfinite(target.x) || !std::isfinite(target.y) || !std::isfinite(target.z) || !std::isfinite(radius))
             return;
 
@@ -753,7 +699,6 @@ namespace Shard::Editor::GUI {
 
         const auto actors = Commands::Actions::TopLevel(parent->GetSelectedActors());
 
-        // None of the selected hierarchies counts as "the floor" for another one (nor for itself)
         std::unordered_set<uint32_t> allIds;
         for (const auto& actor : actors)
         {
@@ -773,7 +718,7 @@ namespace Shard::Editor::GUI {
                     ignoreSelf.IgnoreBody(body->GetBodyID());
         }
 
-        // Start a hair above the bottom so an object already resting on the floor still finds it
+        // Start a hair above the bottom so an object already resting on the floor still finds it.
         const float startOffset = 0.01f;
         const float maxDistance = 10000.0f;
 
@@ -799,8 +744,6 @@ namespace Shard::Editor::GUI {
             Engine::Physics::RaycastResult hit = Engine::Core::GetEngine().GetPhysicsManager()->RayCast(request);
             float floorDistance = hit.hit ? hit.hitDistance : FLT_MAX;
 
-            // Same fallback as picking : physics-less models are only known by their mesh bounds,
-            // so the ray "lands" on the top face of any AABB lying straight underneath.
             for (auto& modelEntry : world->Ext<Engine::Rendering::RenderWorldData>().models)
             {
                 auto& modelComp = modelEntry.second;
@@ -854,9 +797,6 @@ namespace Shard::Editor::GUI {
             auto world = Engine::Core::GetEngine().GetWorldManager()->GetWorldAt(0);
             if (world)
             {
-                // Ray from the camera through the drop position - if it lands on existing geometry the
-                // new actor spawns there (dropping onto a floor/wall places it flush against it),
-                // otherwise a fixed distance out in front of the camera so it never spawns behind it.
                 ImVec2 mouse = ImGui::GetMousePos();
                 float localX = mouse.x - viewportImageMin.x;
                 float localY = mouse.y - viewportImageMin.y;
@@ -875,9 +815,6 @@ namespace Shard::Editor::GUI {
 
                 for (const auto& nameInProject : dropped)
                 {
-                    // Only static meshes can be dropped directly into the scene this way - other asset
-                    // types (materials, textures, ...) are assigned onto existing fields instead (see
-                    // the Asset-field/material-slot drag targets in properties_panel.cpp / material_editor_panel.cpp).
                     if (Engine::Filesystem::Path(nameInProject).GetExtensionType() != Engine::Filesystem::Type::T_MODEL)
                         continue;
 
@@ -911,7 +848,6 @@ namespace Shard::Editor::GUI {
 
         ImGui::Begin("Statistics", nullptr, ImGuiWindowFlags_NoResize | ImGuiWindowFlags_NoCollapse | ImGuiWindowFlags_AlwaysAutoResize);
 
-        // Display frame metrics
         Engine::Debugging::MinimalStatistics stats = Engine::Core::GetEngine().GetProfiler()->GetStats();
         static Engine::Core::Platform::SystemInfos system;
         
@@ -924,7 +860,6 @@ namespace Shard::Editor::GUI {
 
         ImGui::Separator();
 
-        // Rendering stats
         ImGui::Text("Frame Time: %.2f ms (%.1f FPS)", stats.frameTimeMs, stats.fps);
         ImGui::Text("Draw Calls: %d", stats.cmds);
         ImGui::Text("Primitives: %d", stats.primitives);
@@ -934,7 +869,6 @@ namespace Shard::Editor::GUI {
 
         ImGui::Separator();
 
-        // World stats
         ImGui::Text("Actors: %d", stats.actors);
         ImGui::Text("Lights: %d", stats.lights);
 
@@ -955,16 +889,13 @@ namespace Shard::Editor::GUI {
         ImGui::Begin("Scene Camera", nullptr, ImGuiWindowFlags_NoResize | ImGuiWindowFlags_NoCollapse | ImGuiWindowFlags_AlwaysAutoResize);
         std::shared_ptr<Engine::Objects::Components::Camera> cam = cameraActor->GetComponent<Engine::Objects::Components::Camera>();
 
-        // Rendering stats
         ImGui::Text("Camera width : %f px", cam->GetSize().x);
         ImGui::Text("Camera height : %f px", cam->GetSize().y);
 
         ImGui::Separator();
 
-        // The same values as Editor Preferences > Viewport : kept for the next sessions
         Core::CameraPreferences& prefs = parent->preferences.camera;
 
-        // With the ranges of the preferences themselves (FIELD range=), like Editor Preferences and the file
         const Core::PreferenceRange speedRange = PREFERENCE_RANGE(Core::CameraPreferences, speed);
         const Core::PreferenceRange sensitivityRange = PREFERENCE_RANGE(Core::CameraPreferences, mouseSensitivity);
         const Core::PreferenceRange nearRange = PREFERENCE_RANGE(Core::CameraPreferences, nearPlane);
@@ -1066,8 +997,6 @@ namespace Shard::Editor::GUI {
         static const float rotationSteps[] = { 5.0f, 10.0f, 15.0f, 30.0f, 45.0f, 60.0f, 90.0f, 120.0f };
         static const float scaleSteps[]    = { 0.03125f, 0.0625f, 0.125f, 0.25f, 0.5f, 1.0f, 5.0f, 10.0f };
 
-        // Snap toggle + increment dropdown for the tool currently selected in the toolbar. Each
-        // mode keeps its own toggle/increment (see EditorSettings), so switching tool swaps them.
         auto& s = parent->settings;
         bool* enabled = nullptr;
         float* value = nullptr;
@@ -1100,7 +1029,7 @@ namespace Shard::Editor::GUI {
 
         ImGui::PushID("GizmoSnap");
 
-        // Latch the state before the click: the button flips *enabled, and the pop must match the push.
+        // Latch before the click: the button flips *enabled and the pop must match the push.
         const bool wasEnabled = *enabled;
         if (wasEnabled) ImGui::PushStyleColor(ImGuiCol_Button, ImGui::GetStyleColorVec4(ImGuiCol_ButtonActive));
         if (ImGui::Button(ICON_LC_MAGNET)) *enabled = !*enabled;
@@ -1112,7 +1041,6 @@ namespace Shard::Editor::GUI {
         char preview[32];
         snprintf(preview, sizeof(preview), "%g%s", *value, suffix);
 
-        // Dimmed while snapping is off, but still editable so the increment can be picked first.
         ImGui::PushStyleVar(ImGuiStyleVar_Alpha, ImGui::GetStyle().Alpha * (*enabled ? 1.0f : 0.6f));
         ImGui::SetNextItemWidth(72.0f);
         if (ImGui::BeginCombo("##SnapValue", preview))
@@ -1141,9 +1069,6 @@ namespace Shard::Editor::GUI {
 
         if (raytracer && raytracer->IsPreparing())
         {
-            // Scene/BVH build hasn't started yet at this point - it runs on the very next Update() call
-            // (see Raytracer::BuildScene()'s comment), after this frame has been presented. No progress
-            // fraction is meaningful yet, so just show that something is about to happen.
             ImGui::TextWrapped("%s", raytracer->GetStatusMessage().c_str());
             ImGui::TextDisabled("This can take a few seconds on large scenes.");
 
@@ -1156,8 +1081,6 @@ namespace Shard::Editor::GUI {
         }
         else if (raytracer && raytracer->IsRendering())
         {
-            // Progress advances every frame via Draw() calling raytracer->Update() - this window just
-            // reflects that state, it doesn't drive the render itself.
             ImGui::ProgressBar(raytracer->GetProgress());
             ImGui::TextWrapped("%s", raytracer->GetStatusMessage().c_str());
 
@@ -1172,8 +1095,6 @@ namespace Shard::Editor::GUI {
         {
             if (raytracer)
             {
-                // Reached a terminal state (Completed/Failed) since the last time this window was open -
-                // capture the final message and drop the instance (it already released its GPU buffers).
                 raytraceStatusMessage = raytracer->GetStatusMessage();
                 raytracer.reset();
             }
@@ -1213,7 +1134,6 @@ namespace Shard::Editor::GUI {
 
             ImGui::Separator();
 
-            // The render reads the snapshot of the last frame, like the viewport it renders
             const Engine::Rendering::RenderSnapshot& scene = Engine::Core::GetEngine().GetRenderContext()->GetSnapshot();
             bool canRender = scene.camera.valid;
 
@@ -1258,10 +1178,8 @@ namespace Shard::Editor::GUI {
 
         bool canStartInteraction = cameraActor && viewportHovered && !uiHovered && !ImGuizmo::IsUsing() && !isUsingViewGizmo;
 
-        // The game view flies the camera but does not select (the outline and the gizmo are not shown)
         const bool gameView = parent && parent->IsGameView();
 
-        // Ctrl / Shift + button : a selection rectangle, not the camera
         if (HandleMarquee(canStartInteraction && !isDragging && !gameView))
             return;
 
@@ -1273,13 +1191,11 @@ namespace Shard::Editor::GUI {
         const Core::CameraPreferences& cameraPrefs = parent->preferences.camera;
         const float cameraSpeed = cameraPrefs.speed;
 
-        // Any manual camera move takes over from a running focus glide
         if (input->IsKeyDown(Engine::Input::Key::W) || input->IsKeyDown(Engine::Input::Key::A) ||
             input->IsKeyDown(Engine::Input::Key::S) || input->IsKeyDown(Engine::Input::Key::D) ||
             input->IsMouseDown(Engine::Input::MouseButton::Left))
             focusAnimating = false;
 
-        // Ctrl+key is a shortcut (Ctrl+D duplicates), not a move
         const bool moveKeys = !ImGui::GetIO().KeyCtrl;
 
         if(moveKeys && input->IsKeyDown(Engine::Input::Key::W)){
@@ -1317,10 +1233,8 @@ namespace Shard::Editor::GUI {
             pitch += deltaY * cameraPrefs.mouseSensitivity * (cameraPrefs.invertY ? -1.0f : 1.0f);
             yaw   -= deltaX * cameraPrefs.mouseSensitivity;
 
-            // Clamp pitch to avoid flipping
             pitch = glm::clamp(pitch, -90.0f, 90.0f);
 
-            // Build quaternion from yaw * pitch
             glm::quat qPitch = glm::angleAxis(glm::radians(pitch), glm::vec3(1, 0, 0));
             glm::quat qYaw   = glm::angleAxis(glm::radians(yaw),   glm::vec3(0, 1, 0));
             glm::quat rotation = qYaw * qPitch;
@@ -1334,7 +1248,6 @@ namespace Shard::Editor::GUI {
             firstClick = true;
         }
     
-        // Picking
         if(!gameView && input->WasMouseReleased(Engine::Input::MouseButton::Left)){
             
             if(Engine::Core::GetEngine().GetTimeManager()->CurrentAppTime().seconds - firstClickTime > 0.3f){
@@ -1370,8 +1283,7 @@ namespace Shard::Editor::GUI {
         glm::vec3 dir = glm::normalize(farPoint - nearPoint);
         glm::vec3 origin = nearPoint;
 
-        // The ray is in the camera's frame. Physics works in the root frame (and its ray starts from a float) : it can only be asked
-        // when the camera is there. From another frame every model, physics body or not, goes through the bounds test below.
+        // The ray is in the camera's frame, physics works in the root frame. Only ask physics when the camera is there, otherwise every model goes through the bounds test.
         const Engine::Core::ReferenceFrameTree* frames = cameraActor && cameraActor->transform ? cameraActor->transform->GetFrameTree() : nullptr;
         const Engine::Core::FrameId cameraFrame = cameraActor && cameraActor->transform ? cameraActor->transform->GetFrame() : Engine::Core::kRootFrame;
         const bool cameraInRoot = cameraFrame == Engine::Core::kRootFrame;
@@ -1386,10 +1298,7 @@ namespace Shard::Editor::GUI {
         if (result.hit)
             pickedActor = result.hitBody->parent;
 
-        // Physics-less actors (a bare Model with no PhysicsBody) aren't visible to the
-        // raycast above at all, so fall back to a CPU ray-vs-mesh-AABB test for them.
-        // Actors that do have a PhysicsBody are skipped here - the raycast already tests
-        // their real collider shape, which is more accurate than their mesh bounds.
+        // Models without a PhysicsBody are invisible to the raycast, so test them against mesh AABBs. Bodies are skipped here, their real collider is more accurate.
         if (auto* world = engine->GetWorldManager()->GetWorldAt(0))
         {
             for (auto& modelEntry : world->Ext<Engine::Rendering::RenderWorldData>().models)
@@ -1413,8 +1322,6 @@ namespace Shard::Editor::GUI {
 
                 glm::mat4 worldMatrix = modelComp->parent->transform->GetWorldMatrix();
 
-                // The actor's frame is not the camera's : its matrix is brought into the camera's frame, where the ray is (the offset
-                // between the frames is exact, so an actor that is near the camera stays precise whatever their distance from the root)
                 const Engine::Core::FrameId modelFrame = modelComp->parent->transform->GetFrame();
                 if (frames && modelFrame != cameraFrame)
                     worldMatrix = glm::mat4(frames->GetRelativePose(modelFrame, cameraFrame).ToMatrix()) * worldMatrix;
@@ -1422,10 +1329,7 @@ namespace Shard::Editor::GUI {
                 glm::vec3 worldMin, worldMax;
                 ComputeWorldBounds(boundsMin, boundsMax, worldMatrix, worldMin, worldMax);
 
-                // If the camera is inside this actor's bounds, the slab test's tMin
-                // clamps to 0 and it would spuriously win as the "closest" hit no matter
-                // where the click landed - skip it instead (e.g. camera inside a room
-                // shell or other large enclosing mesh).
+                // Camera inside the bounds makes the slab tMin clamp to 0, so it would win as closest hit wherever the click landed. Skip it.
                 bool cameraInside =
                     origin.x >= worldMin.x && origin.x <= worldMax.x &&
                     origin.y >= worldMin.y && origin.y <= worldMax.y &&
@@ -1442,7 +1346,6 @@ namespace Shard::Editor::GUI {
             }
         }
 
-        // The icons (lights, cameras, probe volumes, billboards) : one in front of what the ray hit wins
         {
             const Engine::Rendering::BillboardPick icon = Engine::Rendering::BillboardRenderer::Pick(
                 engine->GetRenderContext()->GetSnapshot(), parent->settings.showBillboards, localX, localY, camera->GetSize().x, camera->GetSize().y);
@@ -1508,7 +1411,6 @@ namespace Shard::Editor::GUI {
             return true;
         }
 
-        // Released : a rectangle selects what it covers, a click without moving picks what is under the cursor
         marqueePending = false;
 
         if (marqueeActive)
@@ -1537,7 +1439,6 @@ namespace Shard::Editor::GUI {
         const ImVec2 size(viewportImageMax.x - viewportImageMin.x, viewportImageMax.y - viewportImageMin.y);
         const Engine::Core::FrameId cameraFrame = cameraActor->transform->GetFrame();
 
-        // The pixel a point of the world is at ; false if it is behind the camera
         auto project = [&](const glm::vec3& point, ImVec2& out){
             const glm::vec4 clip = viewProjection * glm::vec4(point, 1.0f);
             if (clip.w <= 1.0e-5f)
@@ -1551,14 +1452,12 @@ namespace Shard::Editor::GUI {
 
         for (const auto& actor : parent->GetAllActors())
         {
-            // Another frame than the camera's has other coordinates : it cannot be placed on this screen
             if (!actor->transform || actor->transform->GetFrame() != cameraFrame)
                 continue;
 
             bool hit = false;
             bool hasMesh = false;
 
-            // What has a mesh is its box on the screen, the rest is its pivot
             for (const auto& model : actor->GetComponents<Engine::Objects::Components::Model>())
             {
                 auto mesh = model->GetMesh();
@@ -1608,7 +1507,6 @@ namespace Shard::Editor::GUI {
 
         if (toggle)
         {
-            // What was selected leaves it, what was not joins it
             std::unordered_set<int> coveredIds;
             for (const auto& actor : covered)
                 coveredIds.insert(actor->GetID().GetAsInt());

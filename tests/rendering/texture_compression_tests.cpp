@@ -25,8 +25,6 @@ namespace {
         return sum == 0.0 ? 99.0 : 10.0 * std::log10(255.0 * 255.0 / sum);
     }
 
-    // Colours that sit on one line of colour space (what a mode 6 block describes exactly, up to its precision) :
-    // a ramp over the 4x4 pixels. `alphaRamp` makes the alpha follow the same ramp.
     std::vector<uint8_t> LineBlock(bool alphaRamp)
     {
         std::vector<uint8_t> px(64);
@@ -43,7 +41,6 @@ namespace {
         return px;
     }
 
-    // Colours spread over a plane : more than one line can hold, so some error is expected
     std::vector<uint8_t> PlaneBlock()
     {
         std::vector<uint8_t> px(64);
@@ -59,7 +56,6 @@ namespace {
         return px;
     }
 
-    // Level 0 of a BC7 image, decoded back to RGBA
     std::vector<uint8_t> DecodeLevel0RGBA(const CompressedImage& image)
     {
         const uint32_t bx = BlocksAcross(image.width), by = BlocksAcross(image.height);
@@ -99,9 +95,9 @@ TEST(TextureCompression, MipChainSizes) {
     EXPECT_EQ(MipCount(1, 1), 1u);
     EXPECT_EQ(MipCount(4096, 4096), 13u);
     EXPECT_EQ(MipCount(1000, 600), 10u);
-    EXPECT_EQ(MipBytes(BlockFormat::BC7, 4096, 4096), size_t(4096) * 4096);     // one byte per texel
-    EXPECT_EQ(MipBytes(BlockFormat::BC4, 4096, 4096), size_t(4096) * 4096 / 2); // half a byte
-    EXPECT_EQ(MipBytes(BlockFormat::BC7, 1, 1), 16u);                           // a block is the smallest unit
+    EXPECT_EQ(MipBytes(BlockFormat::BC7, 4096, 4096), size_t(4096) * 4096);
+    EXPECT_EQ(MipBytes(BlockFormat::BC4, 4096, 4096), size_t(4096) * 4096 / 2);
+    EXPECT_EQ(MipBytes(BlockFormat::BC7, 1, 1), 16u);
     EXPECT_EQ(MipBytes(BlockFormat::BC5, 130, 70), size_t(33) * 18 * 16);
 }
 
@@ -146,7 +142,7 @@ TEST(TextureCompression, BC7PlaneBlockIsReasonable) {
     EXPECT_GT(Psnr(px, decoded), 34.0);
 }
 
-TEST(TextureCompression, BC7KeepsAConstantAlphaExact) {
+TEST(TextureCompression, BC7ConstantAlphaExact) {
     std::vector<uint8_t> px = PlaneBlock();
     for (int i = 0; i < 16; i++)
         px[i * 4 + 3] = 129;
@@ -157,8 +153,8 @@ TEST(TextureCompression, BC7KeepsAConstantAlphaExact) {
         EXPECT_EQ(decoded[i * 4 + 3], 129);
 }
 
-TEST(TextureCompression, BC7HandlesAVaryingAlpha) {
-    const std::vector<uint8_t> px = LineBlock(true);        // a soft cutout : alpha ramps along with the colour
+TEST(TextureCompression, BC7VaryingAlpha) {
+    const std::vector<uint8_t> px = LineBlock(true);
     uint8_t block[16];
     std::vector<uint8_t> decoded(64);
     EncodeBC7Block(px.data(), block);
@@ -175,7 +171,7 @@ TEST(TextureCompression, BC7SurvivesNoise) {
             v = uint8_t(rng());
         uint8_t block[16], decoded[64];
         EncodeBC7Block(px.data(), block);
-        EXPECT_TRUE(DecodeBC7Block(block, decoded));        // always a valid mode 6 block, whatever the input
+        EXPECT_TRUE(DecodeBC7Block(block, decoded));
     }
 }
 
@@ -188,11 +184,11 @@ TEST(TextureCompression, BC7ModeBitsAreMode6) {
             v = uint8_t(rng());
         uint8_t block[16];
         EncodeBC7Block(px.data(), block);
-        EXPECT_EQ(block[0] & 0x7F, 1 << 6);                 // mode 6 : six zeros, then a one
+        EXPECT_EQ(block[0] & 0x7F, 1 << 6);
     }
 }
 
-TEST(TextureCompression, CompressImageBuildsEveryMipForEachChannelCount) {
+TEST(TextureCompression, CompressImageBuildsAllMips) {
     struct Case { uint32_t channels; BlockFormat format; };
     for (const Case c : { Case{1, BlockFormat::BC4}, Case{2, BlockFormat::BC5}, Case{3, BlockFormat::BC7}, Case{4, BlockFormat::BC7} })
     {
@@ -229,7 +225,6 @@ TEST(TextureCompression, OddSizesAreEdgeClamped) {
     EXPECT_EQ(image.mips.size(), MipCount(w, h));
     EXPECT_EQ(image.mips[0].size(), MipBytes(BlockFormat::BC7, w, h));
 
-    // The border blocks are filled from the edge pixels : the whole level still matches the source
     EXPECT_GT(Psnr(px, DecodeLevel0RGBA(image)), 40.0);
 }
 
@@ -250,7 +245,7 @@ TEST(TextureCompression, SmoothImageKeepsItsQuality) {
     EXPECT_GT(Psnr(px, DecodeLevel0RGBA(image)), 44.0);
 }
 
-TEST(TextureCompression, MultiThreadedEncodingGivesTheSameBlocks) {
+TEST(TextureCompression, MultiThreadedMatchesSingle) {
     const uint32_t w = 512, h = 512;
     std::mt19937 rng(3);
     std::vector<uint8_t> px(size_t(w) * h * 4);
@@ -271,7 +266,6 @@ TEST(TextureCompression, NormalMapDetection) {
     std::mt19937 rng(11);
     for (uint32_t i = 0; i < w * h; i++)
     {
-        // A tilted unit vector pointing out of the surface
         const double tx = (double(rng() % 1000) / 1000.0 - 0.5) * 0.6, ty = (double(rng() % 1000) / 1000.0 - 0.5) * 0.6;
         const double tz = std::sqrt(1.0 - tx * tx - ty * ty);
         normals[i * 3 + 0] = uint8_t(std::lround((tx * 0.5 + 0.5) * 255.0));
@@ -283,21 +277,20 @@ TEST(TextureCompression, NormalMapDetection) {
     }
     EXPECT_TRUE(LooksLikeNormalMap(normals.data(), w, h, 3));
     EXPECT_FALSE(LooksLikeNormalMap(albedo.data(), w, h, 3));
-    EXPECT_FALSE(LooksLikeNormalMap(normals.data(), w, h, 1));              // one channel : never a normal map
+    EXPECT_FALSE(LooksLikeNormalMap(normals.data(), w, h, 1));
 
-    // The flat "no detail" normal map is one too
     const std::vector<uint8_t> flat = FlatNormalMap(w, h);
     EXPECT_TRUE(LooksLikeNormalMap(flat.data(), w, h, 3));
 }
 
-TEST(TextureCompression, NormalMapsAreEncodedAsTwoChannels) {
+TEST(TextureCompression, NormalMapsTwoChannels) {
     const uint32_t w = 256, h = 256;
     const std::vector<uint8_t> flat = FlatNormalMap(w, h);
     CompressedImage image;
     ASSERT_TRUE(CompressImage(flat.data(), w, h, 3, image, true));
     EXPECT_EQ(image.format, BlockFormat::BC5);
     EXPECT_EQ(image.mips[0].size(), MipBytes(BlockFormat::BC5, w, h));
-    EXPECT_FALSE(CompressImage(flat.data(), w, h, 1, image, true));          // needs the vector's channels
+    EXPECT_FALSE(CompressImage(flat.data(), w, h, 1, image, true));
 }
 
 TEST(TextureCompression, RejectsBadInput) {
@@ -335,39 +328,33 @@ TEST(TextureCache, RejectsDamagedFiles) {
     const std::vector<uint8_t> good = TextureCache::Serialize(original);
 
     CompressedImage out;
-    // Truncated anywhere
     for (size_t cut : { size_t(0), size_t(3), size_t(20), good.size() / 2, good.size() - 1 })
         EXPECT_FALSE(TextureCache::Deserialize(good.data(), cut, out)) << "cut at " << cut;
 
-    // Wrong magic
     std::vector<uint8_t> bad = good;
     bad[0] = 'X';
     EXPECT_FALSE(TextureCache::Deserialize(bad.data(), bad.size(), out));
 
-    // Another version of the format
     bad = good;
     bad[4] = uint8_t(TextureCache::kVersion + 1);
     EXPECT_FALSE(TextureCache::Deserialize(bad.data(), bad.size(), out));
 
-    // A mip count that does not fit the size
     bad = good;
     bad[20] = 3;
     EXPECT_FALSE(TextureCache::Deserialize(bad.data(), bad.size(), out));
 
-    // An absurd size
     bad = good;
     bad[8] = bad[9] = bad[10] = bad[11] = 0;
     EXPECT_FALSE(TextureCache::Deserialize(bad.data(), bad.size(), out));
 }
 
-TEST(TextureCache, StoresAndLoadsThroughTheDisk) {
+TEST(TextureCache, DiskRoundTrip) {
     namespace fs = std::filesystem;
     const fs::path dir = fs::temp_directory_path() / "shard_texture_cache_test";
     std::error_code ec;
     fs::remove_all(dir, ec);
     TextureCache::SetDirectory((dir / "textures").generic_string());
 
-    // A source file the key can be computed from
     fs::create_directories(dir);
     const fs::path source = dir / "source.png";
     {
@@ -381,7 +368,7 @@ TEST(TextureCache, StoresAndLoadsThroughTheDisk) {
     ASSERT_FALSE(key.empty());
 
     CompressedImage image;
-    EXPECT_FALSE(TextureCache::Load(key, image));       // nothing yet
+    EXPECT_FALSE(TextureCache::Load(key, image));
 
     std::vector<uint8_t> px(size_t(128) * 128 * 3, 77);
     CompressedImage original;
@@ -391,7 +378,6 @@ TEST(TextureCache, StoresAndLoadsThroughTheDisk) {
     ASSERT_TRUE(TextureCache::Load(key, image));
     EXPECT_EQ(image.mips, original.mips);
 
-    // A changed source is another key : the old entry is not served
     {
         FILE* f = std::fopen(source.string().c_str(), "ab");
         ASSERT_NE(f, nullptr);
@@ -400,7 +386,6 @@ TEST(TextureCache, StoresAndLoadsThroughTheDisk) {
     }
     EXPECT_NE(TextureCache::MakeKey(source.generic_string()), key);
 
-    // No directory, no cache
     TextureCache::SetDirectory("");
     EXPECT_TRUE(TextureCache::MakeKey(source.generic_string()).empty());
 

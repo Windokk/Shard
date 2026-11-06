@@ -25,7 +25,6 @@ namespace Shard::Engine::Core::Platform {
             }
 
             namespace {
-                // One report at a time, and none while a report is already being written (a crash in a hook)
                 bool g_Reporting = false;
             }
 

@@ -13,8 +13,6 @@ using namespace Shard::Engine::Rendering;
 
 namespace {
 
-    // 2x1x2 probes with 4x4 tiles : 4 probes -> 2 per atlas row, (4 + 2 border) texels per tile -> a
-    // 12x12 atlas.
     ProbeBakeData MakeBake()
     {
         ProbeBakeData data;
@@ -52,7 +50,7 @@ namespace {
         protected:
             void SetUp() override
             {
-                // One folder per test : ctest runs each test in its own process, possibly at the same time
+                // One folder per test: ctest runs each test in its own process, possibly concurrently.
                 const auto* info = ::testing::UnitTest::GetInstance()->current_test_info();
                 dir = std::filesystem::temp_directory_path() / (std::string("shard_probe_bake_tests_") + info->name());
                 std::filesystem::remove_all(dir);
@@ -99,7 +97,6 @@ TEST_F(ProbeBakeFile, RoundTripPreservesEverything) {
     EXPECT_EQ(loaded->gridOrigin, original.gridOrigin);
     EXPECT_EQ(loaded->gridSpacing, original.gridSpacing);
 
-    // Byte-exact : this is the data the shader reads, and it must come back untouched.
     EXPECT_EQ(loaded->irradiance, original.irradiance);
     EXPECT_EQ(loaded->distance, original.distance);
     EXPECT_EQ(loaded->probeState, original.probeState);
@@ -112,7 +109,7 @@ TEST_F(ProbeBakeFile, WriteCreatesMissingDirectories) {
     EXPECT_NE(DecodeProbeBakeFile(nested), nullptr);
 }
 
-TEST_F(ProbeBakeFile, WriteRefusesDataThatContradictsItsOwnHeader) {
+TEST_F(ProbeBakeFile, WriteRefusesBadHeader) {
     ProbeBakeData bad = MakeBake();
     bad.irradiance.pop_back();
 
@@ -132,7 +129,6 @@ TEST_F(ProbeBakeFile, TruncatedFileIsRejected) {
     ASSERT_TRUE(WriteProbeBakeFile(path, MakeBake()));
     std::string bytes = ReadAll();
 
-    // Cut anywhere - inside the payload, and inside the header.
     for (size_t keep : { bytes.size() - 1, bytes.size() / 2, (size_t)40, (size_t)0 })
     {
         WriteAll(bytes.substr(0, keep));
@@ -174,7 +170,7 @@ TEST_F(ProbeBakeFile, InconsistentHeaderIsRejected) {
     EXPECT_EQ(DecodeProbeBakeFile(path), nullptr);
 }
 
-TEST(ProbeBakeCompatibility, AcceptsTheGridItWasBakedOn) {
+TEST(ProbeBakeCompatibility, AcceptsBakedGrid) {
     ProbeBakeData bake = MakeBake();
 
     std::string why;
@@ -182,7 +178,7 @@ TEST(ProbeBakeCompatibility, AcceptsTheGridItWasBakedOn) {
     EXPECT_TRUE(why.empty());
 }
 
-TEST(ProbeBakeCompatibility, ToleratesFloatNoiseInThePlacement) {
+TEST(ProbeBakeCompatibility, ToleratesPlacementNoise) {
     ProbeBakeData bake = MakeBake();
 
     // Re-deriving the origin from the actor's transform on load can differ in the last bits.
@@ -203,7 +199,6 @@ TEST(ProbeBakeCompatibility, RejectsEachKindOfChange) {
     EXPECT_FALSE(IsProbeBakeCompatible(bake, bake.probeCounts, bake.tileSize, bake.gridOrigin, bake.gridSpacing * 2.0f, &why));
     EXPECT_EQ(why, "volume was resized");
 
-    // A moved volume : the baked light would land in the wrong part of the world.
     EXPECT_FALSE(IsProbeBakeCompatible(bake, bake.probeCounts, bake.tileSize, bake.gridOrigin + glm::vec3(0.0f, 1.0f, 0.0f), bake.gridSpacing, &why));
     EXPECT_EQ(why, "volume was moved");
 }

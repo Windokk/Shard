@@ -10,13 +10,9 @@
 
 #include "engine/plugins/abi/c_internal.hpp"
 
-// shard.content (the ContentMounts of the manager) and shard.state (the StateWriter / StateReader of a hot reload)
-
 namespace Shard::Engine::Plugins::CAbi {
 
     namespace {
-        // ---- shard.content ----
-
         ShardResult SHARD_CALL UriOf(ShardPluginCtx handle, ShardStr path, char* buffer, uint64_t capacity, uint64_t* size)
         {
             try {
@@ -61,7 +57,6 @@ namespace Shard::Engine::Plugins::CAbi {
                 std::ifstream in(*file, std::ios::binary);
                 if (!in) return SHARD_E_NOT_FOUND;
                 const std::vector<char> bytes((std::istreambuf_iterator<char>(in)), std::istreambuf_iterator<char>());
-                // At least one byte, so that an empty file is a valid pointer the plugin frees like any other
                 void* block = ctx->Memory().Allocate(bytes.empty() ? 1 : bytes.size(), 16);
                 if (!block) return SHARD_E_OUT_OF_MEMORY;
                 if (!bytes.empty()) std::memcpy(block, bytes.data(), bytes.size());
@@ -87,9 +82,7 @@ namespace Shard::Engine::Plugins::CAbi {
             } catch (...) { return SHARD_E_INTERNAL; }
         }
 
-        // ---- shard.state ----
-
-        // One state at a time : the manager reloads one plugin at a time, on the main thread
+        // One state at a time: the manager reloads one plugin at a time on the main thread.
         std::mutex gStateMutex;
         ShardState gState = 0;
         uint64_t gNextState = 0;

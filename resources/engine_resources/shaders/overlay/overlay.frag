@@ -4,7 +4,7 @@
 in vec4 vColor;
 in vec2 vUV;
 
-uniform uvec2 uTexture;         // bindless handle, 0 : none
+uniform uvec2 uTexture;
 
 out vec4 FragColor;
 

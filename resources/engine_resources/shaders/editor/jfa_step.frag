@@ -3,20 +3,10 @@
 in vec2 texCoords;
 out vec4 FragColor;
 
-// Explicit binding required - this engine assigns texture units via GLSL layout(binding=N) at
-// compile time (see lit.frag), not via runtime glUniform1i (BindPassData's customSamplers loop only
-// tracks plain uniforms, not samplers - an un-annotated sampler silently keeps GLSL's default binding
-// of 0 no matter which unit the texture is actually bound to).
 layout(binding = 0) uniform sampler2D seedTex;
 uniform float stepSize;
 uniform vec2 texelSize;
 
-// Jump Flood Algorithm - propagation step. For each of the 8 neighbors offset by stepSize pixels
-// (halved every pass by the caller - see the EditorJFAStep* chain in main_window.cpp), keep whichever
-// seed (this pixel's current one included) is closest to this pixel's own position. Run over a fixed
-// falling step sequence (16,8,4,2,1) this converges exactly for any pixel within ~31px of a seed,
-// which comfortably covers a selection outline's thickness without needing the full
-// log2(max(width,height)) chain a whole-image distance transform would require.
 void main()
 {
     vec2 myPixel = gl_FragCoord.xy;

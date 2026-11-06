@@ -43,7 +43,7 @@ namespace Shard::Engine::Core::Platform {
     void SetCurrentThreadName(const std::string& name)
     {
     #if defined(_WIN32)
-        // SetThreadDescription only exists since Windows 10 1607 : looked up at runtime
+        // SetThreadDescription needs Windows 10 1607, looked up at runtime.
         using SetThreadDescriptionFn = HRESULT (WINAPI*)(HANDLE, PCWSTR);
         static const auto setDescription = reinterpret_cast<SetThreadDescriptionFn>(reinterpret_cast<void*>(
             GetProcAddress(GetModuleHandleW(L"kernel32.dll"), "SetThreadDescription")));
@@ -59,7 +59,7 @@ namespace Shard::Engine::Core::Platform {
     #elif defined(__APPLE__)
         pthread_setname_np(name.substr(0, 63).c_str());
     #else
-        // 15 characters + terminator on Linux
+        // Linux limit: 15 chars plus terminator.
         pthread_setname_np(pthread_self(), name.substr(0, 15).c_str());
     #endif
     }
@@ -78,7 +78,6 @@ namespace Shard::Engine::Core::Platform {
         }
         return SetThreadPriority(GetCurrentThread(), value) != 0;
     #else
-        // nice value of the calling thread (Linux threads have their own). Raising it needs privileges.
         int nice = 0;
         switch (priority)
         {
@@ -106,7 +105,7 @@ namespace Shard::Engine::Core::Platform {
                 CPU_SET(cpu, &set);
         return pthread_setaffinity_np(pthread_self(), sizeof(set), &set) == 0;
     #else
-        return false;   // macOS has no thread affinity
+        return false;
     #endif
     }
 

@@ -1,14 +1,4 @@
-# Layers, bottom to top (the dependency rules are checked by scripts/check_deps.py):
-#   ShardCore     <- nothing
-#   ShardPlatform <- ShardCore, SDL3 : the PAL
-#   ShardAssets   <- ShardPlatform, ShardCore
-#   ShardWorld    <- ShardAssets (and below)
-#   ShardPhysics  <- ShardWorld (and below), Jolt
-#   ShardAudio    <- ShardWorld (and below), miniaudio
-#   ShardRHI      <- ShardWorld (and below) : the graphics API, nothing of the renderer above it
-#   ShardRenderer <- ShardRHI, ShardWorld (and below) : features, components and the Renderer
-#   ShardEngine   <- every layer above : the composition root (EngineInstance, game module loading)
-#   Engine        <- INTERFACE target grouping all of the above, what the apps and the tests link
+# Layers, bottom to top (dependency rules checked by scripts/check_deps.py): Core, Platform, Assets, World, Physics/Audio/RHI, Renderer, Engine.
 file(GLOB_RECURSE CORE_SOURCES ${CMAKE_CURRENT_SOURCE_DIR}/core/*.cpp)
 file(GLOB_RECURSE PLATFORM_SOURCES ${CMAKE_CURRENT_SOURCE_DIR}/platform/*.cpp)
 file(GLOB_RECURSE ASSETS_SOURCES ${CMAKE_CURRENT_SOURCE_DIR}/assets/*.cpp)
@@ -21,8 +11,6 @@ file(GLOB_RECURSE RHI_SOURCES
   ${CMAKE_SOURCE_DIR}/submodules/ufbx/ufbx.c
   ${CMAKE_SOURCE_DIR}/submodules/volk/volk.c
 )
-# The compiler from GLSL to SPIR-V and the format of what it makes (ShardShaderCompiler) : the rhi reads the format, only the shaderc tool and
-# the runtime shader compilation need the compiler itself
 file(GLOB SHADER_COMPILER_SOURCES
   ${CMAKE_CURRENT_SOURCE_DIR}/renderer/rhi/shader_compiler/*.cpp
   ${CMAKE_CURRENT_SOURCE_DIR}/renderer/rhi/shader/shader_binary.cpp
@@ -37,7 +25,6 @@ set(THREADS_PREFER_PTHREAD_FLAG ON)
 find_package(Threads REQUIRED)
 
 add_library(ShardCore STATIC ${CORE_SOURCES})
-# BUILD_ENGINE selects the engine-side implementation in logger.hpp, like for ShardEngine.
 target_compile_definitions(ShardCore PRIVATE BUILD_ENGINE)
 target_include_directories(ShardCore PUBLIC
     "${CMAKE_SOURCE_DIR}/src/"
@@ -46,18 +33,14 @@ target_include_directories(ShardCore PUBLIC
 
 add_library(ShardPlatform STATIC ${PLATFORM_SOURCES})
 target_compile_definitions(ShardPlatform PRIVATE BUILD_ENGINE)
-# SDL3 is PUBLIC : the apps that own a window (editor, player) need its headers, the engine layers only see the platform layer's own API
 target_link_libraries(ShardPlatform PUBLIC ShardCore SDL3::SDL3)
 if(WIN32)
-  # pdh/psapi : hardware counters, ws2_32 : sockets
   target_link_libraries(ShardPlatform PRIVATE pdh psapi ws2_32)
 else()
   target_link_libraries(ShardPlatform PRIVATE Threads::Threads ${CMAKE_DL_LIBS})
   if(CMAKE_SYSTEM_NAME STREQUAL "Linux")
     target_link_libraries(ShardPlatform PRIVATE rt)   # shm_open on older glibc
 
-    # io_uring backend of the async IO (platform/filesystem) : optional, the thread pool backend is used without it
-    # (and when the kernel refuses to create a ring at run time)
     find_path(URING_INCLUDE_DIR liburing.h)
     find_library(URING_LIBRARY uring)
     if(URING_INCLUDE_DIR AND URING_LIBRARY)
@@ -118,7 +101,7 @@ target_include_directories(ShardRHI PUBLIC
     "${CMAKE_SOURCE_DIR}/submodules/VulkanMemoryAllocator/include"
     "${CMAKE_SOURCE_DIR}/submodules/vk-bootstrap/src"
 )
-# volk declares the entry points itself : the headers must not (see volk.h)
+# volk declares the entry points itself, so the Vulkan headers must not (see volk.h)
 target_compile_definitions(ShardRHI PUBLIC VK_NO_PROTOTYPES)
 
 add_library(ShardRenderer STATIC ${RENDERER_SOURCES})
@@ -126,7 +109,6 @@ target_compile_definitions(ShardRenderer PRIVATE BUILD_ENGINE)
 target_link_libraries(ShardRenderer PUBLIC ShardRHI ShardWorld ShardAssets ShardPlatform ShardCore)
 
 target_link_libraries(ShardEngine PUBLIC ShardRenderer ShardRHI ShardPhysics ShardAudio ShardWorld ShardAssets ShardPlatform ShardCore)
-# The sandbox of tier 2 plugins (plugins/wasm/wasm_runtime.cpp is the only file that includes it)
 target_link_libraries(ShardEngine PRIVATE ShardWasmtime)
 
 set(COMMON_INCLUDE_DIRS 
@@ -138,12 +120,10 @@ set(COMMON_INCLUDE_DIRS
     "${CMAKE_SOURCE_DIR}/submodules/freetype/include/"
 )
 
-# Set the include directories
 target_include_directories(ShardEngine PUBLIC
     ${COMMON_INCLUDE_DIRS}
 )
 
-# Link directories based on platform (Windows or Unix)
 set(FREETYPE_LIB_DIR "${CMAKE_SOURCE_DIR}/build/submodules/freetype")
 
 if(WIN32)
@@ -165,26 +145,18 @@ target_include_directories(ShardRHI PUBLIC ${COMMON_INCLUDE_DIRS})
 target_include_directories(ShardRenderer PUBLIC ${COMMON_INCLUDE_DIRS})
 target_include_directories(ShardAudio PUBLIC ${COMMON_INCLUDE_DIRS})
 
-# Define engine-specific compile definitions
 target_compile_definitions(ShardEngine PRIVATE BUILD_ENGINE)
 
-# Jolt is PUBLIC, not PRIVATE: engine headers (physics_manager.hpp, physics_body.hpp, ...) expose
-# Jolt types, so anything including them has to be compiled with Jolt's own PUBLIC definitions
-# (JPH_DEBUG_RENDERER, JPH_PROFILE_ENABLED, ...). Those defines change the layout of Jolt classes,
-# so a target that gets the headers without them disagrees with the compiled library about where
-# members live - which corrupts memory at runtime rather than failing to build.
+# Jolt is PUBLIC: engine headers expose Jolt types, so every includer needs Jolt's PUBLIC defines (JPH_DEBUG_RENDERER, JPH_PROFILE_ENABLED...).
+# They change class layouts, and a mismatch corrupts memory at runtime instead of failing to build.
 
-# The graphics API is linked here, the rest of the renderer only talks to it through the rhi
 if(WIN32)
   target_link_libraries(ShardRHI PRIVATE opengl32 gdi32 user32 shell32 advapi32)
 endif()
 target_link_libraries(ShardRenderer PRIVATE freetype)
 target_link_directories(ShardRenderer PUBLIC ${FREETYPE_LIB_DIR})
 
-# Jolt is PUBLIC for the same reason on its own target
 target_link_libraries(ShardPhysics PUBLIC Jolt)
-# miniaudio is header-only (compiled in audio/miniaudio_impl.cpp); it loads the OS audio backend at
-# runtime, so only Unix needs extra system libraries
 if(UNIX)
   target_link_libraries(ShardAudio PRIVATE ${CMAKE_DL_LIBS} Threads::Threads m)
 endif()
@@ -192,7 +164,6 @@ if(WIN32)
   target_link_libraries(ShardPhysics PUBLIC Threads::Threads)
 endif()
 
-# Link the necessary libraries based on the platform
 if(WIN32)
   target_link_libraries(ShardEngine PRIVATE freetype -lz opengl32 gdi32 user32 shell32 advapi32)
   target_link_libraries(ShardEngine PUBLIC Jolt Threads::Threads)
@@ -201,6 +172,5 @@ elseif(UNIX)
   target_link_libraries(ShardEngine PUBLIC Jolt)
 endif()
 
-# What an executable links to get the whole engine : the layers above, nothing of its own
 add_library(Engine INTERFACE)
 target_link_libraries(Engine INTERFACE ShardEngine)

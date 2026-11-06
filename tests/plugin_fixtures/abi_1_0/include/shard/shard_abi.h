@@ -1,11 +1,5 @@
-/* Shard C ABI : base types, versions and rules. Compiles as C11 and as C++17.
- *
- * These headers ARE the ABI (see docs/design-notes/c-abi-sdk.fr.md, section 3). The rules :
- *   - plain C : no classes, references, overloads or `enum class`; no `int`, `long`, `bool` or `size_t` inside a struct
- *   - every struct that crosses the boundary starts with `uint32_t structSize`; fields are only ever added at the END
- *   - the host never keeps a pointer it was handed unless the doc of that function says so
- *   - no exception crosses the boundary; failures are a ShardResult
- * Changing a struct without bumping SHARD_ABI_MINOR is a bug : tests/plugins/abi_layout_tests.cpp pins every layout. */
+// C ABI base types, versions, rules. Compiles as C11 and C++17.
+// Plain C only, every crossing struct starts with uint32_t structSize and grows only at the END, no exception crosses. Changing a struct without bumping SHARD_ABI_MINOR is a bug (abi_layout_tests.cpp pins layouts).
 #ifndef SHARD_ABI_H
 #define SHARD_ABI_H
 
@@ -18,7 +12,6 @@ extern "C" {
 #define SHARD_ABI_MAJOR 1
 #define SHARD_ABI_MINOR 0
 
-/* Calling convention of every function pointer in the tables. Empty on x86_64 and arm64. */
 #define SHARD_CALL
 
 #if defined(_WIN32) || defined(_WIN64)
@@ -26,8 +19,6 @@ extern "C" {
 #else
 #   define SHARD_PLUGIN_EXPORT __attribute__((visibility("default")))
 #endif
-
-/* ---- Results ---- */
 
 typedef int32_t ShardResult;
 
@@ -44,21 +35,17 @@ typedef int32_t ShardResult;
 #define SHARD_FALSE 0
 #define SHARD_TRUE  1
 
-/* ---- Strings ----
- * UTF-8, not necessarily zero terminated. A string received through a call is valid for that call only : keeping it means copying it. */
+// UTF-8, not necessarily zero terminated. Valid for that call only, copy to keep.
 
 typedef struct ShardStr {
     const char* data;
     uint64_t    size;
 } ShardStr;
 
-/* ---- Handles ----
- * Never a pointer to a host object. index + generation, so a stale one fails instead of reading freed memory. 0 is never valid. */
+// Never a host pointer: index + generation, so a stale handle fails instead of reading freed memory. 0 is never valid.
 
-typedef uint64_t ShardPluginCtx;    /* designates a plugin to the host */
-typedef uint64_t ShardState;        /* the reload state being written or read : valid during on_prepare_reload / on_restore only (shard_state.h) */
-
-/* ---- Log levels ---- */
+typedef uint64_t ShardPluginCtx;
+typedef uint64_t ShardState;
 
 #define SHARD_LOG_INFO     0
 #define SHARD_LOG_WARNING  1
@@ -68,4 +55,4 @@ typedef uint64_t ShardState;        /* the reload state being written or read : 
 }
 #endif
 
-#endif /* SHARD_ABI_H */
+#endif

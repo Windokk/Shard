@@ -12,8 +12,6 @@
 namespace Shard::Engine::Rendering {
 
     namespace {
-        // ---- built-in icons : signed distances, in pixels, of a few shapes (negative inside) ----
-
         float Circle(glm::vec2 p, glm::vec2 c, float r) { return glm::length(p - c) - r; }
 
         float Segment(glm::vec2 p, glm::vec2 a, glm::vec2 b, float halfWidth)
@@ -29,7 +27,6 @@ namespace Shard::Engine::Rendering {
             return glm::length(glm::max(q, glm::vec2(0.0f))) + std::min(std::max(q.x, q.y), 0.0f) - radius;
         }
 
-        // A convex triangle (counter clockwise) : the largest of the three signed edge distances
         float Triangle(glm::vec2 p, glm::vec2 a, glm::vec2 b, glm::vec2 c)
         {
             auto edge = [&](glm::vec2 u, glm::vec2 v) {
@@ -41,7 +38,6 @@ namespace Shard::Engine::Rendering {
 
         float Ring(glm::vec2 p, glm::vec2 c, float r, float halfWidth) { return std::abs(glm::length(p - c) - r) - halfWidth; }
 
-        // The distance of the glyph of an icon, in a 64 x 64 box (y up)
         float IconDistance(BuiltinSprite sprite, glm::vec2 p)
         {
             const glm::vec2 centre(32.0f, 32.0f);
@@ -49,7 +45,6 @@ namespace Shard::Engine::Rendering {
             {
                 case BuiltinSprite::Light:
                 {
-                    // A bulb : the disc and eight rays around it
                     float d = Circle(p, centre, 10.0f);
                     for (int i = 0; i < 8; i++)
                     {
@@ -61,7 +56,6 @@ namespace Shard::Engine::Rendering {
                 }
                 case BuiltinSprite::Camera:
                 {
-                    // A body, a lens cone on its right and a lump on top
                     float d = Box(p, glm::vec2(26.0f, 30.0f), glm::vec2(17.0f, 12.0f), 3.0f);
                     d = std::min(d, Triangle(p, glm::vec2(43.0f, 30.0f), glm::vec2(58.0f, 41.0f), glm::vec2(58.0f, 19.0f)));
                     d = std::min(d, Circle(p, glm::vec2(20.0f, 46.0f), 6.0f));
@@ -70,7 +64,6 @@ namespace Shard::Engine::Rendering {
                 }
                 case BuiltinSprite::ProbeVolume:
                 {
-                    // A probe : a ring with a dot, and the grid points around it
                     float d = std::min(Ring(p, centre, 15.0f, 2.0f), Circle(p, centre, 5.0f));
                     for (int i = 0; i < 4; i++)
                     {
@@ -101,8 +94,6 @@ namespace Shard::Engine::Rendering {
             return s;
         }
 
-        // Box filter of a w x h RGBA image (rows `stride` pixels apart) down to one tile. Colours are weighted by alpha so
-        // transparent pixels do not darken the edges.
         std::vector<uint8_t> ResampleToTile(const uint8_t* src, uint32_t w, uint32_t h, uint32_t stride)
         {
             constexpr uint32_t T = BillboardAtlas::kTileSize;
@@ -149,12 +140,11 @@ namespace Shard::Engine::Rendering {
         {
             for (uint32_t x = 0; x < size; x++)
             {
-                // Row 0 is the bottom of the image, like the decoded files
                 const glm::vec2 p((float(x) + 0.5f) * scale, (float(y) + 0.5f) * scale);
                 const float d = IconDistance(sprite, p) / scale;
 
-                const float inside = glm::clamp(0.5f - d, 0.0f, 1.0f);            // 1 inside the glyph, a pixel of antialiasing
-                const float halo = glm::clamp(0.5f + 2.0f / scale - d, 0.0f, 1.0f);   // the dark border around it (2.5 px at 64)
+                const float inside = glm::clamp(0.5f - d, 0.0f, 1.0f);
+                const float halo = glm::clamp(0.5f + 2.0f / scale - d, 0.0f, 1.0f);
 
                 const glm::vec3 colour = glm::mix(outline, fill, inside);
                 uint8_t* out = &pixels[(size_t(y) * size + x) * 4];
@@ -169,15 +159,13 @@ namespace Shard::Engine::Rendering {
 
     BillboardAtlas& BillboardAtlas::Get()
     {
-        // Intentionally leaked : a static would destroy its GL texture at process exit, after the GL context (and the driver's
-        // function pointers) are gone, which crashes. The OS reclaims everything anyway.
+        // Leaked on purpose: a static would free its GL texture after the GL context is gone and crash.
         static BillboardAtlas* atlas = new BillboardAtlas();
         return *atlas;
     }
 
     BillboardAtlas::BillboardAtlas()
     {
-        // The built-in icons come first : their ids are the BuiltinSprite values
         for (uint32_t i = 0; i < static_cast<uint32_t>(BuiltinSprite::Count); i++)
         {
             Sprite sprite;
@@ -232,7 +220,7 @@ namespace Shard::Engine::Rendering {
             if (entry.is_regular_file() && (ext == ".png" || ext == ".jpg" || ext == ".jpeg" || ext == ".tga" || ext == ".bmp"))
                 files.push_back(entry.path());
         }
-        std::sort(files.begin(), files.end());     // the same ids on every run
+        std::sort(files.begin(), files.end());
 
         uint32_t added = 0;
         for (const fs::path& file : files)
@@ -240,7 +228,7 @@ namespace Shard::Engine::Rendering {
             const uint32_t before = GetSpriteCount();
             const uint32_t id = RegisterFile(Filesystem::Path(file.generic_string()), 1);
             if (id == GetBuiltin(BuiltinSprite::Generic))
-                continue;       // unreadable, or the atlas is full
+                continue;
 
             std::lock_guard<std::mutex> lock(m_Mutex);
             const std::string name = Lower(file.stem().string());
@@ -253,7 +241,7 @@ namespace Shard::Engine::Rendering {
                 if (name == kBuiltinNames[i] && i != id)
                 {
                     m_Sprites[i].rgba = m_Sprites[id].rgba;
-                    m_BuiltSprites = 0;     // the texture must be rebuilt
+                    m_BuiltSprites = 0;
                 }
             }
             added += m_Sprites.size() > before ? 1 : 0;
@@ -335,7 +323,7 @@ namespace Shard::Engine::Rendering {
 
         std::vector<uint8_t> sheet(size_t(kSheetSize) * kSheetSize * 4, 0);
         const float side = float(kSheetSize);
-        const float inset = 0.5f;       // half a texel : bilinear sampling at a tile's border must not reach its neighbour
+        const float inset = 0.5f;       // Half a texel so bilinear sampling at a tile border can't reach the neighbour.
 
         for (size_t i = 0; i < m_Sprites.size(); i++)
         {

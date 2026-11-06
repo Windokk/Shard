@@ -1,9 +1,4 @@
 #!/bin/bash
-# Installs the libraries Shard needs on Debian / Ubuntu. SDL3 is built from source (submodules/SDL) and enables its
-# X11 / Wayland / audio / input backends only when the matching development packages are found : without them it
-# still builds, but it cannot open a window. See https://wiki.libsdl.org/SDL3/README-linux
-#
-# A compiler, CMake (3.28.2+) and git are expected to be installed already (sudo apt install build-essential cmake git).
 set -euo pipefail
 
 SUDO=""

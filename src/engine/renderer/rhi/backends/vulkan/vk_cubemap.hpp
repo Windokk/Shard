@@ -13,7 +13,7 @@ namespace Shard::Engine::Rendering {
     {
         public:
 
-            /// `faces` : the pixels of each face (+X, -X, +Y, -Y, +Z, -Z), null for a face nothing is written to
+            // Order +X, -X, +Y, -Y, +Z, -Z. Null for a face nothing is written to.
             VKCubemap(const TextureSpecifications& specs, std::array<unsigned char*, 6> faces);
             ~VKCubemap() override = default;
 
@@ -50,7 +50,6 @@ namespace Shard::Engine::Rendering {
 
     namespace VK {
 
-        /// Creates the image of a cube map (or of an array of them) and fills the faces that have pixels
         bool CreateCubeImage(Image& image, const TextureSpecifications& specs, uint32_t cubes, bool array, const std::vector<std::array<unsigned char*, 6>>& data, const char* name);
     }
 

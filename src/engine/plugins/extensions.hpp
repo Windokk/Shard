@@ -11,13 +11,7 @@
 
 namespace Shard::Engine::Plugins {
 
-    /// @brief Named extension points : the subsystems that accept plugin contributions (the renderer's render features, the
-    /// editor's panels, the asset importers...) publish a point by name, plugins add items to it.
-    ///
-    /// The registry knows nothing about what an item is : the subsystem that owns the point defines the item type (a small
-    /// interface) and reads the items. Items are shared_ptr<void> tagged with the name of their type, which is checked on read.
-    /// Well-known points : "render.feature", "render.pipeline", "asset.importer", "asset.type", "editor.panel", "editor.menu",
-    /// "editor.inspector", "editor.gizmo", "tool.cooker", "tool.validator", "server.transport".
+    // Named extension points. The owning subsystem defines the item type and reads the items, the registry knows nothing about them. Items are shared_ptr<void> tagged with a type name, checked on read.
     class ExtensionRegistry {
     public:
         struct Item {
@@ -36,7 +30,6 @@ namespace Shard::Engine::Plugins {
             return AddRaw(Item{ point, name, typeid(T).name(), std::static_pointer_cast<void>(object), owner });
         }
 
-        /// The items of a point that are a T, in the order they were added
         template <typename T>
         std::vector<std::shared_ptr<T>> Get(const std::string& point) const
         {
@@ -81,7 +74,6 @@ namespace Shard::Engine::Plugins {
             return count;
         }
 
-        /// @brief Told whenever an item of `point` is added (already there ones are replayed at once) or removed. Returns an id for Unlisten.
         uint32_t Listen(const std::string& point, Listener listener)
         {
             const uint32_t id = ++m_NextListener;

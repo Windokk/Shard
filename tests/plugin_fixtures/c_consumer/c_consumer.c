@@ -1,5 +1,4 @@
-/* A second plugin in plain C : it uses the service "cplugin.math" that tests/plugin_fixtures/c_plugin provides, through the engine only.
- * It does not declare a dependency on the provider, so that disabling the provider leaves it running with an empty ref (see c_plugin_tests). */
+// No declared dependency on the provider, so disabling the provider leaves this plugin running with an empty ref (see c_plugin_tests).
 #include <string.h>
 
 #include <shard/shard.h>
@@ -10,7 +9,6 @@
 #   define TEST_EXPORT __attribute__((visibility("default")))
 #endif
 
-/* The provider's table, as its header would publish it */
 typedef struct MathService {
     uint32_t structSize;
     int32_t (SHARD_CALL *add)(void* self, int32_t a, int32_t b);
@@ -36,7 +34,6 @@ static ShardResult SHARD_CALL OnInitialize(void* user, ShardPluginCtx ctx)
     (void)user;
     gCtx = ctx;
     if (gHost->query_interface(Str(SHARD_IFACE_SERVICES), 1, 0, (const void**)&gServices) != SHARD_OK) return SHARD_E_NOT_FOUND;
-    /* every plugin ran on_load : the provider's service exists now */
     gGetResult = gServices->get(ctx, Str("cplugin.math"), Str("^1.1"), &gMath);
     {
         ShardServiceRef tooNew = 0;
@@ -64,7 +61,6 @@ SHARD_PLUGIN_EXPORT ShardResult SHARD_CALL shard_plugin_entry(const ShardHostApi
 
 TEST_EXPORT int c_consumer_get_result(void) { return gGetResult; }
 
-/* a + b through the service, or the ShardResult of resolve when it cannot */
 TEST_EXPORT int c_consumer_add(int a, int b, int* out)
 {
     ShardService service;

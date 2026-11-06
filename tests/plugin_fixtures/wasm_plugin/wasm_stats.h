@@ -1,4 +1,3 @@
-/* What the sandboxed test plugin counts (wasm_plugin.c) and the test reads (tests/plugins/wasm_sdk_plugin_tests.cpp) through wasm_stat(). */
 #ifndef SHARD_WASM_STATS_H
 #define SHARD_WASM_STATS_H
 

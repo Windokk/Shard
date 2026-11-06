@@ -35,10 +35,6 @@ TERMS = ["direct", "indirect_diffuse", "indirect_specular", "emission"]
 LUMA = (0.2126, 0.7152, 0.0722)
 
 
-# ---------------------------------------------------------------------------------------------------------------------------
-# Radiance .hdr (what stb_image_write writes : RLE scanlines when 8 <= width < 32768, flat RGBE otherwise)
-# ---------------------------------------------------------------------------------------------------------------------------
-
 def read_hdr(path):
     """(width, height, [r, g, b] arrays of floats, top row first)"""
     with open(path, "rb") as f:
@@ -94,10 +90,6 @@ def read_hdr(path):
     return width, height, channels
 
 
-# ---------------------------------------------------------------------------------------------------------------------------
-# PNG (8 bit RGB)
-# ---------------------------------------------------------------------------------------------------------------------------
-
 def write_png(path, width, height, rgb):
     """`rgb` : bytes / bytearray of width * height * 3, top row first"""
     raw = bytearray()
@@ -121,10 +113,6 @@ def srgb_byte(value):
     encoded = value * 12.92 if value <= 0.0031308 else 1.055 * value ** (1.0 / 2.4) - 0.055
     return int(encoded * 255.0 + 0.5)
 
-
-# ---------------------------------------------------------------------------------------------------------------------------
-# Metrics
-# ---------------------------------------------------------------------------------------------------------------------------
 
 def luminance(channels):
     r, g, b = channels
@@ -161,13 +149,11 @@ def measure(ref, raster, width, height, block):
     picture needs (the blocks, the reference's luminance)."""
     ref_y, raster_y = luminance(ref), luminance(raster)
 
-    # Area by area : blocks average the noise of the reference and the aliasing of the real-time picture away
     ref_blocks, bw, bh = block_means(ref_y, width, height, block)
     raster_blocks, _, _ = block_means(raster_y, width, height, block)
     block_ref = sum(ref_blocks)
 
-    # The blocks where the term carries light : how far off they are, in stops (a real-time block darker than 1% of the term's mean
-    # light counts as that : a term the real-time renderer does not draw at all is off by log2(reference / floor), not infinitely)
+    # Block error in stops. The real-time block is floored at 1% of the term's mean light, so a term it never draws gives log2(reference / floor), not infinity.
     floor = 0.01 * (block_ref / max(len(ref_blocks), 1))
 
     sums = {
@@ -178,7 +164,6 @@ def measure(ref, raster, width, height, block):
         "block_ref": block_ref,
         "brighter": sum(max(q - p, 0.0) for p, q in zip(ref_blocks, raster_blocks)),
         "darker": sum(max(p - q, 0.0) for p, q in zip(ref_blocks, raster_blocks)),
-        # Pixel by pixel : what the blocks hide (edges, noise, aliasing, fine shadows)
         "pixel_error": sum(abs(p - q) for p, q in zip(ref_y, raster_y)),
         "log_errors": [abs(math.log2(max(q, floor) / p)) for p, q in zip(ref_blocks, raster_blocks) if p > floor],
     }
@@ -221,10 +206,6 @@ def finish(sums, image):
     }
 
 
-# ---------------------------------------------------------------------------------------------------------------------------
-# Pictures
-# ---------------------------------------------------------------------------------------------------------------------------
-
 def diverging(t):
     """-1 : blue (too dark), 0 : light grey, +1 : red (too bright)"""
     t = min(max(t, -1.0), 1.0)
@@ -256,9 +237,7 @@ def write_strip(path, ref, raster, extra, width, height, block, range_stops):
                 row[x * 3 + 2] = srgb_byte(b[src + x] * exposure)
             pixels[out:out + width * 3] = row
 
-    # The error map : per block, log2(real time / reference) over +-range_stops ; dark where neither has light
     ref_blocks, raster_blocks, bw, bh = extra["blocks"]
-    # 1% of the term's mean light (of the real time's when the reference has none : a term only one of them draws)
     count = max(len(ref_blocks), 1)
     floor = 0.01 * (sum(ref_blocks) / count) or 0.01 * (sum(raster_blocks) / count) or 1e-12
     colours = []
@@ -278,10 +257,6 @@ def write_strip(path, ref, raster, extra, width, height, block, range_stops):
 
     write_png(path, total, height, pixels)
 
-
-# ---------------------------------------------------------------------------------------------------------------------------
-# Views
-# ---------------------------------------------------------------------------------------------------------------------------
 
 def parse_view(text):
     """"name=px py pz tx ty tz [fov]", "name=camera" or "camera" (the world's own camera)"""
@@ -336,10 +311,6 @@ def kept_reference(folder, args, view):
     return settings
 
 
-# ---------------------------------------------------------------------------------------------------------------------------
-# The run
-# ---------------------------------------------------------------------------------------------------------------------------
-
 def find_player(build):
     for name in ("ShardGame.exe", "ShardGame"):
         candidate = os.path.join(build, name)
@@ -350,8 +321,8 @@ def find_player(build):
 
 def write_commands(path, out, args, views, render_reference):
     """The console script the player runs : "<frame> <command>" lines (see EngineCreationSettings::scriptFile)"""
-    settle = 8          # frames between a change of the terms and the frame that is read : the render thread runs behind the simulation
-    view_settle = 30    # after a change of view : the temporal SSR forgets the previous one
+    settle = 8          # render thread lags the simulation
+    view_settle = 30
     lines = ["0 timescale 0"]
     if args.pipeline:
         lines.append(f"0 render.pipeline {args.pipeline}")
@@ -397,7 +368,7 @@ def run_player(args, out, views, render_reference):
     env = dict(os.environ)
     mingw = r"C:\msys64\mingw64\bin"
     if os.name == "nt" and os.path.isdir(mingw):
-        env["PATH"] = mingw + os.pathsep + env.get("PATH", "")    # the runtime DLLs the MinGW build links against
+        env["PATH"] = mingw + os.pathsep + env.get("PATH", "")
 
     cmd = [player, "--project", os.path.abspath(args.project), "--api", args.api, "--world", args.world,
            "--frames", str(frames), "--width", str(args.width), "--height", str(args.height), "--vsync", "0",
@@ -514,7 +485,6 @@ def main():
             combined[term] = accumulate(combined.get(term), sums[term])
 
         metrics = {term: finish(sums[term], sums["all"]) for term in ["all"] + TERMS}
-        # The terms drawn apart have to add up to the whole picture, in both renderers : what says the split itself is sound
         terms_sum = {
             "reference": sum(sums[t]["ref"] for t in TERMS) / max(sums["all"]["ref"], 1e-12),
             "raster": sum(sums[t]["raster"] for t in TERMS) / max(sums["all"]["raster"], 1e-12),

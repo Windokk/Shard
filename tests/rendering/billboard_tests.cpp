@@ -12,7 +12,6 @@
 using namespace Shard::Engine::Rendering;
 
 namespace {
-    // A camera at `position` looking down -Z, 1280x720
     RenderSnapshot MakeSnapshot(glm::vec3 position = glm::vec3(0.0f))
     {
         RenderSnapshot snapshot;
@@ -38,28 +37,28 @@ namespace {
     }
 }
 
-TEST(BillboardAtlasTest, TheSheetIs1024With64PixelTilesFor256Sprites) {
+TEST(BillboardAtlasTest, SheetIs1024With64Tiles) {
     EXPECT_EQ(BillboardAtlas::kSheetSize, 1024u);
     EXPECT_EQ(BillboardAtlas::kTileSize, 64u);
     EXPECT_EQ(BillboardAtlas::kMaxSprites, 256u);
 }
 
-TEST(BillboardAtlasTest, ASheetIsResampledToOneTilePerFrame) {
+TEST(BillboardAtlasTest, SheetResampledPerFrame) {
     BillboardAtlas& atlas = BillboardAtlas::Get();
     const uint32_t before = atlas.GetSpriteCount();
 
-    std::vector<uint8_t> big(size_t(64) * 32 * 4, 255);     // two 32 x 32 frames
+    std::vector<uint8_t> big(size_t(64) * 32 * 4, 255);
     EXPECT_EQ(atlas.RegisterSheet("tests/big.png", 2, 64, 32, big.data()), before);
     EXPECT_EQ(atlas.GetSpriteCount(), before + 2);
 }
 
-TEST(BillboardAtlasTest, AnUnknownNameIsTheGenericIcon) {
+TEST(BillboardAtlasTest, UnknownNameIsGenericIcon) {
     BillboardAtlas& atlas = BillboardAtlas::Get();
     EXPECT_EQ(atlas.Find("no_such_icon"), atlas.GetBuiltin(BuiltinSprite::Generic));
     EXPECT_EQ(atlas.LoadFolder("no/such/folder"), 0u);
 }
 
-TEST(BillboardAtlasTest, BuiltInIconsHaveAGlyphAndATransparentBackground) {
+TEST(BillboardAtlasTest, BuiltInIconsHaveGlyph) {
     for (uint32_t i = 0; i < static_cast<uint32_t>(BuiltinSprite::Count); i++) {
         const std::vector<uint8_t> pixels = BillboardAtlas::MakeBuiltinPixels(static_cast<BuiltinSprite>(i), BillboardAtlas::kBuiltinSize);
         const uint32_t size = BillboardAtlas::kBuiltinSize;
@@ -74,7 +73,7 @@ TEST(BillboardAtlasTest, BuiltInIconsHaveAGlyphAndATransparentBackground) {
     }
 }
 
-TEST(BillboardAtlasTest, ASheetIsSplitInFramesAndRegisteredOnce) {
+TEST(BillboardAtlasTest, SheetSplitAndRegisteredOnce) {
     BillboardAtlas& atlas = BillboardAtlas::Get();
     const uint32_t before = atlas.GetSpriteCount();
 
@@ -85,15 +84,13 @@ TEST(BillboardAtlasTest, ASheetIsSplitInFramesAndRegisteredOnce) {
     EXPECT_EQ(first, before);
     EXPECT_EQ(atlas.GetSpriteCount(), before + 2);
 
-    // The same key is the same sprites
     EXPECT_EQ(atlas.RegisterSheet("tests/sheet_a.png", 2, 8, 4, sheet.data()), first);
     EXPECT_EQ(atlas.GetSpriteCount(), before + 2);
 
-    // The same image cut differently is another sheet
     EXPECT_NE(atlas.RegisterSheet("tests/sheet_a.png", 4, 8, 4, sheet.data()), first);
 }
 
-TEST(BillboardAtlasTest, ABadSheetFallsBackToTheGenericIcon) {
+TEST(BillboardAtlasTest, BadSheetFallsBack) {
     BillboardAtlas& atlas = BillboardAtlas::Get();
     const uint32_t generic = atlas.GetBuiltin(BuiltinSprite::Generic);
     const uint32_t before = atlas.GetSpriteCount();
@@ -103,7 +100,7 @@ TEST(BillboardAtlasTest, ABadSheetFallsBackToTheGenericIcon) {
     EXPECT_EQ(atlas.GetSpriteCount(), before);
 }
 
-TEST(BillboardInstancesTest, NothingWithoutACameraOrBillboards) {
+TEST(BillboardInstancesTest, EmptyWithoutCamera) {
     std::vector<BillboardInstance> out;
     uint32_t depthTested = 99;
 
@@ -118,7 +115,7 @@ TEST(BillboardInstancesTest, NothingWithoutACameraOrBillboards) {
     EXPECT_TRUE(out.empty());
 }
 
-TEST(BillboardInstancesTest, EditorOnlyBillboardsFollowTheEditorSwitch) {
+TEST(BillboardInstancesTest, EditorOnlyFollowsSwitch) {
     RenderSnapshot snapshot = MakeSnapshot();
     snapshot.billboards.push_back(MakeProxy(1, {0, 0, -5}, 40.0f, BillboardFlag::ScreenSpaceSize | BillboardFlag::DepthTest | BillboardFlag::EditorOnly));
     snapshot.billboards.push_back(MakeProxy(2, {1, 0, -5}));
@@ -133,7 +130,7 @@ TEST(BillboardInstancesTest, EditorOnlyBillboardsFollowTheEditorSwitch) {
     EXPECT_EQ(out.size(), 2u);
 }
 
-TEST(BillboardInstancesTest, ASizeOfZeroDrawsNothing) {
+TEST(BillboardInstancesTest, ZeroSizeDrawsNothing) {
     RenderSnapshot snapshot = MakeSnapshot();
     snapshot.billboards.push_back(MakeProxy(1, {0, 0, -5}, 0.0f));
 
@@ -143,8 +140,8 @@ TEST(BillboardInstancesTest, ASizeOfZeroDrawsNothing) {
     EXPECT_TRUE(out.empty());
 }
 
-TEST(BillboardInstancesTest, PositionsComeRelativeToTheCameraWithoutLosingPrecision) {
-    // Far from the origin a float cannot hold a centimeter ; the difference of two 64-bit positions can
+TEST(BillboardInstancesTest, PositionsCameraRelative) {
+    // Far from the origin a float can't hold a centimeter, the difference of two 64-bit positions can.
     RenderSnapshot snapshot = MakeSnapshot(glm::vec3(100000.0f, 0.0f, 0.0f));
     snapshot.billboards.push_back(MakeProxy(1, {100000.0 + 0.125, 2.0, -5.0}));
 
@@ -159,7 +156,7 @@ TEST(BillboardInstancesTest, PositionsComeRelativeToTheCameraWithoutLosingPrecis
     EXPECT_FLOAT_EQ(out[0].positionSize.w, 40.0f);
 }
 
-TEST(BillboardInstancesTest, TheDepthTestedLayerComesFirstEachLayerFarthestFirst) {
+TEST(BillboardInstancesTest, LayerOrdering) {
     RenderSnapshot snapshot = MakeSnapshot();
     const uint8_t over = BillboardFlag::ScreenSpaceSize;
     snapshot.billboards.push_back(MakeProxy(1, {0, 0, -2}));
@@ -179,7 +176,7 @@ TEST(BillboardInstancesTest, TheDepthTestedLayerComesFirstEachLayerFarthestFirst
     EXPECT_FLOAT_EQ(out[3].positionSize.z, -3.0f);
 }
 
-TEST(BillboardInstancesTest, FacingAndFlagsReachTheShader) {
+TEST(BillboardInstancesTest, FacingAndFlagsReachShader) {
     RenderSnapshot snapshot = MakeSnapshot();
     BillboardProxy proxy = MakeProxy(1, {0, 0, -4});
     proxy.facing = BillboardProxyFacing::AxisY;
@@ -196,9 +193,9 @@ TEST(BillboardInstancesTest, FacingAndFlagsReachTheShader) {
     EXPECT_EQ(out[0].tint, proxy.tint);
 }
 
-TEST(BillboardPickTest, AClickOnTheIconSelectsItsActor) {
+TEST(BillboardPickTest, ClickSelectsActor) {
     RenderSnapshot snapshot = MakeSnapshot();
-    snapshot.billboards.push_back(MakeProxy(7, {0, 0, -5}));      // dead centre : pixel (640, 360)
+    snapshot.billboards.push_back(MakeProxy(7, {0, 0, -5}));
 
     const BillboardPick hit = BillboardRenderer::Pick(snapshot, true, 650.0f, 350.0f, 1280.0f, 720.0f);
     EXPECT_TRUE(hit.hit);
@@ -208,7 +205,7 @@ TEST(BillboardPickTest, AClickOnTheIconSelectsItsActor) {
     EXPECT_FALSE(BillboardRenderer::Pick(snapshot, true, 800.0f, 360.0f, 1280.0f, 720.0f).hit);
 }
 
-TEST(BillboardPickTest, TheNearestIconWinsWhereTheyOverlap) {
+TEST(BillboardPickTest, NearestIconWins) {
     RenderSnapshot snapshot = MakeSnapshot();
     snapshot.billboards.push_back(MakeProxy(1, {0, 0, -9}));
     snapshot.billboards.push_back(MakeProxy(2, {0, 0, -4}));
@@ -219,22 +216,20 @@ TEST(BillboardPickTest, TheNearestIconWinsWhereTheyOverlap) {
     EXPECT_EQ(hit.objectId, 2);
 }
 
-TEST(BillboardPickTest, NotPickableEditorOnlyOrBehindTheCameraIsIgnored) {
+TEST(BillboardPickTest, IgnoresUnpickable) {
     RenderSnapshot snapshot = MakeSnapshot();
-    snapshot.billboards.push_back(MakeProxy(1, {0, 0, -5}, 40.0f, BillboardFlag::ScreenSpaceSize | BillboardFlag::DepthTest));   // not pickable
+    snapshot.billboards.push_back(MakeProxy(1, {0, 0, -5}, 40.0f, BillboardFlag::ScreenSpaceSize | BillboardFlag::DepthTest));
     snapshot.billboards.push_back(MakeProxy(2, {0, 0, -5}, 40.0f, BillboardFlag::ScreenSpaceSize | BillboardFlag::Pickable | BillboardFlag::EditorOnly));
-    snapshot.billboards.push_back(MakeProxy(3, {0, 0, 5}));                                                                       // behind
+    snapshot.billboards.push_back(MakeProxy(3, {0, 0, 5}));
 
     EXPECT_FALSE(BillboardRenderer::Pick(snapshot, false, 640.0f, 360.0f, 1280.0f, 720.0f).hit);
     EXPECT_EQ(BillboardRenderer::Pick(snapshot, true, 640.0f, 360.0f, 1280.0f, 720.0f).objectId, 2);
 }
 
-TEST(BillboardPickTest, AWorldSizedBillboardShrinksWithDistance) {
+TEST(BillboardPickTest, WorldSizedShrinksWithDistance) {
     RenderSnapshot snapshot = MakeSnapshot();
-    // 2 meters wide, flags without ScreenSpaceSize
     snapshot.billboards.push_back(MakeProxy(1, {0, 0, -4}, 2.0f, BillboardFlag::Pickable));
 
-    // Near : 1 meter at 4 meters is ~ 1/(4*tan(30deg)) of the half height = ~ 156 pixels
     EXPECT_TRUE(BillboardRenderer::Pick(snapshot, true, 640.0f + 120.0f, 360.0f, 1280.0f, 720.0f).hit);
     EXPECT_FALSE(BillboardRenderer::Pick(snapshot, true, 640.0f + 200.0f, 360.0f, 1280.0f, 720.0f).hit);
 }

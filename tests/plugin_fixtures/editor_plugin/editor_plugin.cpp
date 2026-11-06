@@ -1,4 +1,3 @@
-// An editor plugin that draws with its own copy of ImGui, loaded by tests/plugins/editor_imgui_tests.cpp.
 #include "engine/plugins/context.hpp"
 #include "engine/plugins/editor_imgui.hpp"
 #include "engine/plugins/plugin.hpp"

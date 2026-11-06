@@ -48,7 +48,7 @@ TEST(PluginManifest, ParsesAFullManifest)
     EXPECT_EQ(m.engineRequires, std::vector<std::string>{ "largeWorld" });
 }
 
-TEST(PluginManifest, EngineHostMeansEveryExecutableThatSimulates)
+TEST(PluginManifest, EngineHostMeansSimulators)
 {
     json j = PluginTest::Manifest("a.b");
     j["hosts"] = json::array({ "engine" });
@@ -71,7 +71,7 @@ TEST(PluginManifest, ReportsEveryProblemAtOnce)
     EXPECT_NE(message.find("unknown host"), std::string::npos) << message;
 }
 
-TEST(PluginManifest, RejectsInvalidJsonAndMissingFields)
+TEST(PluginManifest, RejectsInvalidJson)
 {
     EXPECT_FALSE(ParseManifestText("not json"));
     EXPECT_FALSE(ParseManifestText("[]"));
@@ -113,14 +113,14 @@ TEST(PluginManifest, DatapacksAreDataOnly)
     EXPECT_FALSE(ParseManifest(plain));
 }
 
-TEST(PluginManifest, PluginsDoNotNameAModuleKind)
+TEST(PluginManifest, NoModuleKindNamed)
 {
     json j = PluginTest::Manifest("a.b");
     j["moduleKind"] = "code";
     EXPECT_FALSE(ParseManifest(j));
 }
 
-TEST(PluginManifest, ContentMountStaysInsideThePlugin)
+TEST(PluginManifest, ContentMountStaysInside)
 {
     json j = PluginTest::Manifest("a.b");
     j["kind"] = "module";
@@ -137,7 +137,7 @@ TEST(PluginManifest, ASelfDependencyIsRefused)
     EXPECT_FALSE(ParseManifest(j));
 }
 
-TEST(PluginManifest, ModulesDefaultToCodeAndToChangingTheSimulation)
+TEST(PluginManifest, ModuleDefaults)
 {
     json j = PluginTest::Manifest("a.b");
     j["kind"] = "module";

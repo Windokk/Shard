@@ -28,9 +28,7 @@
 
 namespace Shard::Engine::Physics
 {
-    /// @brief The world-space matrix that carries something sitting at pose `curr` to the pose `alpha` of the way from `prev`
-    /// to `curr` : it turns it about the origin of `curr` by what separates the two orientations, then moves it to the
-    /// interpolated position. Multiplied on the left of a world matrix that was built from `curr`, it keeps the scale and the parents.
+    // Rotates about the origin of `curr` by the orientation difference, then moves to the interpolated position. Multiply on the left of a world matrix built from `curr`.
     inline glm::mat4 PoseInterpolationOffset(const glm::vec3& prevPosition, const glm::quat& prevRotation,
                                              const glm::vec3& currPosition, const glm::quat& currRotation, float alpha)
     {
@@ -97,10 +95,6 @@ namespace Shard::Engine::Objects::Components
         }
     };
 
-    /// @brief A single collision shape belonging to a PhysicsBody, with its own local offset/rotation.
-    /// @note Not exposed through the FIELD()/STRUCT() reflection macros - the editor draws the shape
-    /// list with a dedicated custom UI (see PropertiesPanel) instead of the generic reflected-field one,
-    /// since the generic system doesn't support editing a vector of structs.
     struct PhysicsShapeEntry
     {
         Physics::PhysicsShape shapeType = Physics::PhysicsShape::BOX;
@@ -120,16 +114,11 @@ namespace Shard::Engine::Objects::Components
 
             void SyncTransformFromPhysics();
 
-            /// @brief Where a dynamic body is drawn between its last two simulated poses, as a world-space matrix that
-            /// moves the body from the pose its transform holds (the last step) to the interpolated one.
-            /// @param alpha how far the frame is between the last step and the next one, in [0, 1) (TimeManager::GetFixedStepAlpha)
-            /// @return false when there is nothing to correct (not dynamic, no step simulated yet, or the body did not move)
             bool GetInterpolationOffset(float alpha, glm::mat4& offset) const;
 
             void Tick(float dt);
 
             void SetPosition(glm::vec3 newPos);
-            /// @brief Same, in double : a position of the root frame (large worlds)
             void SetPositionD(const glm::dvec3& newPos);
 
             void SetRotation(glm::vec3 newRot);
@@ -153,8 +142,6 @@ namespace Shard::Engine::Objects::Components
 
             std::shared_ptr<Component> Clone() const override;
 
-            // ---------------- Shape list ----------------
-
             size_t GetShapeCount() const { return shapes.size(); }
 
             Physics::PhysicsShape GetShapeType(size_t index = 0) const { return shapes.at(index).shapeType; }
@@ -165,17 +152,12 @@ namespace Shard::Engine::Objects::Components
             glm::vec3& GetShapeOffset(size_t index) { return shapes.at(index).offset; }
             glm::quat& GetShapeRotation(size_t index) { return shapes.at(index).rotation; }
 
-            /// @brief Appends a new shape entry of the given type (with default params) to the body
             void AddShape(Physics::PhysicsShape type = Physics::PhysicsShape::BOX);
 
-            /// @brief Removes the shape entry at the given index. A body always keeps at least one shape.
             void RemoveShape(size_t index);
 
-            /// @brief Changes the shape type of an existing entry, reinitializing its params for the new type
             void SetShapeType(size_t index, Physics::PhysicsShape newType);
 
-            /// @brief Call after mutating a shape entry's params/offset/rotation in place (e.g. from the editor)
-            /// to schedule a rebuild of the underlying Jolt shape on the next Tick().
             void MarkShapesDirty() { shouldUpdateShape = true; }
 
             JPH::BodyID GetBodyID() const { return m_BodyID; }
@@ -183,10 +165,7 @@ namespace Shard::Engine::Objects::Components
 
             void OnFieldChanged(const FieldChangedEvent& event) override;
 
-            // ---------------- Runtime transform / motion API ----------------
-
             glm::vec3 GetPosition() const;
-            /// @brief The body's position in the root frame, in double
             glm::dvec3 GetPositionD() const;
             glm::quat GetRotation() const;
             glm::vec3 GetCenterOfMassPosition() const;
@@ -219,14 +198,9 @@ namespace Shard::Engine::Objects::Components
             void SetGravityMode(Physics::GravityMode mode);
             Physics::GravityMode GetGravityMode() const { return gravityMode; }
 
-            /// @brief Gives the body a gravity of its own and switches it to GravityMode::Custom (the world's gravity and the gravity
-            /// fields no longer reach it)
             void SetCustomGravity(glm::vec3 gravity);
             glm::vec3 GetCustomGravity() const { return customGravity; }
 
-            /// @brief The acceleration the body falls with now, gravity factor included, from its mode : the world's gravity and the
-            /// gravity fields where its center of mass is, or its custom gravity. Its opposite is the "up" of the body (a character
-            /// standing on a planet), zero when nothing pulls it.
             glm::vec3 GetGravity() const;
 
             void SetFriction(float newFriction);
@@ -269,23 +243,19 @@ namespace Shard::Engine::Objects::Components
 
             bool shouldUpdateShape = false;
 
-            /// Keeps the last two poses Jolt gave (world space), shifting only when a new step was simulated since the last read
             void RecordPose(const glm::vec3& position, const glm::quat& rotation);
 
             glm::vec3 m_PrevPosition = glm::vec3(0.0f);
             glm::quat m_PrevRotation = glm::quat(1.0f, 0.0f, 0.0f, 0.0f);
             glm::vec3 m_CurrPosition = glm::vec3(0.0f);
             glm::quat m_CurrRotation = glm::quat(1.0f, 0.0f, 0.0f, 0.0f);
-            uint64_t m_PoseStep = 0;            // PhysicsManager::GetStepCount() when the current pose was recorded
-            bool m_PoseValid = false;           // false after a teleport / a rebuild : the next pose is taken as both previous and current
+            uint64_t m_PoseStep = 0;
+            bool m_PoseValid = false;
 
             JPH::ShapeRefC BuildShape();
 
             JPH::ShapeRefC CreateJoltShape(Physics::PhysicsShape shape, const InstancedStruct& params);
 
-            /// @brief Pushes the current overrideMass/mass fields to the live body (or resets to the
-            /// shape's auto-calculated mass when overrideMass is false). Used by both SetMass() and
-            /// OnFieldChanged() so toggling "overrideMass" off doesn't get forced back on.
             void ApplyMassProperties();
 
             std::vector<PhysicsShapeEntry> shapes;

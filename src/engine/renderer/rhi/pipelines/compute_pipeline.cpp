@@ -44,7 +44,6 @@ namespace Shard::Engine::Rendering
     {
         std::size_t hash = 0;
 
-        // The shader object, not its AssetID : the compute shaders are made from files directly and all have the ID 0
         HashCombine(hash, std::hash<const ComputeShader*>()(s.shader.get()));
 
         return hash;

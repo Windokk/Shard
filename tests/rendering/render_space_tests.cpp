@@ -9,7 +9,7 @@
 using namespace Shard::Engine::Core;
 using namespace Shard::Engine::Rendering;
 
-TEST(RenderSpace, RootFrameAtTheOriginIsTheIdentityBitForBit) {
+TEST(RenderSpace, RootFrameIsIdentity) {
     ReferenceFrameTree tree;
     const FrameToRender space = MakeFrameToRender(tree, kRootFrame, WorldPosition());
     EXPECT_TRUE(space.identity);
@@ -22,9 +22,8 @@ TEST(RenderSpace, RootFrameAtTheOriginIsTheIdentityBitForBit) {
     EXPECT_EQ(space.ApplyToPoint(p), p);
 }
 
-TEST(RenderSpace, ObjectNextToTheCameraIsExactWhateverTheDistanceFromTheRoot) {
+TEST(RenderSpace, NearCameraObjectExact) {
     ReferenceFrameTree tree;
-    // A frame 10^16 m from the root (cells), the camera in it, an object one metre from the camera
     const CellCoord far{10000000000000ll, 0, -5000000000000ll};
     const FrameId planet = tree.Create("Planet", kRootFrame, WorldPosition(far, DVec3(0.0)));
 
@@ -53,7 +52,7 @@ TEST(RenderSpace, RenderOriginMovesRootObjects) {
     EXPECT_FLOAT_EQ(space.ApplyToPoint(glm::vec3(5001.0f, 2.0f, 0.0f)).x, 1.0f);
 }
 
-TEST(RenderSpace, ARotatedFrameTurnsPointsAndDirections) {
+TEST(RenderSpace, RotatedFrameTurnsPoints) {
     ReferenceFrameTree tree;
     const FrameId f = tree.Create("Turned", kRootFrame, WorldPosition::FromDVec3(DVec3(10.0, 0.0, 0.0)),
                                   glm::angleAxis(Math::kHalfPi, DVec3(0.0, 1.0, 0.0)));
@@ -66,7 +65,6 @@ TEST(RenderSpace, ARotatedFrameTurnsPointsAndDirections) {
     const glm::vec3 d = space.ApplyToDirection(glm::vec3(1.0f, 0.0f, 0.0f));
     EXPECT_NEAR(d.z, -1.0f, 1e-5f);
 
-    // The matrix and the point agree
     const glm::mat4 m = glm::translate(glm::mat4(1.0f), glm::vec3(1.0f, 0.0f, 0.0f));
     const glm::vec3 viaMatrix = glm::vec3(space.ApplyToMatrix(m)[3]);
     EXPECT_NEAR(viaMatrix.x, p.x, 1e-5f);

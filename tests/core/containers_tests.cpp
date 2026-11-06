@@ -32,22 +32,22 @@ TEST(SlotMap, InsertGetRemove) {
     EXPECT_EQ(*map.Get(b), "beta");
     EXPECT_TRUE(map.Remove(a));
     EXPECT_EQ(map.Get(a), nullptr);
-    EXPECT_FALSE(map.Remove(a));                     // already removed
+    EXPECT_FALSE(map.Remove(a));
     EXPECT_EQ(map.Size(), 1u);
 }
 
-TEST(SlotMap, StaleHandleIsDetectedAfterSlotReuse) {
+TEST(SlotMap, StaleHandleDetected) {
     SlotMap<int> map;
     auto first = map.Insert(1);
     map.Remove(first);
-    auto second = map.Insert(2);                     // reuses the slot
+    auto second = map.Insert(2);
     EXPECT_EQ(first.index, second.index);
     EXPECT_NE(first.generation, second.generation);
-    EXPECT_EQ(map.Get(first), nullptr);              // the old handle does not see the new element
+    EXPECT_EQ(map.Get(first), nullptr);
     EXPECT_EQ(*map.Get(second), 2);
 }
 
-TEST(SlotMap, DefaultAndOutOfRangeHandlesAreInvalid) {
+TEST(SlotMap, InvalidHandlesDetected) {
     SlotMap<int> map;
     Handle<int> none;
     EXPECT_FALSE(none.IsValid());
@@ -61,7 +61,7 @@ TEST(SlotMap, ElementsNeverMove) {
     SlotMap<int> map;
     auto first = map.Insert(123);
     int* address = map.Get(first);
-    for (int i = 0; i < 5000; ++i) map.Insert(i);     // many chunks later
+    for (int i = 0; i < 5000; ++i) map.Insert(i);
     EXPECT_EQ(map.Get(first), address);
     EXPECT_EQ(*address, 123);
 }
@@ -75,7 +75,7 @@ TEST(SlotMap, RunsDestructors) {
         map.Remove(a);
         EXPECT_EQ(destroyed, 1);
     }
-    EXPECT_EQ(destroyed, 2);                          // the survivor goes with the map
+    EXPECT_EQ(destroyed, 2);
 }
 
 TEST(SlotMap, IterationVisitsLiveElementsOnly) {
@@ -105,7 +105,7 @@ TEST(SlotMap, ClearInvalidatesEveryHandle) {
     EXPECT_EQ(map.Size(), 0u);
     EXPECT_EQ(map.Get(a), nullptr);
     EXPECT_EQ(map.Get(b), nullptr);
-    auto c = map.Insert(3);                           // slots are reusable
+    auto c = map.Insert(3);
     EXPECT_EQ(*map.Get(c), 3);
     EXPECT_EQ(map.Get(a), nullptr);
 }
@@ -132,7 +132,7 @@ TEST(Span, ViewsContainers) {
     Span<int> s(v);
     EXPECT_EQ(s.size(), 5u);
     s[0] = 10;
-    EXPECT_EQ(v[0], 10);                              // a view, not a copy
+    EXPECT_EQ(v[0], 10);
 
     std::array<int, 3> a = {7, 8, 9};
     Span<const int> sa(a);
@@ -142,7 +142,7 @@ TEST(Span, ViewsContainers) {
     Span<int> sr(raw);
     EXPECT_EQ(sr.size(), 4u);
 
-    Span<const int> converted = s;                    // Span<T> -> Span<const T>
+    Span<const int> converted = s;
     EXPECT_EQ(converted.size(), 5u);
 }
 
@@ -153,7 +153,7 @@ TEST(Span, Subranges) {
     EXPECT_EQ(s.last(2).front(), 4);
     EXPECT_EQ(s.subspan(2, 3).size(), 3u);
     EXPECT_EQ(s.subspan(4).size(), 2u);
-    EXPECT_EQ(s.subspan(4, 100).size(), 2u);          // clamped
+    EXPECT_EQ(s.subspan(4, 100).size(), 2u);
     EXPECT_TRUE(s.subspan(6).empty());
     int sum = 0;
     for (int x : s.subspan(1, 3)) sum += x;
@@ -262,7 +262,7 @@ TEST(StringId, InternKeepsTheText) {
     StringId id = StringId::Intern("interned_name_for_test");
     EXPECT_EQ(id, StringId("interned_name_for_test"));
     EXPECT_EQ(id.ToString(), "interned_name_for_test");
-    EXPECT_EQ(StringId("never_interned_name").ToString().front(), '#');   // falls back to the hash
+    EXPECT_EQ(StringId("never_interned_name").ToString().front(), '#');
     EXPECT_FALSE(StringId::HadCollision());
 }
 

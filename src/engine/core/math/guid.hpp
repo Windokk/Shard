@@ -25,16 +25,14 @@ namespace Shard::Engine::Core {
 
         static Guid Generate();
         static Guid FromName(const Guid& ns, std::string_view name);
-        static Guid FromName(std::string_view name);                 ///< in the engine's own namespace
+        static Guid FromName(std::string_view name);
 
-        /// @brief Parses "xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx" (case-insensitive, optional braces). nullopt otherwise.
         static std::optional<Guid> Parse(std::string_view text);
 
-        std::string ToString() const;                                ///< lowercase, hyphenated
+        std::string ToString() const;
         constexpr bool IsNull() const { return high == 0 && low == 0; }
         constexpr explicit operator bool() const { return !IsNull(); }
 
-        /// UUID version field (4 for Generate, 8 for FromName).
         constexpr int Version() const { return static_cast<int>((high >> 12) & 0xF); }
 
         friend constexpr bool operator==(const Guid& a, const Guid& b) { return a.high == b.high && a.low == b.low; }

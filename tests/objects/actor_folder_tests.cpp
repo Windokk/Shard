@@ -8,7 +8,6 @@
 using namespace Shard::Engine::Core;
 using namespace Shard::Engine::Objects;
 
-// The outliner folder of an actor is only an organization of the editor, saved with the actor
 class ActorFolderTest : public ::testing::Test {
     protected:
         void SetUp() override {
@@ -22,7 +21,7 @@ class ActorFolderTest : public ::testing::Test {
         Shard::Tests::TestEngineContext context;
 };
 
-TEST_F(ActorFolderTest, ActorsStartAtTheTopLevel) {
+TEST_F(ActorFolderTest, ActorsStartAtTopLevel) {
     auto actor = Object::CreateWithContext<Actor>(&context, std::string("Lamp"), &context);
 
     EXPECT_TRUE(actor->GetFolder().empty());
@@ -46,7 +45,7 @@ TEST_F(ActorFolderTest, FolderIsSerializedWhenSet) {
     EXPECT_EQ(data["folder"].get<std::string>(), "Lights/Indoor");
 }
 
-TEST_F(ActorFolderTest, NoFolderLeavesTheFileUnchanged) {
+TEST_F(ActorFolderTest, NoFolderLeavesFileUnchanged) {
     auto actor = Object::CreateWithContext<Actor>(&context, std::string("Lamp"), &context);
 
     const ordered_json data = Shard::Engine::Worlds::SerializeActorToJson(actor);

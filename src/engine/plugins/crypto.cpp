@@ -67,8 +67,6 @@ static const int64_t kL[32] = {237, 211, 245, 92, 26, 99, 18, 88, 214, 156, 247,
         inline uint64_t Rotr64(uint64_t x, int n) { return (x >> n) | (x << (64 - n)); }
     }
 
-    // ---- SHA-256 ----
-
     Sha256::Sha256()
     {
         std::memcpy(m_State, H256, sizeof(m_State));
@@ -128,8 +126,6 @@ static const int64_t kL[32] = {237, 211, 245, 92, 26, 99, 18, 88, 214, 156, 247,
         return out;
     }
 
-    // ---- SHA-512 ----
-
     Sha512::Sha512()
     {
         std::memcpy(m_State, H512, sizeof(m_State));
@@ -176,7 +172,7 @@ static const int64_t kL[32] = {237, 211, 245, 92, 26, 99, 18, 88, 214, 156, 247,
 
     Sha512Digest Sha512::Finish()
     {
-        const uint64_t bits = m_Length * 8;      // messages here are far below 2^61 bytes, so the high 64 bits of the length are zero
+        const uint64_t bits = m_Length * 8;      // Messages are far below 2^61 bytes, high 64 bits of the length are zero
         const uint8_t pad = 0x80;
         Update(&pad, 1);
         const uint8_t zero = 0;
@@ -234,7 +230,7 @@ static const int64_t kL[32] = {237, 211, 245, 92, 26, 99, 18, 88, 214, 156, 247,
         return true;
     }
 
-    // ---- Ed25519 (after TweetNaCl : sixteen 16 bit limbs, constant time field arithmetic) ----
+    // Ed25519 after TweetNaCl: sixteen 16-bit limbs, constant-time field arithmetic
 
     namespace {
         void Set25519(gf r, const gf a) { for (int i = 0; i < 16; ++i) r[i] = a[i]; }
@@ -485,14 +481,13 @@ static const int64_t kL[32] = {237, 211, 245, 92, 26, 99, 18, 88, 214, 156, 247,
             return 0;
         }
 
-        // s < L ?
         bool ScalarIsCanonical(const uint8_t* s)
         {
             for (int i = 31; i >= 0; --i) {
                 if (s[i] < kL[i]) return true;
                 if (s[i] > kL[i]) return false;
             }
-            return false;           // equal to L
+            return false;
         }
     }
 
@@ -530,9 +525,8 @@ static const int64_t kL[32] = {237, 211, 245, 92, 26, 99, 18, 88, 214, 156, 247,
         Signature sig;
         gf p[4];
         ScalarBase(p, r);
-        Pack(sig.data(), p);                 // R
+        Pack(sig.data(), p);
 
-        // k = H(R || A || M) mod L
         uint8_t k[64];
         {
             Sha512 h;
@@ -549,7 +543,7 @@ static const int64_t kL[32] = {237, 211, 245, 92, 26, 99, 18, 88, 214, 156, 247,
         for (int i = 0; i < 32; ++i) x[i] = int64_t(uint64_t(r[i]));
         for (int i = 0; i < 32; ++i)
             for (int j = 0; j < 32; ++j) x[i + j] += int64_t(k[i]) * int64_t(uint64_t(d[j]));
-        ModL(sig.data() + 32, x);            // S = r + k * a mod L
+        ModL(sig.data() + 32, x);
         return sig;
     }
 

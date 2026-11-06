@@ -1,18 +1,3 @@
-// asset_validator : checks a project without starting the engine.
-//
-//   ShardAssetValidator --project <project.json> [--game <library>] [--plugin <path>]... [--plugin-path <dir>]... [options]
-//
-//   * the project file reads, and names a resources folder and an asset database that exist
-//   * the plugins : which load, which do not and why, the plugins.lock, the files two modules both provide
-//   * every entry of the asset database has its file
-//   * every world of the build list exists, is valid JSON and has the shape of a world (and the world files of the project)
-//   * the checks plugins add (the "tool.validator" extension point, ToolPlugin::OnToolTask("validate"))
-//
-//   --strict    warnings (a plugin left out, a lock that differs) are problems too
-//   --quiet     only the problems
-//
-// Exit code : 0 = nothing wrong, 1 = problems (or could not start).
-
 #include <algorithm>
 #include <filesystem>
 #include <fstream>
@@ -82,7 +67,6 @@ int main(int argc, char** argv)
     Report report;
     report.quiet = quiet;
 
-    // ---- The project file ----
     std::string text;
     if (!ReadText(projectFile, text)) { std::cerr << "[ERROR] cannot read " << projectFile << std::endl; return 1; }
     json project = json::parse(text, nullptr, false);
@@ -98,7 +82,6 @@ int main(int argc, char** argv)
     if (!resources.empty() && !fs::is_directory(resources, ec)) report.Problem("the resources folder " + resources.generic_string() + " does not exist");
     if (!database.empty() && !fs::is_regular_file(database, ec)) report.Problem("the asset database " + database.generic_string() + " does not exist");
 
-    // ---- Plugins ----
     plugins.project = projectFile;
     Core::SetEngine(nullptr);
     Debugging::SetLogger(&Debugging::Logger::GetInstance());
@@ -118,7 +101,6 @@ int main(int argc, char** argv)
     for (const auto& record : manager.Plugins())
         for (const std::string& w : record->warnings) report.Warning(record->manifest.id + " : " + w);
 
-    // ---- Asset database ----
     if (!database.empty() && !resources.empty() && fs::is_regular_file(database, ec)) {
         std::string dbText;
         ReadText(database, dbText);
@@ -141,7 +123,6 @@ int main(int argc, char** argv)
         }
     }
 
-    // ---- Worlds ----
     std::set<std::string> worldFiles;
     if (project.contains("buildSettings") && project["buildSettings"].is_array()) {
         for (const json& w : project["buildSettings"]) {
@@ -168,7 +149,6 @@ int main(int argc, char** argv)
     }
     if (!quiet) std::cout << "[VALIDATOR] worlds : " << worldCount << std::endl;
 
-    // ---- What plugins check ----
     for (const std::string& p : manager.RunToolValidators(projectFile)) report.Problem(p);
 
     manager.Shutdown();

@@ -23,9 +23,9 @@ TEST(DisplayTransform, SRGBCurveRoundTrips) {
 TEST(DisplayTransform, SRGBCurveKnownValues) {
     EXPECT_FLOAT_EQ(LinearToSRGB(0.0f), 0.0f);
     EXPECT_FLOAT_EQ(LinearToSRGB(1.0f), 1.0f);
-    EXPECT_NEAR(LinearToSRGB(0.18f), 0.4614f, 1e-3f);          // middle grey of a photograph
+    EXPECT_NEAR(LinearToSRGB(0.18f), 0.4614f, 1e-3f);
     EXPECT_NEAR(SRGBToLinear(0.5f), 0.2140f, 1e-3f);
-    EXPECT_NEAR(LinearToSRGB(0.002f), 0.002f * 12.92f, 1e-6f); // the linear segment near black
+    EXPECT_NEAR(LinearToSRGB(0.002f), 0.002f * 12.92f, 1e-6f);
 }
 
 TEST(DisplayTransform, SRGBCurveClamps) {
@@ -51,13 +51,13 @@ TEST(DisplayTransform, TonemappersAreMonotonicAndBounded) {
     }
 }
 
-TEST(DisplayTransform, BlackStaysBlackAndBrightGoesToWhite) {
+TEST(DisplayTransform, BlackStaysBlack) {
     for (Tonemapper t : { Tonemapper::None, Tonemapper::ACES, Tonemapper::Neutral, Tonemapper::Reinhard })
     {
         const glm::vec3 black = DisplayTransform(glm::vec3(0.0f), DisplaySettings{ t, 0.0f });
         EXPECT_LT(black.x + black.y + black.z, 0.01f) << TonemapperName(t);
 
-        // Reinhard on the luminance only reaches white at infinity, so the bar is "almost"
+        // Luminance Reinhard only reaches white at infinity, so check "almost white".
         const glm::vec3 sun = DisplayTransform(glm::vec3(5000.0f), DisplaySettings{ t, 0.0f });
         EXPECT_GT(sun.x + sun.y + sun.z, 2.9f) << TonemapperName(t);
     }
@@ -72,7 +72,7 @@ TEST(DisplayTransform, NegativeInputsStayInRange) {
     }
 }
 
-TEST(DisplayTransform, NoneIsTheClampedLightThroughTheSRGBCurve) {
+TEST(DisplayTransform, NoneIsClampedSrgb) {
     const DisplaySettings none{ Tonemapper::None, 0.0f };
     EXPECT_NEAR(DisplayTransform(glm::vec3(0.5f), none).x, LinearToSRGB(0.5f), 1e-6f);
     EXPECT_NEAR(DisplayTransform(glm::vec3(3.0f), none).x, 1.0f, 1e-6f);
@@ -84,25 +84,22 @@ TEST(DisplayTransform, ExposureIsInStops) {
     settings.exposure = -2.0f;
     EXPECT_FLOAT_EQ(settings.ExposureScale(), 0.25f);
 
-    // +1 EV on a value of 0.1 equals 0.2 without it
     const DisplaySettings plus{ Tonemapper::None, 1.0f };
     const DisplaySettings flat{ Tonemapper::None, 0.0f };
     EXPECT_NEAR(DisplayTransform(glm::vec3(0.1f), plus).x, DisplayTransform(glm::vec3(0.2f), flat).x, 1e-6f);
 }
 
 TEST(DisplayTransform, NeutralLeavesTheMidtonesAlone) {
-    // The point of PBR Neutral : below the start of the compression a colour only loses the small offset of its toe
     const glm::vec3 color(0.5f, 0.3f, 0.2f);
     const glm::vec3 mapped = ApplyTonemap(color, Tonemapper::Neutral);
     for (int c = 0; c < 3; c++)
         EXPECT_NEAR(mapped[c], color[c] - 0.04f, 1e-4f);
 }
 
-TEST(DisplayTransform, ACESMapsMiddleGreyToAMidTone) {
+TEST(DisplayTransform, AcesMapsMidGrey) {
     const float mid = ApplyTonemap(glm::vec3(0.18f), Tonemapper::ACES).y;
     EXPECT_GT(mid, 0.05f);
     EXPECT_LT(mid, 0.18f);
-    // A diffuse white lit at 1.0 does not reach display white : the curve keeps headroom for what is brighter
     const float white = ApplyTonemap(glm::vec3(1.0f), Tonemapper::ACES).y;
     EXPECT_GT(white, 0.5f);
     EXPECT_LT(white, 0.8f);
@@ -118,10 +115,10 @@ TEST(DisplayTransform, TonemapperNamesRoundTrip) {
     }
 
     Tonemapper parsed = Tonemapper::Reinhard;
-    EXPECT_TRUE(ParseTonemapper("ACES", parsed));       // case does not matter
+    EXPECT_TRUE(ParseTonemapper("ACES", parsed));
     EXPECT_EQ(parsed, Tonemapper::ACES);
     EXPECT_FALSE(ParseTonemapper("filmic9000", parsed));
-    EXPECT_EQ(parsed, Tonemapper::ACES);                // a failed parse leaves the value
+    EXPECT_EQ(parsed, Tonemapper::ACES);
 }
 
 TEST(DisplayTransform, SettingsCompareByValue) {
@@ -150,11 +147,10 @@ TEST(ColorTextureSlots, AreRecognisedByName) {
     EXPECT_FALSE(IsColorTextureSlot("roughnessMap"));
     EXPECT_FALSE(IsColorTextureSlot("aoMap"));
     EXPECT_FALSE(IsColorTextureSlot(""));
-    EXPECT_FALSE(IsColorTextureSlot("myAlbedo"));       // a prefix, not a substring
+    EXPECT_FALSE(IsColorTextureSlot("myAlbedo"));
 }
 
 namespace {
-    // A black and white checkerboard of 1 pixel squares
     std::vector<uint8_t> Checkerboard(uint32_t size)
     {
         std::vector<uint8_t> px(size * size * 4);
@@ -169,7 +165,6 @@ namespace {
         return px;
     }
 
-    // The red of the first texel of the last (1x1) mip of a compressed image, -1 if its block cannot be decoded
     int LastMipRed(const CompressedImage& image)
     {
         uint8_t rgba[64];
@@ -179,7 +174,7 @@ namespace {
     }
 }
 
-TEST(TextureMips, ColourTexturesAverageInLinearLight) {
+TEST(TextureMips, ColourTexturesAverageLinear) {
     const uint32_t size = 16;
     const std::vector<uint8_t> px = Checkerboard(size);
 
@@ -187,7 +182,7 @@ TEST(TextureMips, ColourTexturesAverageInLinearLight) {
     ASSERT_TRUE(CompressImage(px.data(), size, size, 4, linear, false, 1, false));
     ASSERT_TRUE(CompressImage(px.data(), size, size, 4, srgb, false, 1, true));
 
-    // Half the light of white is 188 once encoded (0.5 linear -> 0.735 sRGB), 128 if the encoded values were averaged
+    // 0.5 linear is 188 once sRGB encoded. 128 would mean the encoded values were averaged.
     const int linearMip = LastMipRed(linear);
     const int srgbMip = LastMipRed(srgb);
     ASSERT_GE(linearMip, 0);
@@ -197,7 +192,7 @@ TEST(TextureMips, ColourTexturesAverageInLinearLight) {
     EXPECT_GT(srgbMip, linearMip + 40);
 }
 
-TEST(TextureCache, KeyOfAColourTextureDiffersFromALinearOne) {
+TEST(TextureCache, ColourKeyDiffersFromLinear) {
     namespace fs = std::filesystem;
     const fs::path dir = fs::temp_directory_path() / "shard_texture_cache_srgb_test";
     std::error_code ec;

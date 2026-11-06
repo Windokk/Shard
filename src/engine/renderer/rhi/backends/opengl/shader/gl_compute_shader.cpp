@@ -49,8 +49,6 @@ namespace Shard::Engine::Rendering{
 
         m_FilePath = path.full;
 
-        // Expand `#include "..."` directives (see glsl_preprocessor.hpp) before handing the source to
-        // the driver - GLSL itself has no include support.
         std::string computeCode = ResolveGLSLIncludes(path);
         const char* computeSource = computeCode.c_str();
 
@@ -100,9 +98,6 @@ namespace Shard::Engine::Rendering{
 
             GLint location = glGetUniformLocation(m_Program, name.c_str());
 
-            // -------------------------
-            // Data uniforms
-            // -------------------------
             ShaderDataType dataType = ShaderDataType::None;
 
             switch (type)
@@ -156,9 +151,6 @@ namespace Shard::Engine::Rendering{
                 }
             }
 
-            // -------------------------
-            // Samplers
-            // -------------------------
             ShaderSamplerType samplerType = ShaderSamplerType::None;
 
             switch (type)
@@ -326,8 +318,6 @@ namespace Shard::Engine::Rendering{
         if (it != m_ActiveUniformsMap.end())
             return it->second.location;
 
-        // Array uniforms are cached under "name[0]" ; fall back to that so SetXxx("arr", ...) keeps
-        // working the same way glGetUniformLocation("arr") used to (only hit on a miss).
         if (name.empty() || name.back() != ']')
         {
             auto arrayIt = m_ActiveUniformsMap.find(name + "[0]");
@@ -335,8 +325,6 @@ namespace Shard::Engine::Rendering{
                 return arrayIt->second.location;
         }
 
-        // Driver fallback for names the constructor's type switch didn't classify - see the identical
-        // GLShader::GetUniformLocationCached for why a miss here is otherwise a silent no-op.
         auto [fallbackIt, inserted] = m_UnmappedLocations.try_emplace(name, -1);
         if (inserted)
             fallbackIt->second = glGetUniformLocation(m_Program, name.c_str());

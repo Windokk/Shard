@@ -21,9 +21,7 @@
 #include "plugins/asset_test_context.hpp"
 #include "plugins/plugin_test_utils.hpp"
 
-// A sandboxed plugin as a plugin author makes it : tests/plugin_fixtures/wasm_plugin/wasm_plugin.c, written against sdk/include (shard.h, which
-// declares the C ABI as imports when compiling for wasm32), compiled by Clang for wasm32 and linked by wasm-ld (tests/CMakeLists.txt). Only built
-// when both are found. The plugin checks the host's answers from inside (S_FAILURES stays 0) ; these tests check what it did to the world.
+// Plugin built from tests/plugin_fixtures/wasm_plugin/wasm_plugin.c with Clang wasm32 + wasm-ld. Only built when both are found.
 
 using namespace Shard::Engine;
 using namespace Shard::Engine::Plugins;
@@ -103,15 +101,14 @@ namespace {
         }
         int Stat(int which) { return int(int32_t(uint32_t(Call("wasm_stat", { uint64_t(which) })))); }
 
-        // The plugin loads, then the engine's systems are ready and it is enabled
         void Start()
         {
             std::string error;
             ASSERT_TRUE(pm().Startup(config, &error)) << error;
             ASSERT_NE(Rec(), nullptr);
-            ASSERT_EQ(Rec()->state, PluginState::Initialized) << Rec()->error;            // on_load : a command, a cvar, a component, systems, scripts
+            ASSERT_EQ(Rec()->state, PluginState::Initialized) << Rec()->error;
             pm().OnEngineSystemsReady(&context, &scheduler, &events);
-            pm().OnEngineInitialized();                                                    // on_enable : the plugin checks the host's answers
+            pm().OnEngineInitialized();
             ASSERT_EQ(Rec()->state, PluginState::Enabled) << Rec()->error;
             world = std::make_unique<Worlds::World>("w", Filesystem::Path("w.world"));
         }
@@ -142,12 +139,12 @@ namespace {
     };
 }
 
-TEST_F(WasmSdkPluginTest, APluginCompiledByClangRunsInTheSandbox)
+TEST_F(WasmSdkPluginTest, ClangPluginRuns)
 {
     Start();
     Core::CVarBase* speed = Core::CVarRegistry::Global().Find(std::string(kId) + ".speed");
     ASSERT_NE(speed, nullptr);
-    EXPECT_EQ(speed->ToString(), "3.5");                                            // 2.5 from on_load, + 1 from on_enable
+    EXPECT_EQ(speed->ToString(), "3.5");
     EXPECT_EQ(Stat(S_LOAD), 1);
     EXPECT_EQ(Stat(S_INITIALIZE), 1);
     EXPECT_EQ(Stat(S_ENABLE), 1);
@@ -159,23 +156,20 @@ TEST_F(WasmSdkPluginTest, APluginCompiledByClangRunsInTheSandbox)
     EXPECT_FALSE(Core::CVarRegistry::Global().Execute("sandbox.echo").ok);
 }
 
-TEST_F(WasmSdkPluginTest, ThePluginChecksWhatTheHostAnswersFromInside)
+TEST_F(WasmSdkPluginTest, PluginChecksHostAnswers)
 {
     Start();
-    // The cvars, the content folder, the components and blobs, the events (a handler called while the module is inside emit), the interfaces
-    // the host offers and the ones it does not : each is a CHECK of the plugin
     EXPECT_EQ(Stat(S_FAILURES), 0);
     EXPECT_GE(Stat(S_CHECKS), 60);
     EXPECT_EQ(Stat(S_HELLO_BYTES), 2);
     EXPECT_EQ(Stat(S_LISTED), 1);
     EXPECT_GE(Stat(S_REENTRANT), 1);
 
-    // A named event from the module to itself, again from outside
     EXPECT_EQ(int32_t(uint32_t(Call("wasm_ping", { 9 }))), 9);
     EXPECT_EQ(Stat(S_PING_VALUE), 9);
 }
 
-TEST_F(WasmSdkPluginTest, ABlobTheModuleWritesReachesTheHost)
+TEST_F(WasmSdkPluginTest, BlobReachesHost)
 {
     Start();
     const uint64_t blob = Call("wasm_make_blob");
@@ -187,7 +181,7 @@ TEST_F(WasmSdkPluginTest, ABlobTheModuleWritesReachesTheHost)
     EXPECT_EQ(uint8_t(bytes[5]), 60);
 }
 
-TEST_F(WasmSdkPluginTest, ASystemRunsOverTheEntitiesThatHaveItsComponent)
+TEST_F(WasmSdkPluginTest, SystemRunsOverEntities)
 {
     Start();
     const auto spinId = Core::Ecs::ComponentId(Call("wasm_spin_type") - 1);
@@ -197,13 +191,13 @@ TEST_F(WasmSdkPluginTest, ASystemRunsOverTheEntitiesThatHaveItsComponent)
     ASSERT_TRUE(registry.AddRaw(a, spinId, &start));
     start.speed = 4.0f;
     ASSERT_TRUE(registry.AddRaw(b, spinId, &start));
-    registry.Create();                                                              // no Spin : not visited
+    registry.Create();
 
     RunFrame(registry, 0.5f);
     EXPECT_EQ(Stat(S_SPIN_RUNS), 1);
     EXPECT_EQ(Stat(S_SPIN_ENTITIES), 2);
-    EXPECT_EQ(Stat(S_SPIN_SAME_BLOCK), 1);                                          // ecs.get inside the chunk is the chunk's own block
-    EXPECT_FLOAT_EQ(static_cast<const Spin*>(registry.GetRaw(a, spinId))->angle, 1.0f);       // 2 * 0.5, written back from the module's copy
+    EXPECT_EQ(Stat(S_SPIN_SAME_BLOCK), 1);
+    EXPECT_FLOAT_EQ(static_cast<const Spin*>(registry.GetRaw(a, spinId))->angle, 1.0f);
     EXPECT_FLOAT_EQ(static_cast<const Spin*>(registry.GetRaw(b, spinId))->angle, 2.0f);
     RunFrame(registry, 0.5f);
     EXPECT_FLOAT_EQ(static_cast<const Spin*>(registry.GetRaw(a, spinId))->angle, 2.0f);
@@ -212,42 +206,40 @@ TEST_F(WasmSdkPluginTest, ASystemRunsOverTheEntitiesThatHaveItsComponent)
     EXPECT_EQ(Rec()->errorCount, 0u);
 }
 
-TEST_F(WasmSdkPluginTest, AScriptRunsLikeTheEnginesOwnWithItsObjectInTheModule)
+TEST_F(WasmSdkPluginTest, ScriptRunsInModule)
 {
     Start();
     auto hero = NewActor("Hero");
     auto mover = hero->AddComponentByName(Type("Mover"));
     ASSERT_NE(mover, nullptr);
     EXPECT_EQ(Stat(S_CONSTRUCTED), 1);
-    EXPECT_EQ(Stat(S_CREATED), 1);                                                  // on_create, as the component joined an actor that is in a world
+    EXPECT_EQ(Stat(S_CREATED), 1);
 
     context.time.Advance(0.5f);
     world->Play();
     EXPECT_EQ(Stat(S_PLAYED), 1);
-    EXPECT_EQ(mover->Serialize()["label"].get<std::string>(), "hello");             // string_set through the pointer of the field, copied back to the host's
-    EXPECT_FLOAT_EQ(mover->Serialize()["speed"].get<float>(), 2.0f);                // the default the module's construct gave
-    ASSERT_EQ(hero->GetComponents().size(), 3u);                                    // the Transform, the Mover, and the Counter on_play added
+    EXPECT_EQ(mover->Serialize()["label"].get<std::string>(), "hello");
+    EXPECT_FLOAT_EQ(mover->Serialize()["speed"].get<float>(), 2.0f);
+    ASSERT_EQ(hero->GetComponents().size(), 3u);
     auto counter = hero->GetComponents()[2];
-    EXPECT_EQ(counter->Serialize()["count"].get<int>(), 7);                         // written by the module through the object add_to_actor handed back
+    EXPECT_EQ(counter->Serialize()["count"].get<int>(), 7);
     EXPECT_EQ(Stat(S_COUNTER_SET), 1);
 
     world->Tick();
     EXPECT_EQ(Stat(S_TICKS), 1);
-    EXPECT_FLOAT_EQ(hero->transform->GetPosition().x, 1.0f);                        // speed 2 * 0.5 s, through actors.set_transform
+    EXPECT_FLOAT_EQ(hero->transform->GetPosition().x, 1.0f);
     context.input.down.insert(Input::Key::D);
     world->Tick();
-    EXPECT_FLOAT_EQ(hero->transform->GetPosition().x, 3.0f);                        // the keyboard : twice the step
+    EXPECT_FLOAT_EQ(hero->transform->GetPosition().x, 3.0f);
     context.input.down.clear();
 
-    // An edit from the host (the inspector) reaches the module's object before its next callback
     mover->Deserialize(json::parse(R"({"active":true,"speed":5.0})"));
     world->Tick();
     EXPECT_FLOAT_EQ(hero->transform->GetPosition().x, 5.5f);
 
-    // A copy of the actor has a new object with the fields of this one
     auto copy = hero->Clone();
     ASSERT_NE(copy, nullptr);
-    EXPECT_EQ(Stat(S_CONSTRUCTED), 2);                                              // the copy's Mover
+    EXPECT_EQ(Stat(S_CONSTRUCTED), 2);
     auto copied = copy->GetComponents()[1];
     EXPECT_FLOAT_EQ(copied->Serialize()["speed"].get<float>(), 5.0f);
     EXPECT_EQ(copied->Serialize()["label"].get<std::string>(), "hello");
@@ -258,45 +250,44 @@ TEST_F(WasmSdkPluginTest, AScriptRunsLikeTheEnginesOwnWithItsObjectInTheModule)
     EXPECT_EQ(Stat(S_FAILURES), 0);
 }
 
-TEST_F(WasmSdkPluginTest, TheWorldIsToldToTheModule)
+TEST_F(WasmSdkPluginTest, WorldToldToModule)
 {
     Start();
     world->SetLoaded(true);
     EXPECT_GE(Stat(S_WORLD_LOADED), 0);
 }
 
-TEST_F(WasmSdkPluginTest, AModuleThatLoopsOrStraysIsStoppedAndTheEngineGoesOn)
+TEST_F(WasmSdkPluginTest, RunawayModuleStopped)
 {
     Start();
     std::vector<uint64_t> results;
     std::string error;
     EXPECT_FALSE(CallWasmExport(Rec()->owner, "wasm_loop", {}, results, &error));
-    EXPECT_NE(error.find("fuel"), std::string::npos) << error;                      // the budget of one call, not the engine's patience
+    EXPECT_NE(error.find("fuel"), std::string::npos) << error;
 
-    // From then on it answers an error to whatever comes, and the host counts them : the tenth fails the plugin, nothing else
     EXPECT_FALSE(CallWasmExport(Rec()->owner, "wasm_stat", { 0 }, results, &error));
     Core::Ecs::Registry registry;
     for (int i = 0; i < 12; ++i) RunFrame(registry);
     registry.Create();
     EXPECT_NE(Rec()->state, PluginState::Unloaded);
-    ASSERT_TRUE(pm().Disable(kId, true, &error) || Rec()->state == PluginState::Failed) << error;       // switched off without a call into the dead module
+    ASSERT_TRUE(pm().Disable(kId, true, &error) || Rec()->state == PluginState::Failed) << error;
 }
 
-TEST_F(WasmSdkPluginTest, ANewInstanceTakesWhatTheOldOneSaved)
+TEST_F(WasmSdkPluginTest, NewInstanceTakesSavedState)
 {
     config.allowHotReload = true;
     Start();
     EXPECT_EQ(Stat(S_RESTORED), 0);
     std::string error;
-    ASSERT_TRUE(pm().Reload(kId, &error)) << error;                                 // on_prepare_reload in the old instance, on_restore in the new one
+    ASSERT_TRUE(pm().Reload(kId, &error)) << error;
     ASSERT_NE(Rec(), nullptr);
     EXPECT_EQ(Rec()->state, PluginState::Enabled) << Rec()->error;
     EXPECT_EQ(Stat(S_RESTORED), 42);
-    EXPECT_EQ(Stat(S_LOAD), 1);                                                     // a fresh instance : its counters started over
+    EXPECT_EQ(Stat(S_LOAD), 1);
     EXPECT_EQ(Stat(S_FAILURES), 0);
 }
 
-TEST_F(WasmSdkPluginTest, TheCompiledModuleIsKeptForTheNextLoad)
+TEST_F(WasmSdkPluginTest, CompiledModuleCached)
 {
     PluginTest::TempDir cache;
     config.cacheDirectory = cache.Sub("cache");
@@ -316,14 +307,13 @@ TEST_F(WasmSdkPluginTest, TheCompiledModuleIsKeptForTheNextLoad)
     world.reset();
     {
         Start();
-        EXPECT_EQ(Stat(S_FAILURES), 0);                                             // the same plugin, from the compiled module
+        EXPECT_EQ(Stat(S_FAILURES), 0);
         pm().Shutdown();
     }
     after = GetWasmCacheStats();
     EXPECT_EQ(after.hits - before.hits, 1u);
     EXPECT_EQ(after.misses - before.misses, 1u);
 
-    // A file that is not what it should be is compiled again, not trusted
     std::filesystem::path compiled;
     for (const auto& entry : std::filesystem::recursive_directory_iterator(cache.Sub("cache")))
         if (entry.path().extension() == ".cwasm") compiled = entry.path();
@@ -339,7 +329,6 @@ TEST_F(WasmSdkPluginTest, TheCompiledModuleIsKeptForTheNextLoad)
 }
 
 namespace {
-    // 10 000 entities with a Spin, `frames` frames : the bits of every angle after, the fuel the module burnt, and the time it took
     struct SpinRun {
         std::vector<uint32_t> bits;
         uint64_t fuel = 0;
@@ -347,9 +336,8 @@ namespace {
     };
 }
 
-TEST_F(WasmSdkPluginTest, TwoRunsGiveTheSameBitsAndTheSameFuel)
+TEST_F(WasmSdkPluginTest, TwoRunsSameBitsAndFuel)
 {
-    // The sandbox is deterministic : the same frames give the same floats and cost the same fuel, instance after instance
     auto run = [&]() {
         PluginManager::Get().ResetForTests();
         world.reset();
@@ -380,8 +368,7 @@ TEST_F(WasmSdkPluginTest, TwoRunsGiveTheSameBitsAndTheSameFuel)
     EXPECT_GT(first.fuel, 0u);
 }
 
-// Measures what the sandbox costs : build in Release and run with --gtest_also_run_disabled_tests. The fuel per millisecond is what
-// kWasmFuelPerMs is calibrated on (docs/design-notes/wasm-sandbox.fr.md, W6).
+// Release only, run with --gtest_also_run_disabled_tests. kWasmFuelPerMs is calibrated on fuel per ms.
 TEST_F(WasmSdkPluginTest, DISABLED_MeasuresTheSystemAgainstNative)
 {
     Start();
@@ -394,14 +381,13 @@ TEST_F(WasmSdkPluginTest, DISABLED_MeasuresTheSystemAgainstNative)
         entities.push_back(registry.Create());
         registry.AddRaw(entities.back(), spinId, &s);
     }
-    RunFrame(registry, 1.0f / 60.0f);                                              // warm up
+    RunFrame(registry, 1.0f / 60.0f);
     const uint64_t fuelBefore = WasmFuelUsed(Rec()->owner);
     const auto t0 = std::chrono::steady_clock::now();
     for (int f = 0; f < kFrames; ++f) RunFrame(registry, 1.0f / 60.0f);
     const double wasmMs = std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - t0).count();
     const uint64_t fuel = WasmFuelUsed(Rec()->owner) - fuelBefore;
 
-    // The same loop over the same data, native, through the registry's chunks (what a native C system would do)
     std::vector<Spin> data(kEntities);
     for (int i = 0; i < kEntities; ++i) data[size_t(i)] = Spin{ 0.0f, 0.5f + 0.0001f * float(i), 0, 0 };
     const auto n0 = std::chrono::steady_clock::now();

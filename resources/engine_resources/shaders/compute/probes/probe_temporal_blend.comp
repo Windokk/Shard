@@ -1,22 +1,7 @@
 #version 430 core
 
-// Final stage of the real-time GI probe update (see ProbeManager). The trace + convolve passes rebuild a
-// probe's irradiance tile from scratch every time it is updated, from a ray fan that gets a fresh random
-// rotation each frame (see probe_trace.comp) - too noisy to shade with directly. This pass exponentially
-// blends that raw result into a persistent "published" atlas : the one ProbeManager::GetIrradianceAtlas()
-// returns, lit.frag samples, AND probe_trace.comp reads back as next frame's bounce source, so its
-// stability matters twice over.
-//
-// Dispatched per UPDATED PROBE TILE (border texels included - they are what bilinear sampling of a
-// neighbouring probe's edge lands on), not over the whole atlas : with round-robin probe updates
-// (uUpdateStride) most tiles hold nothing new on any given frame, and re-blending them would decay them
-// toward a value that never changes while quietly re-running the EMA on unchanged data.
-
 layout(local_size_x = 64, local_size_y = 1, local_size_z = 1) in;
 
-// Sampler binding starts at 44 - see the identical comment in probe_trace.comp for why (avoids
-// GLStateCache going stale on lit.frag's material texture units 1-3, since ProbeManager::Update()'s raw
-// Texture2D::Bind() runs every frame ahead of the forward pass).
 layout(binding = 44) uniform sampler2D uFresh;
 layout(rgba16f, binding = 0) uniform image2D uPublished;
 
@@ -24,7 +9,6 @@ uniform int uProbeCount;
 uniform int uTileSize;
 uniform int uAtlasProbesPerRow;
 
-// Round-robin probe update - see the identical uniforms in probe_trace.comp.
 uniform int uUpdateStride;
 uniform int uUpdatePhase;
 uniform int uUpdateCount;
@@ -36,7 +20,7 @@ uniform float uHysteresis;
 void main()
 {
     uint gid = gl_GlobalInvocationID.x;
-    uint stride = uint(uTileSize) + 2u; // tile interior + 1 texel of border on each side
+    uint stride = uint(uTileSize) + 2u;
     uint perTile = stride * stride;
     if (gid >= uint(uUpdateCount) * perTile)
         return;

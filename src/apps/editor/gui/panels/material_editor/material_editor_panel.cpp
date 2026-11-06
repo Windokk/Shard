@@ -174,10 +174,8 @@ namespace Shard::Editor::GUI{
 
         std::string nameInProject = Core::GetEngine().GetFileManager()->GetFileInfos(path).nameInProject;
 
-        // The edited texture set may differ from what the resident material was loaded with
         Core::GetEngine().GetResourcesManager()->RefreshDependencies(nameInProject);
 
-        // Its asset browser thumbnail shows the old look
         Rendering::ThumbnailRequest thumbnail;
         thumbnail.kind = Rendering::ThumbnailKind::Material;
         thumbnail.nameInProject = nameInProject;
@@ -198,8 +196,7 @@ namespace Shard::Editor::GUI{
             focusRequested = false;
         }
 
-        // Stable ImGui ID (###MaterialEditor) so re-opening a different material re-purposes the
-        // same window/dock slot instead of ImGui treating it as a brand-new one because the title changed.
+        // Stable ImGui ID (###MaterialEditor) so a different material reuses the same window and dock slot.
         std::string title = "Material Editor - " + path.GetFilename() + "###MaterialEditor";
 
         bool wasOpen = isOpen;
@@ -299,9 +296,7 @@ namespace Shard::Editor::GUI{
         }
         ImGui::End();
 
-        // The X button flips isOpen to false via the pointer passed to Begin() above - catch that
-        // transition here (rather than bailing out early next frame) so a dirty material can't be
-        // silently unloaded: keep the window open and ask the user what to do first.
+        // The X button flips isOpen through the pointer given to Begin(). Catch it here so a dirty material is not silently unloaded.
         if(wasOpen && !isOpen && dirty){
             isOpen = true;
 
@@ -383,8 +378,7 @@ namespace Shard::Editor::GUI{
             return false;
         };
 
-        // Engine-driven uniforms/samplers (transforms, lights, shadows, GI, IBL, SSAO, debug...) are
-        // set by the renderer every frame, so they're never meaningful as material parameters.
+        // Engine-driven uniforms and samplers are set by the renderer every frame, not material parameters.
         auto isInternal = [](const std::string& name){
             static const char* kExact[] = {
                 "model", "view", "projection", "uView", "uProjection", "camPos", "lightNB",
@@ -400,7 +394,7 @@ namespace Shard::Editor::GUI{
                 "pointLight", "pointShadow", "shadow", "cluster", "light",
             };
 
-            // Reflection may report arrays as "name[0]"
+            // Reflection may report arrays as "name[0]".
             std::string base = name.substr(0, name.find('['));
             for(const char* e : kExact)
                 if(base == e) return true;
@@ -424,7 +418,7 @@ namespace Shard::Editor::GUI{
                 case Rendering::ShaderDataType::Vec3:  kind = MatParamKind::Vec3; break;
                 case Rendering::ShaderDataType::Vec4:  kind = MatParamKind::Vec4; break;
                 case Rendering::ShaderDataType::Mat4:  kind = MatParamKind::Mat4; break;
-                default: continue; // Mat2/Mat3/None aren't editable here
+                default: continue;
             }
 
             any = true;

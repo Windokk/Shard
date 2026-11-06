@@ -32,7 +32,6 @@ namespace Shard::Engine::Plugins {
         std::map<PluginOwner, std::unique_ptr<Sandbox>> gSandboxes;
         std::atomic<uint64_t> gCacheHits{ 0 }, gCacheMisses{ 0 }, gCacheWrites{ 0 };
 
-        // The offsets of the callbacks in the wasm32 ShardPluginCallbacks, by slot
         constexpr uint32_t kSlotOffsets[SlotCount] = {
             Layout::ShardPluginCallbacks::o_on_load, Layout::ShardPluginCallbacks::o_on_initialize, Layout::ShardPluginCallbacks::o_on_enable,
             Layout::ShardPluginCallbacks::o_on_disable, Layout::ShardPluginCallbacks::o_on_unload, Layout::ShardPluginCallbacks::o_on_prepare_reload,
@@ -41,15 +40,13 @@ namespace Shard::Engine::Plugins {
             Layout::ShardPluginCallbacks::o_on_world_unloaded, Layout::ShardPluginCallbacks::o_on_play_start, Layout::ShardPluginCallbacks::o_on_play_stop,
         };
 
-        // ---- The callbacks the host makes : trampolines into the sandbox ----
-
-        // A plugin that trapped is stopped for good : it answers an error to whatever comes, and nothing to being switched off
+        // A trapped plugin is stopped for good: it returns an error to any call and ignores being switched off
         template <Slot S>
         ShardResult SHARD_CALL Lifecycle(void* user, ShardPluginCtx)
         {
             auto* s = static_cast<Sandbox*>(user);
             if (s->dead) return (S == OnDisable || S == OnUnload) ? SHARD_OK : SHARD_E_INTERNAL;
-            if (S == OnLoad) ResetRegistrations(*s);            // what the previous context registered went with it
+            if (S == OnLoad) ResetRegistrations(*s);
             return s->CallResult(s->callbacks[S], kTypeLifecycle, { s->user, s->ctx }, Budget::Call);
         }
 
@@ -69,7 +66,6 @@ namespace Shard::Engine::Plugins {
             return s->CallResult(s->callbacks[S], kTypeState, { s->user, s->ctx, state }, Budget::Call);
         }
 
-        // The world a callback is told about, as a wasm32 ShardWorldInfo in the module's memory
         template <Slot S>
         ShardResult SHARD_CALL World(void* user, ShardPluginCtx, const ShardWorldInfo* world)
         {
@@ -92,16 +88,13 @@ namespace Shard::Engine::Plugins {
             return s->CallResult(s->callbacks[S], kTypeWorld, { s->user, s->ctx, at }, Budget::Call);
         }
 
-        // ---- The compiled module, from the cache when there is one ----
-
         std::string CacheFile(const std::string& directory, const std::vector<uint8_t>& bytes)
         {
             const std::string hash = Crypto::ToHex(Crypto::Sha256Of(bytes.data(), bytes.size()));
             return directory + "/wasm/" + hash + "." + Module::RuntimeVersion() + ".cwasm";
         }
 
-        // The compiled code is a file of this host's own making : nothing but a plain integrity trailer (a SHA-256) guards it against a
-        // half written file. It is machine code that the host runs, so the cache folder is as trusted as the engine's own files.
+        // The cache is machine code the host runs, guarded only by a SHA-256 trailer against half-written files. The cache folder is as trusted as the engine's own files.
         std::shared_ptr<const Module> ReadCached(const std::string& file, const Limits& limits)
         {
             std::ifstream in(file, std::ios::binary);
@@ -123,7 +116,7 @@ namespace Shard::Engine::Plugins {
             data.insert(data.end(), digest.begin(), digest.end());
             std::error_code ec;
             fs::create_directories(fs::path(file).parent_path(), ec);
-            // Written whole under another name, then renamed : another process never reads half of it
+            // Written under a temporary name then renamed, so another process never reads half of it
             const std::string temporary = file + ".tmp" + std::to_string(std::chrono::steady_clock::now().time_since_epoch().count());
             {
                 std::ofstream out(temporary, std::ios::binary | std::ios::trunc);
@@ -185,28 +178,23 @@ namespace Shard::Engine::Plugins {
         s->heap.Attach(s->instance.get());
         Instance& in = *s->instance;
 
-        // The entry point must be there with the right shape before anything of the module runs
         const FuncType entryType{ { ValType::I32, ValType::I32 }, { ValType::I32 } };
         bool hasEntry = false;
         for (const Module::Export& e : module.Value()->Exports())
             if (e.kind == 0 && e.name == manifest.entry) hasEntry = e.type == entryType;
         if (!hasEntry) return Err("the module does not export '" + manifest.entry + "' as (i32 host, i32 info) -> i32");
 
-        // The C and C++ runtime of the module (static constructors), when it has one : a wasi-sdk reactor exports _initialize, a module linked
-        // by hand with --export=__wasm_call_ctors the second
         std::vector<uint64_t> ignored;
         std::string why;
         const char* init = in.HasFunction("_initialize") ? "_initialize" : in.HasFunction("__wasm_call_ctors") ? "__wasm_call_ctors" : nullptr;
         if (init && !s->CallExport(init, {}, Budget::Call, ignored, &why)) return Err(std::string("its ") + init + " trapped : " + why);
 
-        // The entry point fills a wasm32 ShardPluginInfo, like a native one fills the host's. The host table is the one the module built (its
-        // address is exported), or 0 for a module that reaches the host through its imports directly.
         namespace Li = Layout::ShardPluginInfo;
         uint64_t hostAt = 0;
         if (!in.ExportedGlobal("shard_wasm_host_table", hostAt)) hostAt = 0;
         const uint32_t infoAt = s->heap.Alloc(Li::kSize, 8);
         if (!infoAt) return Err("the module has no room left in its memory for its ShardPluginInfo");
-        uint64_t tableAt = 0;                       // the widgets and the gizmo painter the module built from the imports, for its editor callbacks
+        uint64_t tableAt = 0;
         if (in.ExportedGlobal("shard_wasm_ui_table", tableAt)) s->uiTableAt = uint32_t(tableAt);
         if (in.ExportedGlobal("shard_wasm_gizmo_table", tableAt)) s->gizmoTableAt = uint32_t(tableAt);
         std::vector<uint64_t> entered;
@@ -227,7 +215,6 @@ namespace Shard::Engine::Plugins {
         for (uint32_t i = 0; i < SlotCount; ++i)
             if (kSlotOffsets[i] + 4 <= callbacksSize && !in.Read(callbacksAt + kSlotOffsets[i], &s->callbacks[i], 4)) return Err("its ShardPluginCallbacks is out of its memory");
 
-        // The native view CAbiPlugin works with : the same checks as a C plugin's
         ShardPluginCallbacks cb;
         std::memset(&cb, 0, sizeof(cb));
         cb.structSize = sizeof(ShardPluginCallbacks);
@@ -260,7 +247,7 @@ namespace Shard::Engine::Plugins {
 
         IPlugin* plugin = CreateCPlugin(owner, native);
         std::lock_guard<std::mutex> lock(gMutex);
-        gSandboxes[owner] = std::move(s);           // a reload replaces the old sandbox, whose plugin object is gone by then
+        gSandboxes[owner] = std::move(s);
         return Ok(plugin);
     }
 

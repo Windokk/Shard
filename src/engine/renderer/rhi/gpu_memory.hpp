@@ -7,9 +7,6 @@
 
 namespace Shard::Engine::Rendering {
 
-    /// @brief What the engine asked the GPU to hold, by kind : the resources add their size when they allocate and take it
-    /// back when they are destroyed. It is the engine's own bookkeeping (driver padding and the like are not seen), which is
-    /// what tells where the video memory goes - the OS counter only gives one total for the process.
     namespace GpuMemory {
 
         enum class Kind : uint8_t { Texture = 0, RenderTarget, Mesh, Buffer, COUNT };

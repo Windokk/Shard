@@ -14,8 +14,6 @@
 namespace Shard::Engine::Worlds{
 
     namespace {
-        /// Calls `fn(script)` for the scripts the world has now, in the order of their ids. A script may destroy actors (itself included) or add
-        /// components while it runs: the ones removed meanwhile are skipped, the ones added start with the next call.
         template <typename Fn>
         void ForEachScript(std::map<int, std::shared_ptr<Objects::Components::Script>>& scripts, Fn&& fn)
         {
@@ -56,10 +54,8 @@ namespace Shard::Engine::Worlds{
             return;
         }
 
-        // An engine component (model, light...) or a custom/inherited one, which has to be already registered
         std::shared_ptr<Objects::Components::Component> created = a->AddComponentByName(type);
         if(!created){
-            // Kept, not dropped : the plugin that brings this type may just not be loaded, and a save must not lose its data
             DEBUG_WARNING("Unknown component type: " + type + " (kept as it is in the file)");
             a->AddUnknownComponent(component);
             return;
@@ -87,7 +83,6 @@ namespace Shard::Engine::Worlds{
             }
             const std::string type = component["type"].get<std::string>();
 
-            // A component whose data has the wrong shape is dropped alone : the rest of the actor, and of the world, still loads
             try {
                 DeserializeComponent(a, type, component);
             } catch (const json::exception& e) {
@@ -96,7 +91,6 @@ namespace Shard::Engine::Worlds{
         }
     }
 
-    // The name an actor is created with : a file whose name is missing or is not a string still loads, with a default one
     static std::string ActorNameFromJson(const json& actor){
         if (actor.contains("name") && actor["name"].is_string())
             return actor["name"].get<std::string>();
@@ -106,17 +100,10 @@ namespace Shard::Engine::Worlds{
 
     void DeserializeActor(std::shared_ptr<Objects::Actor> a, json data, json actor){
 
-        // Before the components : the scripts' OnCreate (run as each one joins the world) can read the actor's tags
         if (actor.contains("tags"))
             a->GetTags().Assign(Serialization::TagsFromJson(actor["tags"]), true);
 
-        // This actor's own components (crucially its transform) have to be deserialized BEFORE its
-        // children's: a child's components (Light, PhysicsBody, ProbeVolume, ...) read the parent's
-        // world transform while deserializing themselves (e.g. Light::Deserialize's
-        // parent->transform->GetWorldPosition()), and Jolt/GPU-side state built from that read is never
-        // refreshed again on its own. Doing children first left every such child using the parent's
-        // still-default (identity) transform instead of its actual saved one, so it would sit in the
-        // wrong place until something (e.g. moving it manually) recomputed its world transform.
+        // Deserialize this actor's components (transform first) before its children's. Children's Light, PhysicsBody and ProbeVolume read the parent's world transform, and Jolt/GPU state built from it is never refreshed.
         DeserializeComponents(a, actor);
 
         if (actor.contains("folder") && actor["folder"].is_string())
@@ -155,7 +142,6 @@ namespace Shard::Engine::Worlds{
             if (!component.is_object() || !component.contains("type") || !component["type"].is_string())
                 continue;
 
-            // Only the module that owns a component type knows which of its fields point to assets
             Objects::Components::GetComponentRegistry().CollectAssetRefs(component["type"].get<std::string>(), component, refs);
         }
     }
@@ -176,7 +162,6 @@ namespace Shard::Engine::Worlds{
                 }
             }
 
-            // Same place World::Deserialize reads it from
             if (data.contains("settings") && data["settings"].is_object()) {
                 for (auto& collect : GetWorldSettingsAssetRefs())
                     collect(data["settings"], refs);
@@ -186,7 +171,6 @@ namespace Shard::Engine::Worlds{
             DEBUG_ERROR("JSON parse error: " + (std::string)e.what());
             refs.clear();
         } catch (const json::exception& e) {
-            // What it collected so far is kept : those assets are wanted whatever comes after
             DEBUG_ERROR("Couldn't read the assets of world " + filePath.GetFilename() + " : " + e.what());
         }
 
@@ -218,7 +202,6 @@ namespace Shard::Engine::Worlds{
             if (!array.is_array())
                 return;
 
-            // A frame can name a parent that comes later in the file : insert until nothing more can be
             std::vector<const json*> pending;
             for (const json& frame : array)
                 pending.push_back(&frame);
@@ -281,7 +264,6 @@ namespace Shard::Engine::Worlds{
                     if(folder.is_string())
                         folders.push_back(folder.get<std::string>());
 
-            // Before the actors : a transform names its frame by id
             if(data.contains("frames"))
                 DeserializeFrames(frames, data["frames"]);
             else
@@ -307,7 +289,7 @@ namespace Shard::Engine::Worlds{
                 for(auto& [type, extension] : extensions)
                     extension->DeserializeSettings(*this, settings);
             
-                // "ambient_intensity" (a single number) is what worlds saved before the ambient had a color hold
+                // "ambient_intensity" (a single number) is the format of worlds saved before ambient had a color
                 if(settings.contains("ambient_intensity") && settings["ambient_intensity"].is_number()){
                     ambientColor = glm::vec3(settings["ambient_intensity"].get<float>());
                 }
@@ -346,9 +328,7 @@ namespace Shard::Engine::Worlds{
             DEBUG_ERROR("JSON parse error: " + (std::string)e.what());
             return;
         } catch (const json::exception& e) {
-            // Thrown after the parse : the world keeps what was read before (the actors are dropped one component at a time
-            // already, so this is the world's own data : settings, tags, frames). Not dirty : nothing was edited yet, and a dirty
-            // world would block the next hot reload, the one that brings the fixed file
+            // Not dirty: nothing was edited yet, and a dirty world would block the hot reload that brings the fixed file.
             DEBUG_ERROR("World " + filePath.GetFilename() + " only partially loaded : " + e.what());
         }
 
@@ -374,7 +354,6 @@ namespace Shard::Engine::Worlds{
 
         for(auto& comp : a->GetComponents()){
             ordered_json serializedComp = comp->Serialize();
-            // For every component, whatever its Serialize does : "tags" is a reserved key (see Component::SerializeReflected)
             if(!comp->GetTags().IsEmpty())
                 serializedComp["tags"] = Serialization::TagsToJson(comp->GetTags());
             actor["components"].push_back(serializedComp);
@@ -401,7 +380,6 @@ namespace Shard::Engine::Worlds{
         Core::IEngineContext* engine = &Core::GetEngine();
         std::shared_ptr<Objects::Actor> a = Core::Object::CreateWithContext<Objects::Actor>(engine, actorData["name"].get<std::string>(), engine);
 
-        // Placed first, like World::Deserialize does : the components read their parents' world transform while they deserialize
         if (parent)
             parent->AddChild(a);
         else
@@ -464,7 +442,6 @@ namespace Shard::Engine::Worlds{
 
         filePath.WriteFile(fileContent);
 
-        // Keep the dependency graph (and the asset database's dependency list) in step with the file
         if(auto info = Core::GetEngine().GetAssetIDManager()->GetAssetFromID(assetID))
             Core::GetEngine().GetResourcesManager()->RefreshDependencies(info->baseInfos.nameInProject);
 
@@ -505,18 +482,15 @@ namespace Shard::Engine::Worlds{
         if (!worldObjPtr)
             return;
 
-        // Copy children IDs FIRST
         std::vector<Core::ObjectID> children;
         children.reserve(worldObjPtr->GetChildrenCount());
 
         for (int i = 0; i < worldObjPtr->GetChildrenCount(); ++i)
             children.push_back(worldObjPtr->GetChild(i)->GetID());
 
-        // Now safely recurse
         for (Core::ObjectID childID : children)
             RemoveActorRecursive(childID);
 
-        // Finally remove this actor
         auto actorPtr = std::dynamic_pointer_cast<Objects::Actor>(objPtr);
         if (!actorPtr)
             return;
@@ -526,7 +500,7 @@ namespace Shard::Engine::Worlds{
 
     void World::Clear()
     {
-        // Make a copy of keys because RemoveActorRecursive modifies rootActors
+        // Copy the keys, RemoveActorRecursive modifies rootActors
         std::vector<Core::ObjectID> rootIDs;
         for (auto& [id, actorPtr] : rootActors)
             rootIDs.push_back(id);
@@ -544,9 +518,7 @@ namespace Shard::Engine::Worlds{
 
     void World::OnLoad()
     {
-        // What the other modules keep on the world comes back first (the renderer's pass draw lists were
-        // cleared on the previous world's unload, so its skybox, cameras and models are re-submitted
-        // every load - otherwise a world with a skybox but no actors renders as a black viewport).
+        // The renderer's pass draw lists were cleared on the previous unload, so skybox, cameras and models are re-submitted. Otherwise a world with a skybox and no actors renders black.
         for(auto& [type, extension] : extensions)
             extension->OnLoad(*this);
 
@@ -679,8 +651,6 @@ namespace Shard::Engine::Worlds{
             extension->OnComponentRemoved(*this, idInWorld, compPtr);
     }
 
-    // ---- Tags ----
-
     void World::OnTagsChanged(const Core::TagContainer& added, const Core::TagContainer& removed, bool quiet)
     {
         if (quiet || !loaded)
@@ -730,7 +700,6 @@ namespace Shard::Engine::Worlds{
         if (!tag.IsValid())
             return found;
 
-        // The actors tagged `tag` itself, or a tag under it
         std::vector<Core::Tag> tree;
         Core::TagRegistry::Get().CollectDescendants(tag, tree);
 

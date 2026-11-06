@@ -9,7 +9,6 @@ namespace Shard::Engine::Rendering::VK {
 
     namespace {
 
-        /// What has to be waited for before / after an image is in a layout
         void LayoutAccess(VkImageLayout layout, VkPipelineStageFlags2& stage, VkAccessFlags2& access)
         {
             constexpr VkPipelineStageFlags2 kShaders = VK_PIPELINE_STAGE_2_VERTEX_SHADER_BIT | VK_PIPELINE_STAGE_2_GEOMETRY_SHADER_BIT |
@@ -49,7 +48,7 @@ namespace Shard::Engine::Rendering::VK {
                     stage = VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT;
                     access = 0;
                     break;
-                default:    // GENERAL
+                default:
                     stage = VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT;
                     access = VK_ACCESS_2_MEMORY_READ_BIT | VK_ACCESS_2_MEMORY_WRITE_BIT;
                     break;
@@ -71,7 +70,7 @@ namespace Shard::Engine::Rendering::VK {
         }
 
         std::mutex g_RegistryMutex;
-        std::vector<TextureResource*> g_Registry(1, nullptr);   // slot 0 is "no texture"
+        std::vector<TextureResource*> g_Registry(1, nullptr);
         std::vector<uint32_t> g_FreeIds;
 
         uint64_t ViewKey(uint32_t baseMip, uint32_t mipCount, uint32_t baseLayer, uint32_t layerCount, VkImageViewType type)
@@ -93,7 +92,6 @@ namespace Shard::Engine::Rendering::VK {
         LayoutAccess(from, barrier.srcStageMask, barrier.srcAccessMask);
         LayoutAccess(to, barrier.dstStageMask, barrier.dstAccessMask);
 
-        // Only what the old layout wrote has to be made available ; what it read needs no availability, just the ordering
         if (!WritesIn(from))
             barrier.srcAccessMask = 0;
 
@@ -114,8 +112,7 @@ namespace Shard::Engine::Rendering::VK {
     {
         VkImageMemoryBarrier2 barrier{VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER_2};
 
-        // TOP_OF_PIPE (what UNDEFINED gives) would not be chained to the semaphore wait : the transition could run while
-        // the image is still being presented
+        // TOP_OF_PIPE (what UNDEFINED gives) would not chain to the semaphore wait, so the transition could run while the image is still presented.
         barrier.srcStageMask = waitStage;
         barrier.srcAccessMask = 0;
         LayoutAccess(to, barrier.dstStageMask, barrier.dstAccessMask);
@@ -141,7 +138,6 @@ namespace Shard::Engine::Rendering::VK {
         return (properties.optimalTilingFeatures & needed) == needed;
     }
 
-    /// Fills the mip chain of `image` from its base level, which is in TRANSFER_DST ; leaves every level in `finalLayout`
     void GenerateMips(VkCommandBuffer cmd, Image& image, VkImageLayout finalLayout)
     {
         const VkFilter filter = SupportsLinearBlit(image.format) ? VK_FILTER_LINEAR : VK_FILTER_NEAREST;
@@ -164,7 +160,6 @@ namespace Shard::Engine::Rendering::VK {
             vkCmdBlitImage(cmd, image.image, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, image.image, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1, &blit, filter);
         }
 
-        // Every level but the last is a source now, the last one is still a destination
         if (image.mips > 1)
         {
             TransitionImageRaw(cmd, image.image, image.aspect, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, image.mips - 1, 1, 0, image.layers);
@@ -175,8 +170,6 @@ namespace Shard::Engine::Rendering::VK {
 
         image.layout = finalLayout;
     }
-
-    // ---- Image ---------------------------------------------------------------------------------------------------------------------
 
     bool Image::Create(const ImageCreateInfo& info)
     {
@@ -229,7 +222,6 @@ namespace Shard::Engine::Rendering::VK {
 
         SetObjectName(VK_OBJECT_TYPE_IMAGE, image, info.name);
 
-        // The view shaders sample : a depth-stencil image is sampled as its depth
         if (usage & (VK_IMAGE_USAGE_SAMPLED_BIT | VK_IMAGE_USAGE_STORAGE_BIT))
         {
             VkImageViewCreateInfo viewInfo{VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO};
@@ -313,8 +305,6 @@ namespace Shard::Engine::Rendering::VK {
         layout = to;
     }
 
-    // ---- TextureResource -----------------------------------------------------------------------------------------------------------
-
     TextureResource::TextureResource()
     {
         std::lock_guard<std::mutex> lock(g_RegistryMutex);
@@ -344,7 +334,7 @@ namespace Shard::Engine::Rendering::VK {
 
         if (Context::Exists())
         {
-            // The slot of the bindless array goes back to white : an id that is handed out again must not show this texture meanwhile
+            // Reset the bindless slot to white, a reused id must not show this texture.
             const Image& white = Context::Get().GetDummyImage(ShaderSamplerType::Texture2D);
             if (white.IsValid())
                 Context::Get().WriteBindless(m_Id, white.view, Context::Get().GetDummySampler(ShaderSamplerType::Texture2D), white.RestingLayout());
@@ -416,10 +406,8 @@ namespace Shard::Engine::Rendering::VK {
         const bool mipped = mipLevels > 1 && UsesMips(specs.minFilter);
         key.maxLod = mipped ? static_cast<float>(mipLevels - 1) : 0.0f;
 
-        // Anisotropy on top of trilinear : what the GL backend asks for whenever there are mips
         key.anisotropy = mipLevels > 1 ? std::min(RequestedAnisotropy(), Context::Get().GetCaps().maxAnisotropy) : 1.0f;
 
-        // GL takes any border colour, Vulkan three : the closest one
         COL_RGBA border = specs.borderColor;
         if (!(border == COL_RGBA(-1.0f)))
         {

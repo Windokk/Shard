@@ -1,6 +1,5 @@
 #version 430 core
 
-// Camera matrices are filled in by the renderer (DrawCommand::bindCameraState).
 uniform mat4 uProjection;
 uniform mat4 uView;
 
@@ -13,9 +12,7 @@ const vec2 positions[3] = vec2[](
     vec2(-1.0,  3.0)
 );
 
-// For a fixed NDC depth the view-space depth is constant, so the unprojected point is affine in
-// NDC xy - which makes interpolating these across the fullscreen triangle exact, for perspective
-// and orthographic cameras alike.
+// Constant NDC depth means constant view depth, so the unprojected point is affine in NDC xy. Interpolating across the fullscreen triangle is exact for perspective and ortho.
 vec3 Unproject(vec2 xy, float z, mat4 invViewProj)
 {
     vec4 p = invViewProj * vec4(xy, z, 1.0);

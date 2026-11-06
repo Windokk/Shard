@@ -29,9 +29,9 @@ TEST(ThreadPool, RunsEveryPostedTask) {
     EXPECT_EQ(count.load(), 1000);
 }
 
-TEST(ThreadPool, SingleThreadPoolIsSerialAndKeepsTheOrder) {
+TEST(ThreadPool, SingleThreadPoolIsSerial) {
     ThreadPool pool(Desc(1));
-    std::vector<int> order;                       // no lock : only one thread touches it
+    std::vector<int> order;
     std::set<std::thread::id> threads;
     for (int i = 0; i < 200; ++i)
         pool.Post([&, i] { order.push_back(i); threads.insert(std::this_thread::get_id()); });
@@ -48,15 +48,14 @@ TEST(ThreadPool, SubmitReturnsTheResult) {
     EXPECT_EQ(f.get(), 42);
 }
 
-TEST(ThreadPool, SubmitHandsExceptionsToTheCaller) {
+TEST(ThreadPool, SubmitForwardsExceptions) {
     ThreadPool pool(Desc(1));
     auto f = pool.Submit([]() -> int { throw std::runtime_error("boom"); });
     EXPECT_THROW(f.get(), std::runtime_error);
-    EXPECT_EQ(pool.Submit([] { return 1; }).get(), 1);   // the thread survived
+    EXPECT_EQ(pool.Submit([] { return 1; }).get(), 1);
 }
 
-TEST(ThreadPool, BlockingTasksDoNotStopOthers) {
-    // 4 threads, 4 tasks that wait for each other : they only finish if they really run at the same time
+TEST(ThreadPool, BlockingTasksDontStallOthers) {
     ThreadPool pool(Desc(4));
     std::atomic<int> arrived{0};
     std::vector<std::future<void>> fs;
@@ -86,13 +85,12 @@ TEST(ThreadPool, TasksMayPostMoreTasks) {
         pool.Post([&] {
             for (int j = 0; j < 10; ++j) pool.Post([&] { count.fetch_add(1); });
         });
-    // WaitIdle sees "queue empty and nothing running" only once the children are queued too, because a parent is
-    // still running while it posts them
+    // A parent is still running while it posts children, so WaitIdle only sees idle once the children are queued too.
     pool.WaitIdle();
     EXPECT_EQ(count.load(), 100);
 }
 
-TEST(ThreadPool, IsCurrentThreadOnlyInsideThePool) {
+TEST(ThreadPool, IsCurrentThreadInPoolOnly) {
     ThreadPool pool(Desc(2));
     ThreadPool other(Desc(1));
     EXPECT_FALSE(pool.IsCurrentThread());
@@ -100,7 +98,7 @@ TEST(ThreadPool, IsCurrentThreadOnlyInsideThePool) {
     EXPECT_FALSE(pool.Submit([&] { return other.IsCurrentThread(); }).get());
 }
 
-TEST(ThreadPool, OnThreadStartRunsOnEveryThread) {
+TEST(ThreadPool, OnThreadStartRunsPerThread) {
     std::mutex m;
     std::set<unsigned> indices;
     {
@@ -112,7 +110,7 @@ TEST(ThreadPool, OnThreadStartRunsOnEveryThread) {
     EXPECT_EQ(indices, (std::set<unsigned>{0, 1, 2}));
 }
 
-TEST(ThreadPools, CreatesPoolsLazilyWithTheirDefaults) {
+TEST(ThreadPools, CreatesPoolsLazily) {
     std::mutex m;
     std::vector<std::string> started;
     ThreadPools pools([&](PoolKind, const std::string& name, unsigned) {
@@ -121,14 +119,14 @@ TEST(ThreadPools, CreatesPoolsLazilyWithTheirDefaults) {
     });
     {
         std::lock_guard<std::mutex> l(m);
-        EXPECT_TRUE(started.empty());             // nothing asked for : no thread
+        EXPECT_TRUE(started.empty());
     }
     ThreadPool& io = pools.Get(PoolKind::IO);
     ThreadPool& audio = pools.Get(PoolKind::Audio);
-    EXPECT_EQ(&io, &pools.Get(PoolKind::IO));     // same pool each time
+    EXPECT_EQ(&io, &pools.Get(PoolKind::IO));
     EXPECT_EQ(io.ThreadCount(), ThreadPools::DefaultThreadCount(PoolKind::IO));
     EXPECT_EQ(audio.ThreadCount(), 1u);
-    // WaitIdle only means "no task" : give the threads time to run their start callback
+    // WaitIdle only means "no task", so give the threads time to run their start callback.
     for (int i = 0; i < 2000; ++i) {
         { std::lock_guard<std::mutex> l(m); if (started.size() >= 5) break; }
         std::this_thread::sleep_for(std::chrono::milliseconds(1));

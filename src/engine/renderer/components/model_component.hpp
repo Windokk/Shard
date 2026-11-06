@@ -35,18 +35,11 @@ namespace Shard::Engine::Objects::Components
             std::shared_ptr<Rendering::Mesh> GetMesh() { return loadedMesh; }
             std::vector<std::shared_ptr<Rendering::Material>> GetMaterials() { return loadedMaterials; }
 
-            // Without the copies, for the Extract stage which looks at every model every frame
             const std::shared_ptr<Rendering::Mesh>& MeshRef() const { return loadedMesh; }
             const std::vector<std::shared_ptr<Rendering::Material>>& MaterialList() const { return loadedMaterials; }
 
             int GetMaterialsCount() { return loadedMaterials.size(); }
 
-            // The model is drawn by the renderer from the snapshot of the Extract stage (see MeshProxy) : nothing here
-            // submits draw commands any more, a change to the mesh, the materials or the transform is picked up by the
-            // next extraction.
-
-            // Asks for this model to be drawn into an arbitrary extra pass too, on top of its standing passes - used by
-            // the editor to draw only the selected actor into EditorOutlineMaskPass rather than the whole scene.
             void AddToPass(const std::string &passName);
             void RemoveFromPass(const std::string &passName);
             const std::vector<std::string>& ExtraPasses() const { return extraPasses; }
@@ -61,24 +54,16 @@ namespace Shard::Engine::Objects::Components
             FIELD(Editable, tooltip=One material per submesh)
             std::vector<Filesystem::AssetID> materials;
 
-            // ---- Baked lighting (see LightmapManager) ----
-            // Whether the model is part of the baked lighting : it blocks and bounces the light of a bake, and gets a lightmap
-            // of its own (the diffuse light it receives, stored on its surface). Leave it off for what moves : a baked shadow
-            // does not follow a moving object, and the lightmap of one that was baked in place stays behind.
             FIELD(Editable, tooltip=Take part in the baked lighting : it blocks and bounces light and gets a lightmap. Turn it off for what moves)
             bool staticLighting = true;
 
-            // The lightmap resolution of this model, in texels per side (0 : worked out from the bake's texel density)
             FIELD(Editable, range=0|2048, tooltip=Lightmap size of this model in texels per side. 0 is worked out from the bake texel density)
             int lightmapResolution = 0;
 
-            // Where the model's lightmap is in the baked atlas : the page, and what turns a coordinate of the mesh's lightmap
-            // square into one of the page (uv * xy + zw). Written by a bake and saved with the world, not edited by hand ;
-            // a negative page is no lightmap.
+            // Page in the baked atlas plus the transform from mesh lightmap coords to page coords (uv * xy + zw). Written by a bake, not edited by hand. Negative page means no lightmap.
             int lightmapPage = -1;
             glm::vec4 lightmapScaleOffset = glm::vec4(1.0f, 1.0f, 0.0f, 0.0f);
 
-            /// @brief Drops the model's baked lightmap : it is lit by the probes again
             void ClearLightmap() { lightmapPage = -1; }
             
             DECLARE_DESCRIPTOR(Model)
@@ -90,12 +75,9 @@ namespace Shard::Engine::Objects::Components
             std::shared_ptr<Rendering::Mesh> loadedMesh;
             std::vector<std::shared_ptr<Rendering::Material>> loadedMaterials;
 
-            // Extra passes asked for via AddToPass (e.g. the editor's EditorOutlineMaskPass for the selected actor)
             std::vector<std::string> extraPasses;
 
     };
 
-    /// @brief Hot reload : a mesh asset was replaced in the cache by a freshly read one. Points every model that uses it at the new one
-    /// (the materials slots follow the new geometry, its baked lightmap is dropped : it was laid on the old one).
     void ReloadModelsUsingMesh(Worlds::WorldManager& worlds, const std::string& meshNameInProject);
 }

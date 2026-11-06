@@ -7,18 +7,10 @@
 
 namespace Shard::Engine::Rendering {
 
-    /// @brief How what lives in one reference frame is brought into render space : floats measured from the render origin.
-    ///
-    /// The Extract stage turns every position, matrix and view it copies into the snapshot with one of these (one per frame
-    /// that is used). The subtraction of the render origin is done in double, on exact WorldPositions, BEFORE the narrowing
-    /// to float : an object a hundred million kilometres from the root, next to the camera, is drawn with the precision of its distance
-    /// to the camera. The renderer only ever sees the small floats, so it is unchanged.
-    ///
-    /// When the frame is the root and the render origin is the root's origin, the transform is the identity and every Apply*
-    /// returns its input untouched (bit for bit) : a scene that stays near the origin extracts exactly what it did before.
+    // The render origin is subtracted in double before narrowing to float. Identity near the root origin.
     struct FrameToRender {
         bool identity = true;
-        glm::dvec3 translation = glm::dvec3(0.0);       ///< the frame's origin, relative to the render origin
+        glm::dvec3 translation = glm::dvec3(0.0);
         glm::dquat rotation = glm::dquat(1.0, 0.0, 0.0, 0.0);
         bool rotates = false;
 
@@ -37,7 +29,6 @@ namespace Shard::Engine::Rendering {
             return glm::vec3(rotation * glm::dvec3(d));
         }
 
-        /// A matrix that maps to the frame's space -> the same matrix mapping to render space (the translation is composed in double)
         glm::mat4 ApplyToMatrix(const glm::mat4& m) const
         {
             if (identity)
@@ -52,7 +43,6 @@ namespace Shard::Engine::Rendering {
             return out;
         }
 
-        /// The frame's own placement as a float matrix : the correction to put in front of a matrix in the frame's space
         glm::mat4 ToMatrix() const
         {
             glm::mat4 out = rotates ? glm::mat4_cast(glm::quat(rotation)) : glm::mat4(1.0f);
@@ -61,7 +51,6 @@ namespace Shard::Engine::Rendering {
         }
     };
 
-    /// @brief The FrameToRender of `frame` against the render origin `origin` (a position of the root frame)
     inline FrameToRender MakeFrameToRender(const Core::ReferenceFrameTree& tree, Core::FrameId frame, const Core::WorldPosition& origin)
     {
         FrameToRender result;

@@ -1,14 +1,3 @@
-// shardpkg : the publisher's side of plugins.
-//
-//   shardpkg keygen <name> [--out <folder>]            a new Ed25519 key pair : <name>.key (secret, keep it) and <name>.pub (give it out)
-//   shardpkg pack <folder> [--out <file>]              the plugin folder as a .shardplugin archive (<id>-<version>.shardplugin by default)
-//   shardpkg sign <folder> --publisher <name> --key <file>    writes shard-signature.json in the folder
-//   shardpkg verify <folder|archive> [--trust <file>]  who signed it, and whether the files are the signed ones
-//   shardpkg index <index.json> add <archive> [--name <registry name>]   adds the archive to a registry index (creates the index)
-//   shardpkg fingerprint                               the build fingerprint of this tool's engine (what plugins are checked against)
-//
-// A registry is a folder (or a web server's folder) with an index.json and the archives it lists. Sign first, then pack, then index.
-
 #include <algorithm>
 #include <cstring>
 #include <filesystem>

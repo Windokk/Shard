@@ -45,7 +45,6 @@ namespace Shard::Engine::Objects::Components {
             return;
         }
 
-        // A path of the project, unless it already is a full one
         Filesystem::Path file(spritePath);
         if (!file.Exists())
         {
@@ -59,7 +58,6 @@ namespace Shard::Engine::Objects::Components {
 
     uint32_t Billboard::GetAtlasSprite() const
     {
-        // A sheet of one cell, or the generic marker, has no other frame to pick
         const uint32_t frames = static_cast<uint32_t>(std::max(spritesCount, 1));
         return atlasFirstSprite + std::min(sprite, frames - 1);
     }
@@ -84,7 +82,6 @@ namespace Shard::Engine::Objects::Components {
 
     std::shared_ptr<Component> Billboard::Clone() const
     {
-        // The atlas sprite is a plain id : the copy shares the sheet
         return Object::Create<Billboard>(*this);
     }
 

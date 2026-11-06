@@ -15,39 +15,37 @@ namespace {
     }
 }
 
-TEST(Doppler, StillSourceAndListenerKeepThePitch)
+TEST(Doppler, StillSourceKeepsPitch)
 {
     EXPECT_FLOAT_EQ(ComputeDopplerPitch({0, 0, 0}, {0, 0, 0}, {10, 0, 0}, {0, 0, 0}, 343.0f, 1.0f), 1.0f);
 }
 
-TEST(Doppler, SourceComingCloserRaisesThePitch)
+TEST(Doppler, ApproachingSourceRaisesPitch)
 {
-    // Source at +10 on x, moving toward the listener at the origin : -x
     const float pitch = ComputeDopplerPitch({0, 0, 0}, {0, 0, 0}, {10, 0, 0}, {-34.3, 0, 0}, 343.0f, 1.0f);
     EXPECT_NEAR(pitch, 343.0f / (343.0f - 34.3f), 1e-4f);
     EXPECT_GT(pitch, 1.0f);
 }
 
-TEST(Doppler, SourceMovingAwayLowersThePitch)
+TEST(Doppler, RecedingSourceLowersPitch)
 {
     const float pitch = ComputeDopplerPitch({0, 0, 0}, {0, 0, 0}, {10, 0, 0}, {34.3, 0, 0}, 343.0f, 1.0f);
     EXPECT_NEAR(pitch, 343.0f / (343.0f + 34.3f), 1e-4f);
     EXPECT_LT(pitch, 1.0f);
 }
 
-TEST(Doppler, ListenerMovingTowardTheSourceRaisesThePitch)
+TEST(Doppler, ApproachingListenerRaisesPitch)
 {
     const float pitch = ComputeDopplerPitch({0, 0, 0}, {34.3, 0, 0}, {10, 0, 0}, {0, 0, 0}, 343.0f, 1.0f);
     EXPECT_NEAR(pitch, (343.0f + 34.3f) / 343.0f, 1e-4f);
 }
 
-TEST(Doppler, OnlyTheSpeedAlongTheLineCounts)
+TEST(Doppler, OnlyRadialSpeedCounts)
 {
-    // Moving sideways around the listener changes nothing
     EXPECT_FLOAT_EQ(ComputeDopplerPitch({0, 0, 0}, {0, 0, 0}, {10, 0, 0}, {0, 0, 50}, 343.0f, 1.0f), 1.0f);
 }
 
-TEST(Doppler, ScaleZeroTurnsItOffAndLargerExaggeratesIt)
+TEST(Doppler, ScaleControlsEffect)
 {
     const glm::dvec3 velocity(-30, 0, 0);
     EXPECT_FLOAT_EQ(ComputeDopplerPitch({0, 0, 0}, {0, 0, 0}, {10, 0, 0}, velocity, 343.0f, 0.0f), 1.0f);
@@ -57,19 +55,19 @@ TEST(Doppler, ScaleZeroTurnsItOffAndLargerExaggeratesIt)
     EXPECT_GT(exaggerated, physical);
 }
 
-TEST(Doppler, StaysFiniteAtAndBeyondTheSpeedOfSound)
+TEST(Doppler, FiniteAtSoundSpeed)
 {
     const float pitch = ComputeDopplerPitch({0, 0, 0}, {0, 0, 0}, {10, 0, 0}, {-100000, 0, 0}, 343.0f, 1.0f);
     EXPECT_TRUE(std::isfinite(pitch));
     EXPECT_LE(pitch, 4.0f);
 }
 
-TEST(Doppler, SourceOnTheListenerKeepsThePitch)
+TEST(Doppler, SourceOnListenerKeepsPitch)
 {
     EXPECT_FLOAT_EQ(ComputeDopplerPitch({1, 2, 3}, {5, 0, 0}, {1, 2, 3}, {-5, 0, 0}, 343.0f, 1.0f), 1.0f);
 }
 
-TEST(ReverbZoneWeight, BoxIsFullInsideAndFadesOutside)
+TEST(ReverbZoneWeight, BoxFadesOutside)
 {
     const glm::vec3 half(5.0f);
     EXPECT_FLOAT_EQ(ReverbZoneWeight(ReverbShape::Box, {0, 0, 0}, half, 0.0f, 4.0f), 1.0f);
@@ -89,7 +87,7 @@ TEST(ReverbZoneWeight, SphereUsesTheRadius)
     EXPECT_FLOAT_EQ(ReverbZoneWeight(ReverbShape::Sphere, {0, 6, 0}, glm::vec3(0.0f), 4.0f, 2.0f), 0.0f);
 }
 
-TEST(ReverbZoneWeight, NoBlendDistanceIsAHardEdge)
+TEST(ReverbZoneWeight, NoBlendIsHardEdge)
 {
     EXPECT_FLOAT_EQ(ReverbZoneWeight(ReverbShape::Box, {5.01f, 0, 0}, glm::vec3(5.0f), 0.0f, 0.0f), 0.0f);
     EXPECT_FLOAT_EQ(ReverbZoneWeight(ReverbShape::Box, {4.99f, 0, 0}, glm::vec3(5.0f), 0.0f, 0.0f), 1.0f);
@@ -101,7 +99,7 @@ TEST(ReverbMix, NoZoneMeansNoCoverage)
     EXPECT_FLOAT_EQ(mix.coverage, 0.0f);
 }
 
-TEST(ReverbMix, OneZoneInsideGivesItsSettings)
+TEST(ReverbMix, OneZoneGivesItsSettings)
 {
     const ReverbMix mix = MixReverbZones({ { 1.0f, 0, WithWet(0.7f, 0.9f) } });
     EXPECT_FLOAT_EQ(mix.coverage, 1.0f);
@@ -109,15 +107,14 @@ TEST(ReverbMix, OneZoneInsideGivesItsSettings)
     EXPECT_NEAR(mix.params.roomSize, 0.9f, 1e-5f);
 }
 
-TEST(ReverbMix, AZoneOnItsEdgeOnlyHalfCoversTheListener)
+TEST(ReverbMix, EdgeZoneCoversHalf)
 {
     const ReverbMix mix = MixReverbZones({ { 0.5f, 0, WithWet(0.7f, 0.9f) } });
     EXPECT_NEAR(mix.coverage, 0.5f, 1e-5f);
-    // The settings are the zone's, the coverage says how much of it is heard
     EXPECT_NEAR(mix.params.wetLevel, 0.7f, 1e-5f);
 }
 
-TEST(ReverbMix, TheHigherPriorityCoversTheLowerOne)
+TEST(ReverbMix, HigherPriorityWins)
 {
     const ReverbMix mix = MixReverbZones({
         { 1.0f, 0, WithWet(0.2f, 0.2f) },
@@ -127,7 +124,7 @@ TEST(ReverbMix, TheHigherPriorityCoversTheLowerOne)
     EXPECT_NEAR(mix.params.roomSize, 0.8f, 1e-5f);
 }
 
-TEST(ReverbMix, TheLowerPriorityShowsThroughWhereTheHigherOneDoesNotCover)
+TEST(ReverbMix, LowerPriorityShowsThrough)
 {
     const ReverbMix mix = MixReverbZones({
         { 1.0f, 0, WithWet(0.2f, 0.2f) },
@@ -137,7 +134,7 @@ TEST(ReverbMix, TheLowerPriorityShowsThroughWhereTheHigherOneDoesNotCover)
     EXPECT_NEAR(mix.params.roomSize, 0.5f * 0.8f + 0.5f * 0.2f, 1e-5f);
 }
 
-TEST(ReverbMix, ZonesOfTheSamePriorityBlendByWeight)
+TEST(ReverbMix, SamePriorityBlendsByWeight)
 {
     const ReverbMix mix = MixReverbZones({
         { 1.0f, 0, WithWet(0.2f, 0.2f) },
@@ -147,7 +144,7 @@ TEST(ReverbMix, ZonesOfTheSamePriorityBlendByWeight)
     EXPECT_NEAR(mix.params.roomSize, 0.5f, 1e-5f);
 }
 
-TEST(ReverbPresets, EveryPresetStaysInTheRangesOfTheFields)
+TEST(ReverbPresets, PresetsStayInRange)
 {
     for (int i = static_cast<int>(ReverbPreset::Generic); i <= static_cast<int>(ReverbPreset::Underwater); ++i)
     {

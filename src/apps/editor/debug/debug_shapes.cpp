@@ -43,9 +43,9 @@ namespace Shard::Editor::Debug {
         }
 
         indices = {
-            0,1, 1,2, 2,3, 3,0, // bottom square edges
-            4,5, 5,6, 6,7, 7,4, // top square edges
-            0,4, 1,5, 2,6, 3,7  // vertical edgess
+            0,1, 1,2, 2,3, 3,0,
+            4,5, 5,6, 6,7, 7,4,
+            0,4, 1,5, 2,6, 3,7
         };
 
         std::vector<uint8_t> vertexBuffer;
@@ -74,13 +74,10 @@ namespace Shard::Editor::Debug {
             float c = cos(angle);
             float s = sin(angle);
 
-            // XY ring
             vertices.push_back({ glm::vec3(radius * c, radius * s, 0), glm::vec2(0), glm::vec3(0), color });
 
-            // XZ ring
             vertices.push_back({ glm::vec3(radius * c, 0, radius * s), glm::vec2(0), glm::vec3(0), color });
 
-            // YZ ring
             vertices.push_back({ glm::vec3(0, radius * c, radius * s), glm::vec2(0), glm::vec3(0), color });
         }
 
@@ -97,15 +94,12 @@ namespace Shard::Editor::Debug {
             int yz0 = i * 3 + 2;
             int yz1 = next * 3 + 2;
 
-            // XY
             indices.push_back(xy0);
             indices.push_back(xy1);
 
-            // XZ
             indices.push_back(xz0);
             indices.push_back(xz1);
 
-            // YZ
             indices.push_back(yz0);
             indices.push_back(yz1);
         }
@@ -130,7 +124,6 @@ namespace Shard::Editor::Debug {
         std::vector<Vertex> vertices;
         std::vector<uint32_t> indices;
 
-        // --- circles (top & bottom) ---
         for (int i = 0; i < segments; i++)
         {
             float angle = glm::two_pi<float>() * i / segments;
@@ -139,10 +132,8 @@ namespace Shard::Editor::Debug {
 
             glm::vec3 dir(c * radius, 0, s * radius);
 
-            // bottom ring
             vertices.push_back({ dir + glm::vec3(0,-halfHeight,0), glm::vec2(0), glm::vec3(0), color });
 
-            // top ring
             vertices.push_back({ dir + glm::vec3(0, halfHeight,0), glm::vec2(0), glm::vec3(0), color });
         }
 
@@ -150,16 +141,13 @@ namespace Shard::Editor::Debug {
         {
             int next = (i + 1) % segments;
 
-            // bottom circle
             indices.push_back(i*2);
             indices.push_back(next*2);
 
-            // top circle
             indices.push_back(i*2+1);
             indices.push_back(next*2+1);
         }
 
-        // --- vertical lines ---
         vertices.push_back({ glm::vec3(radius,-halfHeight,0), glm::vec2(0), glm::vec3(0), color });
         vertices.push_back({ glm::vec3(radius, halfHeight,0), glm::vec2(0), glm::vec3(0), color });
 
@@ -179,8 +167,6 @@ namespace Shard::Editor::Debug {
             indices.push_back(base + i);
             indices.push_back(base + i + 1);
         }
-
-        // half circles (caps)
 
         int arc_segments = segments / 2;
 
@@ -214,11 +200,9 @@ namespace Shard::Editor::Debug {
             }
         };
 
-        // top hemisphere arcs
         addHalfCircle(glm::vec3(0, halfHeight, 0), true, true);
         addHalfCircle(glm::vec3(0, halfHeight, 0), true, false);
 
-        // bottom hemisphere arcs
         addHalfCircle(glm::vec3(0,-halfHeight, 0), false, true);
         addHalfCircle(glm::vec3(0,-halfHeight, 0), false, false);
 
@@ -237,41 +221,34 @@ namespace Shard::Editor::Debug {
 
     void DebugCylinder::GenerateCylinder(float radius, float halfHeight, COL_RGBA color)
     {
-        int segments = 18; // minimal segment count for wireframe
+        int segments = 18;
 
         std::vector<Vertex> vertices;
         std::vector<uint32_t> indices;
 
-        // Vertex generation (top and bottom circles)
         for (int i = 0; i < segments; ++i) {
             float angle = glm::two_pi<float>() * i / segments;
             float x = cos(angle), z = sin(angle);
             glm::vec3 dir = glm::vec3(x, 0, z);
 
-            // bottom ring
             vertices.push_back({ dir * radius + glm::vec3(0, -halfHeight, 0), glm::vec2(0,0), dir, color });
-            // top ring
             vertices.push_back({ dir * radius + glm::vec3(0, +halfHeight, 0), glm::vec2(0,0), dir, color });
         }
 
-        // Index generation
         for (int i = 0; i < segments; ++i) {
             int next = (i + 1) % segments;
 
-            int b0 = i * 2;       // bottom current
-            int t0 = b0 + 1;      // top current
-            int b1 = next * 2;    // bottom next
-            int t1 = b1 + 1;      // top next
+            int b0 = i * 2;
+            int t0 = b0 + 1;
+            int b1 = next * 2;
+            int t1 = b1 + 1;
 
-            // Bottom circle
             indices.push_back(b0);
             indices.push_back(b1);
 
-            // Top circle
             indices.push_back(t0);
             indices.push_back(t1);
 
-            // Vertical lines
             indices.push_back(b0);
             indices.push_back(t0);
         }
@@ -306,7 +283,6 @@ namespace Shard::Editor::Debug {
             return (uint32_t)vertices.size() - 1;
         };
 
-        // A closed loop of points, each joined to the next
         auto addLoop = [&](const std::vector<glm::vec3>& points) {
             const uint32_t first = (uint32_t)vertices.size();
             for (const glm::vec3& p : points)
@@ -323,7 +299,6 @@ namespace Shard::Editor::Debug {
             indices.push_back(addPoint(b));
         };
 
-        // A circle of the given radii (x, z) at height y, or the rectangle of the pyramid's base
         auto ring = [&](float rx, float rz, float y) {
             std::vector<glm::vec3> points;
             for (int i = 0; i < segments; i++)
@@ -337,7 +312,6 @@ namespace Shard::Editor::Debug {
         switch (kind)
         {
             case Kind::Sphere:
-                // The three great circles
                 for (int axis = 0; axis < 3; axis++)
                 {
                     std::vector<glm::vec3> points;
@@ -397,8 +371,7 @@ namespace Shard::Editor::Debug {
 
     void DebugMultiSphere::GenerateMultiSphere(const std::vector<glm::vec3>& centers, float radius, COL_RGBA color)
     {
-        // Fewer segments than DebugSphere's 32 - these are meant to be small, cheap markers, and there
-        // can be hundreds of them in a single merged mesh (one per probe in a GI probe grid).
+        // Fewer segments than DebugSphere: hundreds of these end up in one merged mesh (one per GI probe).
         int segments = 8;
 
         std::vector<Vertex> vertices;
@@ -416,11 +389,8 @@ namespace Shard::Editor::Debug {
                 float c = cos(angle);
                 float s = sin(angle);
 
-                // XY ring
                 vertices.push_back({ center + glm::vec3(radius * c, radius * s, 0), glm::vec2(0), glm::vec3(0), color });
-                // XZ ring
                 vertices.push_back({ center + glm::vec3(radius * c, 0, radius * s), glm::vec2(0), glm::vec3(0), color });
-                // YZ ring
                 vertices.push_back({ center + glm::vec3(0, radius * c, radius * s), glm::vec2(0), glm::vec3(0), color });
             }
 

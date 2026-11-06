@@ -28,7 +28,6 @@ namespace Shard::Engine::Plugins {
                 result.errors.push_back("required plugin '" + candidates[i].id + "' cannot be loaded : " + result.rejected.back().reason);
         };
 
-        // 1. Filters that look at a plugin alone
         for (size_t i = 0; i < n; ++i) {
             const PluginManifest& m = candidates[i];
             if (options.disabled.count(m.id)) { reject(i, Rejection::Kind::Disabled, "turned off by the project"); continue; }
@@ -57,7 +56,6 @@ namespace Shard::Engine::Plugins {
             }
         }
 
-        // 2. One version per id : the highest one the project's range accepts (or the highest, without a range)
         {
             std::map<std::string, std::vector<size_t>> byId;
             for (size_t i = 0; i < n; ++i) if (alive[i]) byId[candidates[i].id].push_back(i);
@@ -70,12 +68,11 @@ namespace Shard::Engine::Plugins {
                     if (range && !range->Satisfies(candidates[i].version)) continue;
                     if (best == SIZE_MAX || candidates[i].version > candidates[best].version) best = i;
                 }
-                if (best == SIZE_MAX) best = indices[0];       // none fits the project : the range check below reports it
+                if (best == SIZE_MAX) best = indices[0];
                 for (size_t i : indices)
                     if (i != best) reject(i, Rejection::Kind::Duplicate, "version " + candidates[best].version.ToString() + " of the same plugin was picked");
             }
         }
-        // The project's own version requirement
         for (const auto& [id, range] : options.projectRanges) {
             for (size_t i = 0; i < n; ++i)
                 if (alive[i] && candidates[i].id == id && !range.Satisfies(candidates[i].version))
@@ -94,7 +91,7 @@ namespace Shard::Engine::Plugins {
             return -1;
         };
 
-        // 3 + 4. Dependencies and conflicts, until nothing changes (each loss can cost others theirs)
+        // Repeat until stable, each loss can cost others theirs
         bool changed = true;
         while (changed) {
             changed = false;
@@ -129,7 +126,6 @@ namespace Shard::Engine::Plugins {
                     const int other = IsServiceDep(c.id) ? provider(ServiceName(c.id)) : find(c.id);
                     if (other < 0 || size_t(other) == i || !alive[size_t(other)]) continue;
                     if (!IsServiceDep(c.id) && !c.range.Satisfies(candidates[size_t(other)].version)) continue;
-                    // The project's required plugin stays ; otherwise the id that sorts last goes
                     size_t loser = i;
                     const bool iReq = options.required.count(candidates[i].id) != 0;
                     const bool oReq = options.required.count(candidates[size_t(other)].id) != 0;
@@ -144,8 +140,8 @@ namespace Shard::Engine::Plugins {
             }
         }
 
-        // 5. Order : Kahn's algorithm, always taking the smallest id among the ones that are ready
-        std::vector<std::vector<size_t>> after(n);      // after[a] : plugins that must come after a
+        // Kahn's algorithm, always taking the smallest ready id
+        std::vector<std::vector<size_t>> after(n);
         std::vector<int> indegree(n, 0);
         auto edge = [&](size_t before, size_t then) {
             if (before == then) return;
@@ -162,7 +158,6 @@ namespace Shard::Engine::Plugins {
             for (const std::string& id : candidates[i].loadAfter) { int o = find(id); if (o >= 0) edge(size_t(o), i); }
             for (const std::string& id : candidates[i].loadBefore) { int o = find(id); if (o >= 0) edge(i, size_t(o)); }
         }
-        // The engine's own modules come up before everything built on them
         for (size_t i = 0; i < n; ++i) {
             if (!alive[i] || candidates[i].moduleKind != ModuleKind::Engine) continue;
             for (size_t j = 0; j < n; ++j)
@@ -179,10 +174,8 @@ namespace Shard::Engine::Plugins {
             for (size_t next : after[i]) if (--indegree[next] == 0) ready.push(next);
         }
         if (result.order.size() < liveCount) {
-            // Whatever is left sits on, or behind, a cycle
             std::vector<size_t> stuck;
             for (size_t i = 0; i < n; ++i) if (alive[i] && indegree[i] > 0) stuck.push_back(i);
-            // Find one cycle to print : walk predecessors among the stuck plugins
             std::string cycleText;
             {
                 std::vector<int> state(n, 0);

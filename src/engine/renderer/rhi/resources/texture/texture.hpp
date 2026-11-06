@@ -50,8 +50,6 @@ namespace Shard::Engine::Rendering {
         Depth32,
         Depth32F,
         R32F,
-        /// 32 bits per texel, three 9 bit mantissas sharing an exponent (GL_RGB9_E5) : HDR light at half the size of RGBA16F.
-        /// The pixel data is the packed texels as they are (see Core::PackRGB9E5). Not usable as an image, nor as a render target.
         RGB9E5
     };
 
@@ -112,10 +110,7 @@ namespace Shard::Engine::Rendering {
 
         bool halfFloatPixelData = false;
 
-        /// The pixels are colours in the sRGB transfer curve (an albedo, an emission map : what an artist painted and a monitor
-        /// shows), not data. The GPU then turns them into linear values when the texture is sampled, and filters in linear
-        /// space - what a lighting calculation needs. 8 bit RGB / RGBA and the BC7 blocks have an sRGB form ; a texture of
-        /// another format (float, 1 or 2 channels, normals, masks) is linear whatever this says.
+        // Colour textures in the sRGB curve: sampled to linear, mips averaged in linear light. Float, 1-2 channel, normal and mask formats stay linear.
         bool srgb = false;
     };
 
@@ -132,8 +127,6 @@ namespace Shard::Engine::Rendering {
 
     TextureDecodeResult DecodeTextureFile(const Filesystem::Path& filepath);
 
-    /// @param srgb  the image is a colour texture (see TextureSpecifications::srgb) : its mip levels are averaged in linear
-    /// light instead of on the encoded values, which would darken a fine pattern as it recedes
     TextureDecodeResult DecodeTextureFileForUpload(const Filesystem::Path& filepath, unsigned threads = 1, bool srgb = false);
 
     uint32_t MipsToSkip(uint32_t width, uint32_t height);
@@ -157,25 +150,17 @@ namespace Shard::Engine::Rendering {
 
             virtual uint32_t GetHandle() const = 0;
 
-            /// A handle a shader can sample the texture by, without a texture unit (ARB_bindless_texture) : kept resident for
-            /// as long as the texture lives. 0 when the API cannot do that. A texture that has one is frozen : it cannot be
-            /// re-specified any more.
+            // Bindless handle (ARB_bindless_texture), resident while the texture lives. A texture that has one is frozen and cannot be re-specified.
             virtual uint64_t GetBindlessHandle() const { return 0; }
 
             virtual bool IsValid() const = 0;
 
-            /// Replaces a rectangle of the base level with `pixels` (the texture's own format, rows `rowPitchBytes` apart, 0 : tight) and rebuilds the
-            /// mips when the texture has them. Runs on the graphics thread (from another it is forwarded). False if the API cannot, or the rectangle
-            /// is out of the texture. A texture a shader reads by a bindless handle can be updated this way.
             virtual bool UpdateRegion(uint32_t x, uint32_t y, uint32_t width, uint32_t height, const void* pixels, uint32_t rowPitchBytes = 0)
             {
                 (void)x; (void)y; (void)width; (void)height; (void)pixels; (void)rowPitchBytes;
                 return false;
             }
 
-            /// Hot reload : takes over the GPU texture and the specifications of `other` (a freshly decoded texture of the
-            /// same API), which is left holding the old ones and is to be dropped. This object - and so every shared_ptr to it - stays,
-            /// only the raw GL handle changes. Graphics thread. False if the API can't do it.
             virtual bool SwapContents(Texture2D& other) { (void)other; return false; }
 
             const TextureSpecifications& GetSpecifications() const { return m_Specifications; };

@@ -13,7 +13,6 @@ namespace Shard::Engine::Serialization{
     void DeserializeAssetDataBase(const Filesystem::Path resourcesPath, const Filesystem::Path databasePath,
                                   Filesystem::FileManager& files, Filesystem::AssetIDManager& ids, int firstID){
 
-        // Whatever happens below, the IDs made from now on start at firstID at least
         auto initCounter = [&](int next){ ids.InitCounter(std::max({next, firstID, ids.NextID()})); };
 
         if(!databasePath.Exists()){
@@ -58,8 +57,8 @@ namespace Shard::Engine::Serialization{
                     maxID = std::max(maxID, entry.id);
             }
 
-            // An ID out of this database's range (a project made before the range was enforced started at 1) would overwrite an
-            // engine resource : moved past the others. Its references in the worlds are by name, only the dependencies are by ID.
+            // An ID outside this database's range would overwrite an engine resource, so it is moved past the others.
+            // Worlds reference by name, only dependencies are by ID.
             std::unordered_map<int, int> remapped;
             std::unordered_set<int> kept;
             int nextFree = std::max({maxID + 1, firstID, ids.NextID()});
@@ -97,7 +96,7 @@ namespace Shard::Engine::Serialization{
 
         for(auto& pair : ids.AssetIDMap){
 
-            if(pair.first.GetAsInt() >= Filesystem::kFirstProjectAssetID) // A project resource : the engine's stop below
+            if(pair.first.GetAsInt() >= Filesystem::kFirstProjectAssetID)
             {
                 ordered_json assetData;
                 assetData["id"] = pair.first.GetAsInt();

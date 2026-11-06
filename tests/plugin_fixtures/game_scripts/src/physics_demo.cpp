@@ -1,4 +1,3 @@
-// What a script does with the physics : forces, contacts and a ray
 #include <shard/game.hpp>
 
 #include "stats.hpp"
@@ -7,7 +6,7 @@ class Ball : public Shard::Script {
 public:
     void OnFixedTick(float) override
     {
-        if (Owner().AddForce({ 0.f, 0.f, 0.f })) ++GetStats().forced;      // true : the actor has a live body
+        if (Owner().AddForce({ 0.f, 0.f, 0.f })) ++GetStats().forced;
     }
     void OnContactAdded(const Shard::Contact& contact) override
     {
@@ -24,7 +23,6 @@ class Probe : public Shard::Script {
 public:
     void OnPlay() override
     {
-        // Straight down from the actor, not counting its own body
         if (auto hit = Shard::Physics::Raycast(Owner().WorldPosition(), { 0.f, -1.f, 0.f }, 50.f, Shard::Layers::All, Owner())) {
             ++GetStats().rayHits;
             GetStats().rayDistance = hit->distance;

@@ -1,9 +1,6 @@
 #version 450
 
-// Full-screen triangle, identical to fb/framebuffer.vert and editor/outline.vert - duplicated rather
-// than shared because ResourcesManager::GetShader("shaders/ssao/ssao") requires a .vert file living
-// next to ssao.frag at that exact path (see ResourcesManager::GetShader), the same reason
-// editor/outline.vert already duplicates this instead of pointing back at fb/framebuffer.vert.
+// Duplicate of fb/framebuffer.vert: ResourcesManager::GetShader needs a .vert next to the .frag at the same path.
 const vec2 positions[3] = vec2[](
     vec2(-1.0, -1.0),
     vec2( 3.0, -1.0),

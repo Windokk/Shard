@@ -16,7 +16,6 @@ using namespace Shard::Engine::Rendering;
 namespace {
     namespace fs = std::filesystem;
 
-    // A scratch folder with a texture cache in it, removed with the fixture
     class TextureDecodeTest : public ::testing::Test {
     protected:
         void SetUp() override
@@ -37,7 +36,6 @@ namespace {
             fs::remove_all(m_Dir, ec);
         }
 
-        // Writes a PNG of `channels` channels where each pixel is f(x, y, channel)
         template <class F>
         Filesystem::Path WritePng(const char* name, uint32_t width, uint32_t height, uint32_t channels, F f)
         {
@@ -72,13 +70,13 @@ namespace {
     }
 }
 
-TEST_F(TextureDecodeTest, ColourImageComesBackAsBC7WithItsMips) {
+TEST_F(TextureDecodeTest, ColourImageIsBC7WithMips) {
     const Filesystem::Path path = WritePng("albedo.png", 256, 256, 3, Gradient);
     const TextureDecodeResult result = DecodeTextureFileForUpload(path);
 
     ASSERT_TRUE(result.success);
     ASSERT_TRUE(result.compressed);
-    EXPECT_TRUE(result.pixels.empty());                    // only the blocks go on
+    EXPECT_TRUE(result.pixels.empty());
     EXPECT_EQ(result.width, 256);
     EXPECT_EQ(result.height, 256);
     EXPECT_EQ(result.compressed->format, BlockFormat::BC7);
@@ -86,7 +84,7 @@ TEST_F(TextureDecodeTest, ColourImageComesBackAsBC7WithItsMips) {
     EXPECT_EQ(CachedFiles(), 1u);
 }
 
-TEST_F(TextureDecodeTest, TheSecondDecodeComesFromTheCache) {
+TEST_F(TextureDecodeTest, SecondDecodeFromCache) {
     const Filesystem::Path path = WritePng("albedo.png", 256, 256, 4, Gradient);
 
     const TextureDecodeResult first = DecodeTextureFileForUpload(path);
@@ -97,15 +95,14 @@ TEST_F(TextureDecodeTest, TheSecondDecodeComesFromTheCache) {
     ASSERT_TRUE(second.compressed);
     EXPECT_EQ(second.compressed->mips, first.compressed->mips);
     EXPECT_EQ(second.width, first.width);
-    EXPECT_EQ(CachedFiles(), 1u);                          // nothing new was written
+    EXPECT_EQ(CachedFiles(), 1u);
 }
 
-TEST_F(TextureDecodeTest, EditingTheSourceMakesANewCacheEntry) {
+TEST_F(TextureDecodeTest, SourceEditMakesNewEntry) {
     const Filesystem::Path path = WritePng("albedo.png", 256, 256, 3, Gradient);
     ASSERT_TRUE(DecodeTextureFileForUpload(path).compressed);
     ASSERT_EQ(CachedFiles(), 1u);
 
-    // Another image under the same name : its size and date are not those of the cached one
     WritePng("albedo.png", 256, 256, 3, [](uint32_t x, uint32_t y, uint32_t c) { return uint8_t(255 - Gradient(x, y, c)); });
     const TextureDecodeResult edited = DecodeTextureFileForUpload(path);
     ASSERT_TRUE(edited.compressed);
@@ -119,7 +116,7 @@ TEST_F(TextureDecodeTest, NormalMapsKeepTwoChannels) {
     EXPECT_EQ(result.compressed->format, BlockFormat::BC5);
 }
 
-TEST_F(TextureDecodeTest, SingleChannelImagesAreBC4) {
+TEST_F(TextureDecodeTest, SingleChannelIsBC4) {
     const Filesystem::Path path = WritePng("roughness.png", 256, 256, 1, [](uint32_t x, uint32_t y, uint32_t) { return uint8_t((x + y) & 0xFF); });
     const TextureDecodeResult result = DecodeTextureFileForUpload(path);
     ASSERT_TRUE(result.compressed);
@@ -136,7 +133,7 @@ TEST_F(TextureDecodeTest, SmallImagesStayUncompressed) {
     EXPECT_EQ(CachedFiles(), 0u);
 }
 
-TEST_F(TextureDecodeTest, TurningCompressionOffGivesThePixels) {
+TEST_F(TextureDecodeTest, CompressionOffGivesPixels) {
     const Filesystem::Path path = WritePng("albedo.png", 256, 256, 3, Gradient);
     ASSERT_TRUE(Core::CVarRegistry::Global().Execute("texture.compress false").ok);
 
@@ -156,23 +153,22 @@ TEST_F(TextureDecodeTest, NoCacheDirectoryStillCompresses) {
     EXPECT_EQ(CachedFiles(), 0u);
 }
 
-TEST_F(TextureDecodeTest, ADamagedCacheFileIsEncodedAgain) {
+TEST_F(TextureDecodeTest, DamagedCacheReencoded) {
     const Filesystem::Path path = WritePng("albedo.png", 256, 256, 3, Gradient);
     const TextureDecodeResult first = DecodeTextureFileForUpload(path);
     ASSERT_TRUE(first.compressed);
 
-    // Truncate what the cache holds
     for (const auto& entry : fs::directory_iterator(m_Dir / "cache"))
         if (entry.path().extension() == ".stx")
             fs::resize_file(entry.path(), 40);
 
     const TextureDecodeResult second = DecodeTextureFileForUpload(path);
     ASSERT_TRUE(second.compressed);
-    EXPECT_EQ(second.compressed->mips, first.compressed->mips);     // same image, encoded again (and stored again)
+    EXPECT_EQ(second.compressed->mips, first.compressed->mips);
 }
 
-TEST_F(TextureDecodeTest, ADecodeResultMakesNoTextureWithoutAnApi) {
-    // Texture2D::Create needs a graphics API : a failed decode is what must be refused cleanly, before it gets there
+TEST_F(TextureDecodeTest, NoApiNoTexture) {
+    // Texture2D::Create needs a graphics API, so a failed decode must be refused before reaching it.
     TextureDecodeResult failed;
     TextureSpecifications specs;
     EXPECT_EQ(Texture2D::Create(specs, failed), nullptr);
@@ -183,18 +179,17 @@ TEST_F(TextureDecodeTest, MissingFileFails) {
     EXPECT_FALSE(result.success);
 }
 
-TEST_F(TextureDecodeTest, MaxSizeLeavesOutTheBiggestLevels) {
-    // No limit by default
+TEST_F(TextureDecodeTest, MaxSizeDropsBigLevels) {
     EXPECT_EQ(MipsToSkip(4096, 4096), 0u);
 
     ASSERT_TRUE(Core::CVarRegistry::Global().Execute("texture.max_size 2048").ok);
     EXPECT_EQ(MipsToSkip(4096, 4096), 1u);
-    EXPECT_EQ(MipsToSkip(8192, 2048), 2u);      // by the biggest side
+    EXPECT_EQ(MipsToSkip(8192, 2048), 2u);
     EXPECT_EQ(MipsToSkip(2048, 2048), 0u);
-    EXPECT_EQ(MipsToSkip(1024, 512), 0u);       // never enlarged
+    EXPECT_EQ(MipsToSkip(1024, 512), 0u);
 
     ASSERT_TRUE(Core::CVarRegistry::Global().Execute("texture.max_size 1").ok);
-    EXPECT_LE(MipsToSkip(4096, 4096), 10u);     // stops while there is still a texture left
+    EXPECT_LE(MipsToSkip(4096, 4096), 10u);
 
     ASSERT_TRUE(Core::CVarRegistry::Global().Execute("texture.max_size 0").ok);
     EXPECT_EQ(MipsToSkip(4096, 4096), 0u);

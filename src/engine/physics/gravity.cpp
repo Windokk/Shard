@@ -17,7 +17,6 @@ namespace Shard::Engine::Physics
             return glm::vec3(direction / length * double(strength));
         }
 
-        /// 1 deep inside, going down to 0 at the edge over `fadeDistance`. `insideDistance` : how far inside the edge the point is.
         float EdgeCoverage(double insideDistance, float fadeDistance)
         {
             if (fadeDistance <= 0.0f)
@@ -25,7 +24,6 @@ namespace Shard::Engine::Physics
             return float(glm::clamp(insideDistance / double(fadeDistance), 0.0, 1.0));
         }
 
-        /// The strength of a source `distance` away from a point source / above a planet, by its falloff
         float FalloffStrength(GravityFalloff falloff, float strength, double distance, double range, double reference, double minDistance)
         {
             switch (falloff)
@@ -56,7 +54,6 @@ namespace Shard::Engine::Physics
             const glm::dvec3 toSource = f.position - p;
             const double distance = glm::length(toSource);
 
-            // A radius of 0 : reaches everywhere
             if (f.radius > 0.0f && distance >= double(f.radius))
                 return false;
 
@@ -80,7 +77,6 @@ namespace Shard::Engine::Physics
             float strength;
             if (height < 0.0)
             {
-                // Inside the planet : a body of uniform density pulls in proportion to the distance from its center
                 strength = f.solidInterior ? f.strength * float(distance / surface) : f.strength;
                 coverage = 1.0f;
             }
@@ -101,7 +97,6 @@ namespace Shard::Engine::Physics
             const glm::dvec3 local = glm::inverse(f.rotation) * (p - f.position);
             const glm::dvec3 extent = glm::max(glm::dvec3(f.halfExtent) * glm::abs(glm::dvec3(f.scale)), glm::dvec3(1e-6));
 
-            // How far inside the edge of the region the point is
             double depth;
             switch (f.shape)
             {
@@ -167,7 +162,7 @@ namespace Shard::Engine::Physics
 
     void SortGravityFields(std::vector<GravityFieldData>& fields)
     {
-        // A total order (the same fields always give the same list) : the result sums floats, and their order changes the last bits
+        // Total order: the result sums floats, so order changes the last bits.
         std::stable_sort(fields.begin(), fields.end(), [](const GravityFieldData& a, const GravityFieldData& b) {
             if (a.priority != b.priority)
                 return a.priority > b.priority;
@@ -179,7 +174,7 @@ namespace Shard::Engine::Physics
     {
         glm::dvec3 result(0.0);
         glm::dvec3 additive(0.0);
-        double unclaimed = 1.0;      // the share of the gravity no field above claimed yet
+        double unclaimed = 1.0;
 
         const size_t count = fields.size();
         size_t i = 0;

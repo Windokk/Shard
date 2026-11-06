@@ -20,10 +20,9 @@ namespace Shard::Engine::Rendering {
     private:
         struct Scope {
             std::string name;
-            uint32_t queries[2] = {0, 0};   // timestamp at the start, at the end
+            uint32_t queries[2] = {0, 0};
         };
 
-        // Frames in flight : the GPU runs a few frames behind the CPU, a frame's queries are read once they are all done
         static constexpr int kFrames = 4;
         struct Frame {
             std::vector<Scope> scopes;

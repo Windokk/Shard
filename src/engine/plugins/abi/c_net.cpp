@@ -12,9 +12,6 @@
 #include "engine/plugins/abi/c_handles.hpp"
 #include "engine/plugins/abi/c_internal.hpp"
 
-// shard.net : UDP and TCP sockets, non blocking, driven by the frame. A socket belongs to the plugin that opened it ; what happens to it (data,
-// a connection, a close) is reported to that plugin's callback on the main thread, when the host polls (the start of the frame, or poll()).
-
 namespace Shard::Engine::Plugins::CAbi {
 
     namespace {
@@ -36,15 +33,14 @@ namespace Shard::Engine::Plugins::CAbi {
             std::unique_ptr<Socket> socket;
             ShardNetFn fn = nullptr;
             void* user = nullptr;
-            ShardSocket listener = 0;           // Accepted : the listener
+            ShardSocket listener = 0;
             std::string peer;
-            std::vector<char> sendQueue;        // TCP : bytes not written yet
+            std::vector<char> sendQueue;
             size_t sendOffset = 0;
-            // tcp_connect : the connection is made by a thread, the poll takes over once it is done
-            std::atomic<int> connect{ 0 };      // 0 : not connecting, 1 : in progress, 2 : connected, 3 : failed
+            std::atomic<int> connect{ 0 };      // 0 idle, 1 connecting, 2 connected, 3 failed
             std::atomic<int> connectError{ 0 };
             std::atomic<bool> abandoned{ false };
-            bool announced = false;             // the CONNECTED / ERROR event was delivered
+            bool announced = false;
             bool closed = false;
         };
 
@@ -85,11 +81,10 @@ namespace Shard::Engine::Plugins::CAbi {
             if (s->closed) return;
             s->closed = true;
             s->abandoned = true;
-            if (s->connect.load() != 1 && s->socket) s->socket->Close();    // a connecting socket is closed by the thread that owns it, when it is done
+            if (s->connect.load() != 1 && s->socket) s->socket->Close();
             gSockets.Remove(s->owner, handle);
         }
 
-        // Writes what the TCP queue holds
         bool Flush(NetSocket& s)
         {
             while (s.sendOffset < s.sendQueue.size()) {
@@ -144,7 +139,7 @@ namespace Shard::Engine::Plugins::CAbi {
                     SocketAddress peer;
                     std::unique_ptr<Socket> accepted = s->socket->Accept(&peer);
                     if (!accepted) break;
-                    if (gSockets.CountOf(s->owner) >= kMaxSocketsPerPlugin) continue;       // over its limit : the client is dropped
+                    if (gSockets.CountOf(s->owner) >= kMaxSocketsPerPlugin) continue;
                     accepted->SetBlocking(false);
                     accepted->SetNoDelay(true);
                     auto client = std::make_shared<NetSocket>();
@@ -162,7 +157,6 @@ namespace Shard::Engine::Plugins::CAbi {
                 return;
             }
 
-            // A TCP connection
             if (!Flush(*s)) {
                 Dispatch(s, handle, SHARD_NET_EVENT_ERROR, 0, s->peer, nullptr, 0, s->socket->LastError());
                 CloseSocket(handle, s);
@@ -272,7 +266,6 @@ namespace Shard::Engine::Plugins::CAbi {
                 s->connect = 1;
                 HookRelease(*ctx, PluginOwner(handle));
                 *out = gSockets.Add(PluginOwner(handle), s);
-                // The connection (the name's resolution included) is made off the frame
                 std::thread([s, address] {
                     const bool ok = s->socket->Connect(address, 10000);
                     s->connectError = ok ? 0 : s->socket->LastError();
@@ -293,7 +286,7 @@ namespace Shard::Engine::Plugins::CAbi {
                 if (s->role != Role::Client && s->role != Role::Accepted) return SHARD_E_INVALID_ARG;
                 if (s->sendQueue.size() - s->sendOffset + size > kMaxQueuedBytes) return SHARD_E_OUT_OF_MEMORY;
                 s->sendQueue.insert(s->sendQueue.end(), static_cast<const char*>(data), static_cast<const char*>(data) + size);
-                if (s->connect.load() != 1 && !Flush(*s)) return SHARD_OK;      // the error is reported by the next poll
+                if (s->connect.load() != 1 && !Flush(*s)) return SHARD_OK;
                 return SHARD_OK;
             } catch (...) { return SHARD_E_INTERNAL; }
         }
@@ -310,7 +303,7 @@ namespace Shard::Engine::Plugins::CAbi {
                 SocketAddress to;
                 if (!ReadAddress(remote, to, true)) return SHARD_E_INVALID_ARG;
                 size_t sent = 0;
-                s->socket->SendTo(data, size_t(size), to, &sent);       // a datagram the system cannot take is dropped
+                s->socket->SendTo(data, size_t(size), to, &sent);
                 return SHARD_OK;
             } catch (...) { return SHARD_E_INTERNAL; }
         }
@@ -321,7 +314,7 @@ namespace Shard::Engine::Plugins::CAbi {
                 if (!OnMainThread()) return SHARD_E_WRONG_THREAD;
                 std::shared_ptr<NetSocket> s = gSockets.Get(PluginOwner(handle), socket);
                 if (!s || s->closed) return SHARD_E_STALE_HANDLE;
-                if (s->role == Role::Accepted || s->role == Role::Client) Flush(*s);       // what was sent goes out before the close
+                if (s->role == Role::Accepted || s->role == Role::Client) Flush(*s);
                 CloseSocket(socket, s);
                 return SHARD_OK;
             } catch (...) { return SHARD_E_INTERNAL; }
@@ -365,7 +358,7 @@ namespace Shard::Engine::Plugins::CAbi {
             } catch (...) { return SHARD_E_INTERNAL; }
         }
 
-        // The handles of an owner's sockets, in the order they were opened (a replay of the traffic delivers in the same order)
+        // Opening order, so a replay of the traffic delivers in the same order
         std::vector<uint64_t> HandlesOf(PluginOwner owner)
         {
             std::vector<uint64_t> handles;

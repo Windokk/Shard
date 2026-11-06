@@ -6,9 +6,6 @@
 
 namespace Shard::Engine::Audio
 {
-    // Cached raw encoded audio bytes for a sound file, keyed by project path in ResourcesManager -
-    // shared by every AudioSource referencing the same asset instead of each one reading the file
-    // from disk itself.
     class SoundAsset
     {
         public:

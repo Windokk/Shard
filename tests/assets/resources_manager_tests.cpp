@@ -18,8 +18,6 @@ namespace {
     };
     struct Lvl {};
 
-    // A resources manager over an in-memory asset database and made-up resource types, standing for
-    // what the renderer / world register for real.
     class ResourcesManagerTest : public ::testing::Test {
     protected:
         Filesystem::AssetIDManager ids;
@@ -57,7 +55,7 @@ namespace {
                 rm.RegisterKind(AssetKind::Texture, std::move(info));
             }
             {
-                AssetKindInfo info; // keyed without ".vert", database entry is "<path>.vert"
+                AssetKindInfo info;
                 info.load = [this](const std::string&, const Filesystem::AssetInfos&) -> std::shared_ptr<void> {
                     loads++;
                     return std::make_shared<Shd>();
@@ -68,7 +66,7 @@ namespace {
                 rm.RegisterKind(AssetKind::Shader, std::move(info));
             }
             {
-                AssetKindInfo info; // keeps its textures and shader alive
+                AssetKindInfo info;
                 info.load = [this](const std::string&, const Filesystem::AssetInfos&) -> std::shared_ptr<void> {
                     loads++;
                     return std::make_shared<Mat>();
@@ -78,7 +76,7 @@ namespace {
                 rm.RegisterKind(AssetKind::Material, std::move(info));
             }
             {
-                AssetKindInfo info; // owned by the world manager in the engine: never swept
+                AssetKindInfo info;
                 info.load = [this](const std::string&, const Filesystem::AssetInfos&) -> std::shared_ptr<void> {
                     loads++;
                     return std::make_shared<Lvl>();
@@ -91,9 +89,7 @@ namespace {
         }
     };
 
-    // ---- cache -------------------------------------------------------------------------------
-
-    TEST_F(ResourcesManagerTest, GetLoadsOnceThenServesFromTheCache)
+    TEST_F(ResourcesManagerTest, GetLoadsOnce)
     {
         AddAsset(501, "textures/a.png");
 
@@ -105,7 +101,7 @@ namespace {
         EXPECT_EQ(loads, 1);
     }
 
-    TEST_F(ResourcesManagerTest, UnknownAssetReturnsNullWithoutCallingTheLoader)
+    TEST_F(ResourcesManagerTest, UnknownAssetReturnsNull)
     {
         EXPECT_EQ(rm.Get<Tex>(AssetKind::Texture, "textures/missing.png"), nullptr);
         EXPECT_EQ(loads, 0);
@@ -118,7 +114,7 @@ namespace {
         EXPECT_EQ(rm.Get<Tex>(AssetKind::FirstUser, "textures/a.png"), nullptr);
     }
 
-    TEST_F(ResourcesManagerTest, LoadedResourceGetsItsAssetID)
+    TEST_F(ResourcesManagerTest, LoadedResourceGetsAssetId)
     {
         AddAsset(501, "textures/a.png");
 
@@ -128,7 +124,7 @@ namespace {
         EXPECT_EQ(tex->id.GetAsInt(), 501);
     }
 
-    TEST_F(ResourcesManagerTest, ShaderIsKeyedWithoutExtensionButFoundByItsVertFile)
+    TEST_F(ResourcesManagerTest, ShaderKeyedWithoutExtension)
     {
         AddAsset(502, "shaders/s.vert", Filesystem::Type::T_SHADER);
 
@@ -140,7 +136,7 @@ namespace {
         EXPECT_EQ(rm.Get<Shd>(AssetKind::Shader, "shaders/other"), nullptr);
     }
 
-    TEST_F(ResourcesManagerTest, AdoptInsertsOnceAndKeepsTheFirstOne)
+    TEST_F(ResourcesManagerTest, AdoptKeepsFirst)
     {
         AddAsset(501, "textures/a.png");
 
@@ -157,7 +153,7 @@ namespace {
         EXPECT_EQ(loads, 0);
     }
 
-    TEST_F(ResourcesManagerTest, UnloadDropsFromTheCacheAndTheNextGetReloads)
+    TEST_F(ResourcesManagerTest, UnloadDropsFromCache)
     {
         AddAsset(501, "textures/a.png");
         rm.Get<Tex>(AssetKind::Texture, "textures/a.png");
@@ -169,9 +165,7 @@ namespace {
         EXPECT_EQ(loads, 2);
     }
 
-    // ---- dependency graph and eviction -------------------------------------------------------
-
-    TEST_F(ResourcesManagerTest, OwnerRecordsItsDependenciesInTheAssetDatabase)
+    TEST_F(ResourcesManagerTest, OwnerRecordsDependencies)
     {
         AddAsset(501, "textures/a.png");
         AddAsset(502, "shaders/s.vert", Filesystem::Type::T_SHADER);
@@ -181,14 +175,13 @@ namespace {
 
         rm.Get<Mat>(AssetKind::Material, "materials/m.mat");
 
-        // a shader stands for its .vert and .frag files, in the order of the suffixes
         std::vector<int> recorded;
         for(auto& dep : Info("materials/m.mat")->dependencies)
             recorded.push_back(dep.GetAsInt());
         EXPECT_EQ(recorded, (std::vector<int>{502, 503, 501}));
     }
 
-    TEST_F(ResourcesManagerTest, DependencyIsEvictedWhenItsOwnerIsUnloaded)
+    TEST_F(ResourcesManagerTest, DependencyEvictedWithOwner)
     {
         AddAsset(501, "textures/a.png");
         AddAsset(502, "textures/b.png");
@@ -199,7 +192,7 @@ namespace {
         rm.Get<Tex>(AssetKind::Texture, "textures/b.png");
         rm.Get<Mat>(AssetKind::Material, "materials/m.mat");
 
-        EXPECT_EQ(rm.CollectUnused(), 0); // retained by the material
+        EXPECT_EQ(rm.CollectUnused(), 0);
 
         rm.Unload(AssetKind::Material, "materials/m.mat");
 
@@ -208,7 +201,7 @@ namespace {
         EXPECT_FALSE(rm.Has(AssetKind::Texture, "textures/b.png"));
     }
 
-    TEST_F(ResourcesManagerTest, SharedDependencySurvivesUntilItsLastOwnerIsUnloaded)
+    TEST_F(ResourcesManagerTest, SharedDependencySurvivesOwner)
     {
         AddAsset(501, "textures/a.png");
         AddAsset(502, "materials/m1.mat", Filesystem::Type::T_MATERIAL);
@@ -228,13 +221,13 @@ namespace {
         EXPECT_FALSE(rm.Has(AssetKind::Texture, "textures/a.png"));
     }
 
-    TEST_F(ResourcesManagerTest, ResourceHeldOutsideTheCacheIsKeptAndSweptLater)
+    TEST_F(ResourcesManagerTest, HeldResourceSweptLater)
     {
         AddAsset(501, "textures/a.png");
         AddAsset(502, "materials/m.mat", Filesystem::Type::T_MATERIAL);
         materialDeps = {{AssetKind::Texture, "textures/a.png"}};
 
-        auto held = rm.Get<Tex>(AssetKind::Texture, "textures/a.png"); // e.g. a Model holding it
+        auto held = rm.Get<Tex>(AssetKind::Texture, "textures/a.png");
         rm.Get<Mat>(AssetKind::Material, "materials/m.mat");
         rm.Unload(AssetKind::Material, "materials/m.mat");
 
@@ -242,12 +235,12 @@ namespace {
         EXPECT_TRUE(rm.Has(AssetKind::Texture, "textures/a.png"));
 
         held.reset();
-        EXPECT_EQ(rm.CollectUnused(), 1); // still a candidate: it was deferred, not forgotten
+        EXPECT_EQ(rm.CollectUnused(), 1);
     }
 
     TEST_F(ResourcesManagerTest, EngineResourcesAreNeverEvicted)
     {
-        AddAsset(100, "textures/white.png"); // engine resource: id <= 500
+        AddAsset(100, "textures/white.png");
         AddAsset(501, "materials/m.mat", Filesystem::Type::T_MATERIAL);
         materialDeps = {{AssetKind::Texture, "textures/white.png"}};
 
@@ -259,7 +252,7 @@ namespace {
         EXPECT_TRUE(rm.Has(AssetKind::Texture, "textures/white.png"));
     }
 
-    TEST_F(ResourcesManagerTest, WorldIsNeverSweptButReleasesItsDependencies)
+    TEST_F(ResourcesManagerTest, WorldNeverSwept)
     {
         AddAsset(501, "textures/a.png");
         AddAsset(502, "worlds/l.world", Filesystem::Type::T_WORLD);
@@ -269,17 +262,17 @@ namespace {
         auto world = rm.Get<Lvl>(AssetKind::World, "worlds/l.world");
         ASSERT_NE(world, nullptr);
 
-        rm.UnLoadDependencies("worlds/l.world"); // unloads the world (owned elsewhere) then sweeps
+        rm.UnLoadDependencies("worlds/l.world");
 
         EXPECT_FALSE(rm.Has(AssetKind::World, "worlds/l.world"));
         EXPECT_FALSE(rm.Has(AssetKind::Texture, "textures/a.png"));
     }
 
-    TEST_F(ResourcesManagerTest, UnLoadDependenciesLeavesAMaterialThatIsStillNeeded)
+    TEST_F(ResourcesManagerTest, UnloadKeepsNeededMaterial)
     {
         AddAsset(501, "materials/m.mat", Filesystem::Type::T_MATERIAL);
 
-        auto held = rm.Get<Mat>(AssetKind::Material, "materials/m.mat"); // e.g. a Model holding it
+        auto held = rm.Get<Mat>(AssetKind::Material, "materials/m.mat");
 
         rm.UnLoadDependencies("materials/m.mat");
         EXPECT_TRUE(rm.Has(AssetKind::Material, "materials/m.mat"));
@@ -289,7 +282,7 @@ namespace {
         EXPECT_FALSE(rm.Has(AssetKind::Material, "materials/m.mat"));
     }
 
-    TEST_F(ResourcesManagerTest, RefreshDependenciesUpdatesAnOwnerThatIsNotResident)
+    TEST_F(ResourcesManagerTest, RefreshUpdatesNonResidentOwner)
     {
         AddAsset(501, "textures/a.png");
         AddAsset(502, "textures/b.png");
@@ -302,14 +295,12 @@ namespace {
 
         materialDeps = {{AssetKind::Texture, "textures/b.png"}, {AssetKind::Texture, "textures/b.png"}};
         rm.RefreshDependencies("materials/m.mat");
-        ASSERT_EQ(Info("materials/m.mat")->dependencies.size(), 1u); // duplicates folded
+        ASSERT_EQ(Info("materials/m.mat")->dependencies.size(), 1u);
         EXPECT_EQ(Info("materials/m.mat")->dependencies[0].GetAsInt(), 502);
-        EXPECT_FALSE(rm.Has(AssetKind::Material, "materials/m.mat")); // it was never loaded
+        EXPECT_FALSE(rm.Has(AssetKind::Material, "materials/m.mat"));
     }
 
-    // ---- in use / unloading an asset ---------------------------------------------------------
-
-    TEST_F(ResourcesManagerTest, AssetHeldOutsideTheCacheIsInUseAndCannotBeUnloaded)
+    TEST_F(ResourcesManagerTest, HeldAssetCannotUnload)
     {
         AddAsset(501, "textures/a.png");
 
@@ -325,7 +316,7 @@ namespace {
         EXPECT_FALSE(rm.Has(AssetKind::Texture, "textures/a.png"));
     }
 
-    TEST_F(ResourcesManagerTest, AssetRetainedByAnOwnerIsInUse)
+    TEST_F(ResourcesManagerTest, RetainedAssetIsInUse)
     {
         AddAsset(501, "textures/a.png");
         AddAsset(502, "materials/m.mat", Filesystem::Type::T_MATERIAL);
@@ -337,7 +328,7 @@ namespace {
         EXPECT_FALSE(rm.TryUnloadAsset("textures/a.png"));
     }
 
-    TEST_F(ResourcesManagerTest, ShaderUseIsFoundFromAnyOfItsFiles)
+    TEST_F(ResourcesManagerTest, ShaderUseFoundByAnyFile)
     {
         AddAsset(501, "shaders/s.vert", Filesystem::Type::T_SHADER);
         AddAsset(502, "materials/m.mat", Filesystem::Type::T_MATERIAL);

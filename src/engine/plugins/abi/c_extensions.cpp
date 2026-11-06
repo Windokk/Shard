@@ -8,14 +8,9 @@
 #include "engine/plugins/abi/c_internal.hpp"
 #include "engine/world/engine.hpp"
 
-// shard.extensions : the C items are wrapped in the C++ items the subsystems already read (ToolValidatorItem, AssetTypeExtension,
-// AssetImporterExtension), added through the plugin's AssetRegistrar so that they leave with it.
-
 namespace Shard::Engine::Plugins::CAbi {
 
     namespace {
-        // ---- Reports ----
-
         struct ReportTarget {
             std::vector<std::string>* lines = nullptr;
             std::string* message = nullptr;
@@ -53,8 +48,6 @@ namespace Shard::Engine::Plugins::CAbi {
             for (uint32_t i = 0; i < count; ++i) out.push_back(ToString(extensions[i]));
             return out;
         }
-
-        // ---- The items ----
 
         ShardResult SHARD_CALL AddValidator(ShardPluginCtx handle, const ShardValidatorItem* item)
         {
@@ -104,7 +97,7 @@ namespace Shard::Engine::Plugins::CAbi {
                         resource = load(user, handle, ToStr(path), ToStr(infos.baseInfos.path.full));
                     }
                     if (!resource) return nullptr;
-                    // Handed back to the plugin once the cache lets it go ; after the plugin is gone there is nobody to give it to
+                    // Handed back once the cache lets go. After the plugin is gone there is nobody to give it to.
                     return std::shared_ptr<void>(resource, [unload, user, handle, active](void* r) {
                         ActiveScope scope(active, PluginOwner(handle));
                         if (unload && FindContext(handle)) unload(user, handle, r);
@@ -171,7 +164,7 @@ namespace Shard::Engine::Plugins::CAbi {
                     auto type = std::static_pointer_cast<Core::Resources::AssetTypeExtension>(item.object);
                     std::shared_ptr<void> resource = resources->Get<void>(type->kind, ToString(path));
                     if (!resource) return SHARD_E_NOT_FOUND;
-                    *out = resource.get();      // the cache keeps it alive
+                    *out = resource.get();
                     return SHARD_OK;
                 }
                 return SHARD_E_NOT_FOUND;

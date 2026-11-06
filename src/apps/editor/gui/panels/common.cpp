@@ -27,7 +27,7 @@ void TextEllipsis(const char *text)
         window->DrawList,
         pos,
         pos_max,
-        pos.x + width, // ellipsis_max_x
+        pos.x + width,
         text,
         nullptr,
         nullptr
@@ -44,7 +44,6 @@ void TextEllipsisCentered(const char* text, float parentWidth)
     float width = ImGui::GetContentRegionAvail().x;
     float height = ImGui::GetTextLineHeight();
 
-    // Ensure we have the full parentWidth for centering the text.
     float availableWidth = parentWidth > 0.0f ? parentWidth : width;
 
     ImGui::ItemSize(ImVec2(availableWidth, height));
@@ -56,21 +55,18 @@ void TextEllipsisCentered(const char* text, float parentWidth)
         0
     );
 
-    // Calculate the starting position of the text to center it
     float textWidth = ImGui::CalcTextSize(text).x;
-    float startX = pos.x + (availableWidth - textWidth) * 0.5f;  // Centered horizontally
+    float startX = pos.x + (availableWidth - textWidth) * 0.5f;
 
-    // Update pos with the centered position
     pos.x = startX;
 
     ImVec2 pos_max(pos.x + textWidth, pos.y + height);
 
-    // Render the text with ellipsis support
     ImGui::RenderTextEllipsis(
         window->DrawList,
         pos,
         pos_max,
-        pos.x + availableWidth, // ellipsis_max_x
+        pos.x + availableWidth,
         text,
         nullptr,
         nullptr

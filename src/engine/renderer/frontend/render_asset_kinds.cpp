@@ -28,8 +28,8 @@ namespace Shard::Engine::Rendering{
 
         std::shared_ptr<Mesh> LoadModel(const Filesystem::Path &path)
         {
-            ufbx_load_opts opts = { 0 }; // Optional, pass NULL for defaults
-            ufbx_error error; // Optional, pass NULL if you don't care about errors
+            ufbx_load_opts opts = { 0 };
+            ufbx_error error;
             const std::string filePath = path.GetNativePath();
             ufbx_scene *scene = ufbx_load_file(filePath.c_str(), &opts, &error);
             if (!scene) {
@@ -74,7 +74,6 @@ namespace Shard::Engine::Rendering{
             // level 0 - aliasing/shimmer on detailed textures at distance. GLTexture2D adds anisotropy on
             // top when mips are present.
             specs.minFilter = TextureFilter::LinearMipmapLinear;
-            // Called on the main thread : a miss in the texture cache is encoded on several threads at once
             TextureDecodeResult decoded = DecodeTextureFileForUpload(path, std::max(1u, std::thread::hardware_concurrency() / 2), srgb);
             return Texture2D::Create(specs, decoded);
         }
@@ -92,7 +91,6 @@ namespace Shard::Engine::Rendering{
 
         std::shared_ptr<Shader> LoadShader(const Filesystem::AssetInfos &infos)
         {
-            // The database entry is the .vert ; the other stages sit next to it
             Filesystem::Path vertPath = Filesystem::Path(infos.baseInfos.path.GetParent()) / (infos.baseInfos.name + ".vert");
             Filesystem::Path fragPath = Filesystem::Path(infos.baseInfos.path.GetParent()) / (infos.baseInfos.name + ".frag");
             Filesystem::Path geomPath = Filesystem::Path(infos.baseInfos.path.GetParent()) / (infos.baseInfos.name + ".geom");
@@ -109,7 +107,6 @@ namespace Shard::Engine::Rendering{
             return mat;
         }
 
-        // Every resource type the cache hands an AssetID to has the same setter.
         template<class T>
         std::function<void(void*, Filesystem::AssetID)> AssetIDSetter()
         {
@@ -123,7 +120,6 @@ namespace Shard::Engine::Rendering{
             AssetKindInfo info;
             info.load = [](const std::string&, const Filesystem::AssetInfos& infos) -> std::shared_ptr<void> { return LoadModel(infos.baseInfos.path); };
             info.setAssetID = AssetIDSetter<Mesh>();
-            // The file is decoded on a worker thread, the GPU upload happens on the main thread
             info.prefetch = [](ResourcesManager& resources, const std::string& pathInProject, const Filesystem::Path& file) -> std::function<void()> {
                 auto data = std::make_shared<MeshCPUData>(DecodeMeshFile(file));
                 if(!data->success)
@@ -138,8 +134,7 @@ namespace Shard::Engine::Rendering{
             resources.RegisterKind(AssetKind::Mesh, std::move(info));
         }
 
-        // An image is loaded in one of two kinds : plain data (Texture : normals, masks, UI...) or the colours of a material
-        // (ColorTexture : the very same files, read through the sRGB curve). A material asks for the one its slot needs.
+        // Each image loads twice: Texture (linear data) and ColorTexture (same file through sRGB, for material colours).
         for (const bool srgb : { false, true })
         {
             const AssetKind kind = srgb ? AssetKind::ColorTexture : AssetKind::Texture;
@@ -147,7 +142,6 @@ namespace Shard::Engine::Rendering{
             AssetKindInfo info;
             info.load = [srgb](const std::string&, const Filesystem::AssetInfos& infos) -> std::shared_ptr<void> { return LoadTexture(infos.baseInfos.path, srgb); };
             info.setAssetID = AssetIDSetter<Texture2D>();
-            // The decoded file replaces the GL texture inside the same object ; the materials that stored its handle are reloaded by the caller
             info.reload = [srgb](void* existing, const std::string&, const Filesystem::AssetInfos& infos) -> bool {
                 std::shared_ptr<Texture2D> fresh = LoadTexture(infos.baseInfos.path, srgb);
                 if(!fresh)
@@ -155,7 +149,6 @@ namespace Shard::Engine::Rendering{
                 return OnGraphicsThread([&]() -> bool { return static_cast<Texture2D*>(existing)->SwapContents(*fresh); });
             };
             info.prefetch = [kind, srgb](ResourcesManager& resources, const std::string& pathInProject, const Filesystem::Path& file) -> std::function<void()> {
-                // Compressed here, on the worker : what reaches the main thread is the (small) blocks to upload
                 auto data = std::make_shared<TextureDecodeResult>(DecodeTextureFileForUpload(file, 1, srgb));
                 if(!data->success)
                     return nullptr;
@@ -233,8 +226,6 @@ namespace Shard::Engine::Rendering{
         }
 
         {
-            // CPU-side data only, not an asset object : no AssetID. Normally decoded by the world
-            // prefetcher on a worker thread and adopted, this is the fallback.
             AssetKindInfo info;
             info.load = [](const std::string& pathInProject, const Filesystem::AssetInfos& infos) -> std::shared_ptr<void> {
                 if(infos.baseInfos.nameInProject != pathInProject){
@@ -243,8 +234,6 @@ namespace Shard::Engine::Rendering{
                 }
                 return DecodeProbeBakeFile(infos.baseInfos.path);
             };
-            // No GL work to do on the main thread : the decoded CPU data just goes into the cache, and
-            // ProbeVolume::Activate() uploads it when the world's volumes come up.
             info.prefetch = [](ResourcesManager& resources, const std::string& pathInProject, const Filesystem::Path& file) -> std::function<void()> {
                 std::shared_ptr<ProbeBakeData> data = DecodeProbeBakeFile(file);
                 if(!data)
@@ -257,7 +246,6 @@ namespace Shard::Engine::Rendering{
         }
 
         {
-            // The baked lightmap pages of a world : CPU-side data too, uploaded by the LightmapManager when the world names the file
             AssetKindInfo info;
             info.load = [](const std::string& pathInProject, const Filesystem::AssetInfos& infos) -> std::shared_ptr<void> {
                 if(infos.baseInfos.nameInProject != pathInProject){

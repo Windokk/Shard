@@ -34,7 +34,7 @@ namespace Shard::Engine::Serialization{
                 projectPatchVersion = data["versionPatch"];
             }
             if(projectMajorVersion == -1 || projectMinorVersion == -1 || projectPatchVersion == -1){
-                // An error, not a fatal one : Revert reads the file back while the editor runs
+                // Not fatal: Revert reads the file back while the editor runs
                 DEBUG_ERROR("No version specified/Incorrect version format for project: "+path.full);
                 return nullptr;
             }
@@ -195,7 +195,6 @@ namespace Shard::Engine::Serialization{
 
             Projects::TagSettings tagSettings;
 
-            // "tags" : { "Enemy.Boss" : { "comment" : "..." } }, a plain array of names is accepted too
             if(data.contains("tags")){
                 const json& tags = data["tags"];
                 if(tags.is_object()){
@@ -307,7 +306,6 @@ namespace Shard::Engine::Serialization{
             data["rendering"]["shadows"] = out;
         }
 
-        // Only when there are some : a project without tags keeps the file it had
         const Projects::TagSettings* tags = pro->GetTagSettings();
         if(!tags->tags.empty()){
             ordered_json out = ordered_json::object();
@@ -322,7 +320,6 @@ namespace Shard::Engine::Serialization{
         if(!tags->redirects.empty())
             data["tagRedirects"] = tags->redirects;
 
-        // The editor preferences are the user's, not the project's : the editor keeps them in its own file
         return data;
     }
 }

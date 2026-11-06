@@ -1,56 +1,38 @@
 #version 430 core
 #extension GL_ARB_bindless_texture : enable
 
-// Lightmap baker (see LightmapManager). Dispatched over a run of the page's texels, a few samples at a time : each invocation
-// takes one texel of the page - the surface point and normal that the CPU rasterized into the G-buffer images - and, for
-// every sample, estimates the irradiance that arrives there :
-//
-//   * indirect : one path that leaves the surface in a cosine weighted direction and is followed through the scene by
-//     TracePath (common/path_tracing.glsl) - sky, emissive surfaces, and the light of the lights that reach the points it
-//     hits, bounced as many times as the settings say. Cosine sampling makes the sample the average radiance E / PI directly :
-//     what the forward pass multiplies by the albedo, the same convention as the skybox's irradiance map and the probe atlas.
-//   * direct, for the Static lights only (their light is baked whole, see LightBakeMode) : one shadow ray per light toward a
-//     random point of its emitter, so the penumbra of an area light comes out of the average.
-//
-// uAccum keeps (sum of the samples, sum of the squares of their luminance) per texel : the second is what the denoiser needs
-// to tell noise from detail (see lightmap_resolve.comp, which turns the sums into a mean and a variance).
-
 layout(local_size_x = 64, local_size_y = 1, local_size_z = 1) in;
 
 layout(rgba32f, binding = 0) uniform image2D uAccum;
-layout(rgba32f, binding = 1) readonly uniform image2D uGPos;        // xyz world position, w the world size of a texel (0 : no surface)
-layout(rgba16f, binding = 2) readonly uniform image2D uGNormal;     // xyz smooth normal
-layout(rgba16f, binding = 3) readonly uniform image2D uGGeo;        // xyz geometric normal
+layout(rgba32f, binding = 1) readonly uniform image2D uGPos;
+layout(rgba16f, binding = 2) readonly uniform image2D uGNormal;
+layout(rgba16f, binding = 3) readonly uniform image2D uGGeo;
 
 #include "../common/light.glsl"
 #include "../common/raytracing_types.glsl"
 #include "../common/normal_map.glsl"
 
-// Bindings 8-13 (the probe tracer's too) : the forward pass owns the SSBO bindings below 8 (its light buffer is bound once, at
-// binding 0, and must not be replaced). Everything is bound again before every dispatch, see LightmapManager.
+// Bindings below 8 belong to the forward pass (light buffer at 0 must not be replaced). Same 8-13 as the probe tracer.
 layout(std430, binding = 8)  readonly buffer BVHNodes          { BVHNode bvhNodes[]; };
 layout(std430, binding = 9)  readonly buffer TrianglePositions { TrianglePos triPos[]; };
 layout(std430, binding = 10) readonly buffer TriangleAttribs   { TriangleAttrib triAttrib[]; };
 layout(std430, binding = 11) readonly buffer Materials         { GPUMaterial materials[]; };
 layout(std430, binding = 12) readonly buffer Lights            { Light lights[]; };
-layout(std430, binding = 13) readonly buffer TexelList         { uint texelList[]; };    // (y << 16) | x of every texel to bake
+layout(std430, binding = 13) readonly buffer TexelList         { uint texelList[]; };
 
-// The emissive surfaces are sampled directly (see path_tracing.glsl, SHARD_EMISSIVE_NEE). Binding 16 : below the 20-24 that the
-// culling and the billboards own, above the 14 and 15 of the probe states of the forward pass
 #define SHARD_EMISSIVE_NEE
 layout(std430, binding = 16) readonly buffer EmissiveTriangles { EmissiveTriangle emissiveTris[]; };
 
 #include "../common/raytracing_trace.glsl"
 #include "../common/path_tracing.glsl"
 
-uniform int uTexelOffset;   // where in the list this dispatch starts
-uniform int uTexelCount;    // how many texels it covers
-uniform int uSampleStart;   // the first of the samples this dispatch adds (0 : the accumulation starts over)
-uniform int uSamples;       // how many it adds
-uniform int uSeed;          // what keeps one page's random numbers from another's
-uniform float uIndirectScale;   // the bake's indirect intensity : a multiplier on everything but the Static lights' direct light
+uniform int uTexelOffset;
+uniform int uTexelCount;
+uniform int uSampleStart;
+uniform int uSamples;
+uniform int uSeed;
+uniform float uIndirectScale;
 
-// The light the Static lights send directly to the texel, as the same quantity the indirect samples measure (E / PI)
 vec3 DirectStaticLight(vec3 pos, vec3 ns, vec3 ng)
 {
     vec3 sum = vec3(0.0);
@@ -95,16 +77,11 @@ void main()
     vec3 ns = normalize(imageLoad(uGNormal, texel).xyz);
     vec3 ng = normalize(imageLoad(uGGeo, texel).xyz);
 
-    // The paths start a little off the surface along its geometric normal (a smooth normal can lean far from the triangle,
-    // a ray offset along it could start behind the surface), by more on a coarse texel
     vec3 origin = pos + ng * max(1e-3, posData.w * 0.05);
 
     vec4 acc = uSampleStart == 0 ? vec4(0.0) : imageLoad(uAccum, texel);
 
-    // A texel inside a solid (under an object that sits on the floor, in a wall, on a surface whose normal faces into the
-    // geometry) sees the back of the surfaces around it : what it would bake is the dark of the inside, which then spreads over its
-    // neighbours through the bilinear filter and the denoiser. Such a texel is given up (a negative variance marks it), and its light is taken
-    // from the valid texels around it when the page is encoded.
+    // A texel inside a solid would bake dark and bleed into neighbours. It is given up (negative variance) and filled from valid neighbours at encode time.
     if (uSampleStart == 0)
     {
         const int kProbes = 16;
@@ -120,7 +97,6 @@ void main()
             HitInfo hit;
             if (TraceRay(origin, rd, 2.0, hit))
             {
-                // The side is told by the vertex normals (the way the path tracer shades it), not by the winding, which a mesh does not always keep
                 TriangleAttrib attrib = triAttrib[hit.triIndex];
                 float w0 = 1.0 - hit.bary.x - hit.bary.y;
                 vec3 hitNormal = attrib.n0.xyz * w0 + attrib.n1.xyz * hit.bary.x + attrib.n2.xyz * hit.bary.y;
@@ -143,13 +119,10 @@ void main()
         rngState = PcgHash(PcgHash(uint(texel.x) * 1973u + uint(texel.y) * 9277u + uint(uSeed) * 7919u) + uint(uSampleStart + i) * 26699u + 1u);
 
         vec3 rd = CosineSampleHemisphere(ns);
-        // A direction below the triangle would run into the surface itself : lift it back above
         float aboveGeometry = dot(rd, ng);
         if (aboveGeometry < 0.05)
             rd = normalize(rd + ng * (0.05 - aboveGeometry));
 
-        // The first ray is drawn in the cosine lobe around the shading normal : the emission it finds is weighted against the direct
-        // sample of the emitters taken from the texel itself (the same quantity as the indirect samples, E / PI)
         vec3 indirect = TracePathMIS(origin, rd, ns, 1.0) + EmissiveDirect(pos, ng, ns, 1.0) / PI;
         vec3 sampleRadiance = ClampFirefly(indirect) * uIndirectScale + DirectStaticLight(pos, ns, ng);
 

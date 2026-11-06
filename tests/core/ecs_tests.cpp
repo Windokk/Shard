@@ -18,10 +18,8 @@ namespace {
     struct Velocity { float x = 0, y = 0, z = 0; };
     struct Health { int value = 100; };
     struct Dead { uint8_t tag = 1; };
-    struct Big { char bytes[9000]; };           // two do not fit in one 16 KB chunk
+    struct Big { char bytes[9000]; };           // 9000 bytes: two do not fit in one 16 KB chunk
 }
-
-// ------------------------------------------------------------------------------------------------ entities
 
 TEST(EcsEntity, NullAndPacking) {
     Entity none;
@@ -33,18 +31,18 @@ TEST(EcsEntity, NullAndPacking) {
     EXPECT_EQ(sizeof(Entity), 8u);
 }
 
-TEST(EcsRegistry, StaleEntityIsDeadAfterSlotReuse) {
+TEST(EcsRegistry, StaleEntityDead) {
     Registry registry;
     const Entity a = registry.Create(Health{5});
     EXPECT_TRUE(registry.IsAlive(a));
     EXPECT_TRUE(registry.Destroy(a));
     EXPECT_FALSE(registry.IsAlive(a));
-    EXPECT_FALSE(registry.Destroy(a));                       // already gone
+    EXPECT_FALSE(registry.Destroy(a));
 
     const Entity b = registry.Create(Health{9});
-    EXPECT_EQ(b.Index(), a.Index());                         // same slot, recycled
+    EXPECT_EQ(b.Index(), a.Index());
     EXPECT_NE(b.Generation(), a.Generation());
-    EXPECT_FALSE(registry.IsAlive(a));                       // the old id does not point at the new entity
+    EXPECT_FALSE(registry.IsAlive(a));
     EXPECT_EQ(registry.TryGet<Health>(a), nullptr);
     EXPECT_EQ(registry.Get<Health>(b).value, 9);
 }
@@ -61,24 +59,24 @@ TEST(EcsRegistry, CreateWithComponentsAndGet) {
     EXPECT_EQ(registry.Count(), 1u);
 }
 
-TEST(EcsRegistry, AddAndRemoveMoveTheEntityKeepingItsOtherData) {
+TEST(EcsRegistry, AddRemoveKeepsOtherData) {
     Registry registry;
     const Entity e = registry.Create(Position{1, 2, 3});
     EXPECT_TRUE(registry.Add(e, Velocity{4, 5, 6}));
-    EXPECT_EQ(registry.Get<Position>(e).z, 3.0f);            // survived the move
+    EXPECT_EQ(registry.Get<Position>(e).z, 3.0f);
     EXPECT_EQ(registry.Get<Velocity>(e).x, 4.0f);
 
     EXPECT_TRUE(registry.Remove<Position>(e));
     EXPECT_FALSE(registry.Has<Position>(e));
     EXPECT_EQ(registry.Get<Velocity>(e).z, 6.0f);
-    EXPECT_FALSE(registry.Remove<Position>(e));              // not there anymore
+    EXPECT_FALSE(registry.Remove<Position>(e));
 
-    EXPECT_TRUE(registry.Add(e, Velocity{9, 9, 9}));         // overwrite, no move
+    EXPECT_TRUE(registry.Add(e, Velocity{9, 9, 9}));
     EXPECT_EQ(registry.Get<Velocity>(e).x, 9.0f);
 }
 
-TEST(EcsRegistry, SwapRemoveKeepsEveryOtherEntityIntact) {
-    // Far more than one chunk, destroy in a scattered order, and check each survivor still has ITS data
+TEST(EcsRegistry, SwapRemoveKeepsOthers) {
+    // Scattered destroy order, each survivor must keep its own data.
     Registry registry;
     std::vector<Entity> entities;
     for (int i = 0; i < 5000; ++i) entities.push_back(registry.Create(Health{i}, Position{float(i), 0, 0}));
@@ -93,7 +91,7 @@ TEST(EcsRegistry, SwapRemoveKeepsEveryOtherEntityIntact) {
     EXPECT_EQ(registry.CountOf<Health>(), 5000u - 1667u);
 }
 
-TEST(EcsRegistry, ComponentsLargerThanHalfAChunkStillWork) {
+TEST(EcsRegistry, LargeComponentsWork) {
     Registry registry;
     std::vector<Entity> entities;
     for (int i = 0; i < 5; ++i) {
@@ -104,13 +102,11 @@ TEST(EcsRegistry, ComponentsLargerThanHalfAChunkStillWork) {
     for (int i = 0; i < 5; ++i) EXPECT_EQ(registry.Get<Big>(entities[i]).bytes[0], char('a' + i));
 }
 
-// ------------------------------------------------------------------------------------------------ queries
-
 TEST(EcsQuery, EachVisitsOnlyMatchingEntities) {
     Registry registry;
     for (int i = 0; i < 10; ++i) registry.Create(Position{float(i), 0, 0}, Velocity{1, 0, 0});
-    for (int i = 0; i < 7; ++i) registry.Create(Position{});                       // no velocity
-    for (int i = 0; i < 3; ++i) registry.Create(Velocity{});                       // no position
+    for (int i = 0; i < 7; ++i) registry.Create(Position{});
+    for (int i = 0; i < 3; ++i) registry.Create(Velocity{});
 
     int visited = 0;
     registry.Each<Position, const Velocity>([&](Position& p, const Velocity& v) { p.x += v.x; ++visited; });
@@ -118,10 +114,10 @@ TEST(EcsQuery, EachVisitsOnlyMatchingEntities) {
 
     float sum = 0;
     registry.Each<const Position>([&](Entity, const Position& p) { sum += p.x; });
-    EXPECT_FLOAT_EQ(sum, (0 + 9) * 10 / 2.0f + 10);                                // moved by 1 each
+    EXPECT_FLOAT_EQ(sum, (0 + 9) * 10 / 2.0f + 10);
 }
 
-TEST(EcsQuery, ExcludeSkipsEntitiesWithTheComponent) {
+TEST(EcsQuery, ExcludeSkipsEntities) {
     Registry registry;
     for (int i = 0; i < 4; ++i) registry.Create(Health{i});
     for (int i = 0; i < 6; ++i) registry.Create(Health{i}, Dead{});
@@ -131,7 +127,7 @@ TEST(EcsQuery, ExcludeSkipsEntitiesWithTheComponent) {
     EXPECT_EQ(alive, 4);
 }
 
-TEST(EcsQuery, ChunkLevelAccessGivesContiguousColumns) {
+TEST(EcsQuery, ChunkAccessIsContiguous) {
     Registry registry;
     for (int i = 0; i < 3000; ++i) registry.Create(Position{float(i), 0, 0}, Velocity{2, 0, 0});
 
@@ -160,26 +156,24 @@ TEST(EcsQuery, ParallelEachMatchesSerial) {
     EXPECT_DOUBLE_EQ(sumY, 40000.0);
 }
 
-TEST(EcsQuery, StructuralChangesAreRefusedWhileIteratingButValuesCanChange) {
+TEST(EcsQuery, StructuralChangesRefused) {
     Registry registry;
     const Entity a = registry.Create(Health{1});
     const Entity b = registry.Create(Health{2});
 
     registry.Each<Health>([&](Entity e, Health& h) {
         EXPECT_TRUE(registry.IsIterating());
-        EXPECT_TRUE(registry.Create().IsNull());                       // refused
+        EXPECT_TRUE(registry.Create().IsNull());
         EXPECT_FALSE(registry.Destroy(e));
-        EXPECT_FALSE(registry.Add(e, Velocity{}));                     // would move the entity
+        EXPECT_FALSE(registry.Add(e, Velocity{}));
         EXPECT_FALSE(registry.Remove<Health>(e));
-        EXPECT_TRUE(registry.Add(e, Health{h.value + 10}));            // overwriting a value is not structural
+        EXPECT_TRUE(registry.Add(e, Health{h.value + 10}));
     });
     EXPECT_FALSE(registry.IsIterating());
     EXPECT_EQ(registry.Get<Health>(a).value, 11);
     EXPECT_EQ(registry.Get<Health>(b).value, 12);
     EXPECT_EQ(registry.Count(), 2u);
 }
-
-// ------------------------------------------------------------------------------------------------ hierarchy
 
 TEST(EcsHierarchy, ParentChildOrderAndQueries) {
     Registry registry;
@@ -191,14 +185,14 @@ TEST(EcsHierarchy, ParentChildOrderAndQueries) {
 
     EXPECT_EQ(registry.GetParent(a), root);
     EXPECT_EQ(registry.ChildCount(root), 2u);
-    EXPECT_EQ(registry.FirstChild(root), a);                           // attach order
+    EXPECT_EQ(registry.FirstChild(root), a);
     EXPECT_EQ(registry.NextSibling(a), b);
     EXPECT_TRUE(registry.IsAncestor(root, c));
     EXPECT_FALSE(registry.IsAncestor(b, c));
 
     std::vector<Entity> order;
     registry.ForEachDescendant(root, [&](Entity e) { order.push_back(e); });
-    EXPECT_EQ(order, (std::vector<Entity>{a, c, b}));                  // parents before children, depth first
+    EXPECT_EQ(order, (std::vector<Entity>{a, c, b}));
 }
 
 TEST(EcsHierarchy, ReparentDetachAndCycleRefusal) {
@@ -207,19 +201,19 @@ TEST(EcsHierarchy, ReparentDetachAndCycleRefusal) {
     EXPECT_TRUE(registry.SetParent(b, a));
     EXPECT_TRUE(registry.SetParent(c, b));
 
-    EXPECT_FALSE(registry.SetParent(a, c));                            // a would be its own ancestor
+    EXPECT_FALSE(registry.SetParent(a, c));
     EXPECT_FALSE(registry.SetParent(a, a));
     EXPECT_EQ(registry.GetParent(a), kNullEntity);
 
-    EXPECT_TRUE(registry.SetParent(c, a));                             // reparent
+    EXPECT_TRUE(registry.SetParent(c, a));
     EXPECT_EQ(registry.ChildCount(b), 0u);
     EXPECT_EQ(registry.ChildCount(a), 2u);
-    EXPECT_TRUE(registry.SetParent(c, kNullEntity));                   // detach
+    EXPECT_TRUE(registry.SetParent(c, kNullEntity));
     EXPECT_EQ(registry.GetParent(c), kNullEntity);
     EXPECT_EQ(registry.ChildCount(a), 1u);
 }
 
-TEST(EcsHierarchy, DestroyingAParentDestroysItsDescendants) {
+TEST(EcsHierarchy, DestroyParentDestroysChildren) {
     Registry registry;
     const Entity root = registry.Create(Health{1});
     const Entity child = registry.Create(Health{2});
@@ -236,7 +230,7 @@ TEST(EcsHierarchy, DestroyingAParentDestroysItsDescendants) {
     EXPECT_EQ(registry.Count(), 1u);
 }
 
-TEST(EcsHierarchy, DestroyingAChildUnlinksItFromTheParent) {
+TEST(EcsHierarchy, DestroyChildUnlinks) {
     Registry registry;
     const Entity root = registry.Create();
     const Entity a = registry.Create(), b = registry.Create(), c = registry.Create();
@@ -246,8 +240,6 @@ TEST(EcsHierarchy, DestroyingAChildUnlinksItFromTheParent) {
     EXPECT_EQ(registry.NextSibling(a), c);
 }
 
-// ------------------------------------------------------------------------------------------------ command buffers
-
 TEST(EcsCommandBuffer, RecordsNowAppliesLater) {
     Registry registry;
     const Entity e = registry.Create(Health{1});
@@ -255,11 +247,11 @@ TEST(EcsCommandBuffer, RecordsNowAppliesLater) {
     CommandBuffer commands;
     commands.Add(e, Velocity{3, 0, 0});
     commands.Remove<Health>(e);
-    const Entity spawned = commands.Create();                          // placeholder
+    const Entity spawned = commands.Create();
     commands.Add(spawned, Position{5, 5, 5});
     commands.SetParent(spawned, e);
     EXPECT_EQ(commands.Size(), 5u);
-    EXPECT_FALSE(registry.Has<Velocity>(e));                           // nothing happened yet
+    EXPECT_FALSE(registry.Has<Velocity>(e));
 
     const auto result = registry.Playback(commands);
     EXPECT_EQ(result.applied, 5u);
@@ -268,16 +260,16 @@ TEST(EcsCommandBuffer, RecordsNowAppliesLater) {
     EXPECT_TRUE(registry.Has<Velocity>(e));
     EXPECT_FALSE(registry.Has<Health>(e));
     EXPECT_EQ(registry.ChildCount(e), 1u);
-    EXPECT_EQ(registry.Get<Position>(registry.FirstChild(e)).y, 5.0f);   // the placeholder became a real entity
+    EXPECT_EQ(registry.Get<Position>(registry.FirstChild(e)).y, 5.0f);
 }
 
-TEST(EcsCommandBuffer, CommandsOnDeadEntitiesAreSkipped) {
+TEST(EcsCommandBuffer, DeadEntityCommandsSkipped) {
     Registry registry;
     const Entity e = registry.Create(Health{1});
     CommandBuffer commands;
     commands.Add(e, Velocity{});
     commands.Destroy(e);
-    commands.Add(e, Position{});                                       // e is dead by now
+    commands.Add(e, Position{});
     const auto result = registry.Playback(commands);
     EXPECT_EQ(result.applied, 2u);
     EXPECT_EQ(result.skipped, 1u);
@@ -296,9 +288,7 @@ TEST(EcsCommandBuffer, RecordedDuringIterationAppliedAfter) {
     EXPECT_EQ(registry.CountOf<Dead>(), 50u);
 }
 
-// ------------------------------------------------------------------------------------------------ scheduler
-
-TEST(EcsScheduler, PhasesRunInOrderAndFixedRunsPerStep) {
+TEST(EcsScheduler, PhaseOrderAndFixedSteps) {
     Registry registry;
     Scheduler scheduler;
     std::vector<std::string> log;
@@ -307,7 +297,6 @@ TEST(EcsScheduler, PhasesRunInOrderAndFixedRunsPerStep) {
         d.run = [&log, name](SystemContext& c) { log.push_back(std::string(name) + (std::string(name) == "fixed" ? std::to_string(c.fixedStep) : "")); };
         EXPECT_NE(scheduler.Add(std::move(d)), Scheduler::kInvalid);
     };
-    // registered in the "wrong" order on purpose
     add("extract", Phase::Extract); add("late", Phase::Late); add("update", Phase::Update);
     add("post", Phase::PostPhysics); add("fixed", Phase::Fixed); add("presim", Phase::PreSim); add("input", Phase::Input);
 
@@ -316,21 +305,21 @@ TEST(EcsScheduler, PhasesRunInOrderAndFixedRunsPerStep) {
     EXPECT_EQ(log, (std::vector<std::string>{"input", "presim", "fixed0", "fixed1", "fixed2", "post", "update", "late", "extract"}));
 
     log.clear();
-    timing.fixedSteps = 0;                                              // a fast frame : no fixed step owed
+    timing.fixedSteps = 0;
     scheduler.RunFrame(registry, nullptr, timing);
     EXPECT_EQ(log, (std::vector<std::string>{"input", "presim", "post", "update", "late", "extract"}));
 }
 
-TEST(EcsScheduler, ConflictingSystemsKeepRegistrationOrderIndependentOnesAreFree) {
+TEST(EcsScheduler, ConflictingSystemsKeepOrder) {
     Scheduler scheduler;
     auto add = [&](const char* name, std::vector<ComponentId> reads, std::vector<ComponentId> writes) {
         SystemDesc d; d.name = name; d.phase = Phase::Update; d.reads = reads; d.writes = writes; d.run = [](SystemContext&) {};
         scheduler.Add(std::move(d));
     };
     const ComponentId P = ComponentIdOf<Position>(), V = ComponentIdOf<Velocity>(), H = ComponentIdOf<Health>();
-    add("move", {V}, {P});          // writes P
-    add("damage", {}, {H});         // independent of the others
-    add("render_prep", {P}, {});    // reads P : must come after move
+    add("move", {V}, {P});
+    add("damage", {}, {H});
+    add("render_prep", {P}, {});
     EXPECT_EQ(scheduler.Order(Phase::Update), (std::vector<std::string>{"move", "damage", "render_prep"}));
 }
 
@@ -340,14 +329,14 @@ TEST(EcsScheduler, ExplicitAfterAndBeforeReorder) {
         SystemDesc d; d.name = name; d.phase = Phase::Update; d.after = after; d.before = before; d.run = [](SystemContext&) {};
         scheduler.Add(std::move(d));
     };
-    add("a", {"c"}, {});            // a after c
-    add("b", {}, {"a"});            // b before a
+    add("a", {"c"}, {});
+    add("b", {}, {"a"});
     add("c", {}, {});
     EXPECT_EQ(scheduler.Order(Phase::Update), (std::vector<std::string>{"b", "c", "a"}));
     EXPECT_TRUE(scheduler.Validate());
 }
 
-TEST(EcsScheduler, CyclesAndUnknownNamesAreReportedAndDoNotBreakTheRun) {
+TEST(EcsScheduler, CyclesAndUnknownNamesReported) {
     Registry registry;
     Scheduler scheduler;
     int ran = 0;
@@ -363,10 +352,10 @@ TEST(EcsScheduler, CyclesAndUnknownNamesAreReportedAndDoNotBreakTheRun) {
     EXPECT_NE(error.find("cycle"), std::string::npos);
     EXPECT_NE(error.find("ghost"), std::string::npos);
     scheduler.RunFrame(registry, nullptr, {});
-    EXPECT_EQ(ran, 3);                                                  // constraints ignored, everything still runs
+    EXPECT_EQ(ran, 3);
 }
 
-TEST(EcsScheduler, DuplicateNamesAndEmptySystemsAreRejected) {
+TEST(EcsScheduler, RejectsDuplicateNames) {
     Scheduler scheduler;
     SystemDesc a; a.name = "dup"; a.run = [](SystemContext&) {};
     SystemDesc b = a;
@@ -394,7 +383,7 @@ TEST(EcsScheduler, DisableAndRemove) {
     EXPECT_FALSE(scheduler.SetEnabled("b", true));
 }
 
-TEST(EcsScheduler, SystemsCanQueryAndStructuralChangesApplyAtEndOfPhase) {
+TEST(EcsScheduler, SystemsQueryAndApplyChanges) {
     Registry registry;
     for (int i = 0; i < 10; ++i) registry.Create(Health{i});
 
@@ -407,17 +396,17 @@ TEST(EcsScheduler, SystemsCanQueryAndStructuralChangesApplyAtEndOfPhase) {
     scheduler.Add(killer); scheduler.Add(counter);
 
     scheduler.RunFrame(registry, nullptr, {});
-    EXPECT_EQ(seenByLaterSystem, 10u);                                  // the destroys were deferred past the phase
-    EXPECT_EQ(registry.Count(), 5u);                                    // ... and applied at its end
+    EXPECT_EQ(seenByLaterSystem, 10u);
+    EXPECT_EQ(registry.Count(), 5u);
 }
 
-TEST(EcsScheduler, IndependentSystemsReallyRunAtTheSameTime) {
+TEST(EcsScheduler, IndependentSystemsRunTogether) {
     JobSystemDesc desc; desc.workerCount = 3;
     JobSystem js(desc);
     Registry registry;
     Scheduler scheduler;
 
-    // Each waits (bounded) for the other to have started : only possible if both run concurrently
+    // Each waits (bounded) for the other, so it only passes if both run concurrently.
     std::atomic<int> started{0};
     std::atomic<bool> overlapped[2] = {false, false};
     for (int i = 0; i < 2; ++i) {
@@ -436,14 +425,13 @@ TEST(EcsScheduler, IndependentSystemsReallyRunAtTheSameTime) {
     EXPECT_TRUE(overlapped[1]);
 }
 
-TEST(EcsScheduler, MainThreadSystemsRunOnTheCallingThreadInOrder) {
+TEST(EcsScheduler, MainThreadSystemsKeepOrder) {
     JobSystemDesc desc; desc.workerCount = 3;
     JobSystem js(desc);
     Registry registry;
     Scheduler scheduler;
 
-    // Two systems of one phase : unbound, they could be handed to workers. One of them needs the main thread (the GL context),
-    // so both have to run there, in registration order.
+    // Unbound systems could go to workers, but one needs the main thread (GL context), so both run there in order.
     const std::thread::id caller = std::this_thread::get_id();
     std::vector<std::string> order;
     std::vector<bool> onCaller;
@@ -464,7 +452,7 @@ TEST(EcsScheduler, MainThreadSystemsRunOnTheCallingThreadInOrder) {
     }
 }
 
-TEST(EcsScheduler, ConflictingSystemsNeverOverlapAndKeepTheirOrder) {
+TEST(EcsScheduler, ConflictingSystemsNeverOverlap) {
     JobSystemDesc desc; desc.workerCount = 3;
     JobSystem js(desc);
     Registry registry;
@@ -472,7 +460,7 @@ TEST(EcsScheduler, ConflictingSystemsNeverOverlapAndKeepTheirOrder) {
 
     std::atomic<int> inside{0};
     std::atomic<int> maxInside{0};
-    std::vector<int> order;                                             // protected by the scheduler's own ordering
+    std::vector<int> order;
     for (int i = 0; i < 6; ++i) {
         SystemDesc d; d.name = "w" + std::to_string(i); d.phase = Phase::Update; d.Writes<Position>();
         d.run = [&, i](SystemContext&) {
@@ -490,8 +478,8 @@ TEST(EcsScheduler, ConflictingSystemsNeverOverlapAndKeepTheirOrder) {
     EXPECT_EQ(order, (std::vector<int>{0, 1, 2, 3, 4, 5}));
 }
 
-TEST(EcsScheduler, ParallelAndSerialGiveTheSameWorld) {
-    // Many systems spawning entities through their command buffers : the result must not depend on thread timing
+TEST(EcsScheduler, ParallelMatchesSerial) {
+    // Result must not depend on thread timing.
     auto run = [](JobSystem* js) {
         Registry registry;
         Scheduler scheduler;
@@ -514,7 +502,7 @@ TEST(EcsScheduler, ParallelAndSerialGiveTheSameWorld) {
     for (int rep = 0; rep < 20; ++rep) EXPECT_EQ(run(&js), serial);
 }
 
-TEST(EcsScheduler, ParallelSystemsCanUseParallelEach) {
+TEST(EcsScheduler, SystemsUseParallelEach) {
     JobSystem js;
     Registry registry;
     for (int i = 0; i < 5000; ++i) registry.Create(Position{0, 0, 0}, Velocity{1, 1, 1}, Health{1});
@@ -535,38 +523,34 @@ TEST(EcsScheduler, ParallelSystemsCanUseParallelEach) {
     EXPECT_DOUBLE_EQ(h, 5000.0 * 5);
 }
 
-// ------------------------------------------------------------------------------------------------ deferred destroy, stats
-
-TEST(EcsRegistry, DestroyDeferredWaitsForTheIterationToEnd) {
+TEST(EcsRegistry, DeferredDestroyWaits) {
     Registry registry;
     std::vector<Entity> entities;
     for (int i = 0; i < 10; ++i) entities.push_back(registry.Create(Health{i}));
 
     registry.Each<Health>([&](Entity e, Health& h) { if (h.value % 2 == 0) registry.DestroyDeferred(e); });
-    EXPECT_EQ(registry.Count(), 10u);                                  // nothing destroyed under the iteration
+    EXPECT_EQ(registry.Count(), 10u);
     EXPECT_EQ(registry.GetStats().pendingDestroys, 5u);
 
     EXPECT_EQ(registry.FlushDeferred(), 5u);
     EXPECT_EQ(registry.Count(), 5u);
     EXPECT_EQ(registry.GetStats().pendingDestroys, 0u);
 
-    registry.DestroyDeferred(entities[1]);                             // nothing running : immediate
+    registry.DestroyDeferred(entities[1]);
     EXPECT_FALSE(registry.IsAlive(entities[1]));
 }
 
-TEST(EcsRegistry, DeferredDestroyOfAnAlreadyDeadDescendantIsHarmless) {
+TEST(EcsRegistry, DeferredDestroyOfDeadChild) {
     Registry registry;
     const Entity parent = registry.Create(Health{1}), child = registry.Create(Health{2});
     registry.SetParent(child, parent);
-    registry.Each<Health>([&](Entity e, Health&) { registry.DestroyDeferred(e); });     // both queued, parent first
-    EXPECT_EQ(registry.FlushDeferred(), 1u);                                            // the child went with its parent
+    registry.Each<Health>([&](Entity e, Health&) { registry.DestroyDeferred(e); });
+    EXPECT_EQ(registry.FlushDeferred(), 1u);
     EXPECT_EQ(registry.Count(), 0u);
 }
 
-TEST(EcsScheduler, ParallelSystemsDestroyingEntitiesGoThroughTheDeferredQueue) {
-    // Systems that declare nothing don't conflict : they run at the same time. Each destroys its own entities, outside of any
-    // query. Applied on the spot, they would all rewrite the records, the free list and the archetypes at once : the requests
-    // have to be queued, and applied when the phase is over.
+TEST(EcsScheduler, ParallelDestroyIsDeferred) {
+    // No declared deps means they run concurrently. Applying destroys on the spot would race on records, free list and archetypes, so they are queued until the phase ends.
     JobSystemDesc desc; desc.workerCount = 3;
     JobSystem js(desc);
     constexpr int kSystems = 4, kPerSystem = 300;
@@ -585,7 +569,6 @@ TEST(EcsScheduler, ParallelSystemsDestroyingEntitiesGoThroughTheDeferredQueue) {
         for (int s = 0; s < kSystems; ++s) {
             SystemDesc d; d.name = "killer" + std::to_string(s); d.phase = Phase::Update;
             d.run = [&, s](SystemContext& c) {
-                // Wait (bounded) for the others, so the destroys really overlap
                 started.fetch_add(1);
                 const auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(5);
                 while (started.load() < kSystems && std::chrono::steady_clock::now() < deadline) std::this_thread::yield();
@@ -602,15 +585,14 @@ TEST(EcsScheduler, ParallelSystemsDestroyingEntitiesGoThroughTheDeferredQueue) {
         scheduler.RunFrame(registry, &js, {});
 
         EXPECT_EQ(sawConcurrent.load(), kSystems);
-        EXPECT_EQ(refusedCreates.load(), kSystems);                     // structural changes wait for the end of the phase
-        EXPECT_EQ(destroyedOnTheSpot.load(), 0);                        // queued...
+        EXPECT_EQ(refusedCreates.load(), kSystems);
+        EXPECT_EQ(destroyedOnTheSpot.load(), 0);
         EXPECT_FALSE(registry.IsConcurrent());
-        EXPECT_EQ(registry.Count(), 0u);                                // ... and flushed when the phase ended
+        EXPECT_EQ(registry.Count(), 0u);
         EXPECT_EQ(registry.GetStats().pendingDestroys, 0u);
         for (const auto& list : owned)
             for (Entity e : list) EXPECT_FALSE(registry.IsAlive(e));
 
-        // The free list came out whole : every slot is handed out again exactly once
         std::set<uint32_t> indices;
         for (int i = 0; i < kSystems * kPerSystem; ++i) {
             const Entity e = registry.Create(Health{i});
@@ -624,8 +606,8 @@ TEST(EcsScheduler, ParallelSystemsDestroyingEntitiesGoThroughTheDeferredQueue) {
     }
 }
 
-TEST(EcsScheduler, AnExclusiveSystemOfAParallelPhaseStillChangesTheStructureDirectly) {
-    // The engine's own systems are exclusive : they run alone, on a worker, and spawn / destroy actors on the spot
+TEST(EcsScheduler, ExclusiveSystemChangesDirectly) {
+    // Engine systems are exclusive: they run alone on a worker and spawn/destroy actors immediately.
     JobSystemDesc desc; desc.workerCount = 3;
     JobSystem js(desc);
     Registry registry;
@@ -656,14 +638,14 @@ TEST(EcsScheduler, AnExclusiveSystemOfAParallelPhaseStillChangesTheStructureDire
     EXPECT_EQ(registry.Count(), 1u);
 }
 
-TEST(EcsRegistry, AddOverwritesWithTheColumnSizeAndZeroesWithoutData) {
+TEST(EcsRegistry, AddOverwritesOrZeroes) {
     Registry registry;
     const Entity e = registry.Create(Position{1, 2, 3});
-    EXPECT_TRUE(registry.Add(e, Position{4, 5, 6}));                   // overwrite : not structural
+    EXPECT_TRUE(registry.Add(e, Position{4, 5, 6}));
     EXPECT_EQ(registry.Get<Position>(e).z, 6.0f);
-    EXPECT_TRUE(registry.AddRaw(e, ComponentIdOf<Health>(), nullptr));  // structural, no value : zeroed
+    EXPECT_TRUE(registry.AddRaw(e, ComponentIdOf<Health>(), nullptr));
     EXPECT_EQ(registry.Get<Health>(e).value, 0);
-    EXPECT_EQ(registry.Get<Position>(e).x, 4.0f);                      // carried over by the move
+    EXPECT_EQ(registry.Get<Position>(e).x, 4.0f);
 }
 
 TEST(EcsRegistry, StatsAndDescribe) {
@@ -672,7 +654,7 @@ TEST(EcsRegistry, StatsAndDescribe) {
     registry.Create(Health{}, Position{});
     const Registry::Stats stats = registry.GetStats();
     EXPECT_EQ(stats.entities, 4u);
-    EXPECT_GE(stats.archetypes, 3u);                                   // empty, {Health}, {Health, Position}
+    EXPECT_GE(stats.archetypes, 3u);
     EXPECT_EQ(stats.chunks, 2u);
     EXPECT_GT(stats.chunkBytes, 0u);
     const std::string text = registry.Describe();
@@ -680,7 +662,7 @@ TEST(EcsRegistry, StatsAndDescribe) {
     EXPECT_NE(text.find("1 entity"), std::string::npos);
 }
 
-TEST(EcsScheduler, ReportsTimingsAndAFlushAtTheEndOfEveryPhase) {
+TEST(EcsScheduler, ReportsTimingsAndFlush) {
     Registry registry;
     Scheduler scheduler;
     const Entity doomed = registry.Create(Health{1});
@@ -696,7 +678,7 @@ TEST(EcsScheduler, ReportsTimingsAndAFlushAtTheEndOfEveryPhase) {
     scheduler.SetEnabled("off", false);
 
     scheduler.RunFrame(registry, nullptr, {});
-    EXPECT_FALSE(registry.IsAlive(doomed));                            // flushed when the phase ended
+    EXPECT_FALSE(registry.IsAlive(doomed));
 
     const auto stats = scheduler.Stats();
     ASSERT_EQ(stats.size(), 2u);
@@ -708,7 +690,7 @@ TEST(EcsScheduler, ReportsTimingsAndAFlushAtTheEndOfEveryPhase) {
     EXPECT_NE(scheduler.Describe().find("sleepy"), std::string::npos);
 }
 
-TEST(EcsScheduler, ThePhaseEndHookRunsAfterTheRecordedChangesOfAPhaseThatHasSystems) {
+TEST(EcsScheduler, PhaseEndHookRunsAfterChanges) {
     Registry registry;
     for (int i = 0; i < 4; ++i) registry.Create(Health{i});
 
@@ -721,9 +703,9 @@ TEST(EcsScheduler, ThePhaseEndHookRunsAfterTheRecordedChangesOfAPhaseThatHasSyst
     size_t aliveAtTheEnd = 0;
     scheduler.SetPhaseEndHook([&](Phase phase) { ended.push_back(phase); aliveAtTheEnd = registry.Count(); });
     scheduler.RunFrame(registry, nullptr, {});
-    ASSERT_EQ(ended.size(), 1u);                                        // only the phase that has a system
+    ASSERT_EQ(ended.size(), 1u);
     EXPECT_EQ(ended[0], Phase::Update);
-    EXPECT_EQ(aliveAtTheEnd, 2u);                                       // the recorded destroys were applied already
+    EXPECT_EQ(aliveAtTheEnd, 2u);
 
     scheduler.SetPhaseEndHook(nullptr);
     scheduler.RunFrame(registry, nullptr, {});

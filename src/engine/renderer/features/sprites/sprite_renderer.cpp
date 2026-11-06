@@ -23,7 +23,6 @@ namespace Shard::Engine::Rendering {
         constexpr uint32_t kMinCapacity = 256;
         constexpr uint32_t kMaxSprites = 262144;
 
-        // SHARD_BLEND_* (shard_render.h) -> the pass group's blend : 0 opaque and cutout, 1 alpha, 2 additive, 3 premultiplied
         uint32_t BlendGroup(uint8_t blend)
         {
             switch (blend) {
@@ -34,14 +33,13 @@ namespace Shard::Engine::Rendering {
             }
         }
 
-        // Group g = blendGroup * 2 + (depth test ? 0 : 1)
         const char* kPassNames[SpriteRenderer::kGroups] = {
             "SpriteOpaquePass", "SpriteOpaqueOverlayPass", "SpriteAlphaPass", "SpriteAlphaOverlayPass",
             "SpriteAdditivePass", "SpriteAdditiveOverlayPass", "SpritePremultipliedPass", "SpritePremultipliedOverlayPass" };
 
         uint64_t CommandIdOf(uint32_t group)
         {
-            constexpr uint64_t kSpriteComponentID = 0x53505254;     // "SPRT"
+            constexpr uint64_t kSpriteComponentID = 0x53505254;
             return MakeCommandID(0, kSpriteComponentID, group);
         }
     }
@@ -56,12 +54,11 @@ namespace Shard::Engine::Rendering {
 
         const glm::vec3 camera = snapshot.camera.valid ? snapshot.camera.position : glm::vec3(0.0f);
 
-        // Group by pass, keeping the batches in the order of their keys inside a group
         std::vector<const SpriteBatchProxy*> groups[kGroups];
         for (const SpriteBatchProxy& batch : snapshot.spriteBatches) {
-            if ((batch.flags & 0x10) || batch.sprites.empty())      // SHARD_SPRITE_HIDDEN
+            if ((batch.flags & 0x10) || batch.sprites.empty())
                 continue;
-            const bool depthTest = (batch.flags & 0x01) != 0;       // SHARD_SPRITE_DEPTH_TEST
+            const bool depthTest = (batch.flags & 0x01) != 0;
             groups[BlendGroup(batch.blend) * 2 + (depthTest ? 0 : 1)].push_back(&batch);
         }
 
@@ -70,10 +67,9 @@ namespace Shard::Engine::Rendering {
             ranges[g].first = total;
             for (const SpriteBatchProxy* batch : groups[g]) {
                 const uint64_t texture = batch->texture ? batch->texture->GetBindlessHandle() : 0;
-                // A batch whose texture the API cannot hand to a shader is drawn with its colours only
-                const uint32_t flags = ((batch->flags & 0x04) ? 1u : 0u)                    // SHARD_SPRITE_SCREEN_SIZE
-                                     | (batch->blend == 1 ? 2u : 0u)                        // cut out
-                                     | (batch->blend == 0 ? 4u : 0u);                       // opaque
+                const uint32_t flags = ((batch->flags & 0x04) ? 1u : 0u)
+                                     | (batch->blend == 1 ? 2u : 0u)
+                                     | (batch->blend == 0 ? 4u : 0u);
                 const size_t begin = out.size();
                 for (const SpriteInstance& s : batch->sprites) {
                     if (total >= kMaxSprites) break;
@@ -87,7 +83,6 @@ namespace Shard::Engine::Rendering {
                     ++total;
                 }
                 if (batch->sort == 1 && out.size() - begin > 1) {
-                    // Relative to the camera already : the distance is the length. Far first, so that the blending is right.
                     std::stable_sort(out.begin() + long(begin), out.end(), [](const SpriteGpu& a, const SpriteGpu& b) {
                         return glm::dot(glm::vec3(a.positionRotation), glm::vec3(a.positionRotation)) > glm::dot(glm::vec3(b.positionRotation), glm::vec3(b.positionRotation));
                     });
@@ -135,7 +130,7 @@ namespace Shard::Engine::Rendering {
             pass->overridePipeline = true;
             pass->customPipeline = pipeline;
             pass->allowCulling = false;
-            pass->enabled = false;                          // until there is something to draw
+            pass->enabled = false;
             pass->customUniforms["viewportSize"] = glm::vec2(1.0f);
             pass->customUniforms["firstInstance"] = 0;
             m_Passes[g] = pass;
@@ -161,7 +156,6 @@ namespace Shard::Engine::Rendering {
                     m_Capacity *= 2;
                 m_Instances = StorageBuffer::Create(m_Capacity * uint32_t(sizeof(SpriteGpu)));
             }
-            // The buffer is uploaded whole : a size that is not the allocation's would reallocate it
             m_Scratch.resize(m_Capacity);
             m_Instances->SetData(m_Scratch.data(), m_Capacity * uint32_t(sizeof(SpriteGpu)));
             m_Instances->Bind(kInstancesBinding);
@@ -177,7 +171,6 @@ namespace Shard::Engine::Rendering {
             pass->customUniforms["viewportSize"] = viewport;
             pass->customUniforms["firstInstance"] = static_cast<int>(ranges[g].first);
 
-            // A world reload clears the draw list of every pass : put the command back
             if (pass->drawList.empty()) {
                 DrawCommand command{};
                 command.commandID = CommandIdOf(g);

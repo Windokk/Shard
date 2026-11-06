@@ -7,21 +7,18 @@ namespace Shard::Editor::GUI {
     class EditorResources
     {
         public:
-            // Access the singleton instance
             static EditorResources& Instance()
             {
-                static EditorResources instance; // thread-safe in C++11+
+                static EditorResources instance;
                 return instance;
             }
 
-            // Initialize resources (build atlas, load icons, etc.)
             void Init()
             {
                 if (!iconAtlas)
                 {
                     iconAtlas = std::make_shared<IconAtlas>();
 
-                    // Example: list of icon file paths
                     std::vector<std::string> iconPaths = {
                         "editor_resources/icons/image.png",
                         "editor_resources/icons/audio.png",
@@ -34,7 +31,7 @@ namespace Shard::Editor::GUI {
                         "editor_resources/icons/model.png",
                         "editor_resources/icons/material.png",
                         "editor_resources/icons/probes.png",
-                        "editor_resources/icons/probes.png",       // the lightmaps share the probes' icon
+                        "editor_resources/icons/probes.png",
                         "editor_resources/icons/config.png",
                         "editor_resources/icons/folder.png"
                     };

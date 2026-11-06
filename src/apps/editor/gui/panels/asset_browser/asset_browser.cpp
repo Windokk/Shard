@@ -33,27 +33,26 @@ namespace Shard::Editor::GUI{
 
     const ImGuiTableSortSpecs* Asset::s_current_sort_specs = NULL;
 
-    // Unreal-esque per-type color coding, used both for the tile's accent bar and its tooltip.
     static ImU32 GetTypeAccentColor(Engine::Filesystem::Type type, bool isDirectory)
     {
         if (isDirectory)
-            return IM_COL32(226, 188, 116, 255); // folder tan
+            return IM_COL32(226, 188, 116, 255);
 
         switch (type)
         {
-            case Engine::Filesystem::Type::T_MODEL:          return IM_COL32(230, 126, 34, 255);  // orange
-            case Engine::Filesystem::Type::T_MATERIAL:       return IM_COL32(46, 204, 113, 255);  // green
-            case Engine::Filesystem::Type::T_PROBES:         return IM_COL32(236, 96, 160, 255);  // pink
-            case Engine::Filesystem::Type::T_LIGHTMAP:       return IM_COL32(244, 143, 177, 255); // light pink
-            case Engine::Filesystem::Type::T_IMAGE:          return IM_COL32(175, 110, 220, 255); // purple/pink
-            case Engine::Filesystem::Type::T_SOUND:          return IM_COL32(26, 188, 156, 255);  // teal
-            case Engine::Filesystem::Type::T_SCRIPT:         return IM_COL32(241, 196, 15, 255);  // yellow
-            case Engine::Filesystem::Type::T_WORLD:          return IM_COL32(231, 76, 60, 255);   // red
-            case Engine::Filesystem::Type::T_SHADER:         return IM_COL32(52, 152, 219, 255);  // blue
-            case Engine::Filesystem::Type::T_COMPUTE_SHADER: return IM_COL32(41, 128, 185, 255);  // dark blue
-            case Engine::Filesystem::Type::T_FONT:           return IM_COL32(149, 165, 166, 255); // grey-blue
-            case Engine::Filesystem::Type::T_CONFIG:         return IM_COL32(127, 140, 141, 255); // grey
-            case Engine::Filesystem::Type::T_TEXT:           return IM_COL32(189, 195, 199, 255); // light grey
+            case Engine::Filesystem::Type::T_MODEL:          return IM_COL32(230, 126, 34, 255);
+            case Engine::Filesystem::Type::T_MATERIAL:       return IM_COL32(46, 204, 113, 255);
+            case Engine::Filesystem::Type::T_PROBES:         return IM_COL32(236, 96, 160, 255);
+            case Engine::Filesystem::Type::T_LIGHTMAP:       return IM_COL32(244, 143, 177, 255);
+            case Engine::Filesystem::Type::T_IMAGE:          return IM_COL32(175, 110, 220, 255);
+            case Engine::Filesystem::Type::T_SOUND:          return IM_COL32(26, 188, 156, 255);
+            case Engine::Filesystem::Type::T_SCRIPT:         return IM_COL32(241, 196, 15, 255);
+            case Engine::Filesystem::Type::T_WORLD:          return IM_COL32(231, 76, 60, 255);
+            case Engine::Filesystem::Type::T_SHADER:         return IM_COL32(52, 152, 219, 255);
+            case Engine::Filesystem::Type::T_COMPUTE_SHADER: return IM_COL32(41, 128, 185, 255);
+            case Engine::Filesystem::Type::T_FONT:           return IM_COL32(149, 165, 166, 255);
+            case Engine::Filesystem::Type::T_CONFIG:         return IM_COL32(127, 140, 141, 255);
+            case Engine::Filesystem::Type::T_TEXT:           return IM_COL32(189, 195, 199, 255);
             default:                                         return IM_COL32(150, 150, 150, 255);
         }
     }
@@ -82,9 +81,6 @@ namespace Shard::Editor::GUI{
         }
     }
 
-    // Fills the request for the thumbnail the ThumbnailService makes of this asset : meshes and materials are
-    // rendered, sounds get their waveform drawn. False for the rest (images sample their own texture
-    // directly, every other type shows its icon).
     static bool MakeThumbnailRequest(Engine::Filesystem::Type type, const std::string& nameInProject, const Engine::Filesystem::Path& path,
                                      Engine::Rendering::ThumbnailRequest& request)
     {
@@ -115,8 +111,6 @@ namespace Shard::Editor::GUI{
         return !item.isDirectory && MakeThumbnailRequest(item.type, item.nameInProject, item.path, request);
     }
 
-    // Wraps a filename into at most two centered lines that fit within maxWidth, truncating
-    // the second line with an ellipsis if the name is still too long to fully display.
     static void WrapLabelToLines(const std::string& text, float maxWidth, std::string& line1, std::string& line2)
     {
         line2.clear();
@@ -204,7 +198,6 @@ namespace Shard::Editor::GUI{
             searching && searchSubfolders
         );
 
-        // Only a change of folder / search leaves the folder structure as it was
         if (!navigationOnly)
             treeDirty = true;
         navigationOnly = false;
@@ -232,7 +225,6 @@ namespace Shard::Editor::GUI{
                 file.size
             );
 
-            // A search matches the name or the kind of asset ("material", "texture"...)
             if (searching
                 && asset.lowerName.find(needle) == std::string::npos
                 && lower(GetTypeDisplayName(file.type, file.isDirectory)).find(needle) == std::string::npos)
@@ -241,7 +233,6 @@ namespace Shard::Editor::GUI{
             items.push_back(std::move(asset));
         }
 
-        // Folders first, then the chosen order, the name settling ties
         const SortKey key = sortKey;
         const bool ascending = sortAscending;
         std::stable_sort(items.begin(), items.end(), [key, ascending](const Asset& a, const Asset& b)
@@ -264,7 +255,6 @@ namespace Shard::Editor::GUI{
 
         dirty = false;
 
-        // RevealAsset : select the asset once its folder is listed
         if (!pendingRevealPath.empty())
         {
             selection.Clear();
@@ -283,7 +273,6 @@ namespace Shard::Editor::GUI{
 
     void AssetBrowser::Draw()
     {
-        // Files added, renamed, deleted or changed from outside the editor
         if (auto* hotReloader = Engine::Core::GetEngine().GetHotReloader())
         {
             if (!hotReloadListening)
@@ -322,7 +311,6 @@ namespace Shard::Editor::GUI{
 
         ImGui::Begin("Asset Browser");
 
-        // Mouse back / forward buttons and Backspace, like a file explorer
         if (ImGui::IsWindowHovered(ImGuiHoveredFlags_ChildWindows))
         {
             if (ImGui::IsMouseClicked(3))
@@ -391,13 +379,10 @@ namespace Shard::Editor::GUI{
 
         Engine::Filesystem::Path projectRoot = engine.GetCurrentProject()->GetProjectResourcesPath();
 
-        // currentPath relative to projectRoot (NOT the other way around - that would compute the
-        // path FROM currentPath back up TO the root, i.e. "..", which is backwards for a breadcrumb).
         std::string relative = currentPath.RelativeTo(projectRoot).full;
         if (relative == ".")
             relative.clear();
 
-        // Back / forward / up
         {
             const bool canBack = historyIndex > 0;
             const bool canForward = historyIndex + 1 < (int)history.size();
@@ -429,7 +414,6 @@ namespace Shard::Editor::GUI{
         const float breadcrumbStartX = ImGui::GetCursorPosX();
         const float rowY = ImGui::GetCursorPosY();
 
-        // Right side : sidebar toggle, filters, view options, search
         const float frameHeight = ImGui::GetFrameHeight();
         const float spacing = style.ItemSpacing.x;
         const float filterWidth = 96.0f;
@@ -489,7 +473,6 @@ namespace Shard::Editor::GUI{
             RequestRelist();
         }
 
-        // Left side : the breadcrumb, its leftmost folders folded in a "..." when it does not fit
         ImGui::SetCursorPos(ImVec2(breadcrumbStartX, rowY));
 
         struct Crumb { std::string label; Engine::Filesystem::Path path; };
@@ -558,7 +541,6 @@ namespace Shard::Editor::GUI{
                     NavigateTo(target.full);
                 ImGui::PopStyleColor();
 
-                // Dropping assets on a parent folder moves them there
                 if (ImGui::BeginDragDropTarget())
                 {
                     std::vector<std::string> dropped = DragDrop::AcceptAssetDragDropPayload();
@@ -786,7 +768,6 @@ namespace Shard::Editor::GUI{
         treeRevealCurrent = false;
         ImGui::EndChild();
 
-        // Splitter
         ImGui::SameLine(0.0f, 0.0f);
         ImGui::InvisibleButton("##SidebarSplitter", ImVec2(6.0f, height));
         if (ImGui::IsItemHovered() || ImGui::IsItemActive())
@@ -814,36 +795,26 @@ namespace Shard::Editor::GUI{
                 pendingScrollItem = -1;
             }
 
-            // Calculate and store start position.
             ImVec2 start_pos = ImGui::GetCursorScreenPos();
             start_pos = ImVec2(start_pos.x + LayoutOuterPadding, start_pos.y + LayoutOuterPadding);
             ImGui::SetCursorScreenPos(start_pos);
 
-            // Multi-select
             ImGuiMultiSelectFlags ms_flags = ImGuiMultiSelectFlags_ClearOnEscape | ImGuiMultiSelectFlags_ClearOnClickVoid;
 
-            // - Enable box-select (in 2D mode, so that changing box-select rectangle X1/X2 boundaries will affect clipped items)
             if (AllowBoxSelect)
                 ms_flags |= ImGuiMultiSelectFlags_BoxSelect2d;
 
-            // - This feature allows dragging an unselected item without selecting it (rarely used)
             if (AllowDragUnselected)
                 ms_flags |= ImGuiMultiSelectFlags_SelectOnClickRelease;
 
-            // - Enable keyboard wrapping on X axis
-            // (FIXME-MULTISELECT: We haven't designed/exposed a general nav wrapping api yet, so this flag is provided as a courtesy to avoid doing:
-            //    ImGui::NavMoveRequestTryWrapping(ImGui::GetCurrentWindow(), ImGuiNavMoveFlags_WrapX);
-            // When we finish implementing a more general API for this, we will obsolete this flag in favor of the new system)
             ms_flags |= ImGuiMultiSelectFlags_NavWrapX;
 
             ImGuiMultiSelectIO* ms_io = ImGui::BeginMultiSelect(ms_flags, selection.Size, items.size());
 
-            // Use custom selection adapter: store ID in selection (recommended)
             selection.UserData = this;
             selection.AdapterIndexToStorageId = [](ImGuiSelectionBasicStorage* self_, int idx) { AssetBrowser* self = (AssetBrowser*)self_->UserData; return self->items[idx].id; };
             selection.ApplyRequests(ms_io);
 
-            // Keyboard shortcuts (this child has focus). They set the same pendingAction the context menu does.
             if (ImGui::Shortcut(ImGuiKey_Delete) && selection.Size > 0)
                 pendingAction = Action::Delete;
             else if (ImGui::Shortcut(ImGuiMod_Ctrl | ImGuiKey_C) && selection.Size > 0)
@@ -863,23 +834,17 @@ namespace Shard::Editor::GUI{
 
             const int item_curr_idx_to_focus = -1;
 
-            // Push LayoutSelectableSpacing (which is LayoutItemSpacing minus hit-spacing, if we decide to have hit gaps between items)
-            // Altering style ItemSpacing may seem unnecessary as we position every items using SetCursorScreenPos()...
-            // But it is necessary for two reasons:
-            // - Selectables uses it by default to visually fill the space between two items.
-            // - The vertical spacing would be measured by Clipper to calculate line height if we didn't provide it explicitly (here we do).
             ImGui::PushStyleVar(ImGuiStyleVar_ItemSpacing, ImVec2(LayoutSelectableSpacing, LayoutSelectableSpacing));
 
-            // Rendering parameters
             const bool display_label = (LayoutItemSize.x >= ImGui::CalcTextSize("999").x);
 
             const int column_count = LayoutColumnCount;
             ImGuiListClipper clipper;
             clipper.Begin(LayoutLineCount, LayoutItemStep.y);
             if (item_curr_idx_to_focus != -1)
-                clipper.IncludeItemByIndex(item_curr_idx_to_focus / column_count); // Ensure focused item line is not clipped.
+                clipper.IncludeItemByIndex(item_curr_idx_to_focus / column_count);
             if (ms_io->RangeSrcItem != -1)
-                clipper.IncludeItemByIndex((int)ms_io->RangeSrcItem / column_count); // Ensure RangeSrc item line is not clipped.
+                clipper.IncludeItemByIndex((int)ms_io->RangeSrcItem / column_count);
             while (clipper.Step())
             {
                 for (int line_idx = clipper.DisplayStart; line_idx < clipper.DisplayEnd; line_idx++)
@@ -891,7 +856,6 @@ namespace Shard::Editor::GUI{
                         Asset* item_data = &items[item_idx];
                         ImGui::PushID((int)item_data->id);
 
-                        // Position item
                         ImVec2 pos = ImVec2(start_pos.x + (item_idx % column_count) * LayoutItemStep.x, start_pos.y + line_idx * LayoutItemStep.y);
                         ImGui::SetCursorScreenPos(pos);
 
@@ -902,7 +866,6 @@ namespace Shard::Editor::GUI{
 
                         bool item_hovered = ImGui::IsItemHovered();
 
-                        // Right-click acts on the clicked item (or the whole selection if it is part of it)
                         if (item_hovered && ImGui::IsMouseClicked(ImGuiMouseButton_Right))
                         {
                             if (!item_is_selected)
@@ -944,23 +907,14 @@ namespace Shard::Editor::GUI{
                             ImGui::EndTooltip();
                         }
 
-                        // Update our selection state immediately (without waiting for EndMultiSelect() requests)
-                        // because we use this to alter the color of our text/icon.
                         if (ImGui::IsItemToggledSelection())
                             item_is_selected = !item_is_selected;
 
-                        // Focus (for after deletion)
                         if (item_curr_idx_to_focus == item_idx)
                             ImGui::SetKeyboardFocusHere(-1);
 
-                        // Drag and drop - the payload carries each dragged item's nameInProject (see
-                        // DragDrop::SetAssetDragDropPayload) so any drop target elsewhere in the editor
-                        // (viewport, world tree, inspector asset fields, material slots, ...) can feed
-                        // it straight into ResourcesManager/AssetIDManager lookups.
                         if (ImGui::BeginDragDropSource())
                         {
-                            // Create payload with full selection OR single unselected item.
-                            // (the later is only possible when using ImGuiMultiSelectFlags_SelectOnClickRelease)
                             if (ImGui::GetDragDropPayload() == NULL)
                             {
                                 std::vector<std::string> dragged;
@@ -981,8 +935,6 @@ namespace Shard::Editor::GUI{
                                 DragDrop::SetAssetDragDropPayload(dragged);
                             }
 
-                            // Display payload content in tooltip, by extracting it from the payload data
-                            // (we could read from selection, but it is more correct and reusable to read from payload)
                             std::vector<std::string> payloadNames = DragDrop::PeekAssetDragDropPayload();
                             if (payloadNames.size() == 1)
                             {
@@ -998,7 +950,6 @@ namespace Shard::Editor::GUI{
                             ImGui::EndDragDropSource();
                         }
 
-                        // Dropping assets on a folder moves them into it
                         if (item_data->isDirectory && ImGui::BeginDragDropTarget())
                         {
                             std::vector<std::string> dropped = DragDrop::AcceptAssetDragDropPayload();
@@ -1007,14 +958,10 @@ namespace Shard::Editor::GUI{
                             ImGui::EndDragDropTarget();
                         }
 
-                        // Render icon/thumbnail, Unreal-Content-Browser-style: a type-tinted tile,
-                        // a real texture preview for images (falling back to the atlas icon for
-                        // everything else), a solid color-coded accent bar under the thumbnail, and
-                        // a selection/hover outline.
                         if (item_is_visible)
                         {
                             ImVec2 box_min(pos.x - 1, pos.y - 1);
-                            ImVec2 box_max(box_min.x + LayoutItemSize.x + 2, box_min.y + LayoutItemSize.y + 2); // Dubious
+                            ImVec2 box_max(box_min.x + LayoutItemSize.x + 2, box_min.y + LayoutItemSize.y + 2);
 
                             ImU32 accent = GetTypeAccentColor(item_data->type, item_data->isDirectory);
                             ImVec4 accentF = ImGui::ColorConvertU32ToFloat4(accent);
@@ -1034,8 +981,6 @@ namespace Shard::Editor::GUI{
                             }
                             else
                             {
-                                // Base tile background subtly tinted towards the type's accent color,
-                                // brightened a touch on hover.
                                 ImVec4 baseBg = item_hovered ? ImVec4(0.205f, 0.205f, 0.220f, 0.92f) : ImVec4(0.149f, 0.149f, 0.161f, 0.86f);
                                 const float tintWeight = 0.10f;
                                 ImU32 tileBg = ImGui::ColorConvertFloat4ToU32(ImVec4(
@@ -1052,10 +997,6 @@ namespace Shard::Editor::GUI{
                                 else if (item_hovered)
                                     draw_list->AddRect(box_min, box_max, IM_COL32(255, 255, 255, 90), 4.0f, 0, 1.0f);
 
-                                // Icon sits at a fixed distance from the top of the tile (horizontally
-                                // centered) rather than centered across the full tile height, so its
-                                // position - and the accent bar right under it - stay put regardless of
-                                // how tall the label below ends up being (one vs two lines).
                                 ImVec2 icon_offset = ImVec2(
                                     (LayoutItemSize.x - ThumbnailSize.x) * 0.5f,
                                     IconTopPadding
@@ -1072,11 +1013,6 @@ namespace Shard::Editor::GUI{
                                 );
                             }
 
-                            // Real preview for images, meshes, materials and sounds; every other type
-                            // falls back to its atlas icon. Images sample their own already-loaded
-                            // texture directly; meshes and materials are rendered lit into the
-                            // thumbnail atlas the first time they're seen, and sounds get their
-                            // waveform drawn there (see ThumbnailService) - the icon shows until then.
                             std::shared_ptr<Engine::Rendering::Texture2D> imageThumbnail;
                             Engine::Rendering::ThumbnailRegion assetThumbnail;
                             bool hasAssetThumbnail = false;
@@ -1151,8 +1087,6 @@ namespace Shard::Editor::GUI{
                             }
                             else
                             {
-                                // Type-color accent bar, sitting right under the thumbnail - the main
-                                // "what kind of asset is this" cue, at a glance, across the whole grid.
                                 ImVec2 bar_min(box_min.x + 3, icon_max.y + 4);
                                 ImVec2 bar_max(box_max.x - 3, bar_min.y + 3);
                                 draw_list->AddRectFilled(bar_min, bar_max, accent, 1.5f);
@@ -1171,10 +1105,6 @@ namespace Shard::Editor::GUI{
                                     const float fontSize = ImGui::GetFontSize();
                                     const bool hasSecondLine = !line2.empty();
 
-                                    // The label block is always reserved at its full two-line height,
-                                    // even for names that only need one line - so the strip, and every
-                                    // line of text across the whole grid, lines up at the same height
-                                    // regardless of which tiles happen to need wrapping.
                                     float stripTop = box_max.y - (fontSize * 2.0f + 2.0f) - 4.0f;
                                     draw_list->AddRectFilled(
                                         ImVec2(box_min.x + 2, stripTop),
@@ -1206,9 +1136,8 @@ namespace Shard::Editor::GUI{
                 }
             }
             clipper.End();
-            ImGui::PopStyleVar(); // ImGuiStyleVar_ItemSpacing
+            ImGui::PopStyleVar();
 
-            // Right-click on empty space : no item target, nothing selected
             if (ImGui::IsWindowHovered() && !ImGui::IsAnyItemHovered() && ImGui::IsMouseClicked(ImGuiMouseButton_Right))
             {
                 contextTargetId = 0;
@@ -1226,7 +1155,6 @@ namespace Shard::Editor::GUI{
             //if (want_delete)
                 //selection.ApplyDeletionPostLoop(ms_io, items, item_curr_idx_to_focus);
 
-            // Zooming with CTRL+Wheel
             if (ImGui::IsWindowAppearing())
                 zoomWheelAccum = 0.0f;
             if (!listView && ImGui::IsWindowHovered() && io.MouseWheel != 0.0f && ImGui::IsKeyDown(ImGuiMod_Ctrl) && ImGui::IsAnyItemActive() == false)
@@ -1234,21 +1162,15 @@ namespace Shard::Editor::GUI{
                 zoomWheelAccum += io.MouseWheel;
                 if (fabsf(zoomWheelAccum) >= 1.0f)
                 {
-                    // Calculate hovered item index from mouse location
-                    // FIXME: Locking aiming on 'hovered_item_idx' (with a cool-down timer) would ensure zoom keeps on it.
                     const float hovered_item_nx = (io.MousePos.x - start_pos.x + LayoutItemSpacing * 0.5f) / LayoutItemStep.x;
                     const float hovered_item_ny = (io.MousePos.y - start_pos.y + LayoutItemSpacing * 0.5f) / LayoutItemStep.y;
                     const int hovered_item_idx = ((int)hovered_item_ny * LayoutColumnCount) + (int)hovered_item_nx;
                     //ImGui::SetTooltip("%f,%f -> item %d", hovered_item_nx, hovered_item_ny, hovered_item_idx); // Move those 4 lines in block above for easy debugging
 
-                    // Zoom
                     SetZoom(thumbnailSize * powf(1.1f, (float)(int)zoomWheelAccum));
                     zoomWheelAccum -= (int)zoomWheelAccum;
                     UpdateLayoutSizes(avail_width);
 
-                    // Manipulate scroll to that we will land at the same Y location of currently hovered item.
-                    // - Calculate next frame position of item under mouse
-                    // - Set new scroll position to be used in next ImGui::BeginChild() call.
                     float hovered_item_rel_pos_y = ((float)(hovered_item_idx / LayoutColumnCount) + fmodf(hovered_item_ny, 1.0f)) * LayoutItemStep.y;
                     hovered_item_rel_pos_y += ImGui::GetStyle().WindowPadding.y;
                     float mouse_local_y = io.MousePos.y - ImGui::GetWindowPos().y;
@@ -1258,7 +1180,6 @@ namespace Shard::Editor::GUI{
         }
         ImGui::EndChild();
 
-        // Status line
         if (searchBuffer[0] != '\0')
             ImGui::TextDisabled("%d of %d items", (int)items.size(), visibleItemCount);
         else
@@ -1269,7 +1190,6 @@ namespace Shard::Editor::GUI{
             ImGui::TextDisabled("(%d selected)", (int)selection.Size);
         }
 
-        // Zoom and view mode, pinned to the right
         {
             const ImGuiStyle& style = ImGui::GetStyle();
             const float frameHeight = ImGui::GetFrameHeight();
@@ -1318,7 +1238,6 @@ namespace Shard::Editor::GUI{
 
         LayoutItemSize = ItemSize;
 
-        // Number of columns
         LayoutColumnCount = IM_MAX(
             (int)(avail_width / (LayoutItemSize.x + Spacing.x)),
             1
@@ -1344,9 +1263,6 @@ namespace Shard::Editor::GUI{
         if (worldManager->IsAsyncLoadInProgress())
             return;
 
-        // Whatever's currently loaded is only torn down once the new world has resolved
-        // successfully (see WorldManager::FinishAsyncLoad) - so a bad/missing target here can't
-        // leave the editor with zero worlds loaded.
         std::string pathInProject = engine.GetFileManager()->GetFileInfos(path).nameInProject;
 
         auto* current = worldManager->GetWorldAt(0);
@@ -1381,7 +1297,6 @@ namespace Shard::Editor::GUI{
             RequestOpenWorld(item.path);
         else
         {
-            // A plugin that opens assets of this extension
             std::string extension = std::filesystem::path(item.path.full).extension().string();
             std::transform(extension.begin(), extension.end(), extension.begin(), [](unsigned char c) { return char(std::tolower(c)); });
             for (const auto& opener : Engine::Plugins::PluginManager::Get().Extensions().Get<Engine::Plugins::EditorAssetOpenerItem>("editor.assetopener"))
@@ -1440,7 +1355,6 @@ namespace Shard::Editor::GUI{
                 pendingAction = Action::Cut;
             if (ImGui::MenuItem("Copy", "Ctrl+C"))
                 pendingAction = Action::Copy;
-            // Pasting onto a folder drops the clipboard *into* it
             if (ImGui::MenuItem(single && target->isDirectory ? "Paste Into Folder" : "Paste", "Ctrl+V", false, canPaste))
             {
                 pendingAction = Action::Paste;
@@ -1478,7 +1392,6 @@ namespace Shard::Editor::GUI{
                     pendingAction = Action::NewMaterial;
                 if (ImGui::MenuItem("World"))
                     pendingAction = Action::NewWorld;
-                // What the plugins add: a new file of their own kind
                 for (const auto& tpl : Engine::Plugins::PluginManager::Get().Extensions().Get<Engine::Plugins::EditorAssetTemplateItem>("editor.assettemplate"))
                 {
                     if (!ImGui::MenuItem(tpl->label.c_str()))
@@ -1530,7 +1443,6 @@ namespace Shard::Editor::GUI{
         std::vector<const Asset*> selected = GetSelectedItems();
         std::vector<std::string> failures;
 
-        // name/extension split for making a sibling path : a folder's "extension" is part of its name
         auto splitName = [](const Path& p, std::string& stem, std::string& extension)
         {
             fs::path fsPath(p.full);
@@ -1551,7 +1463,6 @@ namespace Shard::Editor::GUI{
         switch (action)
         {
             case Action::Open:
-                // A folder is entered, the rest is opened in its editor (a few at most, a whole selection is not meant to be opened)
                 if (selected.size() == 1 || (selected.size() <= 5 && std::none_of(selected.begin(), selected.end(), [](const Asset* a) { return a->isDirectory || a->type == Engine::Filesystem::Type::T_WORLD; })))
                 {
                     for (const Asset* item : selected)
@@ -1589,7 +1500,6 @@ namespace Shard::Editor::GUI{
 
                     if (clipboardCut)
                     {
-                        // Cutting into the folder it already is in is a no-op
                         if (fs::equivalent(fs::path(source.full).parent_path(), fs::path(destination.full)))
                             continue;
 
@@ -1665,7 +1575,7 @@ namespace Shard::Editor::GUI{
                 if (!r.ok)
                     failures.push_back(r.message);
                 else
-                    BeginRename(created); // name it right away, like every content browser does
+                    BeginRename(created);
                 changed = true;
                 break;
             }
@@ -1703,11 +1613,9 @@ namespace Shard::Editor::GUI{
     {
         namespace Dialogs = Engine::Core::Platform::Dialogs;
 
-        // One dialog at a time
         if (importQueue->dialogOpen.exchange(true))
             return;
 
-        // What the engine reads, then what the importers of the plugins convert
         const std::vector<Dialogs::FileFilter> groups = {
             { "Models", "fbx" },
             { "Images", "png;jpg;jpeg;hdr;bmp;gif;tga" },
@@ -1742,8 +1650,7 @@ namespace Shard::Editor::GUI{
             desc.defaultPath = importQueue->lastFolder;
         }
 
-        // The dialog is asynchronous and answers from its own thread : the answer is queued for ProcessImports. It goes to the folder that is
-        // open now, whatever the user browses to meanwhile.
+        // The dialog answers from its own thread, so the paths are queued for ProcessImports. They go to the folder open now, wherever the user browses meanwhile.
         Dialogs::ShowOpenFileDialog(desc, [queue = importQueue, destination = currentPath](const std::vector<std::string>& paths)
         {
             std::lock_guard<std::mutex> lock(queue->mutex);
@@ -1797,7 +1704,6 @@ namespace Shard::Editor::GUI{
             ? "Delete \"" + fs::path(paths[0].full).filename().string() + "\" ?"
             : "Delete " + std::to_string(paths.size()) + " items ?";
 
-        // What would be left pointing at a missing asset, as far as the asset database knows
         std::vector<std::string> referencedBy;
         for (const auto& path : paths)
         {
@@ -1855,7 +1761,6 @@ namespace Shard::Editor::GUI{
         fs::path oldPath(renamePath.full);
 
         std::string name = renameBuffer;
-        // Trim
         name.erase(0, name.find_first_not_of(' '));
         name.erase(name.find_last_not_of(' ') + 1);
 
@@ -1865,7 +1770,6 @@ namespace Shard::Editor::GUI{
             return;
         }
 
-        // A file keeps its extension (it is what decides its type), unless it was typed in full
         std::string extension = fs::is_directory(oldPath) ? "" : oldPath.extension().string();
         auto lower = [](std::string s) { std::transform(s.begin(), s.end(), s.begin(), ::tolower); return s; };
         if (!extension.empty() && lower(name).size() >= extension.size() && lower(name).compare(lower(name).size() - extension.size(), extension.size(), lower(extension)) == 0)
@@ -1931,7 +1835,6 @@ namespace Shard::Editor::GUI{
 
         if (!navigatingHistory && !(historyIndex >= 0 && history[historyIndex] == target.full))
         {
-            // A new destination drops whatever "forward" had
             history.resize(historyIndex + 1);
             history.push_back(target.full);
             historyIndex = (int)history.size() - 1;
@@ -1940,7 +1843,7 @@ namespace Shard::Editor::GUI{
         currentPath = target;
         selection.Clear();
         treeRevealCurrent = true;
-        RequestRelist(); // mark for refresh
+        RequestRelist();
     }
 
     void AssetBrowser::NavigateHistory(int direction)
@@ -1955,7 +1858,6 @@ namespace Shard::Editor::GUI{
         NavigateTo(history[index]);
         navigatingHistory = false;
 
-        // The folder is gone : stay where we were
         if (currentPath.full != history[index])
             historyIndex = previous;
     }
@@ -1968,7 +1870,6 @@ namespace Shard::Editor::GUI{
             return;
 
         std::filesystem::path parent = std::filesystem::path(currentPath.full).parent_path();
-        // Never above the project's resources
         if (parent.string().size() < root.full.size())
             return;
         NavigateTo(parent.string());
@@ -1983,7 +1884,6 @@ namespace Shard::Editor::GUI{
 
         for (const std::string& name : namesInProject)
         {
-            // Dragged from this folder's listing
             auto found = std::find_if(items.begin(), items.end(), [&](const Asset& a) { return a.nameInProject == name; });
             if (found == items.end())
                 continue;
@@ -1992,9 +1892,9 @@ namespace Shard::Editor::GUI{
             fs::path destination = fs::path(folder.full) / source.filename();
 
             std::error_code ec;
-            if (fs::equivalent(source, fs::path(folder.full), ec)                        // a folder onto itself
-                || fs::equivalent(source.parent_path(), fs::path(folder.full), ec)       // already there
-                || fs::path(folder.full).string().rfind(source.string() + "/", 0) == 0)  // a folder into its own child
+            if (fs::equivalent(source, fs::path(folder.full), ec)
+                || fs::equivalent(source.parent_path(), fs::path(folder.full), ec)
+                || fs::path(folder.full).string().rfind(source.string() + "/", 0) == 0)
                 continue;
 
             AssetOperations::Result r = AssetOperations::Move(found->path, Engine::Filesystem::Path(destination.string()));
@@ -2036,7 +1936,6 @@ namespace Shard::Editor::GUI{
         const Engine::Filesystem::Path root = Engine::Core::GetEngine().GetCurrentProject()->GetProjectResourcesPath();
         const std::string full = info->baseInfos.path.full;
 
-        // Engine resources live outside the project, there is no folder of the browser to show them in
         if (full.rfind(root.full, 0) != 0)
         {
             Notifications::Info("\"%s\" is an engine resource, it is not in the project's content", nameInProject.c_str());
@@ -2044,7 +1943,7 @@ namespace Shard::Editor::GUI{
         }
 
         std::filesystem::path folder = std::filesystem::path(full).parent_path();
-        searchBuffer[0] = '\0'; // a search could hide it
+        searchBuffer[0] = '\0';
 
         NavigateTo(folder.string());
         pendingRevealPath = full;

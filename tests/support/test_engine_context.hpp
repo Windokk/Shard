@@ -7,12 +7,7 @@
 #include "engine/world/objectID.hpp"
 #include "engine/world/event_system.hpp"
 
-// Minimal IEngineContext usable from tests without a real window/GL/audio/physics
-// bootstrap. Only ObjectIDManager and EventDispatcher are backed by real instances,
-// since those are the only subsystems Objects object/component construction depends on
-// when no World is attached. Every other accessor aborts the test loudly instead of
-// silently returning nullptr, so a test that reaches into an unsupported subsystem
-// fails fast with a clear message rather than crashing on a null deref.
+// Minimal IEngineContext for tests. Only ObjectIDManager and EventDispatcher are real, every other accessor aborts the test.
 namespace Shard::Tests {
 
     class TestEngineContext : public Shard::Engine::Core::IEngineContext {
@@ -50,7 +45,7 @@ namespace Shard::Tests {
                 if (!physicsManager) Unsupported("GetPhysicsManager");
                 return physicsManager;
             }
-            // No world is ever loaded in a test context : actors that belong to no world look for the frames of the shown one (Transform::GetFrameTree)
+            // No world is loaded in tests, so actors look for the frames of the shown one (Transform::GetFrameTree).
             Shard::Engine::Worlds::WorldManager* GetWorldManager() const override { return nullptr; }
             Shard::Engine::Audio::AudioManager* GetAudioManager() const override { Unsupported("GetAudioManager"); return nullptr; }
             Shard::Engine::Audio::AudioIDManager* GetAudioIDManager() const override { Unsupported("GetAudioIDManager"); return nullptr; }
@@ -68,10 +63,7 @@ namespace Shard::Tests {
             void SetPlayMode(bool) override { Unsupported("SetPlayMode"); }
 
         public:
-            /// Null by default (code that can run without a job system then runs serially) : a test that wants
-            /// parallel work sets it.
             Shard::Engine::Core::JobSystem* jobSystem = nullptr;
-            /// Null by default : a test that simulates bodies sets it (it owns and initializes the manager)
             Shard::Engine::Physics::PhysicsManager* physicsManager = nullptr;
 
         private:

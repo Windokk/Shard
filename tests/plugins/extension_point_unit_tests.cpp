@@ -10,7 +10,7 @@ using Core::Resources::AssetKind;
 using Core::Resources::AssetKindInfo;
 using PluginTest::TempDir;
 
-TEST(UserAssetKinds, AreAllocatedAboveTheEnginesAndLeaveWithTheirPlugin)
+TEST(UserAssetKinds, UserKindsAllocatedAboveEngine)
 {
     Filesystem::AssetIDManager ids;
     Filesystem::FileManager files{ ids };
@@ -30,7 +30,6 @@ TEST(UserAssetKinds, AreAllocatedAboveTheEnginesAndLeaveWithTheirPlugin)
     EXPECT_NE(first, second);
     rm.RegisterKind(second, makeInfo());
 
-    // a file of the first kind, loaded and cached
     auto asset = std::make_shared<Filesystem::AssetInfos>();
     asset->baseInfos.nameInProject = "thing.foo";
     asset->baseInfos.name = "thing.foo";
@@ -41,35 +40,35 @@ TEST(UserAssetKinds, AreAllocatedAboveTheEnginesAndLeaveWithTheirPlugin)
     EXPECT_TRUE(rm.Has(first, "thing.foo"));
 
     EXPECT_TRUE(rm.UnregisterKind(first));
-    EXPECT_FALSE(rm.Has(first, "thing.foo"));          // what was cached is dropped
-    EXPECT_EQ(a.use_count(), 1);                          // only the test holds it now
-    EXPECT_FALSE(rm.Get<int>(first, "thing.foo"));        // no loader any more
+    EXPECT_FALSE(rm.Has(first, "thing.foo"));
+    EXPECT_EQ(a.use_count(), 1);
+    EXPECT_FALSE(rm.Get<int>(first, "thing.foo"));
     EXPECT_FALSE(rm.UnregisterKind(first));
-    EXPECT_EQ(rm.AllocateUserKind(), first);              // the id is free again
+    EXPECT_EQ(rm.AllocateUserKind(), first);
     EXPECT_TRUE(rm.Get<int>(second, "thing.foo"));
 }
 
-TEST(CustomExtensions, MakeFilesAssetsOfTheCustomType)
+TEST(CustomExtensions, MakeFilesCustomAssets)
 {
     EXPECT_EQ(Filesystem::Path("a/b/c.zzcustom").GetExtensionType(), Filesystem::Type::T_TEXT);
     EXPECT_TRUE(Filesystem::RegisterCustomExtension(".zzcustom"));
     EXPECT_EQ(Filesystem::Path("a/b/c.zzcustom").GetExtensionType(), Filesystem::Type::T_CUSTOM);
-    EXPECT_EQ(Filesystem::Path("a/b/c.ZZCUSTOM").GetExtensionType(), Filesystem::Type::T_CUSTOM);          // case does not matter
+    EXPECT_EQ(Filesystem::Path("a/b/c.ZZCUSTOM").GetExtensionType(), Filesystem::Type::T_CUSTOM);
     EXPECT_TRUE(Filesystem::IsCustomExtension("zzcustom"));
-    EXPECT_TRUE(Filesystem::RegisterCustomExtension("zzcustom"));                                                // again : fine
+    EXPECT_TRUE(Filesystem::RegisterCustomExtension("zzcustom"));
     EXPECT_TRUE(Filesystem::UnregisterCustomExtension(".zzcustom"));
     EXPECT_EQ(Filesystem::Path("a/b/c.zzcustom").GetExtensionType(), Filesystem::Type::T_TEXT);
     EXPECT_FALSE(Filesystem::UnregisterCustomExtension(".zzcustom"));
 }
 
-TEST(CustomExtensions, TheEnginesOwnExtensionsCannotBeTaken)
+TEST(CustomExtensions, EngineExtensionsNotTakeable)
 {
     for (const char* ext : { ".png", ".world", ".mat", ".fbx", ".json", ".txt", ".md", ".wav", "", "." })
         EXPECT_FALSE(Filesystem::RegisterCustomExtension(ext)) << ext;
     EXPECT_EQ(Filesystem::Path("x.png").GetExtensionType(), Filesystem::Type::T_IMAGE);
 }
 
-TEST(AssetImporters, FindByExtensionAndRunWithErrorsContained)
+TEST(AssetImporters, FindByExtensionContainErrors)
 {
     TempDir dir;
     dir.Write("in/model.foobar", "contents");

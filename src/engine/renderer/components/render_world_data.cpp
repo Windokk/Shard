@@ -35,7 +35,6 @@ namespace Shard::Engine::Rendering{
 
     void RenderWorldData::OnComponentAdded(Worlds::World&, int idInWorld, const std::shared_ptr<Component>& component, bool)
     {
-        // What the renderer draws or lights with is read from these maps by the Extract stage (see RenderExtractor)
         if(auto light = std::dynamic_pointer_cast<Light>(component)){
             lightComps.emplace(idInWorld, light);
         }
@@ -120,7 +119,6 @@ namespace Shard::Engine::Rendering{
             auto readInt = [&](const char* key, int& out){ if(ssrJson.contains(key) && ssrJson[key].is_number_integer()) out = ssrJson[key].get<int>(); };
             auto readBool = [&](const char* key, bool& out){ if(ssrJson.contains(key) && ssrJson[key].is_boolean()) out = ssrJson[key].get<bool>(); };
 
-            // The preset first : the cost knobs after it are what the world really has (they may differ from the preset's, that is Custom)
             if(ssrJson.contains("quality") && ssrJson["quality"].is_string()){
                 SSRQuality parsed;
                 if(ParseSSRQuality(ssrJson["quality"].get<std::string>(), parsed))
@@ -183,13 +181,11 @@ namespace Shard::Engine::Rendering{
             settings["skybox"] = skyboxFile;
         }
 
-        // The default look is not written : a world only carries what was changed
         if(display != DisplaySettings{}){
             settings["display"]["tonemapper"] = TonemapperName(display.tonemapper);
             settings["display"]["exposure"] = display.exposure;
         }
 
-        // Same for the reflections : only a world that turned them on, or tuned them, carries them
         if(ssr != SSRSettings{}){
             auto& ssrJson = settings["ssr"];
             ssrJson["enabled"] = ssr.enabled;
@@ -206,7 +202,6 @@ namespace Shard::Engine::Rendering{
             ssrJson["temporalBlend"] = ssr.temporalBlend;
         }
 
-        // Only a world that was baked, or whose bake settings were touched, carries them
         if(!lightmapData.empty() || !(lightmapSettings == LightmapSettings{})){
             auto& lightmaps = settings["lightmaps"];
             lightmaps["texelsPerMeter"] = lightmapSettings.texelsPerMeter;
@@ -228,7 +223,6 @@ namespace Shard::Engine::Rendering{
     }
 
     namespace {
-        // Keeps a world name usable as part of a file name on every platform.
         std::string SanitizeForFileName(const std::string& name)
         {
             std::string out;
@@ -249,7 +243,6 @@ namespace Shard::Engine::Rendering{
         Core::IEngineContext* engine = &Core::GetEngine();
         const Filesystem::Path resRoot = engine->GetFileManager()->GetProjectResRoot();
 
-        // Re-bake : over the world's own file. First bake : a new file in the project's "lightmaps" folder.
         std::string relative = lightmapData;
         if(relative.empty())
             relative = "lightmaps/" + SanitizeForFileName(world.GetName()) + kLightmapExtension;
@@ -272,12 +265,8 @@ namespace Shard::Engine::Rendering{
             return;
         }
 
-        // The asset database is otherwise only read at project load, so without this the file has no ID and the next world
-        // load couldn't resolve its path
         fileManager->RegisterAsset(result.file);
 
-        // Where every model's lightmap is : the models of the bake that got one are given it, the others (static, but with
-        // nothing to light) and those that left the bake lose the one they had
         std::unordered_map<uint64_t, const LightmapPlacement*> placements;
         for(const LightmapPlacement& placement : result.placements)
             placements[placement.key] = &placement;
@@ -297,17 +286,13 @@ namespace Shard::Engine::Rendering{
             }
         }
 
-        // A previous bake of this world may still be cached (CPU side) from an earlier load
         engine->GetResourcesManager()->Unload(Core::Resources::AssetKind::Lightmap, nameInProject);
 
         lightmapData = nameInProject;
         lightmapSettings = result.settings;
 
-        // The pages just baked are the ones the renderer uses : handed over as they are, no reading the file back
         engine->GetRenderContext()->GetLightmapManager()->ProvideData(nameInProject, result.data);
 
-        // Written straight away rather than at project shutdown, so a crash between here and then can't leave a saved world
-        // pointing at a file the database has never heard of
         if(auto project = engine->GetCurrentProject())
             Serialization::SerializeAssetDataBase(project->GetAssetDatabasePath(), *engine->GetAssetIDManager());
 
@@ -349,14 +334,11 @@ namespace Shard::Engine::Rendering{
     {
         Core::Resources::ResourcesManager* resources = Core::GetEngine().GetResourcesManager();
 
-        // Loading (and IBL-convolving) the map is the part that can fail - bad path, not an image, not
-        // 3-channel - so it goes first : a failed attempt must leave the current skybox untouched.
+        // Load first, it is the part that can fail. A failed attempt must leave the current skybox untouched.
         std::shared_ptr<EnvironmentMap> envMap = resources->Get<EnvironmentMap>(Core::Resources::AssetKind::EnvMap, pathInProject);
         if(!envMap)
             return false;
 
-        // Already have a skybox : keep its material and pipeline, just point it at the new map. Its draw
-        // command is updated in place (see Skybox::CreateDrawCommands).
         if(skybox){
             skybox->SetEnvironmentMap(envMap);
             return true;
@@ -407,8 +389,6 @@ namespace Shard::Engine::Rendering{
 
         registry.RegisterBuiltinComponent<Model>("model",
             [](const nlohmann::json& component, std::vector<ResourceKey>& out){
-                // The fields name their assets ("mesh", "materials") ; older levels saved them as "meshID" and "materialsID", and
-                // before the serialization went through the reflection "materials" was an object by slot
                 for (const char* key : { "mesh", "meshID" }) {
                     if (component.contains(key) && component[key].is_string() && !component[key].get<std::string>().empty()) {
                         out.push_back({AssetKind::Mesh, component[key].get<std::string>()});

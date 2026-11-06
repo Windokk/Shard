@@ -26,11 +26,10 @@ namespace {
         return prims;
     }
 
-    // Walks the tree and checks what the GPU traversal relies on. Returns the number of triangles reached.
     uint32_t CheckNode(const std::vector<BVHNode>& nodes, uint32_t idx, const std::vector<BVHPrimitive>& prims,
                        const std::vector<uint32_t>& order, std::vector<int>& seenSlots) {
         const BVHNode& n = nodes[idx];
-        if (n.triCount > 0) {                                           // leaf : its triangles are inside its bounds
+        if (n.triCount > 0) {
             for (uint32_t i = 0; i < n.triCount; ++i) {
                 ++seenSlots[n.leftFirst + i];
                 const BVHPrimitive& p = prims[order[n.leftFirst + i]];
@@ -39,7 +38,7 @@ namespace {
             }
             return n.triCount;
         }
-        const uint32_t left = n.leftFirst, right = n.leftFirst + 1;      // the GPU hard-codes "right = left + 1"
+        const uint32_t left = n.leftFirst, right = n.leftFirst + 1;      // The GPU hard-codes right = left + 1.
         for (uint32_t child : {left, right}) {
             EXPECT_TRUE(glm::all(glm::greaterThanEqual(nodes[child].boundsMin, n.boundsMin)));
             EXPECT_TRUE(glm::all(glm::lessThanEqual(nodes[child].boundsMax, n.boundsMax)));
@@ -56,34 +55,33 @@ namespace {
         ASSERT_EQ(order.size(), count);
         std::vector<int> originalSeen(count, 0);
         for (uint32_t o : order) { ASSERT_LT(o, count); ++originalSeen[o]; }
-        for (size_t i = 0; i < count; ++i) ASSERT_EQ(originalSeen[i], 1) << "primitive " << i;   // a permutation
+        for (size_t i = 0; i < count; ++i) ASSERT_EQ(originalSeen[i], 1) << "primitive " << i;
 
         std::vector<int> slotSeen(count, 0);
         EXPECT_EQ(CheckNode(nodes, 0, prims, order, slotSeen), count);
-        for (size_t i = 0; i < count; ++i) ASSERT_EQ(slotSeen[i], 1) << "slot " << i;           // leaves partition [0, n)
+        for (size_t i = 0; i < count; ++i) ASSERT_EQ(slotSeen[i], 1) << "slot " << i;
     }
 }
 
-TEST(BVHBuilder, SerialBuildWithoutAJobSystem) {
-    Shard::Tests::TestEngineContext context;              // jobSystem == nullptr : everything runs on this thread
+TEST(BVHBuilder, SerialBuild) {
+    Shard::Tests::TestEngineContext context;
     Shard::Engine::Core::SetEngine(&context);
     BuildAndCheck(30000);
     Shard::Engine::Core::SetEngine(nullptr);
 }
 
-TEST(BVHBuilder, ParallelBuildOnTheJobSystemIsAValidTree) {
+TEST(BVHBuilder, ParallelBuildIsValid) {
     JobSystemDesc desc;
     desc.workerCount = 3;
     JobSystem jobs(desc);
     Shard::Tests::TestEngineContext context;
     context.jobSystem = &jobs;
     Shard::Engine::Core::SetEngine(&context);
-    for (int rep = 0; rep < 5; ++rep) BuildAndCheck(60000);   // the top levels are above the parallelisation threshold
+    for (int rep = 0; rep < 5; ++rep) BuildAndCheck(60000);
     Shard::Engine::Core::SetEngine(nullptr);
 }
 
 TEST(BVHBuilder, ConcurrentBuildsShareOnePool) {
-    // What happens when ProbeManager::RebuildScene() is called again before the previous build finished
     JobSystemDesc desc;
     desc.workerCount = 2;
     JobSystem jobs(desc);

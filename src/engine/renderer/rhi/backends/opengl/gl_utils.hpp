@@ -19,7 +19,6 @@ namespace Shard::Engine::Rendering{
         }
     }
 
-    // Drains and logs every pending GL error, tagged with a caller-provided context string.
     inline void CheckGLError(const char* context){
         GLenum err;
         while((err = glGetError()) != GL_NO_ERROR){
@@ -27,16 +26,7 @@ namespace Shard::Engine::Rendering{
         }
     }
 
-    // Redundant-state filter for the OpenGL backend. Every field here mirrors a single, real piece
-    // of GL context state (the currently bound program/VAO, whether depth test is enabled, ...), so
-    // skipping the call when the desired value already matches what's cached is always correct : it
-    // just avoids a driver round-trip that would have been a no-op. GLPipeline::Bind() used to issue
-    // ~9 such calls unconditionally on every single draw command, even though consecutive draws
-    // usually share the same pipeline/material.
-    //
-    // Call Reset() whenever GL state may have changed through code that doesn't go through this
-    // cache (ImGui, compute dispatches, ...) so the next bind reflects reality instead of a stale
-    // assumption. This is currently done once per render pass (see GLRendererAPI::Clear()).
+    // Redundant-state filter. Call Reset() when GL state changes outside it (ImGui, compute), done once per pass.
     class GLStateCache {
         public:
             static void Reset(){
@@ -74,8 +64,7 @@ namespace Shard::Engine::Rendering{
                 s_VAOValid = true;
             }
 
-            // A depth sweep (see RendererAPI::SetDepthSweep) overrides what the pipelines ask for : Prepass writes depth
-            // with LESS, Equal tests with EQUAL and writes nothing. Changing the mode forgets the cached depth state.
+            // Depth sweep overrides the pipeline: Prepass writes with LESS, Equal tests EQUAL and writes nothing.
             enum class DepthMode { Normal, Prepass, Equal };
 
             static void SetDepthMode(DepthMode mode){
@@ -173,9 +162,6 @@ namespace Shard::Engine::Rendering{
                 s_BlendEqValid = true;
             }
 
-            // Forces every subsequent draw to rasterize as lines regardless of the pipeline's own
-            // polygon mode (editor wireframe views), with a small bias so lines win the depth test
-            // against a filled sweep of the same geometry.
             static void SetForceLine(bool force){
                 if (s_ForceLine == force)
                     return;
@@ -201,23 +187,8 @@ namespace Shard::Engine::Rendering{
                 s_PolygonModeValid = true;
             }
 
-            // Camera/light uniforms (uProjection, uView, camPos, lightNB, ambientColor, skybox
-            // IBL textures) are constant for every draw call in a pass and are set directly on the
-            // currently bound GL program (glUniform*/texture-unit binds), so they only need
-            // reapplying the first time a given program is used since the last Reset() (once per
-            // pass). Returns true the first time `program` is seen for `kind`, false on every
-            // subsequent call with the same program.
-            //
-            // NOT valid for anything that instead writes into a Material instance's own parameter
-            // maps (e.g. shadow map data via ShadowManager::BindShadowMaps) : those are re-uploaded
-            // per-Material by GLMaterial::Bind(), and different Material instances can share the same
-            // program, so gating them per-program would starve every material after the first one
-            // using that program of the data (this caused a real shadow-flicker regression once).
-            //
-            // Each kind gets its own independent slot rather than sharing one flag : whether a draw
-            // command needs camera state is decided per-command (not per-program), so a program's
-            // first use might skip one kind while still needing another later - sharing a single flag
-            // could wrongly suppress that later update.
+            // Pass globals are set once per program per pass. Not valid for Material parameter maps (shadow data):
+            // materials share programs, so later ones would be starved. One slot per kind.
             enum class PassGlobalsKind { World = 0, Camera = 1, DepthSweep = 2, Count = 3 };
 
             static bool NeedsPassGlobalsUpdate(GLuint program, PassGlobalsKind kind){

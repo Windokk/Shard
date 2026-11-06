@@ -22,16 +22,16 @@ namespace Shard::Engine::Rendering {
         int32_t exponent = static_cast<int32_t>((bits >> 23) & 0xFFu) - 127 + 15;
         uint32_t mantissa = bits & 0x7FFFFFu;
 
-        if (((bits >> 23) & 0xFFu) == 0xFFu)                    // inf, nan
+        if (((bits >> 23) & 0xFFu) == 0xFFu)
             return static_cast<uint16_t>(sign | 0x7C00u | (mantissa ? 0x200u : 0u));
 
-        if (exponent >= 31)                                      // too big : infinity
+        if (exponent >= 31)
             return static_cast<uint16_t>(sign | 0x7C00u);
 
         if (exponent <= 0)
         {
             if (exponent < -10)
-                return static_cast<uint16_t>(sign);              // too small : zero
+                return static_cast<uint16_t>(sign);
             mantissa |= 0x800000u;
             const uint32_t shift = static_cast<uint32_t>(14 - exponent);
             uint32_t half = mantissa >> shift;
@@ -42,7 +42,7 @@ namespace Shard::Engine::Rendering {
 
         uint32_t half = sign | (static_cast<uint32_t>(exponent) << 10) | (mantissa >> 13);
         if (mantissa & 0x1000u)
-            half++;                                              // round to nearest
+            half++;
         return static_cast<uint16_t>(half);
     }
 
@@ -59,7 +59,6 @@ namespace Shard::Engine::Rendering {
                 bits = sign;
             else
             {
-                // a subnormal half is a normal float
                 exponent = 127 - 15 + 1;
                 while ((mantissa & 0x400u) == 0)
                 {
@@ -82,8 +81,6 @@ namespace Shard::Engine::Rendering {
 
     namespace VK {
 
-        /// The texels of the GPU format, made of what the caller of Texture2D::Create gave (see TextureSpecifications) : an RGB texture gets
-        /// its fourth channel, float pixel data becomes half floats where the texture holds halves.
         std::vector<uint8_t> ConvertSourcePixels(const TextureSpecifications& specs, const void* data, VkFormat format, uint32_t width, uint32_t height)
         {
             const size_t texels = size_t(width) * height;
@@ -130,7 +127,7 @@ namespace Shard::Engine::Rendering {
                                 }
                             }
                             else
-                                value = FloatToHalf(1.0f);          // the alpha an RGB texture does not have
+                                value = FloatToHalf(1.0f);
                             destination[i * gpuChannels + c] = value;
                         }
                     }
@@ -162,7 +159,6 @@ namespace Shard::Engine::Rendering {
                 case TextureInternalFormat::Depth24:
                 case TextureInternalFormat::Depth32:
                 {
-                    // Normalised unsigned integers (OpenGL's GL_UNSIGNED_INT depth) become the floats the depth format holds
                     float* destination = reinterpret_cast<float*>(out.data());
                     const uint32_t* integers = reinterpret_cast<const uint32_t*>(source);
                     for (size_t i = 0; i < texels; i++)
@@ -215,7 +211,7 @@ namespace Shard::Engine::Rendering {
         else
         {
             if (SupportsColorAttachment(format))
-                info.usage |= VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT;  // what the generators of the image based lighting draw into
+                info.usage |= VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT;
             if (storage)
                 info.usage |= VK_IMAGE_USAGE_STORAGE_BIT;
         }
@@ -267,7 +263,6 @@ namespace Shard::Engine::Rendering {
         }
         else
         {
-            // No pixels : zeros, which is what a texture made for a compute shader to write starts as
             context.ImmediateSubmit([&](VkCommandBuffer cmd) {
                 image.Transition(cmd, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL);
 
@@ -410,7 +405,6 @@ namespace Shard::Engine::Rendering {
         Image& image = m_Resource.image;
         Context& context = Context::Get();
 
-        // What was drawn or computed into it has to be done
         context.EnsureOutsideRendering();
         context.Flush();
 
@@ -454,7 +448,6 @@ namespace Shard::Engine::Rendering {
         const uint8_t* source = gpu;
         size_t sourceBytes = static_cast<size_t>(bytes);
 
-        // Back to what a caller of Texture2D::Create gave : the alpha an RGB texture does not have goes, halves become floats
         switch (m_Specifications.internalFormat)
         {
             case TextureInternalFormat::RGB:

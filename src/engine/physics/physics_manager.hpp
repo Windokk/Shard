@@ -55,7 +55,7 @@ inline JPH::Quat ToJolt(const glm::quat& q)
     return JPH::Quat(n.x, n.y, n.z, n.w);
 }
 
-/// A vector (a size, an offset, a velocity, a force, an impulse) : Jolt keeps these in float, whatever the precision of positions
+// Jolt vectors are float regardless of position precision.
 inline JPH::Vec3 ToJolt(const glm::vec3& v)
 {
     return JPH::Vec3(v.x, v.y, v.z);
@@ -71,7 +71,7 @@ inline glm::quat ToGLM(const JPH::Quat& q)
     );
 }
 
-/// Jolt's positions are doubles (JPH_DOUBLE_PRECISION, large worlds) : these keep all of them
+// Jolt positions are double (JPH_DOUBLE_PRECISION).
 inline JPH::RVec3 ToJolt(const glm::dvec3& v)
 {
     return JPH::RVec3(v.x, v.y, v.z);
@@ -116,30 +116,25 @@ namespace Shard::Engine::Physics
 
     inline void TraceImpl(const char *inFMT, ...)
     {
-        // Format the message
         va_list list;
         va_start(list, inFMT);
         char buffer[1024];
         vsnprintf(buffer, sizeof(buffer), inFMT, list);
         va_end(list);
 
-        // Print to the TTY
         cout << buffer << endl;
     }
 
     #ifdef JPH_ENABLE_ASSERTS
 
-    // Callback for asserts, connect this to your own assert handler if you have one
     inline bool AssertFailedImpl(const char *inExpression, const char *inMessage, const char *inFile, uint inLine)
     {
-        // Print to the TTY
         cout << inFile << ":" << inLine << ": (" << inExpression << ") " << (inMessage != nullptr? inMessage : "") << endl;
 
-        // Breakpoint
         return true;
     };
 
-    #endif // JPH_ENABLE_ASSERTS
+    #endif
 
 
     namespace Layers
@@ -149,7 +144,6 @@ namespace Shard::Engine::Physics
         static constexpr ObjectLayer NUM_LAYERS = 2;
     };
 
-    /// Class that determines if two object layers can collide
     class ObjectLayerPairFilterImpl : public ObjectLayerPairFilter
     {
     public:
@@ -158,9 +152,9 @@ namespace Shard::Engine::Physics
             switch (inObject1)
             {
             case Layers::NON_MOVING:
-                return inObject2 == Layers::MOVING; // Non moving only collides with moving
+                return inObject2 == Layers::MOVING;
             case Layers::MOVING:
-                return true; // Moving collides with everything
+                return true;
             default:
                 JPH_ASSERT(false);
                 return false;
@@ -168,11 +162,6 @@ namespace Shard::Engine::Physics
         }
     };
 
-    // Each broadphase layer results in a separate bounding volume tree in the broad phase. You at least want to have
-    // a layer for non-moving and moving objects to avoid having to update a tree full of static objects every frame.
-    // You can have a 1-on-1 mapping between object layers and broadphase layers (like in this case) but if you have
-    // many object layers you'll be creating many broad phase trees, which is not efficient. If you want to fine tune
-    // your broadphase layers define JPH_TRACK_BROADPHASE_STATS and look at the stats reported on the TTY.
     namespace BroadPhaseLayers
     {
         static constexpr uint NON_MOVING_IDX = 0;
@@ -184,14 +173,11 @@ namespace Shard::Engine::Physics
         static constexpr uint NUM_LAYERS = 2;
     }
     
-    // BroadPhaseLayerInterface implementation
-    // This defines a mapping between object and broadphase layers.
     class BPLayerInterfaceImpl final : public BroadPhaseLayerInterface
     {
     public:
         BPLayerInterfaceImpl()
         {
-            // Create a mapping table from object to broad phase layer
             mObjectToBroadPhase[Layers::NON_MOVING] = BroadPhaseLayers::NON_MOVING;
             mObjectToBroadPhase[Layers::MOVING] = BroadPhaseLayers::MOVING;
         }
@@ -217,13 +203,12 @@ namespace Shard::Engine::Physics
             default:													JPH_ASSERT(false); return "INVALID";
             }
         }
-    #endif // JPH_EXTERNAL_PROFILE || JPH_PROFILE_ENABLED
+    #endif
 
     private:
         BroadPhaseLayer	mObjectToBroadPhase[Layers::NUM_LAYERS];
     };
 
-    /// Class that determines if an object layer can collide with a broadphase layer
     class ObjectVsBroadPhaseLayerFilterImpl : public ObjectVsBroadPhaseLayerFilter
     {
     public:
@@ -256,8 +241,6 @@ namespace Shard::Engine::Physics
 
     class PhysicsManager;
 
-    /// Called by Jolt from its jobs (several threads at once, bodies locked) : only records the contacts for its manager, which
-    /// hands them to the scripts once the step is over
     class PhysicsContactListener : public ContactListener
     {
     public:
@@ -332,57 +315,41 @@ namespace Shard::Engine::Physics
         bool hit = false;
         Objects::Components::PhysicsBody* hitBody = nullptr;
         float hitDistance = -1.0f;
-        glm::vec3 point = glm::vec3(0.0f);          ///< where the ray met the body, in the world
-        glm::vec3 normal = glm::vec3(0.0f, 1.0f, 0.0f);     ///< the surface's normal there, pointing out of the body
+        glm::vec3 point = glm::vec3(0.0f);
+        glm::vec3 normal = glm::vec3(0.0f, 1.0f, 0.0f);
     };
 
     class PhysicsManager {
     public:
 
-        /// @param deterministic  the simulation runs on the calling thread only : Jolt gives the same result on any number of
-        /// threads, but the order of the contact callbacks (and so of what the scripts do in them) depends on which job ran first
+        // `deterministic`: simulate on the calling thread. Results match on any thread count but contact callback order does not.
         void Init(glm::vec3 gravity, bool deterministic = false);
         void Shutdown();
 
         RaycastResult RayCast(RaycastRequest request);
 
-        /// The physics component of a body (null for a body no component made : the colliders plugins build, see shard.physics)
         Objects::Components::PhysicsBody* ComponentOf(JPH::BodyID id) const { return FindComponent(id); }
 
-        /// World units per second squared. Expressed in the project's own units, so a project where
-        /// one unit isn't one metre needs this scaled accordingly rather than left at 9.81.
+        // World units per second squared. Scale it if a unit is not a metre.
         void SetGravity(glm::vec3 gravity);
         glm::vec3 GetGravity();
 
-        // ---------------- Gravity fields ----------------
-        // Jolt has one gravity for the whole system. The fields and the per-body gravity are done on top of it : before every step each
-        // active dynamic body gets, as a force, the difference between the gravity it should feel and the one Jolt will give it
-        // (see ApplyGravityFields). A project without fields and with every body on the world's gravity pays nothing for it.
+        // Jolt has one gravity. Fields and per-body gravity are applied on top as a force (difference from Jolt's), so no fields means no cost.
 
-        /// Replaces the gravity fields the steps solve : plain numbers, whoever made them (see GravityField::BuildData). Their `order`
-        /// breaks the ties between two of the same priority. A sleeping body is woken when the new fields change its gravity.
         void SetGravityFields(std::vector<GravityFieldData> fields);
 
-        /// SetGravityFields with the active gravity fields of the loaded worlds. The engine runs it before every step.
         void CollectGravityFields();
 
         const std::vector<GravityFieldData>& GetGravityFields() const { return m_GravityFields; }
 
-        /// The gravity a body of the default mode (see GravityMode::Fields) feels at `position` of the root frame : the fields and the
-        /// gravity of the world, before any gravity factor
         glm::vec3 GetGravityAt(const glm::dvec3& position);
 
-        /// Where the gravity of a body comes from. The default (GravityMode::Fields) is not kept. Wakes the body up.
         void SetBodyGravity(JPH::BodyID id, GravityMode mode, glm::vec3 custom);
 
-        /// The gravity a body feels now : by its mode, at its center of mass, before its gravity factor
         glm::vec3 GetBodyGravity(JPH::BodyID id);
 
-        /// One step, then the contact callbacks of the scripts (OnContactAdded / Persisted / Ended) for what the step found :
-        /// on the calling thread, after Jolt is done, in an order that doesn't depend on which of Jolt's jobs ran first
         void StepSimulation(float deltaTime, bool activateAll);
 
-        /// Fixed steps simulated so far : tells a body whether the pose it reads from Jolt is a new one (see PhysicsBody::GetInterpolationOffset)
         uint64_t GetStepCount() const { return m_StepCount; }
 
         void TickBodies(float deltaTime);
@@ -390,7 +357,6 @@ namespace Shard::Engine::Physics
         JPH::BodyID CreateBody(const JPH::BodyCreationSettings& settings, Objects::Components::PhysicsBody* component, JPH::EActivation activation = JPH::EActivation::Activate);
         void RemoveBody(JPH::BodyID id);
 
-        /// False before Init() and after Shutdown() : the bodies are gone with the system, nothing may be asked of it
         bool IsInitialized() const { return initialized; }
 
         JPH::BodyInterface& GetBodyInterface() {
@@ -407,48 +373,40 @@ namespace Shard::Engine::Physics
         
     private:
 
-        /// A contact reported by Jolt during the step, kept until the step is over. The manifold and settings are copies : what a
-        /// script changes in the settings no longer affects the contact (it has already been solved).
         struct PendingContact {
             enum class Kind : uint8_t { Added, Persisted, Removed };
             Kind kind = Kind::Added;
             JPH::BodyID body1, body2;
             JPH::SubShapeID subShape1, subShape2;
-            ContactManifold manifold;               // Added / Persisted
+            ContactManifold manifold;
             ContactSettings settings;
         };
 
-        /// Adds to every active dynamic body the force that makes the gravity it feels (see GetBodyGravity) what Jolt does not give it
         void ApplyGravityFields();
 
-        /// Wakes the sleeping bodies whose gravity is not the one they fell asleep in, after the fields changed
         void WakeBodiesOfChangedGravity();
 
-        /// The gravity of a body at the position of its center of mass
         glm::vec3 BodyGravityAt(JPH::BodyID id, const glm::dvec3& position, const glm::vec3& world) const;
 
-        // From Jolt's jobs : any thread, under m_ContactMutex
         void QueueContact(PendingContact::Kind kind, const Body &body1, const Body &body2, const ContactManifold &contactManifold, const ContactSettings &contactSettings);
         void QueueContactRemoved(const SubShapeIDPair &pair);
 
-        /// Hands the contacts of the step that just ended to the scripts of both actors, sorted (kind, body ids, sub-shapes)
         void DispatchContacts();
         void DispatchContact(const PendingContact& contact, JPH::BodyID selfID, JPH::BodyID otherID);
         Objects::Components::PhysicsBody* FindComponent(JPH::BodyID id) const;
-        /// The scripts of an actor, looked up once per dispatch instead of once per contact
         const std::vector<std::shared_ptr<Objects::Components::Script>>& ScriptsOf(Objects::Actor& actor);
 
         std::unordered_map<JPH::BodyID, Objects::Components::PhysicsBody*> bodyIDToComponentMap;
 
-        std::vector<GravityFieldData> m_GravityFields;      // sorted (SortGravityFields)
-        bool m_GravityFieldsChanged = false;                // since the last step
-        std::unordered_map<JPH::BodyID, BodyGravity> m_BodyGravity;         // the bodies that are not on GravityMode::Fields
-        std::unordered_map<JPH::BodyID, glm::vec3> m_AppliedGravity;        // the gravity a body felt the last step it was active in
-        JPH::BodyIDVector m_ActiveBodies;                   // scratch, kept for its capacity
+        std::vector<GravityFieldData> m_GravityFields;
+        bool m_GravityFieldsChanged = false;
+        std::unordered_map<JPH::BodyID, BodyGravity> m_BodyGravity;
+        std::unordered_map<JPH::BodyID, glm::vec3> m_AppliedGravity;
+        JPH::BodyIDVector m_ActiveBodies;
 
         std::mutex m_ContactMutex;
-        std::vector<PendingContact> m_PendingContacts;          // filled by Jolt's jobs
-        std::vector<PendingContact> m_DispatchedContacts;       // the ones being handed out (swapped, so both keep their capacity)
+        std::vector<PendingContact> m_PendingContacts;
+        std::vector<PendingContact> m_DispatchedContacts;
         std::vector<uint32_t> m_DispatchOrder;
         std::unordered_map<Objects::Actor*, std::vector<std::shared_ptr<Objects::Components::Script>>> m_ScriptCache;
 

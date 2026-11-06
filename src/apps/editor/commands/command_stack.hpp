@@ -46,8 +46,6 @@ namespace Shard::Editor::Commands{
                 PushToHistory(std::move(finished));
             }
 
-            /// A command for an edit that is already done : into the group being recorded if there is one, else
-            /// straight into the history
             void Record(std::unique_ptr<Command> cmd) {
                 if (!cmd)
                     return;
@@ -97,8 +95,7 @@ namespace Shard::Editor::Commands{
                 ObjectRefs::Clear();
             }
 
-            /// How many actions Undo can go back (the Editor Preferences' undo history). Nothing is forgotten here : the oldest
-            /// actions over the limit go when the next one is recorded, so a value dragged down then back up loses nothing.
+            // Over-limit actions drop when the next one is recorded, so dragging the value down then back up loses nothing.
             void SetMaxHistory(size_t count) {
                 maxHistory = std::max<size_t>(count, 1);
             }
@@ -106,12 +103,10 @@ namespace Shard::Editor::Commands{
             size_t GetMaxHistory() const { return maxHistory; }
 
         private:
-            /// Not in the middle of recording an edit (a gizmo drag), nor in play mode : the history is the edited world's
             bool CanStep() const {
                 return activeStack.empty() && !Engine::Core::GetEngine().IsInPlayMode();
             }
 
-            /// Undo and redo change the world like any other edit
             static void MarkWorldDirty() {
                 if (auto* world = Engine::Core::GetEngine().GetWorldManager()->GetWorldAt(0))
                     world->SetDirty(true);

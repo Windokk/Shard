@@ -28,7 +28,6 @@ namespace Shard::Engine::Core::Platform {
 
         void QueryCoreCounts(CpuInfo& out)
         {
-            // Physical cores = distinct (physical id, core id) pairs of /proc/cpuinfo
             std::ifstream file("/proc/cpuinfo");
             std::string line;
             std::set<std::pair<std::string, std::string>> cores;
@@ -50,7 +49,6 @@ namespace Shard::Engine::Core::Platform {
     }
 
     namespace {
-        // "MemTotal:  16314988 kB" -> bytes
         uint64_t ReadKiloBytes(const std::string& path, const std::string& key)
         {
             std::ifstream file(path);
@@ -83,8 +81,6 @@ namespace Shard::Engine::Core::Platform {
 
     uint64_t ProcessGpuMemoryUsage()
     {
-        // No per-process counter on Linux : the VRAM in use of the first AMD card (sysfs). NVIDIA (NVML) and
-        // Intel have no equivalent exposed there.
         std::ifstream vendorFile("/sys/class/drm/card0/device/vendor");
         if (!vendorFile.good())
             return 0;

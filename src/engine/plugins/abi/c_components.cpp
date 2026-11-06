@@ -20,9 +20,6 @@
 #include "engine/world/actor.hpp"
 #include "engine/world/ecs_components.hpp"
 
-// shard.components : a type described by a C plugin is an ECS component (its block of bytes, what systems work on) and an actor component
-// (CAbiComponent : what a world saves and the inspector shows), the second keeping the first up to date on the actor's entity.
-
 namespace Shard::Engine::Plugins::CAbi {
 
     namespace {
@@ -31,17 +28,17 @@ namespace Shard::Engine::Plugins::CAbi {
         static_assert(sizeof(ShardActorLink) == sizeof(Worlds::ActorLink), "ShardActorLink mirrors Worlds::ActorLink");
 
         struct CType : FieldSet {
-            std::string name;                       // full : "<plugin id>.<name>"
+            std::string name;
             PluginOwner owner = 0;
             Core::Ecs::ComponentId ecs = Core::Ecs::kInvalidComponent;
             uint32_t size = 0;
             uint32_t align = 0;
             std::vector<unsigned char> defaults;
-            ShardComponentCallbacks callbacks{};    // 1.4 : what to tell the plugin (all null : nothing)
+            ShardComponentCallbacks callbacks{};
         };
 
         std::mutex gTypesMutex;
-        std::map<std::string, std::shared_ptr<CType>> gTypes;  // the types of the plugins that are enabled, by full name
+        std::map<std::string, std::shared_ptr<CType>> gTypes;
 
         struct FieldLayout {
             TypeID type;
@@ -76,10 +73,10 @@ namespace Shard::Engine::Plugins::CAbi {
                 case SHARD_FIELD_VEC4: out = Layout<glm::vec4>(TypeID::Vec4); return true;
                 case SHARD_FIELD_QUAT: out = Layout<glm::quat>(TypeID::Quat); return true;
                 case SHARD_FIELD_COLOR: out = Layout<glm::vec4>(TypeID::ColorRGBA); return true;
-                case SHARD_FIELD_BLOB: out = Layout<uint64_t>(TypeID::UInt64); return true;      // never reflected : saved by CAbiComponent
-                case SHARD_FIELD_STRING: out = Layout<uint64_t>(TypeID::UInt64); return true;    // the block holds a blob handle ; the std::string beside it is what is reflected
+                case SHARD_FIELD_BLOB: out = Layout<uint64_t>(TypeID::UInt64); return true;
+                case SHARD_FIELD_STRING: out = Layout<uint64_t>(TypeID::UInt64); return true;
                 case SHARD_FIELD_ASSET: out = Layout<Filesystem::AssetID>(TypeID::Asset); return true;
-                case SHARD_FIELD_ACTOR: out = Layout<uint64_t>(TypeID::UInt64); return true;      // a handle ; the path in a std::string beside it is what is reflected
+                case SHARD_FIELD_ACTOR: out = Layout<uint64_t>(TypeID::UInt64); return true;
                 default: return false;
             }
         }
@@ -93,7 +90,6 @@ namespace Shard::Engine::Plugins::CAbi {
 
         ShardComponentType Handle(Core::Ecs::ComponentId id) { return ShardComponentType(id) + 1; }
 
-        // The ECS id behind a handle, if the global ECS registry knows it
         bool EcsIdOf(ShardComponentType type, Core::Ecs::ComponentId& out)
         {
             if (type == 0 || type > uint64_t(Core::Ecs::ComponentRegistry::Global().Count())) return false;
@@ -109,8 +105,6 @@ namespace Shard::Engine::Plugins::CAbi {
             for (const auto& kv : gTypes) if (kv.second->ecs == id) return kv.second;
             return nullptr;
         }
-
-        // ---- Base64 : how a blob is saved in a world file ----
 
         const char* kBase64 = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
 
@@ -153,8 +147,6 @@ namespace Shard::Engine::Plugins::CAbi {
             return true;
         }
 
-        // ---- Blobs : bytes the host keeps for a plugin, counted against its budget ----
-
         struct BlobSlot {
             PluginOwner owner = 0;
             void* data = nullptr;
@@ -165,7 +157,6 @@ namespace Shard::Engine::Plugins::CAbi {
         std::mutex gBlobMutex;
         std::vector<BlobSlot> gBlobs;
 
-        // gBlobMutex held
         BlobSlot* FindBlob(PluginOwner owner, ShardBlob blob)
         {
             const uint64_t index = blob & 0xFFFFFFFFull;
@@ -174,7 +165,6 @@ namespace Shard::Engine::Plugins::CAbi {
             return slot.used && slot.owner == owner && slot.generation == uint32_t(blob >> 32) ? &slot : nullptr;
         }
 
-        // gBlobMutex held : the slot is free again, its handle stale
         void EmptySlot(BlobSlot& slot)
         {
             const uint32_t generation = slot.generation + 1 == 0 ? 1 : slot.generation + 1;
@@ -182,7 +172,7 @@ namespace Shard::Engine::Plugins::CAbi {
             slot.generation = generation;
         }
 
-        // The memory of a blob : at least 1 byte, so that an empty blob is a valid pointer too
+        // At least 1 byte so an empty blob is still a valid pointer.
         void* AllocateBlob(PluginContext& ctx, uint64_t size)
         {
             void* data = ctx.Memory().Allocate(size_t(size ? size : 1), 16);
@@ -204,7 +194,6 @@ namespace Shard::Engine::Plugins::CAbi {
             return (ShardBlob(slot.generation) << 32) | ShardBlob(index + 1);
         }
 
-        // Takes the slot out of the table and gives its memory back (false : not one of `owner`'s)
         bool DropBlob(PluginOwner owner, ShardBlob blob, PluginContext& ctx)
         {
             void* data = nullptr;
@@ -266,7 +255,7 @@ namespace Shard::Engine::Plugins::CAbi {
                 {
                     std::lock_guard<std::mutex> lock(gBlobMutex);
                     BlobSlot* slot = FindBlob(PluginOwner(handle), blob);
-                    if (!slot || slot->data != old) {       // freed or resized meanwhile
+                    if (!slot || slot->data != old) {
                         ctx->Memory().Free(data);
                         return SHARD_E_STALE_HANDLE;
                     }
@@ -302,7 +291,7 @@ namespace Shard::Engine::Plugins::CAbi {
                         return SHARD_OK;
                     }
                     if (resized != SHARD_E_STALE_HANDLE) return resized;
-                    *field = 0;                     // not a live blob of this plugin : the field gets a new one
+                    *field = 0;
                 }
                 ShardBlob blob = 0;
                 const ShardResult created = BlobCreate(handle, text.size, &blob);
@@ -332,8 +321,6 @@ namespace Shard::Engine::Plugins::CAbi {
             } catch (...) { return SHARD_E_INTERNAL; }
         }
 
-        // ---- The actor component ----
-
         class CAbiComponent final : public Objects::Components::Component {
         public:
             CAbiComponent(std::shared_ptr<Objects::Actor> parent, uint32_t localId, std::shared_ptr<const CType> type)
@@ -355,7 +342,6 @@ namespace Shard::Engine::Plugins::CAbi {
 #endif
             }
 
-            /// Where the std::string of the n-th SHARD_FIELD_STRING field is in the object : the offset the reflection reads it at
             static size_t TextOffset(int n)
             {
 #if defined(__GNUC__) || defined(__clang__)
@@ -373,7 +359,6 @@ namespace Shard::Engine::Plugins::CAbi {
                 Pull();
                 auto copy = Core::Object::Create<CAbiComponent>(nullptr, 0, m_Type);
                 std::memcpy(copy->m_Storage, m_Storage, m_Type->size);
-                // The copy owns copies of the blobs : what play mode does to them stays in play mode
                 for (const CField* f : m_Type->blobs) copy->SetBlob(*f, CopyBlob(m_Type->owner, Blob(*f)));
                 for (const CField* f : m_Type->texts) {
                     copy->SetBlob(*f, CopyBlob(m_Type->owner, Blob(*f)));
@@ -396,12 +381,12 @@ namespace Shard::Engine::Plugins::CAbi {
                     FreeBlob(m_Type->owner, Blob(*f));
                     SetBlob(*f, BlobFromBytes(m_Type->owner, bytes));
                 }
-                DeserializeActive(componentData, true);         // Activate pushes the values read
+                DeserializeActive(componentData, true);
             }
 
             ordered_json Serialize() override
             {
-                Pull();             // what the systems changed is what is saved
+                Pull();
                 ordered_json out = SerializeReflected(m_Type->name);
                 for (const CField* f : m_Type->blobs) {
                     std::string bytes;
@@ -461,7 +446,6 @@ namespace Shard::Engine::Plugins::CAbi {
             }
             Core::Ecs::Entity EntityOf() const { return parent ? parent->GetEntity() : Core::Ecs::kNullEntity; }
 
-            // The values of this component onto the actor's entity (added there if it has none yet, when that is allowed now)
             void Push()
             {
                 if (!activated) return;
@@ -479,7 +463,6 @@ namespace Shard::Engine::Plugins::CAbi {
                 if (ecs.CanChangeStructure()) ecs.AddRaw(entity, m_Type->ecs, m_Storage);
             }
 
-            // Calls the plugin (1.4) with the actor and the entity, crediting it with the time and the blame
             template <typename Fn>
             void Call(Fn&& fn)
             {
@@ -493,7 +476,6 @@ namespace Shard::Engine::Plugins::CAbi {
                 try { fn(m_Type->callbacks, ActorHandle(parent), entity); } catch (...) {}
             }
 
-            // The first time the component is on a live entity of an active actor
             void NotifyAdded()
             {
                 if (m_Live) return;
@@ -501,13 +483,11 @@ namespace Shard::Engine::Plugins::CAbi {
                 if (!m_Type->callbacks.on_added) return;
                 Pull();
                 Call([&](const ShardComponentCallbacks& cb, uint64_t actor, uint64_t entity) { cb.on_added(cb.user, ShardPluginCtx(m_Type->owner), actor, entity, m_Storage); });
-                // What the plugin set in the block goes to the entity
                 Core::Ecs::Registry* ecs = Ecs();
                 const Core::Ecs::Entity entity = EntityOf();
                 if (ecs && ecs->IsAlive(entity)) PushValues(*ecs, entity);
             }
 
-            // Before the component leaves the entity
             void NotifyRemoved()
             {
                 if (!m_Live) return;
@@ -517,7 +497,6 @@ namespace Shard::Engine::Plugins::CAbi {
                 Call([&](const ShardComponentCallbacks& cb, uint64_t actor, uint64_t entity) { cb.on_removed(cb.user, ShardPluginCtx(m_Type->owner), actor, entity, m_Storage); });
             }
 
-            // The text of each string field into the blob its handle designates (a new blob when it has none yet) : what systems read
             void PushTexts()
             {
                 for (const CField* f : m_Type->texts) {
@@ -529,7 +508,6 @@ namespace Shard::Engine::Plugins::CAbi {
                 }
             }
 
-            // What the systems wrote on the entity back into this component
             void Pull() const
             {
                 Core::Ecs::Registry* ecs = Ecs();
@@ -538,7 +516,6 @@ namespace Shard::Engine::Plugins::CAbi {
                 const void* at = ecs->GetRaw(entity, m_Type->ecs);
                 if (!at) return;
                 std::memcpy(m_Storage, at, m_Type->size);
-                // The text a system wrote into the blobs
                 for (const CField* f : m_Type->texts) {
                     std::string bytes;
                     if (!BlobBytes(m_Type->owner, Blob(*f), bytes)) bytes.clear();
@@ -554,12 +531,10 @@ namespace Shard::Engine::Plugins::CAbi {
             }
 
             alignas(16) mutable unsigned char m_Storage[SHARD_COMPONENT_MAX_SIZE];
-            mutable std::string m_Text[SHARD_COMPONENT_MAX_STRINGS];        // the string fields, as the inspector and the world file see them
+            mutable std::string m_Text[SHARD_COMPONENT_MAX_STRINGS];
             std::shared_ptr<const CType> m_Type;
-            bool m_Live = false;                                            // on_added was called and on_removed was not
+            bool m_Live = false;
         };
-
-        // ---- The table ----
 
         ShardResult SHARD_CALL RegisterType(ShardPluginCtx handle, const ShardComponentDesc* desc, ShardComponentType* out)
         {
@@ -571,7 +546,7 @@ namespace Shard::Engine::Plugins::CAbi {
                 if (!OnMainThread()) return SHARD_E_WRONG_THREAD;
                 auto refuse = [&](const std::string& why) { ctx->Error("component type : " + why); return SHARD_E_INVALID_ARG; };
 
-                // The description of ABI 1.0 to 1.3 ends at `defaults` ; `callbacks` came with 1.4
+                // ABI 1.0 to 1.3 descriptors end at `defaults`, `callbacks` came with 1.4.
                 if (desc->structSize < offsetof(ShardComponentDesc, callbacks)) return refuse("its ShardComponentDesc is too small");
                 const std::string local = ToString(desc->name);
                 if (!IsIdentifier(local, true)) return refuse("'" + local + "' is not a type name (letters, digits, '_' and '.')");
@@ -594,14 +569,14 @@ namespace Shard::Engine::Plugins::CAbi {
 
                 std::string why;
                 if (!BuildFieldSet(*type, full, desc->fields, desc->fieldCount, desc->size, CAbiComponent::StorageOffset(), CAbiComponent::TextOffset(0), false, why)) return refuse(why);
-                // A default blob would be shared by every new component : a blob field starts empty
+                // A default blob would be shared by every new component, so blob fields start empty.
                 if (!type->defaults.empty()) ZeroHandleFields(*type, type->defaults.data());
 
                 {
                     std::lock_guard<std::mutex> lock(gTypesMutex);
                     if (gTypes.count(full)) return SHARD_E_ALREADY_EXISTS;
                 }
-                // The ECS id is the process's : the same name gets the same id back, which only works for the same layout
+                // ECS id is per process: same name gets the same id back, valid only for the same layout.
                 const std::string ecsName = "c:" + full;
                 type->ecs = Core::Ecs::ComponentRegistry::Global().Register(ecsName.c_str(), desc->size, desc->align);
                 const Core::Ecs::ComponentInfo& ecsInfo = Core::Ecs::ComponentRegistry::Global().Info(type->ecs);
@@ -653,7 +628,6 @@ namespace Shard::Engine::Plugins::CAbi {
             } catch (...) { return SHARD_E_INTERNAL; }
         }
 
-        // Fills what fits of the caller's struct (it set out->structSize)
         ShardResult DescribeField(const CField& field, ShardFieldDesc* out)
         {
             if (!out || out->structSize < sizeof(uint32_t)) return SHARD_E_INVALID_ARG;
@@ -793,7 +767,7 @@ namespace Shard::Engine::Plugins::CAbi {
     {
         auto refuse = [&](const std::string& what) { why = what; return false; };
         out.descriptor.name = full;
-        std::vector<std::pair<uint32_t, uint32_t>> spans;      // [offset, end) of every field
+        std::vector<std::pair<uint32_t, uint32_t>> spans;
         for (uint32_t i = 0; i < count; ++i) {
             const ShardFieldDesc& f = fields[i];
             if (f.structSize < sizeof(ShardFieldDesc)) return refuse("'" + full + "' : field " + std::to_string(i) + " has a ShardFieldDesc too small");
@@ -831,8 +805,6 @@ namespace Shard::Engine::Plugins::CAbi {
 
             if (kept.type == SHARD_FIELD_BLOB) { out.blobs.push_back(&kept); continue; }
             if (kept.type == SHARD_FIELD_STRING || kept.type == SHARD_FIELD_ACTOR) {
-                // The storage holds the blob (or the handle of the actor, or the plugin's own string) ; the inspector and the world file work
-                // on the std::string beside it
                 out.texts.push_back(&kept);
                 const FieldLayout text = Layout<std::string>(TypeID::String);
                 FieldInfo info{};
@@ -870,7 +842,7 @@ namespace Shard::Engine::Plugins::CAbi {
     void ZeroHandleFields(const FieldSet& set, unsigned char* storage)
     {
         for (const CField* f : set.blobs) SetHandleAt(storage, *f, 0);
-        for (const CField* f : set.texts) if (!f->accessor) SetHandleAt(storage, *f, 0);      // an accessor string is the plugin's memory, not a handle
+        for (const CField* f : set.texts) if (!f->accessor) SetHandleAt(storage, *f, 0);
     }
 
     void PullTexts(const FieldSet& set, PluginOwner owner, const unsigned char* storage, std::string* texts, FieldHooks* hooks)
@@ -884,7 +856,7 @@ namespace Shard::Engine::Plugins::CAbi {
             } else if (f->actor) {
                 const ShardActor handle = HandleAt(storage, *f);
                 if (handle && hooks && hooks->actorPath) texts[f->text] = hooks->actorPath(handle);
-                else if (!handle && !(hooks && hooks->pending[f->text])) texts[f->text].clear();      // a path still waiting for its actor is kept
+                else if (!handle && !(hooks && hooks->pending[f->text])) texts[f->text].clear();
             } else {
                 std::string bytes;
                 if (!BlobBytes(owner, HandleAt(storage, *f), bytes)) bytes.clear();
@@ -949,7 +921,7 @@ namespace Shard::Engine::Plugins::CAbi {
     {
         for (const CField* f : set.blobs) { FreeBlob(owner, HandleAt(storage, *f)); SetHandleAt(storage, *f, 0); }
         for (const CField* f : set.texts) {
-            if (f->accessor) continue;                          // the plugin's string : its destructor frees it
+            if (f->accessor) continue;
             if (!f->actor) FreeBlob(owner, HandleAt(storage, *f));
             SetHandleAt(storage, *f, 0);
         }
@@ -959,7 +931,7 @@ namespace Shard::Engine::Plugins::CAbi {
     {
         for (const CField& f : set.fields) {
             if (f.accessor || f.actor) {
-                toTexts[f.text] = fromTexts[f.text];            // the caller pushes it : an accessor into the new object, an actor reference once the copy is in a world
+                toTexts[f.text] = fromTexts[f.text];
             } else if (f.type == SHARD_FIELD_BLOB || f.type == SHARD_FIELD_STRING) {
                 SetHandleAt(to, f, CopyBlob(owner, HandleAt(from, f)));
                 if (f.type == SHARD_FIELD_STRING) toTexts[f.text] = fromTexts[f.text];

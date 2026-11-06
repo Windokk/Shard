@@ -12,7 +12,6 @@
 namespace Shard::Engine::Worlds {
 
     namespace {
-        /// Every actor of the world, the children included, parents first
         std::vector<std::shared_ptr<Objects::Actor>> AllActors(World& world)
         {
             std::vector<std::shared_ptr<Objects::Actor>> out;
@@ -156,7 +155,6 @@ namespace Shard::Engine::Worlds {
     }
 
     namespace {
-        /// `name` is the tag or a tag under it
         bool NamesTag(const std::string& name, const std::string& tagName)
         {
             return name == tagName || (name.size() > tagName.size() && name.compare(0, tagName.size(), tagName) == 0 && name[tagName.size()] == '.');
@@ -172,7 +170,6 @@ namespace Shard::Engine::Worlds {
             return false;
         }
 
-        /// A string that is a tag or a query (it parses as one) and names the tag
         bool MentionsTag(const std::string& text, const std::string& tagName)
         {
             std::string token;
@@ -196,7 +193,6 @@ namespace Shard::Engine::Worlds {
             if (!mentions)
                 return false;
 
-            // Names side by side ("Enemy camp") are a sentence, not a query. Parsed without keeping anything : no name is reported
             Core::TagQuery query;
             return Core::TagQuery::TryParse(text, query, nullptr, false);
         }

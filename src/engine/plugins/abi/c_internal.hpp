@@ -16,10 +16,6 @@
 
 #include "engine/plugins/context.hpp"
 
-// Shared by the files of the host side of the C ABI (src/engine/plugins/abi) : not an API of the engine. Each interface lives in a file of its
-// own (c_components.cpp, c_systems.cpp...) that builds its table ; c_plugin.cpp hands the tables out (query_interface) and forgets the handles
-// of a plugin when its context releases everything.
-
 namespace Shard::Engine::Core::Ecs { struct SystemContext; }
 namespace Shard::Engine::Objects { class Actor; }
 namespace Shard::Engine::Events {
@@ -30,25 +26,15 @@ namespace Shard::Engine::Events {
 
 namespace Shard::Engine::Plugins::CAbi {
 
-    // ---- Plugins ----
-
-    /// The context a ShardPluginCtx designates, null once the plugin's context released everything (the handle outlived it)
     PluginContext* FindContext(ShardPluginCtx handle);
-    /// Whether that plugin may use the "shard.experimental.*" interfaces (see MayUseExperimental)
     bool ExperimentalAllowed(ShardPluginCtx handle);
-
-    // ---- Strings ----
 
     inline std::string ToString(ShardStr s) { return s.data && s.size ? std::string(s.data, size_t(s.size)) : std::string(); }
     inline ShardStr ToStr(const std::string& s) { return ShardStr{ s.data(), uint64_t(s.size()) }; }
 
-    /// The "text out" of the ABI : at most `capacity` bytes of `text` into `buffer` (no terminator), its full length in *size
     ShardResult CopyOut(const std::string& text, char* buffer, uint64_t capacity, uint64_t* size);
 
-    // ---- Crash attribution ----
-
-    /// @brief Names the plugin as the one whose code runs (the manager's activePlugin, what a crash report names) while a callback of it runs,
-    /// and puts back whoever was named before. Every call from the host into a plugin goes through one.
+    // Names the plugin as active (crash reports use it) while its callback runs, restores the previous one on exit.
     class ActiveScope {
     public:
         ActiveScope(std::atomic<uint32_t>* active, PluginOwner owner) : m_Active(active)
@@ -63,20 +49,13 @@ namespace Shard::Engine::Plugins::CAbi {
         uint32_t m_Previous = 0;
     };
 
-    /// The counter of the context's host : captured when a callback is registered (it lives as long as the manager)
     inline std::atomic<uint32_t>* ActiveCounter(PluginContext& ctx) { return ctx.Bindings().activePlugin; }
 
-    // ---- Threads ----
-
-    /// The thread the plugins are loaded on : noted when the first plugin is bound
     void NoteMainThread();
-    /// True on that thread, outside of a system : where the functions documented "thread : main" may be called
     bool OnMainThread();
-    /// True for the thread the plugins are loaded on (the engine's main thread), whatever it is running
     bool IsMainThreadId(std::thread::id id);
 
-    /// While one lives, this thread runs a callback of a script: the scripts of a world are ticked one after the other, so the functions
-    /// documented "thread : script" (actors, input) are safe there, on whatever thread the engine's script systems landed on.
+    // While alive, this thread is running a script callback. Scripts of a world tick one after another, so "thread: script" functions are safe on any thread the script systems landed on.
     class ScriptScope {
     public:
         ScriptScope();
@@ -84,42 +63,29 @@ namespace Shard::Engine::Plugins::CAbi {
         ScriptScope(const ScriptScope&) = delete;
         ScriptScope& operator=(const ScriptScope&) = delete;
     };
-    /// Inside a script callback, or on the main thread outside the systems: where the functions documented "thread : script" may be called
     bool OnScriptThread();
 
-    // ---- Actors, scripts, input (c_actors.cpp, c_scripts.cpp, c_input.cpp) ----
-
-    /// The handle of an actor (the same one each time while the actor lives), and the actor behind a handle (null: stale or never valid)
     ShardActor ActorHandle(const std::shared_ptr<Objects::Actor>& actor);
     std::shared_ptr<Objects::Actor> ActorOf(ShardActor handle);
 
-    /// The path of an actor in its world, the names from the root joined by '/' ("Level/Enemies/Boss"), "" for a handle that is not an actor any more
     std::string ActorPath(ShardActor handle);
-    /// The actor of the world `anchor` is in that has that path (the first of that name at each level, in the order of the ids), 0 if there is none
     ShardActor ActorAtPath(const std::shared_ptr<Objects::Actor>& anchor, const std::string& path);
 
-    /// The box that holds an actor's model, physics body and children's, in the world (false : it has none). Defined by the engine root
-    /// (c_abi_scene.cpp) : the renderer and the physics are above this layer.
     bool ActorBounds(const std::shared_ptr<Objects::Actor>& actor, float outMin[3], float outMax[3]);
 
-    /// The file a path in the project or a mod:// address names (the plugins' own resource readers : textures, materials)
     bool ResolveProjectFile(PluginContext& ctx, const std::string& path, std::string& file);
 
-    /// shard.assets, the parts that need the renderer's types (c_abi_assets.cpp in the engine root) : the geometry of a mesh asset and the pixels of
-    /// an image asset
     ShardResult AssetMeshInfo(int32_t id, ShardMeshInfo* out);
     ShardResult AssetMeshRead(int32_t id, ShardMeshRead* io);
     ShardResult AssetImageInfo(int32_t id, uint32_t* width, uint32_t* height);
     ShardResult AssetImageRead(int32_t id, uint8_t* out, uint64_t capacity, uint64_t* size);
 
-    /// The plugin's context releases everything: its script types stop being called (the objects that are still in worlds are left alone)
     void ReleaseScripts(PluginOwner owner);
 
-    /// What a script is told about a contact, read from the events of the physics module (which this layer cannot include) by the engine root
-    /// (c_abi_physics.cpp). The normal is Jolt's : from the first body to the second, whichever the script's is.
+    // Normal is Jolt's, first body to second. Decoded in the engine root (c_abi_physics.cpp) because this layer cannot include physics.
     struct ContactInfo {
-        std::shared_ptr<Objects::Actor> other;      ///< the actor of the other body, null if it has none
-        bool hasManifold = false;                   ///< false for the end of a contact : no normal, point or penetration
+        std::shared_ptr<Objects::Actor> other;
+        bool hasManifold = false;
         float normal[3] = {};
         bool hasPoint = false;
         float point[3] = {};
@@ -129,11 +95,8 @@ namespace Shard::Engine::Plugins::CAbi {
     ContactInfo DecodeContact(const Events::ContactPersistedEvent& event);
     ContactInfo DecodeContact(const Events::ContactRemovedEvent& event);
 
-    // ---- System runs (c_systems.cpp) ----
-
     struct CSystem;
 
-    /// An event a system emitted : delivered at the end of the frame, on the main thread (c_events.cpp)
     struct QueuedEvent {
         bool toWorld = false;
         int32_t world = 0;
@@ -141,7 +104,6 @@ namespace Shard::Engine::Plugins::CAbi {
         std::vector<unsigned char> payload;
     };
 
-    /// A pose a system set on the actor behind an entity (shard.ecs set_local_transform) : applied to the actor's Transform at the end of the phase
     struct QueuedPose {
         uint64_t entity = 0;
         ShardLocalTransform pose{};
@@ -150,56 +112,33 @@ namespace Shard::Engine::Plugins::CAbi {
     struct SystemRun {
         ShardEcs handle = 0;
         Core::Ecs::SystemContext* context = nullptr;
-        const CSystem* system = nullptr;            ///< null : may touch any type (shard.experimental.world_ecs)
-        bool mainThread = false;                    ///< opened from the main thread (world_ecs) : not a system, the main thread functions still work
+        const CSystem* system = nullptr;
+        bool mainThread = false;
         std::vector<QueuedEvent> events;
         std::vector<QueuedPose> poses;
     };
 
-    /// The run of a C system in progress on this thread, null outside of one
     SystemRun* CurrentRun();
 
-    /// Keeps the poses a system set until the end of the phase, under the system's name (the order they are applied in)
     void QueuePoses(const std::string& systemName, std::vector<QueuedPose>& poses);
-    /// Gives each pose to the Transform of its actor (main thread, registry not iterated). Poses that find no actor are dropped.
     void ApplyPoses(Core::IEngineContext* engine, const std::vector<QueuedPose>& poses);
 
-    // ---- Events (c_events.cpp) ----
-
-    /// Keeps what a system emitted until the end of the frame, under the system's name (the order of delivery)
     void QueueEvents(const std::string& systemName, std::vector<QueuedEvent>& events);
 
-    // ---- State (c_state.cpp) ----
-
-    /// Makes `writer` (on_prepare_reload) or `reader` (on_restore) reachable through the handle returned, until EndState
     ShardState BeginState(StateWriter* writer, const StateReader* reader);
     void EndState();
 
-    // ---- Fields (c_components.cpp) ----
-
-    /// The size and alignment of a SHARD_FIELD_* type ; false for a type the ABI does not have
     bool FieldLayoutOf(uint32_t type, uint32_t& size, uint32_t& align);
-    /// Letters, digits and '_', not a reserved name
     bool IsFieldName(const std::string& name);
 
-    // ---- The frame (c_frame.cpp calls these) ----
-
-    /// shard.jobs : runs what the plugins posted to the main thread
     void RunMainPosts();
-    /// shard.net : reads the sockets of every plugin and delivers what happened (the start of the frame)
     void NetPollAll();
-    /// shard.debug : the shapes shown for a duration lose the time of the frame that ended (defined by the engine root, c_abi_overlay.cpp)
     void DebugEndFrame();
-    /// shard.debug : every shape goes (the last plugin left)
     void DebugClearAll();
-    /// shard.input : a new frame starts (the events of the last one go) ; a plugin goes (what its UI captured goes with it)
     void InputBeginFrame(uint64_t frame);
     void ReleaseInput(PluginOwner owner);
-    /// shard.physics : the colliders plugins built or changed since the last frame go into the physics world. Defined by the engine root
-    /// (c_abi_physics.cpp). Main thread, while the physics world does not step.
+    // Main thread only, while the physics world is not stepping
     void PhysicsBeginFrame();
-
-    // ---- The interfaces ----
 
     const void* ComponentsApi();
     const void* EcsApi();
@@ -215,7 +154,6 @@ namespace Shard::Engine::Plugins::CAbi {
     const void* ActorsApi();
     const void* ScriptsApi();
     const void* InputApi();
-    /// Physics and audio sit above this layer: these two (and DecodeContact) are defined by the engine root (src/engine/c_abi_physics.cpp, c_abi_audio.cpp)
     const void* PhysicsApi();
     const void* AudioApi();
     const void* WorldsApi();
@@ -227,22 +165,15 @@ namespace Shard::Engine::Plugins::CAbi {
     const void* RenderApi();
     const void* DebugApi();
     const void* EditorApi();
-    /// True once the editor gave its widgets (SetEditorUiBackend) : shard.editor exists only then
     bool EditorUiAvailable();
 
-    /// The plugin's context releases everything : what the interfaces keep about it goes. `ctx` is still there (blobs give its memory back).
     void ReleaseComponents(PluginOwner owner);
     void ReleaseServices(PluginOwner owner);
     void ReleaseBlobs(PluginOwner owner, PluginContext& ctx);
     void CloseWorldEcs(PluginOwner owner);
 
-    // ---- Blobs (c_components.cpp), for the actor components that own theirs ----
-
-    /// A copy of a blob of `owner` (0 if it has none or the plugin is gone)
     ShardBlob CopyBlob(PluginOwner owner, ShardBlob blob);
     void FreeBlob(PluginOwner owner, ShardBlob blob);
-    /// The bytes of a blob (false if it is not one of `owner`'s)
     bool BlobBytes(PluginOwner owner, ShardBlob blob, std::string& out);
-    /// A new blob of `owner` holding `bytes` (0 if the plugin is gone or over its budget)
     ShardBlob BlobFromBytes(PluginOwner owner, const std::string& bytes);
 }

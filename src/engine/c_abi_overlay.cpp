@@ -20,9 +20,6 @@
 #include "engine/world/engine.hpp"
 #include "engine/world/time_manager.hpp"
 
-// shard.render's 2D overlay (the plugin's callback records geometry, scissors and clears into the frame's snapshot) and shard.debug (shapes in the
-// world, projected on the CPU and drawn through that same overlay).
-
 namespace Shard::Engine::Plugins::CAbi {
 
     using namespace Rendering;
@@ -42,9 +39,8 @@ namespace Shard::Engine::Plugins::CAbi {
 
         OwnedTable<OverlayRec> gOverlays;
         OwnedTable<OverlayGeometry> gGeometries;
-        float gViewportOrigin[2] = { 0.0f, 0.0f };      // where the viewport is in the window (the editor says)
+        float gViewportOrigin[2] = { 0.0f, 0.0f };
 
-        // What the overlay being asked to draw is recording into
         struct Recording {
             OverlayProxy* proxy = nullptr;
             PluginOwner owner = 0;
@@ -129,8 +125,6 @@ namespace Shard::Engine::Plugins::CAbi {
 
         const ShardDrawApi kDraw = { sizeof(ShardDrawApi), &DrawGeometry, &SetTransform, &SetScissor, &SetClipMask, &Clear, &DrawTriangles };
 
-        // ---- shard.debug : the shapes, as lines and triangles in the world ----
-
         struct DebugLine { glm::vec3 a, b; uint32_t color; float remaining; };
         struct DebugTriangle { glm::vec3 a, b, c; uint32_t color; float remaining; };
         struct DebugText { glm::vec3 position; bool screen; std::string text; uint32_t color; float remaining; };
@@ -155,7 +149,6 @@ namespace Shard::Engine::Plugins::CAbi {
             if (gLines.size() < kMaxDebugLines) gLines.push_back({ a, b, color, duration });
         }
 
-        // A circle of `radius` around `center` in the plane spanned by u and v
         void AddCircle(const glm::vec3& center, const glm::vec3& u, const glm::vec3& v, float radius, uint32_t color, float duration, int segments = 24)
         {
             glm::vec3 previous = center + u * radius;
@@ -167,7 +160,6 @@ namespace Shard::Engine::Plugins::CAbi {
             }
         }
 
-        // Two vectors perpendicular to `n` and to each other
         void Basis(const glm::vec3& n, glm::vec3& u, glm::vec3& v)
         {
             const glm::vec3 axis = std::abs(n.y) < 0.99f ? glm::vec3(0, 1, 0) : glm::vec3(1, 0, 0);
@@ -280,7 +272,6 @@ namespace Shard::Engine::Plugins::CAbi {
             AddLine(a - u * radius, b - u * radius, color, duration);
             AddLine(a + v * radius, b + v * radius, color, duration);
             AddLine(a - v * radius, b - v * radius, color, duration);
-            // The caps : half circles in two planes
             for (int side = 0; side < 2; ++side) {
                 const glm::vec3 center = side ? b : a;
                 const glm::vec3 pole = side ? axis : -axis;
@@ -356,11 +347,8 @@ namespace Shard::Engine::Plugins::CAbi {
             gTexts.clear();
         }
 
-        // ---- Drawing the shapes ----
-
         struct Glyph { char c; const char* rows; };
 
-        // 3x5 pixel glyphs of what a debug label needs ('#' is a pixel) ; lower case reads as upper case
         const Glyph kGlyphs[] = {
             {'0', "###" "#.#" "#.#" "#.#" "###"}, {'1', ".#." "##." ".#." ".#." "###"}, {'2', "###" "..#" "###" "#.." "###"},
             {'3', "###" "..#" "###" "..#" "###"}, {'4', "#.#" "#.#" "###" "..#" "..#"}, {'5', "###" "#.." "###" "..#" "###"},
@@ -386,10 +374,9 @@ namespace Shard::Engine::Plugins::CAbi {
         {
             const char up = char(std::toupper(static_cast<unsigned char>(c)));
             for (const Glyph& g : kGlyphs) if (g.c == up) return g.rows;
-            return c == ' ' ? nullptr : kGlyphs[sizeof(kGlyphs) / sizeof(kGlyphs[0]) - 1].rows;      // an unknown character is a question mark
+            return c == ' ' ? nullptr : kGlyphs[sizeof(kGlyphs) / sizeof(kGlyphs[0]) - 1].rows;
         }
 
-        // A world position seen from the snapshot's camera
         struct Projector {
             glm::mat4 viewProjection{ 1.0f };
             Core::WorldPosition origin;
@@ -438,7 +425,7 @@ namespace Shard::Engine::Plugins::CAbi {
             const float length = glm::length(d);
             if (!(length > 1e-3f) || length > 1e5f) return;
             d /= length;
-            const glm::vec2 n(-d.y * 0.75f, d.x * 0.75f);       // a line 1.5 pixels thick
+            const glm::vec2 n(-d.y * 0.75f, d.x * 0.75f);
             AddQuad(proxy, sa + n, sb + n, sb - n, sa - n, color);
         }
 
@@ -461,7 +448,6 @@ namespace Shard::Engine::Plugins::CAbi {
             }
         }
 
-        // What shard.debug drew, as one overlay over the viewport (nothing if nothing is shown)
         void ExtractDebug(RenderSnapshot& next)
         {
             std::lock_guard<std::mutex> lock(gDebugMutex);
@@ -516,8 +502,6 @@ namespace Shard::Engine::Plugins::CAbi {
             next.overlays.push_back(std::move(proxy));
         }
     }
-
-    // ---- The overlay API ----
 
     ShardResult SHARD_CALL OverlayAdd(ShardPluginCtx handle, const ShardOverlayDesc* desc, ShardOverlay* out)
     {
@@ -590,7 +574,7 @@ namespace Shard::Engine::Plugins::CAbi {
         if (!engine) return;
         const bool playing = engine->IsInPlayMode();
 
-        // The overlays are copied out first : a callback may add or remove overlays
+        // Copied out first, a callback may add or remove overlays
         struct Entry { uint64_t handle; OverlayRec rec; };
         std::vector<Entry> entries;
         gOverlays.ForEachAll([&](uint64_t handle, OverlayRec& rec, PluginOwner) { entries.push_back({ handle, rec }); });

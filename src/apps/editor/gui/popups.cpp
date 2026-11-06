@@ -23,9 +23,6 @@ namespace Shard::Editor::GUI::Popups
         std::deque<PendingPopup> g_queue;
         uint64_t g_nextId = 1;
 
-        // Which queued popup ImGui currently has open, and whether BeginPopupModal has actually
-        // returned true for it at least once - lets Draw() tell "not opened yet" apart from
-        // "was open, got closed some other way than one of our own buttons" (e.g. Escape).
         uint64_t g_activeId = 0;
         bool g_activeOpenedOnce = false;
 
@@ -46,8 +43,6 @@ namespace Shard::Editor::GUI::Popups
             {
                 case PopupType::Error:   return IM_COL32(214, 100, 100, 255);
                 case PopupType::Warning: return IM_COL32(224, 178, 90, 255);
-                // Matches the editor's own blue-teal accent (see ImGuiCol_SliderGrabActive /
-                // ButtonHovered in SetupImGuiStyle, and DrawLoadingOverlay's accent).
                 case PopupType::Info:    return IM_COL32(130, 178, 212, 255);
             }
             return IM_COL32(255, 255, 255, 255);
@@ -102,9 +97,6 @@ namespace Shard::Editor::GUI::Popups
                                  ImGuiCond_Always, ImVec2(0.5f, 0.5f));
         ImGui::SetNextWindowSize(ImVec2(420.0f, 0.0f), ImGuiCond_Always);
 
-        // Same opaque "card" treatment used by the loading overlay and the progress-toast (see
-        // DrawLoadingOverlay in main_window.cpp / the hasProgressBar branch in ImGuiNotify.hpp) so
-        // this reads as part of the editor rather than a different app's dialog box.
         ImGui::PushStyleColor(ImGuiCol_WindowBg, ImVec4(0.09f, 0.10f, 0.11f, 1.0f));
         ImGui::PushStyleColor(ImGuiCol_PopupBg, ImVec4(0.09f, 0.10f, 0.11f, 1.0f));
         ImGui::PushStyleColor(ImGuiCol_Border, ImVec4(0.30f, 0.34f, 0.38f, 1.0f));
@@ -137,7 +129,6 @@ namespace Shard::Editor::GUI::Popups
             ImGui::Spacing();
             ImGui::Spacing();
 
-            // Right-align the button row.
             constexpr float buttonWidth = 100.0f;
             const size_t buttonCount = popup.buttons.size();
             const float totalWidth = buttonCount * buttonWidth + (float)(buttonCount - 1) * ImGui::GetStyle().ItemSpacing.x;
@@ -156,8 +147,7 @@ namespace Shard::Editor::GUI::Popups
 
             if (clickedIndex >= 0)
             {
-                // Copy out before popping - `popup` (and popup.buttons[clickedIndex]) is a reference
-                // into g_queue.front(), which pop_front() below invalidates.
+                // Copy out before popping, `popup` references g_queue.front() which pop_front() invalidates.
                 std::function<void()> onClick = popup.buttons[clickedIndex].onClick;
 
                 ImGui::CloseCurrentPopup();
@@ -173,8 +163,6 @@ namespace Shard::Editor::GUI::Popups
         }
         else if (g_activeOpenedOnce)
         {
-            // Was open, closed some other way than one of our buttons (e.g. Escape) - treat like
-            // Cancel: drop it with no callback so the next queued popup (if any) can take over.
             g_queue.pop_front();
             g_activeId = 0;
             g_activeOpenedOnce = false;

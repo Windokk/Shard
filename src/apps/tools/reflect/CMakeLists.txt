@@ -28,11 +28,11 @@ endif()
 add_executable(ShardReflect src/main.cpp)
 
 target_include_directories(ShardReflect SYSTEM PRIVATE ${LLVM_INCLUDE_DIRS})
-# LLVM_DEFINITIONS is one string of "-D..." flags, not a CMake list : split it, or it ends up as a single broken definition
+# LLVM_DEFINITIONS is one string of "-D..." flags, not a CMake list. Split it or it becomes one broken definition.
 separate_arguments(SHARD_REFLECT_LLVM_DEFINITIONS NATIVE_COMMAND "${LLVM_DEFINITIONS}")
 target_compile_options(ShardReflect PRIVATE ${SHARD_REFLECT_LLVM_DEFINITIONS})
 
-# Some distros (Arch, Fedora...) only ship the monolithic libclang-cpp.so, not the per-component static libs
+# Some distros (Arch, Fedora) only ship the monolithic libclang-cpp.so, not per-component static libs.
 if(CLANG_LINK_CLANG_DYLIB)
     set(SHARD_REFLECT_CLANG_LIBS clang-cpp)
 else()
@@ -44,7 +44,6 @@ target_link_libraries(ShardReflect PRIVATE
     ${SHARD_REFLECT_LLVM_LIBS}
 )
 
-# build/tools/ShardReflect(.exe) : where build.sh / build.bat run it from
 set_target_properties(ShardReflect PROPERTIES RUNTIME_OUTPUT_DIRECTORY "${OUTPUT_DIR}/tools")
 foreach(OUTPUTCONFIG Debug Release RelWithDebInfo MinSizeRel)
     set_target_properties(ShardReflect PROPERTIES RUNTIME_OUTPUT_DIRECTORY_${OUTPUTCONFIG} "${OUTPUT_DIR}/tools")

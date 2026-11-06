@@ -9,8 +9,6 @@
 
 namespace Shard::Engine::Rendering {
 
-    /// @brief A framebuffer : its attachments are images of their own (the ones a shader samples later), made again when it is resized, keeping the
-    /// numbers they go by. A multisampled one draws into multisampled images and has single sample images they are resolved into.
     class VKFramebuffer final : public Framebuffer
     {
         public:
@@ -58,15 +56,12 @@ namespace Shard::Engine::Rendering {
             uint32_t GetHandle() const override { return m_Handle; }
             bool IsValid() const override { return !m_Destroyed; }
 
-            /// What the API draws into when this framebuffer is the target
             VK::RenderTarget GetRenderTarget();
 
-            /// The image the picture ends up in (the resolved one of a multisampled framebuffer)
             VK::Image* ResolvedColorImage();
 
         private:
 
-            /// The texels of the resolved colour image as they are stored (bottom row first, `outFormat`) : what the readbacks convert
             bool ReadColorTexels(std::vector<uint8_t>& outTexels, VkFormat& outFormat, uint32_t& outWidth, uint32_t& outHeight);
 
             void Allocate();
@@ -77,10 +72,10 @@ namespace Shard::Engine::Rendering {
             std::unique_ptr<VK::TextureResource> m_Depth;
             std::unique_ptr<VK::TextureResource> m_ResolveColor;
             std::unique_ptr<VK::TextureResource> m_ResolveDepth;
-            std::vector<std::unique_ptr<VK::TextureResource>> m_ExtraColors;     // colour attachments 1 and on (a G-buffer)
+            std::vector<std::unique_ptr<VK::TextureResource>> m_ExtraColors;
 
-            uint32_t m_AttachedCubemap = 0;         ///< the texture (id) that replaces the depth attachment, 0 : none
-            uint32_t m_AttachedLayerTexture = 0;    ///< the array (id) one layer of which replaces the depth attachment, 0 : none
+            uint32_t m_AttachedCubemap = 0;
+            uint32_t m_AttachedLayerTexture = 0;
             uint32_t m_AttachedLayer = 0;
             uint32_t m_Handle = 0;
             bool m_Destroyed = false;

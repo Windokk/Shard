@@ -36,7 +36,6 @@ namespace Shard::Editor::Commands{
             return children;
         }
 
-        // Same order as SerializeActor / InstantiateActor build it in
         void CollectParts(const std::shared_ptr<Actor>& actor, std::vector<ActorState::Part>& parts)
         {
             parts.push_back({ ObjectRefs::Get(actor), true });
@@ -48,8 +47,7 @@ namespace Shard::Editor::Commands{
                 CollectParts(child, parts);
         }
 
-        // Points the refs saved with a state to what was just built from it. A component that could not be built
-        // again (its type is gone) leaves its ref, and the ones after it on the same actor, on nothing.
+        // A component that could not be rebuilt (type gone) leaves its ref, and the later refs of that actor, on nothing.
         void BindParts(const std::shared_ptr<Actor>& actor, const std::vector<ActorState::Part>& parts, size_t& index)
         {
             if (index >= parts.size() || !parts[index].isActor)
@@ -118,8 +116,6 @@ namespace Shard::Editor::Commands{
         if (!state.exists)
             return;
 
-        // Under its parent again ; the parent is only missing if the history was broken elsewhere, the root of the
-        // world is the next best place
         std::shared_ptr<Actor> parent = state.parent ? state.parent->Resolve<Actor>() : nullptr;
 
         std::shared_ptr<Actor> actor = Engine::Worlds::InstantiateActor(*world, state.data, parent);
@@ -158,7 +154,6 @@ namespace Shard::Editor::Commands{
 
         namespace {
 
-            // Every folder the outliner shows : the ones the world lists and the ones its root actors are in
             std::set<std::string> AllFolders(Engine::Worlds::World* world)
             {
                 std::set<std::string> folders;
@@ -183,7 +178,6 @@ namespace Shard::Editor::Commands{
                 return rest.empty() ? base : base + "/" + rest;
             }
 
-            // `path` with its leading `from` replaced by `to` (path is in the folder `from`)
             std::string ReplacePrefix(const std::string& path, const std::string& from, const std::string& to)
             {
                 std::string rest = path.size() > from.size() ? path.substr(from.size() + 1) : std::string();
@@ -244,7 +238,6 @@ namespace Shard::Editor::Commands{
             if (oldParent == newParent)
                 return false;
 
-            // Cycle detection and world-transform preservation ("attach in place") live in Actor::SetParent
             actor->SetParent(newParent);
             if (ParentOf(actor) != newParent)
                 return false;
@@ -384,7 +377,6 @@ namespace Shard::Editor::Commands{
             stack.Begin("Reparent Actors");
             for (const auto& actor : TopLevel(actors))
             {
-                // Under itself or its own subtree : refused
                 if (newParent && IsSelfOrAncestor(actor, newParent))
                     continue;
 
@@ -406,7 +398,6 @@ namespace Shard::Editor::Commands{
             auto& stack = CommandStack::Get();
             stack.Begin("Move To Folder");
 
-            // A folder holds root actors
             for (const auto& actor : top)
                 if (ParentOf(actor))
                     Reparent(actor, nullptr);
@@ -431,8 +422,7 @@ namespace Shard::Editor::Commands{
             auto& stack = CommandStack::Get();
             stack.Begin("Group Actors");
 
-            // Its own step first : the snapshot of the new actor is taken when this group of commands ends, before the
-            // actors are put under it (else a redo would build them a second time)
+            // Own step first: the new actor's snapshot is taken when the group ends, before the children go under it, else redo builds them twice.
             stack.Begin("Create Group");
             const auto firstParent = ParentOf(top[0]);
             auto group = CreateActor(firstParent, name, firstParent ? std::string() : top[0]->GetFolder());
@@ -459,7 +449,6 @@ namespace Shard::Editor::Commands{
             std::string result;
             std::string part;
             auto flush = [&]{
-                // Spaces around a part are not a name
                 const size_t first = part.find_first_not_of(' ');
                 if (first != std::string::npos)
                 {
@@ -519,7 +508,6 @@ namespace Shard::Editor::Commands{
             if (!world || from.empty() || to.empty() || from == to || IsInFolder(to, from))
                 return false;
 
-            // Moving a folder onto another one would merge them, which is not what a typo in a name should do
             if (AllFolders(world).count(to))
                 return false;
 
@@ -543,7 +531,6 @@ namespace Shard::Editor::Commands{
             for (auto& f : after)
                 if (IsInFolder(f, from))
                     f = ReplacePrefix(f, from, to);
-            // A folder only the actors in it made is still a folder once they are gone
             if (std::find(after.begin(), after.end(), to) == after.end())
                 after.push_back(to);
             world->GetFolders() = after;
@@ -575,7 +562,6 @@ namespace Shard::Editor::Commands{
             }
             else
             {
-                // They move up to the folder around this one, with the sub folders they were in
                 const std::string up = ParentFolder(folder);
                 auto command = std::make_unique<SetFolderCommand>("Delete Folder");
                 for (const auto& actor : inside)
@@ -655,7 +641,6 @@ namespace Shard::Editor::Commands{
             if (!actor)
                 continue;
 
-            // Its transform is relative to the parent it was copied from, which may not be the one it lands under
             if (actor->transform)
                 actor->transform->SetFromWorldMatrix(entry.worldMatrix);
 

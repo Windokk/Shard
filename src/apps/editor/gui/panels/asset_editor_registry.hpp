@@ -6,10 +6,6 @@
 
 namespace Shard::Editor::GUI{
 
-    // Global Type -> IAssetEditor* lookup. Panels register themselves once at startup (they own their
-    // own lifetime - the registry only keeps a non-owning pointer, mirroring how every other panel is
-    // a raw pointer owned by EditorMainWindow); callers that need to open a double-clicked/dropped
-    // asset go through TryOpen() instead of hardcoding which panel handles which extension.
     class AssetEditorRegistry
     {
         public:
@@ -30,7 +26,6 @@ namespace Shard::Editor::GUI{
                 return it != editors.end() ? it->second : nullptr;
             }
 
-            // Returns false (no-op) if no editor is registered for this asset's type.
             bool TryOpen(Engine::Filesystem::Type type, const Engine::Filesystem::Path& path)
             {
                 IAssetEditor* editor = Get(type);

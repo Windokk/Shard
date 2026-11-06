@@ -32,14 +32,12 @@ namespace Shard::Engine::Rendering {
 
     void SSAOManager::Init(IRenderContext* renderer, int width, int height)
     {
-        // ---- Framebuffers ----
-
         FramebufferSpecifications prepassSpecs;
         prepassSpecs.width = width;
         prepassSpecs.height = height;
         prepassSpecs.hasColor = true;
         prepassSpecs.hasDepth = true;
-        prepassSpecs.colorSpecs.internalFormat = TextureInternalFormat::RGB16F; // view-space normal, signed
+        prepassSpecs.colorSpecs.internalFormat = TextureInternalFormat::RGB16F;
         m_PrepassFramebuffer = Framebuffer::Create(prepassSpecs);
 
         FramebufferSpecifications aoSpecs;
@@ -47,12 +45,9 @@ namespace Shard::Engine::Rendering {
         aoSpecs.height = height;
         aoSpecs.hasColor = true;
         aoSpecs.hasDepth = false;
-        aoSpecs.colorSpecs.internalFormat = TextureInternalFormat::R16F; // single-channel occlusion
+        aoSpecs.colorSpecs.internalFormat = TextureInternalFormat::R16F;
         m_RawAOFramebuffer = Framebuffer::Create(aoSpecs);
         m_BlurFramebuffer = Framebuffer::Create(aoSpecs);
-
-        // ---- Depth+normal prepass (real scene geometry, RenderPass::overridePipeline - see the class
-        // comment) ----
 
         m_PrepassShader = Core::GetEngine().GetResourcesManager()->Get<Rendering::Shader>(Core::Resources::AssetKind::Shader, "shaders/ssao/depth_normal");
 
@@ -77,11 +72,7 @@ namespace Shard::Engine::Rendering {
         prepass->clearDepth = true;
         prepass->overridePipeline = true;
         prepass->customPipeline = m_PrepassPipeline;
-        // allowCulling left at its default (true) - unlike shadow passes, this shares the main camera's
-        // own frustum, so main-camera culling is exactly what's wanted here.
         renderer->AddRenderPass(prepass, "SSAODepthNormalPass", {});
-
-        // ---- Raw AO pass (full-screen triangle sampling the prepass) ----
 
         m_SSAOShader = Core::GetEngine().GetResourcesManager()->Get<Rendering::Shader>(Core::Resources::AssetKind::Shader, "shaders/ssao/ssao");
 
@@ -104,8 +95,6 @@ namespace Shard::Engine::Rendering {
         rawPass->customSamplers.emplace("gNormal", m_PrepassFramebuffer->GetColorAttachment());
 
         renderer->AddRenderPass(rawPass, "SSAORawPass", {"SSAODepthNormalPass"});
-
-        // ---- Blur pass (full-screen triangle sampling the raw AO pass) ----
 
         m_BlurShader = Core::GetEngine().GetResourcesManager()->Get<Rendering::Shader>(Core::Resources::AssetKind::Shader, "shaders/ssao/ssao_blur");
 
@@ -209,9 +198,7 @@ namespace Shard::Engine::Rendering {
         const RenderSnapshot& snapshot = renderer->GetSnapshot();
         const EnvironmentProxy& environment = snapshot.environment;
 
-        // lit.frag never samples the AO texture while SSAO is off (ssaoEnabled gate), so the whole chain -
-        // the depth+normal prepass re-draws every mesh - is pure waste then : skip all three passes. The prepass alone
-        // is also what the screen-space reflections march through, so it stays while they are on.
+        // lit.frag ignores AO when off, so skip the passes. The prepass stays while SSR is on.
         for (const char* passName : { "SSAORawPass", "SSAOBlurPass" })
         {
             if (auto pass = renderer->GetRenderPass(passName))

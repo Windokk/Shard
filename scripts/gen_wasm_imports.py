@@ -28,8 +28,6 @@ OUT_SDK = os.path.join(C_DIR, 'shard_wasm_imports.h')
 OUT_LAYOUT = os.path.join(ROOT, 'src', 'engine', 'plugins', 'wasm', 'wasm_layout_gen.hpp')
 OUT_HOST = os.path.join(ROOT, 'src', 'engine', 'plugins', 'wasm', 'wasm_imports_gen.cpp')
 
-# The interfaces a sandboxed plugin can reach (the rest of the C ABI stays out : docs/design-notes/wasm-sandbox.fr.md section 2).
-# (header, table struct, short name, permission that has to be in the manifest for the interface to be offered at all)
 INTERFACES = [
     ('shard_plugin.h', 'ShardPluginApi', 'plugin', None),
     ('shard_commands.h', 'ShardCommandsApi', 'commands', None),
@@ -48,17 +46,12 @@ INTERFACES = [
     ('shard_worlds.h', 'ShardWorldsApi', 'worlds', None),
     ('shard_editor.h', 'ShardEditorApi', 'editor', 'editor'),
 ]
-# Tables the host hands a callback of the plugin (the widgets of a panel, the gizmo of a viewport) : not interfaces one asks for, but imports too.
-# The module builds them from the imports and exports them (shard_wasm_<name>_table) ; they act on what the host is drawing right now, which the
-# sandbox keeps in the member of that name (Sandbox::ui, Sandbox::gizmo). (header, table struct, short name, permission)
 TABLES = [
     ('shard_editor.h', 'ShardUiApi', 'ui', 'editor'),
     ('shard_editor.h', 'ShardGizmoApi', 'gizmo', 'editor'),
 ]
-# Headers whose structs the sandbox reads or writes without being an interface of its own
 EXTRA_HEADERS = ['shard_abi.h', 'shard_host.h']
 
-# Written by hand in the host (src/engine/plugins/wasm/wasm_imports_*.cpp), with the reason
 MANUAL = {
     'commands.add': 'a callback : a table index of the module',
     'components.register_type': 'a descriptor with pointers (fields, defaults)',
@@ -88,11 +81,8 @@ MANUAL = {
     'editor.subscribe_selection': 'a callback',
     'ui.combo': 'an array of strings',
 }
-# Always answered SHARD_E_UNSUPPORTED : they would hand the module a path of the host (content.*), or they are new in ABI 1.7 and take a descriptor
-# with pointers or a callback that the sandbox does not marshal yet (physics queries and colliders, the undo history, asset openers, drag and drop).
-# A sandboxed plugin gets SHARD_E_UNSUPPORTED from them ; moving one to MANUAL (and writing its import) is an ordinary addition.
+# Answered with SHARD_E_UNSUPPORTED: they expose host paths (content.*) or take pointers/callbacks the sandbox does not marshal yet. Moving one to MANUAL is a normal addition.
 DENIED_ALWAYS = {'content.resolve', 'content.resolve_logical', 'ShardPhysicsApi.raycast_all', 'physics.raycast_all', 'physics.overlap_sphere', 'physics.overlap_box', 'physics.overlap_capsule', 'physics.sweep_sphere', 'physics.sweep_box', 'physics.collider_create', 'physics.collider_set_pose', 'physics.collider_update', 'editor.undo_push', 'editor.add_asset_opener', 'ui.accept_drag_drop_payload'}
-# Permissions of single functions (the interface may be offered without them)
 FUNCTION_PERMISSIONS = {
     'worlds.load_world': 'worlds.load',
     'actors.create': 'actors.spawn',
@@ -100,7 +90,6 @@ FUNCTION_PERMISSIONS = {
     'worlds.spawn_prefab': 'actors.spawn',
 }
 
-# Types of the C ABI : (size, alignment, wasm value type) on wasm32 (ILP32)
 SCALARS = {
     'int8_t': (1, 1, 'i'), 'uint8_t': (1, 1, 'i'), 'int16_t': (2, 2, 'i'), 'uint16_t': (2, 2, 'i'),
     'int32_t': (4, 4, 'i'), 'uint32_t': (4, 4, 'i'), 'float': (4, 4, 'f'),
@@ -112,8 +101,6 @@ WASM_LETTER = {'i': 'I', 'l': 'L', 'f': 'F', 'd': 'D'}
 class GenError(Exception):
     pass
 
-
-# ---------------------------------------------------------------------------------------------------- parsing
 
 class CType:
     def __init__(self, base, ptr=0, const=False, array=None):
@@ -136,8 +123,8 @@ class Func:
 class Struct:
     def __init__(self, name):
         self.name = name
-        self.fields = []        # (name, CType)
-        self.funcs = []         # for a table : Func
+        self.fields = []
+        self.funcs = []
 
 
 def strip_comments(text):
@@ -219,12 +206,12 @@ def parse_func(decl):
 
 class Headers:
     def __init__(self):
-        self.structs = {}           # name -> Struct
-        self.typedefs = {}          # name -> base scalar name (ShardEntity -> uint64_t)
-        self.callbacks = {}         # Fn typedef name -> Func
-        self.defines = {}           # SHARD_IFACE_X -> "shard.x"
-        self.interface_minor = {}   # header -> minor
-        self.order = []             # struct names in file order
+        self.structs = {}
+        self.typedefs = {}
+        self.callbacks = {}
+        self.defines = {}
+        self.interface_minor = {}
+        self.order = []
 
     def read(self, header):
         raw = open(os.path.join(C_DIR, header), encoding='utf-8').read().replace('\r\n', '\n')
@@ -234,7 +221,6 @@ class Headers:
         for d in re.finditer(r'#define\s+(SHARD_IFACE_\w+)\s+"([\w.]+)"', raw):
             self.defines[d.group(1)] = d.group(2)
         text = strip_comments(raw)
-        # typedef struct Name { ... } Name;
         for sm in re.finditer(r'typedef\s+struct\s+(\w+)\s*\{(.*?)\}\s*(\w+)\s*;', text):
             name = sm.group(3)
             s = Struct(name)
@@ -247,7 +233,6 @@ class Headers:
                     s.funcs.append(fn)
                     s.fields.append((fn.name, CType('<fnptr>', 1)))
                     continue
-                # "uint32_t abiMajor, abiMinor" / "float min, max" / "const char* data"
                 first = parse_declarator(decl.split(',')[0])
                 s.fields.append((first.name, first.type))
                 for extra in decl.split(',')[1:]:
@@ -257,7 +242,6 @@ class Headers:
                     s.fields.append((am.group(1) if am else nm, t))
             self.structs[name] = s
             self.order.append(name)
-        # typedef <scalar> Name ;  and  typedef <ret> (SHARD_CALL *Name)(...) ;
         for tm in re.finditer(r'typedef\s+([^;{}]*?)\s*;', text):
             body = tm.group(1)
             if body.startswith('struct '):
@@ -275,8 +259,6 @@ def define_integers(raw_headers):
     """Not needed for the layouts : array sizes in the headers are written as numbers"""
     return {}
 
-
-# ---------------------------------------------------------------------------------------------------- layouts (wasm32)
 
 class Layout:
     def __init__(self, size, align, offsets):
@@ -339,8 +321,6 @@ def is_plain(h, name, cache, seen=None):
     return True
 
 
-# ---------------------------------------------------------------------------------------------------- classification
-
 HANDLE_NAMES = None
 
 
@@ -361,7 +341,7 @@ def wasm_letter(h, t):
 def wasm_signature(h, fn):
     params = []
     if fn.ret.base == 'ShardStr' and not fn.ret.ptr:
-        params.append('I')                  # the result is returned through a pointer the caller passes first
+        params.append('I')
         results = []
     elif fn.ret.base == 'void' and not fn.ret.ptr:
         results = []
@@ -387,7 +367,7 @@ class Emit:
         self.pre = []
         self.args = []
         self.post = []
-        self.wrap = None            # ('text'|'array', slot, element type, args list index range)
+        self.wrap = None
         self.slot = 0
 
 
@@ -404,13 +384,11 @@ def classify(h, cache, api, fn):
         t = p.type
         name = 'p%d' % i
         slot = e.slot
-        # the plugin's context : the sandbox's own, whatever it passes
         if t.base == 'ShardPluginCtx' and not t.ptr and i == 0:
             e.args.append('s.ctx')
             e.slot += 1
             i += 1
             continue
-        # text out : char* buffer, uint64_t capacity, uint64_t* size
         if (t.base == 'char' and t.ptr == 1 and not t.const and i + 2 < n + 0 and
                 params[i + 1].type.base == 'uint64_t' and not params[i + 1].type.ptr and
                 params[i + 2].type.base == 'uint64_t' and params[i + 2].type.ptr == 1 and i + 3 == n):
@@ -419,7 +397,6 @@ def classify(h, cache, api, fn):
             e.slot += 3
             i += 3
             continue
-        # array out : T* out, uint32_t capacity, uint32_t* count
         if (t.ptr == 1 and not t.const and not t.array and i + 2 < n + 0 and
                 params[i + 1].type.base == 'uint32_t' and not params[i + 1].type.ptr and
                 params[i + 2].type.base == 'uint32_t' and params[i + 2].type.ptr == 1 and i + 3 == n and
@@ -429,7 +406,6 @@ def classify(h, cache, api, fn):
             e.slot += 3
             i += 3
             continue
-        # a text buffer edited in place : char* buffer, uint64_t capacity
         if t.base == 'char' and t.ptr == 1 and not t.const and i + 1 < n and params[i + 1].type.base == 'uint64_t' and not params[i + 1].type.ptr:
             e.pre.append('InOutText %s(in, a[%d], a[%d]); if (!%s.ok) return false;' % (name, slot, slot + 1, name))
             e.args += ['%s.Data()' % name, '%s.Capacity()' % name]
@@ -437,28 +413,24 @@ def classify(h, cache, api, fn):
             e.slot += 2
             i += 2
             continue
-        # floats and their count : const float* values, int32_t count
         if t.base == 'float' and t.ptr == 1 and t.const and i + 1 < n and params[i + 1].type.base == 'int32_t' and not params[i + 1].type.ptr:
             e.pre.append('std::vector<float> %s; if (!ReadFloats(in, a[%d], a[%d], %s)) return false;' % (name, slot, slot + 1, name))
             e.args += ['%s.empty() ? nullptr : %s.data()' % (name, name), 'int32_t(%s.size())' % name]
             e.slot += 2
             i += 2
             continue
-        # bytes in : const void* data, uint64_t size
         if t.base == 'void' and t.ptr == 1 and t.const and i + 1 < n and params[i + 1].type.base == 'uint64_t' and not params[i + 1].type.ptr:
             e.pre.append('std::vector<uint8_t> %s; if (!ReadBytes(in, a[%d], a[%d], %s)) return false;' % (name, slot, slot + 1, name))
             e.args += ['%s.empty() ? nullptr : %s.data()' % (name, name), 'uint64_t(a[%d])' % (slot + 1)]
             e.slot += 2
             i += 2
             continue
-        # a string by value
         if t.base == 'ShardStr' and not t.ptr:
             e.pre.append('std::string %s; if (!ReadStr(in, a[%d], %s)) return false;' % (name, slot, name))
             e.args.append('ToStr(%s)' % name)
             e.slot += 1
             i += 1
             continue
-        # three floats, in or out
         if t.array in ('2', '3', '4') and t.base == 'float':
             e.pre.append('FloatArray<%s> %s(in, a[%d]); if (!%s.ok) return false;' % (t.array, name, slot, name))
             e.args.append('%s.v' % name)
@@ -467,7 +439,6 @@ def classify(h, cache, api, fn):
             e.slot += 1
             i += 1
             continue
-        # a pointer to a number, a handle or a plain struct
         if t.ptr == 1 and not t.array and (scalar_of(h, t.base) or (t.base in h.structs and is_plain(h, t.base, cache))):
             native = t.base
             if t.const:
@@ -480,7 +451,6 @@ def classify(h, cache, api, fn):
             e.slot += 1
             i += 1
             continue
-        # a number or a handle by value
         if not t.ptr and not t.array and scalar_of(h, t.base):
             sc = scalar_of(h, t.base)
             if sc == 'float':
@@ -519,8 +489,6 @@ def result_kind(h, fn):
         return 'long'
     raise Unclassified('%s returns %s' % (fn.name, t.base))
 
-
-# ---------------------------------------------------------------------------------------------------- output
 
 BANNER = ('GENERATED by scripts/gen_wasm_imports.py from the headers of sdk/include/shard : do not edit, change a header or the script and run\n'
           'python scripts/gen_wasm_imports.py (the test Wasm.GeneratedImports checks it is up to date).')
@@ -677,7 +645,6 @@ def gen_layout_header(h, interfaces):
         for n in h.order:
             if n in names:
                 continue
-        # order : the order of the files
     names = list(h.order)
     out = []
     w = out.append
@@ -870,12 +837,10 @@ def emit_host_function(h, cache, w, interfaces, short, struct, iface_perm, fn, f
     e = classify(h, cache, struct, fn)
     for line in e.pre:
         w('                ' + line)
-    # the call
     args = list(e.args)
     call_args = ', '.join(args)
     if e.wrap:
         wkind, slot, elem, at = e.wrap
-        # the wrapped triple is tb, tc, ts in the argument list
         if wkind == 'text':
             w('                ShardResult rv = SHARD_OK;')
             w('                if (!TextOut(in, a[%d], a[%d], a[%d], rv, [&](char* tb, uint64_t tc, uint64_t* ts) { return api->%s(%s); })) return false;' % (slot, slot + 1, slot + 2, fn.name, call_args))
@@ -919,13 +884,11 @@ def generate():
         h.read(header)
     for header in EXTRA_HEADERS:
         h.read(header)
-    # the interface headers also include types of others (ShardEntity...) : read in the order above, typedefs are global
     for header, struct, short, perm in INTERFACES:
         if struct not in h.structs:
             raise GenError('%s has no table %s' % (header, struct))
         if header not in h.interface_minor:
             raise GenError('%s announces no "Interface" revision' % header)
-    # every function either has a generic marshalling or is listed as written by hand
     cache = {}
     seen_manual = set()
     for header, struct, short, perm in INTERFACES + TABLES:

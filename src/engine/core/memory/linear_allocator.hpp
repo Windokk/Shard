@@ -10,15 +10,9 @@
 
 namespace Shard::Engine::Core {
 
-    /// @brief Bump allocator : Allocate moves a pointer forward, nothing can be freed one by one, Reset frees
-    /// everything at once. Allocation is a handful of instructions and objects come out contiguous, which is what
-    /// per-frame or per-load scratch data wants.
-    ///
-    /// Not thread-safe (see FrameAllocator for the concurrent one). Destructors are NEVER run by Reset : only
-    /// trivially destructible types can be created with New / NewArray (checked at compile time).
+    // Reset never runs destructors, so only trivially destructible types.
     class LinearAllocator {
     public:
-        /// @brief Owns a buffer of `capacity` bytes. `tag` names it in the MemoryTracker.
         explicit LinearAllocator(size_t capacity, const char* tag = "LinearAllocator")
             : m_Capacity(capacity), m_Owns(true) {
             m_Begin = static_cast<unsigned char*>(AlignedAlloc(capacity, kCacheLine));
@@ -26,7 +20,6 @@ namespace Shard::Engine::Core {
             SHARD_TRACK_ALLOC(m_Begin, capacity, tag);
         }
 
-        /// @brief Allocates inside a buffer it does not own (the stack, another allocator...).
         LinearAllocator(void* buffer, size_t capacity)
             : m_Begin(static_cast<unsigned char*>(buffer)), m_Capacity(capacity), m_Owns(false) {}
 
@@ -40,7 +33,6 @@ namespace Shard::Engine::Core {
         LinearAllocator(const LinearAllocator&) = delete;
         LinearAllocator& operator=(const LinearAllocator&) = delete;
 
-        /// @brief nullptr when the buffer is full (the allocator never grows).
         void* Allocate(size_t size, size_t alignment = kDefaultAlignment) {
             assert(IsPowerOfTwo(alignment));
             const uintptr_t current = reinterpret_cast<uintptr_t>(m_Begin) + m_Offset;
@@ -59,7 +51,6 @@ namespace Shard::Engine::Core {
             return memory ? ::new (memory) T(std::forward<Args>(args)...) : nullptr;
         }
 
-        /// @brief `count` default-initialised Ts (value-initialised : zeroed for arithmetic types).
         template <typename T>
         T* NewArray(size_t count) {
             static_assert(std::is_trivially_destructible_v<T>, "Reset() does not run destructors");
@@ -70,7 +61,6 @@ namespace Shard::Engine::Core {
             return array;
         }
 
-        /// @brief Frees everything. Pointers handed out before are dangling.
         void Reset() { m_Offset = 0; }
 
         size_t Used() const { return m_Offset; }

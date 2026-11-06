@@ -17,7 +17,6 @@
 namespace Shard::Engine::Core::Platform::AsyncIO {
 
     namespace {
-        // One read or write is split in chunks of this size : the next chunk is issued when the previous one completes
         constexpr uint64_t kChunkSize = 1024 * 1024;
         constexpr ULONG_PTR kQuitKey = 1;
 
@@ -32,7 +31,7 @@ namespace Shard::Engine::Core::Platform::AsyncIO {
         }
 
         struct Request {
-            OVERLAPPED overlapped{};    // first : the completion hands this address back
+            OVERLAPPED overlapped{};
             HANDLE file = INVALID_HANDLE_VALUE;
             bool write = false;
             std::string path;
@@ -117,7 +116,6 @@ namespace Shard::Engine::Core::Platform::AsyncIO {
                 m_Idle.notify_all();
             }
 
-            // The file is opened : attach it to the port and issue the first chunk (nothing to do for an empty file)
             void Start(Request* request)
             {
                 if (request->buffer.empty())
@@ -142,7 +140,7 @@ namespace Shard::Engine::Core::Platform::AsyncIO {
                     ? WriteFile(request->file, position, length, nullptr, &request->overlapped)
                     : ReadFile(request->file, position, length, nullptr, &request->overlapped);
 
-                // On success or ERROR_IO_PENDING the completion is queued on the port. Anything else is not.
+                // Queued on the port on success or ERROR_IO_PENDING, not otherwise.
                 if (!started && GetLastError() != ERROR_IO_PENDING)
                     Fail(request, std::string(request->write ? "can't write " : "can't read ") + request->path);
             }

@@ -68,26 +68,16 @@ namespace Shard::Engine{
     namespace Core{
         
         namespace {
-            // Published by the engine for the console (`list jobs`) : what the job system actually got
             CVar<int> cvJobThreads("jobs.threads", 0, "Threads that run jobs, the main thread included", CVarFlags::ReadOnly);
 
-            // Above 0 : every frame lasts that many seconds instead of what the clock says, so a run is reproducible
-            // (benchmarks, image comparisons) whatever the machine does meanwhile
             CVar<float> cvFrameDt("time.frame_dt", 0.0f, "Length in seconds of every frame, 0 : real time (deterministic runs)", CVarFlags::None, 0.0f, 1.0f);
 
-            // Draws on a thread of its own : the simulation of the next frame runs while the previous one is drawn
             CVar<bool> cvRenderThread("render.thread", true, "Draw on a dedicated render thread (applies at startup)", CVarFlags::Archive);
-            // Waits for the display to draw a picture (no tearing) or presents as soon as it can. Takes effect at the next frame.
             CVar<bool> cvVsync("render.vsync", true, "Vertical sync : wait for the display before showing a frame", CVarFlags::Archive);
-            // Frame rate limits, by sleeping. Useful with the vsync off, where nothing else paces the loops.
-            // engine.maxFPS paces the whole frame on the main thread (simulation included, the render thread follows it) ;
-            // render.maxFPS paces the drawing alone, on the render thread, the simulation keeps its own rate.
             CVar<int> cvEngineMaxFPS("engine.maxFPS", 0, "Global frame rate limit, main thread included, 0 : unlimited", CVarFlags::Archive, 0, 10000);
             CVar<int> cvMaxFPS("render.maxFPS", 0, "Frame rate limit of the render thread alone, 0 : unlimited (the vsync, when on, limits it to the display's rate anyway)", CVarFlags::Archive, 0, 10000);
 
-            // Holds the calling thread until `fps` frames per second means this frame is over. std::this_thread::sleep_until
-            // rounds up to the Windows scheduler tick (15.6 ms) : any limit under ~400 fps came out as 64 fps. PreciseSleep waits
-            // on a high resolution timer and spins on the clock for the end.
+            // sleep_until rounds up to the Windows scheduler tick (15.6 ms), so any limit under ~400 fps came out as 64 fps. PreciseSleep uses a high resolution timer and spins at the end.
             void HoldUntil(std::chrono::steady_clock::time_point frameStart, int fps)
             {
                 SHARD_PROFILE_SCOPE(Debugging::ProfileCategory::Waiting);
@@ -98,26 +88,17 @@ namespace Shard::Engine{
             CVar<bool> cvRenderDoc("render.renderdoc", false, "Load RenderDoc before the graphics API starts, so that `render.capture` can take a capture (applies at startup, SHARD_RENDERDOC=1 does the same)");
             CVar<bool> cvVulkanValidation("render.vulkan_validation", false, "Vulkan : turn the validation layer on (needs the Vulkan SDK ; applies at startup, SHARD_VULKAN_VALIDATION=1 does the same)");
 
-            // Watches the resources on disk : changed textures / shaders / materials are rebuilt in place, new, renamed and
-            // deleted files follow in the asset database (applies at startup)
             CVar<bool> cvHotReload("assets.hot_reload", true, "Reload the assets changed on disk while the engine runs (applies at startup)", CVarFlags::Archive);
 
-            // How many frames may be submitted and not drawn yet : the simulation waits when it is that far ahead.
-            // 1 is the lowest latency, 2 smooths out frames that vary in length.
             CVar<int> cvFramesInFlight("render.frames_in_flight", 2, "Frames the simulation may run ahead of the render thread",
                                        CVarFlags::Archive, 1, 4);
 
-            // The simulation steps at a fixed rate, the frames do not : with this on, what a physics body drives is drawn between
-            // its last two steps (by how far the frame is into the next one) instead of at the last one, which is what keeps the
-            // motion even when the frame rate is not a multiple of the physics rate
             CVar<float> cvRebaseDistance("render.rebase_distance", 4096.0f, "Large worlds : meters the camera may get from the render origin before the origin moves to it (0 : always at the camera)", CVarFlags::Archive, 0.0f, 1.0e9f);
             CVar<bool> cvPhysicsInterpolate("physics.interpolate", true, "Draw physics bodies between their last two steps (smooth motion at any frame rate)", CVarFlags::Archive);
 
-            // Per-frame scratch memory budget, read when the engine starts (a change applies at the next start)
             CVar<int> cvFrameKB("memory.frame_kb", 4096, "Per-frame scratch memory, in KB, per buffered frame (applies at startup)",
                                 CVarFlags::Archive, 64, 1048576);
 
-            // The extension points of the plugin manager the engine reads itself : the asset types and importers plugins bring
             uint32_t gAssetTypeListener = 0;
             uint32_t gAssetImporterListener = 0;
 
@@ -149,7 +130,6 @@ namespace Shard::Engine{
 
         void EngineInstance::Init(EngineCreationSettings settings){
 
-            // First of all : whatever draws a random number (a GUID, a system's stream) derives it from the seed
             {
                 const uint64_t seed = settings.seed ? *settings.seed : Determinism::Seed();
                 Determinism::Configure(seed, settings.deterministic);
@@ -159,11 +139,8 @@ namespace Shard::Engine{
 
             InitSystems();
 
-            // The plugins (loaded before the engine started) get the scheduler and the event dispatcher : the systems and the
-            // subscriptions they declared in OnLoad are added now
             Plugins::PluginManager::Get().OnEngineSystemsReady(this, m_Context.scheduler, m_Context.eventDispatcher);
 
-            // "asset.type" : a kind of asset with its loader and its file extensions ; "asset.importer" : a converter from a source format
             {
                 Plugins::ExtensionRegistry& extensions = Plugins::PluginManager::Get().Extensions();
                 gAssetTypeListener = extensions.Listen("asset.type", [this](const Plugins::ExtensionRegistry::Item& item, bool added) {
@@ -207,21 +184,18 @@ namespace Shard::Engine{
             }
             else{
                 m_Context.currentProject = project;
-                // Before any world (or plugin content) is read : the names in the files are resolved against the tree
                 Projects::ApplyTagSettings(*project->GetTagSettings());
                 LoadConfigLayer(ConfigLayer::Project, ConfigPath(project->GetProjectRoot(), "project.cfg"));
             }
 
             m_Context.fileManager->Init(m_Context.currentProject->GetProjectResourcesPath(), m_Context.fileManager->GetCurrentExecutablePath() / "engine_resources", m_Context.currentProject->GetProjectRoot());
             
-            // Textures are block compressed once and kept next to the thumbnails (derived data, safe to delete)
             Rendering::TextureCache::SetDirectory((std::filesystem::path(m_Context.currentProject->GetProjectRoot().full) / ".cache" / "textures").generic_string());
-            // The lightmap layout of a mesh is worked out once and kept there too, instead of at every load
             Rendering::SetLightmapUnwrapCacheDirectory((std::filesystem::path(m_Context.currentProject->GetProjectRoot().full) / ".cache" / "lightmap_uv").generic_string());
 
             m_Context.resourcesManager->ConstructGlobalFileIndex(m_Context.currentProject->GetProjectResourcesPath(), m_Context.currentProject->GetAssetDatabasePath());
 
-            // RenderDoc has to be in the process before the graphics API is started : if the engine was started from it, it is there already
+            // RenderDoc must be in the process before the graphics API starts.
             {
                 const char* renderDocEnvironment = std::getenv("SHARD_RENDERDOC");
                 const bool renderDocWanted = renderDocEnvironment != nullptr || cvRenderDoc.Get();
@@ -229,7 +203,6 @@ namespace Shard::Engine{
                     Rendering::RenderDoc::Get().SetCapturePrefix((std::filesystem::path(m_Context.currentProject->GetProjectRoot().full) / ".cache" / "captures" / "shard").generic_string());
             }
 
-            // The command line (--vsync) and the cvar both can turn it off ; the cvar says what is in force afterwards
             settings.vsync = settings.vsync && cvVsync.Get();
             cvVsync.ForceSet(settings.vsync);
 
@@ -252,7 +225,6 @@ namespace Shard::Engine{
             m_RendererSettings->viewportHeight = m_Context.platform->GetWindow()->GetFramebufferHeight();
             m_RendererSettings->api = (RendererAPI::API)settings.api;
 
-            // Vulkan presents on a surface of the window : the renderer asks the window for it, it does not know it
             if(m_RendererSettings->api == RendererAPI::API::Vulkan)
             {
                 Platform::IWindow* window = m_Context.platform->GetWindow();
@@ -268,8 +240,7 @@ namespace Shard::Engine{
             }
 
             m_Context.renderer->Init(m_RendererSettings);
-            // The probe manager lives on the render thread : what it needs from the world or the resources comes through the
-            // main thread's queue, and its answers go straight back to it
+            // Probe manager lives on the render thread. World and resource data go through the main thread's queue.
             Rendering::ProbeManager* probeManager = m_Context.renderer->GetProbeManager().get();
             probeManager->onBakeFinished = [this](uint64_t key, const Filesystem::Path& file) {
                 PostToMainThread([this, key, file] {
@@ -285,8 +256,6 @@ namespace Shard::Engine{
             probeManager->releaseBakedData = [this](const std::string& path) {
                 PostToMainThread([this, path] { m_Context.resourcesManager->Unload(Core::Resources::AssetKind::ProbeBake, path); });
             };
-            // The same for the lightmaps : a bake hands its result to the world on the main thread, and the pages the world names
-            // are loaded there
             Rendering::LightmapManager* lightmaps = m_Context.renderer->GetLightmapManager().get();
             lightmaps->onBakeFinished = [this](const Rendering::LightmapBakeResult& result) {
                 PostToMainThread([this, result] {
@@ -308,7 +277,7 @@ namespace Shard::Engine{
             m_Context.renderer->SetRenderPipeline(m_Context.currentProject->GetRenderingSettings()->renderPipeline);
             m_Context.platform->CreateInput();
 
-            // After the input's own listener (registered by CreateInput) : the input state is up to date when a handler runs
+            // Registered after the input's own listener so input state is current when handlers run.
             m_InputEventListener = GetWindow()->AddEventListener([this](const Platform::OSEvent& event) {
                 Events::TranslateInputEvent(event, *m_Context.eventDispatcher);
             });
@@ -334,13 +303,10 @@ namespace Shard::Engine{
             if(startWorld.empty() && m_Context.currentProject->GetBuildSettings()->buildIndex.size() > 0)
                 startWorld = m_Context.currentProject->GetBuildSettings()->buildIndex[0].full;
 
-            // The engine is up: the plugins start running, then the first world loads (they hear about it)
             {
                 Plugins::PluginManager& plugins = Plugins::PluginManager::Get();
                 Plugins::PluginManager::Callbacks callbacks;
                 callbacks.hasLoadedWorlds = [this]{ return m_Context.worldManager->GetLoadedWorldCount() > 0; };
-                // A plugin is reloaded with the worlds put aside : their components have code in its library. What was edited and not saved is kept
-                // in the files the way play mode keeps it.
                 auto suspended = std::make_shared<std::vector<std::string>>();
                 callbacks.suspendWorlds = [this, suspended](std::string& error){
                     suspended->clear();
@@ -386,9 +352,6 @@ namespace Shard::Engine{
             if(!startWorld.empty()){
                 DEBUG_LOG("Loading default world : "+startWorld);
 
-                // Parallelizes texture/mesh decode across worker threads and keeps pumping window
-                // events (+ drawing a splash frame, on platforms that support one) while it waits, so
-                // a heavy default world doesn't leave the window looking frozen at boot.
                 Platform::IWindow* window = GetWindow();
                 GetWorldManager()->LoadWorldBlocking(startWorld, [window](float progress){
                     window->PollEvents();
@@ -397,7 +360,6 @@ namespace Shard::Engine{
                 Plugins::PluginManager::Get().AfterWorldLoad(startWorld);
             }
 
-            // Everything above ran on this thread, which owns the graphics context : from here on the render thread does
             StartRenderThread();
 
             StartHotReload();
@@ -424,15 +386,12 @@ namespace Shard::Engine{
 
         void EngineInstance::InitSystems()
         {
-            // What each module adds to the world (its components, what it keeps on a world) : the world itself
-            // knows none of them.
             Rendering::RegisterRenderingModule();
             Physics::RegisterPhysicsModule();
             Audio::RegisterAudioModule();
 
             JobSystemDesc jobDesc;
             jobDesc.workerCount = Platform::WorkerThreadCount();
-            // SHARD_JOB_THREADS pins the number of job threads (ShardHeadless --check-plugins runs the same simulation with different counts)
             if(const auto pinned = Platform::GetEnv("SHARD_JOB_THREADS")){
                 try { jobDesc.workerCount = static_cast<unsigned>(std::max(1, std::stoi(*pinned))); } catch(...) {}
             }
@@ -441,7 +400,7 @@ namespace Shard::Engine{
             m_Context.threadPools = new ThreadPools([](PoolKind kind, const std::string& name, unsigned index){
                 Platform::SetCurrentThreadName("Shard " + name + " " + std::to_string(index));
                 if(kind == PoolKind::Audio)
-                    Platform::SetCurrentThreadPriority(Platform::ThreadPriority::High);   // a late audio buffer is heard
+                    Platform::SetCurrentThreadPriority(Platform::ThreadPriority::High);
             });
             DEBUG_INFO("Job system : " + std::to_string(m_Context.jobSystem->ThreadCount()) + " threads");
 
@@ -451,21 +410,17 @@ namespace Shard::Engine{
             m_Context.renderer = new Rendering::Renderer();
             m_Context.cameraManager = new Rendering::CameraManager();
 
-            // The renderer knows no camera : whoever owns them follows the viewport
             m_Context.renderer->onViewportResized = [this](int width, int height) { m_Context.cameraManager->UpdateSize(width, height); };
 
             m_Context.assetIDManager = new Filesystem::AssetIDManager();
             m_Context.fileManager = new Filesystem::FileManager(*m_Context.assetIDManager);
             m_Context.resourcesManager = new Resources::ResourcesManager(*m_Context.fileManager, *m_Context.assetIDManager);
 
-            // Settings files next to the executable : engine.cfg (defaults shipped with the engine) and user.cfg
-            // (what the user changed and saved). The project's own project.cfg is read once the project is known.
             LoadConfigLayer(ConfigLayer::Engine, ConfigPath(m_Context.fileManager->GetCurrentExecutablePath(), "engine.cfg"));
             LoadConfigLayer(ConfigLayer::User, ConfigPath(m_Context.fileManager->GetCurrentExecutablePath(), "user.cfg"));
 
             m_Context.objIDManager = new ObjectIDManager();
 
-            // The entities (created before the worlds : an actor owns one) and the systems that run on them each frame
             m_Context.ecs = new Ecs::Registry();
             m_Context.scheduler = new Ecs::Scheduler();
 
@@ -508,8 +463,7 @@ namespace Shard::Engine{
             using namespace Ecs;
             Scheduler& scheduler = *m_Context.scheduler;
 
-            // What the engine's managers do each frame, expressed as systems of the phases. They touch the managers (not
-            // components), which the read / write declaration can't express, hence Exclusive : they run alone, in this order.
+            // Exclusive systems: they touch managers, which read/write declarations cannot express, so they run alone in this order.
             auto add = [&scheduler](const char* name, Phase phase, SystemFn fn, bool mainThread = false)
             {
                 SystemDesc desc;
@@ -525,33 +479,26 @@ namespace Shard::Engine{
 
             add("Worlds.Update", Phase::PreSim, [this](SystemContext&){ UpdateWorlds(); });
 
-            // Physics runs at a fixed rate, decoupled from the render rate : a frame runs as many steps as the elapsed real
-            // time paid for (0 when rendering outpaces the simulation, several when it lags behind).
             add("Scripts.FixedTick", Phase::Fixed, [this](SystemContext&){ if(m_PlayMode) TickScripts(ScriptTick::Fixed); });
             add("Physics.Step", Phase::Fixed, [this](SystemContext& c){ if(m_PlayMode) StepPhysics(c.fixedStep, c.fixedDeltaTime); });
 
             add("Audio.Tick", Phase::Update, [this](SystemContext&){ if(m_PlayMode) TickAudio(); });
             add("Scripts.Tick", Phase::Update, [this](SystemContext&){
                 if(m_PlayMode) TickScripts(ScriptTick::Update);
-                else m_Context.worldManager->EditTick();        // the scripts that asked to be seen working in the editor
+                else m_Context.worldManager->EditTick();
             });
 
-            // Loads the pictures the reflection probes reflect and advances the bake that is running : not gated by the play mode, a probe is
-            // baked from the editor
             add("ReflectionProbes.Tick", Phase::Update, [](SystemContext&){ Objects::Components::ReflectionProbe::TickAll(); }, true);
 
-            // After the scripts moved things : kinematic targets go to Jolt, dynamic results come back to the transforms
             add("Physics.Sync", Phase::Late, [this](SystemContext& c){ SyncPhysicsBodies(c.fixedDeltaTime); });
             add("Scripts.LateTick", Phase::Late, [this](SystemContext&){ if(m_PlayMode) TickScripts(ScriptTick::Late); });
 
             auto extractor = std::make_shared<Rendering::RenderExtractor>();
             auto poseOffsets = std::make_shared<Rendering::RenderExtractor::PoseOffsets>();
             extractor->SetPoseOffsets(poseOffsets.get());
-            // What the plugins put on screen (shard.render) joins each snapshot
             extractor->AddSnapshotProvider(&Plugins::CAbi::ExtractPluginRender);
             add("Render.Extract", Phase::Extract, [this, extractor, poseOffsets](SystemContext& c){
                 extractor->SetRebaseDistance(double(cvRebaseDistance.Get()));
-                // The pacing : the simulation does not get further ahead of the drawn frames than the limit
                 {
                     SHARD_PROFILE_SCOPE(Debugging::ProfileCategory::Waiting);
                     Rendering::RenderThread::Get().WaitForFrameSlot();
@@ -559,7 +506,6 @@ namespace Shard::Engine{
 
                 SHARD_PROFILE_SCOPE(Debugging::ProfileCategory::Rendering);
 
-                // Where each moving body is drawn this frame : the frame sits `alpha` of the way from the last step to the next
                 poseOffsets->clear();
                 if(m_PlayMode && cvPhysicsInterpolate.Get() && c.fixedDeltaTime > 0.0f)
                 {
@@ -616,7 +562,6 @@ namespace Shard::Engine{
                     else if(!args.empty())
                         return CommandResult{false, usage};
 
-                    // What the last snapshot holds (render space : the world's coordinates as long as the render origin has not moved)
                     const Rendering::RenderSnapshot& snapshot = m_Context.renderer->GetSnapshot();
                     auto vec = [](const glm::vec3& p) {
                         char text[96];
@@ -706,14 +651,12 @@ namespace Shard::Engine{
                     return CommandResult{true, result};
                 });
 
-            // Console : the hash of the simulation state (what two runs compare to say they stayed identical, see simulation_state.hpp)
             CVarRegistry::Global().RegisterCommand("sim.hash", "sim.hash : the hash of the simulation state (transforms, physics bodies, scripts' fields), and the seed of the run",
                 [this](const std::vector<std::string>&) {
                     return CommandResult{true, HashSimulationState(*this).Describe() + ", seed " + std::to_string(GetSimulationSeed()) +
                                                (m_EngineSettings.deterministic ? ", deterministic" : ", not deterministic")};
                 });
 
-            // Console : what runs each frame and how long it takes, what the registry holds
             CVarRegistry::Global().RegisterCommand("ecs.systems", "ecs.systems : the systems of each phase, in start order, with their last run time",
                 [this](const std::vector<std::string>&) {
                     return CommandResult{true, m_Context.scheduler ? m_Context.scheduler->Describe() : std::string("no scheduler")};
@@ -761,7 +704,6 @@ namespace Shard::Engine{
 
             if(m_PlayMode){
 
-                // Play is reachable with no world loaded (editor Play button, `play on`)
                 if(!m_EngineSettings.readOnly && m_Context.worldManager->GetWorldAt(0))
                     m_Context.worldManager->GetWorldAt(0)->Serialize(m_Context.worldManager->GetWorldAt(0)->GetPath());
 
@@ -797,8 +739,6 @@ namespace Shard::Engine{
                     m_Context.worldManager->GetWorldAt(i)->Stop();
                 }
 
-                // A game may have hidden and captured the cursor (a first person controller) : whoever stops the play session
-                // (button, menu, F1, console) gets it back
                 if(Platform::IInput* input = GetInputManager())
                     input->SetCursorVisibility(Platform::CursorVisibility::Visible);
 
@@ -819,7 +759,7 @@ namespace Shard::Engine{
                 m_HotReloader = nullptr;
             }
 
-            // The graphics context comes back to this thread before anything is torn down
+            // The graphics context must be back on this thread before teardown.
             StopRenderThread();
 
             if(!m_EngineSettings.readOnly)
@@ -835,7 +775,7 @@ namespace Shard::Engine{
             m_Context.audioManager->Shutdown();
             m_Context.physicsManager->Shutdown();
             m_Context.worldManager->UnloadAllWorlds();
-            // The plugins stop before the systems and the renderer they registered into go away
+            // Plugins stop before the systems and renderer they registered into are destroyed.
             Plugins::PluginManager::Get().OnEngineDestroying();
             if(gAssetTypeListener){
                 Plugins::PluginManager::Get().Extensions().Unlisten(gAssetTypeListener);
@@ -853,8 +793,7 @@ namespace Shard::Engine{
             CVarRegistry::Global().UnregisterCommand("asset.import");
             CVarRegistry::Global().UnregisterCommand("render.features");
 
-            // Last : every system that submitted work is shut down, and every JobGroup has been waited on. The pools'
-            // queued tasks are run to the end first (they may use the job system), then the job system goes.
+            // Run queued pool tasks to the end first (they may use the job system), then shut the job system down.
             CVarRegistry::Global().UnregisterCommand("sim.hash");
             CVarRegistry::Global().UnregisterCommand("ecs.systems");
             CVarRegistry::Global().UnregisterCommand("ecs.stats");
@@ -869,18 +808,16 @@ namespace Shard::Engine{
             delete m_Context.frameAllocator;
             m_Context.frameAllocator = nullptr;
 
-            // The settings the user changed (Archive variables that differ from their default) for the next run
             if(!m_EngineSettings.readOnly && m_Context.fileManager)
             {
                 const std::string userConfig = ConfigPath(m_Context.fileManager->GetCurrentExecutablePath(), "user.cfg");
                 CVarRegistry& registry = CVarRegistry::Global();
                 const std::string archive = registry.ArchiveText();
-                const bool hasSomethingToSave = archive.find('\n') + 1 < archive.size();   // more than the header line
+                const bool hasSomethingToSave = archive.find('\n') + 1 < archive.size();
                 if(hasSomethingToSave || Filesystem::Path(userConfig).Exists())
                     registry.SaveArchive(userConfig);
             }
 
-            // Anything an engine allocator allocated and did not give back
             const std::string leaks = MemoryTracker::Get().Report();
             if(!leaks.empty())
                 DEBUG_WARNING("Memory not released at shutdown : " + leaks);
@@ -894,13 +831,9 @@ namespace Shard::Engine{
             m_FrameCount++;
             Plugins::PluginManager::Get().BeginFrame(m_FrameCount);
 
-            // Measured first thing in the frame so every system below works off the same delta, and so
-            // the time the previous frame actually took is what decides how much simulation is owed.
-            // A deterministic run does not look at the clock : every frame is exactly one fixed step, so the simulation does
-            // the same thing whatever the machine is doing meanwhile
+            // Sampled first so every system sees the same delta. Deterministic runs skip the clock and use one fixed step.
             m_Context.timeManager->Tick(m_EngineSettings.deterministic ? m_Context.timeManager->GetFixedDeltaTime() : cvFrameDt.Get());
 
-            // New frame of scratch memory : what was allocated two frames ago is gone, last frame's is still readable
             m_Context.frameAllocator->NextFrame();
 
             Ecs::Scheduler::FrameTiming timing;
@@ -909,11 +842,10 @@ namespace Shard::Engine{
             if(m_PlayMode)
                 timing.fixedSteps = m_Context.timeManager->ConsumeFixedSteps();
             else
-                // Nothing is simulating, so don't bank time that would be replayed as a burst of steps
-                // the moment play mode starts.
+                // Drop banked time, or play mode starts with a burst of replayed steps.
                 m_Context.timeManager->ResetAccumulator();
 
-            // Input -> PreSim -> Fixed x N -> PostPhysics -> Update -> Late -> Extract (see RegisterEngineSystems)
+            // Input -> PreSim -> Fixed x N -> PostPhysics -> Update -> Late -> Extract
             m_Context.scheduler->RunFrame(*m_Context.ecs, m_Context.jobSystem, timing);
 
             Present();
@@ -921,8 +853,6 @@ namespace Shard::Engine{
             if(const int maxFPS = cvEngineMaxFPS.Get(); maxFPS > 0)
                 HoldUntil(frameStart, maxFPS);
 
-            // The duration of this frame, which is what the categories sampled above add up to. The simulation's delta is the
-            // previous frame's (it is read at the start of this one), so it would be shown against the wrong frame's breakdown.
             m_Context.profiler->EndFrameSampling(std::chrono::duration<float, std::milli>(std::chrono::steady_clock::now() - frameStart).count(), m_FrameCount);
 
             Plugins::PluginManager::Get().EndFrame(m_FrameCount);
@@ -934,18 +864,14 @@ namespace Shard::Engine{
         {
             SHARD_PROFILE_SCOPE(Debugging::ProfileCategory::Physics);
 
-            // Intermediate steps need the bodies re-synced in between (kinematic targets pushed to Jolt,
-            // dynamic results read back); the last step's results are picked up by the Late phase's Physics.Sync,
-            // before rendering.
+            // Intermediate steps re-sync bodies. The last step's results are picked up by Late's Physics.Sync.
             if(step > 0)
                 m_Context.physicsManager->TickBodies(fixedDeltaTime);
 
-            // The fields move with their actors (and scripts change them) : read again for every step
             m_Context.physicsManager->CollectGravityFields();
             m_Context.physicsManager->StepSimulation(fixedDeltaTime, m_ActivateAllPhysics);
 
-            // Cleared here rather than once per frame: the first frames of play mode can
-            // run zero steps, and the wake-up has to survive until a step actually happens.
+            // Cleared here, not per frame: play mode can run zero steps at first and the wake-up must survive until a step runs.
             m_ActivateAllPhysics = false;
         }
 
@@ -975,7 +901,6 @@ namespace Shard::Engine{
 
             if(m_ReloadCurrentWorld)
             {
-                // A world made in memory (the editor's New World) has no file to be reloaded from : it is left as it is
                 auto info = GetAssetIDManager()->GetAssetFromID(GetWorldManager()->GetWorldAt(0)->GetAssetID());
                 if(!info || info->baseInfos.nameInProject.empty())
                 {
@@ -1008,21 +933,17 @@ namespace Shard::Engine{
 
         void EngineInstance::RenderFrame()
         {
-            // Handed to the render thread : the frame draws from the snapshot Extract just published, while this thread
-            // goes on with the next one. Without a render thread it simply runs here.
             Rendering::Renderer* renderer = m_Context.renderer;
             Debugging::Profiler* profiler = m_Context.profiler;
             const uint64_t frame = m_FrameCount;
             if(Platform::IWindow* window = GetWindow())
                 window->PrepareFrame();
             Rendering::RenderThread::Get().SubmitFrame([renderer, profiler, frame] {
-                // Only this thread touches it : the start of the previous frame is what the limit is counted from
                 static std::chrono::steady_clock::time_point lastStart = std::chrono::steady_clock::now();
                 if(const int maxFPS = cvMaxFPS.Get(); maxFPS > 0)
                     HoldUntil(lastStart, maxFPS);
                 lastStart = std::chrono::steady_clock::now();
 
-                // The render thread's samples from here on (this frame, its UI, its swap) belong to the simulation's frame `frame`
                 if(profiler)
                     profiler->BeginRenderFrame(frame);
                 SHARD_PROFILE_SCOPE(Debugging::ProfileCategory::Rendering);
@@ -1162,7 +1083,6 @@ namespace Shard::Engine{
 
         void EngineInstance::StartHotReload()
         {
-            // Files changing on disk is not something a repeatable run (or a run without a window) can follow
             if(!cvHotReload.Get() || m_EngineSettings.deterministic || m_EngineSettings.headless)
                 return;
 
@@ -1171,7 +1091,6 @@ namespace Shard::Engine{
             config.ids = m_Context.assetIDManager;
             config.resources = m_Context.resourcesManager;
             config.remapWorlds = [this](const std::string& oldName, const std::string& newName, bool isDirectory){
-                // The project file follows the disk, like the asset database (not in a read-only run)
                 m_Context.currentProject->RemapWorlds(oldName, newName, isDirectory, m_EngineSettings.readOnly ? std::string() : m_EngineSettings.project);
             };
             config.onMeshReplaced = [this](const std::string& name){
@@ -1205,7 +1124,6 @@ namespace Shard::Engine{
 
         void EngineInstance::Present()
         {
-            // Not sampled here : this thread only hands the frame over. Presentation is the render thread's own timer, taken where it presents
             m_Context.platform->GetWindow()->SwapBuffers();
         }
 

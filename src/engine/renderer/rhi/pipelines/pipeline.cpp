@@ -45,7 +45,6 @@ namespace Shard::Engine::Rendering
         if (!shader)
             return nullptr;
 
-        // What a material did to this pipeline since it was made (its blending) applies to the variant as well
         PipelineSpecifications specs = m_Specifications;
         specs.shader = shader;
 
@@ -67,7 +66,6 @@ namespace Shard::Engine::Rendering
     {
         std::size_t hash = 0;
 
-        // The shader object, not its AssetID : the shaders made from files directly (not assets) all have the ID 0
         HashCombine(hash, std::hash<const Shader*>()(s.shader.get()));
 
         HashCombine(hash, VertexLayoutHash{}(s.vertexLayout));

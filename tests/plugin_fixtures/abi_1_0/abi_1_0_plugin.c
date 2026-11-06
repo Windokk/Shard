@@ -1,5 +1,4 @@
-/* A plugin built against the FROZEN headers of the C ABI 1.0 (tests/plugin_fixtures/abi_1_0/include) : it has to keep loading and working in
- * every engine of ABI 1.x. Loaded by tests/plugins/abi_compat_tests.cpp. */
+// Built against the FROZEN C ABI 1.0 headers (include/). Must keep loading and working in every ABI 1.x engine. Loaded by tests/plugins/abi_compat_tests.cpp.
 #include <stddef.h>
 #include <string.h>
 
@@ -21,7 +20,7 @@ static const ShardEcsApi* gEcs;
 static ShardComponentType gOld;
 static int gSetup = 1;
 static int gRuns;
-static uint32_t gPluginApiSize;     /* the structSize of the shard.plugin table the host gave */
+static uint32_t gPluginApiSize;
 static char gId[64];
 
 static ShardStr Str(const char* text)

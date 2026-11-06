@@ -42,7 +42,6 @@ namespace Shard::Engine::Objects::Components {
             return;
 
         const int idInWorld = parent->GetComponentIDInWorld(local_id);
-        // Not owned yet (being built) : nothing to index, it is indexed when it joins the world
         if (auto self = std::static_pointer_cast<Component>(weak_from_this().lock()))
             world->IndexComponentTags(idInWorld, self, added, removed);
 
@@ -66,9 +65,8 @@ namespace Shard::Engine::Objects::Components {
     {
         constexpr const char* kTypeKey = "type";
         constexpr const char* kActiveKey = "active";
-        constexpr const char* kTagsKey = "tags";        // written by the world, for every component (see SerializeActor)
+        constexpr const char* kTagsKey = "tags";
 
-        /// Only the assets need the engine (their names live in its asset database)
         Serialization::ReflectionContext MakeContext(const ClassDescriptor& descriptor, Core::IEngineContext* engine)
         {
             for (const FieldInfo* field : descriptor.fields)

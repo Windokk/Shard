@@ -17,7 +17,6 @@ namespace Shard::Engine::Objects::Components{
 
     void ReverbZone::Deserialize(const json componentData)
     {
-        // The settings of a preset are saved along with it : reading them must not flip the preset to Custom (see OnFieldChanged)
         DeserializeReflectedFields(componentData, false);
         DeserializeActive(componentData, true);
     }
@@ -36,7 +35,6 @@ namespace Shard::Engine::Objects::Components{
     {
         if (std::strcmp(event.field->name, "preset") == 0)
         {
-            // Custom keeps what is there : it is the preset a hand-tuned zone ends up with
             if (preset != Audio::ReverbPreset::Custom)
             {
                 const Audio::ReverbParams values = Audio::GetReverbPreset(preset);
@@ -86,7 +84,6 @@ namespace Shard::Engine::Objects::Components{
         const glm::dquat rotation = parent->transform->GetWorldRotationD();
         const glm::vec3 scale = glm::abs(parent->transform->GetWorldScale());
 
-        // The point in the axes of the zone, the scale of the actor left out of it (it sizes the zone instead)
         const glm::vec3 local = glm::vec3(glm::inverse(rotation) * (position - center));
 
         const float largestScale = std::max(scale.x, std::max(scale.y, scale.z));

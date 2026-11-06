@@ -39,11 +39,6 @@ namespace Shard::Engine::Rendering {
             virtual std::optional<NumericValue>
             GetScalarParameter(const std::string& name) = 0;
 
-            // Returns a GPU-sampleable handle for the texture bound to sampler `name` (backend-defined
-            // meaning - e.g. a resident ARB_bindless_texture handle for the GL backend), or 0 if no
-            // texture is bound to that sampler. Used by consumers that can't rely on the normal per-draw
-            // texture-unit binding done in Bind() (e.g. the raytracer, whose materials are indexed
-            // dynamically from a compute shader rather than bound per draw call).
             virtual uint64_t GetTextureParameter(const std::string& name) const = 0;
 
             virtual uint32_t GetTexturesCount() const = 0;
@@ -59,8 +54,6 @@ namespace Shard::Engine::Rendering {
                 return m_AssetID;
             }
 
-            /// Loads what a material falls back on for a slot it has nothing bound to. Call once, on the thread that uses
-            /// the resources manager, before anything is drawn.
             static void PreloadDefaultTextures();
 
             static std::shared_ptr<Material> Create(std::shared_ptr<Shader> shader, std::shared_ptr<Pipeline> pipeline, bool receivesShadows = true, Opacity opacity = Opacity::Opaque);
@@ -69,12 +62,10 @@ namespace Shard::Engine::Rendering {
 
             Opacity GetOpacity() const { return m_Opacity; }
 
-            /// A double sided material draws both faces of its triangles (its pipeline does not cull) : leaves, cloth, planes...
             bool IsDoubleSided() const { return m_DoubleSided; }
             void SetDoubleSided(bool doubleSided) { m_DoubleSided = doubleSided; }
 
-            /// Hot reload : takes the shader, pipeline, flags and parameters of `other` (the material freshly read from the same
-            /// file), keeping this object - and so its asset id and everything that points at it. Graphics thread.
+            // Hot reload: copy the content of `other` but keep this object, so the asset id and pointers to it stay valid. Graphics thread.
             void AssignContent(const Material& other)
             {
                 m_Shader = other.m_Shader;

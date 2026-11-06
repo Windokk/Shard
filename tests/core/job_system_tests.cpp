@@ -29,8 +29,8 @@ TEST(WorkStealingDeque, OwnerIsLifoThievesAreFifo) {
     WorkStealingDeque<int*> dq(8);
     int v[4] = {0, 1, 2, 3};
     for (int& x : v) ASSERT_TRUE(dq.Push(&x));
-    EXPECT_EQ(dq.Steal(), &v[0]);   // oldest
-    EXPECT_EQ(dq.Pop(), &v[3]);     // newest
+    EXPECT_EQ(dq.Steal(), &v[0]);
+    EXPECT_EQ(dq.Pop(), &v[3]);
     EXPECT_EQ(dq.Pop(), &v[2]);
     EXPECT_EQ(dq.Steal(), &v[1]);
     EXPECT_EQ(dq.Pop(), nullptr);
@@ -46,7 +46,7 @@ TEST(WorkStealingDeque, PushFailsWhenFull) {
     EXPECT_TRUE(dq.Push(&v[4]));
 }
 
-TEST(WorkStealingDeque, EveryItemTakenExactlyOnceUnderContention) {
+TEST(WorkStealingDeque, EveryItemTakenOnce) {
     constexpr int kItems = 200000;
     WorkStealingDeque<int*> dq(1024);
     std::vector<int> items(kItems);
@@ -64,7 +64,7 @@ TEST(WorkStealingDeque, EveryItemTakenExactlyOnceUnderContention) {
             }
         });
 
-    for (int i = 0; i < kItems; ++i) {            // owner: push, and pop some back itself
+    for (int i = 0; i < kItems; ++i) {
         while (!dq.Push(&items[i])) {
             if (int* p = dq.Pop()) { taken[*p].fetch_add(1); total.fetch_add(1); }
         }
@@ -91,20 +91,20 @@ TEST(JobSystem, RunsAllSubmittedJobs) {
 
 TEST(JobSystem, WorksWithZeroWorkers) {
     JobSystem js(Workers(0));
-    int sum = 0;                                  // single thread: no atomics needed
+    int sum = 0;
     JobGroup g;
     for (int i = 1; i <= 100; ++i) js.Submit(g, [&sum, i] { sum += i; });
     js.Wait(g);
     EXPECT_EQ(sum, 5050);
 }
 
-TEST(JobSystem, NestedSubmitAndWaitDoNotDeadlock) {
+TEST(JobSystem, NestedSubmitNoDeadlock) {
     JobSystem js(Workers(2));
     std::atomic<int> leaves{0};
     JobGroup outer;
     for (int i = 0; i < 50; ++i)
         js.Submit(outer, [&] {
-            JobGroup inner;                       // a job waiting on its own children, on a worker thread
+            JobGroup inner;
             for (int j = 0; j < 50; ++j) js.Submit(inner, [&] { leaves.fetch_add(1); });
             js.Wait(inner);
         });
@@ -112,7 +112,7 @@ TEST(JobSystem, NestedSubmitAndWaitDoNotDeadlock) {
     EXPECT_EQ(leaves.load(), 2500);
 }
 
-TEST(JobSystem, JobsMaySubmitIntoTheirOwnGroup) {
+TEST(JobSystem, JobsSubmitIntoOwnGroup) {
     JobSystem js(Workers(3));
     std::atomic<int> count{0};
     JobGroup g;
@@ -127,8 +127,8 @@ TEST(JobSystem, JobsMaySubmitIntoTheirOwnGroup) {
     EXPECT_EQ(count.load(), (1 << 11) - 1);
 }
 
-TEST(JobSystem, SmallRingFallsBackToInlineExecution) {
-    JobSystem js(Workers(1, 8));                  // 8 slots, 5000 jobs: the back-pressure path must keep it correct
+TEST(JobSystem, SmallRingRunsInline) {
+    JobSystem js(Workers(1, 8));
     std::atomic<int> counter{0};
     JobGroup g;
     for (int i = 0; i < 5000; ++i) js.Submit(g, [&] { counter.fetch_add(1); });
@@ -141,7 +141,7 @@ TEST(JobSystem, LargeCapturesAreBoxed) {
     std::atomic<long> sum{0};
     JobGroup g;
     for (int i = 0; i < 100; ++i) {
-        std::array<long, 64> big{};               // 512 bytes: does not fit the inline storage
+        std::array<long, 64> big{};
         big.fill(i);
         js.Submit(g, [big, &sum] { sum.fetch_add(std::accumulate(big.begin(), big.end(), 0L)); });
     }
@@ -178,7 +178,7 @@ TEST(JobSystem, WorkIsSpreadAcrossThreads) {
     EXPECT_GT(ids.size(), 1u);
 }
 
-TEST(JobSystem, OnWorkerStartCalledForEveryBackgroundThread) {
+TEST(JobSystem, OnWorkerStartPerThread) {
     std::atomic<int> started{0};
     std::mutex m;
     std::set<unsigned> indices;
@@ -193,10 +193,10 @@ TEST(JobSystem, OnWorkerStartCalledForEveryBackgroundThread) {
     EXPECT_EQ(indices, (std::set<unsigned>{1, 2, 3}));
 }
 
-TEST(JobSystem, IdleWorkersWakeUpForLateWork) {
+TEST(JobSystem, IdleWorkersWakeForWork) {
     JobSystem js(Workers(2));
     for (int round = 0; round < 20; ++round) {
-        std::this_thread::sleep_for(std::chrono::milliseconds(5));   // let them go to sleep
+        std::this_thread::sleep_for(std::chrono::milliseconds(5));
         std::atomic<int> c{0};
         JobGroup g;
         for (int i = 0; i < 8; ++i) js.Submit(g, [&] { c.fetch_add(1); });
@@ -223,7 +223,7 @@ TEST(ParallelFor, RespectsBeginOffset) {
     for (size_t i = 0; i < data.size(); ++i) EXPECT_EQ(data[i], (i >= 100 && i < 900) ? 1 : 0);
 }
 
-TEST(ParallelFor, RangeChunksAreDisjointAndBounded) {
+TEST(ParallelFor, RangeChunksDisjoint) {
     JobSystem js(Workers(3));
     std::mutex m;
     std::vector<std::pair<size_t, size_t>> chunks;
@@ -267,8 +267,6 @@ TEST(TaskGraph, RespectsDependencies) {
         std::vector<char> order;
         auto rec = [&](char c) { return [&, c] { std::lock_guard<std::mutex> l(m); order.push_back(c); }; };
 
-        //   A -> B -> D
-        //   A -> C -> D        (B and C are free to run in parallel)
         TaskGraph g;
         auto a = g.Add("A", rec('A')), b = g.Add("B", rec('B')), c = g.Add("C", rec('C')), d = g.Add("D", rec('D'));
         g.DependsOn(b, a); g.DependsOn(c, a); g.DependsOn(d, b); g.DependsOn(d, c);
@@ -280,22 +278,22 @@ TEST(TaskGraph, RespectsDependencies) {
     }
 }
 
-TEST(TaskGraph, RunsEveryTaskOnceAndIsReusable) {
+TEST(TaskGraph, RunsEveryTaskOnce) {
     JobSystem js(Workers(3));
     constexpr int kTasks = 200;
     std::vector<std::atomic<int>> runs(kTasks);
     TaskGraph g;
     std::vector<TaskGraph::TaskId> ids;
     for (int i = 0; i < kTasks; ++i) ids.push_back(g.Add("t" + std::to_string(i), [&runs, i] { runs[i].fetch_add(1); }));
-    for (int i = 1; i < kTasks; ++i) g.DependsOn(ids[i], ids[(i - 1) / 2]);     // a binary tree
+    for (int i = 1; i < kTasks; ++i) g.DependsOn(ids[i], ids[(i - 1) / 2]);
     for (int frame = 0; frame < 5; ++frame) ASSERT_TRUE(g.Run(js));
     for (int i = 0; i < kTasks; ++i) EXPECT_EQ(runs[i].load(), 5);
 }
 
-TEST(TaskGraph, PrerequisiteWritesAreVisibleToDependents) {
+TEST(TaskGraph, PrerequisiteWritesVisible) {
     JobSystem js(Workers(3));
     for (int rep = 0; rep < 200; ++rep) {
-        int x = 0, y = 0, z = 0;                  // plain ints: a race here would be flagged by TSan / wrong values
+        int x = 0, y = 0, z = 0;                  // Plain ints: a race shows up under TSan or as wrong values.
         TaskGraph g;
         auto a = g.Add("a", [&] { x = 1; });
         auto b = g.Add("b", [&] { y = x + 1; });
@@ -319,13 +317,13 @@ TEST(TaskGraph, DetectsCyclesAndRunsNothing) {
     EXPECT_EQ(ran, 0);
 }
 
-TEST(TaskGraph, RejectsBadEdgesAndIgnoresDuplicates) {
+TEST(TaskGraph, RejectsBadEdges) {
     TaskGraph g;
     auto a = g.Add("a", [] {}), b = g.Add("b", [] {});
     EXPECT_FALSE(g.DependsOn(a, a));
     EXPECT_FALSE(g.DependsOn(a, 99));
     EXPECT_TRUE(g.DependsOn(b, a));
-    EXPECT_TRUE(g.DependsOn(b, a));               // duplicate must not count twice, or b would never become ready
+    EXPECT_TRUE(g.DependsOn(b, a));               // A duplicate must not count twice, or b never becomes ready.
     JobSystem js(Workers(1));
     EXPECT_TRUE(g.Run(js));
 }

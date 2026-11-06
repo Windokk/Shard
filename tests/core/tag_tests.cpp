@@ -11,7 +11,7 @@ namespace {
     SH_DECLARE_TAG(TagFromCode, "Tests.Native.Declared");
 }
 
-// The registry is the process's : each test starts from an empty tree with the project's tags of the example below
+// The registry is process-wide, so each test starts from an empty tree plus the example project's tags.
 class TagTest : public ::testing::Test {
     protected:
         void SetUp() override {
@@ -34,8 +34,6 @@ class TagTest : public ::testing::Test {
         static Tag T(const char* name) { return Tag::Request(name); }
 };
 
-// ---- Names ----
-
 TEST_F(TagTest, ValidNamesAreDottedSegments) {
     EXPECT_TRUE(TagRegistry::IsValidName("Enemy"));
     EXPECT_TRUE(TagRegistry::IsValidName("Enemy.Undead_2.Skeleton"));
@@ -55,9 +53,7 @@ TEST_F(TagTest, NamesAreCaseSensitive) {
     EXPECT_FALSE(T("enemy").IsValid());
 }
 
-// ---- The tree ----
-
-TEST_F(TagTest, DeclaringATagDeclaresItsParents) {
+TEST_F(TagTest, DeclareDeclaresParents) {
     const Tag skeleton = T("Enemy.Undead.Skeleton");
     ASSERT_TRUE(skeleton.IsValid());
 
@@ -69,7 +65,7 @@ TEST_F(TagTest, DeclaringATagDeclaresItsParents) {
     ASSERT_NE(parent, nullptr);
     EXPECT_TRUE(parent->declarations.empty());
     ASSERT_EQ(parent->children.size(), 2u);
-    EXPECT_EQ(parent->children[0], T("Enemy.Undead.Ghost"));      // sorted by name
+    EXPECT_EQ(parent->children[0], T("Enemy.Undead.Ghost"));
     EXPECT_EQ(parent->children[1], T("Enemy.Undead.Skeleton"));
     EXPECT_EQ(Registry().GetInfo(skeleton)->Comment(), "Breaks into bones");
 }
@@ -83,7 +79,7 @@ TEST_F(TagTest, ChildOfIsStrict) {
     EXPECT_TRUE(T("Enemy").Matches(T("Enemy")));
 }
 
-TEST_F(TagTest, RootsAndDescendantsAreSortedByName) {
+TEST_F(TagTest, RootsAndDescendantsSorted) {
     const std::vector<Tag> roots = Registry().GetRoots();
     ASSERT_EQ(roots.size(), 3u);
     EXPECT_EQ(roots[0].ToString(), "Damage");
@@ -98,12 +94,12 @@ TEST_F(TagTest, RootsAndDescendantsAreSortedByName) {
     EXPECT_EQ(names, (std::vector<std::string>{ "Enemy", "Enemy.Boss", "Enemy.Undead", "Enemy.Undead.Ghost", "Enemy.Undead.Skeleton" }));
 }
 
-TEST_F(TagTest, AnUnknownNameIsNotRequested) {
+TEST_F(TagTest, UnknownNameNotRequested) {
     EXPECT_FALSE(T("Enemy.Dragon").IsValid());
     EXPECT_FALSE(Tag::Request("").IsValid());
 }
 
-TEST_F(TagTest, SourcesAreMergedAndRemovedSeparately) {
+TEST_F(TagTest, SourcesMergeSeparately) {
     Registry().Declare("Weather.Rain", TagSource::Plugin, "com.acme.weather");
     Registry().Declare("Enemy.Boss", TagSource::Plugin, "com.acme.weather");
     EXPECT_TRUE(T("Weather.Rain").IsValid());
@@ -115,7 +111,7 @@ TEST_F(TagTest, SourcesAreMergedAndRemovedSeparately) {
     EXPECT_EQ(Registry().GetInfo(T("Enemy.Boss"))->Sources(), uint8_t(TagSource::Project));
 }
 
-TEST_F(TagTest, ReplacingTheProjectTagsKeepsTheOthers) {
+TEST_F(TagTest, ReplaceProjectTagsKeepsOthers) {
     Registry().Declare("Weather.Rain", TagSource::Plugin, "com.acme.weather");
     Registry().SetDeclarations(TagSource::Project, "", { { "Pickup.Health", "" } });
 
@@ -124,20 +120,18 @@ TEST_F(TagTest, ReplacingTheProjectTagsKeepsTheOthers) {
     EXPECT_TRUE(T("Weather.Rain").IsValid());
 }
 
-TEST_F(TagTest, TheVersionChangesWithTheTree) {
+TEST_F(TagTest, VersionChangesWithTree) {
     const uint64_t before = Registry().GetVersion();
     Registry().Declare("Pickup", TagSource::Project);
     EXPECT_NE(Registry().GetVersion(), before);
 }
 
-TEST_F(TagTest, CodeDeclarationsSurviveAsLongAsTheyAreDeclared) {
-    // Clear() in SetUp forgot it : declared again like the static initialization did
+TEST_F(TagTest, CodeDeclarationsSurvive) {
+    // Clear() in SetUp forgot it, so it is declared again like static init did.
     EXPECT_EQ(DeclareNativeTag("Tests.Native.Declared"), TagFromCode);
     EXPECT_TRUE(Tag::Request("Tests.Native.Declared").IsValid());
     EXPECT_EQ(Registry().GetInfo(TagFromCode)->Sources(), uint8_t(TagSource::Code));
 }
-
-// ---- Redirects and files ----
 
 TEST_F(TagTest, RedirectsAreFollowed) {
     Registry().SetRedirects({ { "Enemy.Undead.Skelly", "Enemy.Undead.Bones" }, { "Enemy.Undead.Bones", "Enemy.Undead.Skeleton" } });
@@ -152,7 +146,7 @@ TEST_F(TagTest, ARedirectLoopEnds) {
     EXPECT_TRUE(name == "A" || name == "B");
 }
 
-TEST_F(TagTest, AnUnknownNameFromAFileIsKeptAndMatchesOnlyItself) {
+TEST_F(TagTest, UnknownFileNameKept) {
     const Tag dragon = Registry().Resolve("Enemy.Dragon");
     ASSERT_TRUE(dragon.IsValid());
     EXPECT_FALSE(Registry().IsKnown(dragon));
@@ -164,17 +158,15 @@ TEST_F(TagTest, AnUnknownNameFromAFileIsKeptAndMatchesOnlyItself) {
     EXPECT_FALSE(tags.HasTag(T("Enemy")));
 }
 
-TEST_F(TagTest, AnInvalidNameFromAFileIsDropped) {
+TEST_F(TagTest, InvalidFileNameDropped) {
     EXPECT_FALSE(Registry().Resolve("not a tag").IsValid());
 }
 
-TEST_F(TagTest, ARemovedTagKeepsItsName) {
+TEST_F(TagTest, RemovedTagKeepsName) {
     const Tag ghost = T("Enemy.Undead.Ghost");
     Registry().SetDeclarations(TagSource::Project, "", {});
     EXPECT_EQ(ghost.ToString(), "Enemy.Undead.Ghost");
 }
-
-// ---- Containers ----
 
 TEST_F(TagTest, HasTagIncludesTheParents) {
     TagContainer tags{ T("Enemy.Undead.Skeleton") };
@@ -209,7 +201,7 @@ TEST_F(TagTest, AnyAndAll) {
     EXPECT_TRUE(tags.HasAllExact(TagContainer{ T("Enemy.Boss") }));
 }
 
-TEST_F(TagTest, AddAndRemoveOnlyTouchExplicitTags) {
+TEST_F(TagTest, AddRemoveTouchExplicitOnly) {
     TagContainer tags;
     EXPECT_TRUE(tags.Add(T("Enemy.Undead")));
     EXPECT_FALSE(tags.Add(T("Enemy.Undead")));
@@ -253,7 +245,7 @@ TEST_F(TagTest, TheListenerHearsWhatChanged) {
     EXPECT_EQ(listener.added, (TagContainer{ T("Enemy.Boss") }));
 
     tags.Add(T("Enemy.Boss"));
-    EXPECT_EQ(listener.calls, 1);          // nothing changed
+    EXPECT_EQ(listener.calls, 1);
 
     tags.Assign(TagContainer{ T("Damage.Fire") }, true);
     EXPECT_EQ(listener.calls, 2);
@@ -262,7 +254,7 @@ TEST_F(TagTest, TheListenerHearsWhatChanged) {
     EXPECT_TRUE(listener.quiet);
 }
 
-TEST_F(TagTest, ACopyDoesNotTakeTheListener) {
+TEST_F(TagTest, CopyDropsListener) {
     RecordingListener listener;
     TagContainer owned;
     owned.SetListener(&listener);
@@ -271,13 +263,11 @@ TEST_F(TagTest, ACopyDoesNotTakeTheListener) {
     copy.Add(T("Enemy"));
     EXPECT_EQ(listener.calls, 0);
 
-    owned = copy;                           // assigning into an owned container is a change of it
+    owned = copy;
     EXPECT_EQ(listener.calls, 1);
 }
 
-// ---- Queries ----
-
-TEST_F(TagTest, QueryTextIsParsedAndMatched) {
+TEST_F(TagTest, QueryTextParsedAndMatched) {
     const TagQuery hostile = TagQuery::Parse("Enemy & !(Enemy.Boss | Status.Dead)");
 
     EXPECT_TRUE(hostile.Matches(TagContainer{ T("Enemy.Undead.Skeleton") }));
@@ -336,14 +326,14 @@ TEST_F(TagTest, TheBuildersMatchTheText) {
     EXPECT_FALSE(TagQuery::Has(Tag()).Matches(TagContainer{ T("Enemy") }));
 }
 
-TEST_F(TagTest, AQueryWithAnUnknownNameMatchesNothingOfIt) {
+TEST_F(TagTest, UnknownNameQueryMatchesNothing) {
     const TagQuery q = TagQuery::All({ "Enemy.Dragon" });
     EXPECT_FALSE(q.IsEmpty());
     EXPECT_FALSE(q.Matches(TagContainer{ T("Enemy.Boss") }));
     EXPECT_EQ(q.ToString(), "Enemy.Dragon");
 }
 
-TEST_F(TagTest, TheRequiredTagIsWhatAnIndexStartsFrom) {
+TEST_F(TagTest, RequiredTagStartsIndex) {
     EXPECT_EQ(TagQuery::Parse("Enemy").GetRequiredTag(), T("Enemy"));
     EXPECT_EQ(TagQuery::Parse("!Status.Dead & Enemy").GetRequiredTag(), T("Enemy"));
     EXPECT_FALSE(TagQuery::Parse("Enemy | Damage").GetRequiredTag().IsValid());

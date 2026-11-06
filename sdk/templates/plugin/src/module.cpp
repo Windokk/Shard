@@ -1,5 +1,3 @@
-// The plugin itself: its entry point, and what is not a script, a component or a system: console variables, commands, content, hot reload.
-// The scripts, components and systems of the other files register themselves (see gameplay/ and ecs/), so adding one never touches this file.
 #include "module.hpp"
 
 Shard::CVar<float>& SpinScale()
@@ -12,7 +10,6 @@ class TemplateModule : public Shard::Plugin {
 public:
     void OnLoad(Shard::Context& ctx) override
     {
-        // "<plugin id>.scale" in the console and the config files
         SpinScale() = ctx.CVars().Float("scale", 1.f, "multiplies every speed", 0.f, 10.f);
         ctx.Log("loaded");
     }
@@ -23,7 +20,6 @@ public:
             ctx.Log("content : " + std::to_string(text->size()) + " bytes in readme.txt");
     }
 
-    // Hot reload (in the editor) : what survives the new binary
     bool OnPrepareReload(Shard::Context&, Shard::StateWriter& state) override { return state.Set("scale", std::to_string(SpinScale().Get())); }
     void OnRestore(Shard::Context&, Shard::StateReader& state) override
     {

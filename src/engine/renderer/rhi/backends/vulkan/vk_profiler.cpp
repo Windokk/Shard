@@ -41,13 +41,12 @@ namespace Shard::Engine::Rendering {
         }
 
         Context& context = Context::Get();
-        std::vector<uint64_t> results(size_t(frame.used) * 2 * 2);      // a value and its availability for each query
+        std::vector<uint64_t> results(size_t(frame.used) * 2 * 2);
 
         const VkResult result = vkGetQueryPoolResults(context.GetDevice(), frame.pool, 0, frame.used * 2, results.size() * sizeof(uint64_t), results.data(),
                                                       2 * sizeof(uint64_t), VK_QUERY_RESULT_64_BIT | VK_QUERY_RESULT_WITH_AVAILABILITY_BIT);
         if (result == VK_NOT_READY)
         {
-            // Everything has to be there
             for (uint32_t i = 0; i < frame.used * 2; i++)
             {
                 if (results[i * 2 + 1] == 0)
@@ -79,7 +78,6 @@ namespace Shard::Engine::Rendering {
         m_Current = (m_Current + 1) % kFrames;
         Frame& frame = m_Frames[m_Current];
 
-        // The frame this slot held is read now or never
         if (frame.pending)
             Collect(frame);
 

@@ -18,12 +18,10 @@ namespace Shard::Engine::Rendering {
 
     namespace {
 
-        // BPTC's 4 bit index weights, out of 64
         constexpr int kWeights4[16] = { 0, 4, 9, 13, 17, 21, 26, 30, 34, 38, 43, 47, 51, 55, 60, 64 };
 
         constexpr uint32_t kMinCompressSize = 128;
 
-        // Writes `count` bits of `value`, lowest bit first, into a 128 bit block
         struct BitWriter {
             uint64_t lo = 0, hi = 0;
             int position = 0;
@@ -58,12 +56,11 @@ namespace Shard::Engine::Rendering {
         };
 
         struct Endpoint {
-            int q[4] = {0, 0, 0, 0};    // 7 bit values
-            int p = 0;                  // shared low bit
+            int q[4] = {0, 0, 0, 0};
+            int p = 0;
             int Value(int c) const { return q[c] * 2 + p; }
         };
 
-        // The 16 colours of the palette between two endpoints, as the decoder computes them
         void BuildPalette(const Endpoint& e0, const Endpoint& e1, int palette[16][4])
         {
             for (int k = 0; k < 16; k++)
@@ -71,8 +68,6 @@ namespace Shard::Engine::Rendering {
                     palette[k][c] = ((64 - kWeights4[k]) * e0.Value(c) + kWeights4[k] * e1.Value(c) + 32) >> 6;
         }
 
-        // Quantizes a float endpoint to 7 bits + a p-bit. Alpha, when it is the same over the whole block, is stored
-        // exactly, which also fixes the p-bit (it is the low bit of every channel, alpha included).
         Endpoint Quantize(const float v[4], bool exactAlpha, int alpha)
         {
             Endpoint best;
@@ -117,7 +112,6 @@ namespace Shard::Engine::Rendering {
             return total;
         }
 
-        // Nearest palette entry of every pixel, and the total squared error
         int AssignIndices(const uint8_t* rgba, const int palette[16][4], int dims, int indices[16])
         {
             const int* first = palette[0];
@@ -159,7 +153,6 @@ namespace Shard::Engine::Rendering {
             return total;
         }
 
-        // Least squares endpoints for fixed indices. False when the indices do not pin them down (all the same weight).
         bool RefitEndpoints(const uint8_t* rgba, const int indices[16], int dims, float e0[4], float e1[4])
         {
             float aa = 0, ab = 0, bb = 0;
@@ -189,8 +182,6 @@ namespace Shard::Engine::Rendering {
             return true;
         }
 
-        // sRGB <-> linear for the 8 bit colours of a colour texture : the decode is a 256 entry table, the encode a 4096 entry
-        // table indexed by the linear value (twice the precision of the finest step the curve has, near black)
         struct SRGBTables
         {
             float toLinear[256];
@@ -218,8 +209,6 @@ namespace Shard::Engine::Rendering {
             return tables;
         }
 
-        // The block downsampled by two, with the border pixels repeated for an odd size. `srgb` : the colour channels (the first
-        // three of a 3 or 4 channel image) are averaged as light, not as encoded values.
         void Downsample(const uint8_t* src, uint32_t width, uint32_t height, uint32_t channels, std::vector<uint8_t>& dst, uint32_t& newWidth, uint32_t& newHeight, bool srgb = false)
         {
             const uint32_t colourChannels = (srgb && channels >= 3) ? 3 : 0;
@@ -255,7 +244,6 @@ namespace Shard::Engine::Rendering {
             }
         }
 
-        // Encodes one mip level into blocks, rows [rowBegin, rowEnd) of blocks
         void EncodeRows(const uint8_t* src, uint32_t width, uint32_t height, uint32_t channels, BlockFormat format, uint8_t* dst, uint32_t rowBegin, uint32_t rowEnd)
         {
             const uint32_t blocksX = BlocksAcross(width);
@@ -340,7 +328,6 @@ namespace Shard::Engine::Rendering {
 
     void EncodeBC7Block(const uint8_t* rgba, uint8_t* out)
     {
-        // A block whose alpha never changes does not spend any of its precision on it
         int alphaMin = 255, alphaMax = 0;
         for (int i = 0; i < 16; i++)
         {
@@ -350,7 +337,6 @@ namespace Shard::Engine::Rendering {
         const bool exactAlpha = alphaMin == alphaMax;
         const int dims = exactAlpha ? 3 : 4;
 
-        // Principal axis of the 16 colours (power iteration on their covariance)
         float mean[4] = {0, 0, 0, 0};
         for (int i = 0; i < 16; i++)
             for (int c = 0; c < dims; c++)
@@ -422,7 +408,6 @@ namespace Shard::Engine::Rendering {
             e1[c] = c < dims ? std::clamp(mean[c] + axis[c] * tMax, 0.0f, 255.0f) : float(alphaMin);
         }
 
-        // Quantize, assign, refit : keep the best of a few rounds
         Endpoint bestE0, bestE1;
         int bestIndices[16] = {};
         int bestError = 1 << 30;
@@ -457,7 +442,7 @@ namespace Shard::Engine::Rendering {
             }
         }
 
-        // The first pixel's index only has 3 bits : its top bit is implied to be 0, so flip the line if it is not
+        // The first pixel's index has 3 bits, its top bit is implied 0. Flip the line if it is set.
         if (bestIndices[0] >= 8)
         {
             std::swap(bestE0, bestE1);
@@ -466,7 +451,7 @@ namespace Shard::Engine::Rendering {
         }
 
         BitWriter writer;
-        writer.Put(1u << 6, 7);                                     // mode 6 : six zeros then a one
+        writer.Put(1u << 6, 7);
         for (int c = 0; c < 4; c++)
         {
             writer.Put(uint32_t(bestE0.q[c]), 7);
@@ -516,11 +501,8 @@ namespace Shard::Engine::Rendering {
         if (!pixels || channels < 3 || width == 0 || height == 0)
             return false;
 
-        // A grid of at most ~4096 pixels over the whole image
         const uint32_t stepX = std::max(1u, width / 64);
         const uint32_t stepY = std::max(1u, height / 64);
-        // What sets a normal map apart is how exact its vectors are : the length of a pixel read as a vector is 1 within
-        // the 8 bit rounding (a photograph, an albedo, a mask are nowhere near), and on average it points out of the surface
         uint32_t samples = 0, unitLength = 0;
         double sumZ = 0.0;
         for (uint32_t y = 0; y < height; y += stepY)
@@ -557,7 +539,6 @@ namespace Shard::Engine::Rendering {
         const uint32_t levels = MipCount(width, height);
         out.mips.reserve(levels);
 
-        // Level 0 is read where the caller has it : only the smaller levels are built (a 4096 x 4096 RGB image is 48 MB)
         const uint8_t* current = pixels;
         std::vector<uint8_t> storage, next;
         uint32_t levelWidth = width, levelHeight = height;
@@ -633,7 +614,6 @@ namespace Shard::Engine::Rendering {
             if (ec)
                 return "";
 
-            // The key of a linear texture is what it always was : the files already cached stay valid
             const std::string identity = std::to_string(kVersion) + "|" + sourcePath + "|" + std::to_string(size) + "|" + std::to_string(stamp.time_since_epoch().count()) + (srgb ? "|srgb" : "");
             char name[32];
             std::snprintf(name, sizeof(name), "%016llx.stx", static_cast<unsigned long long>(Fnv1a64(identity)));
@@ -736,7 +716,6 @@ namespace Shard::Engine::Rendering {
             std::error_code ec;
             std::filesystem::create_directories(std::filesystem::path(key).parent_path(), ec);
 
-            // Written aside then renamed : another run (or thread) never sees half a file
             static std::atomic<uint64_t> counter{0};
             const std::string temp = key + "." + std::to_string(counter++) + ".tmp";
             {

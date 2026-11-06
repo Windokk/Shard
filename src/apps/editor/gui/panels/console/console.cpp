@@ -21,11 +21,11 @@ namespace Shard::Editor::GUI{
         const char* const kLevelBadges[kLevelCount] = {"[LOG]  ", "[INFO] ", "[WARN] ", "[ERROR]", "[FATAL]"};
 
         const ImVec4 kLevelColors[kLevelCount] = {
-            ImVec4(0.80f, 0.80f, 0.84f, 1.0f),      // log
-            ImVec4(0.55f, 0.82f, 1.00f, 1.0f),      // info
-            ImVec4(1.00f, 0.80f, 0.30f, 1.0f),      // warning
-            ImVec4(1.00f, 0.42f, 0.42f, 1.0f),      // error
-            ImVec4(1.00f, 0.25f, 0.25f, 1.0f),      // fatal
+            ImVec4(0.80f, 0.80f, 0.84f, 1.0f),
+            ImVec4(0.55f, 0.82f, 1.00f, 1.0f),
+            ImVec4(1.00f, 0.80f, 0.30f, 1.0f),
+            ImVec4(1.00f, 0.42f, 0.42f, 1.0f),
+            ImVec4(1.00f, 0.25f, 0.25f, 1.0f),
         };
         const ImVec4 kDim(0.46f, 0.47f, 0.52f, 1.0f);
         const ImVec4 kCommandColor(0.55f, 1.00f, 0.62f, 1.0f);
@@ -60,8 +60,6 @@ namespace Shard::Editor::GUI{
 
         int LevelIndex(Level level) { return std::clamp(static_cast<int>(level), 0, kLevelCount - 1); }
 
-        /// What the logger writes is "[LEVEL] <timestamp> (file.cpp:123) message" : the level is known from the sink, the
-        /// timestamp is the console's own, the location is worth showing apart from the message.
         void SplitLogLine(const std::string& line, std::string& source, std::string& message)
         {
             size_t start = 0;
@@ -73,7 +71,6 @@ namespace Shard::Editor::GUI{
                     ++start;
             }
 
-            // "(file:line) " near the start
             const size_t open = line.find('(', start);
             if (open != std::string::npos && open - start < 48) {
                 const size_t close = line.find(") ", open);
@@ -111,8 +108,6 @@ namespace Shard::Editor::GUI{
 
         bool IsSpace(char c) { return std::isspace(static_cast<unsigned char>(c)) != 0; }
     }
-
-    // ------------------------------------------------------------------------------------------------ setup
 
     Console::~Console()
     {
@@ -167,8 +162,6 @@ namespace Shard::Editor::GUI{
         registry.RegisterCommand("exit", "exit : closes the editor", quit);
     }
 
-    // ------------------------------------------------------------------------------------------------ log
-
     void Console::Clear()
     {
         m_Entries.clear();
@@ -208,7 +201,6 @@ namespace Shard::Editor::GUI{
     {
         const std::vector<std::string> lines = SplitLines(message);
 
-        // The same message again and again is one line with a count : a warning logged every frame must not bury the log
         if (lines.size() == 1 && kind == Kind::Log && !m_Entries.empty()) {
             Entry& last = m_Entries.back();
             if (last.kind == Kind::Log && !last.continuation && last.level == level && last.text == lines[0] && last.source == source) {
@@ -391,7 +383,6 @@ namespace Shard::Editor::GUI{
                 const ImVec2 origin = ImGui::GetCursorScreenPos();
                 const float width = std::max(ImGui::GetContentRegionAvail().x, 50.0f);
 
-                // Row background : every other line a little lighter, errors tinted
                 if (entry.kind == Kind::Log && (entry.level == Level::Error || entry.level == Level::Fatal))
                     draw->AddRectFilled(origin, ImVec2(origin.x + width, origin.y + rowHeight), Color(kLevelColors[LevelIndex(entry.level)], 0.10f));
                 else if (i & 1)
@@ -427,7 +418,6 @@ namespace Shard::Editor::GUI{
                     m_Anchor = entry.id;
                 }
 
-                // A command that was run : double click brings it back to the command line
                 if (hovered && entry.kind == Kind::Command && ImGui::IsMouseDoubleClicked(ImGuiMouseButton_Left)) {
                     m_PendingBuffer = entry.text.size() >= 2 ? entry.text.substr(2) : entry.text;
                     m_ReplaceBuffer = true;
@@ -466,7 +456,6 @@ namespace Shard::Editor::GUI{
                 }
                 ImGui::PopID();
 
-                // The text, on top of the row
                 const float y = origin.y + (rowHeight - textHeight) * 0.5f;
                 float x = origin.x + 6.0f;
 
@@ -509,7 +498,6 @@ namespace Shard::Editor::GUI{
 
                 draw->PopClipRect();
 
-                // Cut off by the edge : the whole line is in the tooltip
                 if (hovered && endX > origin.x + width - 4.0f) {
                     ImGui::BeginTooltip();
                     ImGui::PushTextWrapPos(ImGui::GetFontSize() * 40.0f);
@@ -521,7 +509,6 @@ namespace Shard::Editor::GUI{
         }
         clipper.End();
 
-        // Keys of the log : copy / select all while it holds the focus
         if (ImGui::IsWindowFocused(ImGuiFocusedFlags_ChildWindows) && !ImGui::GetIO().WantTextInput) {
             if (ImGui::IsKeyChordPressed(ImGuiMod_Ctrl | ImGuiKey_C)) {
                 std::vector<const Entry*> chosen;
@@ -535,7 +522,6 @@ namespace Shard::Editor::GUI{
             }
         }
 
-        // Scrolling : the newest line stays in view while the user is at the bottom
         if (m_ScrollDelta != 0.0f) {
             ImGui::SetScrollY(ImGui::GetScrollY() + m_ScrollDelta);
             m_ScrollDelta = 0.0f;
@@ -553,7 +539,6 @@ namespace Shard::Editor::GUI{
         if (m_WasAtBottom)
             m_NewSinceBottom = 0;
 
-        // Not at the bottom while lines keep coming : a button to get back
         if (!m_WasAtBottom && m_NewSinceBottom > 0) {
             const std::string label = "New lines : " + std::to_string(m_NewSinceBottom) + "  (go to the bottom)";
             const float buttonWidth = ImGui::CalcTextSize(label.c_str()).x + ImGui::GetStyle().FramePadding.x * 2.0f;
@@ -568,8 +553,6 @@ namespace Shard::Editor::GUI{
         ImGui::PopStyleVar();
         ImGui::PopStyleColor();
     }
-
-    // ------------------------------------------------------------------------------------------------ command line
 
     void Console::CloseSuggestions()
     {
@@ -641,7 +624,6 @@ namespace Shard::Editor::GUI{
                     m_Suggestions = registry.Suggest(m_WordText, 40, true, true);
             }
 
-            // Already what was typed, and nothing else to offer : the hint line says it better
             if (m_Suggestions.size() == 1 && Lower(m_Suggestions[0].name) == Lower(m_WordText))
                 m_Suggestions.clear();
         }
@@ -674,7 +656,6 @@ namespace Shard::Editor::GUI{
         int cursor = m_WordStart + static_cast<int>(name.size());
         data->CursorPos = cursor;
 
-        // The argument comes next
         if (cursor == data->BufTextLen) {
             data->InsertChars(cursor, " ");
             cursor++;
@@ -898,7 +879,6 @@ namespace Shard::Editor::GUI{
                 draw->AddText(ImVec2(cursorX, y0), Color(isCommand ? kCommandTag : kVariableTag, 0.85f), tag);
                 cursorX += ImGui::CalcTextSize("cmd").x + 10.0f;
 
-                // The name, with what was typed lit up
                 const std::string lowerName = Lower(s.name);
                 const size_t at = needle.empty() ? std::string::npos : lowerName.find(needle);
                 const ImU32 nameColor = Color(ImVec4(0.92f, 0.93f, 0.96f, 1.0f));
@@ -955,7 +935,6 @@ namespace Shard::Editor::GUI{
 
     void Console::DrawHint()
     {
-        // The line says what is being typed : the usage of the command, or the variable with its value and what it is for
         std::string line(m_Input);
         std::vector<std::string> words = CVarRegistry::Tokenize(line);
         std::string hint;
@@ -991,7 +970,6 @@ namespace Shard::Editor::GUI{
         ImGui::TextColored(kCommandColor, ">");
         ImGui::SameLine();
 
-        // A click on a suggestion of the last frame
         if (m_PendingAccept >= 0) {
             AcceptSuggestionInBuffer(m_PendingAccept);
             m_PendingAccept = -1;
@@ -1022,7 +1000,6 @@ namespace Shard::Editor::GUI{
             m_FocusInput = true;
         }
 
-        // Ctrl+R : the suggestions become the history lines that contain what is typed
         if (m_InputActive && ImGui::IsKeyChordPressed(ImGuiMod_Ctrl | ImGuiKey_R)) {
             m_HistorySearch = !m_HistorySearch;
             m_Selection = 0;
@@ -1035,11 +1012,8 @@ namespace Shard::Editor::GUI{
         DrawHint();
     }
 
-    // ------------------------------------------------------------------------------------------------ window
-
     void Console::Draw()
     {
-        // The key under Escape from anywhere : the command line, like the console of a game
         if (ImGui::IsKeyPressed(ImGuiKey_GraveAccent, false) && !ImGui::GetIO().WantTextInput) {
             FocusCommandLine();
         }
@@ -1077,7 +1051,6 @@ namespace Shard::Editor::GUI{
         ImGui::Spacing();
         DrawCommandLine();
 
-        // Last, so that it is above everything the panel drew
         DrawSuggestions(m_InputX, m_InputY, m_InputWidth);
 
         ImGui::End();

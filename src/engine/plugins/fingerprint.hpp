@@ -1,8 +1,6 @@
 #pragma once
 
-// A plugin is only loaded by an executable built the same way : the same compiler family, the same build type and the same
-// options that change what a struct looks like or what the simulation computes. The host compares the fingerprint the plugin
-// was built with to its own, character by character.
+// Plugins load only into an executable built the same way (compiler family, build type, options that change struct layout or simulation). Fingerprints are compared character by character.
 
 #define SHARD_FP_STR2(x) #x
 #define SHARD_FP_STR(x) SHARD_FP_STR2(x)
@@ -52,6 +50,5 @@
 #define SHARD_BUILD_FINGERPRINT SHARD_FP_OS "-" SHARD_FP_ARCH "|" SHARD_FP_COMPILER "|" SHARD_FP_BUILD "|" SHARD_FP_DOUBLE "|" SHARD_FP_DET
 
 namespace Shard::Engine::Plugins {
-    /// The fingerprint of the code that is being compiled
     inline constexpr const char* kBuildFingerprint = SHARD_BUILD_FINGERPRINT;
 }

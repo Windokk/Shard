@@ -38,8 +38,6 @@ namespace Shard::Engine::Rendering::VK {
         }
     }
 
-    // ---- SamplerKey ----------------------------------------------------------------------------------------------------------------
-
     bool SamplerKey::operator==(const SamplerKey& other) const
     {
         return minFilter == other.minFilter && magFilter == other.magFilter && mipmapMode == other.mipmapMode &&
@@ -57,11 +55,8 @@ namespace Shard::Engine::Rendering::VK {
         return static_cast<size_t>(h);
     }
 
-    // ---- Context -------------------------------------------------------------------------------------------------------------------
-
     struct Context::Dummies
     {
-        // One 1x1 image for each kind of sampler a shader can declare
         std::unordered_map<int, Image> images;
         std::unordered_map<int, VkSampler> samplers;
     };
@@ -136,7 +131,7 @@ namespace Shard::Engine::Rendering::VK {
         features.imageCubeArray = VK_TRUE;
         features.fragmentStoresAndAtomics = VK_TRUE;
         features.vertexPipelineStoresAndAtomics = VK_TRUE;
-        features.sampleRateShading = VK_TRUE;                     // gl_SampleID : the deferred lighting runs once per sample of a multisampled G-buffer
+        features.sampleRateShading = VK_TRUE;
 
         VkPhysicalDeviceVulkan11Features features11{VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_1_FEATURES};
         features11.shaderDrawParameters = VK_TRUE;
@@ -154,7 +149,7 @@ namespace Shard::Engine::Rendering::VK {
         VkPhysicalDeviceVulkan13Features features13{VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_3_FEATURES};
         features13.dynamicRendering = VK_TRUE;
         features13.synchronization2 = VK_TRUE;
-        features13.shaderDemoteToHelperInvocation = VK_TRUE;      // `discard` of a fragment shader
+        features13.shaderDemoteToHelperInvocation = VK_TRUE;
 
         vkb::PhysicalDeviceSelector selector(vkbInstance);
         selector.set_minimum_version(1, 3)
@@ -178,7 +173,6 @@ namespace Shard::Engine::Rendering::VK {
 
         vkb::PhysicalDevice physical = physicalResult.value();
 
-        // What the backend can do without, when the GPU has it
         VkPhysicalDeviceDepthClipControlFeaturesEXT depthClip{VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_DEPTH_CLIP_CONTROL_FEATURES_EXT};
         depthClip.depthClipControl = VK_TRUE;
         m_Caps.depthClipControl = physical.enable_extension_features_if_present(depthClip);
@@ -237,7 +231,7 @@ namespace Shard::Engine::Rendering::VK {
         vkGetPhysicalDeviceProperties2(m_PhysicalDevice, &properties2);
         m_Caps.maxBindlessTextures = std::min<uint32_t>(16384, indexing.maxDescriptorSetUpdateAfterBindSampledImages);
 
-        // Depth formats : a 32 bit float one is the portable choice (24 bit ones are missing on some GPUs)
+        // 32-bit float depth is the portable choice, 24-bit formats are missing on some GPUs.
         const VkFormatFeatureFlags depthFeatures = VK_FORMAT_FEATURE_DEPTH_STENCIL_ATTACHMENT_BIT | VK_FORMAT_FEATURE_SAMPLED_IMAGE_BIT |
             VK_FORMAT_FEATURE_SAMPLED_IMAGE_FILTER_LINEAR_BIT | VK_FORMAT_FEATURE_TRANSFER_SRC_BIT | VK_FORMAT_FEATURE_TRANSFER_DST_BIT;
         m_Caps.depthFormat = FormatSupports(m_PhysicalDevice, VK_FORMAT_D32_SFLOAT, depthFeatures) ? VK_FORMAT_D32_SFLOAT : VK_FORMAT_D16_UNORM;
@@ -259,10 +253,9 @@ namespace Shard::Engine::Rendering::VK {
         if (VK_CHECK(vmaCreateAllocator(&allocatorInfo, &m_Allocator)) != VK_SUCCESS)
             return false;
 
-        // Pipelines rebuilt for another state (a resize, a reloaded shader) reuse what the driver already compiled
         VkPipelineCacheCreateInfo cacheInfo{VK_STRUCTURE_TYPE_PIPELINE_CACHE_CREATE_INFO};
         if (VK_CHECK(vkCreatePipelineCache(m_Device, &cacheInfo, nullptr, &m_PipelineCache)) != VK_SUCCESS)
-            m_PipelineCache = VK_NULL_HANDLE;                              // not fatal : VK_NULL_HANDLE is a valid "no cache"
+            m_PipelineCache = VK_NULL_HANDLE;
 
         return true;
     }
@@ -330,7 +323,6 @@ namespace Shard::Engine::Rendering::VK {
         if (!m_UniformRingMapped)
             return false;
 
-        // The staging ring : what the CPU writes for the GPU to copy (buffer updates of the frame, readbacks of a region...)
         VkBufferCreateInfo stagingInfo{VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO};
         stagingInfo.size = kStagingBytesPerSlot * kSlots;
         stagingInfo.usage = VK_BUFFER_USAGE_TRANSFER_SRC_BIT;
@@ -346,7 +338,6 @@ namespace Shard::Engine::Rendering::VK {
         m_StagingRingMapped = static_cast<uint8_t*>(stagingResult.pMappedData);
         SetObjectName(VK_OBJECT_TYPE_BUFFER, m_StagingRing, "Staging ring");
 
-        // The sets that are not rebuilt every frame
         const VkDescriptorPoolSize sizes[] = {{VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER_DYNAMIC, 1024}, {VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, 256}};
         VkDescriptorPoolCreateInfo poolInfo{VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO};
         poolInfo.flags = VK_DESCRIPTOR_POOL_CREATE_FREE_DESCRIPTOR_SET_BIT;
@@ -425,7 +416,7 @@ namespace Shard::Engine::Rendering::VK {
             info.format = kind.depth ? m_Caps.depthFormat : VK_FORMAT_R8G8B8A8_UNORM;
             info.usage = VK_IMAGE_USAGE_SAMPLED_BIT | VK_IMAGE_USAGE_TRANSFER_DST_BIT;
             if (kind.depth)
-                info.usage |= VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT;       // the layout depth images are sampled in needs it
+                info.usage |= VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT;
             if (kind.type == ShaderSamplerType::Texture2DMultisample || kind.type == ShaderSamplerType::Texture2DMultisampleArray)
             {
                 info.samples = (m_Caps.sampleCounts & VK_SAMPLE_COUNT_4_BIT) ? VK_SAMPLE_COUNT_4_BIT : VK_SAMPLE_COUNT_1_BIT;
@@ -442,7 +433,6 @@ namespace Shard::Engine::Rendering::VK {
             m_Dummies->images[static_cast<int>(kind.type)] = std::move(image);
         }
 
-        // Clear them (white, depth 1) and take them to the layout they are sampled in
         ImmediateSubmit([&](VkCommandBuffer cmd) {
             for (auto& [type, image] : m_Dummies->images)
             {
@@ -466,7 +456,6 @@ namespace Shard::Engine::Rendering::VK {
             }
         });
 
-        // Every entry of the bindless array holds the white texture to begin with : an index nobody wrote reads white, not garbage
         const Image& white = GetDummyImage(ShaderSamplerType::Texture2D);
         VkSampler sampler = GetDummySampler(ShaderSamplerType::Texture2D);
         if (white.IsValid() && sampler != VK_NULL_HANDLE && m_BindlessSet != VK_NULL_HANDLE)
@@ -497,7 +486,6 @@ namespace Shard::Engine::Rendering::VK {
         if (it != m_Dummies->images.end())
             return it->second;
 
-        // The kinds that have none (a 1D one...) read the 2D one
         it = m_Dummies->images.find(static_cast<int>(ShaderSamplerType::Texture2D));
         return it != m_Dummies->images.end() ? it->second : empty;
     }
@@ -560,7 +548,6 @@ namespace Shard::Engine::Rendering::VK {
 
             DestroySwapchain();
 
-            // Everything that was waiting to be destroyed
             for (std::function<void()>& work : m_PendingDefers)
                 work();
             m_PendingDefers.clear();
@@ -577,7 +564,6 @@ namespace Shard::Engine::Rendering::VK {
                 for (auto& [type, image] : m_Dummies->images)
                     image.Destroy();
 
-                // Destroy() defers : nothing is in flight any more, run it now
                 for (std::function<void()>& work : m_PendingDefers)
                     work();
                 m_PendingDefers.clear();
@@ -664,8 +650,6 @@ namespace Shard::Engine::Rendering::VK {
         g_Context = nullptr;
     }
 
-    // ---- Frames --------------------------------------------------------------------------------------------------------------------
-
     void Context::BeginSlot(Slot& slot)
     {
         if (slot.submitted)
@@ -674,7 +658,6 @@ namespace Shard::Engine::Rendering::VK {
             VK_CHECK(vkResetFences(m_Device, 1, &slot.fence));
             slot.submitted = false;
 
-            // The GPU is done with everything this slot recorded : what was released during it can go
             std::vector<std::function<void()>> deferred;
             deferred.swap(slot.deferred);
             for (std::function<void()>& work : deferred)
@@ -805,8 +788,6 @@ namespace Shard::Engine::Rendering::VK {
         m_PendingDefers.push_back(std::move(work));
     }
 
-    // ---- Descriptors ---------------------------------------------------------------------------------------------------------------
-
     VkDescriptorPool Context::NewPool()
     {
         const VkDescriptorPoolSize sizes[] = {
@@ -853,7 +834,6 @@ namespace Shard::Engine::Rendering::VK {
                 return VK_NULL_HANDLE;
             }
 
-            // The pool of this frame is full : the next one (a new one if there is none)
             pools.current++;
             if (pools.current >= pools.pools.size())
                 pools.pools.push_back(NewPool());
@@ -876,9 +856,7 @@ namespace Shard::Engine::Rendering::VK {
 
     bool Context::AllocUniform(uint32_t size, uint32_t& offset, void*& mapped)
     {
-        // A slot that has not begun its frame still holds what it used 4 frames ago (and the GPU may still read it) : BeginSlot, which
-        // waits for that and starts the ring over, runs on the first Cmd(). Allocating before it hands out space that is given out again
-        // right after
+        // A slot that has not begun its frame still holds data from 4 frames ago. BeginSlot waits for it on the first Cmd(), so call Cmd() before allocating.
         Cmd();
 
         Slot& slot = m_Slots[m_Current];
@@ -896,8 +874,7 @@ namespace Shard::Engine::Rendering::VK {
 
     bool Context::AllocStaging(VkDeviceSize size, VkBuffer& buffer, VkDeviceSize& offset, void*& mapped)
     {
-        // See AllocUniform : the slot has to have begun its frame, or the first buffers staged after a submit overlap the next ones
-        // (a scene uploaded buffer by buffer right after a readback came out as a mix of its buffers)
+        // Same as AllocUniform: without a begun slot, buffers staged right after a submit overlap later ones (a scene uploaded buffer by buffer after a readback came out mixed).
         Cmd();
 
         Slot& slot = m_Slots[m_Current];
@@ -912,7 +889,6 @@ namespace Shard::Engine::Rendering::VK {
             return true;
         }
 
-        // Too big for the ring : a buffer for this alone, destroyed when the slot is done
         VkBufferCreateInfo bufferInfo{VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO};
         bufferInfo.size = size;
         bufferInfo.usage = VK_BUFFER_USAGE_TRANSFER_SRC_BIT;
@@ -1001,8 +977,6 @@ namespace Shard::Engine::Rendering::VK {
         vkUpdateDescriptorSets(m_Device, 1, &write, 0, nullptr);
     }
 
-    // ---- Swapchain -----------------------------------------------------------------------------------------------------------------
-
     bool Context::CreateSwapchain(int width, int height, bool vsync)
     {
         if (m_Surface == VK_NULL_HANDLE)
@@ -1029,7 +1003,6 @@ namespace Shard::Engine::Rendering::VK {
 
         vkb::Swapchain swapchain = result.value();
 
-        // Whatever came from the old one
         std::vector<VkSemaphore> oldSemaphores;
         oldSemaphores.swap(m_RenderFinished);
         for (VkSemaphore semaphore : oldSemaphores)
@@ -1092,9 +1065,8 @@ namespace Shard::Engine::Rendering::VK {
             return false;
 
         if (width == 0 || height == 0)
-            return false;      // minimised
+            return false;
 
-        // A window that is hidden or minimised has a surface of no size : nothing to draw on
         {
             VkSurfaceCapabilitiesKHR capabilities{};
             if (vkGetPhysicalDeviceSurfaceCapabilitiesKHR(m_PhysicalDevice, m_Surface, &capabilities) == VK_SUCCESS &&
@@ -1110,7 +1082,6 @@ namespace Shard::Engine::Rendering::VK {
                 return false;
         }
 
-        // The slot the present is recorded in is the one after the frame's : its acquire semaphore is free once its fence has been waited for
         VkCommandBuffer cmd = Cmd();
         const VkSemaphore acquired = m_ImageAcquired[m_Current];
 
@@ -1119,7 +1090,6 @@ namespace Shard::Engine::Rendering::VK {
         if (result == VK_ERROR_OUT_OF_DATE_KHR)
         {
             m_SwapchainDirty = true;
-            // Nothing to present : close the command buffer of this slot empty
             Submit();
             return false;
         }
@@ -1136,7 +1106,7 @@ namespace Shard::Engine::Rendering::VK {
         source.Transition(cmd, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL);
         TransitionAcquiredImage(cmd, target, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, VK_PIPELINE_STAGE_2_TRANSFER_BIT);
 
-        // The picture is stored bottom row first, like OpenGL's : the blit flips it
+        // Image is stored bottom row first like OpenGL, the blit flips it.
         VkImageBlit blit{};
         blit.srcSubresource = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 0, 1};
         blit.srcOffsets[0] = {0, static_cast<int32_t>(source.height), 0};
@@ -1171,9 +1141,8 @@ namespace Shard::Engine::Rendering::VK {
     bool Context::PresentUI(const std::function<void(VkCommandBuffer)>& draw, uint32_t width, uint32_t height, const float clearColor[4])
     {
         if (m_Swapchain == VK_NULL_HANDLE || width == 0 || height == 0)
-            return false;      // no window, or minimised
+            return false;
 
-        // A window that is hidden or minimised has a surface of no size : nothing to draw on
         {
             VkSurfaceCapabilitiesKHR capabilities{};
             if (vkGetPhysicalDeviceSurfaceCapabilitiesKHR(m_PhysicalDevice, m_Surface, &capabilities) == VK_SUCCESS &&

@@ -16,9 +16,6 @@ namespace Shard::Engine::Rendering::Raytracing {
         constexpr int kSAHBins = 12;
         constexpr uint32_t kMaxLeafTriangles = 4;
 
-        // Below this triangle count, offloading a subtree to another thread costs more (thread
-        // wakeup + the eventual join) than it saves - triCount roughly halves with every split, so only
-        // the top handful of levels of a large build are ever above this and worth parallelizing at all.
         constexpr uint32_t kMinTrianglesToParallelize = 8192;
 
         float SurfaceArea(const glm::vec3& boundsMin, const glm::vec3& boundsMax)
@@ -45,10 +42,6 @@ namespace Shard::Engine::Rendering::Raytracing {
             node.boundsMax = boundsMax;
         }
 
-        // Binned SAH : bins primitive centroids along each axis into kSAHBins buckets, then evaluates
-        // the surface-area-heuristic cost for every candidate plane between buckets and keeps the best
-        // one found across all 3 axes. Returns false if no axis has any centroid spread at all (every
-        // primitive in the node shares the same centroid - can't usefully split further).
         bool FindBestSplit(const BVHNode& node, const std::vector<BVHPrimitive>& prims, const std::vector<uint32_t>& order,
             int& outAxis, float& outSplitPos, float& outCost)
         {
@@ -89,8 +82,6 @@ namespace Shard::Engine::Rendering::Raytracing {
                     bins[binIdx].boundsMax = glm::max(bins[binIdx].boundsMax, p.boundsMax);
                 }
 
-                // Sweep left->right and right->left to get, for each of the (kSAHBins - 1) candidate
-                // planes, the cumulative count/surface-area of everything to its left and to its right.
                 float leftArea[kSAHBins - 1];
                 float rightArea[kSAHBins - 1];
                 uint32_t leftCount[kSAHBins - 1];
@@ -144,17 +135,7 @@ namespace Shard::Engine::Rendering::Raytracing {
         {
             const BVHBuilder::ProgressFn* fn = nullptr;
             size_t total = 0;
-            // Every primitive is accounted for exactly once (a split node's triangles are counted later,
-            // by its descendants' leaves), so `done` walks monotonically from 0 to `total` overall - but
-            // once Subdivide() below can offload a subtree to another thread, leaf() itself is called
-            // concurrently from multiple threads, hence atomic rather than a plain counter.
             std::atomic<size_t> done{ 0 };
-            // Highest fraction actually reported so far. Two threads racing to finish a leaf can call
-            // leaf() with `done` values that don't reflect wall-clock completion order any more (the
-            // primitive each leaf covers no longer maps to "how far along the build is" once work is
-            // split across threads) - onProgress's contract (see bvh.hpp) is a monotonically increasing
-            // fraction, so this clamps every call to a new high-water mark instead of ever reporting
-            // backward.
             std::atomic<float> reported{ 0.0f };
 
             void leaf(uint32_t triCount)
@@ -196,7 +177,6 @@ namespace Shard::Engine::Rendering::Raytracing {
                 return;
             }
 
-            // Only split if it's actually cheaper than leaving this node as one big leaf.
             float parentCost = node.triCount * SurfaceArea(node.boundsMin, node.boundsMax);
             if (splitCost >= parentCost)
             {
@@ -204,7 +184,6 @@ namespace Shard::Engine::Rendering::Raytracing {
                 return;
             }
 
-            // Partition [leftFirst, leftFirst + triCount) in-place by centroid vs. the chosen plane.
             auto rangeBegin = order.begin() + node.leftFirst;
             auto rangeEnd = rangeBegin + node.triCount;
             auto mid = std::partition(rangeBegin, rangeEnd, [&](uint32_t primIdx) {
@@ -214,7 +193,7 @@ namespace Shard::Engine::Rendering::Raytracing {
             uint32_t leftCount = (uint32_t)std::distance(rangeBegin, mid);
             if (leftCount == 0 || leftCount == node.triCount)
             {
-                progress.leaf(node.triCount); // degenerate split (all centroids landed on one side) - keep as leaf
+                progress.leaf(node.triCount);
                 return;
             }
 
@@ -222,13 +201,7 @@ namespace Shard::Engine::Rendering::Raytracing {
             uint32_t rightFirst = leftFirst + leftCount;
             uint32_t rightCount = node.triCount - leftCount;
 
-            // nodesUsed is shared with every other in-flight branch of this build (see the offload
-            // below), so this pair of indices has to be claimed as a single atomic step. The GPU
-            // traversal (raytracing_trace.glsl) hard-codes "right child = leftFirst + 1" and only ever
-            // stores leftFirst, so the two indices MUST come out consecutive - two separate fetch_add(1)
-            // calls would let another thread's own fetch_add land in between them under concurrency,
-            // silently breaking that invariant (the node's stored leftFirst would still be right, but
-            // leftFirst + 1 would be some unrelated node from a different branch of the build).
+            // Claim both children in one fetch_add. GPU traversal assumes right child = leftFirst + 1.
             uint32_t leftIdx = nodesUsed.fetch_add(2, std::memory_order_relaxed);
             uint32_t rightIdx = leftIdx + 1;
 
@@ -237,23 +210,12 @@ namespace Shard::Engine::Rendering::Raytracing {
             nodes[rightIdx].leftFirst = rightFirst;
             nodes[rightIdx].triCount = rightCount;
 
-            // node.leftFirst now refers to a node index (not a triangle index) - reinterpreted per the
-            // triCount == 0 convention.
             node.leftFirst = leftIdx;
             node.triCount = 0;
 
             UpdateBounds(nodes[leftIdx], prims, order);
             UpdateBounds(nodes[rightIdx], prims, order);
 
-            // The two subtrees only ever touch disjoint node indices (freshly claimed above) and disjoint
-            // ranges of `order` (left/right of the partition just performed), so running them on separate
-            // threads needs no locking. Only the right side is ever offloaded - the calling thread always
-            // continues on the left - so a small build (or a call already deep in the tree, below
-            // kMinTrianglesToParallelize) never creates a job at all, which also bounds how deep Wait() can nest.
-            //
-            // The right subtree is a job on the engine's job system, so overlapping scene builds (see
-            // ProbeManager::RebuildScene()) share its fixed set of threads instead of each spawning their own. Wait()
-            // executes other jobs while it waits, so a thread never idles on its subtree.
             if (rightCount >= kMinTrianglesToParallelize)
             {
                 if (Core::JobSystem* jobs = Core::GetEngine().GetJobSystem())
@@ -284,10 +246,7 @@ namespace Shard::Engine::Rendering::Raytracing {
         if (n == 0)
             return { BVHNode{ glm::vec3(0.0f), 0, glm::vec3(0.0f), 0 } };
 
-        // Upper bound on total node count for a binary tree over n leaves : each split adds exactly 2
-        // nodes and there are at most n - 1 splits, so 2n - 1 nodes covers every case. Allocated
-        // up front (fixed size, no push_back) so the BVHNode& references taken during Subdivide are
-        // never invalidated by a reallocation.
+        // Allocate 2n-1 nodes up front so BVHNode& references stay valid.
         std::vector<BVHNode> nodes(2 * n);
         std::atomic<uint32_t> nodesUsed{ 1 };
 

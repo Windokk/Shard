@@ -1,4 +1,3 @@
-/* Shard C ABI : every header at once. See README.md next to the include folder for what each one holds. */
 #ifndef SHARD_H
 #define SHARD_H
 
@@ -17,4 +16,4 @@
 #include "shard_content.h"
 #include "shard_state.h"
 
-#endif /* SHARD_H */
+#endif

@@ -27,7 +27,6 @@ namespace Shard::Engine::Worlds{
         info.ownerType = Filesystem::Type::T_WORLD;
         info.evictable = false;
         info.dependencies = [](const Filesystem::Path& path){
-            // What a world references is known by the modules that own the components and the settings
             return CollectWorldAssetRefs(path);
         };
         resources.RegisterKind(AssetKind::World, std::move(info));
@@ -73,13 +72,10 @@ namespace Shard::Engine::Worlds{
         asyncLoadPending = true;
         prefetcher.BeginLoad(pathInProject);
 
-        // Always hand the caller at least one tick, even when the load finishes on the first
-        // Pump() (an empty world does). The editor drives its GUI init - including the viewport
-        // camera - from this callback, and must get that chance before the first engine frame
-        // renders; otherwise Renderer::Render() runs once with no active camera.
+        // Always give the caller one tick, even if the load ends on the first Pump(). The editor inits its viewport camera from this callback before the first frame renders.
         bool loadComplete = false;
         do {
-            loadComplete = prefetcher.Pump(-1.0f); // loading screen : no per-frame upload budget
+            loadComplete = prefetcher.Pump(-1.0f);
             if(tickCallback)
                 tickCallback(prefetcher.GetProgress());
         } while(!loadComplete);
@@ -110,7 +106,6 @@ namespace Shard::Engine::Worlds{
         auto* resourcesManager = engine.GetResourcesManager();
 
         while(!worldBuffer.empty()){
-            // A world made in memory (the editor's New World) has no asset : nothing in the resources manager to release
             auto info = assetIDManager->GetAssetFromID(worldBuffer[0]->GetAssetID());
             const std::string nameInProject = info ? info->baseInfos.nameInProject : "";
             UnloadWorld(0);
@@ -121,12 +116,7 @@ namespace Shard::Engine::Worlds{
         if(onAllWorldsUnloaded)
             onAllWorldsUnloaded();
 
-        // Must happen before a new world is deserialized: Reset() invalidates every
-        // ObjectID and restarts the counter from 1. Deserializing first would hand the new
-        // world's actors IDs that Reset() then wipes out from the manager (while the objects
-        // themselves stay alive via the world's own containers), so the *next* world loaded
-        // reuses those same low IDs - GetObjectFromID() then resolves them to the wrong actor
-        // and RemoveActorRecursive() ends up tearing down the wrong world's tree entirely.
+        // Must run before deserializing the new world. Reset() invalidates every ObjectID, so IDs handed out earlier get reused and resolve to the wrong actor.
         engine.GetObjectIDManager()->Reset();
     }
 
@@ -137,9 +127,6 @@ namespace Shard::Engine::Worlds{
         auto& engine = Core::GetEngine();
         auto* assetIDManager = engine.GetAssetIDManager();
 
-        // Cheap, side-effect-free existence check first (no actor/ID allocation) so a bad/missing
-        // target can't leave the editor with zero worlds loaded - without actually deserializing
-        // the new world yet (see below for why that has to wait).
         if(!assetIDManager->GetAssetFromID(assetIDManager->GetIDFromNameInProject(pathInProject))){
             DEBUG_ERROR("Error loading world : " + pathInProject);
             return;
@@ -156,8 +143,6 @@ namespace Shard::Engine::Worlds{
 
         LoadWorld(world);
 
-        // Only now, with the new world's dependencies retained: whatever the old world held that the new
-        // one doesn't need is evicted, and what they share is never unloaded/reloaded.
         engine.GetResourcesManager()->CollectUnused();
     }
 

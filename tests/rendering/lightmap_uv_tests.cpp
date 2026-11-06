@@ -38,7 +38,6 @@ namespace {
         }
     };
 
-    // A cube with its 8 corners shared by the faces (smooth normals) : the unwrapper has to cut it along the edges anyway
     SoupMesh MakeSharedCube(float size)
     {
         SoupMesh mesh;
@@ -49,11 +48,10 @@ namespace {
             mesh.normals.push_back(glm::normalize(p));
         }
 
-        // Each face as two triangles, counter clockwise seen from outside
         const uint32_t faces[6][4] = {
-            { 1, 3, 7, 5 }, { 0, 4, 6, 2 },     // +x, -x
-            { 2, 6, 7, 3 }, { 0, 1, 5, 4 },     // +y, -y
-            { 4, 5, 7, 6 }, { 0, 2, 3, 1 },     // +z, -z
+            { 1, 3, 7, 5 }, { 0, 4, 6, 2 },
+            { 2, 6, 7, 3 }, { 0, 1, 5, 4 },
+            { 4, 5, 7, 6 }, { 0, 2, 3, 1 },
         };
         for (const auto& f : faces)
         {
@@ -62,7 +60,6 @@ namespace {
         return mesh;
     }
 
-    // A flat grid of n x n quads in the xz plane, `size` wide
     SoupMesh MakeGrid(int n, float size)
     {
         SoupMesh mesh;
@@ -108,8 +105,7 @@ namespace {
         return 0.5f * std::abs((b.x - a.x) * (c.y - a.y) - (b.y - a.y) * (c.x - a.x));
     }
 
-    // How many triangles of the layout cover each texel centre of a resolution x resolution grid, the centres exactly on an
-    // edge or a corner counting for none. More than one anywhere means two parts of the surface share the same texels.
+    // Triangles covering each texel centre; centres exactly on an edge or corner count for none. More than 1 means shared texels.
     int MaxCoverage(const std::vector<LightmapUnwrapGroupResult>& groups, int resolution)
     {
         std::vector<int> coverage(size_t(resolution) * resolution, 0);
@@ -180,9 +176,7 @@ namespace {
     }
 }
 
-// ---- The packer ----
-
-TEST(RectPacker, PlacesEveryRectInsideItsBinWithoutOverlap) {
+TEST(RectPacker, PlacesWithoutOverlap) {
     std::vector<PackRect> rects;
     unsigned seed = 12345;
     auto next = [&] { seed = seed * 1664525u + 1013904223u; return float((seed >> 8) & 0xFFFF) / 65535.0f; };
@@ -232,10 +226,10 @@ TEST(RectPacker, IsDeterministic) {
     }
 }
 
-TEST(RectPacker, OpensNewBinsAndReportsWhatCannotFit) {
+TEST(RectPacker, OpensNewBins) {
     std::vector<PackRect> rects(5);
     for (PackRect& r : rects)
-        r.w = r.h = 0.6f;       // one per bin
+        r.w = r.h = 0.6f;
 
     EXPECT_EQ(PackRectsShelf(rects, 1.0f, 1.0f), 5);
 
@@ -249,9 +243,7 @@ TEST(RectPacker, OpensNewBinsAndReportsWhatCannotFit) {
     EXPECT_EQ(tooBig[0].bin, -1);
 }
 
-// ---- The unwrapper ----
-
-TEST(LightmapUnwrap, CubeBecomesSixChartsOfTheSameDensity) {
+TEST(LightmapUnwrap, CubeBecomesSixCharts) {
     const SoupMesh cube = MakeSharedCube(2.0f);
     const LightmapUnwrapResult result = UnwrapForLightmap({ cube.Group() });
 
@@ -259,8 +251,6 @@ TEST(LightmapUnwrap, CubeBecomesSixChartsOfTheSameDensity) {
     EXPECT_EQ(result.chartCount, 6u);
     EXPECT_NEAR(result.surfaceArea, 24.0f, 1e-3f);
 
-    // Flat faces project without distortion : every triangle takes the same share of the square per unit of area, which is
-    // what makes a lightmap as sharp on one face as on another
     const LightmapUnwrapGroupResult& group = result.groups[0];
     const float density = result.uvArea / result.surfaceArea;
     for (size_t t = 0; t + 2 < group.indices.size(); t += 3)
@@ -273,13 +263,11 @@ TEST(LightmapUnwrap, CubeBecomesSixChartsOfTheSameDensity) {
         EXPECT_NEAR(uvArea / area, density, density * 1e-3f);
     }
 
-    // The corners shared by three faces were cut into one vertex per chart
     EXPECT_EQ(group.sourceVertex.size(), size_t(24));
     EXPECT_EQ(MaxCoverage(result.groups, 512), 1);
 }
 
-TEST(LightmapUnwrap, ScaleDoesNotChangeTheLayout) {
-    // Only the density follows the size : a cube twice as big is laid out the same way, in the same space
+TEST(LightmapUnwrap, ScaleKeepsLayout) {
     const LightmapUnwrapResult small = UnwrapForLightmap({ MakeSharedCube(1.0f).Group() });
     const LightmapUnwrapResult big = UnwrapForLightmap({ MakeSharedCube(4.0f).Group() });
 
@@ -291,7 +279,7 @@ TEST(LightmapUnwrap, ScaleDoesNotChangeTheLayout) {
         EXPECT_NEAR(glm::distance(small.groups[0].uv[i], big.groups[0].uv[i]), 0.0f, 1e-3f);
 }
 
-TEST(LightmapUnwrap, AFlatGridIsOneChart) {
+TEST(LightmapUnwrap, FlatGridIsOneChart) {
     const SoupMesh grid = MakeGrid(20, 10.0f);
     const LightmapUnwrapResult result = UnwrapForLightmap({ grid.Group() });
 
@@ -300,19 +288,17 @@ TEST(LightmapUnwrap, AFlatGridIsOneChart) {
     EXPECT_EQ(result.groups[0].sourceVertex.size(), grid.positions.size()) << "nothing to cut in a single chart";
     EXPECT_EQ(MaxCoverage(result.groups, 512), 1);
 
-    // A square chart fills most of the unit square (what is left is the padding)
     EXPECT_GT(result.uvArea, 0.9f);
 }
 
-// A cloth modelled with relief at the scale of its own triangles : its face normals jitter by tens of degrees while the
-// surface is flat as far as a lightmap can tell. It has to come out as a few charts, not as a heap of slivers.
-TEST(LightmapUnwrap, ANoisyFineSurfaceDoesNotShatterIntoSlivers) {
-    SoupMesh mesh = MakeGrid(100, 1.0f);     // 1 cm triangles
+// Cloth with relief at triangle scale: face normals jitter but the surface is flat for a lightmap. Must give a few charts, not slivers.
+TEST(LightmapUnwrap, NoisySurfaceNoSlivers) {
+    SoupMesh mesh = MakeGrid(100, 1.0f);
     uint32_t state = 12345u;
     for (glm::vec3& p : mesh.positions)
     {
         state = state * 1664525u + 1013904223u;
-        p.y = (float((state >> 8) & 0xFFFF) / 65535.0f - 0.5f) * 0.02f;        // +- 1 cm
+        p.y = (float((state >> 8) & 0xFFFF) / 65535.0f - 0.5f) * 0.02f;
     }
 
     std::vector<LightmapUnwrapGroup> groups = { mesh.Group() };
@@ -325,7 +311,7 @@ TEST(LightmapUnwrap, ANoisyFineSurfaceDoesNotShatterIntoSlivers) {
     EXPECT_LT(result.chartCount * 4u, before) << "20000 triangles of cloth: " << before << " charts, " << result.chartCount << " once the small ones are merged";
 }
 
-TEST(LightmapUnwrap, ASphereIsCutIntoSeveralNonOverlappingCharts) {
+TEST(LightmapUnwrap, SphereCutIntoCharts) {
     const SoupMesh sphere = MakeSphere(24, 32, 1.0f);
     const LightmapUnwrapResult result = UnwrapForLightmap({ sphere.Group() });
 
@@ -334,14 +320,13 @@ TEST(LightmapUnwrap, ASphereIsCutIntoSeveralNonOverlappingCharts) {
     EXPECT_GT(result.groups[0].sourceVertex.size(), sphere.positions.size()) << "the seams split vertices";
     EXPECT_EQ(MaxCoverage(result.groups, 1024), 1);
 
-    // A smaller maximum angle cuts more
     LightmapUnwrapSettings strict;
     strict.maxChartAngleDegrees = 20.0f;
     strict.maxSeedAngleDegrees = 30.0f;
     EXPECT_GT(UnwrapForLightmap({ sphere.Group() }, strict).chartCount, result.chartCount);
 }
 
-TEST(LightmapUnwrap, GroupsShareOneLayoutWithoutOverlap) {
+TEST(LightmapUnwrap, GroupsShareLayout) {
     const SoupMesh a = MakeSharedCube(2.0f);
     const SoupMesh b = MakeGrid(4, 3.0f);
     const LightmapUnwrapResult result = UnwrapForLightmap({ a.Group(), b.Group() });
@@ -380,9 +365,8 @@ TEST(LightmapUnwrap, HandlesNothingToUnwrap) {
     EXPECT_FALSE(UnwrapForLightmap({ empty }).success);
 }
 
-TEST(LightmapUnwrap, ToleratesATriangleWithoutAreaBetweenRealOnes) {
+TEST(LightmapUnwrap, ToleratesDegenerateTriangle) {
     SoupMesh mesh = MakeGrid(3, 3.0f);
-    // A sliver : two of its corners are the same point
     mesh.indices.insert(mesh.indices.end(), { 0, 0, 1 });
 
     const LightmapUnwrapResult result = UnwrapForLightmap({ mesh.Group() });
@@ -391,11 +375,10 @@ TEST(LightmapUnwrap, ToleratesATriangleWithoutAreaBetweenRealOnes) {
 }
 
 TEST(LightmapUnwrap, ManyTinyChartsStillFit) {
-    // Every triangle its own chart (all the normals differ a lot) : the padding has to give way, not the layout
     SoupMesh mesh;
     for (int i = 0; i < 3000; i++)
     {
-        const float a = float(i) * 2.399963f;       // the golden angle : the facing spreads over the sphere
+        const float a = float(i) * 2.399963f;       // golden angle spreads the facing over the sphere
         const float y = 1.0f - 2.0f * (float(i) + 0.5f) / 3000.0f;
         const float r = std::sqrt(1.0f - y * y);
         const glm::vec3 n(std::cos(a) * r, y, std::sin(a) * r);
@@ -414,11 +397,8 @@ TEST(LightmapUnwrap, ManyTinyChartsStillFit) {
     EXPECT_EQ(MaxCoverage(result.groups, 2048), 1);
 }
 
-// ---- The cache ----
-
 namespace {
 
-    // Turns the cache on in a folder of its own, off again afterwards (the setting is global)
     class UnwrapCache : public ::testing::Test
     {
     protected:
@@ -448,7 +428,7 @@ namespace {
     };
 }
 
-TEST_F(UnwrapCache, TheSecondUnwrapOfAMeshComesFromTheCacheAndIsIdentical) {
+TEST_F(UnwrapCache, SecondUnwrapComesFromCache) {
     const SoupMesh sphere = MakeSphere(20, 28, 1.5f);
 
     const LightmapUnwrapResult first = UnwrapForLightmap({ sphere.Group() });
@@ -469,11 +449,10 @@ TEST_F(UnwrapCache, TheSecondUnwrapOfAMeshComesFromTheCacheAndIsIdentical) {
     EXPECT_FLOAT_EQ(first.surfaceArea, second.surfaceArea);
 }
 
-TEST_F(UnwrapCache, AnotherMeshOrOtherSettingsAreNotServedFromIt) {
+TEST_F(UnwrapCache, ChangedInputMissesCache) {
     SoupMesh sphere = MakeSphere(12, 16, 1.0f);
     EXPECT_FALSE(UnwrapForLightmap({ sphere.Group() }).fromCache);
 
-    // One vertex moved
     sphere.positions[5] += glm::vec3(0.01f, 0.0f, 0.0f);
     EXPECT_FALSE(UnwrapForLightmap({ sphere.Group() }).fromCache);
 
@@ -484,7 +463,7 @@ TEST_F(UnwrapCache, AnotherMeshOrOtherSettingsAreNotServedFromIt) {
     EXPECT_EQ(FileCount(), size_t(3));
 }
 
-TEST_F(UnwrapCache, ADamagedFileIsIgnoredAndReplaced) {
+TEST_F(UnwrapCache, DamagedFileReplaced) {
     const SoupMesh cube = MakeSharedCube(2.0f);
     ASSERT_FALSE(UnwrapForLightmap({ cube.Group() }).fromCache);
 
@@ -494,7 +473,6 @@ TEST_F(UnwrapCache, ADamagedFileIsIgnoredAndReplaced) {
             file = entry.path();
     ASSERT_FALSE(file.empty());
 
-    // Truncated
     {
         std::vector<char> bytes;
         {
@@ -510,20 +488,17 @@ TEST_F(UnwrapCache, ADamagedFileIsIgnoredAndReplaced) {
     EXPECT_TRUE(recomputed.success);
     EXPECT_EQ(recomputed.chartCount, 6u);
 
-    // And the damaged file was replaced by a good one
     EXPECT_TRUE(UnwrapForLightmap({ cube.Group() }).fromCache);
 }
 
-TEST(LightmapUnwrapNoCache, NothingIsWrittenWithoutADirectory) {
+TEST(LightmapUnwrapNoCache, NoDirectoryWritesNothing) {
     SetLightmapUnwrapCacheDirectory("");
     const SoupMesh grid = MakeGrid(4, 2.0f);
     EXPECT_FALSE(UnwrapForLightmap({ grid.Group() }).fromCache);
     EXPECT_FALSE(UnwrapForLightmap({ grid.Group() }).fromCache);
 }
 
-// ---- The meshes of the sample project ----
-
-TEST(LightmapUnwrap, LoadedMeshesCarryTheirLightmapCoordinates) {
+TEST(LightmapUnwrap, LoadedMeshesHaveLightmapUvs) {
     for (const char* name : { "CornellBox.fbx", "Dragon.fbx", "cube.fbx" })
     {
         const auto path = FindModel(name);
@@ -555,7 +530,6 @@ TEST(LightmapUnwrap, LoadedMeshesCarryTheirLightmapCoordinates) {
             asGroups[0].uv.push_back(uv);
         }
 
-        // Every triangle of every material slot is somewhere of its own in the one square
         EXPECT_EQ(MaxCoverage(asGroups, 1024), 1) << name;
     }
 }

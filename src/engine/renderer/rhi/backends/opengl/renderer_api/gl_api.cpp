@@ -195,8 +195,6 @@ namespace Shard::Engine::Rendering{
 
     void GLRendererAPI::BindPassData(const std::shared_ptr<RenderPass> pass, std::shared_ptr<Material> material)
     {
-        // A pass gives its parameters to every material drawn in it, whose shaders do not all read them (the sky in the deferred lighting
-        // pass has no G-buffer) : the ones a shader does not have are skipped, not reported
         const auto& samplers = material->GetShader()->GetActiveSamplersMap();
         const auto& uniforms = material->GetShader()->GetActiveUniformsMap();
 
@@ -227,7 +225,6 @@ namespace Shard::Engine::Rendering{
     {
         SHARD_ASSERT_GRAPHICS_THREAD();
         m_IndirectBuffer = bufferHandle;
-        // The binding point is only ever used for these draws, so it is bound once here rather than per draw
         glBindBuffer(GL_DRAW_INDIRECT_BUFFER, bufferHandle);
     }
 
@@ -235,7 +232,7 @@ namespace Shard::Engine::Rendering{
     {
         SHARD_PROFILE_RENDER_SUB_SCOPE(Debugging::RenderSubSample::DrawElements);
 
-        // One DrawElementsIndirectCommand (5 x 32-bit) per slot, written by the occlusion-culling compute pass
+        // One DrawElementsIndirectCommand (5 x 32-bit) per slot, written by the occlusion-culling compute pass.
         glDrawElementsIndirect(
             PrimitiveTopologyToGL(pipeline->GetSpecifications().topology),
             GL_UNSIGNED_INT,
@@ -269,7 +266,7 @@ namespace Shard::Engine::Rendering{
     {
         if (m_Sweep == DepthSweep::Prepass && sweep != DepthSweep::Prepass)
         {
-            // The shaders go back to shading : the switch is a program uniform, it would stay on for any later draw
+            // The switch is a program uniform, reset it or it stays on for later draws.
             for (const std::shared_ptr<Shader>& shader : m_PrepassShaders)
             {
                 std::static_pointer_cast<GLShader>(shader)->Bind();
@@ -292,10 +289,9 @@ namespace Shard::Engine::Rendering{
                 break;
             case DepthSweep::Equal:
                 GLStateCache::SetColorWrite(true);
-                break;      // the mode follows each draw (a candidate or not)
+                break;
         }
 
-        // The programs, depth state and texture units the sweep left bound are not what the next one expects
         InvalidateStateCache();
     }
 
@@ -350,8 +346,6 @@ namespace Shard::Engine::Rendering{
 
     void GLRendererAPI::BindLightmap(const DrawCommand& command, const std::shared_ptr<Shader>& shader)
     {
-        // A uniform the program does not have is a no-op (see GLShader::GetUniformLocationCached), so every shader can be
-        // given these : only the lit one reads them
         shader->SetBool("lightmapEnabled", command.lightmapHandle != 0);
         if (command.lightmapHandle != 0)
         {
@@ -386,7 +380,6 @@ namespace Shard::Engine::Rendering{
             {
                 pipeline = command.material->GetPipeline();
 
-                // A pass that draws the materials with another permutation of their shader (the G-buffer of the deferred pipeline)
                 if(!pass->shaderVariant.empty())
                 {
                     if(std::shared_ptr<Pipeline> variant = pipeline->GetVariant(pass->shaderVariant))
@@ -411,8 +404,6 @@ namespace Shard::Engine::Rendering{
             {
                 if(sameAsLastDraw)
                 {
-                    // Nothing scene-wide or material-specific can have changed since the previous draw : only
-                    // what is genuinely per-object needs re-uploading.
                     if(command.modelMatrix != m_LastDraw.modelMatrix)
                         pipeline->GetSpecifications().shader->SetMat4("model", command.modelMatrix);
                     if(command.objectID != m_LastDraw.objectID)
@@ -450,7 +441,6 @@ namespace Shard::Engine::Rendering{
             }
 
             if(sameAsLastDraw){
-                // Same pass, pipeline and material as the draw before : its uniforms and texture units are still bound
             }
             else if(pass->overridePipeline){
                 BindPassData(pass, pipeline);
@@ -510,7 +500,7 @@ namespace Shard::Engine::Rendering{
     const ComputeLimits& GLRendererAPI::GetComputeLimits()
     {
         if (!m_ComputeLimitsQueried && !RenderThread::Get().IsGraphicsThread())
-            RenderThread::Get().Invoke([this] { GetComputeLimits(); });     // the first call asks the driver
+            RenderThread::Get().Invoke([this] { GetComputeLimits(); });
         if (m_ComputeLimitsQueried)
             return m_ComputeLimits;
 
@@ -540,7 +530,6 @@ namespace Shard::Engine::Rendering{
 
     void GLRendererAPI::PushDebugGroup(const char* name)
     {
-        // KHR_debug is core since 4.3 : what RenderDoc and the driver's debug output read
         if (GLAD_GL_VERSION_4_3 || GLAD_GL_KHR_debug)
             glPushDebugGroup(GL_DEBUG_SOURCE_APPLICATION, 0, -1, name);
     }
@@ -602,7 +591,7 @@ namespace Shard::Engine::Rendering{
 
     bool GLRendererAPI::SupportsBlockCompression()
     {
-        // BC7 is BPTC (core since 4.2), BC4 / BC5 are RGTC (core since 3.0) ; glTexStorage2D needs 4.2 as well
+        // BC7 is BPTC (core 4.2), BC4/BC5 are RGTC (core 3.0). glTexStorage2D needs 4.2 as well.
         return GLAD_GL_VERSION_4_2 || (GLAD_GL_ARB_texture_compression_bptc && GLAD_GL_ARB_texture_storage);
     }
 

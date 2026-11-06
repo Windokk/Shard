@@ -8,8 +8,7 @@
 #include "engine/world/actor.hpp"
 #include "engine/world/engine.hpp"
 
-// shard.audio : the AudioSource of an actor, and one shot sounds. Lives in the engine root, not in src/engine/plugins/abi with the other
-// interfaces: the plugin layer is below audio and may not include it (scripts/check_deps.py), and c_internal.hpp declares AudioApi.
+// Lives in the engine root: the plugin layer is below audio and may not include it (scripts/check_deps.py)
 
 namespace Shard::Engine::Plugins::CAbi {
 
@@ -80,7 +79,7 @@ namespace Shard::Engine::Plugins::CAbi {
                 if (!audio || !assets) return SHARD_E_UNSUPPORTED;
                 const std::string path = ToString(clip);
                 if (!assets->GetAssetFromID(assets->GetIDFromNameInProject(path))) return SHARD_E_NOT_FOUND;
-                audio->PlayOneShot(path, glm::vec3(position[0], position[1], position[2]), volume, spatial != 0);     // a silent host plays nothing
+                audio->PlayOneShot(path, glm::vec3(position[0], position[1], position[2]), volume, spatial != 0);
                 return SHARD_OK;
             } catch (...) { return SHARD_E_INTERNAL; }
         }

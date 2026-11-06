@@ -15,16 +15,13 @@
 #include "support/test_engine_context.hpp"
 #include "engine/world/components/registry/component_registry.hpp"
 
-// The C++ SDK (sdk/include/shard/cpp) end to end : tests/plugin_fixtures/sdk_spin is a C++17 plugin written against the SDK alone, loaded
-// through the C ABI like the plugins in C.
-
 using namespace Shard::Engine;
 using namespace Shard::Engine::Plugins;
 
 namespace {
     const char* kId = "shard.test.spin";
 
-    struct Spin {           // the fixture's struct
+    struct Spin {
         float speed;
         float angle;
         float axis[3];
@@ -75,7 +72,7 @@ namespace {
     };
 }
 
-TEST_F(SdkSpinTest, ThePluginOfTheDesignNoteLoadsAndSpins)
+TEST_F(SdkSpinTest, DesignNotePluginSpins)
 {
     Start();
     EXPECT_TRUE(Objects::Components::GetComponentRegistry().IsRegistered("shard.test.spin.Spin"));
@@ -88,27 +85,26 @@ TEST_F(SdkSpinTest, ThePluginOfTheDesignNoteLoadsAndSpins)
     RunFrame(0.5f);
     EXPECT_FLOAT_EQ(static_cast<const Spin*>(registry.GetRaw(e, SpinId()))->angle, 1.0f);
 
-    // The cvar the plugin reads in its system, changed by its own command
     ASSERT_TRUE(Core::CVarRegistry::Global().Execute("spin.scale 4").ok);
     EXPECT_EQ(Core::CVarRegistry::Global().Find("shard.test.spin.scale")->ToString(), "4");
-    RunFrame(1.0f);                                                 // + 2 * 4 * 1 : a full turn and some
+    RunFrame(1.0f);
     const Spin* after = static_cast<const Spin*>(registry.GetRaw(e, SpinId()));
     EXPECT_EQ(after->turns, 1);
     EXPECT_NEAR(after->angle, 9.0f - 6.2831853f, 1e-4f);
-    EXPECT_EQ(Export<int (*)()>("spin_turn_events")(), 1);          // emitted from the system, delivered at the end of the frame
+    EXPECT_EQ(Export<int (*)()>("spin_turn_events")(), 1);
     EXPECT_EQ(Rec()->errorCount, 0u);
 }
 
-TEST_F(SdkSpinTest, ARefusedRegistrationThrowsAShardError)
+TEST_F(SdkSpinTest, RefusedRegistrationThrows)
 {
     Start();
     const std::string error = Export<const char* (*)()>("spin_last_error")();
     EXPECT_NE(error.find("NoSuchHook"), std::string::npos) << error;
     EXPECT_NE(error.find("not found"), std::string::npos) << error;
-    EXPECT_FALSE(pm().BeforeSave("spin.world"));                    // its other hook was added
+    EXPECT_FALSE(pm().BeforeSave("spin.world"));
 }
 
-TEST_F(SdkSpinTest, AHotReloadKeepsTheScale)
+TEST_F(SdkSpinTest, HotReloadKeepsScale)
 {
     config.allowHotReload = true;
     Start();
@@ -119,7 +115,7 @@ TEST_F(SdkSpinTest, AHotReloadKeepsTheScale)
     EXPECT_EQ(Core::CVarRegistry::Global().Find("shard.test.spin.scale")->ToString(), "3");
 }
 
-TEST_F(SdkSpinTest, ItDescribesItsEventAndCountsItsEntitiesThroughTheExperimentalRegistry)
+TEST_F(SdkSpinTest, DescribesEventCountsEntities)
 {
     config.registerConsoleCommands = true;
     std::string error;
@@ -129,13 +125,11 @@ TEST_F(SdkSpinTest, ItDescribesItsEventAndCountsItsEntitiesThroughTheExperimenta
     pm().OnEngineInitialized();
     ASSERT_EQ(Rec()->state, PluginState::Enabled) << Rec()->error;
 
-    // Events::Describe<Turned> : the fields SHARD_COMPONENT listed
     const Events::NamedEventLayout* layout = events.namedLayout("shard.test.spin.Turned");
     ASSERT_NE(layout, nullptr);
     ASSERT_EQ(layout->fields.size(), 2u);
     EXPECT_EQ(layout->fields[1].name, "speed");
 
-    // Shard::experimental::World over the engine's registry
     Spin spin{ 1.0f, 0.0f, { 0.f, 1.f, 0.f }, 0 };
     Core::Ecs::Registry& ecs = *engine.GetEcs();
     ASSERT_TRUE(ecs.AddRaw(ecs.Create(), SpinId(), &spin));
@@ -145,14 +139,13 @@ TEST_F(SdkSpinTest, ItDescribesItsEventAndCountsItsEntitiesThroughTheExperimenta
     EXPECT_EQ(count.output, "2");
 }
 
-// ABI 1.3 through the C++ SDK : Shard::Text, Shard::AssetId and SystemCtx::SetLocalTransform
-TEST_F(SdkSpinTest, ATextAnAssetAndAMovingSystemWrittenWithTheSdk)
+TEST_F(SdkSpinTest, TextAssetMovingSystem)
 {
     PluginTest::AssetContext context;
     Core::SetEngine(&context);
     Start(&context);
     {
-        struct SignBlock {          // the fixture's struct
+        struct SignBlock {
             uint64_t text;
             int32_t icon;
             int32_t uses;
@@ -184,11 +177,10 @@ TEST_F(SdkSpinTest, ATextAnAssetAndAMovingSystemWrittenWithTheSdk)
     Core::SetEngine(nullptr);
 }
 
-// The cost per call of the C ABI (docs/design-notes/c-abi-sdk.fr.md, risk of section 11) : the "rotate" system of the plugin over 100 000 entities,
-// against the same system written as an engine system in C++ (same scheduler, same chunks, same body). Build in Release and run with
-// --gtest_also_run_disabled_tests. The speeds are small so that no entity turns : this measures the iteration, not the events.
+// Cost per call of the C ABI (c-abi-sdk.fr.md, risk in section 11): the "rotate" system over 100 000 entities vs the same system as an engine system in C++.
+// Release build, run with --gtest_also_run_disabled_tests. Speeds are small so no entity turns, this measures iteration only.
 namespace {
-    struct NativeSpin {         // the same layout as the fixture's Spin
+    struct NativeSpin {
         float speed;
         float angle;
         float axis[3];
@@ -196,7 +188,7 @@ namespace {
     };
 }
 
-TEST_F(SdkSpinTest, DISABLED_MeasuresThePluginSystemAgainstTheSameSystemInTheEngine)
+TEST_F(SdkSpinTest, DISABLED_MeasuresSystemOverhead)
 {
     Start();
     const int kEntities = std::getenv("SHARD_BENCH_ENTITIES") ? std::atoi(std::getenv("SHARD_BENCH_ENTITIES")) : 100000;
@@ -241,12 +233,11 @@ TEST_F(SdkSpinTest, DISABLED_MeasuresThePluginSystemAgainstTheSameSystemInTheEng
         }
         return best;
     };
-    timeMs(scheduler, registry, true);                 // warm up
+    timeMs(scheduler, registry, true);
     timeMs(nativeScheduler, nativeRegistry, false);
     const double pluginMs = timeMs(scheduler, registry, true);
     const double nativeMs = timeMs(nativeScheduler, nativeRegistry, false);
 
-    // The floor : the loop alone over the chunks, no scheduler
     double floorMs = 1e30;
     for (int r = 0; r < kRepeats; ++r) {
         const auto t0 = std::chrono::steady_clock::now();

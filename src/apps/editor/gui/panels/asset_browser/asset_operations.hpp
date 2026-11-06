@@ -5,13 +5,7 @@
 
 #include "engine/assets/vfs/filesystem.hpp"
 
-// File operations behind the asset browser's context menu. Unlike a plain filesystem call, each one keeps
-// the rest of the project consistent : the asset database (IDs survive a rename/move, so the dependency
-// lists that reference them stay valid), the world/material files that reference the asset by its path in
-// the project, the build settings, and the resources manager's caches.
-//
-// Anything a loaded world (or a resident material) still depends on is refused - it cannot be renamed,
-// moved or deleted from under its users - and reported through Result::message.
+// Each operation keeps the asset database, the world and material files that reference the asset by path, the build settings and the resource caches consistent. Anything a loaded world or resident material uses is refused.
 namespace Shard::Editor::GUI::AssetOperations
 {
     struct Result
@@ -20,50 +14,32 @@ namespace Shard::Editor::GUI::AssetOperations
         std::string message;
     };
 
-    /// @brief True if `path` is inside the project's resources (and is not the resources root itself) -
-    /// the only place these operations work.
     bool IsEditable(const Engine::Filesystem::Path& path);
 
-    /// @brief A path in `dir` that does not exist yet : `stem + extension`, then `stem_1`, `stem_2`... With
-    /// `copySuffix` the first candidate is `stem_copy` (then `stem_copy2`...).
     Engine::Filesystem::Path UniquePath(const Engine::Filesystem::Path& dir, const std::string& stem, const std::string& extension, bool copySuffix = false);
 
-    /// @brief Renames/moves a file or folder to `to` (a full path, in the project resources, that must not exist).
     Result Move(const Engine::Filesystem::Path& from, const Engine::Filesystem::Path& to);
 
-    /// @brief Copies a file or folder to `to` (a full path that must not exist) and registers the copies as new assets.
     Result Copy(const Engine::Filesystem::Path& from, const Engine::Filesystem::Path& to);
 
-    /// @brief Deletes a file or folder and unregisters its assets.
     Result Delete(const Engine::Filesystem::Path& path);
 
-    /// @brief Names (in the project) of the other assets whose dependency list contains `path`, or something
-    /// inside it if it is a folder. Based on the asset database, so it only knows about saved dependencies.
     std::vector<std::string> ReferencedBy(const Engine::Filesystem::Path& path);
 
-    // Creation : each returns the new item's path in `created` (empty on failure).
     Result CreateFolder(const Engine::Filesystem::Path& dir, Engine::Filesystem::Path& created);
     Result CreateMaterial(const Engine::Filesystem::Path& dir, Engine::Filesystem::Path& created);
-    /// A new file with these bytes, under `defaultName` (made unique) in `dir`. For the templates plugins add to the Create menu.
     Result CreateFromBytes(const Engine::Filesystem::Path& dir, const std::string& defaultName, const std::string& bytes, Engine::Filesystem::Path& created);
     Result CreateWorld(const Engine::Filesystem::Path& dir, Engine::Filesystem::Path& created);
 
     struct ImportSummary
     {
-        int imported = 0;                       ///< the files that are assets of the project now
-        std::vector<std::string> failures;      ///< one message per file that could not be brought in
+        int imported = 0;
+        std::vector<std::string> failures;
     };
 
-    /// @brief Brings files from anywhere on the disk into the folder `dir` of the project and registers them as assets. A file that
-    /// a plugin's importer takes (see AssetImporters) is converted into `dir` by it, a file that is in the project already is only
-    /// registered where it is, any other is copied (as `name_1` if the name is taken).
     ImportSummary Import(const Engine::Filesystem::Path& dir, const std::vector<std::string>& sources);
 
-    /// @brief Brings the asset database in line with the disk for everything under `dir` : files added
-    /// outside the editor get an ID, entries whose file is gone (and unused) are dropped.
-    /// @return A one-line summary of what changed (empty if nothing did)
     std::string Sync(const Engine::Filesystem::Path& dir);
 
-    /// @brief Opens the OS file explorer on `path` (selecting it if it is a file).
     void RevealInFileExplorer(const std::string& nativePath, bool selectItem);
 }

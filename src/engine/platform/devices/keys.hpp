@@ -2,7 +2,6 @@
 
 namespace Shard::Engine::Input {
 
-    // Printable keys
     enum class Key {
         Space,
         Apostrophe,
@@ -22,7 +21,6 @@ namespace Shard::Engine::Input {
         World1,
         World2,
 
-        // Function keys
         Escape,
         Enter,
         Tab,
@@ -46,7 +44,6 @@ namespace Shard::Engine::Input {
         F10, F11, F12, F13, F14, F15, F16, F17,
         F18, F19, F20, F21, F22, F23, F24, F25,
 
-        // Keypad
         Keypad0, Keypad1, Keypad2, Keypad3, Keypad4,
         Keypad5, Keypad6, Keypad7, Keypad8, Keypad9,
         KeypadDecimal,
@@ -57,7 +54,6 @@ namespace Shard::Engine::Input {
         KeypadEnter,
         KeypadEqual,
 
-        // Modifier keys
         LeftShift,
         LeftControl,
         LeftAlt,
@@ -69,7 +65,6 @@ namespace Shard::Engine::Input {
         Menu,
     };
 
-    // Modifier flags
     enum class Modifier {
         Shift,
         Control,
@@ -79,7 +74,6 @@ namespace Shard::Engine::Input {
         NumLock
     };
 
-    // Mouse buttons
     enum class MouseButton {
         Button0,
         Button1,

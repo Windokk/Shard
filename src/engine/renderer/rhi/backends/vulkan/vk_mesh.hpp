@@ -36,7 +36,6 @@ namespace Shard::Engine::Rendering {
             size_t m_VertexBytes = 0;
     };
 
-    /// A buffer the shaders read and write (an SSBO). It goes by a number, like a texture : the binding tables of the API look it up when they are used.
     class VKStorageBuffer final : public StorageBuffer
     {
         public:
@@ -52,7 +51,6 @@ namespace Shard::Engine::Rendering {
 
             VkBuffer GetBuffer() const { return m_Buffer.buffer; }
 
-            /// The buffer that goes by this number (null if there is none any more)
             static VKStorageBuffer* Find(uint32_t id);
 
         private:

@@ -12,11 +12,10 @@ namespace Shard::Engine::Core::Platform {
     void SDLWindow::Init(const std::string& title, const int& width, const int& height,
                          const bool& fullscreen, const int& vsync, const uint32_t& api)
     {
-        // SDL reference counts its subsystems : the clipboard and the dialogs can share the video one.
         if (!SDL_InitSubSystem(SDL_INIT_VIDEO | SDL_INIT_EVENTS | SDL_INIT_GAMEPAD))
             DEBUG_FATAL("Failed to init SDL : ", SDL_GetError());
 
-        // 1 is Vulkan (see RendererAPI::API) : the window has no OpenGL context, the renderer makes its own surface and presents
+        // 1 is Vulkan (RendererAPI::API): no OpenGL context, the renderer makes its own surface.
         m_Vulkan = api == 1;
 
         if (!m_Vulkan)
@@ -32,11 +31,10 @@ namespace Shard::Engine::Core::Platform {
         if (fullscreen)
             flags |= SDL_WINDOW_FULLSCREEN;
 
-        // Fullscreen uses the desktop resolution of the display, whatever the requested size.
         m_Window = SDL_CreateWindow(title.c_str(), width, height, flags);
         if (!m_Window && !m_Vulkan)
         {
-            // Some displays (a virtual X server, a software renderer) offer no multisampled visual : retry without MSAA.
+            // Some displays (virtual X server, software renderer) have no multisampled visual. Retry without MSAA.
             DEBUG_WARNING("Failed to create the SDL window with MSAA (", SDL_GetError(), "), retrying without.");
             SDL_GL_SetAttribute(SDL_GL_MULTISAMPLEBUFFERS, 0);
             SDL_GL_SetAttribute(SDL_GL_MULTISAMPLESAMPLES, 0);
@@ -85,7 +83,6 @@ namespace Shard::Engine::Core::Platform {
             Translate(native);
         }
 
-        // What a replay posted : after the real ones, in the order it posted them
         std::deque<OSEvent> posted;
         posted.swap(m_Posted);
         for (const OSEvent& event : posted)
@@ -186,7 +183,7 @@ namespace Shard::Engine::Core::Platform {
                 if (!SDLGamepadAxisToAxis(native.gaxis.axis, event.gamepadAxis)) return;
                 event.type = OSEventType::GamepadAxisMotion;
                 event.deviceId = native.gaxis.which;
-                // Sticks span the whole int16 range, triggers only its positive half
+                // Sticks use the full int16 range, triggers only the positive half.
                 const float value = native.gaxis.value >= 0 ? native.gaxis.value / 32767.0f : native.gaxis.value / 32768.0f;
                 event.axisValue = value;
                 break;
@@ -204,7 +201,7 @@ namespace Shard::Engine::Core::Platform {
         if (m_Vulkan)
             return;
 
-        // The interval belongs to the context of the thread that swaps : a change asked from elsewhere is made here
+        // The swap interval belongs to the context of the thread that swaps, so apply changes here.
         const int requested = m_RequestedSwapInterval;
         if (requested != m_SwapInterval)
         {
@@ -245,7 +242,7 @@ namespace Shard::Engine::Core::Platform {
     bool SDLWindow::MakeContextCurrent(bool current)
     {
         if (m_Vulkan)
-            return true;       // no context to move : the Vulkan device is used from whichever thread draws
+            return true;
 
         if (!m_Window || !m_GLContext)
             return false;
@@ -257,7 +254,7 @@ namespace Shard::Engine::Core::Platform {
         if (current)
         {
             m_SwapInterval = m_RequestedSwapInterval.load();
-            SDL_GL_SetSwapInterval(m_SwapInterval);    // the interval belongs to the context of the thread that swaps
+            SDL_GL_SetSwapInterval(m_SwapInterval);
         }
         return true;
     }

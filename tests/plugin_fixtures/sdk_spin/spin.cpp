@@ -1,5 +1,3 @@
-// The plugin of docs/design-notes/c-abi-sdk.fr.md (7.2), written with the C++ SDK of sdk/include/shard/cpp : no engine header, nothing of the
-// engine linked, C++17. Loaded by tests/plugins/sdk_spin_tests.cpp ; the exported spin_* functions let the test look inside.
 #include <string>
 
 #include <shard/cpp/plugin.hpp>
@@ -18,7 +16,6 @@ struct Spin {
 };
 SHARD_COMPONENT(Spin, (speed)(angle)(axis)(turns))
 
-// ABI 1.3 : a text and an asset in a component, and a system that moves the actor
 struct Sign {
     Shard::Text text;
     Shard::AssetId icon;
@@ -26,7 +23,6 @@ struct Sign {
 };
 SHARD_COMPONENT(Sign, (text)(icon)(uses))
 
-// The payload of "shard.test.spin.Turned" : described for the tools (event.watch)
 struct Turned {
     int32_t turns = 0;
     float speed = 0.f;
@@ -83,14 +79,12 @@ public:
             out = "scale " + std::to_string(m_Scale.Get());
             return true;
         });
-        // shard.experimental.world_ecs : the Spin entities, counted from the main thread
         const Shard::Context here = ctx;
         ctx.Commands().Add("spin.count", "spin.count : how many entities spin", [here, spin](const std::vector<std::string_view>&, std::string& out) {
             Shard::experimental::World world(here.Handle());
             out = std::to_string(world.Ecs().Query(spin).Count());
             return true;
         });
-        // A registration the host refuses throws Shard::Error ; caught here to show it does not take the plugin down
         try {
             ctx.Hooks().On("NoSuchHook", [](Shard::Hook&) {});
         } catch (const Shard::Error& e) {

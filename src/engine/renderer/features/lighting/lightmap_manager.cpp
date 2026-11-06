@@ -25,13 +25,11 @@ namespace Shard::Engine::Rendering {
 
     namespace {
 
-        // How much of the GPU one frame of the editor gives the bake : paths traced per dispatch (kept short, so no single
-        // dispatch comes near the driver's watchdog) and per frame. Each path starts at a texel and runs up to maxBounces bounces.
+        // Few paths per dispatch so no single dispatch nears the driver watchdog.
         constexpr uint32_t kSamplesPerDispatch = 4;
         constexpr uint32_t kPathsPerDispatch = 1u << 17;
         constexpr uint64_t kPathsPerFrame = 1ull << 20;
 
-        // The sky's texture unit (see path_tracing.glsl) and the SSBO bindings of the baker's shaders (see lightmap_bake.comp)
         constexpr uint32_t kSkyUnit = 45;
         constexpr uint32_t kBvhBinding = 8;
         constexpr uint32_t kPositionsBinding = 9;
@@ -39,7 +37,7 @@ namespace Shard::Engine::Rendering {
         constexpr uint32_t kMaterialsBinding = 11;
         constexpr uint32_t kLightsBinding = 12;
         constexpr uint32_t kTexelsBinding = 13;
-        constexpr uint32_t kEmissiveBinding = 16;     // the emissive triangles the paths sample directly (lightmap_bake.comp)
+        constexpr uint32_t kEmissiveBinding = 16;
 
         bool FindElementOffset(const VertexLayout& layout, const char* name, uint32_t& offset)
         {
@@ -56,8 +54,8 @@ namespace Shard::Engine::Rendering {
 
         struct MeshAreas
         {
-            float surface = 0.0f;       // the area of the mesh's triangles, in its own units
-            float uv = 0.0f;            // and their area in the lightmap square
+            float surface = 0.0f;
+            float uv = 0.0f;
         };
 
         MeshAreas ComputeMeshAreas(const MeshCPUCopy& cpu, uint32_t stride, uint32_t positionOffset, uint32_t uvOffset)
@@ -89,7 +87,6 @@ namespace Shard::Engine::Rendering {
             return areas;
         }
 
-        // How much a world matrix scales areas (the square of the scale, for a uniform one)
         float AreaScale(const glm::mat4& world)
         {
             const float determinant = std::abs(glm::determinant(glm::mat3(world)));
@@ -112,7 +109,6 @@ namespace Shard::Engine::Rendering {
             return Texture2D::Create(spec, data);
         }
 
-        // Runs `f` on the engine's thread pool for work that takes a while (the pool is how the scene builds already run)
         template <typename F>
         auto RunInBackground(F&& f) -> std::future<std::invoke_result_t<std::decay_t<F>>>
         {
@@ -153,10 +149,6 @@ namespace Shard::Engine::Rendering {
         if (m_Bake.encodeFuture.valid()) m_Bake.encodeFuture.wait();
     }
 
-    // ---------------------------------------------------------------------------------------------------------------------
-    // Run time : the baked pages of the world, as textures
-    // ---------------------------------------------------------------------------------------------------------------------
-
     void LightmapManager::ProvideData(const std::string& path, std::shared_ptr<const LightmapData> data)
     {
         std::lock_guard<std::mutex> lock(m_InboxMutex);
@@ -189,7 +181,6 @@ namespace Shard::Engine::Rendering {
             return;
         }
 
-        // The answer to an earlier request (or the pages a bake has just made) for the file the world names
         std::shared_ptr<const LightmapData> answer;
         bool answered = false;
         {
@@ -246,10 +237,6 @@ namespace Shard::Engine::Rendering {
             requestData(wanted);
         }
     }
-
-    // ---------------------------------------------------------------------------------------------------------------------
-    // Baking
-    // ---------------------------------------------------------------------------------------------------------------------
 
     void LightmapManager::EnsureShaders()
     {
@@ -338,8 +325,6 @@ namespace Shard::Engine::Rendering {
 
     void LightmapManager::CollectLights(BakeJob& job)
     {
-        // A Dynamic light never takes part. A Stationary one lights the surfaces the paths hit (its bounced light), a Static
-        // one also lights the texels themselves (see lightmap_bake.comp)
         IRenderContext* renderer = Core::GetEngine().GetRenderContext();
         for (const std::shared_ptr<LightData>& light : renderer->GetLightManager()->GetLights())
             if (light && light->bakeMode >= int(LightBakeMode::Stationary) && light->intensity > 0.0f)
@@ -348,7 +333,6 @@ namespace Shard::Engine::Rendering {
 
     bool LightmapManager::BeginBake(const RenderSnapshot& scene, const LightmapSettings& requested, const Filesystem::Path& file)
     {
-        // Called by the editor : the bake belongs to the render thread (it parks the caller meanwhile, `scene` stays valid)
         if (!RenderThread::Get().IsGraphicsThread())
             return RenderThread::Get().InvokeResult([&] { return BeginBake(scene, requested, file); });
 
@@ -368,7 +352,6 @@ namespace Shard::Engine::Rendering {
         job.settings.texelsPerMeter = std::max(job.settings.texelsPerMeter, 0.01f);
         job.file = file;
 
-        // Only the static models take part : they are what the lightmaps are laid on, what blocks the light, what it bounces off
         RenderSnapshot staticScene;
         staticScene.environment = scene.environment;
         for (const MeshProxy& proxy : scene.meshes)
@@ -397,7 +380,6 @@ namespace Shard::Engine::Rendering {
 
         job.sky = scene.environment.skybox ? scene.environment.skybox->GetCubemap() : nullptr;
 
-        // The BVH, on a worker thread (the heavy part) while the first page is being laid out
         m_SceneBuilding.store(true, std::memory_order_relaxed);
         m_SceneBuildProgress.store(0.0f, std::memory_order_relaxed);
         job.sceneFuture = RunInBackground([this, snapshot = job.snapshot] {
@@ -481,7 +463,6 @@ namespace Shard::Engine::Rendering {
             instances.push_back(instance);
         }
 
-        // The G-buffer of the page is drawn on a worker thread, from vertex data the snapshot keeps alive
         job.rasterFuture = RunInBackground([snapshot = job.snapshot, instances = std::move(instances), size = job.layout.pageSize] {
             return RasterizeLightmapPage(size, instances);
         });
@@ -505,7 +486,6 @@ namespace Shard::Engine::Rendering {
         if (texelBytes > 0)
             job.texelBuffer->SetData(raster.texelList.data(), uint32_t(texelBytes));
 
-        // The normals are on the GPU now : the position's alpha is all the encoding needs of the raster (which texels are covered)
         raster.normal = std::vector<float>();
         raster.geometric = std::vector<float>();
 
@@ -526,7 +506,7 @@ namespace Shard::Engine::Rendering {
         {
             IRenderContext* renderer = Core::GetEngine().GetRenderContext();
 
-            // Everything the baker reads is bound again every frame : the frame in between drew with its own bindings
+            // Rebind everything every frame, the frame in between drew with its own bindings.
             m_BakePipeline->Bind();
             job.accum->BindImage(0, TextureAccess::ReadWrite);
             job.gPos->BindImage(1, TextureAccess::ReadOnly);
@@ -550,7 +530,7 @@ namespace Shard::Engine::Rendering {
             m_BakeShader->SetFloat("uEmissivePower", job.emissivePower);
             m_BakeShader->SetBool("uHasSky", hasSky);
             m_BakeShader->SetVec3("uSkyColor", glm::vec3(0.0f));
-            m_BakeShader->SetVec3("uAmbientColor", glm::vec3(0.0f));     // the forward pass adds the world's flat ambient at run time
+            m_BakeShader->SetVec3("uAmbientColor", glm::vec3(0.0f));
             m_BakeShader->SetFloat("uFireflyClamp", job.settings.fireflyClamp);
             m_BakeShader->SetInt("uSeed", int(job.page));
             m_BakeShader->SetFloat("uIndirectScale", job.settings.indirectIntensity);
@@ -567,7 +547,6 @@ namespace Shard::Engine::Rendering {
                 m_BakeShader->SetInt("uSampleStart", int(job.sampleCursor));
                 m_BakeShader->SetInt("uSamples", int(samples));
 
-                // The next dispatch reads what this one wrote when it comes back to the same texels : ImageAccess
                 renderer->DispatchCompute(m_BakePipeline, (chunk + 63) / 64, 1, 1, MemoryBarrierBit::ImageAccess);
 
                 job.texelCursor += chunk;
@@ -593,7 +572,6 @@ namespace Shard::Engine::Rendering {
         const uint32_t size = job.layout.pageSize;
         const uint32_t groups = (size + 7) / 8;
 
-        // The sums become a mean and the variance of that mean
         m_ResolvePipeline->Bind();
         job.accum->BindImage(0, TextureAccess::ReadOnly);
         job.denoiseA->BindImage(1, TextureAccess::WriteOnly);
@@ -634,13 +612,11 @@ namespace Shard::Engine::Rendering {
         IRenderContext* renderer = Core::GetEngine().GetRenderContext();
         const uint32_t size = job.layout.pageSize;
 
-        // The host reads what the compute shaders wrote
         renderer->GetRendererAPI()->MemoryBarrier(MemoryBarrierBit::TextureUpdate);
 
         std::vector<float> pixels(size_t(size) * size * 4);
         job.result->ReadPixels(pixels.data(), pixels.size() * sizeof(float));
 
-        // The page's GPU resources are done with : the next page makes its own
         job.gPos.reset();
         job.gNormal.reset();
         job.gGeo.reset();
@@ -650,7 +626,6 @@ namespace Shard::Engine::Rendering {
         job.result.reset();
         job.texelBuffer.reset();
 
-        // The gutter and the shared exponent encoding are per texel work for the CPU : off the render thread
         job.encodeFuture = RunInBackground([pixels = std::move(pixels), raster = job.raster, size]() mutable {
             for (size_t i = 0; i < size_t(size) * size; i++)
                 pixels[i * 4 + 3] = raster->position[i * 4 + 3] > 0.0f ? (pixels[i * 4 + 3] < 0.0f ? kLightmapHole : 1.0f) : 0.0f;
@@ -706,7 +681,6 @@ namespace Shard::Engine::Rendering {
         if (!m_Bake.active)
             return 0.0f;
 
-        // The BVH is the first stretch, then every page gets an equal share, split between drawing it, tracing it and the rest
         constexpr float kSceneShare = 0.15f;
         if (m_Bake.phase == Phase::BuildingScene)
             return kSceneShare * std::clamp(m_SceneBuildProgress.load(std::memory_order_relaxed), 0.0f, 1.0f);
@@ -751,7 +725,6 @@ namespace Shard::Engine::Rendering {
 
     void LightmapManager::Update()
     {
-        // The jobs a cancelled bake left behind are collected as they finish
         auto collect = [](auto& futures) {
             futures.erase(std::remove_if(futures.begin(), futures.end(), [](auto& f) {
                 return !f.valid() || f.wait_for(std::chrono::seconds(0)) == std::future_status::ready;

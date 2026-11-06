@@ -1,14 +1,11 @@
 #version 430 core
 
-// One instanced draw of 6 vertices per sprite of a plugin's batch (particles, flares) : the quad is built here from gl_VertexID, there is no vertex
-// buffer. The sprites are filled in by the SpriteRenderer, relative to the camera.
-
 struct Sprite {
-    vec4 positionRotation;  // xyz : position relative to the camera, w : rotation (radians around the direction the quad faces)
-    vec4 sizeCustom;        // xy : size (meters, or pixels with flag 1), z : custom, w : unused
-    vec4 uv;                // u0 v0 u1 v1
-    vec4 axis;              // xyz : the axis of the facing modes 1 and 2, in the world
-    uvec4 data;             // x : colour (r | g << 8 | b << 16 | a << 24), yz : bindless handle of the texture (0 : none), w : facing | flags << 8
+    vec4 positionRotation;
+    vec4 sizeCustom;
+    vec4 uv;
+    vec4 axis;
+    uvec4 data;
 };
 
 layout(std430, binding = 25) readonly buffer SpriteInstances {
@@ -46,13 +43,12 @@ void main()
     vec4 centerClip = uProjection * vec4(center, 1.0);
     if (centerClip.w <= 0.0)
     {
-        gl_Position = vec4(2.0, 2.0, 2.0, 1.0);        // behind the camera
+        gl_Position = vec4(2.0, 2.0, 2.0, 1.0);
         vUV = vec2(0.0); vColor = vec4(0.0); vCustom = 0.0; vTexture = uvec2(0u); vFlags = 0u;
         return;
     }
 
     vec2 size = s.sizeCustom.xy;
-    // A size in pixels is what covers that many pixels at this depth
     if (pixelSize)
         size *= centerClip.w / (viewportSize.y * uProjection[1][1]) * 2.0;
     vec2 half_ = size * 0.5;
@@ -63,7 +59,6 @@ void main()
     vec3 viewPos;
     if (facing == 1u)
     {
-        // The quad's up follows the axis (a spark's velocity, a blade of grass) and it turns to the camera around it
         vec3 up = rotation * s.axis.xyz;
         up = length(up) > 1e-5 ? normalize(up) : vec3(0.0, 1.0, 0.0);
         vec3 toCamera = normalize(-center);
@@ -73,7 +68,6 @@ void main()
     }
     else if (facing == 2u)
     {
-        // Lies in the plane perpendicular to the axis, fixed in the world
         vec3 n = normalize(length(s.axis.xyz) > 1e-5 ? s.axis.xyz : vec3(0.0, 1.0, 0.0));
         vec3 t = normalize(cross(n, abs(n.y) < 0.99 ? vec3(0.0, 1.0, 0.0) : vec3(1.0, 0.0, 0.0)));
         vec3 b = cross(n, t);

@@ -50,21 +50,15 @@ namespace Shard::Engine::Rendering {
             void Render();
 
             RenderSnapshotBuffer& GetSnapshotBuffer() override { return m_SnapshotBuffer; }
-            /// The frame being drawn on the graphics thread (the one it holds a lease on), the newest published one anywhere else
-            /// (the simulation, which is also the thread that publishes).
             const RenderSnapshot& GetSnapshot() const override
             {
                 return (RenderThread::Get().IsGraphicsThread() && m_FrameLease) ? m_FrameLease.Get() : m_SnapshotBuffer.Latest();
             }
 
-            /// Called when the viewport is resized, once the framebuffers follow : whoever owns the cameras resizes them
-            /// (the renderer itself knows no camera).
             std::function<void(int, int)> onViewportResized;
             void Shutdown();
             void ClearPassesContent();
-            /// @brief Counts the times ClearPassesContent wiped the draw lists. The lists belong to the render thread : whoever submits
-            /// commands from another thread (the editor's debug shapes) cannot look into them to learn that its commands are gone, it
-            /// compares this number with the one it read when it submitted them. Thread : any.
+            // Draw lists belong to the render thread. Other threads compare this epoch to learn their commands were wiped.
             uint64_t GetContentEpoch() const { return m_ContentEpoch.load(std::memory_order_acquire); }
             void AddOrUpdateCommands(const std::vector<DrawCommand>& commands, const std::vector<std::string>& passes, bool addToShadowDrawList) override;
             void RemoveCommands(const std::vector<uint64_t> commandsID, const std::vector<std::string>& passes, bool removeFromShadowDrawList) override;
@@ -95,27 +89,17 @@ namespace Shard::Engine::Rendering {
 
             void RescaleFramebuffers(int newWidth, int newHeight);
 
-            /// @brief Overrides the view every draw is issued from, until the matching PopView().
-            /// Nests. While a view is pushed, frustum culling is skipped (the camera's frustum belongs
-            /// to the active camera, not to the pushed view).
             void PushView(const RenderView& view) override { m_ViewStack.push_back(view); }
             void PopView() override { if (!m_ViewStack.empty()) m_ViewStack.pop_back(); }
             bool HasViewOverride() const override { return !m_ViewStack.empty(); }
 
-            /// @brief The view draws are currently issued from : the top pushed view, else the active
-            /// camera's. Returns false when there is neither.
 bool GetCurrentView(RenderView& out) override;
 
-            // ISceneBinding (frontend/scene_binding.cpp)
             void BindWorldState(RendererAPI& api, std::shared_ptr<Shader> shader, glm::mat4 modelMatrix, int objectID, bool applyPassGlobals) override;
             void BindMaterialScene(std::shared_ptr<Material> material) override;
 
-            /// @brief Runs one pass right now from `view`, outside the retained pass graph (see
-            /// ImmediateRenderer, which is the intended caller). The pass is not registered anywhere.
             void RenderImmediate(const std::shared_ptr<RenderPass>& pass, const RenderView& view) override;
 
-            /// @brief Editor viewport debug view for the main scene render (view mode, lighting/shadow toggles).
-            /// Takes effect at the start of the next frame
             void SetDebugView(const DebugViewState& state)
             {
                 std::lock_guard<std::mutex> lock(m_DebugViewMutex);
@@ -127,78 +111,54 @@ bool GetCurrentView(RenderView& out) override;
                 return m_PendingDebugView;
             }
 
-            /// @brief The terms of the lighting the main scene render draws (LightingTerm bits, see lighting_terms.hpp), whatever debug view the
-            /// editor or the player sets : what a comparison against the path tracer draws one at a time. Takes effect at the start of the next frame
             void SetLightingTerms(uint32_t terms) { m_LightingTerms.store(terms & LightingTermsAll, std::memory_order_relaxed); }
             uint32_t GetLightingTerms() const { return m_LightingTerms.load(std::memory_order_relaxed); }
 
             ImmediateRenderer* GetImmediateRenderer() override { return &m_ImmediateRenderer; }
             ThumbnailService* GetThumbnailService() override { return &m_ThumbnailService; }
 
-            /// The picture : what the UI shows, the screenshots read and the window presents (8 bit, display colours). The
-            /// scene is rendered in HDR into another target and mapped into this one at the end of the forward pass, the
-            /// overlays are drawn on it afterwards (see ResolveSceneToViewport).
             uint32_t GetViewportTextureHandle() const { return m_ViewportBuffer->GetResolveColorAttachment(); }
 
             std::shared_ptr<Framebuffer> GetViewportFramebuffer() const override { return m_ViewportBuffer; }
 
-            /// The HDR target the scene is drawn into (what the pipelines' passes light and draw)
             std::shared_ptr<Framebuffer> GetSceneFramebuffer() const { return m_SceneBuffer; }
             glm::ivec2 GetViewportSize() const { return glm::ivec2(m_ViewportBuffer ? m_ViewportBuffer->GetWidth() : 0, m_ViewportBuffer ? m_ViewportBuffer->GetHeight() : 0); }
 
-            /// @brief The render pipeline the frames are built with (see RenderPipeline) : by the name of an asset or of a type. Takes effect at the start of the
-            /// next frame. A name that is not a pipeline leaves the one that is running.
             void SetRenderPipeline(const std::string& name);
             std::string GetRenderPipelineName() const { std::lock_guard<std::mutex> lock(m_PipelineSelectMutex); return m_RequestedPipeline; }
-            /// The one that is drawing now : not the requested one while a debug view it cannot draw is on
             std::string GetActiveRenderPipelineName() const { std::lock_guard<std::mutex> lock(m_PipelineSelectMutex); return m_ActivePipelineName; }
 
-            /// @brief Adds a feature a plugin brings (see RenderFeature) : it is activated at once (on the graphics thread) and called every frame. The same feature added twice is added once.
             void AddRenderFeature(const std::shared_ptr<RenderFeature>& feature);
-            /// Deactivates a feature and lets go of it. When this returns the renderer holds nothing of it any more.
             void RemoveRenderFeature(const std::shared_ptr<RenderFeature>& feature);
             std::vector<std::string> GetRenderFeatureNames() const;
-            /// A kind of pipeline went away (its plugin was disabled) : if it is the one drawing, the forward pipeline takes over now
             void OnPipelineTypeRemoved(const std::string& type);
 
             void PresentToScreen(int screenWidth, int screenHeight) { m_ViewportBuffer->BlitToScreen(screenWidth, screenHeight); }
 
             void ToggleMultisampling(const bool on);
 
-            /// @brief Samples per pixel of the viewport's multisampled targets (the GPU's maximum caps it).
             void SetMultisampleCount(uint32_t samples);
 
-            /// @brief How the shadows are made (see ShadowManager::Configure) : resolutions, cascades, filtering and biases of the project's rendering settings.
             void SetShadowSettings(const Projects::ShadowSettings& settings);
 
-            /// @brief GPU occlusion culling of the main camera's geometry passes (see OcclusionCullingManager).
-            /// On by default; it only ever skips geometry that is hidden, so toggling it never changes the image.
             void SetOcclusionCullingEnabled(bool enabled) { m_OcclusionCullingEnabled = enabled; }
             bool IsOcclusionCullingEnabled() const { return m_OcclusionCullingEnabled; }
             OcclusionCullingManager* GetOcclusionCulling() const { return m_OcclusionCulling.get(); }
 
-            /// @brief The billboards flagged EditorOnly (light, camera and probe volume icons...) are drawn only while this is on : the editor turns it on.
             void SetShowEditorBillboards(bool show) { m_BillboardRenderer.SetShowEditorBillboards(show); }
             bool GetShowEditorBillboards() const { return m_BillboardRenderer.GetShowEditorBillboards(); }
             uint32_t GetBillboardCount() const { return m_BillboardRenderer.GetDrawnCount(); }
 
-            /// @brief The billboard under a pixel of the viewport (from its top left) : what a click on an icon selects.
             BillboardPick PickBillboard(float mouseX, float mouseY, float viewportWidth, float viewportHeight) const
             {
                 return BillboardRenderer::Pick(GetSnapshot(), m_BillboardRenderer.GetShowEditorBillboards(), mouseX, mouseY, viewportWidth, viewportHeight);
             }
 
-            /// @brief The render graph as of the last frame (a listing of the passes in order with what they read and write, the barriers,
-            /// the culled passes, the transient memory), or as Graphviz. Safe from any thread.
             std::string GetRenderGraphText() const { std::lock_guard<std::mutex> lock(m_GraphMutex); return m_GraphText; }
             std::string GetRenderGraphDot() const { std::lock_guard<std::mutex> lock(m_GraphMutex); return m_GraphDot; }
 
-            /// @brief A capture of the frame the engine can do without any tool : what the render graph looks like (graph.txt, graph.dot) and the picture
-            /// each pass that draws a colour target made (`<n>_<pass>.png`), written in `directory`. Returns what it wrote.
             std::string DumpFrame(const std::string& directory);
 
-            /// @brief Writes the last frame : `.hdr`, the scene in linear light before the display transform (what a path traced render is compared
-            /// to) ; `.png`, the picture as it is shown (display colours, overlays included). False, with the reason in `error`, when nothing was written.
             bool WriteScreenshot(const std::string& path, std::string& error);
 
             std::string GetDeviceVendor();
@@ -230,7 +190,6 @@ bool GetCurrentView(RenderView& out) override;
 
             void BeginFrame();
 
-            /// Brings what the renderer keeps (draw lists, lights, GI probe volumes) in line with the frame's snapshot
             void SyncSceneDrawLists();
             void SyncSkyboxDrawCommand();
             void DrawFrame();
@@ -238,62 +197,52 @@ bool GetCurrentView(RenderView& out) override;
 
             void ReorderDrawList();
 
-            /// Declares every registered pass to the render graph and compiles it : the order the passes run in, which of them
-            /// are skipped, and the barrier before each one
             void BuildExecutionOrder();
-            /// Whether what the graph was built from (the passes, their dependencies, which of them are enabled) has changed since
             uint64_t ComputeGraphSignature() const;
-            /// The resource of the graph a framebuffer is (see BuildExecutionOrder)
             std::string GraphResourceName(const std::shared_ptr<Framebuffer>& target) const;
 
             void BeginRenderPass(const std::shared_ptr<RenderPass>& pass);
             void ExecuteRenderPass();
             void EndRenderPass();
 
-            // GPU occlusion culling. Prepare... runs before the pass starts (it records phase 1 on the GPU) and says
-            // whether this pass is culled this frame; ExecuteOcclusionCulledPass then replaces ExecuteRenderPass()
-            // with the two-phase draw (see OcclusionCullingManager).
             bool PrepareOcclusionCulling(const std::string& passName, const std::shared_ptr<RenderPass>& pass);
             void ExecuteOcclusionCulledPass(const std::string& passName, const std::shared_ptr<RenderPass>& pass);
             OcclusionCullingManager::Target MakeOcclusionTarget(const std::shared_ptr<RenderPass>& pass) const;
 
             std::shared_ptr<RendererAPI> m_RendererAPI;
 
-            // The simulation's frame : filled by the Extract stage, read through the lease while a frame renders
             RenderSnapshotBuffer m_SnapshotBuffer;
             RenderSnapshotBuffer::ReadLease m_FrameLease;
 
             std::unordered_map<std::string, std::shared_ptr<RenderPass>> m_RenderPasses;
-            // The pipeline that builds the frame
             std::unique_ptr<RenderPipeline> m_ActivePipeline;
-            std::vector<std::shared_ptr<RenderFeature>> m_Features;         // what plugins added, in the order they were added
+            std::vector<std::shared_ptr<RenderFeature>> m_Features;
             mutable std::mutex m_FeaturesMutex;
-            uint32_t m_FeatureListener = 0;                                  // the extension points of the plugin manager this renderer follows
+            uint32_t m_FeatureListener = 0;
             uint32_t m_PipelineListener = 0;
             void ConnectPluginExtensions();
             void DisconnectPluginExtensions();
             mutable std::mutex m_PipelineSelectMutex;
-            std::string m_RequestedPipeline = "forward+";           // what was asked for
-            std::string m_ActivePipelineName;                       // what runs (the forward pipeline for a debug view the requested one cannot draw)
+            std::string m_RequestedPipeline = "forward+";
+            std::string m_ActivePipelineName;
             void ActivatePipeline(const std::string& name);
             void ApplyPipelineForFrame();
 
-            std::vector<std::string> m_ExecutionOrder;              // what the graph runs, in order (culled and disabled passes left out)
-            std::vector<MemoryBarrierBit> m_ExecutionBarriers;      // parallel to m_ExecutionOrder : issued right before the pass
+            std::vector<std::string> m_ExecutionOrder;
+            std::vector<MemoryBarrierBit> m_ExecutionBarriers;
             RenderGraph m_Graph;
             CompiledGraph m_CompiledGraph;
             uint64_t m_GraphSignature = 0;
-            mutable std::mutex m_GraphMutex;                        // the compiled graph is read by the editor's panel and the console
-            std::string m_GraphText;                                // ToText of the last compile
+            mutable std::mutex m_GraphMutex;
+            std::string m_GraphText;
             std::string m_GraphDot;
             std::shared_ptr<RenderPass> m_CurrentPass;
             std::vector<RenderView> m_ViewStack;
-            std::vector<const DrawCommand*> m_VisibleCommands;      // what ExecuteRenderPass() drew : culled once, drawn per sweep
+            std::vector<const DrawCommand*> m_VisibleCommands;
             ImmediateRenderer m_ImmediateRenderer;
             ThumbnailService m_ThumbnailService;
             std::vector<std::string> m_PassInsertionOrder;
 
-            // What SyncSceneDrawLists() last submitted for each mesh proxy, to submit only the difference
             struct SyncedMesh {
                 std::shared_ptr<Mesh> mesh;
                 std::vector<std::shared_ptr<Material>> materials;
@@ -317,29 +266,21 @@ bool GetCurrentView(RenderView& out) override;
             std::shared_ptr<Mesh> m_UnitCube = nullptr;
             std::shared_ptr<Mesh> m_UnitQuad = nullptr;
 
-            std::shared_ptr<Framebuffer> m_ViewportBuffer;      // the display target : 8 bit, display colours
+            std::shared_ptr<Framebuffer> m_ViewportBuffer;
 
-            // The forward pass draws into this one : 16 bit floats, linear light, no clamping. Lighting is arithmetic on physical
-            // quantities and a lit pixel is far brighter than 1 as soon as there is a sun or a lamp, which an 8 bit target
-            // would clip before anything could roll it off.
+            // 16-bit float, linear, unclamped. A lit pixel is far above 1 and an 8-bit target would clip it before tonemapping.
             std::shared_ptr<Framebuffer> m_SceneBuffer;
 
-            // The pass that turns the HDR scene into the viewport (tonemap.frag) : built the first time it is needed
             std::shared_ptr<Shader> m_TonemapShader;
             std::shared_ptr<Material> m_TonemapMaterial;
             std::shared_ptr<RenderPass> m_TonemapPass;
             void EnsureTonemapPass();
 
-            /// The overlays plugins recorded (shard.render), drawn with the API's own 2D path : the ones that draw into a texture first (a surface
-            /// of the world may show them), the ones over the viewport after everything else.
             void DrawPluginOverlays(bool intoTextures);
             std::shared_ptr<RenderPass> m_OverlayPass;
 
-            /// End of the forward pass : resolves the HDR scene, gives the viewport its depth (what the overlays are tested
-            /// against) and maps the light of the scene onto it - exposure, tonemapper, sRGB curve.
             void ResolveSceneToViewport();
 
-            /// How the picture is shown for the debug view that is on (see tonemap.frag's displayMode)
             int GetDisplayMode() const;
 
             std::shared_ptr<ShadowManager> m_ShadowManager;
@@ -355,10 +296,9 @@ bool GetCurrentView(RenderView& out) override;
             SpriteRenderer m_SpriteRenderer;
             std::shared_ptr<OcclusionCullingManager> m_OcclusionCulling;
             std::atomic<bool> m_OcclusionCullingEnabled{true};
-            // 0 = not occlusion culling, 1/2 = which phase ExecuteRenderPass is currently issuing draws for
             int m_OcclusionPhase = 0;
 
-            std::mutex m_PipelineMutex;     // pipelines are asked for by the simulation (components) and by the renderer
+            std::mutex m_PipelineMutex;
             std::unordered_map<PipelineSpecifications,std::shared_ptr<Pipeline>,PipelineSpecsHash> m_Pipelines;
             std::unordered_map<ComputePipelineSpecifications,std::shared_ptr<ComputePipeline>,ComputePipelineSpecsHash> m_ComputePipelines;
 
@@ -368,17 +308,15 @@ bool GetCurrentView(RenderView& out) override;
 
             bool m_NeedExecutionOrderRebuild = false;
 
-            DebugViewState m_DebugView;             // what the frame being drawn uses (see SetDebugView)
+            DebugViewState m_DebugView;
             DebugViewState m_PendingDebugView;
             mutable std::mutex m_DebugViewMutex;
             std::atomic<uint32_t> m_LightingTerms{LightingTermsAll};
             bool m_SkipFullscreenCommands = false;
 
-            // The sizes of what only the render thread may look into, as of the last frame (for the statistics of the simulation)
             std::atomic<uint32_t> m_PublishedPassCount{0};
             std::atomic<int> m_PublishedLightCount{0};
 
-            // Read by the profiler statistics from another thread than the one that draws
             std::atomic<uint32_t> m_DrawCallsCount{0};
             std::atomic<uint32_t> m_PrimitivesCount{0};
             std::atomic<uint32_t> m_VerticesCount{0};

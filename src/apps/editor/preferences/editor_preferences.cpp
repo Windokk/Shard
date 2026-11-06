@@ -20,8 +20,6 @@ namespace Shard::Editor::Core {
 
     namespace {
 
-        // Each Read leaves `value` alone unless the key is there with the right type : a missing or broken entry keeps its default
-
         void Read(const json& object, const char* key, bool& value)
         {
             auto it = object.find(key);
@@ -43,8 +41,6 @@ namespace Shard::Editor::Core {
                 value = std::clamp(it->get<int>(), min, max);
         }
 
-        // A reflected preference : read under its field's name, kept to its field's range (FIELD range=)
-
         void Read(const json& object, const FieldInfo& field, float& value)
         {
             Read(object, field.name, value, field.min, field.max);
@@ -65,7 +61,6 @@ namespace Shard::Editor::Core {
 
     PreferenceRange GetPreferenceRange(const char* structName, const char* fieldName)
     {
-        // The name as the macro spelled it may be qualified (Core::CameraPreferences)
         std::string name = structName;
         const size_t colon = name.rfind(':');
         if(colon != std::string::npos)
@@ -229,7 +224,7 @@ namespace Shard::Editor::Core {
 
     bool SaveEditorPreferences(const std::string& path, const EditorPreferences& preferences)
     {
-        // Written next to the file then moved over it : a crash halfway never leaves a truncated file behind
+        // Written next to the file then moved over it, a crash halfway never leaves a truncated file.
         const std::string text = SerializeEditorPreferences(preferences);
         const std::string temporary = path + ".tmp";
         {

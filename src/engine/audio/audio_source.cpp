@@ -19,7 +19,6 @@ namespace Shard::Engine::Objects::Components{
     void AudioSource::Update()
     {
         if(audioID.IsValid() && GetEngineContext()->GetAudioIDManager()->GetSoundFromID(audioID)){
-            // The sound already exists : an inactive source keeps it as is (creating another one here leaked a sound per call)
             if(activated)
                 GetEngineContext()->GetAudioManager()->UpdateSound(audioID, parent->transform->GetWorldPosition(), volume, MakeSoundParams());
         }
@@ -28,10 +27,9 @@ namespace Shard::Engine::Objects::Components{
                 Audio::AudioID newID = GetEngineContext()->GetAudioIDManager()->GenerateNewID();
                 GetEngineContext()->GetAudioManager()->CreateSound(newID, pathInProject, parent->transform->GetWorldPosition(), spatialize);
 
-                // CreateSound silently no-ops (logging an error) if the file couldn't be loaded
                 if(GetEngineContext()->GetAudioIDManager()->GetSoundFromID(newID)){
                     audioID = newID;
-                    // Its place is known from the first tick on, or the doppler would see it come from the origin
+                    // Known from the first tick, or doppler would see it come from the origin
                     GetEngineContext()->GetAudioManager()->UpdateSound(audioID, parent->transform->GetWorldPosition(), volume, MakeSoundParams());
                 }
             }
@@ -51,7 +49,6 @@ namespace Shard::Engine::Objects::Components{
     {
         json data = componentData;
 
-        // Levels saved before the serialization went through the reflection call the sound's field "sound"
         if (data.is_object() && !data.contains("assetID") && data.contains("sound"))
             data["assetID"] = data["sound"];
 
@@ -72,7 +69,7 @@ namespace Shard::Engine::Objects::Components{
     {
         auto cloned = Object::Create<AudioSource>(*this);
 
-        // The clone makes its own sound : sharing the original's would let the clone's Destroy() remove it
+        // The clone makes its own sound. Sharing would let the clone's Destroy() remove the original's.
         cloned->audioID = Audio::AudioID();
 
         return cloned;

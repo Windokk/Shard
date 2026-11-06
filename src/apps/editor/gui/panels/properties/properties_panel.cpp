@@ -57,10 +57,10 @@ namespace Shard::Editor::GUI{
         ImVec2 fieldSize = ImVec2(ImGui::GetContentRegionAvail().x / 4.0f - 4.0f, 0);
 
         const ImU32 colors[4] = {
-            IM_COL32(220, 50, 50, 255),   // X - Red
-            IM_COL32(50, 200, 70, 255),   // Y - Green
-            IM_COL32(80, 120, 255, 255),  // Z - Blue
-            IM_COL32(220, 180, 60, 255)   // W - Purple
+            IM_COL32(220, 50, 50, 255),
+            IM_COL32(50, 200, 70, 255),
+            IM_COL32(80, 120, 255, 255),
+            IM_COL32(220, 180, 60, 255)
         };
 
         for (int i = 0; i < 4; i++)
@@ -69,14 +69,12 @@ namespace Shard::Editor::GUI{
 
             ImVec2 cursorPos = ImGui::GetCursorScreenPos();
 
-            // Draw colored left bar
             ImGui::GetWindowDrawList()->AddRectFilled(
                 cursorPos,
                 ImVec2(cursorPos.x + 3.0f, cursorPos.y + lineHeight),
                 colors[i]
             );
 
-            // Offset input so it doesn't overlap bar
             ImGui::SetCursorScreenPos(ImVec2(cursorPos.x + 4.0f, cursorPos.y));
 
             ImGui::PushItemWidth(fieldSize.x - 4.0f);
@@ -117,9 +115,9 @@ namespace Shard::Editor::GUI{
         ImVec2 fieldSize = ImVec2(ImGui::GetContentRegionAvail().x / 3.0f - 4.0f, 0);
 
         const ImU32 colors[3] = {
-            IM_COL32(220, 50, 50, 255),   // X - Red
-            IM_COL32(50, 200, 70, 255),   // Y - Green
-            IM_COL32(80, 120, 255, 255)   // Z - Blue
+            IM_COL32(220, 50, 50, 255),
+            IM_COL32(50, 200, 70, 255),
+            IM_COL32(80, 120, 255, 255)
         };
 
         for (int i = 0; i < 3; i++)
@@ -128,14 +126,12 @@ namespace Shard::Editor::GUI{
 
             ImVec2 cursorPos = ImGui::GetCursorScreenPos();
 
-            // Draw colored left bar
             ImGui::GetWindowDrawList()->AddRectFilled(
                 cursorPos,
                 ImVec2(cursorPos.x + 3.0f, cursorPos.y + lineHeight),
                 colors[i]
             );
 
-            // Offset input so it doesn't overlap bar
             ImGui::SetCursorScreenPos(ImVec2(cursorPos.x + 4.0f, cursorPos.y));
 
             ImGui::PushItemWidth(fieldSize.x - 4.0f);
@@ -175,8 +171,8 @@ namespace Shard::Editor::GUI{
         ImVec2 fieldSize = ImVec2(ImGui::GetContentRegionAvail().x / 2.0f - 4.0f, 0);
 
         const ImU32 colors[2] = {
-            IM_COL32(220, 50, 50, 255),   // X - Red
-            IM_COL32(50, 200, 70, 255),   // Y - Green
+            IM_COL32(220, 50, 50, 255),
+            IM_COL32(50, 200, 70, 255),
         };
 
         for (int i = 0; i < 2; i++)
@@ -184,14 +180,12 @@ namespace Shard::Editor::GUI{
             ImGui::PushID(i);
             ImVec2 cursorPos = ImGui::GetCursorScreenPos();
 
-            // Draw colored left bar
             ImGui::GetWindowDrawList()->AddRectFilled(
                 cursorPos,
                 ImVec2(cursorPos.x + 3.0f, cursorPos.y + lineHeight),
                 colors[i]
             );
 
-            // Offset input so it doesn't overlap bar
             ImGui::SetCursorScreenPos(ImVec2(cursorPos.x + 4.0f, cursorPos.y));
             ImGui::PushItemWidth(fieldSize.x - 4.0f);
 
@@ -219,15 +213,15 @@ namespace Shard::Editor::GUI{
     template<typename MatType>
     bool InputMatrix(const char* label, MatType& m, float speed = 0.1f)
     {
-        constexpr int C = MatType::length();                     // columns
-        constexpr int R = MatType::col_type::length();            // rows
+        constexpr int C = MatType::length();
+        constexpr int R = MatType::col_type::length();
 
         static const ImU32 axisColors[4] =
         {
-            IM_COL32(220, 50, 50, 255),   // X
-            IM_COL32(80, 200, 80, 255),   // Y
-            IM_COL32(80, 120, 220, 255),  // Z
-            IM_COL32(220, 180, 60, 255)   // W
+            IM_COL32(220, 50, 50, 255),
+            IM_COL32(80, 200, 80, 255),
+            IM_COL32(80, 120, 220, 255),
+            IM_COL32(220, 180, 60, 255)
         };
 
         bool changed = false;
@@ -247,7 +241,6 @@ namespace Shard::Editor::GUI{
 
                 ImGui::SetCursorScreenPos(ImVec2(pos.x + 8.0f + cellWidth * c, pos.y + 4 + lineHeight * r));
 
-                // Colored axis bar
                 ImGui::GetWindowDrawList()->AddRectFilled(
                     ImGui::GetCursorScreenPos(),
                     ImVec2(ImGui::GetCursorScreenPos().x - 3.0f, ImGui::GetCursorScreenPos().y + lineHeight),
@@ -483,8 +476,7 @@ namespace Shard::Editor::GUI{
             ImGui::TextDisabled("Live (not baked) - traced every frame.");
         }
 
-        // Only an active volume in the loaded world can be baked (it needs its GPU grid), and only one
-        // bake runs at a time.
+        // Only an active volume in the loaded world can be baked (needs its GPU grid), one bake at a time.
         ImGui::BeginDisabled(baking || !volume->Active());
         if (ImGui::Button((std::string(baked || hasFile ? "Re-bake" : "Bake") + "##ProbeVolumeBake").c_str()))
             volume->Bake();
@@ -537,7 +529,6 @@ namespace Shard::Editor::GUI{
             ImGui::TextDisabled("Not baked - this probe reflects nothing yet.");
         }
 
-        // Only an active probe in the loaded world can be baked, and only one bake runs at a time
         ImGui::BeginDisabled(bakingThis || !probe->Active());
         if (ImGui::Button((std::string(hasFile ? "Re-bake" : "Bake") + "##ReflectionProbeBake").c_str()))
             probe->Bake();
@@ -587,10 +578,10 @@ namespace Shard::Editor::GUI{
                 if (DrawComponent(actor->GetComponents()[i]))
                     componentToRemove = actor->GetComponents()[i];
                 if (const ClassDescriptor* described = actor->GetComponents()[i]->GetDescriptor())
-                    DrawPluginInspectors(described->name, actor);       // what plugins draw below this component
+                    DrawPluginInspectors(described->name, actor);
                 ImGui::PopID();
             }
-            DrawPluginInspectors("", actor);                           // ... and below all of them
+            DrawPluginInspectors("", actor);
 
             if (componentToRemove)
                 Commands::Actions::EditActor(actor, "Remove Component", [&]{ actor->RemoveComponent(componentToRemove); });
@@ -616,8 +607,6 @@ namespace Shard::Editor::GUI{
                 ImGui::EndPopup();
             }
 
-            // Right-click anywhere in the panel that isn't already an item (a component header, the
-            // remove/active buttons, ...) opens the same menu, same as the "Add Component..." button.
             if (ImGui::BeginPopupContextWindow("##PropertiesAddComponentContext",
                     ImGuiPopupFlags_MouseButtonRight | ImGuiPopupFlags_NoOpenOverItems)) {
                 DrawAddComponentMenu(actor);
@@ -634,8 +623,7 @@ namespace Shard::Editor::GUI{
 
     namespace
     {
-        /// The position of a root actor is shown (and typed) as an absolute position in the world, in double : the frame it is stored in
-        /// is the engine's business. A child's position stays relative to its parent.
+        // A root actor's position is shown and typed as an absolute double position in the world. A child's stays relative to its parent.
         bool IsAbsolutePosition(const FieldInfo* field, const std::shared_ptr<Component>& comp, const Container* container)
         {
             if (container || !field || std::string(field->name) != "position")
@@ -644,7 +632,6 @@ namespace Shard::Editor::GUI{
             return transform && transform->parent && !std::dynamic_pointer_cast<Engine::Objects::Actor>(transform->parent->GetParent());
         }
 
-        /// Where a transform was and where it is : the frame and the numbers in it
         struct PlacementState
         {
             uint32_t frame = 0;
@@ -675,7 +662,6 @@ namespace Shard::Editor::GUI{
             std::string name = "position";
         };
 
-        /// Three double fields for the absolute position. Returns true when it changed.
         bool InputAbsolutePosition(const char* id, const std::shared_ptr<Transform>& transform)
         {
             static PlacementState beforeEdit;
@@ -698,7 +684,7 @@ namespace Shard::Editor::GUI{
                 ImGui::SetNextItemWidth(width - 4.0f);
 
                 glm::dvec3 edited = value;
-                // Scientific notation only for what would not fit otherwise (a planet far from the origin) : 10 reads "10.000", not "1.00e+01"
+                // Scientific notation only for what would not fit, 10 reads "10.000" not "1.00e+01".
                 const char* format = std::abs(value[i]) >= 1.0e7 ? "%.3e" : "%.3f";
                 const bool dragged = ImGui::DragScalar("##v", ImGuiDataType_Double, &edited[i], 0.1f, nullptr, nullptr, format);
                 if (ImGui::IsItemActivated() && !editing) {
@@ -735,7 +721,6 @@ namespace Shard::Editor::GUI{
 
         void* valuePtr = FieldRead(*field, owner);
 
-        // Its undo is a PlaceCommand, recorded by the widget (the frame is not a field)
         if (!Commands::CanRecordField(field) || IsAbsolutePosition(field, comp, nullptr))
         {
             DrawField(field, valuePtr, comp);
@@ -750,7 +735,6 @@ namespace Shard::Editor::GUI{
         if (old.EqualsValue(valuePtr))
             return;
 
-        // Changed again by the same drag : the value from before the first change is the one to go back to
         for (const PendingFieldEdit& edit : pendingFieldEdits)
             if (edit.component == comp && edit.field == field)
                 return;
@@ -763,7 +747,6 @@ namespace Shard::Editor::GUI{
         if (pendingFieldEdits.empty() && !pendingActorEdit)
             return;
 
-        // Still being edited ; or a gizmo drag is being recorded, which these edits must not end up in
         auto& history = Commands::CommandStack::Get();
         if (ImGui::IsAnyItemActive() || history.IsActive())
             return;
@@ -784,7 +767,6 @@ namespace Shard::Editor::GUI{
     {
         namespace C = Engine::Objects::Components;
 
-        // One entry of the menu : adds a component of type C::Type to the actor (undoable)
         #define SHARD_ADD_ITEM(label, Type) \
             if (ImGui::MenuItem(label)) \
                 Commands::Actions::EditActor(actor, "Add Component", [&]{ actor->AddComponent<C::Type>(); })
@@ -820,16 +802,9 @@ namespace Shard::Editor::GUI{
 
         #undef SHARD_ADD_ITEM
 
-        // Everything registered through REGISTER_COMPONENT (game-side custom components, e.g.
-        // scripts) - these aren't special-cased engine types like the ones above, so the registry is
-        // the only way to instantiate them by name (World::DeserializeComponents does the same thing
-        // for world files). CreateComponentByName hands back a parent-less component (see
-        // DECLARE_COMPONENT); AddComponentRaw is what wires it into this actor/world.
         const auto& customComponents = GetComponentRegistry().GetAll();
         if (!customComponents.empty() && ImGui::BeginMenu("Scripts"))
         {
-            // Sorted so the menu has a stable order instead of reshuffling with the registry's
-            // internal (unordered_map) iteration order.
             std::vector<std::string> names;
             names.reserve(customComponents.size());
             for (auto& [name, factory] : customComponents)
@@ -868,7 +843,6 @@ namespace Shard::Editor::GUI{
             MarkWorldDirty();
         }
 
-        // One undo step for the whole edit of the box, not one per letter
         if (ImGui::IsItemActivated())
         {
             nameEditActor = actor;
@@ -902,7 +876,6 @@ namespace Shard::Editor::GUI{
         const ClassDescriptor* desc = comp->GetDescriptor();
         bool removeRequested = false;
 
-        // The Transform is mandatory on every actor and cannot be removed.
         bool removable = !comp->IsInstanceOf<Transform>();
 
         bool active = comp->Active();
@@ -955,7 +928,6 @@ namespace Shard::Editor::GUI{
                 ImGui::TableSetupColumn("##Property", ImGuiTableColumnFlags_WidthStretch, 90.0f);
                 ImGui::TableSetupColumn("##Value", ImGuiTableColumnFlags_WidthStretch, 90.0f);
 
-                // The component's own tags, before its fields
                 ImGui::TableNextRow();
                 ImGui::TableSetColumnIndex(0);
                 ImGui::AlignTextToFramePadding();
@@ -980,7 +952,7 @@ namespace Shard::Editor::GUI{
                         uint8_t* base = reinterpret_cast<uint8_t*>(comp.get()) + field->offset;
                         InstancedStruct* structPtr = reinterpret_cast<InstancedStruct*>(base);
 
-                        // Read through the component each time : the undo history may apply the value to a rebuilt one
+                        // Read through the component each time, undo may apply the value to a rebuilt one.
                         const uint32_t offset = field->offset;
                         Commands::FieldOwnerLocator locate = [offset](Component& owner) -> void* {
                             return reinterpret_cast<InstancedStruct*>(reinterpret_cast<uint8_t*>(&owner) + offset)->data;
@@ -1000,7 +972,6 @@ namespace Shard::Editor::GUI{
 
             if (comp->IsInstanceOf<PhysicsBody>() && drawnActor)
             {
-                // The shapes are not reflected fields : an edit of them is undone by rebuilding the actor
                 ordered_json shapesBefore = comp->Serialize();
                 DrawPhysicsBodyShapes(comp);
 
@@ -1029,9 +1000,6 @@ namespace Shard::Editor::GUI{
         return removeRequested;
     }
 
-    // The asset a field points at, Unreal-style : a button showing it (click = pick another from a list, drop = assign the
-    // asset dragged from the browser), then "use the asset selected in the browser", "show it in the browser" and "clear".
-    // A field already holding an asset only takes assets of the same type (a mesh field is not given a texture).
     static bool DrawAssetField(const std::string& id, Filesystem::AssetID& value, AssetBrowser* browser)
     {
         auto* manager = Engine::Core::GetEngine().GetAssetIDManager();
@@ -1041,7 +1009,6 @@ namespace Shard::Editor::GUI{
         std::shared_ptr<Filesystem::AssetInfos> current = manager->GetAssetFromID(value);
         const std::string currentName = current ? current->baseInfos.nameInProject : std::string();
 
-        // Resolves a nameInProject to an assignable asset, nullptr if it is not one this field accepts
         auto resolve = [&](const std::string& name) -> std::shared_ptr<Filesystem::AssetInfos>
         {
             if (name.empty())
@@ -1057,7 +1024,6 @@ namespace Shard::Editor::GUI{
         bool changed = false;
         auto assign = [&](const std::shared_ptr<Filesystem::AssetInfos>& info)
         {
-            // The ID the manager knows the asset under (the key of its table), which is what every lookup goes through
             const Filesystem::AssetID newValue = info ? manager->GetIDFromNameInProject(info->baseInfos.nameInProject) : Filesystem::AssetID();
             DEBUG_INFO("Asset field " + id + " assign : " + (info ? info->baseInfos.nameInProject : std::string("<none>")) + " id " + std::to_string(newValue.GetAsInt()) + " / baseInfos.ID " + (info ? std::to_string(info->baseInfos.ID.GetAsInt()) : std::string("-")) + " (was " + currentName + ")");
             if (newValue != value)
@@ -1071,7 +1037,6 @@ namespace Shard::Editor::GUI{
         const float buttonSize = ImGui::GetFrameHeight();
         const float fieldWidth = ImGui::GetContentRegionAvail().x - 3.0f * (buttonSize + style.ItemInnerSpacing.x);
 
-        // ---- The field
         const std::string label = (current ? currentName : std::string("None")) + id;
         ImGui::PushStyleVar(ImGuiStyleVar_ButtonTextAlign, ImVec2(0.0f, 0.5f));
         if (!current)
@@ -1085,7 +1050,6 @@ namespace Shard::Editor::GUI{
         if (ImGui::IsItemHovered(ImGuiHoveredFlags_ForTooltip))
             ImGui::SetTooltip("%s\nClick to pick an asset, or drop one from the browser", current ? currentName.c_str() : "No asset");
 
-        // A compatible asset dragged over the field is highlighted, an incompatible one is refused
         if (ImGui::BeginDragDropTarget())
         {
             std::vector<std::string> dropped = DragDrop::AcceptAssetDragDropPayload();
@@ -1094,7 +1058,6 @@ namespace Shard::Editor::GUI{
             ImGui::EndDragDropTarget();
         }
 
-        // ---- Picker
         ImGui::SetNextWindowSizeConstraints(ImVec2(280.0f, 120.0f), ImVec2(FLT_MAX, 420.0f));
         if (ImGui::BeginPopup("##AssetPicker"))
         {
@@ -1153,7 +1116,6 @@ namespace Shard::Editor::GUI{
             ImGui::EndPopup();
         }
 
-        // ---- Use the asset selected in the browser
         ImGui::SameLine(0.0f, style.ItemInnerSpacing.x);
         const std::string selectedName = browser ? browser->GetSelectedAssetName() : std::string();
         const auto selectedInfo = resolve(selectedName);
@@ -1171,7 +1133,6 @@ namespace Shard::Editor::GUI{
                 ImGui::SetTooltip("Select an asset in the browser to use it here");
         }
 
-        // ---- Show it in the browser
         ImGui::SameLine(0.0f, style.ItemInnerSpacing.x);
         ImGui::BeginDisabled(!current || !browser);
         if (ImGui::Button((std::string(ICON_LC_FOLDER_SEARCH) + id + "Browse").c_str(), ImVec2(buttonSize, buttonSize)))
@@ -1180,7 +1141,6 @@ namespace Shard::Editor::GUI{
         if (ImGui::IsItemHovered(ImGuiHoveredFlags_ForTooltip | ImGuiHoveredFlags_AllowWhenDisabled))
             ImGui::SetTooltip("Browse to the asset in the Asset Browser");
 
-        // ---- Clear
         ImGui::SameLine(0.0f, style.ItemInnerSpacing.x);
         ImGui::BeginDisabled(!current);
         if (ImGui::Button((std::string(ICON_LC_X) + id + "Clear").c_str(), ImVec2(buttonSize, buttonSize)))
@@ -1194,7 +1154,7 @@ namespace Shard::Editor::GUI{
 
     void PropertiesPanel::DrawField(const FieldInfo *field, void *value, std::shared_ptr<Engine::Objects::Components::Component> comp, const Container *container, const int valueIndexInContainer)
     {
-        // A container element is labelled by its index : the string must outlive this function's widgets (a temporary's c_str() dangled)
+        // The string must outlive this function's widgets (a temporary's c_str() dangled).
         const std::string indexLabel = valueIndexInContainer != -1 ? std::to_string(valueIndexInContainer) : std::string();
         const char * fieldName = valueIndexInContainer != -1 ? indexLabel.c_str() : field->name;
 
@@ -1202,7 +1162,6 @@ namespace Shard::Editor::GUI{
 
         ImGui::TableNextRow();
 
-        // Column 0 : Label
         ImGui::TableSetColumnIndex(0);
 
         ImGui::AlignTextToFramePadding();
@@ -1210,7 +1169,6 @@ namespace Shard::Editor::GUI{
         if(field->tooltip && ImGui::IsItemHovered())
             ImGui::SetTooltip("%s", field->tooltip);
 
-        // Column 1 : Widget
         ImGui::TableSetColumnIndex(1);
 
         std::string id = "##" + std::string(fieldName);
@@ -1416,7 +1374,7 @@ namespace Shard::Editor::GUI{
             }
             case TypeID::Enum:
             {
-                // Zeroed first : an enum can be narrower than int (uint8_t), memcpy would leave the upper bytes as garbage
+                // Zeroed first, an enum can be narrower than int (uint8_t) and memcpy would leave garbage in the upper bytes.
                 int current = 0;
                 memcpy(&current, value, field->enumDesc->size);
                 if (current < 0 || current >= (int)field->enumDesc->values.size())

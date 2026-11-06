@@ -1,29 +1,17 @@
 #version 430 core
 
-// Edge aware denoiser of the baked lightmaps : one iteration of the a-trous wavelet filter (Dammertz et al. 2010) with the
-// variance guided weights of SVGF (Schied et al. 2017). A 5 x 5 kernel whose taps are `uStep` texels apart, so five
-// iterations with a step of 1, 2, 4, 8 and 16 cover a wide neighbourhood at the cost of five small ones.
-//
-// What keeps it from blurring the lighting that is real is the weight of each tap :
-//   * the surface : its normal and its distance to the plane of the centre texel - a tap on a wall that meets the floor, or on
-//     another surface that merely sits next to this one in the atlas, counts for nothing ;
-//   * the luminance : a tap whose light differs from the centre's by more than the noise can explain (a few standard
-//     deviations of the variance the resolve pass measured) counts for nothing - that is what keeps a shadow edge sharp,
-//     while the flat, noisy light of an open wall is averaged hard.
-// The variance goes through the filter with the squared weights, so the next iteration knows how much noise is left.
-
 layout(local_size_x = 8, local_size_y = 8, local_size_z = 1) in;
 
-layout(rgba32f, binding = 0) readonly uniform image2D uIn;          // rgb light, a variance
+layout(rgba32f, binding = 0) readonly uniform image2D uIn;
 layout(rgba32f, binding = 1) writeonly uniform image2D uOut;
-layout(rgba32f, binding = 2) readonly uniform image2D uGPos;        // xyz world position, w the world size of a texel (0 : no surface)
+layout(rgba32f, binding = 2) readonly uniform image2D uGPos;
 layout(rgba16f, binding = 3) readonly uniform image2D uGNormal;
 
 uniform int uSize;
 uniform int uStep;
-uniform float uLuminanceSigma;      // how many standard deviations of noise a luminance difference may be and still blend
-uniform float uNormalPower;         // exponent of the normals' dot product : higher stops a tap on a surface that faces another way sooner
-uniform float uPlaneSigma;          // distance to the centre texel's plane past which a tap stops counting, in texels of the surface
+uniform float uLuminanceSigma;
+uniform float uNormalPower;
+uniform float uPlaneSigma;
 
 float Luminance(vec3 c)
 {
@@ -44,7 +32,7 @@ void main()
     vec4 centerColor = imageLoad(uIn, center);
     if (centerColor.a < 0.0)
     {
-        imageStore(uOut, center, centerColor);      // given up by the baker (a negative variance) : stays marked, nothing is mixed into it
+        imageStore(uOut, center, centerColor);
         return;
     }
     float centerLuminance = Luminance(centerColor.rgb);
@@ -92,6 +80,5 @@ void main()
         }
     }
 
-    // The centre is always a tap of weight kernel[0]^2 : the sum cannot be zero
     imageStore(uOut, center, vec4(colorSum / weightSum, varianceSum / (weightSum * weightSum)));
 }

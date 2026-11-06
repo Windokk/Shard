@@ -42,8 +42,6 @@ namespace Shard::Engine::Plugins {
         }
     }
 
-    // ---- TrustStore ----
-
     Core::Result<bool> TrustStore::Merge(const json& j)
     {
         if (!j.is_object()) return Core::Err("a trust file is a JSON object");
@@ -112,8 +110,6 @@ namespace Shard::Engine::Plugins {
         auto it = m_Publishers.find(publisher);
         return it != m_Publishers.end() && it->second == Crypto::ToHex(key);
     }
-
-    // ---- Digest and signature ----
 
     Core::Result<std::string> ComputePackageDigest(const std::string& folder)
     {
@@ -226,14 +222,12 @@ namespace Shard::Engine::Plugins {
         return info;
     }
 
-    // ---- Keys and markers ----
-
     Core::Result<bool> WriteKeyPair(const std::string& base, const Crypto::SecretKey& sk, const Crypto::PublicKey& pk)
     {
         std::error_code ec;
         fs::create_directories(fs::path(base).parent_path(), ec);
         {
-            std::ofstream out(base + ".key", std::ios::binary | std::ios::trunc);   // binary : the same bytes (LF) on every platform
+            std::ofstream out(base + ".key", std::ios::binary | std::ios::trunc);
             if (!out) return Core::Err("cannot write '" + base + ".key'");
             out << Crypto::ToHex(sk) << "\n";
         }
@@ -253,7 +247,6 @@ namespace Shard::Engine::Plugins {
         if (!Crypto::FromHex(text, v, 64)) return Core::Err("'" + path + "' is not a secret key (128 hexadecimal digits)");
         Crypto::SecretKey sk;
         std::copy(v.begin(), v.end(), sk.begin());
-        // The public half has to be the one the seed gives
         Crypto::PublicKey pk;
         Crypto::SecretKey rebuilt;
         std::array<uint8_t, 32> seed;

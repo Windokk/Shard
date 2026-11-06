@@ -17,7 +17,6 @@ namespace Shard::Engine::Serialization{
         for (char c : samplerName)
             lower.push_back(char(std::tolower(static_cast<unsigned char>(c))));
 
-        // The naming the default textures of a material follow as well (see GLMaterial::GetDefaultTexture)
         for (const char* prefix : { "albedo", "diffuse", "emissive", "basecolor" })
             if (lower.rfind(prefix, 0) == 0)
                 return true;

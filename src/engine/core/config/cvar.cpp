@@ -19,8 +19,6 @@ namespace Shard::Engine::Core {
         return "?";
     }
 
-    // ---------------------------------------------------------------------------------------------------- CVarBase
-
     CVarBase::CVarBase(std::string name, std::string description, CVarFlags flags)
         : m_Name(std::move(name)), m_Description(std::move(description)), m_Flags(flags) {}
 
@@ -35,12 +33,10 @@ namespace Shard::Engine::Core {
         std::vector<ChangeFn> callbacks;
         {
             std::lock_guard<std::mutex> lock(m_CallbackMutex);
-            callbacks = m_Callbacks;                    // call outside the lock : a callback may add another one
+            callbacks = m_Callbacks;
         }
         for (const ChangeFn& fn : callbacks) fn(*this);
     }
-
-    // ------------------------------------------------------------------------------------------------ CVarRegistry
 
     namespace {
         template <typename V>
@@ -124,7 +120,6 @@ namespace Shard::Engine::Core {
         struct Scored { int rank; Suggestion suggestion; };
         std::vector<Scored> found;
 
-        // 0 : starts with the text, 1 : a later word of the name starts with it, 2 : contains it somewhere
         auto rank = [&](const std::string& lowerName) -> int {
             if (p.empty()) return 0;
             const size_t at = lowerName.find(p);
@@ -189,11 +184,11 @@ namespace Shard::Engine::Core {
             std::lock_guard<std::mutex> lock(m_Mutex);
             auto it = FindEntry(m_CVars, key);
             if (it != m_CVars.end()) {
-                return;                                 // two variables with one name is a programming error : the first keeps it
+                return;
             }
             m_CVars.emplace_back(key, cvar);
         }
-        ApplyWinning(key, nullptr);                     // a config file may have been loaded before this variable existed
+        ApplyWinning(key, nullptr);
     }
 
     void CVarRegistry::Unregister(CVarBase* cvar) {
@@ -208,14 +203,14 @@ namespace Shard::Engine::Core {
         {
             std::lock_guard<std::mutex> lock(m_Mutex);
             auto it = FindEntry(m_CVars, key);
-            if (it == m_CVars.end()) return true;       // nothing to apply to yet : the value waits in its layer
+            if (it == m_CVars.end()) return true;
             cvar = it->second;
             auto layers = FindEntry(m_Layers, key);
             if (layers != m_Layers.end())
                 for (size_t i = kConfigLayerCount; i-- > 0;)
                     if (layers->second[i]) { value = layers->second[i]; break; }
         }
-        // Outside the lock : changing the value runs the variable's callbacks, which may use the registry
+        // Outside the lock: changing the value runs callbacks, which may use the registry
         if (!value) { cvar->ResetToDefault(); return true; }
         return cvar->FromString(*value, error);
     }
@@ -245,7 +240,6 @@ namespace Shard::Engine::Core {
 
         std::string applyError;
         if (!ApplyWinning(key, &applyError)) {
-            // The value is not valid for this variable : do not keep it, put back what was there
             {
                 std::lock_guard<std::mutex> lock(m_Mutex);
                 auto it = FindEntry(m_Layers, key);
@@ -306,8 +300,6 @@ namespace Shard::Engine::Core {
         return true;
     }
 
-    // ----------------------------------------------------------------------------------------------------- Files
-
     size_t CVarRegistry::LoadText(ConfigLayer layer, std::string_view text, std::vector<std::string>* warnings) {
         size_t applied = 0, lineNumber = 0;
         std::string section;
@@ -364,8 +356,7 @@ namespace Shard::Engine::Core {
                 const CVarBase* cvar = entry.second;
                 if (!HasFlag(cvar->Flags(), CVarFlags::Archive) || cvar->IsDefault()) continue;
 
-                // Only what the user chose (the console, or the user file itself) : a value that comes from the engine
-                // or project files, or from this run's command line, must not become the user's setting
+                // Only what the user chose (console or user file). Engine, project and command line values must not become the user's setting.
                 auto layers = FindEntry(m_Layers, entry.first);
                 if (layers == m_Layers.end()) continue;
                 size_t winning = 0;
@@ -415,8 +406,6 @@ namespace Shard::Engine::Core {
         return applied;
     }
 
-    // -------------------------------------------------------------------------------------------------- Commands
-
     void CVarRegistry::RegisterCommand(std::string name, std::string help, CommandFn fn) {
         const std::string key = Lower(name);
         std::lock_guard<std::mutex> lock(m_Mutex);
@@ -464,7 +453,7 @@ namespace Shard::Engine::Core {
             auto it = FindEntry(m_Commands, key);
             if (it != m_Commands.end()) command = it->second.fn;
         }
-        if (command) return command(args);              // outside the lock : a command uses the registry
+        if (command) return command(args);
 
         CVarBase* cvar = Find(head);
         if (!cvar) return {false, "Unknown command or variable '" + head + "' (try 'help')"};

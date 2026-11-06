@@ -41,20 +41,15 @@ namespace Shard::Engine::Rendering{
 
             void CompileErrors(unsigned int shader, const char *type);
 
-            // Uniform locations are resolved once at compile time (see the constructor) and kept
-            // in m_ActiveUniformsMap; looking them up here avoids a glGetUniformLocation() driver
-            // round-trip on every SetXxx call, which used to dominate per-draw-call state binding cost.
             int32_t GetUniformLocationCached(const std::string& name);
 
             uint32_t m_Program = 0;
-            bool m_CompileFailed = false;      // a stage didn't compile or the program didn't link (the message was logged)
+            bool m_CompileFailed = false;
             std::vector<UniformInfo> m_ActiveUniforms;
             std::unordered_map<std::string, UniformInfo> m_ActiveUniformsMap;
             std::vector<SamplerInfo> m_ActiveSamplers;
             std::unordered_map<std::string, SamplerInfo> m_ActiveSamplersMap;
 
-            // Locations for names m_ActiveUniformsMap doesn't cover, memoised (-1 included) so the
-            // driver is still only asked once per name - see GetUniformLocationCached.
             std::unordered_map<std::string, int32_t> m_UnmappedLocations;
     };
 

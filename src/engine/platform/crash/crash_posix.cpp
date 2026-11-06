@@ -34,12 +34,11 @@ namespace Shard::Engine::Core::Platform::CrashHandler::Internal {
             }
         }
 
-        // Not async-signal-safe (allocations, streams) : this is a best effort report of a process that is dying anyway.
+        // Not async-signal-safe. Best effort for a dying process.
         void FatalHandler(int sig, siginfo_t*, void*)
         {
             Report(SignalName(sig), nullptr);
 
-            // Back to the default action so that the OS still produces its core dump / exit status
             signal(sig, SIG_DFL);
             raise(sig);
         }
@@ -56,7 +55,6 @@ namespace Shard::Engine::Core::Platform::CrashHandler::Internal {
             return;
         g_Installed = true;
 
-        // The handler of a stack overflow needs a stack of its own
         stack_t alt{};
         alt.ss_sp = g_AltStack;
         alt.ss_size = sizeof(g_AltStack);

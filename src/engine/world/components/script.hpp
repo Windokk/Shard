@@ -6,7 +6,6 @@
 
 #include "engine/assets/reflection/attributes.hpp"
 
-// Defined by the physics module (engine/physics/physics_events.hpp) : include it to implement the contact callbacks.
 namespace Shard::Engine::Events
 {
     struct ContactAddedEvent;
@@ -16,74 +15,45 @@ namespace Shard::Engine::Events
 
 namespace Shard::Engine::Objects::Components
 {
-    /// @brief Main scripting component. All scripts should inherit from this component. Scripts method are called from their parent actor, in order of addition
     class Script : public Component{
         public:
             Script(std::shared_ptr<Actor> parent, uint32_t local_id);
 
             void Destroy() override;
 
-            /// @brief Called when the world is loaded
-            /// @note Only called on actors with tag "Persistent" 
+            // Only called on actors with tag "Persistent"
             virtual void OnWorldLoaded();
 
-            /// @brief Called when the world is unloaded
             virtual void OnWorldUnloaded();
 
-            /// @brief Called when this script component is added to an actor parent
             virtual void OnCreate();
 
-            /// @brief Called when the play mode starts.
             virtual void OnPlay();
 
-            /// @brief Called once per frame, in the Update phase (variable step : use GetDeltaTime())
             virtual void OnTick();
 
-            /// @brief Whether OnEditTick is called : a script that must be seen working in the editor while the world does not play
-            /// (a particle emitter, a UI being laid out...) says so. Read once per frame and script.
             virtual bool RunsInEditMode() const;
 
-            /// @brief Called once per frame, in the Update phase, while the world does NOT play, if RunsInEditMode (variable step : use GetDeltaTime())
             virtual void OnEditTick();
 
-            /// @brief Called once per fixed simulation step, in the Fixed phase, right before the physics step
-            /// @note Runs 0..N times per frame depending on the accumulator. Use GetFixedDeltaTime() : this is the place for forces and
-            /// gameplay that must be reproducible.
+            // Runs 0..N times per frame depending on the accumulator. Use GetFixedDeltaTime(). Forces and reproducible gameplay go here.
             virtual void OnFixedTick();
 
-            /// @brief Called once per frame, in the Late phase, after the scripts and the physics moved everything
-            /// @note For cameras and anything that follows what moved this frame.
             virtual void OnLateTick();
 
-            /// @brief Called when the play mode stops
             virtual void OnStop();
 
-            /// @brief Called when the component is destroyed
-            /// @note Also called when parent actor is destroyed
             virtual void OnDestroyed();
 
-            /// @brief Callback for when the parent actor enters collision with something.
-            /// @param event The descriptor for this collision event
-            /// @details This can only be called if the parent actor has a PhysicsBody component, 
-            /// or a child with PhysicsBody component. In the case of a child with PhysicsBody, the physics methods are called on the child first, then on the parent.
+            // Needs a PhysicsBody on the actor or a child. A child's callbacks run before the parent's.
             virtual void OnContactAdded(const Events::ContactAddedEvent& event);
             
-            /// @brief Callback for when the parent actor enters collision with something.
-            /// @param event The descriptor for this collision event
-            /// @details This can only be called if the parent actor has a PhysicsBody component, 
-            /// or a child with PhysicsBody component. In the case of a child with PhysicsBody, the physics methods are called on the child first, then on the parent.
             virtual void OnContactPersisted(const Events::ContactPersistedEvent& event);
 
-            /// @brief Callback for when the parent actor enters collision with something.
-            /// @param event The descriptor for this collision event
-            /// @details This can only be called if the parent actor has a PhysicsBody component, 
-            /// or a child with PhysicsBody component. In the case of a child with PhysicsBody, the physics methods are called on the child first, then on the parent.
             virtual void OnContactEnded(const Events::ContactRemovedEvent& event);
 
-            /// @brief Called when this component is activated / when this component's parent is activated
             virtual void OnActivated();
 
-            /// @brief Called when this component is deactivated / when this component's parent is deactivated
             virtual void OnDeactivated();
             
             void Activate() override

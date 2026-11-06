@@ -1,24 +1,15 @@
 #version 430 core
 
-// GPU frustum + Hi-Z occlusion culling of a pass's draw commands, in two phases (see OcclusionCullingManager for the
-// frame structure and why it's two-phase). One invocation per draw command ("instance"); the result is its indirect
-// draw command's instanceCount : 1 draws it, 0 makes the draw a no-op.
-//
-//   phase 1 : draw what was visible last frame (and is inside this frame's frustum). No depth information is needed
-//             yet - the point is only to lay down a good depth buffer for the Hi-Z pyramid to be built from.
-//   phase 2 : after that pyramid exists, test EVERY command against it. Draw those that pass and weren't drawn in
-//             phase 1, and remember who passed for next frame's phase 1. Because the whole set is re-tested against
-//             depth from this very frame, nothing that should be visible is ever skipped (no popping) - the image
-//             is the one a plain draw-everything would produce, just without the hidden geometry.
+// Two phases: draw last frame's visible set first to get a depth buffer for the Hi-Z pyramid, then test every command against it.
 
 layout(local_size_x = 64) in;
 
 struct Instance
 {
     mat4 model;
-    vec4 boundsMin; // xyz = mesh-space min, w = 1 for a live slot, 0 for a free one
+    vec4 boundsMin;
     vec4 boundsMax;
-    uvec4 draw;     // x = index count, y = first index
+    uvec4 draw;
 };
 
 struct DrawCommand
@@ -43,12 +34,10 @@ uniform int hizLevels;
 uniform int hizSizeX;
 uniform int hizSizeY;
 
-const uint VISIBLE_LAST = 1u; // survived the previous frame
-const uint DRAWN_PHASE1 = 2u; // already drawn by this frame's phase 1
+const uint VISIBLE_LAST = 1u;
+const uint DRAWN_PHASE1 = 2u;
 
-// Added to the nearest depth of the box before comparing with the pyramid : the box is conservative already, this
-// covers the rounding difference between this transform and the rasterizer's, so a box sitting exactly on an
-// occluder's surface still counts as visible.
+// Covers rounding differences with the rasterizer so a box on an occluder's surface still counts as visible.
 const float DEPTH_EPSILON = 2e-5;
 
 void main()
@@ -68,7 +57,6 @@ void main()
         vec3 bmin = inst.boundsMin.xyz;
         vec3 bmax = inst.boundsMax.xyz;
 
-        // A zero-size box means "bounds unknown" : the CPU path never culls those either
         if (bmin == bmax)
         {
             inFrustum = true;
@@ -102,8 +90,6 @@ void main()
 
             inFrustum = !(outLeft == 8 || outRight == 8 || outBottom == 8 || outTop == 8 || outNear == 8 || outFar == 8);
 
-            // Only phase 2 has a pyramid to test against, and a box that reaches the camera plane can't be
-            // projected to a screen rectangle at all - it stays "not occluded".
             if (phase == 2 && inFrustum && !crossesCameraPlane)
             {
                 vec2 minUV = vec2(1e30);
@@ -126,7 +112,6 @@ void main()
                 vec2 minPx = minUV * hizSize;
                 vec2 maxPx = maxUV * hizSize;
 
-                // The mip level at which the rectangle is at most one texel wide/tall, i.e. touches at most 2x2 texels
                 float extent = max(max(maxPx.x - minPx.x, maxPx.y - minPx.y), 1.0);
                 int level = clamp(int(ceil(log2(extent))), 0, hizLevels - 1);
 
@@ -138,7 +123,6 @@ void main()
                     max(texelFetch(uHiZ, ivec2(lo.x, lo.y), level).r, texelFetch(uHiZ, ivec2(hi.x, lo.y), level).r),
                     max(texelFetch(uHiZ, ivec2(lo.x, hi.y), level).r, texelFetch(uHiZ, ivec2(hi.x, hi.y), level).r));
 
-                // Even the box's nearest point is behind the farthest thing drawn over its whole footprint
                 occluded = nearestDepth > farthestOccluder + DEPTH_EPSILON;
             }
         }
@@ -151,7 +135,6 @@ void main()
     {
         bool draw = live && inFrustum && (s & VISIBLE_LAST) != 0u;
         toDraw = draw ? 1u : 0u;
-        // New frame : forget last frame's "drawn in phase 1", keep the visibility history
         state[i] = (s & VISIBLE_LAST) | (draw ? DRAWN_PHASE1 : 0u);
     }
     else

@@ -44,8 +44,6 @@ namespace Shard::Engine::Objects::Components{
         UpdateExposedValues();
     }
 
-    /// @brief Set the light's type
-    /// @param type The new type (Directional, Spot, Point...)
     void Light::SetType(Rendering::LightType type)
     {
         if(!activated)
@@ -56,8 +54,6 @@ namespace Shard::Engine::Objects::Components{
         UpdateExposedValues();
     }
 
-    /// @brief Set the light's intensity
-    /// @param intensity The new intensity
     void Light::SetIntensity(float intensity)
     {
         if(!activated)
@@ -68,8 +64,6 @@ namespace Shard::Engine::Objects::Components{
         UpdateExposedValues();
     }
 
-    /// @brief Set the light's position in the world
-    /// @param postion The new position (in world units)
     void Light::SetPosition(glm::vec3 postion)
     {
         if(!activated)
@@ -79,8 +73,6 @@ namespace Shard::Engine::Objects::Components{
 
 }
 
-    /// @brief Set the light's direction (Only for spot and directionnal lights)
-    /// @param direction The new direction
     void Light::SetDirection(glm::vec3 direction)
     {
         if(!activated)
@@ -90,8 +82,6 @@ namespace Shard::Engine::Objects::Components{
 
 }
     
-    /// @brief Set the radius of the light (Only for spot and point lights)
-    /// @param radius The new radius (in world units)
     void Light::SetRadius(float radius)
     {
         if(!activated)
@@ -102,8 +92,6 @@ namespace Shard::Engine::Objects::Components{
         UpdateExposedValues();
     }
 
-    /// @brief Sets the color of the light
-    /// @param color The new color
     void Light::SetColor(COL_RGB color)
     {
         if(!activated)
@@ -114,8 +102,6 @@ namespace Shard::Engine::Objects::Components{
         UpdateExposedValues();
     }
 
-    /// @brief Set the outer cuttof (Only for spot lights)
-    /// @param cutoff The new cutoff, in degrees
     void Light::SetOuterCutoff(float cutoff)
     {
         if(!activated)
@@ -126,8 +112,6 @@ namespace Shard::Engine::Objects::Components{
         UpdateExposedValues();
     }
 
-    /// @brief Set the inner cuttof (Only for spot lights)
-    /// @param cutoff The new cutoff, in degrees
     void Light::SetInnerCuttoff(float cutoff)
     {
         if(!activated)
@@ -138,8 +122,6 @@ namespace Shard::Engine::Objects::Components{
         UpdateExposedValues();
     }
 
-    /// @brief Set wether this light should cast shadows
-    /// @param castShadows true : casts shadows, false : doesn't cast shadows
     void Light::SetCastShadow(bool castShadows)
     {
         if(!activated)
@@ -150,8 +132,7 @@ namespace Shard::Engine::Objects::Components{
         UpdateExposedValues();
     }
 
-    /// @brief Set the size of the light's emitter, for the soft shadows of the offline renderers
-    /// @param sourceSize Radius of the emitting sphere in world units (point / spot), angular radius of the sun disc in degrees (directional). 0 : hard shadows
+    // Emitter size for soft shadows of the offline renderers. Radius in world units (point/spot), angular radius of the sun disc in degrees (directional). 0 is hard shadows.
     void Light::SetSourceSize(float sourceSize)
     {
         if(!activated)
@@ -162,8 +143,6 @@ namespace Shard::Engine::Objects::Components{
         UpdateExposedValues();
     }
 
-    /// @brief Set what this light does for baked lighting
-    /// @param mode Dynamic (never baked), Stationary (indirect light baked) or Static (fully baked)
     void Light::SetBakeMode(Rendering::LightBakeMode mode)
     {
         if(!activated)
@@ -178,8 +157,7 @@ namespace Shard::Engine::Objects::Components{
     {
         json data = componentData;
 
-        // Levels saved before the serialization went through the reflection : the light's type was a lowercase
-        // string called "light_type", and the shadow flag "castShadow"
+        // Old levels: type was a lowercase string "light_type", shadow flag was "castShadow"
         if (data.is_object())
         {
             if (!data.contains("lightType") && data.contains("light_type") && data["light_type"].is_string())
@@ -194,7 +172,7 @@ namespace Shard::Engine::Objects::Components{
                 data["castShadows"] = data["castShadow"];
         }
 
-        // A light follows its actor : its position and direction are not fields, they come from the transform
+        // Position and direction are not fields, they come from the transform
         glm::vec3 pos(0.0f);
         glm::vec3 dir(0.0f, -1.0f, 0.0f);
 
@@ -207,20 +185,16 @@ namespace Shard::Engine::Objects::Components{
         SetPosition(pos);
         SetDirection(dir);
 
-        // The fields are applied through their setters (OnFieldChanged), which feed the renderer's light data
         DeserializeReflected(data, false);
     }
 
     ordered_json Light::Serialize()
     {
-        // The fields mirror the light data, which is what the setters wrote to
         UpdateExposedValues();
 
         return SerializeReflected("light");
     }
 
-    /// @brief Getter for this light component's data
-    /// @return A copy of this light component's data
     Rendering::LightData Light::GetData()
     {
         return *lightData.get();

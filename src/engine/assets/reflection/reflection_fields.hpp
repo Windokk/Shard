@@ -23,20 +23,16 @@ enum FieldFlags : uint32_t {
 };
 
 struct Container{
-    // element info
     TypeID elementType;
     size_t elementSize;
     
-    // SEQUENTIAL containers (vector)
     void* (*GetByIndex)(void* container, size_t index);
     void  (*InsertAt)(void* container, size_t index, const void* element);
     void  (*Clear)(void* container);
 
-    // ASSOCIATIVE containers (map)
     void* (*FindByKey)(void* container, const void* key);
     void  (*InsertByKey)(void* container, const void* key, const void* value);
 
-    // common queries
     size_t (*Size)(void* container);
     bool   (*IsAssociative)();
 };
@@ -57,18 +53,15 @@ struct StructDescriptor
 };
 
 struct FieldInfo {
-    // Identity
-    const char* name;         // Field name
-    TypeID type;              // Type stored in the component
+    const char* name;
+    TypeID type;
 
-    // Memory access
-    uint32_t offset;          // Offset in the struct
+    uint32_t offset;
 
-    // Editor metadata
-    uint32_t flags;           // Editable / ReadOnly
-    float min;                // Optional min value for editor widgets
-    float max;                // Optional max value for editor widgets
-    const char* tooltip;      // Optional help text shown by the editor when the field is hovered
+    uint32_t flags;
+    float min;
+    float max;
+    const char* tooltip;
 
     const Container* container = nullptr;
     const EnumDescriptor* enumDesc = nullptr;
@@ -94,7 +87,7 @@ struct InstancedStruct
         if (descriptor != other.descriptor)
             return false;
 
-        if (!descriptor) // les deux sont null
+        if (!descriptor)
             return true;
 
         if (descriptor->Equals)
@@ -292,7 +285,6 @@ Container MakeMapContainer() {
         static_cast<std::map<K, V>*>(c)->clear();
     };
 
-    // associative ops
     c.FindByKey = [](void* c, const void* key) -> void* {
         auto& m = *static_cast<std::map<K, V>*>(c);
         auto it = m.find(*static_cast<const K*>(key));
@@ -313,8 +305,6 @@ inline void* FieldRead(const FieldInfo& field, void* object)
     return static_cast<uint8_t*>(object) + field.offset;
 }
 
-/// @brief Event describing a field change
-/// @note This is kept as a struct in case we need to add more context to the event in the future
 struct FieldChangedEvent
 {
     const FieldInfo* field;

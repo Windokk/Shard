@@ -9,7 +9,6 @@
 
 namespace PluginTest {
 
-    /// A folder under the system's temp directory, removed with the object
     class TempDir {
     public:
         TempDir()
@@ -48,7 +47,6 @@ namespace PluginTest {
         std::filesystem::path m_Path;
     };
 
-    /// A minimal manifest, with the fields a test wants to change
     inline nlohmann::json Manifest(const std::string& id, const std::string& version = "1.0.0")
     {
         nlohmann::json m;

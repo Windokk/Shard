@@ -61,7 +61,6 @@ namespace Shard::Engine::Serialization{
             else if(mode == "masked")
                 renderMode = Opacity::Masked;
                 
-            // Optional : a material written before the setting existed is single sided
             const bool doubleSided = data.contains("doubleSided") && data["doubleSided"].is_boolean() && data["doubleSided"].get<bool>();
 
             PipelineSpecifications pipelineSpecs{shader};
@@ -78,14 +77,8 @@ namespace Shard::Engine::Serialization{
                     const std::string& name = it.key();
                     const auto& value = it.value();
 
-                    // Texture
                     if (value.is_string()) {
-                        // Get<Texture2D>() returns nullptr when the referenced path isn't a registered asset
-                        // (missing file, stale/wrong path in the .mat, or the asset database out of sync
-                        // with it) - dereferencing it unconditionally here used to segfault instead of
-                        // hitting the "No texture found" error path right below, which is exactly what a
-                        // bad texture path should produce.
-                        // The colour slots (albedo, emission) hold sRGB images : the GPU linearizes them as it samples
+                        // Get<Texture2D> returns null for unregistered paths. Colour slots (albedo, emission) are sRGB, the GPU linearizes on sample.
                         std::shared_ptr<Texture2D> texture = Core::GetEngine().GetResourcesManager()->Get<Texture2D>(IsColorTextureSlot(name) ? AssetKind::ColorTexture : AssetKind::Texture, value.get<std::string>());
                         uint32_t tex = texture ? texture->GetHandle() : 0;
                         if(tex){
@@ -99,15 +92,12 @@ namespace Shard::Engine::Serialization{
                     else if(value.is_boolean()){
                         mat->SetScalarParameter(name, value.get<bool>());
                     }
-                    // Float
                     else if (value.is_number_float()) {
                         mat->SetScalarParameter(name, value.get<float>());
                     }
-                    // Int
                     else if (value.is_number_integer()) {
                         mat->SetScalarParameter(name, value.get<int>());
                     }
-                    // Vectors
                     else if (value.is_array()) {
                         size_t len = value.size();
                         if (len == 2) {

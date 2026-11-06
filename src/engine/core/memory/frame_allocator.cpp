@@ -30,7 +30,6 @@ namespace Shard::Engine::Core {
         assert(IsPowerOfTwo(alignment));
         Buffer& buffer = m_Buffers[m_Current.load(std::memory_order_relaxed)];
 
-        // Lock-free bump : claim [aligned, aligned + size) with a compare-and-swap on the offset
         const uintptr_t base = reinterpret_cast<uintptr_t>(buffer.memory);
         size_t offset = buffer.offset.load(std::memory_order_relaxed);
         for (;;) {
@@ -39,7 +38,6 @@ namespace Shard::Engine::Core {
             if (end > m_BytesPerFrame) return AllocateOverflow(buffer, size, alignment);
             if (buffer.offset.compare_exchange_weak(offset, end, std::memory_order_relaxed))
                 return buffer.memory + aligned;
-            // offset was refreshed by the failed CAS : retry
         }
     }
 
@@ -59,7 +57,6 @@ namespace Shard::Engine::Core {
     }
 
     void FrameAllocator::NextFrame() {
-        // The budget actually needed by the frame that just ended
         size_t used = UsedThisFrame();
         size_t peak = m_Peak.load(std::memory_order_relaxed);
         while (used > peak && !m_Peak.compare_exchange_weak(peak, used, std::memory_order_relaxed)) {}

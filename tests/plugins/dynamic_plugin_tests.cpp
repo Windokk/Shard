@@ -8,8 +8,6 @@
 #include "engine/plugins/manager.hpp"
 #include "plugins/plugin_test_utils.hpp"
 
-// Loads libraries for real : the plugin in tests/plugin_fixtures/test_plugin, built by shard_add_plugin next to the tests.
-
 using namespace Shard::Engine;
 using namespace Shard::Engine::Plugins;
 using nlohmann::json;
@@ -59,7 +57,7 @@ namespace {
     };
 }
 
-TEST_F(DynamicPluginTest, TheManifestShardAddPluginWroteIsValid)
+TEST_F(DynamicPluginTest, ManifestIsValid)
 {
     std::ifstream in(FixtureDir() + "/shard-plugin.json");
     ASSERT_TRUE(in.good()) << FixtureDir();
@@ -72,7 +70,7 @@ TEST_F(DynamicPluginTest, TheManifestShardAddPluginWroteIsValid)
     EXPECT_TRUE(parsed.Value().IsModule());
 }
 
-TEST_F(DynamicPluginTest, LoadsALibraryAndItsRegistrationsReachTheHost)
+TEST_F(DynamicPluginTest, LoadsLibrary)
 {
     std::string error;
     ASSERT_TRUE(pm().Startup(config, &error)) << error;
@@ -91,10 +89,10 @@ TEST_F(DynamicPluginTest, LoadsALibraryAndItsRegistrationsReachTheHost)
     BringUpEngine();
     EXPECT_EQ(Rec()->state, PluginState::Enabled);
     RunFrames(3);
-    EXPECT_EQ(Counter(), 3);          // the system ran in the library, and wrote to a cvar that lives in the host's registry
+    EXPECT_EQ(Counter(), 3);
 }
 
-TEST_F(DynamicPluginTest, EverythingItRegisteredIsGoneOnceItIsUnloaded)
+TEST_F(DynamicPluginTest, UnloadRemovesRegistrations)
 {
     ASSERT_TRUE(pm().Startup(config));
     BringUpEngine();
@@ -119,10 +117,10 @@ TEST_F(DynamicPluginTest, DisableThenEnableOnTheSameLibrary)
     ASSERT_TRUE(pm().Enable(kId, &error)) << error;
     EXPECT_TRUE(scheduler.Has("shard.test.plugin/tick"));
     RunFrames(1);
-    EXPECT_EQ(Counter(), 3);          // the plugin object kept its own count
+    EXPECT_EQ(Counter(), 3);
 }
 
-TEST_F(DynamicPluginTest, ReloadKeepsTheStateThePluginSaved)
+TEST_F(DynamicPluginTest, ReloadKeepsSavedState)
 {
     config.allowHotReload = true;
     ASSERT_TRUE(pm().Startup(config));
@@ -130,22 +128,21 @@ TEST_F(DynamicPluginTest, ReloadKeepsTheStateThePluginSaved)
     RunFrames(5);
     EXPECT_EQ(Counter(), 5);
     const std::string firstLoadedFrom = Rec()->loadedFrom;
-    EXPECT_NE(firstLoadedFrom.find("shard_plugins_"), std::string::npos);          // a copy was loaded, not the original
+    EXPECT_NE(firstLoadedFrom.find("shard_plugins_"), std::string::npos);
 
     std::string error;
     ASSERT_TRUE(pm().Reload(kId, &error)) << error;
     EXPECT_EQ(Rec()->state, PluginState::Enabled);
     EXPECT_EQ(Rec()->reloadCount, 1u);
     EXPECT_NE(Rec()->loadedFrom, firstLoadedFrom);
-    EXPECT_EQ(Counter(), 5);          // restored from the saved state
-    // a fresh library : its own statics start over, and the load counter says so
+    EXPECT_EQ(Counter(), 5);
     EXPECT_EQ(Core::CVarRegistry::Global().Find("shard.test.plugin.loads")->ToString(), "1");
     RunFrames(2);
     EXPECT_EQ(Counter(), 7);
     EXPECT_EQ(Core::CVarRegistry::Global().Execute("shardtest.ping").output, "pong");
 }
 
-TEST_F(DynamicPluginTest, ReloadIsRefusedWhenItIsOffOrTheRunIsDeterministic)
+TEST_F(DynamicPluginTest, ReloadRefusedWhenOff)
 {
     ASSERT_TRUE(pm().Startup(config));
     BringUpEngine();
@@ -160,11 +157,11 @@ TEST_F(DynamicPluginTest, ReloadIsRefusedWhenItIsOffOrTheRunIsDeterministic)
     ASSERT_TRUE(pm().Startup(config));
     EXPECT_FALSE(pm().Reload(kId, &error));
     EXPECT_NE(error.find("deterministic"), std::string::npos);
-    // a deterministic run loads the library where it is, no copy
+    // A deterministic run loads the library in place, no copy.
     EXPECT_EQ(Rec()->loadedFrom.find("shard_plugins_"), std::string::npos);
 }
 
-TEST_F(DynamicPluginTest, AReloadSetsTheWorldsAsideAndPutsThemBack)
+TEST_F(DynamicPluginTest, ReloadSetsWorldsAside)
 {
     config.allowHotReload = true;
     ASSERT_TRUE(pm().Startup(config));
@@ -180,7 +177,6 @@ TEST_F(DynamicPluginTest, AReloadSetsTheWorldsAsideAndPutsThemBack)
     EXPECT_EQ(suspended, 1);
     EXPECT_EQ(resumed, 1);
 
-    // nothing to set them aside with : refused, and the plugin is left alone
     PluginManager::Callbacks without;
     without.hasLoadedWorlds = [] { return true; };
     pm().SetCallbacks(without);
@@ -189,7 +185,7 @@ TEST_F(DynamicPluginTest, AReloadSetsTheWorldsAsideAndPutsThemBack)
     EXPECT_EQ(Rec()->reloadCount, 1u);
 }
 
-TEST_F(DynamicPluginTest, AComponentPluginCannotBeDisabledWhileAWorldIsLoaded)
+TEST_F(DynamicPluginTest, ComponentPluginStaysEnabled)
 {
     ASSERT_TRUE(pm().Startup(config));
     BringUpEngine();
@@ -209,7 +205,7 @@ TEST_F(DynamicPluginTest, AComponentPluginCannotBeDisabledWhileAWorldIsLoaded)
     EXPECT_FALSE(Objects::Components::GetComponentRegistry().IsRegistered("shard-test/Thing"));
 }
 
-TEST_F(DynamicPluginTest, ALibraryBuiltDifferentlyIsRefused)
+TEST_F(DynamicPluginTest, DifferentBuildRefused)
 {
     TempDir dir;
     std::filesystem::copy(FixtureDir(), dir.Sub("copy"), std::filesystem::copy_options::recursive);
@@ -224,7 +220,7 @@ TEST_F(DynamicPluginTest, ALibraryBuiltDifferentlyIsRefused)
     EXPECT_FALSE(Objects::Components::GetComponentRegistry().IsRegistered("shard-test/Thing"));
 }
 
-TEST_F(DynamicPluginTest, AManifestWithoutABinaryForThisPlatformIsLeftOut)
+TEST_F(DynamicPluginTest, NoBinaryForPlatformSkipped)
 {
     TempDir dir;
     std::filesystem::copy(FixtureDir(), dir.Sub("copy"), std::filesystem::copy_options::recursive);
@@ -239,7 +235,7 @@ TEST_F(DynamicPluginTest, AManifestWithoutABinaryForThisPlatformIsLeftOut)
     EXPECT_TRUE(reported);
 }
 
-TEST_F(DynamicPluginTest, ALibraryThatIsNotAPluginFailsCleanly)
+TEST_F(DynamicPluginTest, NonPluginLibraryFails)
 {
     TempDir dir;
     std::filesystem::copy(FixtureDir(), dir.Sub("copy"), std::filesystem::copy_options::recursive);
@@ -253,7 +249,7 @@ TEST_F(DynamicPluginTest, ALibraryThatIsNotAPluginFailsCleanly)
     EXPECT_NE(Rec()->error.find("no_such_entry"), std::string::npos) << Rec()->error;
 }
 
-TEST_F(DynamicPluginTest, ALibraryGivenOnItsOwnBecomesAModule)
+TEST_F(DynamicPluginTest, LibraryAloneBecomesModule)
 {
     std::string library;
     {

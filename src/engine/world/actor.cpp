@@ -38,7 +38,6 @@ namespace Shard::Engine::Objects{
     }
 
     void Actor::Init(){
-        // The entity that mirrors this actor : hierarchy now, data that systems work on as it moves out of the components
         if(Core::Ecs::Registry* ecs = EcsOf(engine))
             entity = ecs->Create(Worlds::ActorLink{id.GetAsInt()});
 
@@ -51,7 +50,6 @@ namespace Shard::Engine::Objects{
         if (!component) {
             DEBUG_ERROR("Tried to add null component.");
         }
-        // Set actor and component index
         component->SetParent(std::static_pointer_cast<Actor>(shared_from_this()));
         component->SetLocalId(components.size());
 
@@ -97,7 +95,6 @@ namespace Shard::Engine::Objects{
         if (auto tr = std::dynamic_pointer_cast<Transform>(component))
             world->transforms.emplace(idInWorld, tr);
 
-        // The other modules index what they own (lights, models, physics bodies...)
         world->NotifyComponentAdded(idInWorld, component, cloned);
         world->IndexComponentTags(idInWorld, component, component->GetTags(), Core::TagContainer());
 
@@ -175,8 +172,6 @@ namespace Shard::Engine::Objects{
 
             actorChild->SetWorld(this->world);
 
-            // The child's cached world matrix (if any) was computed against its old parent chain
-            // (or none at all) and must be invalidated now that it hangs off this actor instead.
             if (actorChild->transform)
                 actorChild->transform->MarkWorldMatrixDirty();
         }
@@ -189,8 +184,6 @@ namespace Shard::Engine::Objects{
             return;
         }
 
-        // Refuse a reparent that would create a cycle (dropping an actor onto itself or one of its
-        // own descendants).
         if (newParent) {
             std::shared_ptr<WorldObject> ancestor = newParent;
             while (ancestor) {
@@ -291,7 +284,6 @@ namespace Shard::Engine::Objects{
 
         copy->components.clear();
         copy->unknownComponents = unknownComponents;
-        // Before it joins the world, which indexes them
         copy->tags.Assign(tags, true);
 
         DEBUG_INFO("Cloning actor : "+name);
@@ -314,7 +306,6 @@ namespace Shard::Engine::Objects{
             std::shared_ptr<Component> cloneComp = comp->Clone();
 
             cloneComp->SetParent(copy);
-            // A Clone that does not copy construct the component would lose them ; they are indexed when it joins the world
             cloneComp->GetTags().Assign(comp->GetTags(), true);
 
             copy->components.push_back(cloneComp);

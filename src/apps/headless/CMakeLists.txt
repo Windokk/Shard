@@ -1,6 +1,4 @@
-# ShardHeadless : the simulation without a window, a GPU or a sound card (the dedicated server, the replay runner of the CI).
-# Same engine, same game module, same simulation code as the player : it only boots on the null graphics backend and the
-# headless platform instead of SDL + OpenGL.
+# Simulation without a window, GPU or sound card (dedicated server, CI replay runner). Same engine, game module and simulation code as the player, on the null graphics backend and headless platform.
 add_executable(ShardHeadless
     ${CMAKE_CURRENT_SOURCE_DIR}/main.cpp
 )
@@ -13,7 +11,6 @@ target_include_directories(ShardHeadless PRIVATE
 
 target_link_libraries(ShardHeadless PRIVATE Engine)
 
-# A console program : its output is what a script or a CI reads
 set_target_properties(ShardHeadless PROPERTIES
     WIN32_EXECUTABLE FALSE
     RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}"

@@ -14,8 +14,6 @@
 
 namespace Shard::Engine::Core::Platform {
 
-    // SDL3 platform, parameterised on the window class so that the editor (ImGui main window) and the
-    // player (plain window) share the same input handling.
     template <class WindowT>
     class SDLPlatform : public IPlatform {
         static_assert(std::is_base_of_v<SDLWindow, WindowT>, "WindowT must derive from SDLWindow");
@@ -35,7 +33,6 @@ namespace Shard::Engine::Core::Platform {
                 input->Init();
             }
 
-            // Utility
             void SetClipboardText(const std::string& text) override { Clipboard::SetText(text); }
             std::string GetClipboardText() override { return Clipboard::GetText(); }
         private:

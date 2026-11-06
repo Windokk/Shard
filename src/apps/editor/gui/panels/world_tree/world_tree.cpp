@@ -33,14 +33,11 @@ namespace Shard::Editor::GUI{
 
     namespace {
 
-        // Payload of a drag of rows : the ids of the actors (the top ones of the selection)
         constexpr const char* kActorsPayload = "SHARD_OUTLINER_ACTORS";
-        // Payload of a drag of a folder row : its path
         constexpr const char* kFolderPayload = "SHARD_OUTLINER_FOLDER";
 
         constexpr float kIndent = 16.0f;
 
-        // What an actor has, as bits (the filters)
         enum : unsigned {
             CategoryModel   = 1 << 0,
             CategoryLight   = 1 << 1,
@@ -62,7 +59,6 @@ namespace Shard::Editor::GUI{
             return text;
         }
 
-        // "PhysicsBody" -> "Physics Body"
         std::string PrettyName(const std::string& name)
         {
             std::string result;
@@ -107,7 +103,6 @@ namespace Shard::Editor::GUI{
                 GetEngine().GetObjectIDManager()->GetObjectFromID(Engine::Core::ObjectID(id)));
         }
 
-        // The components that say what an actor is (everything but its transform)
         std::vector<std::string> ComponentNames(const ActorPtr& actor)
         {
             std::vector<std::string> names;
@@ -155,7 +150,6 @@ namespace Shard::Editor::GUI{
             return any ? bits : static_cast<unsigned>(CategoryEmpty);
         }
 
-        // What the Type column says : the first component that is not the transform, "+N" for the others
         std::string TypeOf(const ActorPtr& actor)
         {
             const std::vector<std::string> names = ComponentNames(actor);
@@ -201,9 +195,7 @@ namespace Shard::Editor::GUI{
     {
         auto world = GetEngine().GetWorldManager()->GetWorldAt(0);
 
-        // Stable ImGui ID (###WorldTree) so the title can carry the world's name (and an unsaved-
-        // changes marker) without losing this panel's saved dock position/size every time the world
-        // name changes or a different world is loaded.
+        // Stable ImGui ID (###WorldTree) so the title can carry the world name without losing the dock position.
         std::string title = "World";
         if (world)
         {
@@ -226,7 +218,6 @@ namespace Shard::Editor::GUI{
             return;
         }
 
-        // Another world : nothing that was open, selected or being renamed is there anymore
         if (world != knownWorld)
         {
             knownWorld = world;
@@ -248,7 +239,7 @@ namespace Shard::Editor::GUI{
 
         HandleShortcuts();
 
-        // Run once the rows are drawn : destroying or moving an actor changes the lists that were walked
+        // Run after the rows are drawn, destroying or moving an actor changes the lists being walked.
         if (pendingEdit)
         {
             std::function<void()> edit = std::move(pendingEdit);
@@ -263,10 +254,6 @@ namespace Shard::Editor::GUI{
     {
         this->parent = parent;
     }
-
-    // ---------------------------------------------------------------------------------------------------------------------
-    // Toolbar
-    // ---------------------------------------------------------------------------------------------------------------------
 
     void WorldTree::DrawToolbar(Engine::Worlds::World* world)
     {
@@ -283,7 +270,6 @@ namespace Shard::Editor::GUI{
         ImGui::InputTextWithHint("##OutlinerSearch", ICON_LC_SEARCH "  Search by name or type...", searchBuffer, sizeof(searchBuffer),
                                  ImGuiInputTextFlags_EscapeClearsAll);
 
-        // Filters : lit when something is filtered out
         ImGui::SameLine();
         const bool filtered = categoryMask != CategoryAll || onlySelected;
         if (filtered)
@@ -360,7 +346,6 @@ namespace Shard::Editor::GUI{
 
     void WorldTree::DrawCreateMenu(const ActorPtr& parentActor, const std::string& folder)
     {
-        // One entry of the menu : an actor (with whatever `setup` adds to it) as one step of the undo history, then renamed in place
         auto create = [&](const char* label, const char* name, const char* undoLabel, std::function<void(const ActorPtr&)> setup)
         {
             if (!ImGui::MenuItem(label))
@@ -399,10 +384,6 @@ namespace Shard::Editor::GUI{
         create("Probe Volume", "Probe Volume", "Create Probe Volume", [](const ActorPtr& a){ a->AddComponent<C::ProbeVolume>(); });
         create("Reflection Probe", "Reflection Probe", "Create Reflection Probe", [](const ActorPtr& a){ a->AddComponent<C::ReflectionProbe>(); });
     }
-
-    // ---------------------------------------------------------------------------------------------------------------------
-    // Rows
-    // ---------------------------------------------------------------------------------------------------------------------
 
     bool WorldTree::HasActiveFilter() const
     {
@@ -447,7 +428,6 @@ namespace Shard::Editor::GUI{
                 folders.insert(path);
         }
 
-        // The folders around the ones that were made are there too
         const std::set<std::string> made = folders;
         for (std::string path : made)
             for (size_t slash = path.rfind('/'); slash != std::string::npos; slash = path.rfind('/'))
@@ -522,7 +502,6 @@ namespace Shard::Editor::GUI{
             if (actor)
                 roots.push_back(actor);
 
-        // Without a sort, in the order they were made in (their ids)
         if (sortColumn < 0)
             std::sort(roots.begin(), roots.end(), [](const ActorPtr& a, const ActorPtr& b){ return a->GetID().GetAsInt() < b->GetID().GetAsInt(); });
         else
@@ -535,13 +514,11 @@ namespace Shard::Editor::GUI{
         for (const auto& path : folders)
             buildSubfolders[ParentPathOf(path)].push_back(path);
 
-        // A folder that was deleted (or its parent) while it was selected
         if (!selectedFolder.empty() && !folders.count(selectedFolder))
             selectedFolder.clear();
 
         EmitFolderContents(std::string(), 0, filtering);
 
-        // The actor or folder being renamed is not there anymore (destroyed, filtered out...)
         if (renameKind == RenameKind::Actor && IndexOfActorRow(renameActorId) < 0)
             CancelRename();
         else if (renameKind == RenameKind::Folder && IndexOfFolderRow(renameFolder) < 0)
@@ -573,7 +550,6 @@ namespace Shard::Editor::GUI{
 
                 const bool contentShown = row.open && row.hasChildren ? EmitFolderContents(path, depth + 1, filtering) : false;
 
-                // While filtering, a folder is there for what it holds
                 const bool nameMatches = !queryLower.empty() && Lower(row.label).find(queryLower) != std::string::npos;
                 if (filtering && !contentShown && !nameMatches)
                     rows.resize(mark);
@@ -616,7 +592,6 @@ namespace Shard::Editor::GUI{
                     childShown = true;
         }
 
-        // Only shown for what is under it
         if (filtering && !matches && !childShown)
         {
             rows.resize(mark);
@@ -642,10 +617,6 @@ namespace Shard::Editor::GUI{
                 return static_cast<int>(i);
         return -1;
     }
-
-    // ---------------------------------------------------------------------------------------------------------------------
-    // Table
-    // ---------------------------------------------------------------------------------------------------------------------
 
     void WorldTree::DrawTable(Engine::Worlds::World* world)
     {
@@ -676,7 +647,6 @@ namespace Shard::Editor::GUI{
             ImGui::TableHeadersRow();
             headerHeight = ImGui::TableGetHeaderRowHeight();
 
-            // The sort applies to the next frame's rows
             if (ImGuiTableSortSpecs* specs = ImGui::TableGetSortSpecs())
             {
                 if (specs->SpecsCount > 0)
@@ -712,12 +682,10 @@ namespace Shard::Editor::GUI{
             ImGui::EndTable();
         }
 
-        // (the scroll bar is not empty space)
         const bool tableHovered = ImGui::IsMouseHoveringRect(ImVec2(tableMin.x, tableMin.y + headerHeight),
                                                              ImVec2(tableMax.x - style.ScrollbarSize, tableMax.y)) &&
                                   ImGui::IsWindowHovered(ImGuiHoveredFlags_ChildWindows | ImGuiHoveredFlags_NoPopupHierarchy);
 
-        // Empty space : a click deselects, a right-click opens the menu of the outliner, a drop lands at the top level
         if (tableHovered && hoveredRow < 0 && !ImGui::IsPopupOpen("", ImGuiPopupFlags_AnyPopupId))
         {
             ImGuiIO& io = ImGui::GetIO();
@@ -740,7 +708,6 @@ namespace Shard::Editor::GUI{
 
         HandleWindowDrop(world, ImVec2(tableMin.x, tableMin.y + headerHeight), tableMax);
 
-        // Footer
         int actorRows = 0;
         for (const Row& row : rows)
             if (!row.isFolder)
@@ -754,7 +721,7 @@ namespace Shard::Editor::GUI{
 
         if (selectionTouched)
         {
-            // The selection moved because of this panel : the next frame must not scroll to it as it would for a pick in the viewport
+            // The selection moved from this panel, so the next frame must not scroll to it as for a viewport pick.
             auto primary = parent->GetSelectedActor();
             lastPrimaryId = primary ? primary->GetID().GetAsInt() : -1;
             selectionTouched = false;
@@ -772,7 +739,6 @@ namespace Shard::Editor::GUI{
         ImGui::TableNextRow();
         ImGui::TableSetColumnIndex(0);
 
-        // Brought into view (selected from the viewport, found with the arrows...)
         if (index == scrollRowIndex)
             ImGui::SetScrollHereY(0.5f);
 
@@ -799,7 +765,6 @@ namespace Shard::Editor::GUI{
         if (hovered)
             hoveredRow = index;
 
-        // A right-click on a row outside of the selection selects it : the menu is about the selection
         if (ImGui::IsItemClicked(ImGuiMouseButton_Right) && !selected)
             ActivateRow(index, false, false);
 
@@ -812,7 +777,6 @@ namespace Shard::Editor::GUI{
             ImGui::EndPopup();
         }
 
-        // Drag : the selected actors (a row that is not selected is selected by the drag), or the folder
         if (ImGui::BeginDragDropSource())
         {
             if (isFolder)
@@ -844,7 +808,6 @@ namespace Shard::Editor::GUI{
             ImGui::EndDragDropSource();
         }
 
-        // Drop : actors go under an actor / into a folder, a folder goes into a folder, assets are placed in a folder
         if (ImGui::BeginDragDropTarget())
         {
             auto droppedActors = [](const ImGuiPayload* payload){
@@ -919,12 +882,10 @@ namespace Shard::Editor::GUI{
             }
         }
 
-        // The primary actor of a multiple selection has a mark
         if (primary)
             ImGui::GetWindowDrawList()->AddRectFilled(ImVec2(rowMin.x, rowMin.y), ImVec2(rowMin.x + 3.0f, rowMax.y),
                                                       ImGui::GetColorU32(ImGuiCol_PlotHistogram));
 
-        // Open / close arrow
         const ImVec2 arrowPos(cellPos.x + row.depth * kIndent, cellPos.y);
         if (row.hasChildren)
         {
@@ -936,7 +897,6 @@ namespace Shard::Editor::GUI{
                                ImGui::GetColorU32(arrowHovered ? ImGuiCol_Text : ImGuiCol_TextDisabled),
                                row.open ? ImGuiDir_Down : ImGuiDir_Right, 1.0f);
 
-            // While filtering, everything is open
             if (toggled && !HasActiveFilter())
             {
                 if (isFolder)
@@ -956,7 +916,6 @@ namespace Shard::Editor::GUI{
             }
         }
 
-        // Icon and name
         ImDrawList* drawList = ImGui::GetWindowDrawList();
         float x = arrowPos.x + lineHeight + 2.0f;
 
@@ -994,7 +953,6 @@ namespace Shard::Editor::GUI{
             drawList->AddText(ImVec2(x, cellPos.y), textColor, row.actor->GetName().c_str());
         }
 
-        // The other columns
         if (ImGui::TableSetColumnIndex(1))
         {
             if (isFolder)
@@ -1025,10 +983,6 @@ namespace Shard::Editor::GUI{
         ImGui::PopID();
     }
 
-    // ---------------------------------------------------------------------------------------------------------------------
-    // Selection
-    // ---------------------------------------------------------------------------------------------------------------------
-
     std::vector<WorldTree::ActorPtr> WorldTree::SelectedTopLevel() const
     {
         return Commands::Actions::TopLevel(parent->GetSelectedActors());
@@ -1044,7 +998,6 @@ namespace Shard::Editor::GUI{
 
         if (row.isFolder)
         {
-            // A folder is selected alone
             parent->ClearSelection();
             selectedFolder = row.path;
             return;
@@ -1083,7 +1036,6 @@ namespace Shard::Editor::GUI{
 
         std::vector<ActorPtr> selection = additive ? parent->GetSelectedActors() : std::vector<ActorPtr>();
 
-        // Walking from the anchor to the row, so that the row is the last one : the primary actor
         std::vector<ActorPtr> range;
         for (int i = low; i <= high; ++i)
             if (!rows[i].isFolder)
@@ -1128,7 +1080,6 @@ namespace Shard::Editor::GUI{
             root = p;
         }
 
-        // Its folders
         for (std::string folder = root->GetFolder(); !folder.empty(); folder = ParentPathOf(folder))
             closedFolders.erase(folder);
 
@@ -1142,7 +1093,6 @@ namespace Shard::Editor::GUI{
         if (id == lastPrimaryId)
             return;
 
-        // Selected from somewhere else (the viewport, an undo) : the row is shown
         lastPrimaryId = id;
         if (primary)
         {
@@ -1165,15 +1115,10 @@ namespace Shard::Editor::GUI{
         closedFolders = CollectFolders(world);
     }
 
-    // ---------------------------------------------------------------------------------------------------------------------
-    // Shortcuts
-    // ---------------------------------------------------------------------------------------------------------------------
-
     void WorldTree::HandleShortcuts()
     {
         ImGuiIO& io = ImGui::GetIO();
 
-        // The panel has the focus, and no text box is using the keys (the search, a rename)
         if (!ImGui::IsWindowFocused(ImGuiFocusedFlags_RootAndChildWindows) || io.WantTextInput || renameKind != RenameKind::None)
             return;
 
@@ -1305,7 +1250,6 @@ namespace Shard::Editor::GUI{
                 }
                 else
                 {
-                    // To the line it hangs from
                     for (int i = current - 1; i >= 0; --i)
                         if (rows[i].depth < row.depth)
                         {
@@ -1327,10 +1271,6 @@ namespace Shard::Editor::GUI{
             }
         }
     }
-
-    // ---------------------------------------------------------------------------------------------------------------------
-    // Menus
-    // ---------------------------------------------------------------------------------------------------------------------
 
     void WorldTree::DrawMoveToFolderMenu()
     {
@@ -1540,25 +1480,18 @@ namespace Shard::Editor::GUI{
             CollapseAll(world);
     }
 
-    // ---------------------------------------------------------------------------------------------------------------------
-    // Drop on empty space
-    // ---------------------------------------------------------------------------------------------------------------------
-
     void WorldTree::HandleWindowDrop(Engine::Worlds::World* world, const ImVec2& min, const ImVec2& max)
     {
-        // A row under the cursor takes the drop itself
         if (hoveredRow >= 0)
             return;
 
         if (!ImGui::BeginDragDropTargetCustom(ImRect(min, max), ImGui::GetID("##OutlinerDropZone")))
             return;
 
-        // Assets (meshes) become new actors at the top level
         std::vector<std::string> assets = DragDrop::AcceptAssetDragDropPayload();
         if (!assets.empty())
             SpawnAssets(world, assets, std::string());
 
-        // Actors are detached : root actors, at the top of the outliner
         if (const ImGuiPayload* payload = ImGui::AcceptDragDropPayload(kActorsPayload))
         {
             std::vector<ActorPtr> actors;
@@ -1581,10 +1514,6 @@ namespace Shard::Editor::GUI{
         ImGui::EndDragDropTarget();
     }
 
-    // ---------------------------------------------------------------------------------------------------------------------
-    // Edits
-    // ---------------------------------------------------------------------------------------------------------------------
-
     void WorldTree::ReparentSelection(const std::vector<ActorPtr>& actors, const ActorPtr& newParent)
     {
         const int moved = Commands::Actions::ReparentMany(actors, newParent);
@@ -1604,8 +1533,6 @@ namespace Shard::Editor::GUI{
 
         for (const auto& nameInProject : assets)
         {
-            // Only static meshes can be dropped directly into the scene this way - other asset types
-            // (materials, textures, ...) are assigned onto existing fields instead
             if (Engine::Filesystem::Path(nameInProject).GetExtensionType() != Engine::Filesystem::Type::T_MODEL)
                 continue;
 
@@ -1638,7 +1565,6 @@ namespace Shard::Editor::GUI{
             auto& stack = Commands::CommandStack::Get();
             stack.Begin("New Folder");
 
-            // Inside the selected folder, when it is not the actors that are going in
             std::string wanted = "New Folder";
             if (!withSelection && !selectedFolder.empty())
                 wanted = selectedFolder + "/" + wanted;
@@ -1666,10 +1592,6 @@ namespace Shard::Editor::GUI{
                 selectedFolder.clear();
         };
     }
-
-    // ---------------------------------------------------------------------------------------------------------------------
-    // Rename
-    // ---------------------------------------------------------------------------------------------------------------------
 
     void WorldTree::BeginRename(const std::shared_ptr<Engine::Objects::Actor>& actor)
     {
@@ -1718,7 +1640,6 @@ namespace Shard::Editor::GUI{
 
         if (ImGui::IsKeyPressed(ImGuiKey_Escape))
             CancelRename();
-        // Clicking elsewhere ends it like Enter does (not on the frames the box is still taking the focus)
         else if (entered || (deactivated && ImGui::GetFrameCount() > renameStartFrame + 1))
             CommitRename();
     }
@@ -1750,7 +1671,6 @@ namespace Shard::Editor::GUI{
             if (Commands::Actions::RenameFolder(folder, path))
             {
                 selectedFolder = path;
-                // Closed stays closed
                 if (closedFolders.erase(folder))
                     closedFolders.insert(path);
             }

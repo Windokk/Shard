@@ -11,8 +11,6 @@ namespace Shard::Engine::Rendering::Null {
         return counter.fetch_add(1, std::memory_order_relaxed) + 1;
     }
 
-    // ---- renderer api -------------------------------------------------------------------------------------------
-
     void NullRendererAPI::ExecuteDrawCommand(const DrawCommand& command, const std::shared_ptr<RenderPass> pass)
     {
         (void)command;
@@ -28,8 +26,6 @@ namespace Shard::Engine::Rendering::Null {
         (void)groupsZ;
         ++m_Dispatches;
     }
-
-    // ---- shaders, materials ---------------------------------------------------------------------------------------
 
     NullShader::NullShader(const Filesystem::Path& vertexPath, const Filesystem::Path& fragmentPath, const Filesystem::Path& geometryPath, const std::vector<std::string>& defines)
     {
@@ -51,7 +47,6 @@ namespace Shard::Engine::Rendering::Null {
         m_ReceivesShadows = receivesShadows;
         m_Opacity = opacity;
 
-        // The blend state a material of this opacity draws with (the same rules as every backend's material)
         PipelineSpecifications& specs = m_Pipeline->GetSpecifications();
         switch (m_Opacity)
         {
@@ -81,12 +76,9 @@ namespace Shard::Engine::Rendering::Null {
 
     uint64_t NullMaterial::GetTextureParameter(const std::string& name) const
     {
-        // There is no resident handle to give : the id of the texture the slot holds says what is bound
         auto it = m_SamplersParameters.find(name);
         return it == m_SamplersParameters.end() ? 0 : it->second;
     }
-
-    // ---- meshes ---------------------------------------------------------------------------------------------------
 
     void NullMesh::Create(std::vector<uint8_t> vertices, std::vector<uint32_t> indices, const VertexLayout& layout)
     {
@@ -143,8 +135,6 @@ namespace Shard::Engine::Rendering::Null {
         out.indices = m_StoredIndices;
         return true;
     }
-
-    // ---- textures -------------------------------------------------------------------------------------------------
 
     NullTexture2D::NullTexture2D(const TextureSpecifications& specs, const void* data)
         : m_Handle(NextHandle())
@@ -212,8 +202,6 @@ namespace Shard::Engine::Rendering::Null {
         (void)hdrFile;
         return std::make_shared<NullEnvironmentMap>(specs);
     }
-
-    // ---- buffers, framebuffers --------------------------------------------------------------------------------------
 
     void NullStorageBuffer::SetData(const void* data, uint32_t size)
     {

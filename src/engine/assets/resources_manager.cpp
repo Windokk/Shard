@@ -38,7 +38,6 @@ namespace Shard::Engine::Core::Resources{
         if(index >= kinds.size() || !kinds[index])
             return false;
 
-        // Whatever of this kind is cached goes, and the graph forgets it
         for(auto it = dependencies.begin(); it != dependencies.end();){
             if(it->first.kind == kind) it = dependencies.erase(it); else ++it;
         }
@@ -70,10 +69,6 @@ namespace Shard::Engine::Core::Resources{
 
         Serialization::DeserializeAssetDataBase(projectResDir, projectDatabasePath, *files, *ids, Filesystem::kFirstProjectAssetID);
     }
-
-    // ---------------------------------------------------------------------------------------------
-    // Cache
-    // ---------------------------------------------------------------------------------------------
 
     std::shared_ptr<void> ResourcesManager::GetRaw(AssetKind kind, const std::string &pathInProject)
     {
@@ -109,8 +104,7 @@ namespace Shard::Engine::Core::Resources{
         if(info->setAssetID)
             info->setAssetID(resource.get(), id);
 
-        // A material only stores its textures' raw GL handles, so it is the graph edge (not the
-        // material's own pointers) that keeps them alive. Same for a world and its meshes, etc.
+        // A material stores raw GL texture handles, so the graph edge (not its own pointers) keeps them alive. Same for a world and its meshes.
         if(info->dependencies)
             SetDependencies({kind, pathInProject}, info->dependencies(assetInfos->baseInfos.path));
 
@@ -147,7 +141,7 @@ namespace Shard::Engine::Core::Resources{
         if(!assetInfos || assetInfos->baseInfos.nameInProject != pathInProject + info->nameSuffix)
             return false;
 
-        // Held across the reload : the resource must not go away if the reload callback touches the cache
+        // Held across the reload: the resource must not go away if the reload callback touches the cache
         std::shared_ptr<void> keepAlive = it->second;
         if(!info->reload(keepAlive.get(), pathInProject, *assetInfos))
             return false;
@@ -288,10 +282,6 @@ namespace Shard::Engine::Core::Resources{
             ReleaseDependencies({kind, pathInProject});
     }
 
-    // ---------------------------------------------------------------------------------------------
-    // Dependency graph / residency
-    // ---------------------------------------------------------------------------------------------
-
     bool ResourcesManager::ResolveAsset(const std::string& pathInProject, Filesystem::AssetID& outID) const
     {
         Filesystem::AssetID id = ids->GetIDFromNameInProject(pathInProject);
@@ -307,7 +297,6 @@ namespace Shard::Engine::Core::Resources{
         std::vector<PrefetchTask> tasks;
         std::unordered_set<ResourceKey, ResourceKeyHash> seen;
 
-        // Owners (world, materials) are walked through their dependency list, everything else is a leaf
         std::function<void(const std::string&, const Filesystem::Path&, const AssetKindInfo&)> visitOwner =
             [&](const std::string&, const Filesystem::Path& file, const AssetKindInfo& ownerInfo)
         {
@@ -380,8 +369,6 @@ namespace Shard::Engine::Core::Resources{
 
     void ResourcesManager::StoreDependencies(const ResourceKey &owner, const std::vector<ResourceKey> &unique)
     {
-        // Mirror into the asset database entry (persisted with the project). A shader is two/three files
-        // there, hence the extra IDs.
         Filesystem::AssetID ownerID;
         if(!ResolveAsset(owner.path, ownerID))
             return;
@@ -426,17 +413,15 @@ namespace Shard::Engine::Core::Resources{
 
     bool ResourcesManager::IsEvictable(const ResourceKey &key) const
     {
-        // Worlds are owned by the WorldManager (Unload), never swept.
+        // Worlds are owned by the WorldManager (Unload), never swept
         const AssetKindInfo* info = KindInfo(key.kind);
         if(!info || !info->evictable || retainCount.count(key) > 0)
             return false;
 
-        // Not resident (0) or still held by something besides the cache (Model, skybox, pipeline...)
         if(UseCount(key) != 1)
             return false;
 
-        // Engine resources (IDs below kFirstProjectAssetID) back the renderer itself and are
-        // used by materials without being listed anywhere : always resident.
+        // Engine resources back the renderer and are used by materials without being listed anywhere, so always resident
         const std::string assetName = key.path + info->nameSuffix;
 
         Filesystem::AssetID id = ids->GetIDFromNameInProject(assetName);
@@ -446,7 +431,6 @@ namespace Shard::Engine::Core::Resources{
 
     void ResourcesManager::Evict(const ResourceKey &key)
     {
-        // Unload() releases what this resource retained, which queues its dependencies for eviction
         Unload(key.kind, key.path);
     }
 
@@ -469,7 +453,7 @@ namespace Shard::Engine::Core::Resources{
             else{
                 const AssetKindInfo* info = KindInfo(key.kind);
                 if(retainCount.count(key) == 0 && info && info->evictable)
-                    deferred.push_back(key); // nobody needs it but something still holds it : try again next time
+                    deferred.push_back(key);
             }
         }
 
@@ -485,7 +469,6 @@ namespace Shard::Engine::Core::Resources{
 
         auto info = ids->GetAssetFromID(id);
 
-        // The owner kind (world, material) is the one whose files have this asset type
         std::optional<AssetKind> ownerKind;
         for(size_t i = 0; i < kinds.size(); i++){
             if(kinds[i] && kinds[i]->dependencies && kinds[i]->ownerType && *kinds[i]->ownerType == info->baseInfos.type){
@@ -499,7 +482,6 @@ namespace Shard::Engine::Core::Resources{
         ResourceKey owner{*ownerKind, pathInProject};
         std::vector<ResourceKey> keys = kinds[static_cast<size_t>(*ownerKind)]->dependencies(info->baseInfos.path);
 
-        // Retains only make sense for a resident owner : nothing would ever release them otherwise
         if(IsResident(owner))
             SetDependencies(owner, keys);
         else{
@@ -519,7 +501,6 @@ namespace Shard::Engine::Core::Resources{
             if(!kinds[i])
                 continue;
 
-            // Shaders are keyed without their .vert/.frag/.comp extension
             const std::string& path = kinds[i]->nameSuffix.empty() ? pathInProject : withoutExtension;
             const ResourceKey key{static_cast<AssetKind>(i), path};
 
@@ -566,7 +547,7 @@ namespace Shard::Engine::Core::Resources{
                 Evict(key);
             }
             else
-                Unload(key.kind, key.path); // owned elsewhere (worlds) : dropped on request
+                Unload(key.kind, key.path);
 
             CollectUnused();
             return;

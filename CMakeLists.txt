@@ -11,25 +11,18 @@ if(UNIX)
     set(QT_NO_PRIVATE_MODULE_WARNING ON)
 endif()
 
-# Debug unless the caller picks one (cmake -DCMAKE_BUILD_TYPE=Release ..., or `build.bat Release`) : Debug is -O0, which
-# is far slower than Release for the engine and Jolt alike.
 if(NOT CMAKE_BUILD_TYPE)
     set(CMAKE_BUILD_TYPE Debug)
 endif()
 
-# --- Unified build output directory ---
 set(OUTPUT_DIR "${CMAKE_SOURCE_DIR}/build")
 
-# Executables
 set(CMAKE_RUNTIME_OUTPUT_DIRECTORY "${OUTPUT_DIR}")
 
-# Shared libraries (.so / .dll)
 set(CMAKE_LIBRARY_OUTPUT_DIRECTORY "${OUTPUT_DIR}")
 
-# Static libraries (.a / .lib)
 set(CMAKE_ARCHIVE_OUTPUT_DIRECTORY "${OUTPUT_DIR}")
 
-# For multi-config generators (Xcode / Visual Studio)
 foreach(OUTPUTCONFIG Debug Release RelWithDebInfo MinSizeRel)
     set(CMAKE_RUNTIME_OUTPUT_DIRECTORY_${OUTPUTCONFIG} "${OUTPUT_DIR}")
     set(CMAKE_LIBRARY_OUTPUT_DIRECTORY_${OUTPUTCONFIG} "${OUTPUT_DIR}")
@@ -40,18 +33,13 @@ configure_file(${CMAKE_SOURCE_DIR}/src/config.h.in config.h)
 
 include_directories(${CMAKE_BINARY_DIR})
 
-# -Wall -Wextra on Shard's own targets, see cmake/ShardWarnings.cmake
 include(${CMAKE_SOURCE_DIR}/cmake/ShardWarnings.cmake)
-# shard_add_plugin : builds a plugin and its manifest, see cmake/ShardPlugin.cmake
 include(${CMAKE_SOURCE_DIR}/cmake/ShardPlugin.cmake)
 
-# Subdirs (Third party)
 add_subdirectory(submodules/freetype SYSTEM)
 
-# Wasmtime : the runtime of sandboxed plugins, a prebuilt release (not a submodule : building it needs Rust), see cmake/ShardWasmtime.cmake
 include(${CMAKE_SOURCE_DIR}/cmake/ShardWasmtime.cmake)
 
-# SDL3 : window system, input, clipboard, dialogs (only the platform layer sees it). Shared, so that SDL3.dll sits next to the executables.
 set(SDL_SHARED ON CACHE BOOL "" FORCE)
 set(SDL_STATIC OFF CACHE BOOL "" FORCE)
 set(SDL_TESTS OFF CACHE BOOL "" FORCE)
@@ -61,9 +49,6 @@ set(SDL_INSTALL OFF CACHE BOOL "" FORCE)
 add_subdirectory(submodules/SDL EXCLUDE_FROM_ALL SYSTEM)
 add_subdirectory(submodules/glm SYSTEM)
 
-# glslang : turns the GLSL of the engine into SPIR-V for the Vulkan backend (and reflects it, with SPIRV-Reflect). Nothing but the compiler : no
-# SPIRV-Tools optimizer, no standalone programs. Used by ShardShaderCompiler (the shaderc tool, and the runtime when it has to compile a shader
-# nobody compiled before : hot reload). (Slang does not go through it : slangc compiles those, see shader_compiler.cpp.)
 set(ENABLE_OPT OFF CACHE BOOL "" FORCE)
 set(BUILD_EXTERNAL OFF CACHE BOOL "" FORCE)
 set(ENABLE_GLSLANG_BINARIES OFF CACHE BOOL "" FORCE)
@@ -73,46 +58,35 @@ set(ENABLE_PCH OFF CACHE BOOL "" FORCE)
 set(ENABLE_HLSL OFF CACHE BOOL "" FORCE)
 add_subdirectory(submodules/glslang EXCLUDE_FROM_ALL SYSTEM)
 
-# Vulkan : the headers, the loader (volk loads vulkan-1.dll / libvulkan.so at run time : nothing links against the SDK) and the
-# bootstrap that picks the device and builds the swapchain. The memory allocator (VMA) is a header, see src/engine/CMakeLists.txt.
 set(VK_BOOTSTRAP_VULKAN_HEADER_DIR "${CMAKE_SOURCE_DIR}/submodules/Vulkan-Headers/include" CACHE FILEPATH "" FORCE)
 set(VK_BOOTSTRAP_TEST OFF CACHE BOOL "" FORCE)
 set(VK_BOOTSTRAP_INSTALL OFF CACHE BOOL "" FORCE)
 set(VK_BOOTSTRAP_DISABLE_WARNINGS ON CACHE BOOL "" FORCE)
 add_subdirectory(submodules/vk-bootstrap EXCLUDE_FROM_ALL SYSTEM)
 set_target_properties(vk-bootstrap PROPERTIES POSITION_INDEPENDENT_CODE ON)
-# Determinism (see docs, "Headless & determinism") : a replay has to give the same state on Windows and on Linux. Jolt then
-# is built in its cross platform deterministic mode (no fused multiply-add, its own sin/cos... a little slower), and the
-# compiler is told not to fuse a * b + c on its own, which would round differently from one target to the next.
+# Cross-platform deterministic Jolt (no FMA, own sin/cos), and no fused a*b+c in our code, so replays match on Windows and Linux.
 option(SHARD_DETERMINISTIC_PHYSICS "Build Jolt in cross platform deterministic mode (same simulation on every platform)" ON)
 if(SHARD_DETERMINISTIC_PHYSICS)
     set(CROSS_PLATFORM_DETERMINISTIC ON CACHE BOOL "Cross platform deterministic" FORCE)
-    # Part of a plugin's build fingerprint (src/engine/plugins/fingerprint.hpp) : a plugin built without it is refused
     add_compile_definitions(SHARD_DETERMINISTIC_PHYSICS=1)
     if(NOT MSVC)
         add_compile_options(-ffp-contract=off)
     endif()
 endif()
 
-# Large worlds (see docs, "Large world") : Jolt keeps the positions of its bodies in double. A float is exact to a millimetre
-# only within ~10 km of the origin ; the double build (JPH::RVec3 = 3 doubles, sizes and velocities stay float) simulates
-# a planet's worth of space. JPH_DOUBLE_PRECISION is exported by the Jolt target, so every user of Jolt sees the same layout.
+# Jolt keeps body positions in double (JPH::RVec3), sizes and velocities stay float. A float is only exact to a mm within ~10 km of the origin.
 option(SHARD_DOUBLE_PRECISION_PHYSICS "Build Jolt with double precision positions (large worlds)" ON)
 if(SHARD_DOUBLE_PRECISION_PHYSICS)
     set(DOUBLE_PRECISION ON CACHE BOOL "Use double precision math" FORCE)
     add_compile_definitions(SHARD_DOUBLE_PRECISION_PHYSICS=1)
 endif()
 
-# Jolt with RTTI, like the rest of the engine. Without it libJolt has no typeinfo for the Jolt classes that define a
-# virtual function out of line (JobSystemWithBarrier...), and a class of ours deriving from one (JoltJobSystem) fails to
-# link on Linux ("undefined reference to typeinfo for JPH::JobSystemWithBarrier").
+# Jolt needs RTTI: without it a class deriving from JPH::JobSystemWithBarrier fails to link on Linux (no typeinfo).
 set(CPP_RTTI_ENABLED ON CACHE BOOL "" FORCE)
 add_subdirectory(submodules/jolt/Build SYSTEM)
 
-# Tools (ShardReflect, the reflection generator)
 add_subdirectory(src/apps/tools/reflect)
 
-# Subdirs (Shard)
 add_subdirectory(src/engine)
 add_subdirectory(src/apps/tools/shaderc)
 add_subdirectory(src/apps/tools/shardpkg)
@@ -122,16 +96,12 @@ add_subdirectory(src/apps/editor)
 add_subdirectory(src/apps/player)
 add_subdirectory(src/apps/headless)
 
-# The SDK (sdk/README.md) : what a plugin built outside this repository needs, the headers of the C ABI and of the C++ SDK, the CMake
-# package and the template. `cmake --install build --component sdk --prefix <dir>` puts it in <dir>/sdk ; the ShardSDKArchive target makes
-# shard-sdk-<version>.zip of it in the build folder.
 file(READ ${CMAKE_SOURCE_DIR}/sdk/VERSION SHARD_SDK_VERSION)
 string(STRIP "${SHARD_SDK_VERSION}" SHARD_SDK_VERSION)
 install(DIRECTORY ${CMAKE_SOURCE_DIR}/sdk/include/ DESTINATION sdk/include COMPONENT sdk)
 install(DIRECTORY ${CMAKE_SOURCE_DIR}/sdk/cmake/ DESTINATION sdk/cmake COMPONENT sdk)
 install(DIRECTORY ${CMAKE_SOURCE_DIR}/sdk/templates/ DESTINATION sdk/templates COMPONENT sdk)
 install(FILES ${CMAKE_SOURCE_DIR}/sdk/VERSION ${CMAKE_SOURCE_DIR}/sdk/README.md DESTINATION sdk COMPONENT sdk)
-# ShardPkg packs a plugin into a .shardplugin and signs it : shard_sdk_add_plugin(... PACKAGE) finds it in sdk/bin
 install(TARGETS ShardPkg RUNTIME DESTINATION sdk/bin COMPONENT sdk)
 add_custom_target(ShardSDKArchive
     COMMAND ${CMAKE_COMMAND} -E rm -rf ${CMAKE_BINARY_DIR}/sdk_stage

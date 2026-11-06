@@ -28,22 +28,10 @@ namespace Shard::Engine::Rendering{
 
         if (size == m_Size)
         {
-            // Same size as the buffer's current GPU allocation - the common case, since every caller
-            // either just Create()'d this buffer at exactly `size` (e.g. ProbeManager::UploadScene()
-            // uploading the BVH/triangle/material buffers right after a scene rebuild) or re-uploads the
-            // same fixed layout every frame (the per-volume light/probe-state buffers in
-            // ProbeManager::Update()). A plain sub-range upload into the existing storage is all that's
-            // needed here - no reallocation.
             glBufferSubData(GL_SHADER_STORAGE_BUFFER, 0, size, data);
         }
         else
         {
-            // Size actually changed : one call both (re)allocates the new storage and uploads `data`
-            // into it. This used to be glBufferData(size, nullptr, ...) followed by a full
-            // glBufferSubData(data) right below it - two full-buffer allocations (this one, and another
-            // one back in the constructor's Create() call that this call's caller almost always follows
-            // immediately) for a single upload, for no benefit : glBufferData already accepts the data
-            // pointer directly.
             glBufferData(GL_SHADER_STORAGE_BUFFER, size, data, GL_DYNAMIC_DRAW);
             GpuMemory::Add(GpuMemory::Kind::Buffer, int64_t(size) - int64_t(m_Size));
             m_Size = size;

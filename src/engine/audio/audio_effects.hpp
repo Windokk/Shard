@@ -6,18 +6,15 @@
 
 #include <glm/glm.hpp>
 
-// The maths behind the spatial effects of the audio (reverb zones, doppler), kept free of miniaudio and of the engine so they are
-// plain functions : the audio manager feeds them, the tests call them directly.
+// Spatial audio maths (reverb zones, doppler) as plain functions, free of miniaudio and the engine so tests can call them.
 
 namespace Shard::Engine::Audio
 {
-    /// The shape of the region a reverb zone covers
     enum class ReverbShape : int {
-        Box = 0,    // the box of the actor (half extent, turned and scaled with it)
-        Sphere      // a sphere around the actor (radius, scaled with its largest scale)
+        Box = 0,
+        Sphere
     };
 
-    /// Ready-made rooms. Picking one fills the settings of the zone with its values, Custom leaves them as they are.
     enum class ReverbPreset : int {
         Custom = 0,
         Generic,
@@ -35,20 +32,18 @@ namespace Shard::Engine::Audio
         Underwater
     };
 
-    /// What a reverb is made of. Read by the reverb bus of the audio manager (see ReverbBusNode).
     struct ReverbParams
     {
-        float roomSize = 0.5f;      // 0 to 1 : the length of the tail
-        float damping = 0.25f;      // 0 to 1 : how fast the high frequencies die in the tail
-        float width = 1.0f;         // 0 to 1 : stereo spread of the tail
-        float wetLevel = 0.5f;      // level of the reverberated sound, 0 to 2
-        float dryLevel = 1.0f;      // level of the direct sound while in the zone, 0 to 1
-        float preDelayMs = 10.0f;   // delay before the tail starts, in milliseconds
-        float lowCutHz = 20.0f;     // the reverberated sound has nothing below this frequency
-        float highCutHz = 12000.0f; // ... and nothing above this one
+        float roomSize = 0.5f;
+        float damping = 0.25f;
+        float width = 1.0f;
+        float wetLevel = 0.5f;
+        float dryLevel = 1.0f;
+        float preDelayMs = 10.0f;
+        float lowCutHz = 20.0f;
+        float highCutHz = 12000.0f;
     };
 
-    /// The settings a preset stands for
     inline ReverbParams GetReverbPreset(ReverbPreset preset)
     {
         //                         room   damp   width  wet    dry    preDelay lowCut  highCut
@@ -93,10 +88,6 @@ namespace Shard::Engine::Audio
         return r;
     }
 
-    /// How much a zone covers a point : 1 inside, falling to 0 over `blendDistance` outside its edge (0 : a hard edge).
-    /// @param localPosition  the point, relative to the center of the zone and in its axes (the rotation undone)
-    /// @param halfExtent     Box only : half of the size along each axis, scale included
-    /// @param radius         Sphere only : scale included
     inline float ReverbZoneWeight(ReverbShape shape, const glm::vec3& localPosition, const glm::vec3& halfExtent, float radius, float blendDistance)
     {
         float outside = 0.0f;
@@ -118,23 +109,19 @@ namespace Shard::Engine::Audio
         return SmoothStep01(1.0f - outside / blendDistance);
     }
 
-    /// One zone as the listener sees it
     struct ReverbZoneSample
     {
-        float weight = 0.0f;    // 0 to 1, see ReverbZoneWeight
+        float weight = 0.0f;
         int priority = 0;
         ReverbParams params;
     };
 
-    /// What the listener hears of all the zones around it
     struct ReverbMix
     {
-        ReverbParams params;    // the zones blended (wetLevel and dryLevel are the ones at full coverage)
-        float coverage = 0.0f;  // 0 : in no zone, 1 : fully inside zones
+        ReverbParams params;
+        float coverage = 0.0f;
     };
 
-    /// Combines the zones the listener is in or next to. Zones of a higher priority cover the lower ones (they only show through where the
-    /// higher ones do not cover), zones of the same priority blend by their weight.
     inline ReverbMix MixReverbZones(std::vector<ReverbZoneSample> zones)
     {
         ReverbMix result;
@@ -149,7 +136,6 @@ namespace Shard::Engine::Audio
         size_t i = 0;
         while (i < zones.size() && remaining > 1e-5f)
         {
-            // The zones of this priority : one blended zone, as heavy as the zones together cover
             size_t end = i;
             float totalWeight = 0.0f;
             float uncovered = 1.0f;
@@ -217,9 +203,6 @@ namespace Shard::Engine::Audio
         return result;
     }
 
-    /// The factor the pitch of a source is multiplied by because it and the listener move relative to each other.
-    /// > 1 when they come closer, < 1 when they move apart, 1 when they are still or `dopplerScale` is 0.
-    /// @param dopplerScale  multiplies both velocities (0 turns the effect off, 1 is physical, more exaggerates it)
     inline float ComputeDopplerPitch(const glm::dvec3& listenerPosition, const glm::dvec3& listenerVelocity,
                                      const glm::dvec3& sourcePosition, const glm::dvec3& sourceVelocity,
                                      float speedOfSound, float dopplerScale)
@@ -235,10 +218,10 @@ namespace Shard::Engine::Audio
         const glm::dvec3 axis = toSource / distance;
         const double c = speedOfSound;
 
-        // The speeds along the line between the two, an object can't catch up with its own sound
+        // Clamp speeds along the axis so nothing outruns its own sound
         const double limit = c * 0.9;
-        const double listenerAlong = std::clamp(glm::dot(listenerVelocity, axis) * dopplerScale, -limit, limit); // + : toward the source
-        const double sourceAlong = std::clamp(glm::dot(sourceVelocity, axis) * dopplerScale, -limit, limit);     // + : away from the listener
+        const double listenerAlong = std::clamp(glm::dot(listenerVelocity, axis) * dopplerScale, -limit, limit);
+        const double sourceAlong = std::clamp(glm::dot(sourceVelocity, axis) * dopplerScale, -limit, limit);
 
         const double pitch = (c + listenerAlong) / (c + sourceAlong);
         return static_cast<float>(std::clamp(pitch, 0.25, 4.0));

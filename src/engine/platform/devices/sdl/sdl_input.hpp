@@ -8,7 +8,6 @@
 
 namespace Shard::Engine::Core::Platform
 {
-    /// @brief Keyboard and mouse state built from the OS events of an SDLWindow.
     class SDLInput : public IInput {
         public:
             explicit SDLInput(SDLWindow* window);
@@ -18,13 +17,11 @@ namespace Shard::Engine::Core::Platform
             void Tick() override;
             void Shutdown() override;
 
-            // Keyboard
             bool IsKeyDown(Input::Key key) const override;
             bool IsKeyUp(Input::Key key) const override;
             bool WasKeyPressed(Input::Key key) const override;
             bool WasKeyReleased(Input::Key key) const override;
 
-            // Mouse
             bool IsMouseDown(Input::MouseButton button) const override;
             bool IsMouseUp(Input::MouseButton button) const override;
             bool WasMousePressed(Input::MouseButton button) const override;
@@ -34,7 +31,6 @@ namespace Shard::Engine::Core::Platform
             void GetCursorPos(double* x, double* y) const override;
             void SetCursorPos(double x, double y) const override;
 
-            // Gamepads
             int GetGamepadCount() const override { return static_cast<int>(m_Pads.size()); }
             std::string GetGamepadName(int pad) const override;
             bool IsGamepadButtonDown(int pad, Input::GamepadButton button) const override;
@@ -75,9 +71,8 @@ namespace Shard::Engine::Core::Platform
             std::array<bool, kMouseButtonCount> m_Buttons{};
             std::array<bool, kMouseButtonCount> m_PreviousButtons{};
 
-            std::vector<Pad> m_Pads;    // in the order they were plugged in
+            std::vector<Pad> m_Pads;
 
-            // Virtual cursor position : unbounded while the cursor is captured (disabled), like a GLFW disabled cursor.
             mutable double m_CursorX = 0.0;
             mutable double m_CursorY = 0.0;
             mutable bool m_Captured = false;

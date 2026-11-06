@@ -4,7 +4,7 @@
 
 using namespace Shard::Engine::Core;
 
-TEST(ObjectIDManager, GeneratesSequentialIDsStartingAtOne) {
+TEST(ObjectIDManager, SequentialIdsFromOne) {
     ObjectIDManager manager;
 
     ObjectID first = manager.GenerateNewID();
@@ -35,7 +35,7 @@ TEST(ObjectIDManager, AssignAndRetrieveObject) {
     EXPECT_EQ(manager.GetObjectFromID(id), nullptr);
 }
 
-TEST(ObjectIDManager, GetObjectFromUnknownIDReturnsNull) {
+TEST(ObjectIDManager, UnknownIdReturnsNull) {
     ObjectIDManager manager;
     ObjectID unknown(42);
 
@@ -52,7 +52,7 @@ TEST(ObjectIDManager, DestroyRemovesObjectMapping) {
     EXPECT_EQ(manager.GetObjectFromID(id), nullptr);
 }
 
-TEST(ObjectIDManager, ResetClearsAllStateAndRestartsCounter) {
+TEST(ObjectIDManager, ResetRestartsCounter) {
     ObjectIDManager manager;
     manager.GenerateNewID();
     manager.GenerateNewID();

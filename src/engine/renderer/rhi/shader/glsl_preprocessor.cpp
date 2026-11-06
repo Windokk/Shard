@@ -10,11 +10,10 @@ namespace Shard::Engine::Rendering {
 
     namespace {
 
-        // Threaded through one whole top-level ResolveGLSLIncludes() call.
         struct IncludeContext
         {
-            std::unordered_set<std::string> included; // normalized absolute paths already spliced in
-            std::vector<std::string> stack;            // active include chain, for cycle detection
+            std::unordered_set<std::string> included;
+            std::vector<std::string> stack;
         };
 
         std::string StripCarriageReturn(std::string line)
@@ -24,9 +23,6 @@ namespace Shard::Engine::Rendering {
             return line;
         }
 
-        // Recognizes `#include "relative/path"` - only the quoted form, since every include here is
-        // project-relative, never a system/angle-bracket header. Leading whitespace before the `#` is
-        // allowed, matching how GLSL/C preprocessor directives are normally written.
         bool ParseIncludeDirective(const std::string& line, std::string& outPath)
         {
             size_t i = 0;
@@ -69,9 +65,6 @@ namespace Shard::Engine::Rendering {
                 }
             }
 
-            // Already spliced in earlier in this compile (via a different include chain) - skip
-            // entirely rather than emitting an empty marker, so shared headers behave like they have a
-            // standard header guard without needing one written by hand.
             if (ctx.included.count(normalized) != 0)
                 return "";
 
@@ -99,10 +92,7 @@ namespace Shard::Engine::Rendering {
                 {
                     Filesystem::Path resolved = dir / includePath;
                     out << ResolveRecursive(resolved, ctx, true);
-                    // Core GLSL #line only takes a numeric line (no filename operand) - this at least
-                    // keeps line numbers in driver compile-error output close to correct for whatever
-                    // file happens to be active, even though it can't name that file itself (the
-                    // "begin/end include" comment markers above are what a human traces by instead).
+                    // Core GLSL #line takes only a number, no filename. Keeps driver error line numbers roughly right.
                     out << "#line " << (lineNumber + 1) << "\n";
                 }
                 else
@@ -132,7 +122,6 @@ namespace Shard::Engine::Rendering {
             block += "#define " + (equals == std::string::npos ? define : define.substr(0, equals) + " " + define.substr(equals + 1)) + "\n";
         }
 
-        // After the #version line (and the #extension lines that have to follow it) : at the start of the line that comes next
         size_t at = source.find("#version");
         if (at == std::string::npos)
             return block + source;

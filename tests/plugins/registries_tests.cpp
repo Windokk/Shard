@@ -8,9 +8,7 @@
 using namespace Shard::Engine::Plugins;
 using namespace Shard::Engine;
 
-// ---- Hooks ----
-
-TEST(PluginHooks, RunByPriorityThenOwnerThenOrder)
+TEST(PluginHooks, RunByPriorityOwnerOrder)
 {
     HookRegistry hooks;
     std::string order;
@@ -24,7 +22,7 @@ TEST(PluginHooks, RunByPriorityThenOwnerThenOrder)
     EXPECT_EQ(order, "EN1N1bN2L");
 }
 
-TEST(PluginHooks, CancelStopsTheThingButNotTheOtherHandlers)
+TEST(PluginHooks, CancelKeepsOtherHandlers)
 {
     HookRegistry hooks;
     bool lateSawIt = false;
@@ -40,7 +38,7 @@ TEST(PluginHooks, CancelStopsTheThingButNotTheOtherHandlers)
     EXPECT_TRUE(lateSawIt);
 }
 
-TEST(PluginHooks, RemoveByTokenAndByOwner)
+TEST(PluginHooks, RemoveByTokenAndOwner)
 {
     HookRegistry hooks;
     int a = 0, b = 0, c = 0;
@@ -59,7 +57,7 @@ TEST(PluginHooks, RemoveByTokenAndByOwner)
     EXPECT_EQ(hooks.Count(), 0u);
 }
 
-TEST(PluginHooks, AHandlerMayRemoveALaterOneWhileRunning)
+TEST(PluginHooks, HandlerRemovesLaterOne)
 {
     HookRegistry hooks;
     int ran = 0;
@@ -70,8 +68,6 @@ TEST(PluginHooks, AHandlerMayRemoveALaterOneWhileRunning)
     hooks.Emit(hook);
     EXPECT_EQ(ran, 0);
 }
-
-// ---- Services ----
 
 namespace {
     struct IGreeter { virtual ~IGreeter() = default; virtual int Value() const = 0; };
@@ -93,14 +89,14 @@ TEST(PluginServices, ProvideGetAndVersion)
     EXPECT_TRUE(services.Has("greet"));
 }
 
-TEST(PluginServices, ARefBecomesEmptyWhenTheProviderGoes)
+TEST(PluginServices, RefEmptiesWhenProviderGoes)
 {
     ServiceRegistry services;
     Greeter greeter;
     services.Provide("greet", *SemVer::Parse("1.0.0"), static_cast<void*>(&greeter), 3);
     auto ref = services.Get<Greeter>("greet");
     ASSERT_TRUE(ref);
-    EXPECT_FALSE(services.Revoke("greet", 99));           // not the owner
+    EXPECT_FALSE(services.Revoke("greet", 99));
     EXPECT_TRUE(ref);
     EXPECT_EQ(services.RevokeOwner(3), 1u);
     EXPECT_FALSE(ref);
@@ -119,18 +115,16 @@ TEST(PluginServices, ListIsSorted)
     EXPECT_EQ(list[0].name, "a.service");
 }
 
-// ---- Extension points ----
-
 namespace {
     struct Feature { int id; };
     struct Other { int id; };
 }
 
-TEST(PluginExtensions, AddGetByTypeAndRemove)
+TEST(PluginExtensions, AddGetRemove)
 {
     ExtensionRegistry reg;
     EXPECT_TRUE(reg.Add<Feature>("render.feature", "bloom", std::make_shared<Feature>(Feature{ 1 }), 7));
-    EXPECT_FALSE(reg.Add<Feature>("render.feature", "bloom", std::make_shared<Feature>(Feature{ 2 }), 8));       // same name on the same point
+    EXPECT_FALSE(reg.Add<Feature>("render.feature", "bloom", std::make_shared<Feature>(Feature{ 2 }), 8));
     EXPECT_TRUE(reg.Add<Other>("render.feature", "other", std::make_shared<Other>(Other{ 3 }), 8));
 
     auto features = reg.Get<Feature>("render.feature");
@@ -144,7 +138,7 @@ TEST(PluginExtensions, AddGetByTypeAndRemove)
     EXPECT_TRUE(reg.List().empty());
 }
 
-TEST(PluginExtensions, ListenersHearThePastAndTheFuture)
+TEST(PluginExtensions, ListenersHearPastAndFuture)
 {
     ExtensionRegistry reg;
     reg.Add<Feature>("p", "first", std::make_shared<Feature>(Feature{ 1 }), 1);
@@ -157,8 +151,6 @@ TEST(PluginExtensions, ListenersHearThePastAndTheFuture)
     reg.Remove("p", "second", 2);
     EXPECT_EQ(log, (std::vector<std::string>{ "+first", "+second", "-first" }));
 }
-
-// ---- EventDispatcher subscriptions ----
 
 namespace {
     struct PingEvent : Events::Event {
@@ -188,7 +180,7 @@ TEST(EventDispatcherSubscriptions, UnsubscribeByOwnerAcrossScopes)
     d.subscribeGlobal<PingEvent>([&](const PingEvent&) { ++global; }, 5);
     d.subscribeToWorld<PingEvent>(1, [&](const PingEvent&) { ++world; }, 5);
     d.subscribeGlobal<PingEvent>([&](const PingEvent&) { ++kept; }, 6);
-    d.subscribeGlobal<PingEvent>([&](const PingEvent&) { ++kept; });        // owner 0 : nobody's, never swept
+    d.subscribeGlobal<PingEvent>([&](const PingEvent&) { ++kept; });        // owner 0: nobody's, never swept
     EXPECT_EQ(d.UnsubscribeOwner(5), 2u);
     EXPECT_EQ(d.UnsubscribeOwner(0), 0u);
     d.emitGlobal(PingEvent(1));
@@ -198,7 +190,7 @@ TEST(EventDispatcherSubscriptions, UnsubscribeByOwnerAcrossScopes)
     EXPECT_EQ(kept, 2);
 }
 
-TEST(EventDispatcherSubscriptions, AHandlerMayUnsubscribeItselfAndOthersWhileEmitting)
+TEST(EventDispatcherSubscriptions, UnsubscribeWhileEmitting)
 {
     Events::EventDispatcher d;
     int first = 0, second = 0, third = 0;
@@ -215,7 +207,7 @@ TEST(EventDispatcherSubscriptions, AHandlerMayUnsubscribeItselfAndOthersWhileEmi
     EXPECT_EQ(third, 2);
 }
 
-TEST(EventDispatcherSubscriptions, SubscribingWhileEmittingDoesNotInvalidateTheLoop)
+TEST(EventDispatcherSubscriptions, SubscribeWhileEmitting)
 {
     Events::EventDispatcher d;
     int added = 0;

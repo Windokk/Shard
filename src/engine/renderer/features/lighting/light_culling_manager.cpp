@@ -87,9 +87,7 @@ namespace Shard::Engine::Rendering {
         m_GridSizeY = (height + kTilePx - 1) / kTilePx;
         uint32_t totalClusters = m_GridSizeX * m_GridSizeY * kZSlices;
 
-        // Only (re)allocate the SSBOs when the cluster count actually changes (viewport resize) -
-        // StorageBuffer::SetData does a plain glBufferSubData when the size is unchanged, which requires
-        // a real data pointer, so this must not be called every frame with nullptr once the size settles.
+        // Reallocate only when the cluster count changes. SetData with an unchanged size needs a real data pointer.
         if (totalClusters != m_TotalClusters)
         {
             m_TotalClusters = totalClusters;
@@ -101,16 +99,13 @@ namespace Shard::Engine::Rendering {
         float nearPlane = std::max(cam.nearPlane, 0.001f);
         float farPlane = std::max(cam.farPlane, nearPlane + 0.001f);
 
-        // Logarithmic Z-slice partition (Doom 2016 / Just Cause 3 clustered shading) - keeps slices
-        // roughly equal-volume near vs far. Mirrored in lit.frag's GetClusterIndex to pick a fragment's
-        // slice, and inverted in cluster_build.comp to get each slice's near/far Z.
+        // Logarithmic Z slices (Doom 2016, Just Cause 3). Mirrored in lit.frag GetClusterIndex and inverted in cluster_build.comp.
         float logRatio = std::log2(farPlane / nearPlane);
         m_ClusterScaleZ = float(kZSlices) / logRatio;
         m_ClusterBiasZ = -(float(kZSlices) * std::log2(nearPlane) / logRatio);
 
         uint32_t groups = (m_TotalClusters + 63) / 64;
 
-        // ---- Build cluster AABB grid ----
         m_BuildPipeline->Bind();
         m_ClusterAABBBuffer->Bind(1);
 
@@ -123,14 +118,12 @@ namespace Shard::Engine::Rendering {
 
         renderer->DispatchCompute(m_BuildPipeline, groups, 1, 1, MemoryBarrierBit::ShaderStorage);
 
-        // ---- Cull lights into clusters ----
         uint32_t zero = 0;
         m_GlobalIndexCounterBuffer->SetData(&zero, sizeof(uint32_t));
 
         m_CullPipeline->Bind();
 
-        // Binding point 0 is global GL state shared with the forward pass's own LightBuffer bind - rebind
-        // defensively right before this dispatch reads it (see ProbeManager's note on this same hazard).
+        // Binding 0 is global GL state shared with the forward pass, so rebind right before the dispatch.
         renderer->GetLightManager()->GetSSBO()->Bind(0);
 
         m_ClusterAABBBuffer->Bind(1);

@@ -29,9 +29,6 @@ namespace Shard::Engine::Rendering{
             Core::CVarFlags::Archive);
     }
 
-    // Bytes per pixel for each internal format, mirroring the format/type resolved by
-    // GLTextureSpec::FromTextureSpecifications (kept here rather than in the OpenGL backend since it's
-    // purely a function of the API-agnostic TextureInternalFormat, needed to size ReadPixels buffers).
     static size_t BytesPerPixel(TextureInternalFormat format)
     {
         switch (format)
@@ -107,9 +104,7 @@ namespace Shard::Engine::Rendering{
 
         std::string file = filepath.ReadFile();
 
-        // stbi_set_flip_vertically_on_load() sets a plain (non-thread-local) global and is UB if
-        // called concurrently from multiple threads; the _thread variant is the one safe to call from
-        // a background decode worker.
+        // The non-thread variant sets a plain global, UB when called concurrently. This one is safe from decode workers.
         stbi_set_flip_vertically_on_load_thread(true);
 
         int width, height, nrChannels;
@@ -136,7 +131,7 @@ namespace Shard::Engine::Rendering{
             format = TextureInternalFormat::RGBA;
         }
         else{
-            format = TextureInternalFormat::RGB; // Default to RGB
+            format = TextureInternalFormat::RGB;
         }
 
         size_t dataSize = (size_t)width * (size_t)height * (size_t)nrChannels;
@@ -153,8 +148,7 @@ namespace Shard::Engine::Rendering{
 
     TextureDecodeResult DecodeTextureFileForUpload(const Filesystem::Path& filepath, unsigned threads, bool srgb)
     {
-        // The null backend draws nothing : the pixels of a texture are of no use to it, so a headless run (a server, the CI)
-        // does not decode images only to throw them away. The file is still looked for : a missing asset is an error everywhere.
+        // Null backend draws nothing, so skip decoding. The file is still looked up: a missing asset is an error everywhere.
         if (RendererAPI::Current() && RendererAPI::Current()->GetAPI() == RendererAPI::API::Null)
         {
             TextureDecodeResult stub;
@@ -184,7 +178,7 @@ namespace Shard::Engine::Rendering{
                 result.width = int(cached->width);
                 result.height = int(cached->height);
                 result.format = cached->format == BlockFormat::BC4 ? TextureInternalFormat::RED
-                              : cached->format == BlockFormat::BC5 ? TextureInternalFormat::RG : TextureInternalFormat::RGBA;   // what the sampler returns
+                              : cached->format == BlockFormat::BC5 ? TextureInternalFormat::RG : TextureInternalFormat::RGBA;
                 result.compressed = std::move(cached);
                 return result;
             }
@@ -206,7 +200,7 @@ namespace Shard::Engine::Rendering{
         TextureCache::Store(key, *compressed);
 
         result.compressed = std::move(compressed);
-        std::vector<unsigned char>().swap(result.pixels);   // the encoded blocks are all that goes to the GPU
+        std::vector<unsigned char>().swap(result.pixels);
         return result;
     }
 

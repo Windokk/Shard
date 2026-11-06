@@ -14,7 +14,6 @@ using namespace Shard::Engine::Rendering;
 using namespace std::chrono_literals;
 
 namespace {
-    // The graphics context is stood in for by counters : what matters is who calls release / acquire, and when
     struct FakeContext {
         std::atomic<int> released{0};
         std::atomic<int> acquired{0};
@@ -22,7 +21,6 @@ namespace {
         std::thread::id releasedOn;
     };
 
-    // Starts the thread for one test and always stops it
     struct ScopedRenderThread {
         FakeContext context;
         RenderThread& thread = RenderThread::Get();
@@ -53,7 +51,7 @@ namespace {
     }
 }
 
-TEST(RenderThread, RunsEverythingInlineWhileNotStarted) {
+TEST(RenderThread, InlineWhileNotStarted) {
     RenderThread& rt = RenderThread::Get();
     ASSERT_FALSE(rt.IsRunning());
     EXPECT_TRUE(rt.IsGraphicsThread());
@@ -66,11 +64,11 @@ TEST(RenderThread, RunsEverythingInlineWhileNotStarted) {
     EXPECT_EQ(postedOn, me);
     EXPECT_EQ(invokedOn, me);
     EXPECT_EQ(frameOn, me);
-    rt.WaitForFrameSlot();      // nothing to wait for
+    rt.WaitForFrameSlot();
     rt.Flush();
 }
 
-TEST(RenderThread, StartHandsTheContextToTheNewThread) {
+TEST(RenderThread, StartHandsContext) {
     ScopedRenderThread scoped;
     RenderThread& rt = scoped.thread;
 
@@ -79,7 +77,7 @@ TEST(RenderThread, StartHandsTheContextToTheNewThread) {
     EXPECT_EQ(scoped.context.acquired, 1);
     EXPECT_EQ(scoped.context.releasedOn, std::this_thread::get_id());
     EXPECT_NE(scoped.context.acquiredOn, std::this_thread::get_id());
-    EXPECT_FALSE(rt.IsGraphicsThread());        // the caller is no longer the graphics thread
+    EXPECT_FALSE(rt.IsGraphicsThread());
 
     bool onGraphics = false;
     rt.Invoke([&] { onGraphics = rt.IsGraphicsThread(); });
@@ -96,22 +94,22 @@ TEST(RenderThread, StopHandsTheContextBack) {
     EXPECT_FALSE(rt.IsRunning());
     EXPECT_EQ(context.released, 2);
     EXPECT_EQ(context.acquired, 2);
-    EXPECT_NE(context.releasedOn, std::this_thread::get_id());      // given up by the render thread ...
-    EXPECT_EQ(context.acquiredOn, std::this_thread::get_id());      // ... taken back by the caller
+    EXPECT_NE(context.releasedOn, std::this_thread::get_id());
+    EXPECT_EQ(context.acquiredOn, std::this_thread::get_id());
     EXPECT_TRUE(rt.IsGraphicsThread());
 }
 
 TEST(RenderThread, FailedStartKeepsTheContext) {
     RenderThread& rt = RenderThread::Get();
     int acquires = 0;
-    const bool ok = rt.Start([] {}, [&] { acquires++; return acquires > 1; });     // the new thread fails, the caller's retry works
+    const bool ok = rt.Start([] {}, [&] { acquires++; return acquires > 1; });
     EXPECT_FALSE(ok);
     EXPECT_FALSE(rt.IsRunning());
     EXPECT_EQ(acquires, 2);
     EXPECT_TRUE(rt.IsGraphicsThread());
 }
 
-TEST(RenderThread, WorkRunsInSubmissionOrderOnTheRenderThread) {
+TEST(RenderThread, SubmissionOrder) {
     ScopedRenderThread scoped;
     RenderThread& rt = scoped.thread;
 
@@ -141,14 +139,14 @@ TEST(RenderThread, WorkRunsInSubmissionOrderOnTheRenderThread) {
         EXPECT_EQ(id, scoped.context.acquiredOn);
 }
 
-TEST(RenderThread, InvokeWaitsAndReturnsAValue) {
+TEST(RenderThread, InvokeReturnsValue) {
     ScopedRenderThread scoped;
     RenderThread& rt = scoped.thread;
 
     std::atomic<int> state{0};
     const int result = rt.InvokeResult([&] { std::this_thread::sleep_for(20ms); state = 1; return 42; });
     EXPECT_EQ(result, 42);
-    EXPECT_EQ(state, 1);        // it had finished when Invoke returned
+    EXPECT_EQ(state, 1);
 
     EXPECT_EQ(OnGraphicsThread([] { return std::string("hello"); }), "hello");
 }
@@ -158,13 +156,12 @@ TEST(RenderThread, InvokeRethrowsOnTheCaller) {
     RenderThread& rt = scoped.thread;
     EXPECT_THROW(rt.Invoke([] { throw std::runtime_error("boom"); }), std::runtime_error);
 
-    // The thread is still alive and serving
     int ran = 0;
     rt.Invoke([&] { ran = 1; });
     EXPECT_EQ(ran, 1);
 }
 
-TEST(RenderThread, PostedTaskThatThrowsDoesNotKillTheThread) {
+TEST(RenderThread, ThrowingTaskKeepsThread) {
     ScopedRenderThread scoped;
     RenderThread& rt = scoped.thread;
     rt.Post([] { throw std::runtime_error("ignored"); });
@@ -173,22 +170,22 @@ TEST(RenderThread, PostedTaskThatThrowsDoesNotKillTheThread) {
     EXPECT_EQ(ran, 1);
 }
 
-TEST(RenderThread, NestedCallsFromTheRenderThreadRunInline) {
+TEST(RenderThread, NestedCallsRunInline) {
     ScopedRenderThread scoped;
     RenderThread& rt = scoped.thread;
 
     std::vector<int> order;
     rt.Invoke([&] {
         order.push_back(1);
-        rt.Invoke([&] { order.push_back(2); });         // would deadlock if it were queued behind itself
+        rt.Invoke([&] { order.push_back(2); });
         rt.Post([&] { order.push_back(3); });
         order.push_back(4);
     });
     EXPECT_EQ(order, (std::vector<int>{1, 2, 3, 4}));
 }
 
-TEST(RenderThread, FramePacingBoundsTheFramesInFlight) {
-    ScopedRenderThread scoped(1);       // one frame in flight : the simulation may only be one frame ahead
+TEST(RenderThread, FramePacingBoundsInFlight) {
+    ScopedRenderThread scoped(1);
     RenderThread& rt = scoped.thread;
 
     std::atomic<bool> release{false};
@@ -207,7 +204,7 @@ TEST(RenderThread, FramePacingBoundsTheFramesInFlight) {
     EXPECT_TRUE(passed);
 }
 
-TEST(RenderThread, TwoFramesInFlightLetTheSimulationRunOneFrameAhead) {
+TEST(RenderThread, TwoFramesInFlightRunAhead) {
     ScopedRenderThread scoped(2);
     RenderThread& rt = scoped.thread;
 
@@ -216,20 +213,20 @@ TEST(RenderThread, TwoFramesInFlightLetTheSimulationRunOneFrameAhead) {
     rt.SubmitFrame([&] { started = true; while (!release) std::this_thread::sleep_for(1ms); });
     ASSERT_TRUE(WaitFor(started, 2000ms));
 
-    rt.WaitForFrameSlot();                  // one in flight, two allowed : no wait
-    rt.SubmitFrame([] {});                  // the second one queues behind the first
+    rt.WaitForFrameSlot();
+    rt.SubmitFrame([] {});
 
     std::atomic<bool> passed{false};
     std::thread simulation([&] { rt.WaitForFrameSlot(); passed = true; });
     std::this_thread::sleep_for(60ms);
-    EXPECT_FALSE(passed);                   // the third must wait
+    EXPECT_FALSE(passed);
 
     release = true;
     simulation.join();
     EXPECT_TRUE(passed);
 }
 
-TEST(RenderThread, CountsFramesAndFiresTheFrameCallback) {
+TEST(RenderThread, CountsFramesFiresCallback) {
     ScopedRenderThread scoped(4);
     RenderThread& rt = scoped.thread;
 
@@ -253,14 +250,11 @@ TEST(RenderThread, CountsFramesAndFiresTheFrameCallback) {
     rt.onFrameFinished = nullptr;
 }
 
-TEST(RenderThread, OverlapsTheSimulationWithTheFrame) {
-    // The point of the thread : with a 10 ms "simulation" and a 10 ms "frame", frames take about 10 ms, not 20
+TEST(RenderThread, OverlapsSimulationWithFrame) {
     ScopedRenderThread scoped(2);
     RenderThread& rt = scoped.thread;
 
-    // Measured against the same work done one after the other on this machine : sleeps are as long as the machine's timer
-    // makes them (15 ms steps on a loaded Windows runner), so an absolute bound is not a fair one. Best of a few runs, as one
-    // run can be disturbed by whatever else the machine does.
+    // Compared with the same work run serially: sleep granularity varies (15 ms steps on loaded Windows runners), so no absolute bound. Best of a few runs.
     const int frames = 20;
     const auto elapsed = [](std::chrono::steady_clock::time_point since) {
         return std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - since).count();
@@ -282,8 +276,8 @@ TEST(RenderThread, OverlapsTheSimulationWithTheFrame) {
         for (int i = 0; i < frames; i++)
         {
             rt.WaitForFrameSlot();
-            std::this_thread::sleep_for(10ms);                                     // simulation of the next frame
-            rt.SubmitFrame([] { std::this_thread::sleep_for(10ms); });             // drawing of this one
+            std::this_thread::sleep_for(10ms);
+            rt.SubmitFrame([] { std::this_thread::sleep_for(10ms); });
         }
         rt.Flush();
         lastOverlapped = elapsed(start);
@@ -294,7 +288,7 @@ TEST(RenderThread, OverlapsTheSimulationWithTheFrame) {
     EXPECT_LT(bestRatio, 0.85) << "no overlap between simulation and render (last run : " << lastOverlapped << " ms overlapped, " << lastSerial << " ms serial)";
 }
 
-TEST(RenderThread, ManyThreadsCanPostAtOnce) {
+TEST(RenderThread, ConcurrentPosts) {
     ScopedRenderThread scoped;
     RenderThread& rt = scoped.thread;
 
@@ -321,7 +315,7 @@ TEST(RenderThread, StopDrainsWhatWasPosted) {
     EXPECT_EQ(count, 100);
 }
 
-TEST(RenderThread, CanBeStartedAgainAfterAStop) {
+TEST(RenderThread, RestartAfterStop) {
     for (int round = 0; round < 3; round++)
     {
         ScopedRenderThread scoped;

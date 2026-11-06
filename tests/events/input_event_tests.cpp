@@ -7,7 +7,7 @@ using namespace Shard::Engine::Input;
 using Shard::Engine::Core::Platform::OSEvent;
 using Shard::Engine::Core::Platform::OSEventType;
 
-TEST(InputEvents, KeyDownBecomesKeyPressedWithRepeatFlag) {
+TEST(InputEvents, KeyDownBecomesKeyPressed) {
     EventDispatcher dispatcher;
     int key = -1; bool repeated = false;
     dispatcher.subscribeGlobal<KeyPressedEvent>([&](const KeyPressedEvent& e) { key = e.keyCode; repeated = e.repeated; });
@@ -29,7 +29,7 @@ TEST(InputEvents, KeyUpBecomesKeyReleased) {
     EXPECT_EQ(key, Key::Escape);
 }
 
-TEST(InputEvents, MouseEventsCarryPositionAndMotion) {
+TEST(InputEvents, MouseEventsCarryPosition) {
     EventDispatcher dispatcher;
     float px = 0, dx = 0, scroll = 0; MouseButton button = MouseButton::Left;
     dispatcher.subscribeGlobal<MouseButtonPressedEvent>([&](const MouseButtonPressedEvent& e) { button = e.button; px = e.x; });

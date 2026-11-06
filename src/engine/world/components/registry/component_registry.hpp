@@ -20,13 +20,10 @@ namespace Shard::Engine::Objects {
 namespace Shard::Engine::Objects::Components {
 
     class Component;
-    /// Builds a component of a type registered by name. A plain function (REGISTER_COMPONENT) or something that carries state (a type a datapack declares).
     using ComponentFactory = std::function<std::shared_ptr<Component>()>;
 
-    /// Builds an engine component for an actor (its type is known by the module that registers it)
     using BuiltinComponentFactory = std::function<std::shared_ptr<Component>(Core::IEngineContext*, std::shared_ptr<Actor>, uint32_t localId)>;
 
-    /// Resources a serialized component of this type references (a model's mesh and materials...)
     using ComponentAssetRefs = std::function<void(const nlohmann::json& component, std::vector<Core::Resources::ResourceKey>& out)>;
 
     class ComponentRegistry {
@@ -34,15 +31,10 @@ namespace Shard::Engine::Objects::Components {
             void RegisterComponentType(const std::string& name, ComponentFactory factory);
             std::shared_ptr<Component> CreateComponentByName(const std::string& name);
 
-            /// Forgets a component type registered with RegisterComponentType (a plugin going away). Components of that type
-            /// that already exist in a world are not touched. @return false if the name was not registered
             bool UnregisterComponentType(const std::string& name);
             bool IsRegistered(const std::string& name) const;
             const std::unordered_map<std::string, ComponentFactory>& GetAll() const;
 
-            /// @brief Registers a component type of the engine, by the name its serialized form carries ("model",
-            /// "light"...). Unlike the types of RegisterComponentType (the game's, listed by the editor), these
-            /// are not offered by name : the module that owns them adds them from its own code.
             template<class T>
             void RegisterBuiltinComponent(const std::string& typeName, ComponentAssetRefs assetRefs = nullptr)
             {
@@ -52,14 +44,11 @@ namespace Shard::Engine::Objects::Components {
                 RegisterBuiltin(typeName, std::move(factory), std::move(assetRefs));
             }
 
-            /// Null (and silent) if `typeName` is not a builtin type
             std::shared_ptr<Component> CreateBuiltinComponent(const std::string& typeName, Core::IEngineContext* engine, std::shared_ptr<Actor> actor, uint32_t localId);
 
             bool IsBuiltinComponent(const std::string& typeName) const;
-            /// The names of the engine's own component types ("model", "light"...), sorted
             std::vector<std::string> BuiltinNames() const;
 
-            /// Adds the resources a serialized component references (nothing for an unknown type)
             void CollectAssetRefs(const std::string& typeName, const nlohmann::json& component, std::vector<Core::Resources::ResourceKey>& out) const;
 
             ComponentRegistry() = default;
@@ -82,14 +71,12 @@ namespace Shard::Engine::Objects::Components {
 
 #if defined(BUILD_ENGINE)
 
-    // Used by the EXE/engine
     inline ComponentRegistry& GetComponentRegistry() {
         return gSharedComponentRegistry;
     }
 
 #elif defined(BUILD_GAME)
 
-    // Used by the DLL
     inline ComponentRegistry* gSharedComponentRegistryPtr = nullptr;
 
     inline void SetComponentRegistry(ComponentRegistry* ptr) {

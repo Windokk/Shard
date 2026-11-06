@@ -88,7 +88,6 @@ namespace Shard::Engine::Rendering{
             }
         }
 
-        // What the pictures hold is what the texture is made of : the caller's specifications only say how it is filtered and read
         specs.width = static_cast<uint32_t>(firstWidth);
         specs.height = static_cast<uint32_t>(firstHeight);
         switch (firstChannels)
@@ -136,7 +135,6 @@ namespace Shard::Engine::Rendering{
 
     std::shared_ptr<CubemapArray> CubemapArray::Create(TextureSpecifications& specs, const std::vector<std::array<Filesystem::Path, 6>> imageFiles)
     {
-        // Every face of every cubemap of the array is one layer of the same texture : they all share a size and a channel count
         std::vector<std::array<unsigned char *, 6>> allData;
         int firstWidth = 0, firstHeight = 0, firstChannels = 0;
 
@@ -190,7 +188,6 @@ namespace Shard::Engine::Rendering{
             }
         }
 
-        // As Cubemap::Create does : what the pictures hold is what the texture is made of
         if (!allData.empty())
         {
             specs.width = static_cast<uint32_t>(firstWidth);

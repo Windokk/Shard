@@ -9,8 +9,6 @@
 #include "engine/world/world.hpp"
 #include "engine/world/world_manager.hpp"
 
-// shard.worlds : asking the engine to load a world, and building a module's prefabs
-
 namespace Shard::Engine::Plugins::CAbi {
 
     namespace {
@@ -32,7 +30,7 @@ namespace Shard::Engine::Plugins::CAbi {
                 Filesystem::AssetIDManager* assets = engine->GetAssetIDManager();
                 if (!assets->GetAssetFromID(assets->GetIDFromNameInProject(name))) return SHARD_E_NOT_FOUND;
                 if (worlds->IsAsyncLoadInProgress()) return SHARD_E_ALREADY_EXISTS;
-                worlds->LoadWorldAsync(name);       // the engine swaps the worlds in at the start of a later frame
+                worlds->LoadWorldAsync(name);
                 return SHARD_OK;
             } catch (...) { return SHARD_E_INTERNAL; }
         }
@@ -53,7 +51,6 @@ namespace Shard::Engine::Plugins::CAbi {
             } catch (...) { return 0; }
         }
 
-        // The text of a prefab : a mod:// address, a logical path, or a bare name
         bool ReadPrefab(const std::string& name, std::string& text)
         {
             ContentMounts& content = PluginManager::Get().Content();
@@ -115,7 +112,6 @@ namespace Shard::Engine::Plugins::CAbi {
                     if (copied != SHARD_OK) return copied;
                 }
                 if (anchor) {
-                    // The first root actor, in the order of the ids
                     *anchor = 0;
                     auto roots = world->GetRootActors();
                     Core::ObjectID best;

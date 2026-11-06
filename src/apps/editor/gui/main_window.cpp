@@ -45,7 +45,6 @@ namespace Shard::Editor::Core{
 
     void SetupImGuiStyle()
     {
-        // Shard style from ImThemes
         ImGuiStyle& style = ImGui::GetStyle();
         
         style.Alpha = 1.0f;
@@ -145,7 +144,6 @@ namespace Shard::Editor::Core{
 
     ImFont* LoadFontFromFile(const std::string& filePath, float fontSize, bool icons)
     {
-        // Open the file in binary mode
         std::ifstream fontFile(filePath, std::ios::binary | std::ios::ate);
         if (!fontFile.is_open())
         {
@@ -153,7 +151,6 @@ namespace Shard::Editor::Core{
             return nullptr;
         }
 
-        // Get file size and read content
         std::streamsize size = fontFile.tellg();
         fontFile.seekg(0, std::ios::beg);
 
@@ -172,7 +169,6 @@ namespace Shard::Editor::Core{
 
         fontFile.close();
 
-        // Allocate memory ImGui can take ownership of
         void* fontMemory = malloc(fontData.size());
         if (!fontMemory)
             return nullptr;
@@ -222,9 +218,7 @@ namespace Shard::Editor::Core{
 
     void EditorMainWindow::SetOutlined(const std::shared_ptr<Engine::Objects::Actor>& actor, bool outlined)
     {
-        // EditorOutlineMaskPass only ever contains the selected actors' own model(s) (see the matching comment where the
-        // pass is created in SwapBuffers) - changing the selection means pulling the old actors' draw commands out and
-        // pushing the new ones' in, rather than drawing the whole scene and sorting it out per-fragment with an objID compare.
+        // The outline mask pass only holds the selected actors' models, so changing selection swaps their draw commands.
         if(!renderPassesInitialized || !actor)
             return;
 
@@ -239,7 +233,7 @@ namespace Shard::Editor::Core{
 
     void EditorMainWindow::ApplySelection(std::vector<std::shared_ptr<Engine::Objects::Actor>> actors)
     {
-        // No nulls, no actor twice (the last occurrence stays : it is the one that ends up primary)
+        // Last occurrence wins, it ends up as the primary actor.
         std::vector<std::shared_ptr<Engine::Objects::Actor>> unique;
         std::unordered_set<int> seen;
         for(auto it = actors.rbegin(); it != actors.rend(); ++it)
@@ -262,7 +256,7 @@ namespace Shard::Editor::Core{
         for(auto& actor : selectedActors)
             selectedRefs.push_back(Editor::Commands::ObjectRefs::Get(actor));
 
-        Engine::Plugins::NotifyEditorSelection(selectedActors);       // the plugins that follow the selection
+        Engine::Plugins::NotifyEditorSelection(selectedActors);
     }
 
     void EditorMainWindow::SetSelectedActor(std::shared_ptr<Engine::Objects::Actor> newPtr)
@@ -310,7 +304,6 @@ namespace Shard::Editor::Core{
 
     namespace {
 
-        // Every actor of the world, the roots first then their descendants, depth first
         void CollectActors(const std::shared_ptr<Engine::Objects::Actor>& actor, std::vector<std::shared_ptr<Engine::Objects::Actor>>& out)
         {
             out.push_back(actor);
@@ -325,7 +318,6 @@ namespace Shard::Editor::Core{
     {
         std::vector<std::shared_ptr<Engine::Objects::Actor>> all;
         if(auto* world = Engine::Core::GetEngine().GetWorldManager()->GetWorldAt(0)){
-            // By id : the same order every time
             std::map<int, std::shared_ptr<Engine::Objects::Actor>> roots;
             for(auto& [id, actor] : world->GetRootActors())
                 if(actor)
@@ -359,7 +351,6 @@ namespace Shard::Editor::Core{
                         Engine::Core::GetEngine().GetObjectIDManager()->GetObjectFromID(childID)))
                     if(!IsSelected(child))
                         actors.insert(actors.begin(), child);
-        // The primary actor stays the primary one
         SetSelectedActors(std::move(actors));
     }
 
@@ -379,7 +370,6 @@ namespace Shard::Editor::Core{
         if(allAlive)
             return;
 
-        // The dead ones are replaced by what an undo or a redo rebuilt in their place, if anything
         std::vector<std::shared_ptr<Engine::Objects::Actor>> actors;
         for(size_t i = 0; i < selectedActors.size(); i++){
             if(ids->GetObjectFromID(selectedActors[i]->GetID()) == selectedActors[i])
@@ -462,8 +452,6 @@ namespace Shard::Editor::Core{
             return;
         }
 
-        // The play session starts from the saved world and the editor returns to it on stop : unsaved changes
-        // have to be saved first, or they would be lost (or silently written, see EngineInstance::SetPlayMode).
         GUI::Popups::Show(GUI::Popups::PopupType::Warning, "Unsaved changes",
             "\"" + world->GetName() + "\" has unsaved changes. Save the world before starting the play mode.",
             {
@@ -485,9 +473,7 @@ namespace Shard::Editor::Core{
 
     void EditorMainWindow::OnWorldLoaded()
     {
-        // The previous world's draw lists were cleared before the load (Renderer::ClearPassesContent) : the old actor's
-        // models are not in the outline pass any more, and their components must not be touched, so SetSelectedActor
-        // is not used here.
+        // The previous world's draw lists were cleared on load, so its models are gone from the outline pass. Don't touch their components, hence no SetSelectedActor.
         selectedActors.clear();
         selectedIds.clear();
         selectedRefs.clear();
@@ -510,7 +496,6 @@ namespace Shard::Editor::Core{
                 DEBUG_ERROR("The interface's Vulkan renderer failed : VkResult ", static_cast<int>(result));
         }
 
-        /// Sets the interface's Vulkan renderer up with the handles of the engine's backend. On the render thread.
         bool InitVulkanUI()
         {
             Rendering::RendererAPI* api = Rendering::RendererAPI::Current();
@@ -524,7 +509,7 @@ namespace Shard::Editor::Core{
 
             const VkFormat format = static_cast<VkFormat>(info.swapchainFormat);
 
-            // The pointer has to outlive the backend : the interface's pipeline is made now, but it is made again when the format changes
+            // Must outlive the backend, the UI pipeline is rebuilt when the format changes.
             static VkFormat colorFormat;
             colorFormat = format;
 
@@ -535,7 +520,6 @@ namespace Shard::Editor::Core{
             init.Device = static_cast<VkDevice>(info.device);
             init.QueueFamily = info.queueFamily;
             init.Queue = static_cast<VkQueue>(info.queue);
-            // One descriptor per texture the interface shows (the thumbnails of the asset browser, the viewport...), and the font atlas
             init.DescriptorPoolSize = 2048;
             init.MinImageCount = 2;
             init.ImageCount = info.imageCount;
@@ -552,8 +536,6 @@ namespace Shard::Editor::Core{
                 return false;
             }
 
-            // The textures the interface shows are named by their handle in its draw lists ; the render thread turns them into descriptors
-            // when it draws (see ConvertTextureIDs)
             Rendering::UITextureHooks hooks;
             hooks.add = [](void* sampler, void* view, uint32_t layout) -> uint64_t {
                 return reinterpret_cast<uint64_t>(ImGui_ImplVulkan_AddTexture(static_cast<VkSampler>(sampler), static_cast<VkImageView>(view), static_cast<VkImageLayout>(layout)));
@@ -563,7 +545,7 @@ namespace Shard::Editor::Core{
             return true;
         }
 
-        /// The draw lists carry the handle of the engine's textures : on Vulkan the interface draws descriptor sets. The fonts are the backend's.
+        // Draw lists carry the engine's texture handles, Vulkan needs descriptor sets. Fonts belong to the backend.
         void ConvertTextureIDs(ImDrawData* drawData)
         {
             Rendering::RendererAPI* api = Rendering::RendererAPI::Current();
@@ -584,11 +566,10 @@ namespace Shard::Editor::Core{
 
         const float kClearColor[4] = {0.1f, 0.1f, 0.1f, 1.0f};
 
-        /// Draws the interface as the picture of the frame (Vulkan). On the render thread.
         void PresentVulkanUI(ImDrawData* drawData, uint32_t width, uint32_t height)
         {
             ConvertTextureIDs(drawData);
-            // Sampled on the render thread : the acquire and the present block on the swapchain / vsync
+            // Sampled on the render thread, acquire and present block on the swapchain.
             SHARD_PROFILE_SCOPE(Engine::Debugging::ProfileCategory::Presentation);
             Rendering::RendererAPI::Current()->PresentUI([drawData](void* commandBuffer) {
                 ImGui_ImplVulkan_RenderDrawData(drawData, static_cast<VkCommandBuffer>(commandBuffer));
@@ -600,13 +581,12 @@ namespace Shard::Editor::Core{
     {
         SDLWindow::Init(title, width, height, fullscreen, vsync, api);
 
-        // The window's icon (taskbar, title bar) : the Shard logo
         if(SDL_Window* window = GetSDLWindow())
         {
             int iconWidth = 0, iconHeight = 0, iconChannels = 0;
             if(stbi_uc* pixels = stbi_load("editor_resources/icons/shard_logo.png", &iconWidth, &iconHeight, &iconChannels, 4))
             {
-                // SDL copies the pixels into the icon, so they can go right after
+                // SDL copies the pixels, so they can be freed right after.
                 if(SDL_Surface* icon = SDL_CreateSurfaceFrom(iconWidth, iconHeight, SDL_PIXELFORMAT_RGBA32, pixels, iconWidth * 4))
                 {
                     SDL_SetWindowIcon(window, icon);
@@ -637,17 +617,15 @@ namespace Shard::Editor::Core{
         if(imguiInitialized)
             return;
 
-        //Init ImGui
         IMGUI_CHECKVERSION();
         ImGui::CreateContext();
-        Shard::Editor::GUI::InstallPluginUi(this);      // the widgets of the panels C plugins add (shard.editor)
+        Shard::Editor::GUI::InstallPluginUi(this);
         ImGuiIO& io = ImGui::GetIO();
         io.ConfigFlags |= ImGuiConfigFlags_DockingEnable;
         io.ConfigFlags |= ImGuiConfigFlags_NoMouseCursorChange;
         io.ConfigFlags |= ImGuiConfigFlags_DpiEnableScaleFonts;
         io.ConfigFlags |= ImGuiConfigFlags_DpiEnableScaleViewports;
 
-        // Setup Platform/Renderer backends
         if(UsesVulkan())
         {
             ImGui_ImplSDL3_InitForVulkan(GetSDLWindow());
@@ -667,7 +645,6 @@ namespace Shard::Editor::Core{
         LoadFontFromFile("editor_resources/fonts/OpenSans-Regular.ttf", 16, false);
         LoadFontFromFile("editor_resources/fonts/lucide.ttf", 16, true);
 
-        //Init Panels
         assetBrowser = new GUI::AssetBrowser();
         assetBrowser->NavigateTo(Engine::Core::GetEngine().GetCurrentProject()->GetProjectResourcesPath().full);
         assetBrowser->SetParentWindow(this);
@@ -707,18 +684,12 @@ namespace Shard::Editor::Core{
         ImGui::SetNextWindowPos(ImVec2(mainViewport->WorkPos.x + mainViewport->WorkSize.x * 0.5f,
                                         mainViewport->WorkPos.y + mainViewport->WorkSize.y * 0.5f),
                                         ImGuiCond_Always, ImVec2(0.5f, 0.5f));
-        // Fully opaque - this overlay stands in for the whole editor while a world loads, so letting the
-        // still-mid-initialization viewport/panels show through underneath it (the old 0.85 alpha) read
-        // as a rendering glitch rather than a deliberate loading screen.
         ImGui::SetNextWindowBgAlpha(1.0f);
 
         ImGuiWindowFlags flags = ImGuiWindowFlags_NoDecoration | ImGuiWindowFlags_NoMove
             | ImGuiWindowFlags_NoSavedSettings | ImGuiWindowFlags_NoFocusOnAppearing
             | ImGuiWindowFlags_AlwaysAutoResize;
 
-        // A dedicated, slightly-elevated background (rather than the default ImGuiCol_WindowBg) plus
-        // rounded corners and generous padding, so this reads as a purpose-built loading card and not a
-        // resized debug window.
         ImGui::PushStyleColor(ImGuiCol_WindowBg, ImVec4(0.09f, 0.10f, 0.11f, 1.0f));
         ImGui::PushStyleColor(ImGuiCol_Border, ImVec4(0.30f, 0.34f, 0.38f, 1.0f));
         ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(32.0f, 26.0f));
@@ -727,8 +698,6 @@ namespace Shard::Editor::Core{
 
         if(ImGui::Begin("##LoadingWorldOverlay", nullptr, flags))
         {
-            // Matches the editor's own blue-teal accent (see ImGuiCol_SliderGrabActive/ButtonHovered in
-            // SetupImGuiStyle) so this overlay doesn't look like it belongs to a different app.
             const ImU32 accent = IM_COL32(84, 125, 153, 255);
             constexpr float barWidth = 280.0f;
             constexpr float spinnerRadius = 14.0f;
@@ -804,8 +773,7 @@ namespace Shard::Editor::Core{
         if(!renderPassesInitialized)
             return;
 
-        // What the editor draws over the scene and does not read from the snapshot : submitted before the frame is handed over,
-        // so it is drawn with this frame's meshes (from SwapBuffers it would be one frame behind them)
+        // Submitted before the frame is handed over, from SwapBuffers it would be drawn one frame behind the meshes.
         const bool game = gameView;
 
         debugDraw.SetLayerVisible(Debug::DebugLayer::Volumes, !game && settings.showGizmos);
@@ -813,12 +781,7 @@ namespace Shard::Editor::Core{
         debugDraw.SetLayerVisible(Debug::DebugLayer::Physics, !game && settings.showPhysicsShapes);
         debugDraw.Update();
 
-        // Re-submit the selected actor's model(s) every frame rather than only on selection change -
-        // AddToPass captures the transform's current matrix at call time (see
-        // Mesh::CreateDrawCommands), so without this the mask would keep drawing the object at
-        // whatever position/rotation/scale it had at the moment it got selected, going stale the
-        // instant it's moved by a gizmo drag, a script, or physics. AddOrUpdateCommands treats this
-        // as a cheap update-in-place (matching commandID) rather than a fresh registration.
+        // Resubmit every frame: AddToPass captures the transform's current matrix, so the mask would go stale after a gizmo drag, script or physics move.
         for(auto& actor : selectedActors)
             for(auto& comp : actor->GetComponents())
                 if(auto model = std::dynamic_pointer_cast<Engine::Objects::Components::Model>(comp))
@@ -831,14 +794,10 @@ namespace Shard::Editor::Core{
 
         Rendering::Renderer* renderer = Engine::Core::GetEngine().GetRenderer();
 
-        // Wait for viewport size to be initialized
         if(!renderPassesInitialized && viewport->GetViewportSize() != glm::vec2(50,50)
             && viewport->GetViewportSize().x > 0 && viewport->GetViewportSize().y > 0){
 
-            // The colliders, the volumes and the probes : drawn by the editor, the engine knows none of them
             debugDraw.Init();
-
-            /// Outline mask pass
 
             Rendering::FramebufferSpecifications fbOutlineMaskSpecs;
             fbOutlineMaskSpecs.hasColor = true;
@@ -867,24 +826,12 @@ namespace Shard::Editor::Core{
 
             renderer->AddRenderPass(outlineMaskPass, "EditorOutlineMaskPass", {});
 
-            // Only the selected actor's own model(s) ever get registered into this pass (see
-            // SetSelectedActor) - the mask shader can just paint white unconditionally instead of
-            // comparing objID, and the pass only ever rasterizes the one object that matters instead of
-            // the whole scene. If a selection was already made before this pass existed (e.g. selecting
-            // something while the viewport panel was still settling its size), register it retroactively.
             for(auto& actor : selectedActors)
                 for(auto& comp : actor->GetComponents())
                     if(auto model = std::dynamic_pointer_cast<Engine::Objects::Components::Model>(comp))
                         model->AddToPass("EditorOutlineMaskPass");
 
-            /////////
-
-            /// Jump Flood Algorithm - propagates, for every pixel, the position of its nearest
-            /// silhouette (mask) pixel, so the final pass can turn that into a true Euclidean distance
-            /// field instead of the old fixed 3x3-neighbor mask check (which only ever caught
-            /// 1px-aligned edges and gave an outline whose thickness varied with edge angle).
-            /// Ping-pongs between two RGBA32F buffers: .xy holds the seed's pixel position, .z is a
-            /// validity flag (1.0 = has a seed) rather than a magic sentinel coordinate.
+            // Jump flood: propagates each pixel's nearest silhouette pixel for a true Euclidean distance field. Ping-pong between two RGBA32F buffers, .xy = seed position, .z = validity flag.
 
             Rendering::FramebufferSpecifications fbJFASpecs;
             fbJFASpecs.hasColor = true;
@@ -937,9 +884,7 @@ namespace Shard::Editor::Core{
             jfaStepPipelineSpecs.vertexLayout = {};
             std::shared_ptr<Rendering::Pipeline> jfaStepPipeline = renderer->GetOrAddPipeline(jfaStepPipelineSpecs);
 
-            // Fixed falling step sequence rather than the full log2(max(width,height)) chain a
-            // whole-image distance transform would need - correct for any pixel within ~31px of a
-            // seed, which is far more than a selection outline ever needs (outlineThickness below).
+            // Fixed step sequence, exact within ~31px of a seed, plenty for an outline (see outlineThickness).
             const float steps[] = {16.0f, 8.0f, 4.0f, 2.0f, 1.0f};
             std::shared_ptr<Rendering::Framebuffer> jfaRead = fbJFA_A;
             std::shared_ptr<Rendering::Framebuffer> jfaWrite = fbJFA_B;
@@ -972,16 +917,8 @@ namespace Shard::Editor::Core{
                 std::swap(jfaRead, jfaWrite);
             }
 
-            // After an odd number of steps (5), the final result sits in jfaRead (the chain swaps
-            // read/write at the end of every iteration above).
+            // Five steps (odd), so the result sits in jfaRead (read/write swap at the end of each iteration).
             std::shared_ptr<Rendering::Framebuffer> fbJFAFinal = jfaRead;
-
-            /////////
-
-            /// Outline Pass - composited straight onto the already-shaded scene (the viewport
-            /// framebuffer), right after everything else has drawn into it, so the mask's edge pixels
-            /// (the only ones outline.frag doesn't discard) land on top of the final image instead of
-            /// into a framebuffer nothing ever samples.
 
             std::shared_ptr<Rendering::Shader> outlineShader = Engine::Core::GetEngine().GetResourcesManager()->Get<Engine::Rendering::Shader>(Engine::Core::Resources::AssetKind::Shader, "shaders/editor/outline");
 
@@ -1007,7 +944,6 @@ namespace Shard::Editor::Core{
             outlinePass->customSamplers["maskTex"] = fbOutlineMask->GetColorAttachment();
             outlinePass->customSamplers["seedTex"] = fbJFAFinal->GetColorAttachment();
 
-            // After everything the editor draws over the scene, so the outline lands on top of it
             renderer->AddRenderPass(outlinePass, "EditorOutlinePass", {prevPassName,
                 Debug::EditorDebugDraw::PassOf(Debug::DebugLayer::Volumes),
                 Debug::EditorDebugDraw::PassOf(Debug::DebugLayer::Probes),
@@ -1021,9 +957,6 @@ namespace Shard::Editor::Core{
             renderer->AddOrUpdateCommands({cmd}, {"EditorOutlinePass"}, false);
             outlinePipelineFullscreenCommands.push_back({"EditorOutlinePass", outlineMaterial});
 
-            /// Infinite grid - one fullscreen pass per plane, ray-plane intersected in the fragment
-            /// shader and depth-tested against the scene (it writes gl_FragDepth, not depth itself).
-
             std::shared_ptr<Rendering::Shader> gridShader = Engine::Core::GetEngine().GetResourcesManager()->Get<Engine::Rendering::Shader>(Engine::Core::Resources::AssetKind::Shader, "shaders/editor/grid");
 
             Rendering::PipelineSpecifications gridPipelineSpecs;
@@ -1035,8 +968,7 @@ namespace Shard::Editor::Core{
             gridPipelineSpecs.debugName = "EditorGridPipeline";
             gridPipelineSpecs.vertexLayout = {};
             std::shared_ptr<Rendering::Pipeline> gridPipeline = renderer->GetOrAddPipeline(gridPipelineSpecs);
-            // Translucent : the material constructor overwrites the pipeline's blend state from its
-            // opacity (Opaque would silently turn blending off).
+            // Translucent: the material constructor overwrites the pipeline blend state from its opacity, Opaque would turn blending off.
             std::shared_ptr<Rendering::Material> gridMaterial = Rendering::Material::Create(gridShader, gridPipeline, false, Rendering::Opacity::Translucent);
 
             const char* gridPassNames[3] = {"EditorGridPassX", "EditorGridPassY", "EditorGridPassZ"};
@@ -1066,7 +998,6 @@ namespace Shard::Editor::Core{
 
         if(renderPassesInitialized)
         {
-            // The game view shows what the game draws and nothing the editor adds over it, lit whatever the viewport was set to
             const bool game = gameView;
 
             Rendering::DebugViewState debugView;
@@ -1076,15 +1007,12 @@ namespace Shard::Editor::Core{
             renderer->SetDebugView(debugView);
             renderer->SetShowEditorBillboards(!game && settings.showBillboards);
 
-            // Grid squares follow the location snap increment (1m when snapping is off).
             const float gridCell = (settings.snapLocation && settings.locationSnap > 0.0f) ? settings.locationSnap : 1.0f;
             const bool gridPlaneEnabled[3] = { settings.showGridX, settings.showGridY, settings.showGridZ };
             const bool showOutlines = !game && settings.showOutlines;
             const bool showGrid = !game && settings.showGrid;
 
-            // What the editor draws over the scene is the renderer's own state : it is set from the render thread, between two
-            // frames, from copies of the editor settings (this thread goes on without waiting). The passes' flags and
-            // uniforms apply to the frame after the one being drawn.
+            // Set from the render thread between two frames, from copies of the editor settings. Flags and uniforms apply to the frame after the one being drawn.
             Rendering::RenderThread::Get().Post([renderer, showOutlines, showGrid, gridPlaneEnabled, gridCell,
                                                  gridCommands = gridCommands, fullscreenCommands = outlinePipelineFullscreenCommands]()
             {
@@ -1099,7 +1027,6 @@ namespace Shard::Editor::Core{
                     gridPass->customUniforms["cellSize"] = gridCell;
                 }
 
-                // Grid passes also lose their command on a world reload.
                 for(auto& [passName, material] : gridCommands)
                 {
                     Rendering::DrawCommand gridCmd{};
@@ -1109,11 +1036,7 @@ namespace Shard::Editor::Core{
                     renderer->AddOrUpdateCommands({gridCmd}, {passName}, false);
                 }
 
-                // Same reasoning as above, but for the JFA/composite passes' single permanent fullscreen
-                // command each (see where outlinePipelineFullscreenCommands is populated in the one-time
-                // setup above) - a world reload clears every pass's draw list (ClearPassesContent), and
-                // that setup never runs again, so without this the outline silhouette mask would keep
-                // updating correctly on selection while nothing ever turns it into a visible outline again.
+                // A world reload clears every pass's draw list and the one-time setup never reruns, so the JFA/composite fullscreen commands are resubmitted each frame.
                 for(auto& [passName, material] : fullscreenCommands)
                 {
                     Rendering::DrawCommand fsCmd{};
@@ -1125,11 +1048,9 @@ namespace Shard::Editor::Core{
             });
         }
 
-        // Between two frames : a new theme or scale must not change the style halfway through one
         UpdatePreferences();
 
-        // A game that captured the cursor owns the mouse : its position keeps moving with the raw deltas, and would hover the panels around
-        // the viewport. Dear ImGui is told to ignore the mouse for as long as the capture lasts (F1 stops the play session without it).
+        // A game that captured the cursor keeps getting raw deltas that would hover the panels. ImGui ignores the mouse while the capture lasts (F1 ends play).
         {
             ImGuiIO& io = ImGui::GetIO();
             if(Engine::Core::GetEngine().IsInPlayMode() && SDL_GetWindowRelativeMouseMode(GetSDLWindow()))
@@ -1138,14 +1059,12 @@ namespace Shard::Editor::Core{
                 io.ConfigFlags &= ~ImGuiConfigFlags_NoMouse;
         }
 
-        // The graphics backend of the UI is set up (and used) by the render thread : only the platform half is here
         ImGui_ImplSDL3_NewFrame();
         ImGui::NewFrame();
 
 
         ImGuizmo::BeginFrame();
 
-        // G : the game view. Not with a modifier (Ctrl+G groups the selection), not while typing, not while playing (the game owns the keys)
         {
             const ImGuiIO& io = ImGui::GetIO();
             if(!Engine::Core::GetEngine().IsInPlayMode() && !io.WantTextInput && !io.KeyCtrl && !io.KeyShift && !io.KeyAlt && !io.KeySuper
@@ -1153,14 +1072,11 @@ namespace Shard::Editor::Core{
                 ToggleGameView();
         }
 
-        // An actor can be destroyed from anywhere (a panel, an undo, a parent being deleted) : the panels below
-        // must not get a dead one. Again after the menu bar, whose items edit the world.
+        // An actor can be destroyed from anywhere (panel, undo, parent delete), panels must not get a dead one.
         ValidateSelection();
 
         if(gameView)
         {
-            // The scene alone : the viewport takes the whole window (see ViewportWindow::Draw), with no menu bar, dock space or panel. The
-            // panels are not submitted, which leaves them in their dock nodes : the layout is the same on the way back.
             viewport->Draw();
         }
         else
@@ -1190,7 +1106,6 @@ namespace Shard::Editor::Core{
                 profilerPanel->Draw();
             if(panelVisibility.plugins)
                 pluginsPanel->Draw(&panelVisibility.plugins);
-            // The windows plugins added
             for(const auto& panel : Engine::Plugins::PluginManager::Get().Extensions().Get<Engine::Plugins::EditorPanelItem>("editor.panel")){
                 if(panel->visible && panel->draw)
                     panel->draw(&panel->visible);
@@ -1211,17 +1126,13 @@ namespace Shard::Editor::Core{
 
         ImGui::Render();
 
-        // The UI is drawn by the render thread, after the scene it shows. This thread waits for it (the draw data and the
-        // textures it points at are ImGui's own, which the next frame would change), then goes on with the next simulation
-        // while the render thread swaps.
+        // The UI is drawn by the render thread. Wait for it here since the draw data and textures are ImGui's and the next frame would change them.
         ImDrawData* drawData = ImGui::GetDrawData();
 
         if(UsesVulkan())
         {
-            // The window's size, not the viewport's (see GetFramebufferWidth) : the swapchain is as big as the window
             const uint32_t width = static_cast<uint32_t>(SDLWindow::GetFramebufferWidth());
             const uint32_t height = static_cast<uint32_t>(SDLWindow::GetFramebufferHeight());
-            // This thread is blocked until the render thread has drawn the UI and presented : that is waiting, not work
             SHARD_PROFILE_SCOPE(Engine::Debugging::ProfileCategory::Waiting);
             Rendering::OnGraphicsThread([drawData, width, height] {
                 ImGui_ImplVulkan_NewFrame();
@@ -1236,7 +1147,6 @@ namespace Shard::Editor::Core{
             ImGui_ImplOpenGL3_RenderDrawData(drawData);
         });
         Rendering::RenderThread::Get().Post([this] {
-            // Sampled on the render thread : it blocks on the vsync, and belongs to the frame whose picture it presents
             SHARD_PROFILE_SCOPE(Engine::Debugging::ProfileCategory::Presentation);
             SDLWindow::SwapBuffers();
         });
@@ -1252,7 +1162,6 @@ namespace Shard::Editor::Core{
         if(!lightmaps)
             return;
 
-        // One long-lived progress notification for the whole bake, closed when it ends
         static GUI::Notifications::ProgressId lightmapNotif = 0;
         static bool tracking = false;
 
@@ -1290,15 +1199,10 @@ namespace Shard::Editor::Core{
         if(!probeManager)
             return;
 
-        // One long-lived progress notification, opened when a scene build (or a full probe bake, which
-        // includes one) starts and closed when it finishes. The handles survive across frames; 0 means
-        // "no notification currently open".
         static GUI::Notifications::ProgressId probeBuildNotif = 0;
         static bool tracking = false;
-        static bool trackingBake = false; // what the open notification is tracking, to word its ending
+        static bool trackingBake = false;
 
-        // A bake reports its own combined progress (scene build + tracing) and takes over from the plain
-        // scene-build one, which it would otherwise duplicate.
         const bool baking = probeManager->IsBaking();
 
         if(baking || probeManager->IsSceneBuilding())
@@ -1356,14 +1260,12 @@ namespace Shard::Editor::Core{
     {
         ImGuiStyle& style = ImGui::GetStyle();
 
-        // From a clean style every time : the sizes are scaled from their unscaled values, not from the last scale's
         const float fontSizeBase = style.FontSizeBase;
         const float fontScaleDpi = style.FontScaleDpi;
         style = ImGuiStyle();
         style.FontSizeBase = fontSizeBase;
         style.FontScaleDpi = fontScaleDpi;
 
-        // Shard's sizes and roundings whatever the theme ; the other themes only bring their colours
         SetupImGuiStyle();
         switch(preferences.appearance.theme)
         {
@@ -1388,7 +1290,6 @@ namespace Shard::Editor::Core{
 
         Editor::Commands::CommandStack::Get().SetMaxHistory(static_cast<size_t>(std::max(1, preferences.saving.undoHistorySize)));
 
-        // Written once a second at most, and only when they changed : a slider being dragged does not hit the disk every frame
         const double now = ImGui::GetTime();
         if(now < nextPreferencesCheck || Engine::Core::GetEngine().GetSettings().readOnly)
             return;
@@ -1398,7 +1299,6 @@ namespace Shard::Editor::Core{
         if(text == savedPreferencesText)
             return;
 
-        // Kept even when the write fails : the error is logged once, not every second
         SaveEditorPreferences(GetEditorPreferencesPath(), preferences);
         savedPreferencesText = std::move(text);
     }
@@ -1408,13 +1308,12 @@ namespace Shard::Editor::Core{
         const double now = ImGui::GetTime();
         if(!preferences.saving.autoSaveWorld)
         {
-            // The interval counts from when it is turned on
             lastAutoSaveTime = now;
             return;
         }
 
         auto& engine = Engine::Core::GetEngine();
-        // Not while playing (the world is the play session's), loading, or in the middle of a gizmo drag
+        // Not while playing, loading, or mid gizmo drag.
         if(engine.IsInPlayMode() || engine.GetWorldManager()->IsAsyncLoadInProgress() || Editor::Commands::CommandStack::Get().IsActive())
             return;
 
@@ -1446,7 +1345,6 @@ namespace Shard::Editor::Core{
         if(!SDLWindow::ShouldClose() || closeConfirmed || !HasUnsavedProjectSettings())
             return;
 
-        // The close waits for the answer : Cancel (or Escape) keeps the editor open
         CancelClose();
         GUI::Popups::ConfirmUnsavedChanges("Project Settings",
             [this]{
@@ -1463,14 +1361,12 @@ namespace Shard::Editor::Core{
 
     void EditorMainWindow::Destroy() const
     {
-        // What changed in the last second (the periodic write did not see it yet)
         if(imguiInitialized && !Engine::Core::GetEngine().GetSettings().readOnly
             && SerializeEditorPreferences(preferences) != savedPreferencesText)
             SaveEditorPreferences(GetEditorPreferencesPath(), preferences);
 
         if(UsesVulkan())
             Rendering::OnGraphicsThread([] {
-                // What the interface recorded may still be running
                 Rendering::UIBackendInfo info;
                 Rendering::RendererAPI::Current()->GetUIBackendInfo(info);
                 if(info.device)
@@ -1497,8 +1393,6 @@ namespace Shard::Editor::Core{
 
         if(Engine::Core::GetEngine().IsInPlayMode())
         {
-            // The one editor shortcut that works while playing : the game owns the other keys. The viewport re-asserts the
-            // editor camera on the next frame (see ViewportWindow::Draw)
             if(input->WasKeyPressed(Engine::Input::Key::F1) && !ImGui::GetIO().WantTextInput)
                 Engine::Core::GetEngine().SetPlayMode(false);
             return;

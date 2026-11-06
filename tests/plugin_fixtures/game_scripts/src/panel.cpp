@@ -1,4 +1,3 @@
-// A panel of the editor : added only when the host is the editor
 #include <shard/game.hpp>
 
 #include "stats.hpp"

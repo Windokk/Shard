@@ -1,7 +1,7 @@
 #pragma once
 
 #define SHARD_COMMA_ARGS(...) , ##__VA_ARGS__
-#define SHARD_COMMA_ARGS_SP(...) , ##__VA_ARGS__  // helper for space
+#define SHARD_COMMA_ARGS_SP(...) , ##__VA_ARGS__
 
 #if defined(__clang__) && !defined(FIELD)
     #define FIELD(...) __attribute__((annotate("field ," #__VA_ARGS__)))

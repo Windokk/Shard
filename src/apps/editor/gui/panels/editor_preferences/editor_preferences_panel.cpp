@@ -44,7 +44,6 @@ namespace Shard::Editor::GUI{
 
         const std::string path = Core::GetEditorPreferencesPath();
 
-        // Top bar : search, then the file and the reset of everything
         const char* revealLabel = ICON_LC_FOLDER_OPEN " Show File";
         const char* resetLabel = ICON_LC_ROTATE_CCW " Reset All";
         const ImGuiStyle& style = ImGui::GetStyle();
@@ -95,7 +94,6 @@ namespace Shard::Editor::GUI{
                          theme, static_cast<int>(kDefaults.appearance.theme), themes, IM_ARRAYSIZE(themes)))
             appearance.theme = static_cast<Core::EditorTheme>(theme);
 
-        // Applied when the slider is let go : rescaling under the mouse would move the slider away from it
         bool reset = false;
         if (m_View.BeginRow("UI Scale", "Size of the whole interface : text, padding and spacing.",
                             appearance.uiScale != kDefaults.appearance.uiScale, &reset))
@@ -127,7 +125,6 @@ namespace Shard::Editor::GUI{
 
         m_View.Section("Camera");
 
-        // The ranges are the fields' own (FIELD range= in editor_preferences.hpp) : the same as the file and the Scene Camera window
         const Core::PreferenceRange speedRange = PREFERENCE_RANGE(Core::CameraPreferences, speed);
         const Core::PreferenceRange sensitivityRange = PREFERENCE_RANGE(Core::CameraPreferences, mouseSensitivity);
         const Core::PreferenceRange fovRange = PREFERENCE_RANGE(Core::CameraPreferences, fieldOfView);

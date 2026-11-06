@@ -53,7 +53,6 @@ namespace Shard::Engine::Rendering {
             info.path = entry.path().generic_string();
             info.settings = json.contains("settings") && json["settings"].is_object() ? json["settings"] : nlohmann::json::object();
 
-            // A file read again (a rescan, a hot reload) replaces what it said
             std::lock_guard<std::mutex> lock(m_Mutex);
             m_Assets.erase(std::remove_if(m_Assets.begin(), m_Assets.end(), [&](const RenderPipelineInfo& known) { return known.name == info.name; }), m_Assets.end());
             m_Assets.push_back(std::move(info));
@@ -99,7 +98,6 @@ namespace Shard::Engine::Rendering {
 
     std::unique_ptr<RenderPipeline> RenderPipelineRegistry::Create(const std::string& name) const
     {
-        // An asset by that name, else a type
         std::string type = name;
         nlohmann::json settings = nlohmann::json::object();
         Factory factory;
@@ -121,7 +119,6 @@ namespace Shard::Engine::Rendering {
             factory = it->second.factory;
         }
 
-        // Outside the lock : a factory may ask the registry for something
         return factory(settings);
     }
 

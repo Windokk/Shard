@@ -14,7 +14,6 @@ namespace Shard::Engine::Core {
 #else
         constexpr bool kTrackByDefault = true;
 #endif
-        // `memory.track 1` in the console (or a config file) switches the tracker on or off
         CVar<bool> cvTrack("memory.track", kTrackByDefault, "Record allocations of the engine's allocators (leak report at shutdown)",
                            CVarFlags::None);
         const bool g_Wired = [] {
@@ -47,14 +46,14 @@ namespace Shard::Engine::Core {
         counters.peakBytes = std::max(counters.peakBytes, counters.liveBytes);
         counters.totalAllocations += 1;
 
-        m_Live[ptr] = std::move(record);        // a reused address replaces the stale record
+        m_Live[ptr] = std::move(record);
     }
 
     void MemoryTracker::RecordFree(const void* ptr) {
         if (!ptr) return;
-        std::lock_guard<std::mutex> lock(m_Mutex);       // not gated on IsEnabled : a free must match its alloc
+        std::lock_guard<std::mutex> lock(m_Mutex);       // Not gated on IsEnabled: a free must match its alloc.
         auto it = m_Live.find(ptr);
-        if (it == m_Live.end()) return;                   // allocated while tracking was off
+        if (it == m_Live.end()) return;
 
         TagCounters& counters = m_Tags[it->second.tag];
         counters.liveBytes -= std::min(counters.liveBytes, it->second.size);
@@ -98,7 +97,7 @@ namespace Shard::Engine::Core {
         const std::vector<Leak> live = GetLiveAllocations();
         if (live.empty()) return {};
 
-        std::map<std::string, std::pair<size_t, size_t>> perTag;     // tag -> (count, bytes)
+        std::map<std::string, std::pair<size_t, size_t>> perTag;
         for (const Leak& l : live) {
             auto& entry = perTag[l.tag];
             entry.first += 1;

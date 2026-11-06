@@ -26,7 +26,7 @@ TEST(ReplayPlugins, PluginLinesRoundTrip)
     EXPECT_EQ(back.checks.size(), 1u);
 }
 
-TEST(ReplayPlugins, AReplayWithoutPluginLinesStillReads)
+TEST(ReplayPlugins, ReadsWithoutPluginLines)
 {
     ReplayData back;
     std::string error;
@@ -34,7 +34,7 @@ TEST(ReplayPlugins, AReplayWithoutPluginLinesStillReads)
     EXPECT_TRUE(back.plugins.empty());
 }
 
-TEST(ReplayPlugins, ABadPluginLineIsReported)
+TEST(ReplayPlugins, BadPluginLineReported)
 {
     ReplayData back;
     std::string error;

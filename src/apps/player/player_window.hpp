@@ -8,7 +8,6 @@
 
 namespace Shard::Game::Core::Platform {
 
-    /// @brief The player's window : the SDL window of the platform layer, which presents the renderer's frame.
     class PlayerWindow : public Engine::Core::Platform::SDLWindow {
     public:
         void Init(const std::string& title, const int& width, const int& height,

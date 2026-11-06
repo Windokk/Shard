@@ -22,17 +22,16 @@
 #include "engine/world/ecs_components.hpp"
 #include "engine/world/engine.hpp"
 
-// shard.systems and shard.ecs : a C system is a SystemDesc whose function calls the plugin. While it runs, the ShardEcs it was handed
-// designates that run on that thread (a thread_local), so a handle kept past the run, or used from another thread, finds nothing.
+// A C system's ShardEcs is bound to the run on this thread (thread_local), so a handle kept past the run or used from another thread finds nothing
 
 namespace Shard::Engine::Plugins::CAbi {
 
     struct CSystem {
-        std::string name;                       // full
+        std::string name;
         PluginOwner owner = 0;
         ShardSystemFn run = nullptr;
         void* user = nullptr;
-        Core::Ecs::ComponentSet access;         // reads and writes : what its queries may touch
+        Core::Ecs::ComponentSet access;
         bool exclusive = false;
     };
 
@@ -40,7 +39,7 @@ namespace Shard::Engine::Plugins::CAbi {
         thread_local SystemRun* tRun = nullptr;
         std::atomic<uint64_t> gNextRun{ 0 };
 
-        // The poses systems set, by system name : applied in that order at the end of the phase, whatever order the systems finished in
+        // Applied in system-name order at phase end, whatever order the systems finished in
         std::mutex gPoseMutex;
         std::map<std::string, std::vector<QueuedPose>> gPoses;
 
@@ -59,13 +58,11 @@ namespace Shard::Engine::Plugins::CAbi {
             return true;
         }
 
-        // The system declared it (or may touch anything)
         bool MayTouch(const SystemRun& run, Core::Ecs::ComponentId id)
         {
             return !run.system || run.system->exclusive || Core::Ecs::Contains(run.system->access, id);
         }
 
-        // The ids of a query, checked against what the system declared
         ShardResult ReadQuery(const SystemRun& run, const ShardQuery* query, std::vector<Core::Ecs::ComponentId>& with, Core::Ecs::ComponentSet& without)
         {
             if (!query || query->structSize < sizeof(ShardQuery)) return SHARD_E_INVALID_ARG;
@@ -83,8 +80,6 @@ namespace Shard::Engine::Plugins::CAbi {
             }
             return SHARD_OK;
         }
-
-        // ---- shard.ecs ----
 
         ShardResult SHARD_CALL EachChunk(ShardEcs ecs, const ShardQuery* query, ShardChunkFn fn, void* user)
         {
@@ -243,8 +238,6 @@ namespace Shard::Engine::Plugins::CAbi {
             } catch (...) { return SHARD_E_INTERNAL; }
         }
 
-        // ---- shard.systems ----
-
         bool IsSystemName(const std::string& name)
         {
             return !name.empty() && name.size() <= 128 && name.find('/') == std::string::npos;
@@ -301,7 +294,7 @@ namespace Shard::Engine::Plugins::CAbi {
                 info->access.insert(info->access.end(), system.writes.begin(), system.writes.end());
                 Core::Ecs::Normalize(info->access);
 
-                // The registrar wraps this : it names the plugin around the call, catches what is thrown and counts it as an error of the plugin
+                // Registrar wraps this: names the plugin around the call, catches exceptions and counts them against the plugin
                 system.run = [info](Core::Ecs::SystemContext& sc) {
                     SystemRun run;
                     run.handle = ++gNextRun;
@@ -354,8 +347,6 @@ namespace Shard::Engine::Plugins::CAbi {
         }
     }
 
-    // ---- shard.experimental.world_ecs : a run of no system, opened on the main thread ----
-
     namespace {
         struct MainRun {
             explicit MainRun(Core::Ecs::Registry& registry) : context{ registry, commands, nullptr, 0.0f, 0.0f, 0, 0, 0 } {}
@@ -366,7 +357,6 @@ namespace Shard::Engine::Plugins::CAbi {
             SystemRun* previous = nullptr;
             PluginOwner owner = 0;
         };
-        // Main thread only : the last opened last
         std::vector<std::unique_ptr<MainRun>> gMainRuns;
 
         void CloseTop()
@@ -390,7 +380,7 @@ namespace Shard::Engine::Plugins::CAbi {
                 Core::IEngineContext* engine = ctx->Engine();
                 Core::Ecs::Registry* registry = engine ? engine->GetEcs() : nullptr;
                 if (!registry) return SHARD_E_UNSUPPORTED;
-                if (!registry->CanChangeStructure()) return SHARD_E_WRONG_THREAD;      // a phase runs
+                if (!registry->CanChangeStructure()) return SHARD_E_WRONG_THREAD;
                 auto main = std::make_unique<MainRun>(*registry);
                 main->engine = engine;
                 main->run.handle = ++gNextRun;
@@ -417,7 +407,7 @@ namespace Shard::Engine::Plugins::CAbi {
 
     void CloseWorldEcs(PluginOwner owner)
     {
-        // What a plugin left open : closed, and those opened after it with it (they are nested in it)
+        // Closing a run also closes the ones opened after it, they are nested
         for (size_t i = 0; i < gMainRuns.size(); ++i) {
             if (gMainRuns[i]->owner != owner) continue;
             while (gMainRuns.size() > i) CloseTop();
@@ -459,7 +449,7 @@ namespace Shard::Engine::Plugins::CAbi {
             const glm::vec3 position(pose.position[0], pose.position[1], pose.position[2]);
             const glm::quat rotation = glm::normalize(glm::quat(pose.rotation[3], pose.rotation[0], pose.rotation[1], pose.rotation[2]));
             const glm::vec3 scale(pose.scale[0], pose.scale[1], pose.scale[2]);
-            // Only what changed : a system that sets the same pose every frame costs the actor nothing
+            // Only touch what changed, so a system setting the same pose every frame costs the actor nothing
             if (transform.position != position) transform.SetPosition(position);
             if (transform.rotation != rotation) transform.SetRotation(rotation);
             if (transform.scale != scale) transform.SetScale(scale);

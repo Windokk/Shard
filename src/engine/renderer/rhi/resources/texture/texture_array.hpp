@@ -4,9 +4,6 @@
 
 namespace Shard::Engine::Rendering {
 
-    /// @brief Layers of the same size and format behind one texture : a shader reads all of them through ONE sampler unit (a
-    /// sampler2DArray, the layer is a coordinate), which is what lets lit.frag read every cascade or every spot light's shadow map
-    /// without one unit each. The layers are drawn into one at a time (see Framebuffer::AttachDepthLayer).
     class Texture2DArray
     {
         public:
@@ -25,7 +22,6 @@ namespace Shard::Engine::Rendering {
 
             virtual bool IsValid() const = 0;
 
-            /// `layers` textures with nothing in them yet (a depth one holds the far depth), one level each
             static std::shared_ptr<Texture2DArray> Create(const TextureSpecifications& specs, uint32_t layers);
 
         protected:

@@ -44,8 +44,6 @@ namespace Shard::Engine::Rendering {
             return true;
         if (IsRunning())
             return false;
-        // Not running : the graphics API belongs to the thread that set it up. Before anyone said which, any thread will do
-        // (tests, tools).
         return !m_HomeBound.load(std::memory_order_acquire) || m_HomeThread == std::this_thread::get_id();
     }
 
@@ -56,7 +54,7 @@ namespace Shard::Engine::Rendering {
 
         BindHomeThread();
         if (release)
-            release();      // the calling thread lets go of the context : the new one takes it
+            release();
 
         {
             std::lock_guard<std::mutex> lock(m_Mutex);
@@ -79,7 +77,7 @@ namespace Shard::Engine::Rendering {
         {
             m_Thread.join();
             if (acquire)
-                acquire();  // the context goes back where it was
+                acquire();
             return false;
         }
 
@@ -92,7 +90,6 @@ namespace Shard::Engine::Rendering {
         if (!IsRunning())
             return;
 
-        // Everything submitted runs first, then the thread lets go of the context on its way out
         if (release)
             Invoke(std::move(release));
         else
@@ -109,8 +106,7 @@ namespace Shard::Engine::Rendering {
         if (acquire)
             acquire();
 
-        // Whatever another thread queued while the thread was on its way out runs here, now that this thread owns the
-        // context again (a task left behind would leave its caller waiting forever)
+        // Tasks queued while the thread was exiting run here. A task left behind would hang its caller.
         std::deque<Task> leftovers;
         {
             std::lock_guard<std::mutex> lock(m_Mutex);
@@ -299,7 +295,6 @@ namespace Shard::Engine::Rendering {
             std::unique_lock<std::mutex> lock(m_Mutex);
             m_FrameDone.wait(lock, [this] { return m_FramesInFlight < MaxFramesInFlight() || !IsRunning(); });
 
-            // One sample per frame : what the simulation waited, and what it spent parked in Invoke() since the last one
             const bool first = m_WaitSamples == 0;
             Smooth(m_AverageWaitMs, MillisecondsSince(start), first);
             Smooth(m_AverageInvokeMs, m_InvokeMsThisFrame, first);

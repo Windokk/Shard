@@ -2,7 +2,6 @@
 
 #include <glm/glm.hpp>
 
-//Colors
 struct COL_RGB{
     COL_RGB() = default;
     COL_RGB(float r, float g, float b){

@@ -20,44 +20,31 @@ namespace Shard::Engine::Rendering {
     class Framebuffer;
     struct DrawCommand;
     
-    // Most cascades one light can have, and the cascade shadow map slots lit.frag has (its dirLightSpaceMatrices array, the layers of the suns' array) : the suns share them,
-    // each taking as many as the project's cascade count, so fewer suns can cast shadows when there are more cascades
     static constexpr uint32_t MAX_CASCADES_PER_LIGHT = Projects::ShadowSettings::MaxCascades;
     static constexpr uint32_t NUM_CASCADES = (LightManager::MAX_DIRECTIONAL_LIGHTS * 3);
 
-    // Mirrors the fixed-size arrays of light matrices / far planes in lit.frag (spotLightSpaceMatrices[10],
-    // pointLightFarPlanes[10]) : the maps themselves are layers of one texture each and cost no sampler unit
-    // per light. A shadow-casting light beyond these caps gets shadowIndex = -1 (see
-    // ShadowManager::ReassignShadowIndices) and renders unshadowed rather than reading garbage.
+    // Mirrors the fixed arrays in lit.frag (spotLightSpaceMatrices[10], pointLightFarPlanes[10]). Beyond the cap shadowIndex = -1 and the light is unshadowed.
     static constexpr int MAX_SPOT_LIGHTS = 10;
     static constexpr int MAX_POINT_LIGHTS = 10;
 
     struct ShadowMap {
         LightData light;
 
-        // The live LightData this ShadowMap mirrors (same object LightManager uploads to the SSBO) -
-        // kept so ReassignShadowIndices can write shadowIndex back onto it, not just this struct's own
-        // `light` copy.
         std::shared_ptr<LightData> lightPtr;
 
-        // Directional and spot
-        std::shared_ptr<Framebuffer> framebuffer[MAX_CASCADES_PER_LIGHT] = {nullptr};       // One FBO per cascade (only 1 used for spot), each drawing into a layer of the suns' / the spots' array
+        std::shared_ptr<Framebuffer> framebuffer[MAX_CASCADES_PER_LIGHT] = {nullptr};
 
-        // The array the framebuffers draw into and the layer of the first one (the cascades follow it) : 0 / -1 when they draw nowhere
-        // (no shadow slot), -2 before the first sync. Kept to tell when SyncLayeredShadowTargets has to point them somewhere else.
         uint32_t attachedArray = 0;
         int attachedBaseLayer = -2;
 
-        // Directional (CSM)
-        glm::mat4 lightMatrix[MAX_CASCADES_PER_LIGHT];                                      // One matrix per cascade
-        float cascadeSplits[MAX_CASCADES_PER_LIGHT];                                        // Only used for directional lights
-        uint32_t cascadeCount = 0;                                                      // Cascades this light was built with (directional)
-        float splitCameraNear = -1.0f;                                                  // The camera planes the splits were computed for : they follow the camera
+        glm::mat4 lightMatrix[MAX_CASCADES_PER_LIGHT];
+        float cascadeSplits[MAX_CASCADES_PER_LIGHT];
+        uint32_t cascadeCount = 0;
+        float splitCameraNear = -1.0f;
         float splitCameraFar = -1.0f;
 
-        // Point 
-        std::shared_ptr<Cubemap> depthCubemap;                                          // Single cubemap for point lights
-        glm::mat4 shadowMatrices[6];                                                    // 6 face matrices (point lights)
+        std::shared_ptr<Cubemap> depthCubemap;
+        glm::mat4 shadowMatrices[6];
         int cubeArrayLayer = -1;
 
         int resolution = 0;
@@ -68,28 +55,16 @@ namespace Shard::Engine::Rendering {
     class ShadowManager {
     public:
 
-        /// @brief Initializer for the shadow manager
-        /// @param resolution The resolution to use for shadow maps
         void Init(int pointShadowsResolution, int spotShadowsResolution, int dirShadowsResolution);
         
-        /// @brief Changes how the shadows are made (the project's rendering settings). A new resolution or face culling rebuilds the
-        /// shadow maps of every light already registered ; the rest (cascade fit, filtering, biases) takes effect on the next frame.
         void Configure(const Projects::ShadowSettings& settings);
 
-        /// @brief The settings in use : lit.frag's filtering and biases come from them
         const Projects::ShadowSettings& GetSettings() const { return m_Settings; }
 
-        /// @brief Register/Update a light for shadow mappings
-        /// @param lightIndex The light's global index in the scene
-        /// @param light The shared pointer to the light's data
         void RegisterOrUpdateLight(int lightIndex, std::shared_ptr<LightData> light);
 
-        /// @brief Remove a light from shadow mappings
-        /// @param lightIndex The light's global index in the scene
         void UnregisterLight(int lightIndex);
 
-        /// @brief Bind the shadow maps to a material
-        /// @param material The material to bind shadow maps to
         void BindShadowMaps(std::shared_ptr<Shard::Engine::Rendering::Material> material);
 
         std::vector<std::string> GetAllShadowPasses() {
@@ -128,46 +103,31 @@ namespace Shard::Engine::Rendering {
 
         void SubmitPasses(int lightIndex);
 
-        /// Where each of the project's cascades ends, in view depth, for a camera range [cameraNear, shadowFar]
         void ComputeCascadeSplits(float* out, float cameraNear, float shadowFar) const;
 
-        /// The far end of the sun's last cascade : the camera's far plane, or the shadow distance when it is shorter
         float GetDirectionalShadowFar(float cameraNear, float cameraFar) const;
         void EnsureCubeArrayCapacity(int requiredPointLights);
         void TryShrinkCubeArray();
 
-        // Replaces the point lights' cube map array with one of `capacity` layers (none when 0), then re-targets every point light at it
         void RecreateCubeArray(int capacity);
 
-        // Points every point light's framebuffer at the current cube map array and its pass at its current layer : run whenever the
-        // array is recreated or the layers shift (a light removed), else shadow_point.geom writes a deleted texture or another light's layer
+        // Run when the array is recreated or layers shift, else shadow_point.geom writes a deleted texture or another light's layer.
         void SyncPointShadowTargets();
 
-        // Recomputes and writes back LightData::shadowIndex for every currently-registered
-        // shadow-casting light (directional/spot: ordinal position among same-type shadow casters in
-        // ascending light-index order; point: the persistent cubeArrayLayer). Must run after any change
-        // to the set of registered shadow-casting lights (RegisterOrUpdateLight, UnregisterLight) -
-        // callers must ensure LightManager::Update() runs afterward so the new indices reach the GPU.
         void ReassignShadowIndices();
 
-        // The suns' and the spot lights' shadow maps are the layers of one texture array each (lit.frag reads every one through a
-        // single sampler). Run after ReassignShadowIndices : sizes the arrays to the lights that have a slot, points each light's
-        // framebuffers at the layers of its slot (shadowIndex * cascades + cascade for a sun, shadowIndex for a spot), and turns off
-        // the passes of a light that has none. A pass whose layer changed draws again, even if nothing it hashes did.
         void SyncLayeredShadowTargets();
 
-        // An array of `layers` maps of `resolution`, for the suns (compare : read through a sampler2DArrayShadow) or the spots
         std::shared_ptr<Texture2DArray> CreateShadowArray(int resolution, uint32_t layers, bool compare) const;
 
-        // Every point light's framebuffer is the whole (layered) cube map array : a pass clearing it would wipe the other lights' layers.
-        // The array is cleared once per frame by this pass instead, and every point light's pass comes after it without clearing.
+        // The framebuffer is the whole cube array, so clear it once per frame here and never in each light's pass.
         void AddPointClearPass();
         void RemovePointClearPass();
 
         std::map<int, ShadowMap> m_ShadowMaps;
         std::shared_ptr<CubemapArray> m_CubeArrayTex;
-        std::shared_ptr<Texture2DArray> m_DirArrayTex;      // every cascade of every sun that has a slot
-        std::shared_ptr<Texture2DArray> m_SpotArrayTex;     // every spot light that has a slot (grown geometrically, up to MAX_SPOT_LIGHTS)
+        std::shared_ptr<Texture2DArray> m_DirArrayTex;
+        std::shared_ptr<Texture2DArray> m_SpotArrayTex;
         std::shared_ptr<Framebuffer> m_PointClearTarget;
         std::shared_ptr<Shader> m_DirShader;
         std::shared_ptr<Shader> m_SpotShader;

@@ -86,52 +86,31 @@ namespace Shard::Engine{
         enum class PoolKind : uint8_t;
 
         struct EngineCreationSettings{
-            //PLATFORM
             Platform::IPlatform* platform = nullptr;
 
-            //PROJECT
             std::string project = "";
 
-            /// Command line override for the world loaded at startup (a path in the project, such as "cornell.world");
-            /// the first world of the project's build settings is loaded unless it is set.
             std::string startWorld = "";
 
-            /// A file of console commands to run while the engine runs, one per line : "<frame> <command>" (blank lines and
-            /// lines starting with # are ignored). For scripted runs : tests, benchmarks.
             std::string scriptFile = "";
 
-            //WINDOW (Editor preferences)
             int windowWidth = 1280;
             int windowHeight = 720;
             bool fullscreen = false;
             bool vsync = true;
 
-            //PHYSICS (project settings : physics)
-            /// Command line override for the project's gravity; the project setting is used unless
-            /// overrideGravity is set.
             glm::vec3 gravity = glm::vec3(0, -9.81f, 0);
             bool overrideGravity = false;
 
-            //PLAY MODE
             bool startInPlayMode = false;
 
-            /// Nothing is written back to the project : neither the world saved when play mode starts, nor the
-            /// project file and the asset database saved at shutdown. For runs that must leave the project as they
-            /// found it (the CI's smoke test).
             bool readOnly = false;
 
-            /// No window system, no GPU, no sound card (a dedicated server, the tests, a replay checked by the CI) : the platform
-            /// is a headless one, the audio device is not opened, nothing is watched on disk. The renderer is then to be run on
-            /// the null graphics backend (api = RendererAPI::API::Null) : the frame runs, nothing is drawn.
             bool headless = false;
 
-            /// A run that can be repeated : every frame lasts exactly one fixed step (the clock is ignored), physics runs on
-            /// one thread, GUIDs are counted from the seed, nothing is reloaded behind the simulation's back. With the same seed,
-            /// the same project and the same input it ends in the same state (see HashSimulationState), on every platform.
+            // Repeatable run: every frame is one fixed step, single-thread physics, GUIDs counted from the seed, no hot reload. Same seed, project and input end in the same state (HashSimulationState).
             bool deterministic = false;
 
-            /// The seed every random stream of the engine derives from (see Core::Determinism). A seed drawn from the OS, and
-            /// logged, when it is not set.
             std::optional<uint64_t> seed;
 
             uint32_t api = 0;
@@ -191,7 +170,6 @@ namespace Shard::Engine{
                 virtual Platform::IInput* GetInputManager() const = 0;
 
                 virtual Rendering::Renderer* GetRenderer() const = 0;
-                /// What the parts of the renderer that draw the world (components, features) use of the renderer
                 virtual Rendering::IRenderContext* GetRenderContext() const = 0;
                 virtual Rendering::CameraManager* GetCameraManager() const = 0;
                 virtual Resources::ResourcesManager* GetResourcesManager() const = 0;
@@ -207,33 +185,21 @@ namespace Shard::Engine{
                 virtual Projects::BuildSettings* GetBuildSettings() const = 0;
                 virtual std::shared_ptr<Projects::Project> GetCurrentProject() const = 0;
                 virtual Debugging::Profiler* GetProfiler() const = 0;
-                /// The engine's worker pool (work-stealing jobs, task graphs, ParallelFor) : see engine/core/jobs/
                 virtual JobSystem* GetJobSystem() const = 0;
-                /// A dedicated pool (IO : blocking work, Render / Audio : one thread, tasks in order), created on first
-                /// use. Null when the context has none.
                 virtual ThreadPool* GetThreadPool(PoolKind kind) const = 0;
-                /// Per-frame scratch memory any thread can allocate from ; valid for the current and the previous frame.
                 virtual FrameAllocator* GetFrameAllocator() const = 0;
-                /// The entities of every loaded world (an actor owns one) : see engine/core/ecs/
                 virtual Ecs::Registry* GetEcs() const = 0;
-                /// The systems run each frame, by phase (Input, PreSim, Fixed, PostPhysics, Update, Late, Extract)
                 virtual Ecs::Scheduler* GetScheduler() const = 0;
-                /// Keeps the loaded assets in line with their files on disk (null if it isn't running)
                 virtual Assets::HotReloader* GetHotReloader() const { return nullptr; }
 
                 virtual bool IsInPlayMode() const = 0;
                 virtual void SetPlayMode(bool on) = 0;
 
-                /// Frames run so far (the calls of Run)
                 virtual uint64_t GetFrameNumber() const { return 0; }
-                /// Whether this run can be repeated (EngineCreationSettings::deterministic)
                 virtual bool IsDeterministic() const { return false; }
-                /// The seed the random streams derive from
                 virtual uint64_t GetSimulationSeed() const { return 0; }
-                /// A random generator for a system of its own : the same name gives the same sequence in every run with the same
-                /// seed, whatever order the systems start in. Keep it, do not ask every frame. Gameplay uses this instead of
-                /// rand() / std::random_device, which no replay can reproduce. (Here, not a free function : the game module has
-                /// its own copy of the engine's statics.)
+                // Named stream: same name and seed give the same sequence whatever the system start order. Keep it, don't ask each frame.
+                // Gameplay uses this instead of rand() / std::random_device. Member, not a free function, because the game module has its own copy of the engine's statics.
                 virtual Random MakeRandomStream(std::string_view name) const { return Random(Fnv1a64(name)); }
         };
 
@@ -242,20 +208,17 @@ namespace Shard::Engine{
                 EngineInstance(const EngineInstance&) = delete;
                 EngineInstance& operator=(const EngineInstance&) = delete;
 
-                // Provide access to the singleton instance
                 static EngineInstance& GetInstance() {
                     static EngineInstance instance;
                     return instance;
                 }
 
-                // Public interface
                 bool ShouldEnd() override;
                 void Destroy() override;
                 bool Run() override;
                 void Init(EngineCreationSettings settings) override;
                 void InitSystems() override;
 
-                // Optional : configure engine before initialization
                 void SetSettings(const EngineCreationSettings& s) override { m_EngineSettings = s; }
                 EngineCreationSettings GetSettings() const override { return m_EngineSettings; }
 
@@ -319,7 +282,6 @@ namespace Shard::Engine{
             private:
                 EngineInstance() = default;
 
-                // The engine's own systems : what each phase of the frame does (see RegisterEngineSystems)
                 void RegisterEngineSystems();
                 void RegisterConsoleCommands();
                 void StepPhysics(int step, float fixedDeltaTime);
@@ -334,15 +296,12 @@ namespace Shard::Engine{
                 void ReloadWorldFromDisk(const std::string& nameInProject);
                 void Present();
 
-                // The render thread owns the graphics context while it runs (see Rendering::RenderThread)
                 void StartRenderThread();
                 void StopRenderThread();
 
-                // Work another thread (the render thread, mostly) leaves for the main thread, which owns the world and the
-                // resources : it runs at the start of the next frame. Safe to call from any thread.
+                // Run at the start of the next frame on the main thread, which owns the world and resources. Safe from any thread.
                 void PostToMainThread(std::function<void()> work);
                 void RunMainThreadQueue();
-                // Console commands to run at given frames (see EngineCreationSettings::scriptFile)
                 struct ScriptedCommand { uint64_t frame; std::string line; };
                 std::vector<ScriptedCommand> m_Script;
                 size_t m_ScriptNext = 0;
@@ -357,7 +316,6 @@ namespace Shard::Engine{
 
                 Assets::HotReloader* m_HotReloader = nullptr;
 
-                // Turns the OS input events into engine events (Events::TranslateInputEvent), 0 : not listening
                 uint32_t m_InputEventListener = 0;
 
                 EngineCreationSettings m_EngineSettings;
@@ -371,7 +329,6 @@ namespace Shard::Engine{
 
         #if defined(BUILD_ENGINE)
 
-            // Used by the EXE/engine
             inline IEngineContext* gSharedEnginePtr = nullptr;
 
             inline void SetEngine(IEngineContext* ptr) {
@@ -386,7 +343,6 @@ namespace Shard::Engine{
 
         #elif defined(BUILD_GAME)
 
-            // Used by the Game Module DLL
             inline IEngineContext* gSharedEnginePtr = nullptr;
 
             inline void SetEngine(IEngineContext* ptr) {

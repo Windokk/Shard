@@ -1,6 +1,3 @@
-# The SDK outside the repository, for the sandbox : the template of sdk/templates/plugin built against the installed SDK alone with
-# -DSHARD_PLUGIN_TARGET=wasm (a WebAssembly module and a tier 2 manifest), then loaded by the headless engine, which runs the simulation twice
-# (--check-plugins). Variables : ENGINE_BUILD WORK GENERATOR MAKE_PROGRAM TOOLCHAIN BUILTINS HEADLESS GAME PROJECT WORKDIR
 file(REMOVE_RECURSE "${WORK}")
 file(MAKE_DIRECTORY "${WORK}")
 execute_process(COMMAND "${CMAKE_COMMAND}" --install "${ENGINE_BUILD}" --component sdk --prefix "${WORK}/install"

@@ -1,5 +1,3 @@
-// What a plugin adds to the editor besides a panel (shard.editor 1.1) : a menu item, a toolbar button, an inspector, a gizmo, the selection and
-// a window that uses the richer widgets. Only added when the host is the editor.
 #include <shard/game.hpp>
 
 #include "stats.hpp"
@@ -12,7 +10,6 @@ SHARD_EDITOR_TOOLBAR_BUTTON(Ping, "Ping")
     Shard::Editor(Shard::detail::PluginHandle()).Notify("pinged", SHARD_EDITOR_NOTIFY_WARNING);
 }
 
-// Below every component of the actor the Properties panel shows
 SHARD_EDITOR_INSPECTOR(Everything, "", ui, actor)
 {
     Stats& s = GetStats();
@@ -46,7 +43,6 @@ SHARD_ON_LOAD(EditorDemo, ctx)
     });
 }
 
-// The richer widgets: tabs, a table, a menu, a popup, a child region
 SHARD_EDITOR_PANEL(Widgets, "Demo widgets", ui)
 {
     Stats& s = GetStats();

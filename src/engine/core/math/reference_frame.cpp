@@ -75,7 +75,6 @@ namespace Shard::Engine::Core {
             return false;
 
         const FrameId parent = frame->parent;
-        // The children keep their place in the world : rewritten against the grandparent before the frame goes
         std::vector<FrameId> children;
         for (const ReferenceFrame& f : m_Frames)
             if (f.parent == id)
@@ -143,7 +142,6 @@ namespace Shard::Engine::Core {
 
     bool ReferenceFrameTree::IsAncestor(FrameId ancestor, FrameId frame) const
     {
-        // A frame counts as its own ancestor
         for (const ReferenceFrame* f = Find(frame); f; f = f->parent == kInvalidFrame ? nullptr : Find(f->parent))
             if (f->id == ancestor)
                 return true;
@@ -188,8 +186,6 @@ namespace Shard::Engine::Core {
 
     WorldPosition ReferenceFrameTree::ToRoot(FrameId frame, const DVec3& p) const
     {
-        // Climb one frame at a time. The first step adds a small vector to the frame's exact origin ; later steps rotate the
-        // (possibly large) position, which only costs the double's precision at that distance.
         WorldPosition wp = WorldPosition::FromDVec3(p);
         for (const ReferenceFrame* f = Find(frame); f && f->parent != kInvalidFrame; f = Find(f->parent)) {
             const bool rotates = f->rotation != DQuat(1.0, 0.0, 0.0, 0.0);
@@ -201,7 +197,6 @@ namespace Shard::Engine::Core {
 
     DVec3 ReferenceFrameTree::FromRoot(FrameId frame, const WorldPosition& p) const
     {
-        // The chain from the root down to `frame`
         std::vector<const ReferenceFrame*> chain;
         for (const ReferenceFrame* f = Find(frame); f && f->parent != kInvalidFrame; f = Find(f->parent))
             chain.push_back(f);
@@ -209,7 +204,7 @@ namespace Shard::Engine::Core {
         WorldPosition wp = p;
         for (auto it = chain.rbegin(); it != chain.rend(); ++it) {
             const ReferenceFrame& f = **it;
-            const DVec3 rel = WorldPosition::Offset(wp, f.origin);          // exact when wp is near the frame
+            const DVec3 rel = WorldPosition::Offset(wp, f.origin);
             wp = WorldPosition::FromDVec3(glm::inverse(f.rotation) * rel);
         }
         return wp.ToDVec3();
@@ -223,7 +218,6 @@ namespace Shard::Engine::Core {
         if (ancestor == kInvalidFrame)
             return p;
 
-        // Up : from `from` to the common ancestor
         WorldPosition wp = WorldPosition::FromDVec3(p);
         for (const ReferenceFrame* f = Find(from); f && f->id != ancestor; f = Find(f->parent)) {
             const bool rotates = f->rotation != DQuat(1.0, 0.0, 0.0, 0.0);
@@ -231,7 +225,6 @@ namespace Shard::Engine::Core {
             wp = f->origin + inParent;
         }
 
-        // Down : from the common ancestor to `to`
         std::vector<const ReferenceFrame*> chain;
         for (const ReferenceFrame* f = Find(to); f && f->id != ancestor; f = Find(f->parent))
             chain.push_back(f);
@@ -247,7 +240,6 @@ namespace Shard::Engine::Core {
     {
         if (from == to)
             return d;
-        // from -> root -> to : only the rotations count
         return glm::inverse(GetRotationInRoot(to)) * (GetRotationInRoot(from) * d);
     }
 

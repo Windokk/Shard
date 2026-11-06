@@ -28,13 +28,10 @@ std::vector<std::string> ParseIncludeDirs(const std::string &Dirs) {
     std::stringstream ss(Dirs);
     std::string dir;
 
-    // Split by semicolon
     while (std::getline(ss, dir, ';')) {
-        // Trim spaces (if any) around directory names
-        dir.erase(dir.find_last_not_of(" \t") + 1);  // trim trailing spaces
-        dir.erase(0, dir.find_first_not_of(" \t"));   // trim leading spaces
+        dir.erase(dir.find_last_not_of(" \t") + 1);
+        dir.erase(0, dir.find_first_not_of(" \t"));
         
-        // Avoid empty entries
         if (!dir.empty()) {
             result.push_back(dir);
         }
@@ -69,7 +66,7 @@ void CollectFiles(const std::filesystem::path &path, bool recursive, std::vector
 }
 
 class ReflectionFrontendAction : public ASTFrontendAction {
-    FieldHandler &Handler;  // reference
+    FieldHandler &Handler;
     MatchFinder Finder;
 
 public:
@@ -84,7 +81,7 @@ public:
 };
 
 class ReflectionActionFactory : public clang::tooling::FrontendActionFactory {
-    FieldHandler &Handler; // reference to the existing handler
+    FieldHandler &Handler;
 public:
     ReflectionActionFactory(FieldHandler &H) : Handler(H) {}
 
@@ -120,21 +117,17 @@ int main(int argc, const char **argv) {
     std::vector<std::string> defaultFlags;
 
 #ifdef _WIN32
-    // ---- Windows (MinGW) ----
     defaultFlags = {
         "-std=c++17",
         "--target=x86_64-w64-windows-gnu",
 
-        // MinGW C++ standard library and system headers
         "-isystem", CPPPathOpt + "/include",
         "-isystem", CPPPathOpt + "/x86_64-w64-mingw32/include",
 
-        // Clang internal headers
         "-resource-dir=" + ClangPathOpt
     };
 
 #else
-    // ---- Linux ----
     defaultFlags = {
         "-std=c++17",
         "--target=x86_64-pc-linux-gnu",
@@ -146,14 +139,13 @@ int main(int argc, const char **argv) {
     };
 #endif
 
-    // The headers are parsed the way the engine itself sees them : without it logger.hpp declares no GetLogger()
-    // (it needs BUILD_ENGINE or BUILD_GAME), and every header that logs, such as the game's, ends in a parse error.
+    // Parse headers as the engine sees them. Without this logger.hpp declares no GetLogger() (needs BUILD_ENGINE or BUILD_GAME) and every header that logs fails to parse.
     defaultFlags.push_back("-DBUILD_ENGINE");
 
     for (const auto &include : IncludeDirs) {
         for (const auto& dir : ParseIncludeDirs(include)) {
-            defaultFlags.push_back("-I");  // Add -I as a separate argument
-            defaultFlags.push_back(dir);   // Add the directory as a separate argument
+            defaultFlags.push_back("-I");
+            defaultFlags.push_back(dir);
         }
     }
 

@@ -1,5 +1,3 @@
-// What the ABI 1.7 interfaces give a plugin, through the SDK's own wrappers : jobs, time, assets, reflection, sockets, debug draw, physics queries,
-// the render resources and the edit mode of a script. Native only (the sandboxed build of the game leaves this file out).
 #include <shard/game.hpp>
 
 #include <atomic>
@@ -39,7 +37,6 @@ namespace {
     }
 }
 
-// ABI 1.4 : an actor component told when it joins an actor, is edited and leaves
 struct Beacon {
     int32_t power = 1;
     float range = 5.f;
@@ -63,7 +60,6 @@ SHARD_ON_LOAD(PlatformDemo, ctx)
             Results()["beaconField"] = field;
             Results()["beaconPowerChanged"] = b.power;
         } });
-    // ABI 1.7 (editor 1.2) : a double click on a ".beacon" file, and an entry of the Create menu ; both only exist in the editor
     ctx.Editor().AddAssetOpener(".beacon", [](std::string_view path) {
         ++Results()["opened"];
         Text() = std::string(path);
@@ -193,7 +189,6 @@ private:
         server.Close();
         Results()["udpClosed"] = server ? 0 : 1;
 
-        // A stream over the loopback : the listener accepts, the client connects, a message goes each way, the client closes
         int accepted = 0, connected = 0, clientClosed = 0, serverClosed = 0;
         std::string toServer, toClient;
         Shard::Net::Socket peer;
@@ -242,7 +237,6 @@ private:
 
     static void RunPhysics()
     {
-        // Straight down from (0, 5, 0) : the test's ground, a box whose top face is at y = 0
         const auto all = Shard::Physics::RaycastAll({ 0.f, 5.f, 0.f }, { 0.f, -1.f, 0.f }, 20.f);
         Results()["rayAll"] = double(all.size());
         Results()["rayAllDistance"] = all.empty() ? -1.0 : all[0].distance;
@@ -256,7 +250,6 @@ private:
         noBodies.collidersOnly = true;
         Results()["rayCollidersOnly"] = double(Shard::Physics::RaycastAll({ 0.f, 5.f, 0.f }, { 0.f, -1.f, 0.f }, 20.f, noBodies).size());
 
-        // A static collider of the plugin, a unit box at (1, 2, 3) : it joins the physics world at the next fixed step
         const float box[6] = { 0.f, 0.f, 0.f, 1.f, 1.f, 1.f };
         try {
             Collider() = Shard::Collider::Boxes(box, 1, { 1.f, 2.f, 3.f }, {}, 77);
@@ -275,7 +268,6 @@ private:
         Shard::Debug::Text({ 0.f, 2.f, 0.f }, "probe", Shard::Rgba(255, 255, 255), 5.f);
         Results()["debugEnabled"] = Shard::Debug::Enabled() ? 1 : 0;
 
-        // A mesh built on the CPU : the resource exists with or without a renderer behind it
         Shard::MeshBuilder builder;
         builder.Quad({ -1.f, 0.f, -1.f }, { -1.f, 0.f, 1.f }, { 1.f, 0.f, 1.f }, { 1.f, 0.f, -1.f }, { 0.f, 1.f, 0.f });
         Results()["meshVertices"] = builder.VertexCount();
@@ -303,7 +295,6 @@ private:
         Results()["commandRefused"] = !bad.ok && bad.found ? 1 : 0;
         const auto missing = commands.Execute("platform.nothing");
         Results()["commandMissing"] = missing.found ? 0 : 1;
-        // In the editor an edit made by the plugin can be undone from the editor's history
         Results()["undoPushed"] = Shard::Editor(Shard::detail::PluginHandle()).PushUndo("probe edit", [] { ++Results()["undone"]; }, [] { ++Results()["redone"]; }) ? 1 : 0;
     }
 
@@ -325,7 +316,6 @@ TEST_EXPORT double plat_stat(const char* name)
     auto it = Results().find(name);
     return it == Results().end() ? -1000.0 : it->second;
 }
-// A ray down onto the collider : what it reports about it (called after the physics stepped)
 TEST_EXPORT int plat_ray_collider()
 {
     Shard::QueryFilter only;

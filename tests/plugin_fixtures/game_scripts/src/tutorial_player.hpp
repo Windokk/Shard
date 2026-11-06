@@ -1,4 +1,3 @@
-// The scripts of the tutorial (docs/docs/tutorials.md, "Talk to the world"), built with the fixture so that what the page shows compiles
 #pragma once
 
 #include <shard/game.hpp>

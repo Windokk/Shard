@@ -35,7 +35,6 @@ namespace Shard::Engine::Rendering {
 
     namespace {
 
-        /// Proxies of different worlds must not collide : the world's index in the high bits, the id in the world below
         uint64_t MakeKey(int worldIndex, int idInWorld)
         {
             return (uint64_t(uint32_t(worldIndex)) << 48) | uint64_t(uint32_t(idInWorld));
@@ -47,7 +46,6 @@ namespace Shard::Engine::Rendering {
             std::sort(proxies.begin(), proxies.end(), [](const Proxy& a, const Proxy& b) { return a.key < b.key; });
         }
 
-        /// The correction of the nearest actor, from `actor` up its parents, that has one (null : the actor is drawn where its transform says)
         const glm::mat4* FindPoseOffset(const RenderExtractor::PoseOffsets* offsets, Objects::Actor* actor)
         {
             if (!offsets || offsets->empty() || !actor)
@@ -65,8 +63,6 @@ namespace Shard::Engine::Rendering {
             return nullptr;
         }
 
-        /// How the frame `actor` lives in is brought into the snapshot's render space (the identity for a scene that stays near the
-        /// origin, without touching the frame tree at all)
         FrameToRender SpaceOf(const RenderSnapshot& snapshot, Objects::Actor* actor)
         {
             const Core::ReferenceFrameTree* tree = actor && actor->transform ? actor->transform->GetFrameTree() : nullptr;
@@ -85,7 +81,6 @@ namespace Shard::Engine::Rendering {
             proxy.key = key;
             proxy.objectId = light.parent ? light.parent->GetID().GetAsInt() : -1;
             proxy.type = static_cast<LightProxyType>(data.type);
-            // A light follows its actor : where it stands and where it points come from the transform
             if (light.parent && light.parent->transform) {
                 proxy.position = light.parent->transform->GetWorldPosition();
                 proxy.direction = glm::normalize(light.parent->transform->GetWorldForward());
@@ -139,13 +134,11 @@ namespace Shard::Engine::Rendering {
             proxy.intensity = probe.intensity;
             proxy.blendDistance = probe.blendDistance;
             proxy.boxProjection = probe.boxProjection;
-            proxy.environment = probe.GetEnvironment();     // loaded by ReflectionProbe::TickAll, never here
+            proxy.environment = probe.GetEnvironment();
             return proxy;
         }
 
-        // ---- Billboards : the built-in providers. One per kind of component, each only reads its own components.
-
-        constexpr float kIconSize = 40.0f;      // pixels
+        constexpr float kIconSize = 40.0f;
         constexpr uint8_t kIconFlags = BillboardFlag::ScreenSpaceSize | BillboardFlag::DepthTest | BillboardFlag::EditorOnly | BillboardFlag::Pickable;
 
         BillboardProxy MakeIcon(const RenderSnapshot& snapshot, uint64_t key, Objects::Actor* actor, BuiltinSprite sprite, const glm::vec4& tint)
@@ -168,7 +161,6 @@ namespace Shard::Engine::Rendering {
             for (auto& [id, light] : world.Ext<RenderWorldData>().lightComps) {
                 if (!light || !light->Active() || !light->parent)
                     continue;
-                // The icon takes the light colour, kept bright enough to read on any background
                 const glm::vec3 color = glm::mix(glm::vec3(light->color), glm::vec3(1.0f), 0.5f);
                 out.push_back(MakeIcon(snapshot, MakeKey(worldIndex, id), light->parent.get(), BuiltinSprite::Light, glm::vec4(color, 1.0f)));
             }
@@ -179,7 +171,6 @@ namespace Shard::Engine::Rendering {
             for (auto& [id, camera] : world.Ext<RenderWorldData>().cameras) {
                 if (!camera || !camera->Active() || !camera->parent)
                     continue;
-                // The camera the frame is seen from has no icon to show : it would be drawn on the lens
                 if (snapshot.camera.valid && snapshot.camera.objectId == camera->parent->GetID().GetAsInt())
                     continue;
                 out.push_back(MakeIcon(snapshot, MakeKey(worldIndex, id), camera->parent.get(), BuiltinSprite::Camera, glm::vec4(1.0f)));
@@ -191,7 +182,6 @@ namespace Shard::Engine::Rendering {
             for (auto& [id, probe] : world.Ext<RenderWorldData>().reflectionProbes) {
                 if (!probe || !probe->Active() || !probe->parent)
                     continue;
-                // The probe icon in a cooler colour than the GI one, dimmed while the probe has no picture to reflect
                 const glm::vec4 tint = probe->GetEnvironment() ? glm::vec4(0.55f, 0.80f, 1.0f, 1.0f) : glm::vec4(0.55f, 0.65f, 0.80f, 0.55f);
                 out.push_back(MakeIcon(snapshot, MakeKey(worldIndex, id), probe->parent.get(), BuiltinSprite::ProbeVolume, tint));
             }
@@ -300,7 +290,6 @@ namespace Shard::Engine::Rendering {
             proxy.orthographic = camera.orthographic;
             proxy.frustumCulling = camera.frustumCulling;
 
-            // A camera riding on a body is drawn from where the body is drawn
             if (const glm::mat4* offset = FindPoseOffset(poseOffsets, camera.parent.get())) {
                 proxy.view = proxy.view * glm::inverse(*offset);
                 proxy.viewProjection = proxy.projection * proxy.view;
@@ -310,7 +299,6 @@ namespace Shard::Engine::Rendering {
                 proxy.up = glm::normalize(glm::mat3(*offset) * proxy.up);
             }
 
-            // render.camera : another view, in the same frame (see RenderExtractor::CameraOverride)
             if (view && glm::length(view->target - view->position) > 1e-6f) {
                 const glm::vec3 forward = glm::normalize(view->target - view->position);
                 const glm::vec3 worldUp = std::abs(forward.y) > 0.999f ? glm::vec3(0.0f, 0.0f, -1.0f) : glm::vec3(0.0f, 1.0f, 0.0f);
@@ -326,7 +314,6 @@ namespace Shard::Engine::Rendering {
                 proxy.viewProjection = proxy.projection * proxy.view;
             }
 
-            // Into render space : the view is composed with the inverse of the frame's placement (inverted in double)
             if (!space.identity) {
                 const glm::dmat4 frameToRender = Core::ComposeTRS(space.translation, space.rotation, glm::dvec3(1.0));
                 proxy.view = proxy.view * glm::mat4(glm::inverse(frameToRender));
@@ -390,13 +377,12 @@ namespace Shard::Engine::Rendering {
             }
         }
 
-        // The same order every frame (the maps iterate in whatever order their buckets are in)
+        // Sort by key, the maps iterate in arbitrary bucket order.
         std::sort(m_Sources.begin(), m_Sources.end(), [](const MeshSource& a, const MeshSource& b) { return a.key < b.key; });
 
         const size_t count = m_Sources.size();
         next.meshes.resize(count);
 
-        // Matches each source with the proxy it had last frame : both lists are sorted, so one walk does it
         m_PreviousIndex.assign(count, -1);
         {
             size_t p = 0;
@@ -408,14 +394,11 @@ namespace Shard::Engine::Rendering {
             }
         }
 
-        // World matrices are cached lazily by the transforms, and a parent's is shared by its children : settle them
-        // here, on this thread, so that the parallel part below only reads.
+        // World matrices are cached lazily and shared with children. Settle them here so the parallel part only reads.
         for (size_t i = 0; i < count; i++) {
             glm::mat4 world = m_Sources[i].model->parent->transform->GetWorldMatrix();
-            // An actor on a moving body is drawn between the body's last two simulated poses, not at the last one
             if (const glm::mat4* offset = FindPoseOffset(m_PoseOffsets, m_Sources[i].model->parent.get()))
                 world = *offset * world;
-            // Large worlds : into render space, relative to the render origin (a no-op near the origin)
             next.meshes[i].worldMatrix = SpaceOfCached(next, m_Sources[i].model->parent.get()).ApplyToMatrix(world);
         }
 
@@ -435,7 +418,6 @@ namespace Shard::Engine::Rendering {
                 proxy.extraPasses = source.model->ExtraPasses();
                 proxy.staticLighting = source.model->staticLighting;
                 proxy.lightmapResolution = source.model->lightmapResolution;
-                // A model that is no longer static keeps the lightmap it was baked with in the world file, but does not use it : it moves
                 proxy.lightmapPage = source.model->staticLighting ? source.model->lightmapPage : -1;
                 proxy.lightmapScaleOffset = source.model->lightmapScaleOffset;
 
@@ -497,7 +479,6 @@ namespace Shard::Engine::Rendering {
             next.viewportHeight = int(viewport->GetHeight());
         }
 
-        // The camera : its matrices are brought up to date, then copied
         {
             SHARD_PROFILE_RENDER_SUB_SCOPE(Debugging::RenderSubSample::CameraUpdate);
             cameras.Tick();
@@ -505,28 +486,21 @@ namespace Shard::Engine::Rendering {
 
         auto camera = cameras.GetActiveCamera();
 
-        // The render origin follows the camera, in steps : positions are drawn relative to it, so the floats the renderer gets stay
-        // small wherever in the universe the camera is. While the camera stays within the rebase distance of it, it does not move
-        // (render space then is the root frame, and nothing is different from a world without reference frames).
+        // Render origin follows the camera in steps. Positions are floats relative to it, so they stay small.
         {
             const Core::WorldPosition previousOrigin = previous.frame != 0 ? previous.renderOrigin : m_RenderOrigin;
             if (camera && camera->parent && camera->parent->transform) {
                 const Core::WorldPosition cameraPosition = camera->parent->transform->GetWorldCoords();
                 const double distance = glm::length(Core::WorldPosition::Offset(cameraPosition, m_RenderOrigin));
-                // A camera whose position is not a usable number (NaN, infinity) must not become the origin, and an origin that
-                // went bad is dropped : the next sane camera position brings it back
+                // A non-finite camera position must not become the origin.
                 if (!std::isfinite(distance)) {
                     if (!std::isfinite(glm::length(Core::WorldPosition::Offset(m_RenderOrigin, Core::WorldPosition()))))
                         m_RenderOrigin = Core::WorldPosition();
                 }
                 else if (m_RebaseDistance <= 0.0 || distance > m_RebaseDistance) {
                     if (cameraPosition.InCellRange())
-                        // a cell corner : exact (or the camera itself, for strict camera-relative rendering)
                         m_RenderOrigin = m_RebaseDistance <= 0.0 ? cameraPosition : Core::WorldPosition(cameraPosition.cell, glm::dvec3(0.0));
                     else {
-                        // Past the reach of the cells the camera's root position is a rounded double : its small offset inside its frame is
-                        // gone. The frame's origin is exact, and the camera is near it : that is the origin, so that what is near the camera
-                        // keeps small numbers.
                         const Core::ReferenceFrameTree* tree = camera->parent->transform->GetFrameTree();
                         m_RenderOrigin = tree ? tree->GetOriginInRoot(camera->parent->transform->GetFrame()) : cameraPosition;
                     }

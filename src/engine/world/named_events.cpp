@@ -10,7 +10,7 @@ namespace Shard::Engine::Events {
         T Read(const unsigned char* at)
         {
             T value;
-            std::memcpy(&value, at, sizeof(T));     // the payload is bytes : no alignment to count on
+            std::memcpy(&value, at, sizeof(T));     // The payload is bytes, no alignment to count on.
             return value;
         }
 

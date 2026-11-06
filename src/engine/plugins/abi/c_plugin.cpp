@@ -51,12 +51,12 @@ namespace Shard::Engine::Plugins {
 
     namespace CAbi {
         namespace {
-            // ShardPluginCtx is the plugin's owner id ; the context is looked up for each call, so a handle that outlived the plugin finds nothing
+            // ShardPluginCtx is the owner id. The context is looked up per call, so a handle that outlived the plugin finds nothing.
             std::mutex gContextMutex;
             struct BoundContext {
                 PluginContext* ctx = nullptr;
-                std::string version;        // the "shard.plugin" interface hands out pointers into this, so it lives as long as the binding
-                bool experimental = true;   // may use "shard.experimental.*"
+                std::string version;        // The shard.plugin interface hands out pointers into this
+                bool experimental = true;
             };
             std::unordered_map<ShardPluginCtx, BoundContext> gContexts;
 
@@ -118,18 +118,17 @@ namespace Shard::Engine::Plugins {
     using namespace CAbi;
 
     namespace {
-        // ShardCVar handles : slot + generation, so a variable the host destroyed with the plugin's context fails instead of dangling
+        // Slot + generation, so a variable destroyed with the plugin's context fails instead of dangling
         enum class CVarType : uint8_t { Bool, Int, Float, String };
         struct CVarSlot {
             PluginOwner owner = 0;
             CVarType type = CVarType::Bool;
-            void* cvar = nullptr;           // a Core::CVar<T>* ; null : free slot
+            void* cvar = nullptr;
             uint32_t generation = 1;
         };
-        std::vector<CVarSlot> gCVarSlots;   // guarded by gContextMutex
-        std::unordered_map<ShardPluginCtx, std::vector<std::string>> gCommandNames;     // what each plugin added, to refuse its own duplicates
+        std::vector<CVarSlot> gCVarSlots;
+        std::unordered_map<ShardPluginCtx, std::vector<std::string>> gCommandNames;
 
-        // gContextMutex held
         void ReleaseCVarSlots(PluginOwner owner)
         {
             for (CVarSlot& slot : gCVarSlots) {
@@ -142,7 +141,6 @@ namespace Shard::Engine::Plugins {
 
         void UnbindContext(PluginOwner owner)
         {
-            // What needs the context still : the registry the plugin left open, the memory of its blobs
             ReleaseScripts(owner);
             if (PluginContext* ctx = FindContext(owner)) {
                 CloseWorldEcs(owner);
@@ -156,20 +154,19 @@ namespace Shard::Engine::Plugins {
                 gCommandNames.erase(owner);
                 last = gContexts.empty();
             }
-            if (last) DebugClearAll();          // the shapes are shared and have no owner : they stay as long as a plugin is there to draw them
+            if (last) DebugClearAll();
             ReleaseComponents(owner);
             ReleaseServices(owner);
             ReleaseInput(owner);
         }
 
-        // The binding ends when the context releases everything (disable, unload, failure) : its first record, so its last release, after what
-        // the plugin registered (an asset type's resources can still be handed back to the plugin while they go)
+        // Created first, released last: asset-type resources may still be handed back to the plugin while it unwinds
         void BindContext(PluginOwner owner, PluginContext& ctx)
         {
             NoteMainThread();
             {
                 std::lock_guard<std::mutex> lock(gContextMutex);
-                // A plugin that is distributed (native, signed by a trusted publisher) is held to the frozen ABI
+                // Distributed plugins (native, trusted signature) are held to the frozen ABI
                 bool experimental = true;
                 if (const PluginRecord* record = PluginManager::Get().Find(ctx.Id()))
                     experimental = MayUseExperimental(ctx.Manifest().tier, record->signature.status);
@@ -177,8 +174,6 @@ namespace Shard::Engine::Plugins {
             }
             ctx.OnRelease("c-abi", [owner]() { UnbindContext(owner); });
         }
-
-        // ---- The table ----
 
         void SHARD_CALL HostLog(ShardPluginCtx handle, uint32_t level, ShardStr message)
         {
@@ -224,7 +219,7 @@ namespace Shard::Engine::Plugins {
         {
             PluginContext* c = FindContext(handle);
             if (!c) return ShardStr{ nullptr, 0 };
-            const char* name = HostName(c->CurrentHost());      // a static string
+            const char* name = HostName(c->CurrentHost());
             return ShardStr{ name, uint64_t(std::strlen(name)) };
         }
         int32_t SHARD_CALL PluginHasPermission(ShardPluginCtx handle, ShardStr permission)
@@ -248,8 +243,6 @@ namespace Shard::Engine::Plugins {
             } catch (...) { return SHARD_E_INTERNAL; }
         }
 
-        // ---- shard.cvars ----
-
         ShardCVar AddCVarSlot(PluginOwner owner, CVarType type, void* cvar)
         {
             std::lock_guard<std::mutex> lock(gContextMutex);
@@ -263,7 +256,6 @@ namespace Shard::Engine::Plugins {
             return (ShardCVar(slot.generation) << 32) | ShardCVar(index + 1);
         }
 
-        // The variable behind a handle of the given plugin and type, or null with the reason in `result`
         template <typename T>
         Core::CVar<T>* FindCVar(ShardPluginCtx owner, ShardCVar handle, CVarType type, ShardResult& result)
         {
@@ -361,8 +353,6 @@ namespace Shard::Engine::Plugins {
             try { return SetCVar<std::string>(ctx, cvar, CVarType::String, ToString(value)); } catch (...) { return SHARD_E_INTERNAL; }
         }
 
-        // ---- shard.commands ----
-
         ShardResult SHARD_CALL CommandAdd(ShardPluginCtx handle, ShardStr name, ShardStr help, ShardCommandFn run, void* user)
         {
             try {
@@ -418,8 +408,6 @@ namespace Shard::Engine::Plugins {
             } catch (...) { return SHARD_E_INTERNAL; }
         }
 
-        // ---- query_interface ----
-
         struct Interface {
             const char* id;
             uint32_t major;
@@ -461,7 +449,7 @@ namespace Shard::Engine::Plugins {
                 { SHARD_IFACE_RENDER, 1, 0, RenderApi() },
                 { SHARD_IFACE_DEBUG, 1, 0, DebugApi() },
                 { SHARD_IFACE_EDITOR, 1, 2, EditorApi() },
-                // No promise : major 0, handed out for its exact minor only (see shard_experimental.h)
+                // Experimental: major 0, only handed out for the exact minor
                 { SHARD_IFACE_EXPERIMENTAL_WORLD_ECS, 0, 1, WorldEcsApi() },
             };
             return interfaces;
@@ -475,17 +463,15 @@ namespace Shard::Engine::Plugins {
                 const std::string wanted = ToString(id);
                 for (const Interface& i : Interfaces()) {
                     if (wanted != i.id) continue;
-                    if (wanted == SHARD_IFACE_EDITOR && !EditorUiAvailable()) return SHARD_E_NOT_FOUND;      // only in the editor
+                    if (wanted == SHARD_IFACE_EDITOR && !EditorUiAvailable()) return SHARD_E_NOT_FOUND;
                     if (major != i.major || minMinor > i.minor) return SHARD_E_NOT_FOUND;
-                    if (i.major == 0 && minMinor != i.minor) return SHARD_E_NOT_FOUND;    // experimental : that revision exactly
+                    if (i.major == 0 && minMinor != i.minor) return SHARD_E_NOT_FOUND;
                     *out = i.table;
                     return SHARD_OK;
                 }
                 return SHARD_E_NOT_FOUND;
             } catch (...) { return SHARD_E_INTERNAL; }
         }
-
-        // ---- The adapter ----
 
         ShardWorldInfo WorldInfo(Worlds::World& world, std::string& name)
         {
@@ -554,7 +540,7 @@ namespace Shard::Engine::Plugins {
                 if (result != SHARD_OK) throw std::runtime_error(std::string(what) + " returned " + std::to_string(result));
             }
 
-            // A callback is only offered a structSize-checked slot : one that is not there is NULL (zeroed in the constructor)
+            // Callbacks beyond the plugin's structSize are NULL (table zeroed in the constructor)
             void Call(const char* what, Callback fn)
             {
                 if (fn) Check(what, fn(m_User, m_Owner));
@@ -618,7 +604,7 @@ namespace Shard::Engine::Plugins {
             a.alloc = &HostAlloc;
             a.free = &HostFree;
             a.query_interface = &HostQueryInterface;
-            a.engineVersion = ShardStr{ VERSION, uint64_t(std::strlen(VERSION)) };     // config.h : the engine's project version
+            a.engineVersion = ShardStr{ VERSION, uint64_t(std::strlen(VERSION)) };
             return a;
         }();
         return &api;

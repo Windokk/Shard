@@ -1,4 +1,3 @@
-// A plugin built as a real shared library, loaded by tests/plugins/dynamic_plugin_tests.cpp.
 #include <fstream>
 #include <iostream>
 #include <sstream>
@@ -21,7 +20,6 @@ namespace {
         int Ping() { return ++calls; }
     };
 
-    // A render feature that only says it was there
     class TestFeature final : public Rendering::RenderFeature {
     public:
         const char* GetName() const override { return "shard-test-feature"; }
@@ -31,7 +29,6 @@ namespace {
         int frames = 0;
     };
 
-    // A render pipeline with no passes : enough to be picked and dropped
     class TestPipeline final : public Rendering::RenderPipeline {
     public:
         const char* GetType() const override { return "shard-test-pipeline"; }
@@ -66,7 +63,6 @@ public:
 
         ctx.Services().Provide<Pinger>("shardtest.pinger", 1, &m_Pinger);
 
-        // Extension points the engine reads
         ctx.Render().AddFeature<Rendering::RenderFeature>("shard-test-feature", std::make_shared<TestFeature>());
 
         auto pipeline = std::make_shared<Rendering::RenderPipelineExtension>();

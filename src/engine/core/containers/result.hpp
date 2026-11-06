@@ -9,8 +9,6 @@
 
 namespace Shard::Engine::Core {
 
-    /// @brief Optional value : std::optional with the engine's vocabulary (Some / None), so that "there may be no
-    /// value" reads the same as Result's "there may be an error".
     template <typename T>
     using Optional = std::optional<T>;
 
@@ -19,7 +17,6 @@ namespace Shard::Engine::Core {
     template <typename T>
     constexpr Optional<std::decay_t<T>> Some(T&& value) { return Optional<std::decay_t<T>>(std::forward<T>(value)); }
 
-    /// @brief What a failed operation reports : a code for the program, a message for the human.
     struct Error {
         int code = 0;
         std::string message;
@@ -36,7 +33,6 @@ namespace Shard::Engine::Core {
         template <typename E> struct ErrWrapper { E error; };
     }
 
-    /// Success / failure markers : `return Ok(5);`, `return Err("file not found");`, `return Ok();`
     template <typename T>
     Detail::OkWrapper<std::decay_t<T>> Ok(T&& value) { return {std::forward<T>(value)}; }
     inline Detail::OkVoid Ok() { return {}; }
@@ -45,14 +41,6 @@ namespace Shard::Engine::Core {
     inline Detail::ErrWrapper<Error> Err(const char* message) { return {Error(message)}; }
     inline Detail::ErrWrapper<Error> Err(int code, std::string message) { return {Error(code, std::move(message))}; }
 
-    /// @brief Either a T (success) or an E (failure), for operations that can fail in ordinary ways (a file that is
-    /// missing, a string that does not parse) without exceptions. The caller has to look at which one it got :
-    ///
-    ///     Result<Config> r = LoadConfig(path);
-    ///     if (!r) { Log(r.GetError().message); return; }
-    ///     Use(r.Value());
-    ///
-    /// Asking for the value of a failure (or the error of a success) is a bug, caught by assert in debug builds.
     template <typename T, typename E = Error>
     class Result {
     public:
@@ -76,7 +64,6 @@ namespace Shard::Engine::Core {
 
         T ValueOr(T fallback) const& { return IsOk() ? std::get<0>(m_Storage) : std::move(fallback); }
 
-        /// @brief Result<U> from f(value) on success, the same error on failure.
         template <typename F>
         auto Map(F&& f) const& -> Result<std::decay_t<decltype(f(std::declval<const T&>()))>, E> {
             using U = std::decay_t<decltype(f(std::declval<const T&>()))>;
@@ -84,8 +71,6 @@ namespace Shard::Engine::Core {
             return Result<U, E>(Detail::ErrWrapper<E>{std::get<1>(m_Storage)});
         }
 
-        /// @brief f(value) (which itself returns a Result) on success, the same error on failure : chains
-        /// operations that can each fail.
         template <typename F>
         auto AndThen(F&& f) const& -> decltype(f(std::declval<const T&>())) {
             using R = decltype(f(std::declval<const T&>()));
@@ -97,7 +82,6 @@ namespace Shard::Engine::Core {
         std::variant<T, E> m_Storage;
     };
 
-    /// @brief Result without a value : "it worked" or "it failed".
     template <typename E>
     class Result<void, E> {
     public:

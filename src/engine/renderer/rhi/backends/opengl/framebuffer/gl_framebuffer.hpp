@@ -56,12 +56,8 @@ namespace Shard::Engine::Rendering{
             uint64_t GetColorAttachmentBindlessHandle() const override;
 
         private:
-            // Creates (or re-creates) the non-multisampled color attachment at the given size and binds
-            // it to GL_COLOR_ATTACHMENT0 - expects m_FBO to already be the bound framebuffer. Shared by
-            // the constructor and Resize()'s bindless path (see the comment there).
             void CreateColorAttachment(uint32_t width, uint32_t height);
 
-            // What GpuMemory was told this framebuffer holds, kept in line after every (re)allocation
             void UpdateGpuAccounting(bool destroyed = false);
             int64_t m_GpuBytes = 0;
             bool m_Destroyed = false;
@@ -69,12 +65,10 @@ namespace Shard::Engine::Rendering{
             uint32_t m_FBO = 0;
             uint32_t m_ColorAttachment = 0;
             uint32_t m_DepthAttachment = 0;
-            uint32_t m_DepthLayerTexture = 0;                   // the array whose layer stands for the depth attachment (see AttachDepthLayer)
-            std::vector<uint32_t> m_ExtraColorAttachments;     // colour attachments 1 and on (a G-buffer)
+            uint32_t m_DepthLayerTexture = 0;
+            std::vector<uint32_t> m_ExtraColorAttachments;
 
-            /// Creates / re-specifies the extra colour attachments at the given size and attaches them (expects m_FBO bound), then sets the draw buffers
             void CreateExtraColorAttachments(uint32_t width, uint32_t height);
-            // The draw buffers of the framebuffer that is bound : `withExtras` is false for the resolve framebuffer of a multisampled one, which has no extra attachments
             void ApplyDrawBuffers(bool withExtras = true);
 
             uint32_t m_ResolveFBO = 0;

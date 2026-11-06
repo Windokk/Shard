@@ -21,7 +21,6 @@ using namespace Shard::Engine::Core::Platform;
 namespace fs = std::filesystem;
 
 namespace {
-    // A fresh empty directory in the temp folder, removed with the object
     struct TempDir {
         std::string path;
         TempDir()
@@ -36,9 +35,7 @@ namespace {
     };
 }
 
-// --- paths ---
-
-TEST(PlatformPaths, NormalizeAndToNativeRoundTrip)
+TEST(PlatformPaths, NormalizeRoundTrip)
 {
     EXPECT_EQ(Paths::Normalize("a\\b\\c"), "a/b/c");
     EXPECT_EQ(Paths::Normalize("a/b/"), "a/b");
@@ -51,7 +48,7 @@ TEST(PlatformPaths, NormalizeAndToNativeRoundTrip)
     EXPECT_EQ(Paths::Normalize(Paths::ToNative("x/y/z")), "x/y/z");
 }
 
-TEST(PlatformPaths, UserDirectoriesExistAndAreNamedAfterTheApp)
+TEST(PlatformPaths, UserDirsNamedAfterApp)
 {
     for (const std::string& dir : { Paths::UserConfigDirectory("ShardPlatformTest"), Paths::UserDataDirectory("ShardPlatformTest"), Paths::UserCacheDirectory("ShardPlatformTest") })
     {
@@ -65,7 +62,7 @@ TEST(PlatformPaths, UserDirectoriesExistAndAreNamedAfterTheApp)
     fs::remove_all(Paths::UserCacheDirectory("ShardPlatformTest"), ec);
 }
 
-TEST(PlatformPaths, ExecutableDirectoryHoldsTheExecutable)
+TEST(PlatformPaths, ExecutableDirHoldsExecutable)
 {
     const std::string exe = ExecutablePath();
     ASSERT_FALSE(exe.empty());
@@ -74,9 +71,7 @@ TEST(PlatformPaths, ExecutableDirectoryHoldsTheExecutable)
     EXPECT_EQ(exe.find('\\'), std::string::npos);
 }
 
-// --- async io ---
-
-TEST(PlatformAsyncIO, WriteThenReadReturnsTheSameBytes)
+TEST(PlatformAsyncIO, WriteThenRead)
 {
     TempDir dir;
     const std::string path = dir.path + "/data.bin";
@@ -91,7 +86,7 @@ TEST(PlatformAsyncIO, WriteThenReadReturnsTheSameBytes)
     EXPECT_EQ(read.data, bytes);
 }
 
-TEST(PlatformAsyncIO, ReadingAMissingFileReportsTheError)
+TEST(PlatformAsyncIO, MissingFileReportsError)
 {
     TempDir dir;
     const IOResult result = AsyncIO::ReadFile(dir.path + "/missing.bin").get();
@@ -99,7 +94,7 @@ TEST(PlatformAsyncIO, ReadingAMissingFileReportsTheError)
     EXPECT_FALSE(result.error.empty());
 }
 
-TEST(PlatformAsyncIO, ManyRequestsInFlightAllComplete)
+TEST(PlatformAsyncIO, ManyRequestsComplete)
 {
     TempDir dir;
     std::vector<std::future<IOResult>> writes;
@@ -112,7 +107,6 @@ TEST(PlatformAsyncIO, ManyRequestsInFlightAllComplete)
 }
 
 namespace {
-    // Every AsyncIO test also runs on the generic backend, so that both behave the same
     struct BackendGuard {
         explicit BackendGuard(bool threadPool) { threadPool ? AsyncIO::UseThreadPoolBackend() : AsyncIO::UseNativeBackend(); }
         ~BackendGuard() { AsyncIO::UseNativeBackend(); }
@@ -127,7 +121,7 @@ namespace {
     }
 }
 
-TEST(PlatformAsyncIO, NativeBackendIsUsedWhereThereIsOne)
+TEST(PlatformAsyncIO, NativeBackendUsed)
 {
     BackendGuard guard(false);
     const std::string name = AsyncIO::BackendName();
@@ -140,14 +134,14 @@ TEST(PlatformAsyncIO, NativeBackendIsUsedWhereThereIsOne)
     EXPECT_STREQ(AsyncIO::BackendName(), "thread pool");
 }
 
-TEST(PlatformAsyncIO, LargeFilesAreSplitInChunksAndComeBackIntact)
+TEST(PlatformAsyncIO, LargeFilesChunked)
 {
     for (const bool threadPool : { false, true })
     {
         BackendGuard guard(threadPool);
         TempDir dir;
         const std::string path = dir.path + "/large.bin";
-        const std::vector<uint8_t> bytes = Pattern(5 * 1024 * 1024 + 123);     // a few 1 MB chunks and a partial one
+        const std::vector<uint8_t> bytes = Pattern(5 * 1024 * 1024 + 123);
 
         ASSERT_TRUE(AsyncIO::WriteFile(path, bytes).get().ok) << AsyncIO::BackendName();
         EXPECT_EQ(fs::file_size(path), bytes.size());
@@ -172,12 +166,12 @@ TEST(PlatformAsyncIO, EmptyFilesAndOverwrites)
         EXPECT_TRUE(empty.data.empty());
 
         ASSERT_TRUE(AsyncIO::WriteFile(path, Pattern(5000)).get().ok);
-        ASSERT_TRUE(AsyncIO::WriteFile(path, Pattern(100)).get().ok);   // shorter : the old tail must be gone
+        ASSERT_TRUE(AsyncIO::WriteFile(path, Pattern(100)).get().ok);
         EXPECT_EQ(AsyncIO::ReadFile(path).get().data.size(), 100u);
     }
 }
 
-TEST(PlatformAsyncIO, WritingInAMissingDirectoryFails)
+TEST(PlatformAsyncIO, WriteMissingDirFails)
 {
     for (const bool threadPool : { false, true })
     {
@@ -189,7 +183,7 @@ TEST(PlatformAsyncIO, WritingInAMissingDirectoryFails)
     }
 }
 
-TEST(PlatformAsyncIO, ConcurrentRequestsFromSeveralThreads)
+TEST(PlatformAsyncIO, ConcurrentThreadRequests)
 {
     for (const bool threadPool : { false, true })
     {
@@ -223,14 +217,10 @@ TEST(PlatformAsyncIO, ShutdownWaitsForPendingRequests)
     AsyncIO::Shutdown();
     EXPECT_EQ(pending.wait_for(std::chrono::seconds(0)), std::future_status::ready);
     EXPECT_TRUE(pending.get().ok);
-    // and the next request restarts the backend
     EXPECT_TRUE(AsyncIO::ReadFile(dir.path + "/pending.bin").get().ok);
 }
 
-// --- file watcher ---
-
 namespace {
-    // Polls until `predicate` is satisfied by the changes seen so far (the OS notification is asynchronous)
     template <class Predicate>
     bool WaitForChange(FileWatcher& watcher, std::vector<FileChange>& seen, Predicate predicate)
     {
@@ -246,7 +236,7 @@ namespace {
     }
 }
 
-TEST(PlatformFileWatcher, SeesCreatedModifiedAndDeletedFiles)
+TEST(PlatformFileWatcher, SeesCreateModifyDelete)
 {
     TempDir dir;
     FileWatcher watcher;
@@ -302,8 +292,6 @@ TEST(PlatformFileWatcher, RefusesAMissingDirectory)
     EXPECT_FALSE(watcher.IsWatching());
 }
 
-// --- dynlib ---
-
 TEST(PlatformDynLib, FailureToOpenIsExplained)
 {
     DynLib lib;
@@ -313,7 +301,7 @@ TEST(PlatformDynLib, FailureToOpenIsExplained)
     EXPECT_EQ(lib.Symbol("anything"), nullptr);
 }
 
-TEST(PlatformDynLib, FindsASymbolOfASystemLibrary)
+TEST(PlatformDynLib, FindsSystemSymbol)
 {
 #if defined(_WIN32)
     const char* libraryName = "kernel32.dll";
@@ -335,14 +323,14 @@ TEST(PlatformDynLib, FindsASymbolOfASystemLibrary)
     EXPECT_TRUE(moved.IsOpen());
 }
 
-TEST(PlatformDynLib, FileNameFollowsThePlatformConvention)
+TEST(PlatformDynLib, FileNameConvention)
 {
     const std::string name = DynLib::FileName("Game");
     EXPECT_NE(name.find("Game"), std::string::npos);
     EXPECT_EQ(name.substr(name.size() - std::string(DynLib::Extension()).size()), DynLib::Extension());
 }
 
-TEST(PlatformDynLib, ModuleLoaderLoadsFindsAndUnloads)
+TEST(PlatformDynLib, ModuleLoaderRoundTrip)
 {
 #if defined(_WIN32)
     const char* libraryName = "kernel32.dll";
@@ -361,8 +349,6 @@ TEST(PlatformDynLib, ModuleLoaderLoadsFindsAndUnloads)
     EXPECT_FALSE(loader.LoadModule("test_missing", "definitely_not_a_library_xyz"));
 }
 
-// --- process ---
-
 TEST(PlatformProcess, EnvironmentVariables)
 {
     EXPECT_FALSE(GetEnv("SHARD_TEST_UNSET_VARIABLE").has_value());
@@ -370,7 +356,7 @@ TEST(PlatformProcess, EnvironmentVariables)
     EXPECT_EQ(GetEnv("SHARD_TEST_VARIABLE").value_or(""), "valeur é");
 }
 
-TEST(PlatformProcess, WorkingDirectoryCanBeChangedAndRestored)
+TEST(PlatformProcess, WorkingDirRestores)
 {
     TempDir dir;
     const std::string before = WorkingDirectory();
@@ -379,7 +365,7 @@ TEST(PlatformProcess, WorkingDirectoryCanBeChangedAndRestored)
     ASSERT_TRUE(SetWorkingDirectory(before));
 }
 
-TEST(PlatformProcess, LaunchedProcessReportsItsExitCode)
+TEST(PlatformProcess, ReportsExitCode)
 {
 #if defined(_WIN32)
     auto process = Process::Launch("cmd.exe", { "/c", "exit", "7" });
@@ -394,17 +380,17 @@ TEST(PlatformProcess, LaunchedProcessReportsItsExitCode)
     EXPECT_FALSE(process->IsRunning());
 }
 
-TEST(PlatformProcess, LaunchOfAMissingExecutableFails)
+TEST(PlatformProcess, MissingExecutableFails)
 {
     EXPECT_EQ(Process::Launch("definitely_not_an_executable_xyz"), nullptr);
 }
 
-TEST(PlatformProcess, ArgumentsWithSpacesAndQuotesArrivePlain)
+TEST(PlatformProcess, ArgumentsWithSpacesQuotes)
 {
     TempDir dir;
     const std::string out = dir.path + "/out.txt";
 #if defined(_WIN32)
-    // cmd re-parses its own command line : check through the file that the argument was one argument
+    // cmd re-parses its own command line, so check through the file that the argument stayed one argument.
     auto process = Process::Launch("cmd.exe", { "/c", "echo", "a b", ">", out });
 #else
     auto process = Process::Launch("sh", { "-c", "printf '%s' \"$0\" > \"$1\"", "a \"b\" c", out });
@@ -416,7 +402,7 @@ TEST(PlatformProcess, ArgumentsWithSpacesAndQuotesArrivePlain)
     EXPECT_NE(content.find("a"), std::string::npos);
 }
 
-TEST(PlatformProcess, ASlowProcessCanBeKilled)
+TEST(PlatformProcess, SlowProcessKilled)
 {
 #if defined(_WIN32)
     auto process = Process::Launch("ping", { "-n", "30", "127.0.0.1" });
@@ -425,12 +411,10 @@ TEST(PlatformProcess, ASlowProcessCanBeKilled)
 #endif
     ASSERT_NE(process, nullptr);
     EXPECT_TRUE(process->IsRunning());
-    EXPECT_FALSE(process->Wait(50).has_value());    // times out
+    EXPECT_FALSE(process->Wait(50).has_value());
     process->Kill();
     EXPECT_TRUE(process->Wait(10000).has_value());
 }
-
-// --- sockets ---
 
 TEST(PlatformSockets, UdpLoopback)
 {
@@ -456,7 +440,7 @@ TEST(PlatformSockets, UdpLoopback)
     EXPECT_EQ(from.host, "127.0.0.1");
 }
 
-TEST(PlatformSockets, NonBlockingReceiveWithNothingToReadWouldBlock)
+TEST(PlatformSockets, NonBlockingReceiveWouldBlock)
 {
     auto socket = Socket::Create(SocketType::UDP);
     ASSERT_TRUE(socket->Bind({ "127.0.0.1", 0 }));
@@ -497,21 +481,19 @@ TEST(PlatformSockets, TcpLoopbackEchoAndClose)
     EXPECT_EQ(accepted->Receive(buffer, sizeof(buffer), &received), SocketStatus::Closed);
 }
 
-TEST(PlatformSockets, ConnectToAClosedPortFailsWithinTheTimeout)
+TEST(PlatformSockets, ClosedPortFailsInTimeout)
 {
     uint16_t port = 0;
     {
         auto probe = Socket::Create(SocketType::TCP);
         ASSERT_TRUE(probe->Bind({ "127.0.0.1", 0 }));
         port = probe->LocalPort();
-    }   // closed : nobody listens there any more
+    }
     auto client = Socket::Create(SocketType::TCP);
     EXPECT_FALSE(client->Connect({ "127.0.0.1", port }, 2000));
 }
 
-// --- pipes / shared memory ---
-
-TEST(PlatformIpc, NamedPipeCarriesBytesBothWays)
+TEST(PlatformIpc, NamedPipeBothWays)
 {
     const std::string name = "shard_test_pipe_" + std::to_string(CurrentProcessId());
     auto server = NamedPipe::CreateServer(name);
@@ -536,14 +518,13 @@ TEST(PlatformIpc, NamedPipeCarriesBytesBothWays)
     ASSERT_EQ(client->Read(buffer, sizeof(buffer), &read, 2000), IpcStatus::Ok);
     EXPECT_EQ(std::string(buffer), "reply");
 
-    // nothing to read : timeout, not a hang
     EXPECT_EQ(server->Read(buffer, sizeof(buffer), &read, 20), IpcStatus::TimedOut);
 
     client.reset();
     EXPECT_EQ(server->Read(buffer, sizeof(buffer), &read, 2000), IpcStatus::Closed);
 }
 
-TEST(PlatformIpc, NamedPipeAcceptsANewClientAfterTheFirstLeaves)
+TEST(PlatformIpc, NamedPipeAcceptsNewClient)
 {
     const std::string name = "shard_test_pipe_reconnect_" + std::to_string(CurrentProcessId());
     auto server = NamedPipe::CreateServer(name);
@@ -564,19 +545,18 @@ TEST(PlatformIpc, NamedPipeAcceptsANewClientAfterTheFirstLeaves)
         ASSERT_EQ(server->Read(buffer, sizeof(buffer), &read, 2000), IpcStatus::Ok);
         EXPECT_EQ(std::string(buffer), "hello");
 
-        // The server only learns the client left through the read (no explicit Disconnect)
         client.reset();
         ASSERT_EQ(server->Read(buffer, sizeof(buffer), &read, 2000), IpcStatus::Closed);
         EXPECT_FALSE(server->IsConnected());
     }
 }
 
-TEST(PlatformIpc, ConnectToAMissingServerFails)
+TEST(PlatformIpc, MissingServerFails)
 {
     EXPECT_EQ(NamedPipe::Connect("shard_test_no_such_pipe", 0), nullptr);
 }
 
-TEST(PlatformIpc, SharedMemoryIsSeenByTheOtherSide)
+TEST(PlatformIpc, SharedMemoryShared)
 {
     const std::string name = "shard_test_shm_" + std::to_string(CurrentProcessId());
     auto owner = SharedMemory::Create(name, 4096);
@@ -595,9 +575,7 @@ TEST(PlatformIpc, SharedMemoryIsSeenByTheOtherSide)
     EXPECT_EQ(SharedMemory::Open("shard_test_no_such_shm"), nullptr);
 }
 
-// --- crash ---
-
-TEST(PlatformCrash, ReportIsWrittenAndHooksRun)
+TEST(PlatformCrash, ReportWrittenAndHooksRun)
 {
     TempDir dir;
     CrashHandlerDesc desc;

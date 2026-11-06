@@ -32,7 +32,6 @@ namespace Shard::Engine::Rendering{
             glTexParameterfv(GL_TEXTURE_2D_ARRAY, GL_TEXTURE_BORDER_COLOR, borderColor);
         }
 
-        // A layer no pass has drawn into yet reads as "nothing there" : the far depth, or zeros
         if (specs.format == TextureFormat::Depth)
         {
             const float far = 1.0f;

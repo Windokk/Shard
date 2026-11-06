@@ -9,7 +9,6 @@ namespace Shard::Engine::Core::Platform {
 
         constexpr size_t kKeyCount = static_cast<size_t>(Key::Menu) + 1;
 
-        // Same order as Input::Key.
         constexpr std::array<SDL_Scancode, kKeyCount> kKeyToScancode = {
             SDL_SCANCODE_SPACE, SDL_SCANCODE_APOSTROPHE, SDL_SCANCODE_COMMA, SDL_SCANCODE_MINUS, SDL_SCANCODE_PERIOD, SDL_SCANCODE_SLASH,
             SDL_SCANCODE_0, SDL_SCANCODE_1, SDL_SCANCODE_2, SDL_SCANCODE_3, SDL_SCANCODE_4,
@@ -24,8 +23,8 @@ namespace Shard::Engine::Core::Platform {
             SDL_SCANCODE_BACKSLASH,
             SDL_SCANCODE_RIGHTBRACKET,
             SDL_SCANCODE_GRAVE,
-            SDL_SCANCODE_NONUSBACKSLASH,    // World1
-            SDL_SCANCODE_NONUSHASH,         // World2
+            SDL_SCANCODE_NONUSBACKSLASH,
+            SDL_SCANCODE_NONUSHASH,
 
             SDL_SCANCODE_ESCAPE,
             SDL_SCANCODE_RETURN,
@@ -50,7 +49,7 @@ namespace Shard::Engine::Core::Platform {
             SDL_SCANCODE_F7, SDL_SCANCODE_F8, SDL_SCANCODE_F9, SDL_SCANCODE_F10, SDL_SCANCODE_F11, SDL_SCANCODE_F12,
             SDL_SCANCODE_F13, SDL_SCANCODE_F14, SDL_SCANCODE_F15, SDL_SCANCODE_F16, SDL_SCANCODE_F17,
             SDL_SCANCODE_F18, SDL_SCANCODE_F19, SDL_SCANCODE_F20, SDL_SCANCODE_F21, SDL_SCANCODE_F22, SDL_SCANCODE_F23, SDL_SCANCODE_F24,
-            SDL_SCANCODE_UNKNOWN,           // F25
+            SDL_SCANCODE_UNKNOWN,
 
             SDL_SCANCODE_KP_0, SDL_SCANCODE_KP_1, SDL_SCANCODE_KP_2, SDL_SCANCODE_KP_3, SDL_SCANCODE_KP_4,
             SDL_SCANCODE_KP_5, SDL_SCANCODE_KP_6, SDL_SCANCODE_KP_7, SDL_SCANCODE_KP_8, SDL_SCANCODE_KP_9,
@@ -70,7 +69,7 @@ namespace Shard::Engine::Core::Platform {
             SDL_SCANCODE_RCTRL,
             SDL_SCANCODE_RALT,
             SDL_SCANCODE_RGUI,
-            SDL_SCANCODE_APPLICATION,       // Menu
+            SDL_SCANCODE_APPLICATION,
         };
 
         struct ReverseMap {
@@ -115,7 +114,7 @@ namespace Shard::Engine::Core::Platform {
         }
     }
 
-    // The engine enums follow SDL's order : the conversion is a range check
+    // Engine enums follow SDL's order, so conversion is a range check.
     static_assert(static_cast<int>(Input::GamepadButton::South) == SDL_GAMEPAD_BUTTON_SOUTH);
     static_assert(static_cast<int>(Input::GamepadButton::DpadRight) == SDL_GAMEPAD_BUTTON_DPAD_RIGHT);
     static_assert(static_cast<int>(Input::GamepadAxis::LeftX) == SDL_GAMEPAD_AXIS_LEFTX);

@@ -10,9 +10,6 @@
 #include "plugins/plugin_test_utils.hpp"
 #include "plugins/wasm_test_module.hpp"
 
-// Sandboxed plugins end to end (docs/design-notes/wasm-sandbox.fr.md, W3 / W4) : a tier 2 plugin folder whose binary is a WebAssembly module
-// written byte by byte, loaded by the real PluginManager.
-
 using namespace Shard::Engine;
 using namespace Shard::Engine::Plugins;
 using namespace WasmTest;
@@ -35,18 +32,17 @@ namespace {
 
     enum class Behaviour { Fine, SpinOnEnable, ReadOutOfBoundsOnEnable };
 
-    // shard_plugin_entry fills the wasm32 ShardPluginInfo ; on_load logs, on_enable counts its calls at address 256 (or misbehaves)
     std::vector<uint8_t> PluginModule(Behaviour behaviour)
     {
         Builder b;
         const uint32_t entry = b.Type({ I32, I32 }, { I32 });
         const uint32_t lifecycle = b.Type({ I32, I64 }, { I32 });
         const uint32_t log = b.Type({ I64, I32, I32 }, {});
-        b.Import("shard", "log", log);                                              // function 0
+        b.Import("shard", "log", log);
         b.memoryMin = 1;
         b.tableSize = 4;
 
-        // 0 : the message, 64 : its ShardStr, 128 : the callbacks (structSize, on_load 1, on_initialize 0, on_enable 2, the rest 0)
+        // 0: message, 64: its ShardStr, 128: callbacks (structSize, on_load 1, on_initialize 0, on_enable 2, rest 0)
         b.data.push_back({ 0, "hello from the sandbox" });
         b.data.push_back({ 64, U32Bytes(0) + U32Bytes(0) + U64Bytes(22) });
         std::string callbacks = U32Bytes(4 + 4 * 9) + U32Bytes(1) + U32Bytes(0) + U32Bytes(2);
@@ -57,7 +53,6 @@ namespace {
                                                    Store(32, Get(1), I32Const(7)) + Store(36, Get(1), I32Const(128)) + I32Const(0) + Op({ 0x0B }),
                                             {}, "shard_plugin_entry");
         (void)entryFn;
-        // on_load(user, ctx) : log, and refuse unless `user` came back as given
         const uint32_t onLoad = b.Function(lifecycle, Get(1) + I32Const(0) + I32Const(64) + Call(0) + Get(0) + I32Const(7) + Op({ 0x47, 0x0B }));
         std::vector<uint8_t> enable;
         if (behaviour == Behaviour::SpinOnEnable) enable = Op({ 0x03, 0x40, 0x0C, 0, 0x0B }) + I32Const(0) + Op({ 0x0B });
@@ -78,7 +73,6 @@ namespace {
         }
         void TearDown() override { PluginManager::Get().ResetForTests(); }
 
-        // A plugin folder : the manifest (tier 2, abi wasm1) and plugin.wasm
         void Folder(const std::vector<uint8_t>& wasm, json patch = json::object())
         {
             json manifest = PluginTest::Manifest(kId);
@@ -101,7 +95,7 @@ namespace {
     };
 }
 
-TEST_F(WasmPluginTest, TheManifestNamesOneBinaryForEveryPlatform)
+TEST_F(WasmPluginTest, ManifestNamesBinaryPerPlatform)
 {
     json manifest = PluginTest::Manifest(kId);
     manifest["abi"] = "wasm1";
@@ -113,15 +107,15 @@ TEST_F(WasmPluginTest, TheManifestNamesOneBinaryForEveryPlatform)
     EXPECT_EQ(parsed.Value().BinaryForThisPlatform(), "plugin.wasm");
 }
 
-TEST_F(WasmPluginTest, ASandboxedPluginLoadsWithoutSignatureOrConsent)
+TEST_F(WasmPluginTest, SandboxLoadsWithoutSignature)
 {
     Folder(PluginModule(Behaviour::Fine));
     std::string error;
     ASSERT_TRUE(pm().Startup(config, &error)) << error;
     ASSERT_NE(Rec(), nullptr);
-    ASSERT_EQ(Rec()->state, PluginState::Initialized) << Rec()->error;     // on_load checked `user` and returned 0
+    ASSERT_EQ(Rec()->state, PluginState::Initialized) << Rec()->error;
     EXPECT_EQ(Rec()->desc, nullptr);
-    EXPECT_FALSE(Rec()->library.IsOpen());                                  // nothing was mapped into the process
+    EXPECT_FALSE(Rec()->library.IsOpen());
 
     pm().OnEngineInitialized();
     EXPECT_EQ(Rec()->state, PluginState::Enabled) << Rec()->error;
@@ -131,7 +125,7 @@ TEST_F(WasmPluginTest, ASandboxedPluginLoadsWithoutSignatureOrConsent)
     pm().Shutdown();
 }
 
-TEST_F(WasmPluginTest, ABudgetExhaustedInACallbackFailsThePluginNotTheEngine)
+TEST_F(WasmPluginTest, BudgetExhaustionFailsPlugin)
 {
     Folder(PluginModule(Behaviour::SpinOnEnable), { { "budgets", { { "frameMs", 0.01 } } } });
     std::string error;
@@ -142,7 +136,7 @@ TEST_F(WasmPluginTest, ABudgetExhaustedInACallbackFailsThePluginNotTheEngine)
     pm().Shutdown();
 }
 
-TEST_F(WasmPluginTest, AnAccessOutOfItsMemoryFailsThePluginNotTheEngine)
+TEST_F(WasmPluginTest, OutOfBoundsFailsPlugin)
 {
     Folder(PluginModule(Behaviour::ReadOutOfBoundsOnEnable));
     std::string error;
@@ -152,7 +146,7 @@ TEST_F(WasmPluginTest, AnAccessOutOfItsMemoryFailsThePluginNotTheEngine)
     pm().Shutdown();
 }
 
-TEST_F(WasmPluginTest, ATier2PluginMustBeAWasmModule)
+TEST_F(WasmPluginTest, Tier2MustBeWasm)
 {
     Folder(PluginModule(Behaviour::Fine), { { "abi", "c1" }, { "binaries", { { CurrentPlatformKey(), "plugin.wasm" } } } });
     pm().Startup(config);
@@ -161,7 +155,7 @@ TEST_F(WasmPluginTest, ATier2PluginMustBeAWasmModule)
     EXPECT_NE(Rec()->error.find("wasm1"), std::string::npos) << Rec()->error;
 }
 
-TEST_F(WasmPluginTest, AMalformedModuleIsRefusedWithTheReason)
+TEST_F(WasmPluginTest, MalformedModuleRefused)
 {
     std::vector<uint8_t> broken = PluginModule(Behaviour::Fine);
     broken.resize(broken.size() / 2);
@@ -172,7 +166,7 @@ TEST_F(WasmPluginTest, AMalformedModuleIsRefusedWithTheReason)
     EXPECT_NE(Rec()->error.find("sandbox"), std::string::npos) << Rec()->error;
 }
 
-TEST_F(WasmPluginTest, AnImportTheHostDoesNotGiveIsRefused)
+TEST_F(WasmPluginTest, UnknownImportRefused)
 {
     Builder b;
     const uint32_t t = b.Type({}, {});
@@ -189,15 +183,14 @@ TEST_F(WasmPluginTest, AnImportTheHostDoesNotGiveIsRefused)
 namespace {
     std::vector<uint8_t> F32Const(float v) { std::vector<uint8_t> o = { 0x43, 0, 0, 0, 0 }; std::memcpy(&o[1], &v, 4); return o; }
 
-    // on_load creates the float cvar "speed" (2.5, in [0, 10]) and keeps its handle at 512 ; on_enable reads it and adds 1
     std::vector<uint8_t> CVarModule()
     {
         Builder b;
         const uint32_t entry = b.Type({ I32, I32 }, { I32 });
         const uint32_t lifecycle = b.Type({ I32, I64 }, { I32 });
-        b.Import("shard", "cvars.create_float", b.Type({ I64, I32, F32, I32, I32, F32, F32, I32 }, { I32 }));     // 0
-        b.Import("shard", "cvars.get_float", b.Type({ I64, I64, I32 }, { I32 }));                               // 1
-        b.Import("shard", "cvars.set_float", b.Type({ I64, I64, F32 }, { I32 }));                               // 2
+        b.Import("shard", "cvars.create_float", b.Type({ I64, I32, F32, I32, I32, F32, F32, I32 }, { I32 }));
+        b.Import("shard", "cvars.get_float", b.Type({ I64, I64, I32 }, { I32 }));
+        b.Import("shard", "cvars.set_float", b.Type({ I64, I64, F32 }, { I32 }));
         b.memoryMin = 1;
         b.tableSize = 4;
         b.data.push_back({ 300, "speed" });
@@ -218,7 +211,7 @@ namespace {
     }
 }
 
-TEST_F(WasmPluginTest, CVarsMadeInTheSandboxAreTheHostsAndScopedToThePlugin)
+TEST_F(WasmPluginTest, SandboxCVarsScopedToPlugin)
 {
     Folder(CVarModule());
     std::string error;
@@ -232,19 +225,18 @@ TEST_F(WasmPluginTest, CVarsMadeInTheSandboxAreTheHostsAndScopedToThePlugin)
     EXPECT_EQ(speed->ToString(), "3.5");
 
     ASSERT_TRUE(pm().Disable(kId, true, &error)) << error;
-    EXPECT_EQ(Core::CVarRegistry::Global().Find(std::string(kId) + ".speed"), nullptr);       // gone with the plugin, like a native one's
+    EXPECT_EQ(Core::CVarRegistry::Global().Find(std::string(kId) + ".speed"), nullptr);
     pm().Shutdown();
 }
 
 namespace {
-    // on_load adds the command "sandbox.echo" ; the command answers with its first word, or fails without one
     std::vector<uint8_t> CommandModule()
     {
         Builder b;
         const uint32_t entry = b.Type({ I32, I32 }, { I32 });
         const uint32_t lifecycle = b.Type({ I32, I64 }, { I32 });
         const uint32_t command = b.Type({ I32, I64, I32, I32, I32 }, { I32 });
-        b.Import("shard", "commands.add", b.Type({ I64, I32, I32, I32, I32 }, { I32 }));                // 0
+        b.Import("shard", "commands.add", b.Type({ I64, I32, I32, I32, I32 }, { I32 }));
         b.memoryMin = 1;
         b.tableSize = 4;
         b.data.push_back({ 300, "sandbox.echo" });
@@ -256,7 +248,6 @@ namespace {
         b.Function(entry, Store(0, Get(1), I32Const(40)) + Store(4, Get(1), I32Const(1)) + Store(36, Get(1), I32Const(128)) + I32Const(0) + Op({ 0x0B }),
                    {}, "shard_plugin_entry");
         const uint32_t onLoad = b.Function(lifecycle, Get(1) + I32Const(336) + I32Const(352) + I32Const(2) + I32Const(0) + Call(0) + Op({ 0x0B }));
-        // echo(user, ctx, args, argCount, output) : argCount == 0 ? -1 : (*output = args[0], 0)
         const uint32_t echo = b.Function(command, Get(3) + Op({ 0x45, 0x04, 0x40 }) + I32Const(-1) + Op({ 0x0F, 0x0B }) +
                                                   Get(4) + Get(2) + Op({ 0x29, 3, 0, 0x37, 3, 0 }) + Get(4) + Get(2) + Op({ 0x29, 3, 8, 0x37, 3, 8 }) +
                                                   I32Const(0) + Op({ 0x0B }));
@@ -265,7 +256,7 @@ namespace {
     }
 }
 
-TEST_F(WasmPluginTest, ACommandWrittenInTheSandboxRunsFromTheConsole)
+TEST_F(WasmPluginTest, SandboxCommandRuns)
 {
     Folder(CommandModule());
     std::string error;
@@ -274,16 +265,16 @@ TEST_F(WasmPluginTest, ACommandWrittenInTheSandboxRunsFromTheConsole)
     auto& console = Core::CVarRegistry::Global();
     const Core::CommandResult ok = console.Execute("sandbox.echo hello world");
     EXPECT_TRUE(ok.ok) << ok.output;
-    EXPECT_EQ(ok.output, "hello");                                    // the words went in as wasm32 ShardStr, the text came back out
+    EXPECT_EQ(ok.output, "hello");
     EXPECT_FALSE(console.Execute("sandbox.echo").ok);
 
     ASSERT_TRUE(pm().Disable(kId, true, &error)) << error;
-    EXPECT_FALSE(console.Execute("sandbox.echo hello").ok);           // removed with the plugin
+    EXPECT_FALSE(console.Execute("sandbox.echo hello").ok);
     pm().Shutdown();
 }
 
 namespace {
-    // on_frame_begin (and on_frame_end if asked) each count down from 1500 : 4 or 5 units of fuel an iteration, 6 000 to 7 500 apiece
+    // on_frame_begin and on_frame_end each count down from 1500: 4 or 5 units of fuel per iteration, 6 000 to 7 500 apiece.
     std::vector<uint8_t> FrameModule(bool alsoAtTheEnd)
     {
         Builder b;
@@ -292,8 +283,8 @@ namespace {
         b.memoryMin = 1;
         b.tableSize = 4;
         std::string callbacks = U32Bytes(4 + 4 * 9);
-        for (int i = 0; i < 7; ++i) callbacks += U32Bytes(0);            // on_load ... on_restore
-        callbacks += U32Bytes(1) + U32Bytes(alsoAtTheEnd ? 2 : 0);       // on_frame_begin, on_frame_end
+        for (int i = 0; i < 7; ++i) callbacks += U32Bytes(0);
+        callbacks += U32Bytes(1) + U32Bytes(alsoAtTheEnd ? 2 : 0);
         b.data.push_back({ 128, callbacks });
         b.Function(entry, Store(0, Get(1), I32Const(40)) + Store(4, Get(1), I32Const(1)) + Store(36, Get(1), I32Const(128)) + I32Const(0) + Op({ 0x0B }),
                    {}, "shard_plugin_entry");
@@ -326,18 +317,17 @@ namespace {
     };
 }
 
-TEST_F(WasmFrameTest, TheBudgetComesBackEveryFrame)
+TEST_F(WasmFrameTest, BudgetResetsEachFrame)
 {
-    Folder(FrameModule(false), { { "budgets", { { "frameMs", 0.0033 } } } });   // 10 000 units of fuel a frame
+    Folder(FrameModule(false), { { "budgets", { { "frameMs", 0.0033 } } } });
     ASSERT_TRUE(pm().Startup(config));
     RunFrames(5);
     EXPECT_EQ(Rec()->state, PluginState::Enabled) << Rec()->error;
     pm().Shutdown();
 }
 
-TEST_F(WasmFrameTest, WhatRunsDuringOneFrameSharesItsBudget)
+TEST_F(WasmFrameTest, FrameSharesBudget)
 {
-    // Each callback fits in the budget on its own, both do not
     Folder(FrameModule(true), { { "budgets", { { "frameMs", 0.0033 } } } });
     ASSERT_TRUE(pm().Startup(config));
     RunFrames(1);
@@ -346,13 +336,12 @@ TEST_F(WasmFrameTest, WhatRunsDuringOneFrameSharesItsBudget)
 }
 
 namespace {
-    // on_enable reads "hello.txt" of its content folder (5 bytes) : it fails unless the read worked and gave "hello"
     std::vector<uint8_t> ContentModule(const std::string& path)
     {
         Builder b;
         const uint32_t entry = b.Type({ I32, I32 }, { I32 });
         const uint32_t lifecycle = b.Type({ I32, I64 }, { I32 });
-        b.Import("shard", "content.read", b.Type({ I64, I32, I32, I32 }, { I32 }));                     // 0
+        b.Import("shard", "content.read", b.Type({ I64, I32, I32, I32 }, { I32 }));
         b.memoryMin = 1;
         b.tableSize = 4;
         const std::string uri = std::string("mod://") + kId + "/" + path;
@@ -363,7 +352,6 @@ namespace {
         b.data.push_back({ 128, callbacks });
         b.Function(entry, Store(0, Get(1), I32Const(40)) + Store(4, Get(1), I32Const(1)) + Store(36, Get(1), I32Const(128)) + I32Const(0) + Op({ 0x0B }),
                    {}, "shard_plugin_entry");
-        // result = read(...) ; if result != 0 return result ; return (load8_u(1024) - 'h') | (size != 5)
         const uint32_t onEnable = b.Function(lifecycle, Get(1) + I32Const(336) + I32Const(512) + I32Const(520) + Call(0) + Set(2) +
                                                         Get(2) + Op({ 0x04, 0x40 }) + Get(2) + Op({ 0x0F, 0x0B }) +
                                                         I32Const(512) + Op({ 0x28, 2, 0, 0x2D, 0, 0 }) + I32Const('h') + Op({ 0x6B }) +
@@ -380,7 +368,7 @@ namespace {
     }
 }
 
-TEST_F(WasmPluginTest, ItReadsItsContentWithThePermission)
+TEST_F(WasmPluginTest, ReadsContentWithPermission)
 {
     Folder(ContentModule("hello.txt"), ContentManifest(true));
     dir.Write("p/content/hello.txt", "hello");
@@ -391,18 +379,18 @@ TEST_F(WasmPluginTest, ItReadsItsContentWithThePermission)
     pm().Shutdown();
 }
 
-TEST_F(WasmPluginTest, WithoutThePermissionTheReadIsRefused)
+TEST_F(WasmPluginTest, ReadRefusedWithoutPermission)
 {
     Folder(ContentModule("hello.txt"), ContentManifest(false));
     dir.Write("p/content/hello.txt", "hello");
     std::string error;
     ASSERT_TRUE(pm().Startup(config, &error)) << error;
     pm().OnEngineInitialized();
-    EXPECT_EQ(Rec()->state, PluginState::Failed);                   // on_enable returned SHARD_E_UNSUPPORTED
+    EXPECT_EQ(Rec()->state, PluginState::Failed);
     pm().Shutdown();
 }
 
-TEST_F(WasmPluginTest, APathOutOfItsContentFolderIsRefused)
+TEST_F(WasmPluginTest, PathOutsideContentRefused)
 {
     Folder(ContentModule("../shard-plugin.json"), ContentManifest(true));
     dir.Write("p/content/hello.txt", "hello");

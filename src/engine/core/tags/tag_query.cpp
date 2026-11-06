@@ -7,12 +7,9 @@
 
 namespace Shard::Engine::Core {
 
-    // ---- Building ----
-
     TagQuery TagQuery::Leaf(Kind kind, Tag tag)
     {
         TagQuery q;
-        // No tag : matches nothing (the empty query would match everything)
         if (!tag.IsValid())
             q.m_Nodes.push_back(Node{ Kind::Or, Tag(), {} });
         else
@@ -33,7 +30,6 @@ namespace Shard::Engine::Core {
 
     TagQuery TagQuery::Combine(Kind kind, const std::vector<TagQuery>& parts)
     {
-        // The empty query matches everything : it adds nothing to an `&`, and makes an `|` always true
         std::vector<const TagQuery*> kept;
         for (const TagQuery& part : parts) {
             if (part.IsEmpty()) {
@@ -53,7 +49,6 @@ namespace Shard::Engine::Core {
         std::vector<uint32_t> children;
         for (const TagQuery* part : kept) {
             const Node& root = part->m_Nodes.back();
-            // (a & b) & c is a & b & c
             if (root.kind == kind && !root.children.empty()) {
                 const uint32_t offset = uint32_t(q.m_Nodes.size());
                 q.Append(*part);
@@ -72,8 +67,6 @@ namespace Shard::Engine::Core {
     TagQuery TagQuery::Exact(Tag tag) { return Leaf(Kind::Exact, tag); }
 
     namespace {
-        /// Like the text form : an unknown name is kept (and reported), so a typo makes the term match nothing instead of vanishing.
-        /// In the order given, which is the order the text form will show them in.
         std::vector<Tag> Resolved(std::initializer_list<std::string_view> names)
         {
             std::vector<Tag> tags;
@@ -97,7 +90,6 @@ namespace Shard::Engine::Core {
     TagQuery TagQuery::AnyOf(const std::vector<Tag>& tags)
     {
         if (tags.empty()) {
-            // Of nothing : an `|` without terms, which matches nothing (its text is "()")
             TagQuery q;
             q.m_Nodes.push_back(Node{ Kind::Or, Tag(), {} });
             return q;
@@ -127,11 +119,9 @@ namespace Shard::Engine::Core {
     {
         TagQuery q;
         if (IsEmpty()) {
-            // Not everything : nothing
             q.m_Nodes.push_back(Node{ Kind::Or, Tag(), {} });
             return q;
         }
-        // !!a is a : a `!` is only ever made here, after its child's nodes, so they are all the nodes before it
         if (m_Nodes.back().kind == Kind::Not) {
             q.m_Nodes.assign(m_Nodes.begin(), m_Nodes.end() - 1);
             return q;
@@ -140,8 +130,6 @@ namespace Shard::Engine::Core {
         q.m_Nodes.push_back(Node{ Kind::Not, Tag(), { child } });
         return q;
     }
-
-    // ---- Testing ----
 
     bool TagQuery::Evaluate(uint32_t index, const TagContainer& tags) const
     {
@@ -197,8 +185,6 @@ namespace Shard::Engine::Core {
         return a.m_Nodes == b.m_Nodes;
     }
 
-    // ---- Text ----
-
     void TagQuery::Write(uint32_t index, std::string& out, int parentPrecedence) const
     {
         const Node& node = m_Nodes[index];
@@ -225,7 +211,6 @@ namespace Shard::Engine::Core {
                 for (size_t i = 0; i < node.children.size(); ++i) {
                     if (i)
                         out += node.kind == Kind::And ? " & " : " | ";
-                    // An `&` inside an `&` only exists when Combine could not flatten it : it keeps its parentheses
                     Write(node.children[i], out, precedence + (m_Nodes[node.children[i]].kind == node.kind ? 1 : 0));
                 }
                 break;
@@ -243,10 +228,7 @@ namespace Shard::Engine::Core {
         return out;
     }
 
-    /// Recursive descent over the grammar :
-    ///   or     := and ('|' and)*
-    ///   and    := unary ('&' unary)*
-    ///   unary  := '!' unary | '(' or ')' | '(' ')' | '='? name
+    // Recursive descent. or := and ('|' and)*, and := unary ('&' unary)*, unary := '!' unary | '(' or ')' | '(' ')' | '='? name
     class TagQueryParser {
     public:
         TagQueryParser(std::string_view text, bool keep) : m_Text(text), m_Keep(keep) {}

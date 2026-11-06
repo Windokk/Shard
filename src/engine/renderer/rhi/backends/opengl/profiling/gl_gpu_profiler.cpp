@@ -30,7 +30,6 @@ namespace Shard::Engine::Rendering {
 
     void GLGpuProfiler::Collect(Frame& frame)
     {
-        // Complete when every scope's end timestamp is available
         if (frame.used == 0)
         {
             frame.pending = false;
@@ -66,7 +65,6 @@ namespace Shard::Engine::Rendering {
         m_Current = (m_Current + 1) % kFrames;
         Frame& frame = m_Frames[m_Current];
 
-        // The frame this slot held is read now or never : the oldest of the ring, its results are long done
         if (frame.pending)
             Collect(frame);
 
@@ -83,7 +81,6 @@ namespace Shard::Engine::Rendering {
         m_InFrame = false;
         m_Frames[m_Current].pending = m_Frames[m_Current].used > 0;
 
-        // Read whatever finished since (newest first would skip frames : go oldest to newest)
         for (int i = 1; i < kFrames; i++)
         {
             Frame& frame = m_Frames[(m_Current + i) % kFrames];

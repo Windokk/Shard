@@ -8,7 +8,6 @@ namespace Shard::Engine::Core{
 
     class IEngineContext;
 
-    /// @brief The base class for every type of object (asset instance, world, world object...)
     class Object : public std::enable_shared_from_this<Object> {
         public:
             virtual ~Object() = default;
@@ -36,7 +35,6 @@ namespace Shard::Engine::Core{
                 return obj;
             }
 
-            // Reflection / editor
             virtual void OnFieldChanged(const FieldChangedEvent& event) {}
 
             template<typename T>
@@ -68,8 +66,6 @@ namespace Shard::Engine::Core{
 
         private:
 
-            // Init() detection system
-
             template <typename, typename = std::void_t<>>
             struct HasInit : std::false_type {};
 
@@ -77,18 +73,15 @@ namespace Shard::Engine::Core{
             struct HasInit<T, std::void_t<decltype(std::declval<T>().Init())>>
                 : std::true_type {};
 
-            // If T has Init()
             template <typename U>
             static std::enable_if_t<HasInit<U>::value>
             CallInit(std::shared_ptr<U> obj) {
                 obj->Init();
             }
 
-            // If T does NOT have Init()
             template <typename U>
             static std::enable_if_t<!HasInit<U>::value>
             CallInit(std::shared_ptr<U>) {
-                // nothing
             }
     };
 }

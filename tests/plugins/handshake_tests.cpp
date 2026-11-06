@@ -49,7 +49,6 @@ namespace {
         void TearDown() override { PluginManager::Get().ResetForTests(); }
         PluginManager& pm() { return PluginManager::Get(); }
 
-        // Answers the server's side while `client` runs on another thread
         template <typename F>
         auto WithServer(PluginHandshakeServer& server, F&& client)
         {
@@ -72,7 +71,7 @@ namespace {
     };
 }
 
-TEST_F(HandshakeTest, AClientWithTheServersPluginsIsWelcomed)
+TEST_F(HandshakeTest, MatchingClientWelcomed)
 {
     pm().AddStaticPlugin(CodeModule("game.logic", "1.2.0"), &MakePlain);
     pm().AddStaticPlugin(PluginTest::Manifest("doorman").dump(), &MakeDoorman);
@@ -93,7 +92,7 @@ TEST_F(HandshakeTest, AClientWithTheServersPluginsIsWelcomed)
     EXPECT_EQ(std::count(TestEvents().begin(), TestEvents().end(), "connect alice"), 1);
 }
 
-TEST_F(HandshakeTest, AClientWithOtherPluginsIsRefusedAndToldWhy)
+TEST_F(HandshakeTest, MismatchedClientRefused)
 {
     pm().AddStaticPlugin(CodeModule("game.logic", "1.2.0"), &MakePlain);
     ASSERT_TRUE(pm().Startup(config));
@@ -102,7 +101,6 @@ TEST_F(HandshakeTest, AClientWithOtherPluginsIsRefusedAndToldWhy)
     PluginHandshakeServer server(pm());
     ASSERT_TRUE(server.Start({}));
 
-    // missing, other version, extra
     auto none = Hello(server, "bob", {});
     EXPECT_TRUE(none.connected);
     EXPECT_FALSE(none.accepted);
@@ -117,10 +115,10 @@ TEST_F(HandshakeTest, AClientWithOtherPluginsIsRefusedAndToldWhy)
     EXPECT_FALSE(Hello(server, "bob", mine).accepted);
     EXPECT_EQ(server.RefusedCount(), 3u);
     EXPECT_EQ(server.AcceptedCount(), 0u);
-    EXPECT_FALSE(Logged("connect bob"));          // the plugins were wrong : the server plugins were not even asked
+    EXPECT_FALSE(Logged("connect bob"));
 }
 
-TEST_F(HandshakeTest, AServerPluginOrAHookCanRefuseAMatchingClient)
+TEST_F(HandshakeTest, PluginOrHookRefusesClient)
 {
     pm().AddStaticPlugin(PluginTest::Manifest("doorman").dump(), &MakeDoorman);
     ASSERT_TRUE(pm().Startup(config));
@@ -134,7 +132,7 @@ TEST_F(HandshakeTest, AServerPluginOrAHookCanRefuseAMatchingClient)
     EXPECT_TRUE(Hello(server, "fine", {}).accepted);
 }
 
-TEST_F(HandshakeTest, DisconnectsAreReportedToTheServerPlugins)
+TEST_F(HandshakeTest, DisconnectsReported)
 {
     pm().AddStaticPlugin(PluginTest::Manifest("doorman").dump(), &MakeDoorman);
     ASSERT_TRUE(pm().Startup(config));
@@ -142,7 +140,6 @@ TEST_F(HandshakeTest, DisconnectsAreReportedToTheServerPlugins)
     pm().OnEngineInitialized();
     PluginHandshakeServer server(pm());
     ASSERT_TRUE(server.Start({}));
-    // A client that stays connected after it was welcomed, then leaves
     PluginHandshakeClient client(3000);
     HandshakeResult result = WithServer(server, [&] { return client.Connect("127.0.0.1", server.LocalPort(), "carol", {}); });
     ASSERT_TRUE(result.accepted);
@@ -153,7 +150,7 @@ TEST_F(HandshakeTest, DisconnectsAreReportedToTheServerPlugins)
     EXPECT_EQ(std::count(TestEvents().begin(), TestEvents().end(), "disconnect carol"), 1);
 }
 
-TEST_F(HandshakeTest, NothingButWellFormedHellosGetThrough)
+TEST_F(HandshakeTest, OnlyWellFormedHellosPass)
 {
     ASSERT_TRUE(pm().Startup(config));
     PluginHandshakeServer server(pm());
@@ -179,37 +176,36 @@ TEST_F(HandshakeTest, NothingButWellFormedHellosGetThrough)
         return false;
     };
 
-    {   // garbage
+    {
         auto s = connect();
         const char junk[] = "GET / HTTP/1.0\r\n\r\n";
         size_t sent = 0;
         s->Send(junk, sizeof(junk), &sent);
         EXPECT_TRUE(closedByServer(*s));
     }
-    {   // a frame that claims to be huge
+    {
         auto s = connect();
         const uint8_t frame[] = { 0x7f, 0xff, 0xff, 0xff, 0x00 };
         size_t sent = 0;
         s->Send(frame, sizeof(frame), &sent);
         EXPECT_TRUE(closedByServer(*s));
     }
-    {   // a frame that is not JSON
+    {
         auto s = connect();
         const uint8_t frame[] = { 0, 0, 0, 3, 0, 'a', 'b', 'c' };
         size_t sent = 0;
         s->Send(frame, sizeof(frame), &sent);
         EXPECT_TRUE(closedByServer(*s));
     }
-    {   // someone who says nothing
+    {
         auto s = connect();
         EXPECT_TRUE(closedByServer(*s));
     }
     EXPECT_EQ(server.AcceptedCount(), 0u);
-    // and the server still works
     EXPECT_TRUE(Hello(server, "ok", pm().SimulationPluginSet()).accepted);
 }
 
-TEST_F(HandshakeTest, AClientThatSpeaksAnotherProtocolIsRefused)
+TEST_F(HandshakeTest, OtherProtocolRefused)
 {
     ASSERT_TRUE(pm().Startup(config));
     PluginHandshakeServer server(pm());
@@ -230,7 +226,7 @@ TEST_F(HandshakeTest, AClientThatSpeaksAnotherProtocolIsRefused)
     EXPECT_NE(reply.find("protocol"), std::string::npos) << reply;
 }
 
-TEST_F(HandshakeTest, ADatapackTheClientLacksCanBeDownloaded)
+TEST_F(HandshakeTest, MissingDatapackDownloadable)
 {
     TempDir dir;
     dir.Write("server/plugins/pack/shard-plugin.json", PluginTest::DatapackManifest("pack.maps", "2.0.0"));
@@ -246,7 +242,6 @@ TEST_F(HandshakeTest, ADatapackTheClientLacksCanBeDownloaded)
     options.offerDatapacks = true;
     ASSERT_TRUE(server.Start(options));
 
-    // the client has the code module but not the datapack
     std::vector<PluginSetEntry> theirs;
     for (const PluginSetEntry& e : pm().SimulationPluginSet()) if (e.id == "game.logic") theirs.push_back(e);
     HandshakeResult result;
@@ -267,7 +262,7 @@ TEST_F(HandshakeTest, ADatapackTheClientLacksCanBeDownloaded)
     EXPECT_FALSE(dir.Read("client/downloaded/pack.maps/shard-plugin.json").empty());
 }
 
-TEST_F(HandshakeTest, CodeIsNeverOfferedAndWrongHashesAreRefused)
+TEST_F(HandshakeTest, CodeNeverOffered)
 {
     TempDir dir;
     dir.Write("server/plugins/pack/shard-plugin.json", PluginTest::DatapackManifest("pack.maps", "1.0.0"));
@@ -292,7 +287,7 @@ TEST_F(HandshakeTest, CodeIsNeverOfferedAndWrongHashesAreRefused)
         notAPlugin = client.FetchDatapack("../etc", "00", dir.Sub("dl"));
         return 0;
     });
-    for (const auto& d : result.downloads) EXPECT_NE(d.id, "game.logic");          // only datapacks are on offer
+    for (const auto& d : result.downloads) EXPECT_NE(d.id, "game.logic");
     EXPECT_FALSE(codeFetch);
     EXPECT_NE(codeFetch.GetError().message.find("not a datapack"), std::string::npos) << codeFetch.GetError().message;
     EXPECT_FALSE(badHash);

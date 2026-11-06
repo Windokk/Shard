@@ -10,7 +10,7 @@
 
 #include "engine/plugins/wasm/wasm_runtime.hpp"
 
-// Builds WebAssembly modules byte by byte for the tests of the sandbox : no compiler or assembler is needed to run them.
+// Builds wasm modules byte by byte, so tests need no compiler or assembler.
 
 using namespace Shard::Engine::Plugins::Wasm;
 
@@ -40,7 +40,6 @@ namespace WasmTest {
             imports.emplace_back(std::move(module), std::move(name), type);
             return uint32_t(imports.size() - 1);
         }
-        // Returns the function index (imports first)
         uint32_t Function(uint32_t type, std::vector<uint8_t> body, std::vector<std::pair<uint32_t, uint8_t>> locals = {}, const char* exportName = nullptr)
         {
             funcs.push_back({ type, std::move(locals), std::move(body) });
@@ -90,7 +89,6 @@ namespace WasmTest {
                 else { s.push_back(0); WriteU32(s, uint32_t(memoryMin)); }
                 Section(out, 5, s);
             }
-            // Like wasm-ld : the memory and the table are exported, the host reaches them through these names
             auto all = exports;
             if (memoryMin >= 0) all.emplace_back(kMemoryExport, 2, 0);
             if (tableSize >= 0) all.emplace_back(kTableExport, 1, 0);
@@ -132,7 +130,6 @@ namespace WasmTest {
         }
     };
 
-    // Instruction helpers
     inline std::vector<uint8_t> operator+(std::vector<uint8_t> a, const std::vector<uint8_t>& b) { a.insert(a.end(), b.begin(), b.end()); return a; }
     inline std::vector<uint8_t> I32Const(int32_t v) { std::vector<uint8_t> o = { 0x41 }; WriteS32(o, v); return o; }
     inline std::vector<uint8_t> I64Const(int64_t v) { std::vector<uint8_t> o = { 0x42 }; WriteS64(o, v); return o; }

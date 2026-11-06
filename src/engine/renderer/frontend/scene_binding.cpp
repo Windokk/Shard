@@ -12,19 +12,15 @@
 #include "engine/renderer/features/lighting/ssr_manager.hpp"
 #include "engine/renderer/features/lighting/light_culling_manager.hpp"
 
-// The Renderer's side of ISceneBinding : what the backend asks for while it issues a draw.
-
 namespace Shard::Engine::Rendering{
 
     void Renderer::BindWorldState(RendererAPI& api, std::shared_ptr<Shader> shader, glm::mat4 modelMatrix, int objectID, bool applyPassGlobals)
     {
-        // model/objID are genuinely per-object and must always be set.
         shader->SetMat4("model", modelMatrix);
         shader->SetInt("objID", objectID);
 
         shader->SetVec3("emissive", glm::vec3(0.0f));
 
-        // Editor debug view (main scene view only - studio/immediate renders always look normal).
         {
             RenderView view;
             const bool studioView = GetCurrentView(view) && view.lighting == ViewLighting::Studio;
@@ -32,11 +28,10 @@ namespace Shard::Engine::Rendering{
             shader->SetInt("viewMode", studioView ? 0 : static_cast<int>(dv.mode));
             shader->SetBool("showLighting", studioView || dv.showLighting);
             shader->SetBool("showShadows", studioView || dv.showShadows);
-            // The terms left out rather than the ones drawn : a shader no one sets it for (0) draws them all
+            // Stores the excluded terms, so a shader nobody sets it for (0) draws them all.
             shader->SetInt("excludedLightingTerms", studioView ? 0 : static_cast<int>(LightingTermsAll & ~dv.lightingTerms));
         }
 
-        // How the shadows are filtered and biased (the project's rendering settings)
         if (m_ShadowManager)
         {
             const Projects::ShadowSettings& shadows = m_ShadowManager->GetSettings();
@@ -64,13 +59,11 @@ namespace Shard::Engine::Rendering{
         GetCurrentView(currentView);
         const bool studio = currentView.lighting == ViewLighting::Studio;
 
-        // A studio view is drawn straight into an 8 bit target, which the HDR scene pass is not : it maps the light itself
+        // Studio views draw straight into an 8-bit target, so the shader maps the light itself.
         shader->SetBool("outputDisplayColors", studio);
 
         if (studio)
         {
-            // Fixed studio look : none of the world's lighting settings apply, and SSAO's texture is
-            // the main viewport's (screen-space), which would be meaningless for another view.
             shader->SetVec3("ambientColor", glm::vec3(currentView.studioAmbient));
             shader->SetBool("ssaoEnabled", false);
         }
@@ -85,7 +78,6 @@ namespace Shard::Engine::Rendering{
         if (!applyPassGlobals)
             return;
 
-        // A studio view brings its own environment so its look never depends on the world.
         std::shared_ptr<EnvironmentMap> envMap;
         if (studio)
             envMap = currentView.studioEnvironment;
@@ -93,10 +85,8 @@ namespace Shard::Engine::Rendering{
             envMap = environment.skybox;
 
         if(envMap){
-            //Bind skybox data
             const auto& samplers = shader->GetActiveSamplersMap();
 
-            // A permutation that only reads the flag (the G-buffer's) has none of the environment's samplers
             auto bindIfUsed = [&](const char* name, const auto& texture)
             {
                 auto sampler = samplers.find(name);
@@ -118,7 +108,7 @@ namespace Shard::Engine::Rendering{
             int volumeCount = 0;
             int lastReady = -1;
 
-            // The atlases are bindless handles (lit.frag has no sampler unit for them), low and high 32 bits
+            // Atlases are bindless handles (low and high 32 bits), lit.frag has no sampler unit for them.
             auto setHandle = [&](const std::string& name, const std::shared_ptr<Texture2D>& atlas)
             {
                 const uint64_t handle = atlas ? atlas->GetBindlessHandle() : 0;
@@ -130,7 +120,7 @@ namespace Shard::Engine::Rendering{
                 if (!probeManager->IsVolumeReady(i))
                     continue;
 
-                std::string idx = "[" + std::to_string(volumeCount) + "]"; // ddgi_* uniform-array element
+                std::string idx = "[" + std::to_string(volumeCount) + "]";
 
                 setHandle("ddgi_irradianceAtlasHandle" + idx, probeManager->GetIrradianceAtlas(i));
                 setHandle("ddgi_distanceAtlasHandle" + idx, probeManager->GetDistanceAtlas(i));
@@ -142,7 +132,7 @@ namespace Shard::Engine::Rendering{
                 shader->SetVec3("ddgi_gridOrigin" + idx, probeManager->GetGridOrigin(i));
                 shader->SetVec3("ddgi_gridSpacing" + idx, probeManager->GetGridSpacing(i));
                 glm::ivec3 counts = probeManager->GetProbeCounts(i);
-                shader->SetVec3("ddgi_probeCounts" + idx, glm::vec3(counts)); // ivec3 stored as vec3, see lit.frag
+                shader->SetVec3("ddgi_probeCounts" + idx, glm::vec3(counts));
                 shader->SetInt("ddgi_tileSize" + idx, (int)probeManager->GetTileSize(i));
                 shader->SetInt("ddgi_atlasProbesPerRow" + idx, (int)probeManager->GetAtlasProbesPerRow(i));
                 shader->SetInt("ddgi_atlasSize" + idx, (int)probeManager->GetAtlasSize(i));
@@ -166,9 +156,6 @@ namespace Shard::Engine::Rendering{
             shader->SetInt("ddgi_volumeCount", volumeCount);
         }
 
-        // Reflection probe : the one nearest to the view among those that have a baked picture (the camera inside a box is at distance 0, the
-        // smaller box among those). One at a time : lit.frag reads a single probe (one sampler unit). A studio view brings its own environment,
-        // so it never reflects the world's probes.
         {
             const ReflectionProbeProxy* best = nullptr;
             float bestDistance = 0.0f;
@@ -215,8 +202,6 @@ namespace Shard::Engine::Rendering{
         auto lightCullingManager = GetLightCullingManager();
         if (studio)
         {
-            // The studio rig has no point/spot lights : a single-cluster grid whose one (empty) entry
-            // ImmediateRenderer binds in place of the scene's cluster buffers.
             shader->SetUVec2("clusterGridSizeXY", 1, 1);
             shader->SetFloat("clusterScaleZ", 0.0f);
             shader->SetFloat("clusterBiasZ", 0.0f);
@@ -235,7 +220,6 @@ namespace Shard::Engine::Rendering{
             GetShadowManager()->BindShadowMaps(material);
         GetSSAOManager()->BindSSAOTexture(material);
 
-        // The studio views are drawn from another point of view than the screen's : the reflections, which are screen-space, mean nothing there
         bool screenSpaceView = true;
         if (HasViewOverride())
         {

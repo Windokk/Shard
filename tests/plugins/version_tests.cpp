@@ -91,7 +91,7 @@ TEST(VersionRange, ComparatorsAndAlternatives)
     EXPECT_FALSE(Sat("1.x || 3.x", "2.0.0"));
 }
 
-TEST(VersionRange, PrereleaseOnlyMatchesAWrittenPrerelease)
+TEST(VersionRange, PrereleaseNeedsPrerelease)
 {
     EXPECT_FALSE(Sat("^1.0.0", "1.5.0-beta"));
     EXPECT_TRUE(Sat(">=1.5.0-beta", "1.5.0-beta"));

@@ -22,10 +22,8 @@ namespace Shard::Editor::GUI{
     class PropertiesPanel
     {
         public:
-            /// @param selectionCount How many actors are selected : the panel edits the primary one (`actor`) and says so when there are more
             void Draw(std::shared_ptr<Engine::Objects::Actor> actor, int selectionCount = 1);
 
-            /// The browser the asset fields take the selected asset from / navigate to
             void SetAssetBrowser(AssetBrowser* browser) { assetBrowser = browser; }
 
         private:
@@ -36,19 +34,15 @@ namespace Shard::Editor::GUI{
                         std::shared_ptr<Engine::Objects::Components::Component> comp,
                         const Container* container = nullptr, const int valueIndexInContainer = -1);
 
-            /// DrawField, and what the widgets changed noted for the undo history
             void DrawRecordedField(const FieldInfo* field, std::shared_ptr<Engine::Objects::Components::Component> comp,
                         Commands::FieldOwnerLocator locate = nullptr);
 
-            /// The edits noted while the widgets were being used go into the undo history once none is
             void CommitPendingEdits();
 
             AssetBrowser* assetBrowser = nullptr;
 
-            // The actor being drawn
             std::shared_ptr<Engine::Objects::Actor> drawnActor;
 
-            // Undo : the fields changed by the widget being used (a drag, a text box...), with the values they had before it
             struct PendingFieldEdit {
                 std::shared_ptr<Engine::Objects::Components::Component> component;
                 const FieldInfo* field;
@@ -57,10 +51,8 @@ namespace Shard::Editor::GUI{
             };
             std::vector<PendingFieldEdit> pendingFieldEdits;
 
-            // Undo : an edit that is not in the reflected fields (the physics shapes), the whole actor saved
             std::unique_ptr<Commands::ActorSnapshotCommand> pendingActorEdit;
 
-            // Undo : the name box
             std::shared_ptr<Engine::Objects::Actor> nameEditActor;
             std::string nameBeforeEdit;
     };

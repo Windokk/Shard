@@ -18,8 +18,6 @@ namespace Shard::Engine::Serialization
 
     namespace
     {
-        // ---- Vectors / colors : N scalars of the same type, laid out contiguously, named by axis ----
-
         template<typename T, size_t N>
         void WriteComponents(const void* value, ordered_json& out, const char* const (&keys)[N])
         {
@@ -28,7 +26,6 @@ namespace Shard::Engine::Serialization
                 out[keys[i]] = components[i];
         }
 
-        /// A missing component keeps its current value, only a non-object is an error
         template<typename T, size_t N>
         bool ReadComponents(void* value, const json& in, const char* const (&keys)[N])
         {
@@ -49,8 +46,6 @@ namespace Shard::Engine::Serialization
         constexpr const char* kXYZW[] = { "x", "y", "z", "w" };
         constexpr const char* kRGB[]  = { "r", "g", "b" };
         constexpr const char* kRGBA[] = { "r", "g", "b", "a" };
-
-        // ---- Matrices : a flat array, column by column ----
 
         template<size_t N>
         void WriteMatrix(const void* value, ordered_json& out)
@@ -99,12 +94,10 @@ namespace Shard::Engine::Serialization
             return v;
         }
 
-        /// Reads one element of a container into a scratch buffer and appends it
         bool AppendElement(const FieldInfo& field, void* container, const json& in, const ReflectionContext& context)
         {
             const Container& c = *field.container;
 
-            // std::string needs a constructed object, everything else the editor can show is plain data
             if (c.elementType == TypeID::String)
             {
                 std::string element;
@@ -114,7 +107,7 @@ namespace Shard::Engine::Serialization
                 return true;
             }
 
-            // The scratch buffer below is raw memory : only plain data can be read into it
+            // The scratch buffer is raw memory, so only plain data can be read into it
             if (c.elementType == TypeID::TagContainer || c.elementType == TypeID::TagQuery)
                 return false;
 
@@ -165,7 +158,7 @@ namespace Shard::Engine::Serialization
 
             case TypeID::Quat:
             {
-                // Euler angles in degrees : what the editor shows and what the levels always stored for a rotation
+                // Euler angles in degrees, what the editor shows and what levels always stored
                 const glm::vec3 euler = glm::degrees(glm::eulerAngles(*static_cast<const glm::quat*>(value)));
                 out["x"] = euler.x;
                 out["y"] = euler.y;
@@ -198,7 +191,7 @@ namespace Shard::Engine::Serialization
                         return true;
                     }
                 }
-                out = v; // not a named value, keep the number so that nothing is lost
+                out = v;
                 return true;
             }
 
@@ -211,7 +204,7 @@ namespace Shard::Engine::Serialization
                 return true;
             }
 
-            // Tags are saved by name : the hash of a name is the engine's business, and a renamed tag is found again by its redirect
+            // Tags are saved by name so a renamed tag is found again through its redirect
             case TypeID::Tag:
                 out = static_cast<const Core::Tag*>(value)->ToString();
                 return true;
@@ -244,7 +237,7 @@ namespace Shard::Engine::Serialization
             }
 
             default:
-                return false; // Struct, Map : no json form yet
+                return false;
         }
     }
 
@@ -295,7 +288,6 @@ namespace Shard::Engine::Serialization
 
                 if (in.contains("w"))
                 {
-                    // A raw quaternion
                     float c[4] = { q.x, q.y, q.z, q.w };
                     if (!ReadComponents<float>(c, in, kXYZW))
                         return false;
@@ -399,7 +391,6 @@ namespace Shard::Engine::Serialization
                 if (!in.is_array() || !field.container || field.container->IsAssociative() || !field.container->InsertAt)
                     return false;
 
-                // The vector is rebuilt from the file : what it held (the default) is dropped
                 if (field.container->Clear)
                     field.container->Clear(value);
 

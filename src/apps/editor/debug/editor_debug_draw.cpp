@@ -39,25 +39,20 @@ namespace Shard::Editor::Debug{
 
         constexpr int kLayerCount = 3;
 
-        // The engine's "physics.interpolate" setting : what the renderer draws the bodies with, the shapes must follow
         bool InterpolationEnabled()
         {
             const Engine::Core::CVarBase* cvar = Engine::Core::CVarRegistry::Global().Find("physics.interpolate");
             return !cvar || cvar->ToString() != "false";
         }
 
-        // The passes the shapes are drawn in, on top of the scene, in the viewport framebuffer
         const char* const kPassNames[kLayerCount] = { "EditorVolumeGizmoPass", "EditorProbeGizmoPass", "EditorPhysicsDebugPass" };
 
-        // A component draws several things : a slot tells them apart (a physics body has one per shape, a probe volume
-        // has its box and its probes)
         constexpr uint32_t kVolumeBoxSlot = 0;
         constexpr uint32_t kVolumeProbesSlot = 1;
-        constexpr uint32_t kGravityOuterSlot = 1;       // a gravity field's second outline (the edge of its reach, its direction)
-        constexpr uint32_t kGravityFadeSlot = 2;        // and the third (where it starts to fade)
+        constexpr uint32_t kGravityOuterSlot = 1;
+        constexpr uint32_t kGravityFadeSlot = 2;
         constexpr uint64_t kSlotBits = 20;
 
-        // The layout of the vertices of the meshes DebugShape builds
         struct Vertex {
             glm::vec3 position;
             glm::vec2 texCoord;
@@ -66,14 +61,12 @@ namespace Shard::Editor::Debug{
         };
 
         const COL_RGBA kWireframeColor = COL_RGBA(0.0f, 1.0f, 1.0f, 1.0f);
-        // The arrow standing for the direction of a gravity : a cone whose tip points where it does
         const glm::vec3 kGravityArrowHalfExtent = glm::vec3(0.3f, 0.6f, 0.3f);
 
         glm::mat4 GravityArrowPose(const glm::vec3& position, const glm::vec3& direction)
         {
             const float length = glm::length(direction);
             const glm::vec3 dir = length > 1e-6f ? direction / length : glm::vec3(0.0f, -1.0f, 0.0f);
-            // The cone narrows toward +Y
             return glm::translate(glm::mat4(1.0f), position) * glm::mat4_cast(glm::rotation(glm::vec3(0.0f, 1.0f, 0.0f), dir));
         }
 
@@ -97,7 +90,6 @@ namespace Shard::Editor::Debug{
 
         m_Renderer = Engine::Core::GetEngine().GetRenderer();
 
-        // The shapes are lines : same unlit shader as a mesh, rasterized as lines
         Rendering::VertexLayout vertexLayout = {{{"aPos", Rendering::ShaderDataType::Vec3, 0, offsetof(Vertex, position)},{"aTexCoord", Rendering::ShaderDataType::Vec2, 1, offsetof(Vertex, texCoord)},
                                                 {"aNormal", Rendering::ShaderDataType::Vec3, 2, offsetof(Vertex, normal)}, {"aColor", Rendering::ShaderDataType::Vec4, 3, offsetof(Vertex, color)}},
                                                     sizeof(Vertex)};
@@ -151,7 +143,6 @@ namespace Shard::Editor::Debug{
 
             case ShapeKind::ProbeGrid:
             {
-                // One small sphere per probe, in the space of the volume (see ProbeVolume::GetGridOrigin)
                 const glm::ivec3 counts = glm::max(spec.probeCounts, glm::ivec3(1));
                 const glm::vec3 spacing = (spec.halfExtent * 2.0f) / glm::vec3(counts);
                 const glm::vec3 localOrigin = -spec.halfExtent + spacing * 0.5f;
@@ -175,7 +166,6 @@ namespace Shard::Editor::Debug{
         const uint64_t key = ((uint64_t)ownerID << kSlotBits) | slot;
         Entry& entry = m_Entries[key];
 
-        // What it shows changed : the old mesh goes (its command holds it), the new one is built below
         if(entry.shape && entry.spec != spec)
         {
             Remove(entry);
@@ -192,7 +182,7 @@ namespace Shard::Editor::Debug{
                 return;
             }
 
-            // The draw commands are keyed by the mesh's asset ID
+            // Draw commands are keyed by the mesh's asset ID.
             entry.shape->m_Mesh->SetAssetID(Engine::Core::GetEngine().GetAssetIDManager()->GenerateNewID());
 
             entry.spec = spec;
@@ -204,9 +194,7 @@ namespace Shard::Editor::Debug{
 
         entry.seen = true;
 
-        // A world switch wipes the draw lists (see Renderer::ClearPassesContent) : a command that is gone is submitted again. The lists
-        // are the render thread's, which inserts and erases in them as it runs the commands posted below : they are not looked into from
-        // here (a lookup racing an insert crashes), the epoch tells whether a wipe happened since the command was submitted
+        // A world switch wipes the draw lists, so a lost command is resubmitted. The lists belong to the render thread, never look into them from here (a lookup racing an insert crashes). The epoch tells whether a wipe happened.
         const uint64_t epoch = m_Renderer->GetContentEpoch();
 
         if(entry.submitted && entry.epoch == epoch && entry.model == model)
@@ -226,7 +214,7 @@ namespace Shard::Editor::Debug{
         cmd.objectID = objectID;
         cmd.vertexCount = mesh->GetVertexCount();
 
-        // The renderer keys a command by its position in the list it is given : always the first
+        // The renderer keys a command by its position in the list given, always the first here.
         m_Renderer->AddOrUpdateCommands({cmd}, {kPassNames[(int)layer]}, false);
 
         entry.model = model;
@@ -258,8 +246,7 @@ namespace Shard::Editor::Debug{
                 {
                     glm::mat4 world = actor.transform->GetWorldMatrix();
 
-                    // The mesh of a moving body is drawn between its last two simulated poses (see Render.Extract) : its shapes
-                    // follow it, or they trail behind it by up to a step
+                    // A moving body is drawn between its last two simulated poses, so its shapes follow it or they trail by up to a step.
                     Engine::Time::TimeManager* time = Engine::Core::GetEngine().GetTimeManager();
                     if(time && time->GetFixedDeltaTime() > 0.0f && Engine::Core::GetEngine().IsInPlayMode() && InterpolationEnabled())
                     {
@@ -295,9 +282,7 @@ namespace Shard::Editor::Debug{
                                 continue;
                         }
 
-                        // A shape's mesh is built in its own local space (unscaled, uncentered) : its offset and rotation
-                        // go in the model matrix on top of the actor's transform, like the physics places the shape in its
-                        // body (where the offset is pre-scaled - here the actor's matrix already carries that scale)
+                        // The mesh is built in the shape's local space. Offset and rotation go in the model matrix like the physics body does, with the actor's matrix already carrying the scale.
                         const glm::mat4 localOffset = glm::translate(glm::mat4(1.0f), body->GetShapeOffset(i)) * glm::mat4_cast(body->GetShapeRotation(i));
 
                         Show(DebugLayer::Physics, ownerID, (uint32_t)i, objectID, spec, world * localOffset);
@@ -321,13 +306,11 @@ namespace Shard::Editor::Debug{
                         ShapeSpec arrow;
                         arrow.kind = ShapeKind::VolumeCone;
                         arrow.halfExtent = kGravityArrowHalfExtent;
-                        // Pointing where the strength pulls : the other way when it is negative
                         const glm::vec3 direction = rotation * uniform->direction * (uniform->strength < 0.0f ? -1.0f : 1.0f);
                         Show(DebugLayer::Volumes, ownerID, kVolumeBoxSlot, objectID, arrow, GravityArrowPose(position, direction));
                     }
                     else if(auto point = std::dynamic_pointer_cast<Components::PointGravityField>(comp))
                     {
-                        // An unlimited field has no edge to show : only the position of the source
                         const float radius = point->radius > 0.0f ? point->radius : 0.5f;
                         Show(DebugLayer::Volumes, ownerID, kVolumeBoxSlot, objectID, sphere(radius), atActor);
 
@@ -357,7 +340,6 @@ namespace Shard::Editor::Debug{
                             default:                                            box.kind = ShapeKind::Box; break;
                         }
 
-                        // The region follows the whole transform of the actor, like the generic volumes
                         Show(DebugLayer::Volumes, ownerID, kVolumeBoxSlot, objectID, box, actor.transform->GetWorldMatrix());
 
                         if(region->directionMode == Engine::Physics::GravityVolumeDirection::Fixed)
@@ -378,8 +360,7 @@ namespace Shard::Editor::Debug{
 
                     if(auto probeVolume = std::dynamic_pointer_cast<Components::ProbeVolume>(comp))
                     {
-                        // The probe grid is axis-aligned and centered on the actor : it follows its translation only, and the
-                        // box and the probes preview that instead of the actor's full transform (see ProbeVolume)
+                        // The probe grid is axis-aligned and centered on the actor, so it follows translation only.
                         const glm::mat4 model = glm::translate(glm::mat4(1.0f), actor.transform->GetWorldPosition());
 
                         ShapeSpec probes;
@@ -392,7 +373,6 @@ namespace Shard::Editor::Debug{
                     }
                     else if(auto reflectionProbe = std::dynamic_pointer_cast<Components::ReflectionProbe>(comp))
                     {
-                        // The shape of the probe, drawn in place of the box it is inscribed in
                         switch(reflectionProbe->shape)
                         {
                             case Engine::Rendering::ReflectionProbeShape::Sphere:   box.kind = ShapeKind::VolumeSphere; break;
@@ -402,7 +382,6 @@ namespace Shard::Editor::Debug{
                             default: break;
                         }
 
-                        // Axis-aligned and centered on the actor, like the picture it was taken from (see ReflectionProbe)
                         Show(DebugLayer::Volumes, ownerID, kVolumeBoxSlot, objectID, box, glm::translate(glm::mat4(1.0f), actor.transform->GetWorldPosition()));
                     }
                     else
@@ -442,7 +421,6 @@ namespace Shard::Editor::Debug{
             }
         }
 
-        // What nothing shows any more : the component is gone, deactivated, or its world unloaded
         for(auto it = m_Entries.begin(); it != m_Entries.end(); )
         {
             if(it->second.seen)

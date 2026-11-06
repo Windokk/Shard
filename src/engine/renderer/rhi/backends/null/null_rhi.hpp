@@ -20,15 +20,9 @@
 #include "engine/renderer/rhi/shader/compute_shader.hpp"
 #include "engine/renderer/rhi/shader/shader.hpp"
 
-/// The null graphics backend : every object of the rhi exists and keeps what it was told, nothing is drawn and no graphics
-/// API, GPU or window is touched. It is what a headless run (a dedicated server, the simulation tests, a replay checked in
-/// the CI) boots the renderer on : the whole frame - extraction, culling, pass setup, draw lists - runs, so the CPU side of
-/// the renderer is exercised, only the calls that would reach the GPU end here.
-///
-/// There is no graphics thread : everything runs on the calling thread.
+// Headless backend: nothing is drawn but the CPU side of the frame runs. No graphics thread, all on the calling thread.
 namespace Shard::Engine::Rendering::Null {
 
-    /// A name that stands for a GPU object. Never 0 (code treats 0 as "no object"), unique for the run.
     uint32_t NextHandle();
 
     class NullRendererAPI final : public RendererAPI {
@@ -52,7 +46,6 @@ namespace Shard::Engine::Rendering::Null {
         std::string GetRendererName() override { return "Null renderer (no GPU)"; }
         std::string GetDriverVersion() override { return "none"; }
 
-        /// How many draws and dispatches the renderer asked for since the start : what a headless test can look at
         uint64_t DrawCount() const { return m_Draws; }
         uint64_t DispatchCount() const { return m_Dispatches; }
 
@@ -137,7 +130,6 @@ namespace Shard::Engine::Rendering::Null {
         void Bind() override {}
     };
 
-    /// Keeps every parameter it is given (the null shader has no uniform list to check them against)
     class NullMaterial final : public Material {
     public:
         NullMaterial(std::shared_ptr<Shader> shader, std::shared_ptr<Pipeline> pipeline, bool receivesShadows, Opacity opacity);
@@ -149,7 +141,6 @@ namespace Shard::Engine::Rendering::Null {
         uint32_t GetTexturesCount() const override { return static_cast<uint32_t>(m_SamplersParameters.size()); }
     };
 
-    /// The geometry stays on the CPU (there is no GPU to move it to), so reading it back always works
     class NullMesh final : public Mesh {
     public:
         void Create(std::vector<uint8_t> vertices, std::vector<uint32_t> indices, const VertexLayout& layout) override;
@@ -252,7 +243,6 @@ namespace Shard::Engine::Rendering::Null {
         void CopyFrom(std::shared_ptr<Framebuffer> src) override { (void)src; }
         void CopyDepthFrom(std::shared_ptr<Framebuffer> src) override { (void)src; }
         void BlitToScreen(uint32_t screenWidth, uint32_t screenHeight) override { (void)screenWidth; (void)screenHeight; }
-        /// Nothing was drawn : the picture is black
         bool ReadPixelsRGBA8(std::vector<uint8_t>& outPixels) override;
         void UploadColorRegion(uint32_t x, uint32_t y, uint32_t width, uint32_t height, const uint8_t* rgba) override { (void)x; (void)y; (void)width; (void)height; (void)rgba; }
         void BlitColorTo(Framebuffer& dst, uint32_t dstX, uint32_t dstY, uint32_t dstWidth, uint32_t dstHeight) override { (void)dst; (void)dstX; (void)dstY; (void)dstWidth; (void)dstHeight; }

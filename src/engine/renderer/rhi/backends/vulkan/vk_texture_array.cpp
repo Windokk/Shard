@@ -37,7 +37,6 @@ namespace Shard::Engine::Rendering {
             return;
         }
 
-        // A layer no pass has drawn into yet reads as "nothing there" : the far depth, or zeros
         Context::Get().ImmediateSubmit([&](VkCommandBuffer cmd) {
             image.Transition(cmd, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL);
 
@@ -56,7 +55,6 @@ namespace Shard::Engine::Rendering {
             image.TransitionToResting(cmd);
         });
 
-        // Not in the bindless array : its slots are sampler2D, which an array view cannot stand for
         m_Resource.SetSampler(MakeSamplerKey(specs, image.mips));
 
         m_GpuBytes = int64_t(image.width) * int64_t(image.height) * int64_t(image.layers) * int64_t(TexelSize(format));

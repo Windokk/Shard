@@ -50,8 +50,5 @@ namespace Shard::Engine::Objects{
         std::shared_ptr<Rendering::Pipeline> pipeline = Core::GetEngine().GetRenderContext()->GetOrAddPipeline(specs);
         m_Material->SetPipeline(pipeline);
         m_Material->SetTextureParameter("uSkybox", m_EnvMap->GetCubemap()->GetHandle());
-
-        // The draw itself is the renderer's : the world's environment proxy carries this material, and the
-        // renderer submits (or drops) the fullscreen triangle from the snapshot.
     }
 }

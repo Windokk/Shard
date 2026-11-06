@@ -22,7 +22,6 @@ namespace Shard::Engine::Core::Determinism {
             return HashCombine(seed, static_cast<uint64_t>(std::chrono::high_resolution_clock::now().time_since_epoch().count()));
         }
 
-        // The seed, drawn on first use when nobody configured one
         uint64_t SeedLocked() {
             if (!g_Configured) {
                 g_Seed = DrawSeedFromTheOS();
@@ -60,7 +59,6 @@ namespace Shard::Engine::Core::Determinism {
 
     Random MakeStream(std::string_view name) {
         const uint64_t seed = Seed();
-        // Two independent mixes of the name : the seed of the sequence, and which of the 2^63 streams it is
         const uint64_t nameHash = Fnv1a64(name);
         SplitMix64 mix(HashCombine(seed, nameHash));
         const uint64_t sequenceSeed = mix.Next();

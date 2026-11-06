@@ -20,12 +20,11 @@ CPP_DIR = os.path.join(C_DIR, 'cpp')
 HOST_TABLE = os.path.join(ROOT, 'src', 'engine', 'plugins', 'abi', 'c_plugin.cpp')
 OUT = os.path.join(ROOT, 'docs', 'docs', 'api_reference.md')
 
-# The reading order ; a header not listed comes after these, by name
 C_ORDER = ['shard_abi.h', 'shard_host.h', 'shard_plugin.h', 'shard_cvars.h', 'shard_commands.h', 'shard_components.h', 'shard_ecs.h',
            'shard_systems.h', 'shard_events.h', 'shard_hooks.h', 'shard_services.h', 'shard_extensions.h', 'shard_content.h', 'shard_state.h']
-C_SKIP = ['shard.h', 'shard_wasm_imports.h']        # includes the others, nothing of its own
+C_SKIP = ['shard.h', 'shard_wasm_imports.h']
 CPP_ORDER = ['plugin.hpp', 'component.hpp', 'system.hpp', 'cvars.hpp', 'events.hpp', 'services.hpp', 'content.hpp', 'string.hpp']
-CPP_SKIP = ['detail.hpp']   # what the others share : Shard::Error is the only thing a plugin sees of it, documented in the page's text
+CPP_SKIP = ['detail.hpp']
 
 BS = chr(92)
 
@@ -38,8 +37,6 @@ def ordered(folder, order, skip, ext):
     files = sorted(f for f in os.listdir(folder) if f.endswith(ext) and f not in skip)
     return [f for f in order if f in files] + [f for f in files if f not in order]
 
-
-# ---------------------------------------------------------------------------------------------------- prose
 
 IDENT = re.compile(r'("[^"\n]*"|\bshard\.[a-z][a-z_.]*[a-z]\b|mod://[^\s,;)]*|(?<![\w)\]])\*\w+\b|\b[a-z]+_\*|\b[\w.-]+(?:/[\w.-]+)*\.(?:hpp|h|cpp|c|md|json|cmake)\b|\b\w+(?:/[\w.<>-]+)+/?|\b\w+::[\w:]+(?:<\w+>)?|\bSHARD_[A-Z0-9_]+\b\*?|\bShard[A-Z][A-Za-z0-9]*\b|\b[a-z][a-z0-9]*(?:_[a-z0-9]+)+\b(?:\(\))?|\b\w+\(\))')
 
@@ -81,7 +78,6 @@ def prose(lines):
 
     def flush_block():
         if block:
-            # the common indentation goes
             indent = min(len(b) - len(b.lstrip()) for b in block if b.strip())
             out.append('```')
             out.extend(b[indent:].rstrip() for b in block)
@@ -115,11 +111,10 @@ def prose(lines):
             out.append('* ' + inline(item.group(1)))
             continue
         if out and out[-1].startswith('* ') and not para and line[:1].isspace():
-            # a list item that goes on on the next line
             out[-1] += ' ' + inline(stripped)
             continue
         if out and out[-1].startswith('* ') and not para:
-            out.append('')      # a paragraph after a list : not a lazy continuation of its last item
+            out.append('')
         para.append(stripped)
     flush_para()
     flush_block()
@@ -136,22 +131,18 @@ def comment_lines(comment):
     for l in lines:
         l = re.sub(r'^\s*\* ?', '', l) if re.match(r'^\s*\*(\s|$)', l) else l
         result.append(l.rstrip())
-    # the first line follows "/*" : its leading space goes
     if result:
         result[0] = result[0].lstrip()
     while result and not result[-1].strip():
         result.pop()
     while result and not result[0].strip():
         result.pop(0)
-    # continuation lines are indented under the first one : that indentation is not alignment
     if len(result) > 1:
         indents = [len(l) - len(l.lstrip()) for l in result[1:] if l.strip()]
         common = min(indents) if indents else 0
         result = [result[0]] + [l[common:] if len(l) >= common else l.lstrip() for l in result[1:]]
     return result
 
-
-# ---------------------------------------------------------------------------------------------------- C headers
 
 def clean_code(code):
     code = ' '.join(code.split())
@@ -164,7 +155,6 @@ def clean_code(code):
 
 def parse_c(text, name):
     """Items in file order : ('comment', text, line), ('define', name, value, trailing), ('code', code, trailing), ('struct', name, items)"""
-    # what is not part of the reference : guards, includes, extern "C", platform switches
     keep = []
     for line in text.split('\n'):
         s = line.strip()
@@ -234,7 +224,6 @@ def scan(text, pos, end, where):
             line_of_last_code = line_at(semi)
             pos = semi + 1
             continue
-        # a declaration : up to its ';' (outside parentheses)
         depth = 0
         i = pos
         while i < end:
@@ -277,7 +266,6 @@ def render_items(items, out, heading_level):
             lines = comment_lines(item[1])
             is_heading = len(lines) == 1 and re.match(r'^-{2,}.*-{2,}$', lines[0].strip())
             if not is_heading and i + 1 < len(items) and items[i + 1][0] == 'struct':
-                # what describes a struct goes under its title
                 struct = items[i + 1]
                 out.append('#' * heading_level + ' ' + struct[1])
                 out.append('')
@@ -346,8 +334,6 @@ def offered_interfaces():
     return {m.group(1): (m.group(2), m.group(3)) for m in re.finditer(r'\{\s*(SHARD_IFACE_\w+)\s*,\s*(\d+)\s*,\s*(\d+)\s*,', text)}
 
 
-# ---------------------------------------------------------------------------------------------------- C++ headers
-
 def strip_strings_and_comments(text):
     """The same text with string / char literals and comments blanked (newlines kept) : for counting braces. /// comments stay visible."""
     out = list(text)
@@ -396,8 +382,8 @@ def parse_cpp(text):
             break
     plain = strip_strings_and_comments(text)
 
-    entries = []        # ('class', name, doc, members) / ('decl', code, doc) / ('macro', signature, doc)
-    scopes = []         # [kind, access, entry or None] ; kind : namespace / skip / class / body
+    entries = []
+    scopes = []
     doc = []
     i = 0
     n = len(plain)
@@ -424,7 +410,7 @@ def parse_cpp(text):
             name = cls[1].split('<')[0]
             if re.match(r'^(explicit\s+)?' + re.escape(name) + r'\s*\(', code) or re.match(r'^(virtual\s+)?~', code):
                 if not d:
-                    return      # constructors and destructors without a word to say
+                    return
             cls[3].append((code, d))
         else:
             entries.append(('decl', code, d))
@@ -438,12 +424,11 @@ def parse_cpp(text):
             if plain.startswith('///', i):
                 j = plain.find('\n', i)
                 j = n if j < 0 else j
-                if not plain.startswith('///<', i):      # a ///< belongs to the declaration before it (see below)
+                if not plain.startswith('///<', i):
                     doc.append(re.sub(r'^@brief\s+', '', text[i + 3:j].strip()))
                 i = j
                 continue
             if c == '#':
-                # a preprocessor line, with its continuations
                 j = i
                 while True:
                     e = plain.find('\n', j)
@@ -469,7 +454,6 @@ def parse_cpp(text):
                 continue
             stmt_start = i
             continue
-        # inside a statement : up to ';' or '{' outside parentheses, or an access specifier
         depth = 0
         j = stmt_start
         while j < n:
@@ -500,12 +484,10 @@ def parse_cpp(text):
         if plain[j] == ';':
             m = re.match(r'^(template\s*<[^{;]*>\s*)?(class|struct)\s+(\w+)\s*$', code_plain)
             if m:
-                # a declared class : its documentation, if it has some
                 if d and in_public():
                     entries.append(('class', m.group(3), d, []))
             elif not code_plain.startswith(('static_assert', 'friend')):
                 record(code, d)
-            # a trailing ///< belongs to what precedes it
             e = text.find('\n', j)
             rest = text[j + 1:e if e >= 0 else n]
             tail = re.search(r'///<\s*(.*)$', rest)
@@ -516,7 +498,6 @@ def parse_cpp(text):
             i = j + 1
             stmt_start = None
             continue
-        # '{'
         m_ns = re.match(r'^namespace\s+(\w+)\s*$', code_plain)
         m_cls = re.match(r'^(template\s*<.*>\s*)?(class|struct)\s+([\w:]+(?:\s*<.*>)?)\s*(final)?\s*(:.*)?$', code_plain)
         m_enum = re.match(r'^enum\s+(class\s+)?(\w+)', code_plain)
@@ -530,10 +511,9 @@ def parse_cpp(text):
                 entry = ('class', name + base, d, [])
                 entries.append(entry) if scopes and scopes[-1][0] == 'namespace' else None
                 if scopes and scopes[-1][0] == 'class':
-                    entry = None    # a nested class : an implementation detail
+                    entry = None
             scopes.append(['class', 'private' if m_cls.group(2) == 'class' else 'public', entry])
         elif m_enum:
-            # the enum and its values, as written
             close = plain.find('}', j)
             body = ' '.join(text[j + 1:close].split())
             record(code_plain + ' { ' + body + ' }', d)
@@ -543,7 +523,6 @@ def parse_cpp(text):
             stmt_start = None
             continue
         else:
-            # a function body, or the braces of an initializer : skipped, the declaration recorded
             k = j
             depth = 0
             while k < n:
@@ -556,7 +535,7 @@ def parse_cpp(text):
                 k += 1
             after = plain[k + 1:].lstrip()
             if '(' not in code_plain.split('=')[0] and after.startswith(';'):
-                record(code + text[j:k + 1], d)     # a member with its initializer
+                record(code + text[j:k + 1], d)
                 i = k + 1 + (len(plain[k + 1:]) - len(after)) + 1
             else:
                 record(code, d)
@@ -576,7 +555,6 @@ def merge_specializations(entries):
             base = e[1].split('<')[0]
             prev = next((o for o in out if o[0] == 'class' and o[1].split('<')[0] == base), None)
             if prev is not None:
-                # the specializations' names in the title ; the members of the first one stand for all
                 prev[4].append(e[1].split(' ')[0])
                 if not prev[3]:
                     prev[3] = e[3]
@@ -590,7 +568,6 @@ def merge_specializations(entries):
 
 
 def render_cpp(header, entries, out):
-    # the file comment : prose, and its indented lines as an example
     para = []
     example = []
     for l in header:
@@ -658,8 +635,6 @@ def render_cpp(header, entries, out):
             loose.append((e[1], e[2]))
     flush_loose()
 
-
-# ---------------------------------------------------------------------------------------------------- the page
 
 def generate():
     out = []

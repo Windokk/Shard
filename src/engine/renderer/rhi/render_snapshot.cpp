@@ -10,7 +10,6 @@ namespace Shard::Engine::Rendering {
         if (!gpu[0] && !gpu[1] && !gpu[2])
             return;
         const uint32_t ids[3] = { gpu[0], gpu[1], gpu[2] };
-        // The buffers belong to the graphics thread
         RenderThread::Get().Post([ids] {
             if (RendererAPI* api = RendererAPI::Current())
                 api->ReleaseOverlayGeometry(ids);
@@ -41,7 +40,6 @@ namespace Shard::Engine::Rendering {
         std::unique_lock<std::mutex> lock(m_Mutex);
         const int writeIndex = 1 - m_Current;
 
-        // The renderer may still be reading what was current before the last Publish()
         m_Released.wait(lock, [&] { return m_Readers[writeIndex] == 0; });
 
         m_Writing = true;

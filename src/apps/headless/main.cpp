@@ -1,16 +1,5 @@
-// ShardHeadless : runs the simulation of a project with no window, no GPU and no sound card.
-//
-//  * As a replay runner (the CI) : plays a recorded replay back and checks that the state of the simulation hashes to what the
-//    replay says, frame after frame. The same replay has to pass on Windows and on Linux, on a machine without a GPU.
-//  * As a dedicated server (--server) : the same loop, paced to the fixed step of the simulation instead of as fast as it goes.
-//
-// It is the same engine and the same game module as the player : only the platform (no window system) and the graphics backend
-// (the null backend : the frame is built, nothing is drawn) differ. Every frame is exactly one fixed step, the random streams
-// derive from the seed : the same inputs always end in the same state.
-//
-//   ShardHeadless --game plugins/game/bin/windows-x86_64/libGameModule.dll --project ../example_project/example_project.json --replay run.replay
-//
-// Exit code : 0 = ran (and matched the replay / --expect), 1 = could not start, 2 = the run diverged.
+// Headless runner: replays a recording and checks the state hash every frame, or acts as a dedicated server (--server).
+// Exit 0 ran and matched, 1 could not start, 2 diverged.
 
 #include <atomic>
 #include <chrono>
@@ -59,25 +48,25 @@ namespace {
     struct Options {
         std::string project;
         std::string gameModule;
-        PluginStartupOptions plugins;       // --plugin, --plugin-path, --disable-plugin...
+        PluginStartupOptions plugins;
         std::string world;
         std::string replayPath;
         std::string writeReplayPath;
         std::string expectHash;
         std::string scriptPath;
-        int64_t frames = -1;                // -1 : what the replay says, else the default
+        int64_t frames = -1;
         std::optional<uint64_t> seed;
         uint64_t checkEvery = 60;
         bool printState = false;
         bool requireChecks = false;
         bool server = false;
-        bool listPlugins = false;           // --list-plugins : load them, print them, stop
-        bool checkPlugins = false;          // --check-plugins : run the simulation twice with other job thread counts and compare
-        std::string statePath;              // --state-out <file> : write the final state hash (and the plugin set hash) there
-        int port = 0;                       // --port <n> : with --server, answer the plugin handshake of clients on this port
-        bool offerDatapacks = false;        // --offer-datapacks : let clients download the datapacks they lack
-        std::string checkServer;            // --check-server host:port : ask a server whether our plugins are accepted, and exit
-        std::string validatePlugin;         // --validate-plugin <folder> : check a plugin folder, load nothing
+        bool listPlugins = false;
+        bool checkPlugins = false;
+        std::string statePath;
+        int port = 0;
+        bool offerDatapacks = false;
+        std::string checkServer;
+        std::string validatePlugin;
         int width = 1280;
         int height = 720;
     };
@@ -140,7 +129,7 @@ namespace {
         {
             const std::string arg = argv[i];
             if (!arg.empty() && arg[0] == '+')
-                continue;       // a console variable, read above
+                continue;
 
             const char* v = nullptr;
             if (arg == "--help" || arg == "-h")
@@ -264,7 +253,7 @@ namespace {
         }
 
         if (!options.validatePlugin.empty() || options.listPlugins)
-            return true;        // these two do not run a simulation
+            return true;
 
         if (options.project.empty() || options.gameModule.empty())
         {
@@ -277,7 +266,7 @@ namespace {
 
 namespace {
 
-    // --check-plugins : the same run, in two processes, with one job thread and with several. A plugin that affects the simulation has to give the same state.
+    // Same run in two processes, one job thread vs several. A plugin that affects the simulation must give the same state.
     int CheckPlugins(int argc, char* argv[])
     {
         namespace fs = std::filesystem;
@@ -401,7 +390,6 @@ int main(int argc, char* argv[])
     if (options.checkPlugins)
         return CheckPlugins(argc, argv);
 
-    // What a replay says about the run : its seed, its world, how long it lasts
     Platform::ReplayData replay;
     const bool hasReplay = !options.replayPath.empty();
     if (hasReplay)
@@ -431,11 +419,10 @@ int main(int argc, char* argv[])
     options.plugins.project = options.project;
     options.plugins.deterministic = true;
     options.plugins.readOnly = true;
-    options.plugins.strictLock = hasReplay;     // a replay is only meaningful with the plugins it was recorded with
+    options.plugins.strictLock = hasReplay;     // a replay is only valid with its recorded plugins
     if (!StartPlugins(options.plugins))
         return 1;
 
-    // A replay says which plugins changed the simulation when it was recorded
     if (hasReplay && !replay.plugins.empty())
     {
         const Plugins::PluginSetDiff diff = Plugins::ComparePluginSets(Plugins::PluginManager::Get().SimulationPluginSet(), Plugins::PluginSetFromLines(replay.plugins));
@@ -451,7 +438,6 @@ int main(int argc, char* argv[])
         const size_t colon = options.checkServer.rfind(':');
         if (colon == std::string::npos) { std::cerr << "[ERROR] --check-server needs host:port" << std::endl; return 1; }
         Plugins::PluginHandshakeClient client;
-        // The server may be starting up as we are : a few tries before giving up
         Plugins::HandshakeResult result;
         for (int attempt = 0; attempt < 60; ++attempt)
         {
@@ -476,7 +462,7 @@ int main(int argc, char* argv[])
     settings.windowHeight = options.height;
     settings.headless = true;
     settings.deterministic = true;
-    settings.readOnly = true;           // a run leaves the project as it found it
+    settings.readOnly = true;
     settings.api = static_cast<uint32_t>(Rendering::RendererAPI::API::Null);
     settings.seed = options.seed ? options.seed : (hasReplay ? std::optional<uint64_t>(replay.seed) : std::optional<uint64_t>(1));
     if (options.seed && hasReplay && *options.seed != replay.seed)
@@ -503,7 +489,6 @@ int main(int argc, char* argv[])
 
     engine->SetPlayMode(true);
 
-    // The replay : its inputs go to the window, its checks are compared (unless the run is about to replace them)
     ReplaySession play;
     ReplaySession record;
     const bool recording = !options.writeReplayPath.empty();
@@ -522,7 +507,6 @@ int main(int argc, char* argv[])
     }
     else if (!hasReplay && options.printState)
     {
-        // No replay : a session that only prints the state
         play.Play(Platform::ReplayData{});
         play.SetCheckInterval(options.checkEvery);
         play.onState = [&](const SimulationStateHash& state) { std::cout << "[STATE] " << state.Describe() << std::endl; };
@@ -550,11 +534,9 @@ int main(int argc, char* argv[])
     auto deadline = started;
     const std::chrono::duration<double> step(fixedStep);
 
-    // The server plugins hear that the server is up, tick by tick, and that it stops
     if (options.server)
         Plugins::PluginManager::Get().NotifyServerStart(true);
 
-    // Clients ask whether their plugins are the server's before they play
     Plugins::PluginHandshakeServer handshake(Plugins::PluginManager::Get());
     if (options.server && options.port > 0)
     {
@@ -591,7 +573,7 @@ int main(int argc, char* argv[])
 
         if (options.server)
         {
-            // Real time : the next frame starts one fixed step after this one was due (a late frame does not make the following ones shorter)
+            // Real time: the next frame is due one step after this one was due, so a late frame does not shorten the following ones.
             deadline += std::chrono::duration_cast<std::chrono::steady_clock::duration>(step);
             std::this_thread::sleep_until(deadline);
         }
@@ -652,7 +634,6 @@ int main(int argc, char* argv[])
             << "plugins " << Determinism::HashToString(Plugins::HashPluginSet(Plugins::PluginManager::Get().SimulationPluginSet())) << "\n";
     }
 
-    // One line a script can read
     std::cout << "[HEADLESS] state " << Determinism::HashToString(final.total) << " frames " << final.frame << " physics-steps "
               << final.physicsSteps << " time " << seconds << " s" << std::endl;
 

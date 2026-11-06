@@ -16,11 +16,7 @@
 #include "engine/renderer/rhi/shader/shader.hpp"
 #include "engine/world/engine.hpp"
 
-// The 2D overlay of shard.render, on Vulkan : what a plugin recorded (a UI's rectangles and glyphs) drawn over the picture with premultiplied alpha,
-// in pixels from the top left of the target. Same result as gl_overlay.cpp, made with the machinery of the renderer instead of a program of its
-// own : shaders/overlay/overlay.{vert,frag} read the vertices and the indices of the whole overlay from two storage buffers, so a draw is a
-// procedural draw (no vertex buffer, no mesh) and the geometries need no buffers of their own. They are packed again every frame ; a UI is a few
-// thousand vertices.
+// Same result as gl_overlay.cpp. Vertices and indices of the whole overlay sit in two storage buffers read by overlay.vert, so the draw is procedural. Repacked every frame.
 
 namespace Shard::Engine::Rendering {
 
@@ -40,8 +36,6 @@ namespace Shard::Engine::Rendering {
             }
         };
 
-        /// Writes `data` to a storage buffer that is at least that big. The buffer is uploaded whole (a size that is not the allocation's would
-        /// reallocate it), so it only grows, by doubling.
         template<typename T>
         void Upload(std::shared_ptr<StorageBuffer>& buffer, uint32_t& capacity, const std::vector<T>& data)
         {
@@ -88,10 +82,9 @@ namespace Shard::Engine::Rendering {
             resources.pipeline = std::make_shared<VKPipeline>(specs);
         }
 
-        // ---- The vertices and the indices of the whole overlay, in two buffers ----
         struct Placement { uint32_t baseVertex = 0, firstIndex = 0; };
         std::unordered_map<const OverlayGeometry*, Placement> placed;
-        std::vector<OverlayVertex> vertices = overlay.inlineVertices;       // Kind::Triangles : its indices are the proxy's, from 0
+        std::vector<OverlayVertex> vertices = overlay.inlineVertices;
         std::vector<uint32_t> indices = overlay.inlineIndices;
 
         for (const OverlayCommand& c : overlay.commands) {
@@ -103,14 +96,13 @@ namespace Shard::Engine::Rendering {
         }
 
         if (!indices.empty()) {
-            // The upload goes in the command stream before the draws and ends the render pass in progress ; the target is loaded by the next one
+            // The upload goes in before the draws and ends the render pass in progress, the next one loads the target.
             Upload(resources.vertices, resources.vertexCapacity, vertices);
             Upload(resources.indices, resources.indexCapacity, indices);
             resources.vertices->Bind(kVerticesBinding);
             resources.indices->Bind(kIndicesBinding);
         }
 
-        // ---- State ----
         const bool hadViewport = m_ViewportSet;
         const VkViewport previousViewport = m_Viewport;
         SetViewport(0, 0, width, height);
@@ -124,14 +116,13 @@ namespace Shard::Engine::Rendering {
 
         glm::mat4 transform(1.0f);
         const Rect full{ 0, 0, int(width), int(height) };
-        Rect user = full;                           // set_scissor
-        Rect clip = full;                           // set_clip_mask, as the bounding rectangle of the mask
+        Rect user = full;
+        Rect clip = full;
         bool visible = true;
 
         auto applyScissor = [&] {
             const Rect r = user.Intersect(clip).Intersect(full);
             visible = r.w > 0 && r.h > 0;
-            // The images are stored bottom row first, like OpenGL's (see the viewport)
             const VkRect2D scissor{ { r.x, int(height) - (r.y + r.h) }, { uint32_t(r.w), uint32_t(r.h) } };
             SetScissor(&scissor);
         };
@@ -166,9 +157,8 @@ namespace Shard::Engine::Rendering {
                     break;
 
                 case OverlayCommand::Kind::ClipMask: {
-                    // SHARD_CLIP_DISABLE 0, SET 1, SET_INVERSE 2, INTERSECT 3
                     if (c.operation == 0 || c.operation == 2 || !c.geometry || c.geometry->vertices.empty()) {
-                        clip = full;                // no mask, or everything but a shape : not representable by a rectangle
+                        clip = full;
                     } else {
                         float lo[2] = { 1e30f, 1e30f }, hi[2] = { -1e30f, -1e30f };
                         for (const OverlayVertex& v : c.geometry->vertices) {
@@ -184,7 +174,6 @@ namespace Shard::Engine::Rendering {
                 }
 
                 case OverlayCommand::Kind::Clear: {
-                    // The whole target, whatever the scissor is
                     if (!m_RenderingActive)
                         BeginRendering();
                     if (!m_RenderingActive)

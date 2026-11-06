@@ -1,4 +1,3 @@
-// The plugin itself : one line. The scripts, components and systems of the other files register themselves.
 #include <shard/game.hpp>
 
 #include "stats.hpp"
@@ -93,5 +92,5 @@ TEST_EXPORT const char* game_text(const char* name)
     return "";
 }
 TEST_EXPORT void game_reset() { GetStats() = Stats(); }
-// A buffer the test of a sandboxed build writes the names it passes to game_stat in (it cannot hand the module a pointer of its own)
+// Sandboxed build cannot hand the module a pointer of its own, so the test writes names for game_stat here.
 TEST_EXPORT char* game_scratch() { static char buffer[128]; return buffer; }

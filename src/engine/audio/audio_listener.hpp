@@ -7,8 +7,6 @@
 
 namespace Shard::Engine::Objects::Components
 {
-    /// @brief Where the world is heard from : the audio plays every AudioSource relative to the position and
-    /// facing of the actor that carries the first active AudioListener of the world.
     class CLASS() AudioListener : public Component {
 
         public:

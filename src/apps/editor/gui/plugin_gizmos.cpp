@@ -10,9 +10,6 @@
 #include "engine/plugins/manager.hpp"
 #include "engine/world/actor.hpp"
 
-// shard.editor, ShardGizmoApi : what a plugin's gizmo draws over the viewport. The shapes are lines in the world, projected with the camera of the
-// viewport and drawn with ImGui's draw list of the viewport window, clipped to the image.
-
 namespace Shard::Editor::GUI {
 
     namespace {
@@ -28,7 +25,6 @@ namespace Shard::Editor::GUI {
             return IM_COL32(channel(c[0]), channel(c[1]), channel(c[2]), channel(c[3]));
         }
 
-        // The pixel a point of the world is at ; false if it is behind the camera
         bool Project(const glm::vec3& p, ImVec2& out)
         {
             const glm::vec4 clip = gPainter.viewProjection * glm::vec4(p, 1.0f);
@@ -38,7 +34,7 @@ namespace Shard::Editor::GUI {
             return true;
         }
 
-        // A segment, cut where it crosses the plane of the camera so that a line that goes behind it still shows its visible part
+        // Cut at the camera plane so a line going behind it still shows its visible part.
         void Segment(glm::vec3 a, glm::vec3 b, ImU32 color, float thickness = 1.5f)
         {
             glm::vec4 ca = gPainter.viewProjection * glm::vec4(a, 1.0f), cb = gPainter.viewProjection * glm::vec4(b, 1.0f);

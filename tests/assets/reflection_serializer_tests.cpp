@@ -67,7 +67,7 @@ namespace {
     };
 }
 
-TEST_F(ReflectionSerializerTest, WritesOneKeyPerFieldInTheEditorsShape)
+TEST_F(ReflectionSerializerTest, WritesOneKeyPerField)
 {
     Sample s;
     s.speed = 2.5f;
@@ -90,7 +90,7 @@ TEST_F(ReflectionSerializerTest, WritesOneKeyPerFieldInTheEditorsShape)
     EXPECT_FLOAT_EQ(out["weights"][1], 1.5f);
 }
 
-TEST_F(ReflectionSerializerTest, ReadOnlyFieldsAreNotPersisted)
+TEST_F(ReflectionSerializerTest, ReadOnlyNotPersisted)
 {
     Sample s;
 
@@ -131,7 +131,7 @@ TEST_F(ReflectionSerializerTest, RoundTripsEveryField)
     EXPECT_NEAR(glm::abs(glm::dot(loaded.rotation, s.rotation)), 1.0f, 1e-5f);
 }
 
-TEST_F(ReflectionSerializerTest, MissingOrIllTypedKeysKeepTheDefault)
+TEST_F(ReflectionSerializerTest, BadKeysKeepDefault)
 {
     Sample loaded;
     Serialization::ReadFields(reflected.all, &loaded, json{ { "speed", "fast" }, { "mode", "Nope" }, { "count", 9 } }, context);
@@ -142,7 +142,7 @@ TEST_F(ReflectionSerializerTest, MissingOrIllTypedKeysKeepTheDefault)
     EXPECT_EQ(loaded.label, "default");
 }
 
-TEST_F(ReflectionSerializerTest, ReadingAVectorReplacesItsContent)
+TEST_F(ReflectionSerializerTest, VectorReadReplacesContent)
 {
     Sample loaded;
     loaded.weights = { 9.0f, 9.0f, 9.0f, 9.0f };
@@ -163,7 +163,7 @@ TEST_F(ReflectionSerializerTest, ReportsEachFieldItRead)
     EXPECT_EQ(changed, (std::vector<std::string>{ "speed", "flag" }));
 }
 
-TEST_F(ReflectionSerializerTest, ReadsARotationAsEulerDegreesOrAsAQuaternion)
+TEST_F(ReflectionSerializerTest, RotationReadsEulerOrQuat)
 {
     Sample euler;
     Serialization::ReadFields(reflected.all, &euler, json{ { "rotation", { { "x", 0.0f }, { "y", 90.0f }, { "z", 0.0f } } } }, context);

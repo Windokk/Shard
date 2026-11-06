@@ -23,8 +23,6 @@ namespace {
         glm::vec3 normal;
         glm::vec4 color;
         glm::vec3 tangent;
-        // Where the vertex sits in the mesh's lightmap layout (see lightmap_uv.hpp) : the second set of texture coordinates,
-        // for baked lighting. (0, 0) on a mesh that was not unwrapped.
         glm::vec2 lightmapUV;
 
         bool operator==(const Vertex& other) const {
@@ -39,7 +37,7 @@ namespace {
     };
 
     inline int Quantize(float v) {
-        return static_cast<int>(v * 10000.0f); // match epsilon ~0.0001
+        return static_cast<int>(v * 10000.0f);
     }
 
     inline void HashCombine(std::size_t& seed, std::size_t hash)
@@ -90,15 +88,10 @@ namespace Shard::Engine::Rendering{
 
     namespace {
 
-        // Finds the vertex equal to a given one among those already added, or adds it. Open addressing over the hash of the
-        // vertex (the hash is kept in the slot, two vertices are only compared when their hashes are the same : the same
-        // answers as the std::unordered_map this replaces, which a Sponza sized mesh (millions of vertices) spent most of
-        // its loading time in allocating nodes).
         class VertexDeduplicator {
         public:
             explicit VertexDeduplicator(size_t expected) { Reset(NextPowerOfTwo(std::max<size_t>(expected, 16) * 2)); }
 
-            /// The index of the vertex equal to `v` in `verts`, which it is appended to when there is none
             unsigned int FindOrAdd(const Vertex& v, std::vector<Vertex>& verts)
             {
                 const size_t hash = std::hash<Vertex>()(v);
@@ -142,7 +135,7 @@ namespace Shard::Engine::Rendering{
                     m_Shift--;
             }
 
-            // Fibonacci hashing : the top bits of the product, whatever the quality of the low bits of the hash
+            // Fibonacci hashing: uses the top bits of the product, whatever the quality of the low hash bits.
             size_t SlotOf(size_t hash) const { return static_cast<size_t>((static_cast<uint64_t>(hash) * 0x9E3779B97F4A7C15ULL) >> m_Shift) & m_Mask; }
 
             void Grow()
@@ -169,12 +162,10 @@ namespace Shard::Engine::Rendering{
 
         void ComputeTangents(std::vector<Vertex>& vertices, const std::vector<uint32_t>& indices)
         {
-            // Initialize tangent accumulators
             for (auto &v : vertices) {
                 v.tangent = glm::vec3(0.0f);
             }
 
-            // For each triangle:
             for (size_t i = 0; i + 2 < indices.size(); i += 3) {
                 Vertex &v0 = vertices[indices[i + 0]];
                 Vertex &v1 = vertices[indices[i + 1]];
@@ -193,23 +184,18 @@ namespace Shard::Engine::Rendering{
                 tangent.y = f * ( deltaUV2.y * edge1.y - deltaUV1.y * edge2.y );
                 tangent.z = f * ( deltaUV2.y * edge1.z - deltaUV1.y * edge2.z );
 
-                // Accumulate to each vertex
                 v0.tangent += tangent;
                 v1.tangent += tangent;
                 v2.tangent += tangent;
             }
 
-            // Finally normalize and orthogonalize
             for (auto &v : vertices) {
-                // Gram-Schmidt orthogonalization
                 glm::vec3 n = v.normal;
                 glm::vec3 t = v.tangent;
 
-                // Remove component in normal direction:
                 t = t - n * glm::dot(n, t);
 
-                // A mesh without UVs (or a degenerate triangle fan) leaves no tangent : normalizing the zero vector gives NaN, which
-                // reaches the shader's TBN and turns every normal into NaN. Any direction perpendicular to the normal will do.
+                // Zero tangent (no UVs, degenerate fan) normalizes to NaN, which reaches the shader TBN and makes every normal NaN.
                 if (glm::dot(t, t) < 1e-12f) {
                     const glm::vec3 axis = glm::abs(n.x) < 0.9f ? glm::vec3(1.0f, 0.0f, 0.0f) : glm::vec3(0.0f, 1.0f, 0.0f);
                     t = glm::cross(n, axis);
@@ -222,21 +208,14 @@ namespace Shard::Engine::Rendering{
 
     namespace {
 
-        // One run of a slot's triangles, after SplitIntoChunks has made it spatially compact.
         struct ChunkRange {
             size_t firstIndex = 0;
             size_t indexCount = 0;
-            size_t vertexCount = 0; // distinct vertices the chunk's triangles reference
+            size_t vertexCount = 0;
             glm::vec3 boundsMin = glm::vec3(0);
             glm::vec3 boundsMax = glm::vec3(0);
         };
 
-        // Splits one material slot's triangles into chunks of at most `maxTriangles`, by recursively cutting at
-        // the median triangle centroid along the longest axis (a kd-tree) - so every chunk covers a compact region
-        // and can be frustum-culled on its own. When the slot is larger than one chunk, `verts` and `indices`
-        // are rewritten so each chunk's indices are contiguous and the vertices are in first-use order (a
-        // chunk then reads a compact range of the vertex buffer instead of strided-over-the-whole-slot).
-        // Vertices are shared between chunks, never duplicated.
         std::vector<ChunkRange> SplitIntoChunks(std::vector<Vertex>& verts, std::vector<unsigned int>& indices, size_t maxTriangles)
         {
             const size_t triangleCount = indices.size() / 3;
@@ -267,7 +246,6 @@ namespace Shard::Engine::Rendering{
             for (size_t t = 0; t < triangleCount; t++)
                 order[t] = static_cast<uint32_t>(t);
 
-            // Depth-first with the left half popped first, so the leaves come out in a spatially coherent order.
             std::vector<std::pair<size_t, size_t>> leaves;
             std::vector<std::pair<size_t, size_t>> stack = { { 0, triangleCount } };
 
@@ -312,7 +290,6 @@ namespace Shard::Engine::Rendering{
             for (size_t chunkIndex = 0; chunkIndex < leaves.size(); chunkIndex++) {
                 auto [begin, end] = leaves[chunkIndex];
 
-                // Source order inside a chunk keeps whatever locality the file already had
                 std::sort(order.begin() + begin, order.begin() + end);
 
                 ChunkRange chunk;
@@ -351,21 +328,16 @@ namespace Shard::Engine::Rendering{
 
     namespace {
 
-        // The triangles of one material slot while the mesh is being built
         struct GroupedTriangles {
             std::vector<Vertex> verts;
             std::vector<unsigned int> localIndices;
             std::unique_ptr<VertexDeduplicator> dedup;
         };
 
-        // Whether a mesh gets its lightmap texture coordinates when it is built (they cost a vertex attribute and the vertices
-        // cut along the charts' seams). A mesh built without them cannot take a baked lightmap. Applies to meshes loaded afterwards.
         Core::CVar<bool> cvLightmapUVs("mesh.lightmap_uvs", true,
             "Give every mesh a second set of texture coordinates for baked lighting (lightmaps) when it is loaded. Meshes loaded without them cannot be lightmapped. Applies to meshes loaded afterwards",
             Core::CVarFlags::Archive);
 
-        // Lays the whole mesh (every material slot) out in one lightmap square, see UnwrapForLightmap() : the vertices on the
-        // seams between two charts are split, and every vertex gets its lightmapUV
         void AssignLightmapUVs(std::vector<GroupedTriangles>& groups)
         {
             std::vector<std::vector<glm::vec3>> positions(groups.size()), normals(groups.size());
@@ -421,19 +393,13 @@ namespace Shard::Engine::Rendering{
 
         double scene_scale = scene_unit_meters;
 
-        // One group per FBX material slot, kept in the mesh's own material-index
-        // order. World files (and DCC tools) address materials by that index, so
-        // submesh N must map to material slot N. Faces are not necessarily sorted
-        // by material in the file, so grouping by encounter order would permute
-        // the mapping - an unused slot instead yields an empty submesh that keeps
-        // the alignment intact.
+        // One group per FBX material slot, in slot order. World files address materials by index, so submesh N must map to slot N, even when empty.
         uint32_t materialSlotCount = (ufbx_mesh->materials.count > 0)
             ? (uint32_t)ufbx_mesh->materials.count
             : 1u;
 
         std::vector<GroupedTriangles> materialGroups(materialSlotCount);
 
-        // How many vertices each slot can have at most (one per face corner of its faces) : its table never has to grow
         {
             std::vector<size_t> corners(materialSlotCount, 0);
             for (size_t i = 0; i < ufbx_mesh->num_faces; i++) {
@@ -450,7 +416,6 @@ namespace Shard::Engine::Rendering{
             }
         }
 
-        // The same for every vertex of the mesh
         const ufbx_matrix normalMatrix = ufbx_matrix_for_normals(&mesh_node->geometry_to_world);
 
         for (size_t i = 0; i < ufbx_mesh->num_faces; i++) {
@@ -468,7 +433,6 @@ namespace Shard::Engine::Rendering{
             size_t start = face.index_begin;
             size_t count = face.num_indices;
 
-            // Triangle fan triangulation
             for (size_t j = 1; j + 1 < count; j++) {
                 size_t triIndices[3] = {
                     start + 0,
@@ -480,7 +444,6 @@ namespace Shard::Engine::Rendering{
                     size_t vertex_index = triIndices[k];
                     Vertex v{};
 
-                    // Position
                     ufbx_vec3 pos = ufbx_get_vertex_vec3(&ufbx_mesh->vertex_position, vertex_index);
                     ufbx_vec3 wpos = ufbx_transform_position(&mesh_node->geometry_to_world, pos);
                     v.position = { wpos.x * scene_scale, wpos.y * scene_scale, wpos.z * scene_scale };
@@ -488,23 +451,19 @@ namespace Shard::Engine::Rendering{
                     result.boundsMin = glm::min(result.boundsMin, v.position);
                     result.boundsMax = glm::max(result.boundsMax, v.position);
 
-                    // Normal
                     if (ufbx_mesh->vertex_normal.exists) {
                         ufbx_vec3 normal = ufbx_get_vertex_vec3(&ufbx_mesh->vertex_normal, vertex_index);
                         ufbx_vec3 wn = ufbx_transform_direction(&normalMatrix, normal);
                         v.normal = glm::normalize(glm::vec3{ wn.x, wn.y, wn.z });
                     }
 
-                    // UV
                     if (ufbx_mesh->vertex_uv.exists) {
                         ufbx_vec2 uv = ufbx_get_vertex_vec2(&ufbx_mesh->vertex_uv, vertex_index);
                         v.texCoord = { uv.x, uv.y };
                     }
 
-                    // Color
                     v.color = vertexColor;
 
-                    // Deduplication
                     group.localIndices.push_back(group.dedup->FindOrAdd(v, group.verts));
                 }
             }
@@ -515,8 +474,7 @@ namespace Shard::Engine::Rendering{
         for (GroupedTriangles& group : materialGroups)
             group.dedup.reset();
 
-        // The tangents are worked out on the mesh as it is, before the lightmap layout cuts its vertices : the two halves of a
-        // vertex split along a lightmap seam are the same point of the surface and must shade with the same tangent
+        // Tangents are computed before the lightmap cut. Both halves of a vertex split on a seam must shade with the same tangent.
         for (GroupedTriangles& group : materialGroups)
             ComputeTangents(group.verts, group.localIndices);
 
@@ -528,8 +486,6 @@ namespace Shard::Engine::Rendering{
         for (uint32_t slot = 0; slot < materialSlotCount; slot++) {
             auto& group = materialGroups[slot];
 
-            // One submesh per spatial chunk of this slot, all pointing at the same material slot. An unused slot
-            // still yields one (empty) submesh so the slot numbering stays aligned.
             std::vector<ChunkRange> chunks = SplitIntoChunks(group.verts, group.localIndices, kMaxSubMeshTriangles);
 
             size_t vertexOffset = totalVertexCount;
@@ -554,7 +510,7 @@ namespace Shard::Engine::Rendering{
                 result.indices.push_back(static_cast<uint32_t>(vertexOffset + idx));
 
             for (const ChunkRange& chunk : chunks) {
-                // Field by field : designated initializers are C++20 (MSVC refuses them in C++17)
+                // Field by field: designated initializers are C++20, MSVC refuses them in C++17.
                 SubMesh submesh;
                 submesh.indexOffset = slotIndexOffset + chunk.firstIndex;
                 submesh.indexCount = chunk.indexCount;
@@ -652,14 +608,14 @@ namespace Shard::Engine::Rendering{
                 return alive;
         }
 
-        // Read back without the lock held : the readback waits for the graphics thread, which may be asking for this very mesh
+        // Read back without the lock: the readback waits for the graphics thread, which may be asking for this mesh.
         auto copy = std::make_shared<MeshCPUCopy>();
         if (!ReadBackCPUData(*copy))
             return nullptr;
 
         std::lock_guard<std::mutex> lock(m_CPUMutex);
         if (std::shared_ptr<MeshCPUCopy> alive = m_ReadBackCPU.lock())
-            return alive;       // another thread was faster : share its copy
+            return alive;
         m_ReadBackCPU = copy;
         return copy;
     }
@@ -699,7 +655,6 @@ namespace Shard::Engine::Rendering{
             return {};
         }
 
-        // Compared against material slots, not submeshes : one slot may be split into several spatial submeshes
         if(mats.size() != GetMaterialSlotCount() && GetMaterialSlotCount() != 1){
             DEBUG_WARNING("Mesh material slot count and supplied material count differ; clamping material slots");
         }
@@ -714,13 +669,10 @@ namespace Shard::Engine::Rendering{
             cmd.indexCount  = m_Submeshes[i].indexCount;
             cmd.vertexCount = m_Submeshes[i].vertexCount;
 
-            // Submeshes are emitted in FBX material-slot order; pick the material
-            // for this submesh's slot, clamping if the caller supplied fewer.
             uint32_t slot = m_Submeshes[i].materialIndex;
             if (slot >= mats.size())
                 slot = (uint32_t)mats.size() - 1;
 
-            // An unresolved material slot draws nothing rather than crashing the renderer
             if (!mats[slot])
                 continue;
 
@@ -732,7 +684,6 @@ namespace Shard::Engine::Rendering{
             cmd.lightmapHandle = lightmapHandle;
             cmd.lightmapScaleOffset = lightmapScaleOffset;
 
-            // Per-submesh bounds, so frustum culling can drop the parts of a big mesh that are out of view
             cmd.boundsMax = m_Submeshes[i].boundsMax;
             cmd.boundsMin = m_Submeshes[i].boundsMin;
 

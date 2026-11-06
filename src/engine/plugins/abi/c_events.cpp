@@ -10,21 +10,17 @@
 #include "engine/plugins/abi/c_plugin.hpp"
 #include "engine/world/event_system.hpp"
 
-// shard.events (the named channel of the EventDispatcher) and shard.hooks (the HookRegistry, by name)
-
 namespace Shard::Engine::Plugins::CAbi {
 
-    // Describe turns a SHARD_FIELD_* into a NamedEventLayout::FieldType by subtracting SHARD_FIELD_F32 : the two lists are in the same order
+    // Describe maps SHARD_FIELD_* to FieldType by subtracting SHARD_FIELD_F32, so both lists must stay in the same order.
     static_assert(int(Events::NamedEventLayout::FieldType::F32) == SHARD_FIELD_F32 - SHARD_FIELD_F32, "field order");
     static_assert(int(Events::NamedEventLayout::FieldType::Bool) == SHARD_FIELD_BOOL - SHARD_FIELD_F32, "field order");
     static_assert(int(Events::NamedEventLayout::FieldType::Color) == SHARD_FIELD_COLOR - SHARD_FIELD_F32, "field order");
 
     namespace {
-        // What systems emitted, by system name : delivered in that order at the end of the frame, whatever order the systems finished in
+        // Delivered at the end of the frame ordered by system name, whatever order systems finished in.
         std::mutex gQueueMutex;
         std::map<std::string, std::vector<QueuedEvent>> gQueued;
-
-        // ---- shard.events ----
 
         std::function<void(const Events::NamedEvent&)> Forward(PluginContext& ctx, ShardEventFn fn, void* user, ShardPluginCtx handle)
         {
@@ -78,7 +74,6 @@ namespace Shard::Engine::Plugins::CAbi {
                 PluginContext* ctx = FindContext(handle);
                 if (!ctx) return SHARD_E_STALE_HANDLE;
                 if (!OnMainThread()) {
-                    // From a system (or a thread of the plugin's) : delivered at the end of the frame
                     QueuedEvent e;
                     e.toWorld = toWorld;
                     e.world = worldId;
@@ -116,10 +111,10 @@ namespace Shard::Engine::Plugins::CAbi {
                     Events::NamedEventLayout::Field field;
                     field.name = ToString(f.name);
                     if (f.structSize < sizeof(ShardFieldDesc) || !IsFieldName(field.name) || !FieldLayoutOf(f.type, fieldSize, align)) return SHARD_E_INVALID_ARG;
-                    if (f.type > SHARD_FIELD_COLOR) return SHARD_E_INVALID_ARG;     // a payload is copied as bytes : a blob, a string (a blob handle) or an asset in it would mean nothing
+                    if (f.type > SHARD_FIELD_COLOR) return SHARD_E_INVALID_ARG;     // Payload is copied as raw bytes: no blobs, strings or assets.
                     if (uint64_t(f.offset) + fieldSize > size) return SHARD_E_INVALID_ARG;
                     for (const auto& other : layout.fields) if (other.name == field.name) return SHARD_E_INVALID_ARG;
-                    field.type = Events::NamedEventLayout::FieldType(f.type - SHARD_FIELD_F32);     // the same order
+                    field.type = Events::NamedEventLayout::FieldType(f.type - SHARD_FIELD_F32);
                     field.offset = f.offset;
                     layout.fields.push_back(std::move(field));
                 }
@@ -128,9 +123,6 @@ namespace Shard::Engine::Plugins::CAbi {
         }
         ShardResult SHARD_CALL EmitWorld(ShardPluginCtx handle, int32_t worldId, ShardStr name, const void* payload, uint64_t size) { return EmitTo(handle, true, worldId, name, payload, size); }
 
-        // ---- shard.hooks ----
-
-        // The fields of a hook of Hooks:: that the C struct shows
         struct HookView {
             std::string subject;
             std::string detail;
@@ -191,7 +183,7 @@ namespace Shard::Engine::Plugins::CAbi {
                 else if (n == Hooks::PlayerConnecting::kName) token = On<Hooks::PlayerConnecting>(*ctx, handle, priority, fn, user);
                 else if (n == Hooks::PreShutdown::kName) token = On<Hooks::PreShutdown>(*ctx, handle, priority, fn, user);
                 else return SHARD_E_NOT_FOUND;
-                if (token == 0) return SHARD_E_UNSUPPORTED;     // no hook registry in this host
+                if (token == 0) return SHARD_E_UNSUPPORTED;
                 *out = token;
                 return SHARD_OK;
             } catch (...) { return SHARD_E_INTERNAL; }

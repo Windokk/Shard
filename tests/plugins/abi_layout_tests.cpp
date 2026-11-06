@@ -4,9 +4,8 @@
 
 #include <shard/shard.h>
 
-// Pins the layout of every struct of sdk/include/shard (but shard_experimental.h, which promises nothing). A failure here means an ABI struct changed : that needs an ABI revision
-// (SHARD_ABI_MINOR, and the numbers below updated in the same change), never a quiet edit. 64 bit targets only (x86_64, arm64).
-// The lines were written by a program that prints sizeof / offsetof of each field, then read : regenerate them the same way.
+// Pins every sdk/include/shard struct layout (not shard_experimental.h). A failure means an ABI change: bump SHARD_ABI_MINOR and update the numbers in the same change.
+// 64-bit only. The numbers come from a program printing sizeof/offsetof, regenerate them that way.
 
 #if INTPTR_MAX == INT64_MAX
 
@@ -26,7 +25,7 @@ static_assert(offsetof(ShardFieldDesc, max) == 36, "ShardFieldDesc.max");
 static_assert(offsetof(ShardFieldDesc, tooltip) == 40, "ShardFieldDesc.tooltip");
 
 
-static_assert(sizeof(ShardComponentsApi) == 104, "ShardComponentsApi");                                       // 88 until 1.2, 56 until 1.1
+static_assert(sizeof(ShardComponentsApi) == 104, "ShardComponentsApi");
 static_assert(offsetof(ShardComponentsApi, structSize) == 0, "ShardComponentsApi.structSize");
 static_assert(offsetof(ShardComponentsApi, register_type) == 8, "ShardComponentsApi.register_type");
 static_assert(offsetof(ShardComponentsApi, find_type) == 16, "ShardComponentsApi.find_type");
@@ -34,12 +33,12 @@ static_assert(offsetof(ShardComponentsApi, type_layout) == 24, "ShardComponentsA
 static_assert(offsetof(ShardComponentsApi, field_count) == 32, "ShardComponentsApi.field_count");
 static_assert(offsetof(ShardComponentsApi, field_at) == 40, "ShardComponentsApi.field_at");
 static_assert(offsetof(ShardComponentsApi, find_field) == 48, "ShardComponentsApi.find_field");
-static_assert(offsetof(ShardComponentsApi, blob_create) == 56, "ShardComponentsApi.blob_create");             // 1.2
-static_assert(offsetof(ShardComponentsApi, blob_data) == 64, "ShardComponentsApi.blob_data");                 // 1.2
-static_assert(offsetof(ShardComponentsApi, blob_resize) == 72, "ShardComponentsApi.blob_resize");             // 1.2
-static_assert(offsetof(ShardComponentsApi, blob_free) == 80, "ShardComponentsApi.blob_free");                 // 1.2
-static_assert(offsetof(ShardComponentsApi, string_set) == 88, "ShardComponentsApi.string_set");               // 1.3
-static_assert(offsetof(ShardComponentsApi, string_get) == 96, "ShardComponentsApi.string_get");               // 1.3
+static_assert(offsetof(ShardComponentsApi, blob_create) == 56, "ShardComponentsApi.blob_create");
+static_assert(offsetof(ShardComponentsApi, blob_data) == 64, "ShardComponentsApi.blob_data");
+static_assert(offsetof(ShardComponentsApi, blob_resize) == 72, "ShardComponentsApi.blob_resize");
+static_assert(offsetof(ShardComponentsApi, blob_free) == 80, "ShardComponentsApi.blob_free");
+static_assert(offsetof(ShardComponentsApi, string_set) == 88, "ShardComponentsApi.string_set");
+static_assert(offsetof(ShardComponentsApi, string_get) == 96, "ShardComponentsApi.string_get");
 
 static_assert(sizeof(ShardContentApi) == 48, "ShardContentApi");
 static_assert(offsetof(ShardContentApi, structSize) == 0, "ShardContentApi.structSize");
@@ -77,7 +76,7 @@ static_assert(offsetof(ShardChunk, count) == 4, "ShardChunk.count");
 static_assert(offsetof(ShardChunk, entities) == 8, "ShardChunk.entities");
 static_assert(offsetof(ShardChunk, columns) == 16, "ShardChunk.columns");
 
-static_assert(sizeof(ShardEcsApi) == 96, "ShardEcsApi");                                                      // 88 until 1.2
+static_assert(sizeof(ShardEcsApi) == 96, "ShardEcsApi");
 static_assert(offsetof(ShardEcsApi, structSize) == 0, "ShardEcsApi.structSize");
 static_assert(offsetof(ShardEcsApi, each_chunk) == 8, "ShardEcsApi.each_chunk");
 static_assert(offsetof(ShardEcsApi, count) == 16, "ShardEcsApi.count");
@@ -89,7 +88,7 @@ static_assert(offsetof(ShardEcsApi, destroy) == 56, "ShardEcsApi.destroy");
 static_assert(offsetof(ShardEcsApi, add) == 64, "ShardEcsApi.add");
 static_assert(offsetof(ShardEcsApi, remove) == 72, "ShardEcsApi.remove");
 static_assert(offsetof(ShardEcsApi, set_parent) == 80, "ShardEcsApi.set_parent");
-static_assert(offsetof(ShardEcsApi, set_local_transform) == 88, "ShardEcsApi.set_local_transform");           // 1.3
+static_assert(offsetof(ShardEcsApi, set_local_transform) == 88, "ShardEcsApi.set_local_transform");
 
 static_assert(sizeof(ShardLocalTransform) == 40, "ShardLocalTransform");
 static_assert(offsetof(ShardLocalTransform, position) == 0, "ShardLocalTransform.position");
@@ -99,14 +98,14 @@ static_assert(offsetof(ShardLocalTransform, scale) == 28, "ShardLocalTransform.s
 static_assert(sizeof(ShardActorLink) == 4, "ShardActorLink");
 static_assert(offsetof(ShardActorLink, objectId) == 0, "ShardActorLink.objectId");
 
-static_assert(sizeof(ShardEventsApi) == 56, "ShardEventsApi");                                                // 48 until 1.1
+static_assert(sizeof(ShardEventsApi) == 56, "ShardEventsApi");
 static_assert(offsetof(ShardEventsApi, structSize) == 0, "ShardEventsApi.structSize");
 static_assert(offsetof(ShardEventsApi, subscribe) == 8, "ShardEventsApi.subscribe");
 static_assert(offsetof(ShardEventsApi, subscribe_world) == 16, "ShardEventsApi.subscribe_world");
 static_assert(offsetof(ShardEventsApi, unsubscribe) == 24, "ShardEventsApi.unsubscribe");
 static_assert(offsetof(ShardEventsApi, emit) == 32, "ShardEventsApi.emit");
 static_assert(offsetof(ShardEventsApi, emit_world) == 40, "ShardEventsApi.emit_world");
-static_assert(offsetof(ShardEventsApi, describe) == 48, "ShardEventsApi.describe");                           // 1.2
+static_assert(offsetof(ShardEventsApi, describe) == 48, "ShardEventsApi.describe");
 
 static_assert(sizeof(ShardReport) == 32, "ShardReport");
 static_assert(offsetof(ShardReport, structSize) == 0, "ShardReport.structSize");
@@ -201,14 +200,14 @@ static_assert(offsetof(ShardPluginInfo, id) == 16, "ShardPluginInfo.id");
 static_assert(offsetof(ShardPluginInfo, user) == 32, "ShardPluginInfo.user");
 static_assert(offsetof(ShardPluginInfo, callbacks) == 40, "ShardPluginInfo.callbacks");
 
-static_assert(sizeof(ShardPluginApi) == 56, "ShardPluginApi");                                                // 32 in 1.0, 48 in 1.1
+static_assert(sizeof(ShardPluginApi) == 56, "ShardPluginApi");
 static_assert(offsetof(ShardPluginApi, structSize) == 0, "ShardPluginApi.structSize");
 static_assert(offsetof(ShardPluginApi, id) == 8, "ShardPluginApi.id");
 static_assert(offsetof(ShardPluginApi, version) == 16, "ShardPluginApi.version");
 static_assert(offsetof(ShardPluginApi, directory) == 24, "ShardPluginApi.directory");
-static_assert(offsetof(ShardPluginApi, host) == 32, "ShardPluginApi.host");                                   // 1.1
-static_assert(offsetof(ShardPluginApi, has_permission) == 40, "ShardPluginApi.has_permission");               // 1.1
-static_assert(offsetof(ShardPluginApi, random_stream) == 48, "ShardPluginApi.random_stream");                 // 1.2 (ABI 1.5)
+static_assert(offsetof(ShardPluginApi, host) == 32, "ShardPluginApi.host");
+static_assert(offsetof(ShardPluginApi, has_permission) == 40, "ShardPluginApi.has_permission");
+static_assert(offsetof(ShardPluginApi, random_stream) == 48, "ShardPluginApi.random_stream");
 static_assert(sizeof(ShardRandomState) == 16, "ShardRandomState");
 static_assert(offsetof(ShardRandomState, state) == 0 && offsetof(ShardRandomState, increment) == 8, "ShardRandomState fields");
 
@@ -270,13 +269,12 @@ static_assert(sizeof(ShardComponentType) == 8 && sizeof(ShardEntity) == 8 && siz
 static_assert(sizeof(ShardSubscription) == 8 && sizeof(ShardHookToken) == 8 && sizeof(ShardServiceRef) == 8, "handles have a fixed size");
 static_assert(SHARD_OK == 0 && SHARD_E_INVALID_ARG < 0 && SHARD_E_INTERNAL < SHARD_E_INVALID_ARG, "errors are negative");
 
-// The values plugins compile in : they never change inside a major revision
+// Values plugins compile in. They never change inside a major revision.
 static_assert(SHARD_E_INVALID_ARG == -1 && SHARD_E_NOT_FOUND == -2 && SHARD_E_ALREADY_EXISTS == -3 && SHARD_E_WRONG_THREAD == -4, "result codes");
 static_assert(SHARD_E_STALE_HANDLE == -5 && SHARD_E_UNSUPPORTED == -6 && SHARD_E_OUT_OF_MEMORY == -7 && SHARD_E_INTERNAL == -8, "result codes");
 static_assert(SHARD_FIELD_F32 == 1 && SHARD_FIELD_F64 == 2 && SHARD_FIELD_I32 == 3 && SHARD_FIELD_U32 == 4 && SHARD_FIELD_I64 == 5 && SHARD_FIELD_U64 == 6, "field types");
 static_assert(SHARD_FIELD_BOOL == 7 && SHARD_FIELD_VEC2 == 8 && SHARD_FIELD_VEC3 == 9 && SHARD_FIELD_VEC4 == 10 && SHARD_FIELD_QUAT == 11 && SHARD_FIELD_COLOR == 12, "field types");
 static_assert(SHARD_FIELD_BLOB == 13 && sizeof(ShardBlob) == 8, "blobs (1.2)");
-// ABI 1.4 : actors, scripts, input
 
 static_assert(sizeof(ShardContact) == 48, "ShardContact");
 static_assert(offsetof(ShardContact, other) == 8, "ShardContact.other");
@@ -284,7 +282,6 @@ static_assert(offsetof(ShardContact, point) == 16, "ShardContact.point");
 static_assert(offsetof(ShardContact, normal) == 28, "ShardContact.normal");
 static_assert(offsetof(ShardContact, penetration) == 40, "ShardContact.penetration");
 
-// ABI 1.5 : physics, audio, worlds, the editor
 static_assert(sizeof(ShardAudioApi) == 40, "ShardAudioApi");
 static_assert(offsetof(ShardAudioApi, play_one_shot) == 32, "ShardAudioApi.play_one_shot");
 static_assert(sizeof(ShardGizmoApi) == 64 && offsetof(ShardGizmoApi, text) == 56, "ShardGizmoApi");
@@ -293,7 +290,6 @@ static_assert(SHARD_LAYER_STATIC == 1 && SHARD_LAYER_MOVING == 2 && SHARD_LAYER_
 static_assert(sizeof(ShardScriptsApi) == 32, "ShardScriptsApi");
 static_assert(offsetof(ShardScriptsApi, register_script) == 8, "ShardScriptsApi.register_script");
 static_assert(offsetof(ShardScriptsApi, add_to_actor) == 24, "ShardScriptsApi.add_to_actor");
-// ---- changed in 1.7 ----
 static_assert(sizeof(ShardCommandsApi) == 24, "ShardCommandsApi");
 static_assert(offsetof(ShardCommandsApi, add) == 8, "ShardCommandsApi.add");
 static_assert(offsetof(ShardCommandsApi, execute) == 16, "ShardCommandsApi.execute");
@@ -392,7 +388,6 @@ static_assert(offsetof(ShardUiApi, is_key_down) == 832, "ShardUiApi.is_key_down"
 static_assert(offsetof(ShardUiApi, image) == 872, "ShardUiApi.image");
 static_assert(offsetof(ShardUiApi, begin_drag_drop_source) == 888, "ShardUiApi.begin_drag_drop_source");
 static_assert(offsetof(ShardUiApi, end_drag_drop_target) == 928, "ShardUiApi.end_drag_drop_target");
-// ---- shard.jobs ----
 static_assert(sizeof(ShardJobsApi) == 72, "ShardJobsApi");
 static_assert(offsetof(ShardJobsApi, worker_count) == 8, "ShardJobsApi.worker_count");
 static_assert(offsetof(ShardJobsApi, run) == 16, "ShardJobsApi.run");
@@ -402,7 +397,6 @@ static_assert(offsetof(ShardJobsApi, is_done) == 40, "ShardJobsApi.is_done");
 static_assert(offsetof(ShardJobsApi, wait) == 48, "ShardJobsApi.wait");
 static_assert(offsetof(ShardJobsApi, release) == 56, "ShardJobsApi.release");
 static_assert(offsetof(ShardJobsApi, post_main) == 64, "ShardJobsApi.post_main");
-// ---- shard.time ----
 static_assert(sizeof(ShardTimeInfo) == 56, "ShardTimeInfo");
 static_assert(offsetof(ShardTimeInfo, playing) == 4, "ShardTimeInfo.playing");
 static_assert(offsetof(ShardTimeInfo, frame) == 8, "ShardTimeInfo.frame");
@@ -423,7 +417,6 @@ static_assert(offsetof(ShardTimeApi, get) == 8, "ShardTimeApi.get");
 static_assert(offsetof(ShardTimeApi, set_time_scale) == 16, "ShardTimeApi.set_time_scale");
 static_assert(offsetof(ShardTimeApi, set_fixed_delta_time) == 24, "ShardTimeApi.set_fixed_delta_time");
 static_assert(offsetof(ShardTimeApi, state_hash) == 32, "ShardTimeApi.state_hash");
-// ---- shard.assets ----
 static_assert(sizeof(ShardAssetInfo) == 64, "ShardAssetInfo");
 static_assert(offsetof(ShardAssetInfo, id) == 4, "ShardAssetInfo.id");
 static_assert(offsetof(ShardAssetInfo, kind) == 8, "ShardAssetInfo.kind");
@@ -453,7 +446,6 @@ static_assert(offsetof(ShardAssetsApi, mesh_info) == 64, "ShardAssetsApi.mesh_in
 static_assert(offsetof(ShardAssetsApi, mesh_read) == 72, "ShardAssetsApi.mesh_read");
 static_assert(offsetof(ShardAssetsApi, image_info) == 80, "ShardAssetsApi.image_info");
 static_assert(offsetof(ShardAssetsApi, image_read) == 88, "ShardAssetsApi.image_read");
-// ---- shard.render ----
 static_assert(sizeof(ShardSubmesh) == 12, "ShardSubmesh");
 static_assert(sizeof(ShardMeshDesc) == 88, "ShardMeshDesc");
 static_assert(offsetof(ShardMeshDesc, vertexFlags) == 4, "ShardMeshDesc.vertexFlags");
@@ -553,7 +545,6 @@ static_assert(offsetof(ShardRenderApi, geometry_destroy) == 272, "ShardRenderApi
 static_assert(offsetof(ShardRenderApi, camera_info) == 280, "ShardRenderApi.camera_info");
 static_assert(offsetof(ShardRenderApi, world_to_screen) == 288, "ShardRenderApi.world_to_screen");
 static_assert(offsetof(ShardRenderApi, screen_to_ray) == 296, "ShardRenderApi.screen_to_ray");
-// ---- shard.debug ----
 static_assert(sizeof(ShardDebugApi) == 120, "ShardDebugApi");
 static_assert(offsetof(ShardDebugApi, enabled) == 8, "ShardDebugApi.enabled");
 static_assert(offsetof(ShardDebugApi, line) == 16, "ShardDebugApi.line");
@@ -561,7 +552,6 @@ static_assert(offsetof(ShardDebugApi, triangles) == 88, "ShardDebugApi.triangles
 static_assert(offsetof(ShardDebugApi, text) == 96, "ShardDebugApi.text");
 static_assert(offsetof(ShardDebugApi, text_screen) == 104, "ShardDebugApi.text_screen");
 static_assert(offsetof(ShardDebugApi, clear) == 112, "ShardDebugApi.clear");
-// ---- shard.reflect ----
 static_assert(sizeof(ShardValue) == 56, "ShardValue");
 static_assert(offsetof(ShardValue, type) == 0, "ShardValue.type");
 static_assert(offsetof(ShardValue, i) == 8, "ShardValue.i");
@@ -609,7 +599,6 @@ static_assert(offsetof(ShardReflectApi, function_at) == 72, "ShardReflectApi.fun
 static_assert(offsetof(ShardReflectApi, function_find) == 80, "ShardReflectApi.function_find");
 static_assert(offsetof(ShardReflectApi, function_param_at) == 88, "ShardReflectApi.function_param_at");
 static_assert(offsetof(ShardReflectApi, function_call) == 96, "ShardReflectApi.function_call");
-// ---- shard.net ----
 static_assert(sizeof(ShardNetAddress) == 24, "ShardNetAddress");
 static_assert(offsetof(ShardNetAddress, port) == 4, "ShardNetAddress.port");
 static_assert(offsetof(ShardNetAddress, host) == 8, "ShardNetAddress.host");
@@ -632,7 +621,6 @@ static_assert(offsetof(ShardNetApi, local_port) == 56, "ShardNetApi.local_port")
 static_assert(offsetof(ShardNetApi, queued_bytes) == 64, "ShardNetApi.queued_bytes");
 static_assert(offsetof(ShardNetApi, set_option) == 72, "ShardNetApi.set_option");
 static_assert(offsetof(ShardNetApi, poll) == 80, "ShardNetApi.poll");
-// ---- numbers of 1.7 ----
 static_assert(SHARD_VERTEX_POSITION == 1 && SHARD_VERTEX_NORMAL == 2 && SHARD_VERTEX_TANGENT == 4 && SHARD_VERTEX_UV0 == 8 && SHARD_VERTEX_UV1 == 16, "vertex attributes");
 static_assert(SHARD_VERTEX_COLOR == 32 && SHARD_VERTEX_JOINTS == 64 && SHARD_VERTEX_WEIGHTS == 128 && SHARD_MESH_INDEX16 == 1, "vertex attributes");
 static_assert(SHARD_TEXTURE_R8 == 1 && SHARD_TEXTURE_RGBA8 == 3 && SHARD_TEXTURE_R32F == 6 && SHARD_TEXTURE_RENDER_TARGET == 16, "texture formats and flags");
@@ -656,8 +644,7 @@ static_assert(SHARD_PRIORITY_EARLIEST == -200 && SHARD_PRIORITY_EARLY == -100 &&
 static_assert(SHARD_LOG_INFO == 0 && SHARD_LOG_WARNING == 1 && SHARD_LOG_ERROR == 2, "log levels");
 static_assert(SHARD_ABI_MAJOR == 1 && SHARD_ABI_MINOR == 7, "the ABI revision of these headers");
 
-TEST(AbiLayout, HeadersCompileAsCppAndPinTheirLayout)
+TEST(AbiLayout, HeadersPinLayout)
 {
-    // The assertions above are the test : this case makes sure the file is part of the run
     EXPECT_EQ(sizeof(ShardStr), 16u);
 }

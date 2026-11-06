@@ -27,8 +27,7 @@ namespace Shard::Engine::Objects{
             return std::is_base_of<BaseType, DerivedType>::value;
         }
 
-        /// What moved when a Transform tells the other components of its actor that it changed (bit flags).
-        /// Hierarchy : the transform did not change itself, an ancestor's did, so its world matrix did.
+        // Bit flags. Hierarchy: an ancestor changed, so this world matrix did.
         enum TransformChange : uint8_t {
             TransformPosition  = 1 << 0,
             TransformRotation  = 1 << 1,
@@ -40,7 +39,6 @@ namespace Shard::Engine::Objects{
 
             public:
                 Component(std::shared_ptr<Actor> parent, uint32_t local_id);
-                /// A copy (what Clone does) has the same tags, and hears its own changes
                 Component(const Component& other);
                 Component& operator=(const Component& other);
                 virtual ~Component();
@@ -48,19 +46,12 @@ namespace Shard::Engine::Objects{
 
                 Core::IEngineContext* GetEngineContext() const;
 
-                /// @brief Activates this component
                 virtual void Activate() { activated = true; }
 
-                /// @brief Deactivates this component
                 virtual void DeActivate() { activated = false; }
 
-                /// @brief Loads this component from its serialized form. By default this reads the reflected fields
-                /// (see DeserializeReflected), override it for a component whose state is not just its fields.
                 virtual void Deserialize(const json componentData);
 
-                /// @brief The serialized form of this component. By default the reflected fields, under the type name
-                /// the component registered with (see SerializeReflected), override it for a component whose state is
-                /// not just its fields.
                 virtual ordered_json Serialize();
 
                 template<typename T>
@@ -80,11 +71,6 @@ namespace Shard::Engine::Objects{
                     return local_id;
                 }
 
-                /// @brief Custom logic for duplication of the component (copy fields)
-                /// @return A "copy" of this component
-                /// @todo
-                /// Should be replaced with automatic cloning using reflection
-                /// @endinternal
                 virtual std::shared_ptr<Component> Clone() const = 0;
 
                 void SetParent(std::shared_ptr<Actor> newParent){
@@ -93,41 +79,25 @@ namespace Shard::Engine::Objects{
 
                 virtual const ClassDescriptor* GetDescriptor() const = 0;
 
-                /// @brief The component joined an actor (added, loaded or cloned) : it has its parent from now on, and the actor's entity
                 virtual void OnAttached() {}
 
-                /// @brief The Transform of this component's actor changed
-                /// @param changes TransformChange flags
                 virtual void OnTransformChanged(uint8_t changes) {}
 
-                /// @brief The tags of this component (see docs/concepts/tags.md). Saved with the world, under "tags" ; changing them keeps
-                /// the world's index up to date and sends TagsChangedEvent to the component (its id in the world).
                 Core::TagContainer& GetTags() { return tags; }
                 const Core::TagContainer& GetTags() const { return tags; }
 
                 void OnTagsChanged(const Core::TagContainer& added, const Core::TagContainer& removed, bool quiet) override;
 
-                /// @brief Sets one reflected field from its json form and runs OnFieldChanged for it : an edit of the inspector, from code
-                /// @return false if there is no such field (or it is read only), or the json does not fit its type (the field is untouched)
                 bool ApplyField(const std::string& name, const json& value);
 
             private:
 
             protected:
-                /// @brief Serializes the reflected fields of this component (its descriptor, see GetDescriptor)
-                /// @param typeName The "type" the component is found again by when a level is loaded
-                /// @note "type", "active" and "tags" are reserved keys : a reflected field named like that is not serialized
+                // "type", "active" and "tags" are reserved keys, a reflected field with such a name is not serialized.
                 ordered_json SerializeReflected(const std::string& typeName) const;
 
-                /// @brief Loads the reflected fields of this component, running OnFieldChanged for each of them
-                /// (the path an edit in the editor takes, so the component applies the value like it would for an edit).
-                /// A field missing from the file keeps its default. The "active" state is applied last, once the
-                /// fields are in place.
-                /// @param defaultActive Whether the component is active when the file doesn't say
                 void DeserializeReflected(const json& componentData, bool defaultActive = true);
 
-                /// @brief The two halves of DeserializeReflected, for a component that has to do something between them
-                /// @param notify Run OnFieldChanged for each field read (false : the component applies them itself)
                 void DeserializeReflectedFields(const json& componentData, bool notify = true);
                 void DeserializeActive(const json& componentData, bool defaultActive);
 

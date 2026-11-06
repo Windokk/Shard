@@ -1,9 +1,4 @@
-/* A sandboxed plugin in C (tier 2, abi wasm1) : a plugin written for the C ABI like any other, compiled by Clang for wasm32 with no libc and
- * linked by wasm-ld into test_plugins/shard.test.wasm (tests/CMakeLists.txt). tests/plugins/wasm_sdk_plugin_tests.cpp loads it with the real
- * PluginManager and calls the exported wasm_* functions to see what it did. It uses most of the interfaces the sandbox offers : the host's
- * answers are checked from inside (CHECK counts the failures), the effects on the world from the outside.
- *
- * SHARD_WASM_CHECK_LAYOUT compiles the assertions of shard_wasm_imports.h : the wasm32 layouts the host reads are the ones Clang gives. */
+// Tier 2 (abi wasm1) C plugin: Clang for wasm32, no libc, wasm-ld into test_plugins/shard.test.wasm. SHARD_WASM_CHECK_LAYOUT asserts the wasm32 layouts the host reads.
 #define SHARD_WASM_CHECK_LAYOUT
 #include <shard/shard.h>
 
@@ -13,7 +8,7 @@
 
 #define EXPORT(name) __attribute__((export_name(name)))
 
-/* ---- no libc : what Clang may call for a struct copy, and the few string helpers ---- */
+// No libc: what Clang may call for a struct copy, plus a few string helpers.
 void* memcpy(void* to, const void* from, size_t n) { char* d = (char*)to; const char* s = (const char*)from; while (n--) *d++ = *s++; return to; }
 void* memset(void* to, int value, size_t n) { char* d = (char*)to; while (n--) *d++ = (char)value; return to; }
 int memcmp(const void* a, const void* b, size_t n)
@@ -27,7 +22,6 @@ static size_t length(const char* s) { size_t n = 0; while (s[n]) ++n; return n; 
 static ShardStr S(const char* text) { ShardStr s; s.data = text; s.size = length(text); return s; }
 static int equal(ShardStr a, const char* text) { return a.size == length(text) && memcmp(a.data, text, (size_t)a.size) == 0; }
 
-/* ---- what the plugin counts, read by the test through wasm_stat ---- */
 static int g_stats[S_STAT_COUNT];
 EXPORT("wasm_stat") int wasm_stat(int which) { return which >= 0 && which < S_STAT_COUNT ? g_stats[which] : -1; }
 
@@ -72,7 +66,6 @@ static const ShardActorsApi* g_actors;
 static const ShardScriptsApi* g_scripts;
 static const ShardInputApi* g_input;
 
-/* ---- components : a block with a number, a speed, a text and a blob ---- */
 typedef struct Spin {
     float angle;
     float speed;
@@ -91,7 +84,6 @@ static ShardResult spin_chunk(void* user, const ShardChunk* chunk)
     for (i = 0; i < chunk->count; ++i) spins[i].angle += spins[i].speed * g_delta;
     g_stats[S_SPIN_ENTITIES] += (int)chunk->count;
     if (chunk->count) {
-        /* the same block reached another way is the same block */
         void* block = 0;
         if (g_ecs->get(g_runEcs, chunk->entities[0], g_spinType, &block) == SHARD_OK && block == (void*)&spins[0]) ++g_stats[S_SPIN_SAME_BLOCK];
     }
@@ -115,7 +107,6 @@ static ShardResult spin_run(void* user, ShardPluginCtx ctx, const ShardSystemCtx
     return g_ecs->each_chunk(run->ecs, &query, spin_chunk, 0);
 }
 
-/* ---- events : a handler that is called while the module is inside emit ---- */
 static int g_in_emit;
 static ShardSubscription g_ping_subscription;
 static void on_ping(void* user, ShardPluginCtx ctx, ShardStr name, const void* payload, uint64_t size)
@@ -130,13 +121,12 @@ static void on_ping(void* user, ShardPluginCtx ctx, ShardStr name, const void* p
     }
 }
 
-/* ---- scripts ---- */
 typedef struct Mover {
-    float speed;                /* a field */
-    ShardBlob label;            /* a text field : a blob the host owns */
-    int32_t icon;               /* an asset field */
-    int32_t ticks;              /* a runtime field */
-    ShardActor owner;           /* the module's own state : no field, the host never sees it */
+    float speed;
+    ShardBlob label;
+    int32_t icon;
+    int32_t ticks;
+    ShardActor owner;
     int32_t secret;
     int32_t pad;
 } Mover;
@@ -184,9 +174,7 @@ static ShardResult mover_play(void* user, void* object)
     void* other = 0;
     (void)user;
     ++g_stats[S_PLAYED];
-    /* a text of the script, put in its blob through the pointer of the field */
     if (g_components) g_components->string_set(g_ctx, &m->label, S("hello"));
-    /* a second script on the same actor : its object is in the module, written through the pointer given back */
     if (g_scripts) {
         if (g_scripts->get_object(g_ctx, m->owner, S("Counter"), &other) != SHARD_E_NOT_FOUND) ++g_stats[S_FAILURES];
         if (g_scripts->add_to_actor(g_ctx, m->owner, S("Counter"), &other) == SHARD_OK && other) {
@@ -228,7 +216,6 @@ static ShardResult mover_contact(void* user, void* object, const ShardContact* c
 static ShardResult counter_construct(void* user, void* storage) { (void)user; ((Counter*)storage)->count = 0; return SHARD_OK; }
 static void counter_destruct(void* user, void* storage) { (void)user; (void)storage; }
 
-/* ---- the command ---- */
 static ShardResult echo(void* user, ShardPluginCtx ctx, const ShardStr* args, uint32_t argCount, ShardStr* output)
 {
     (void)user; (void)ctx;
@@ -238,7 +225,6 @@ static ShardResult echo(void* user, ShardPluginCtx ctx, const ShardStr* args, ui
     return SHARD_OK;
 }
 
-/* ---- self tests : the host's answers, from inside ---- */
 static ShardCVar g_speed, g_flag, g_count, g_name, g_dup;
 static ShardBlob g_blob;
 
@@ -261,7 +247,6 @@ static void self_test(void)
     float real = 0.0f;
     const void* table = 0;
 
-    /* shard.plugin */
     CHECK(g_plugin != 0);
     text = g_plugin->id(g_ctx);
     CHECK(equal(text, "shard.test.wasm"));
@@ -276,34 +261,31 @@ static void self_test(void)
     CHECK(a.state == b.state && a.increment == b.increment);
     CHECK(a.state != c.state);
 
-    /* what the host offers a sandboxed plugin, and what it does not */
     CHECK(g_host->query_interface(S("shard.cvars"), 1, 0, &table) == SHARD_OK && table != 0);
-    CHECK(g_host->query_interface(S("shard.cvars"), 1, 9, &table) == SHARD_E_NOT_FOUND);       /* a revision it does not have */
+    CHECK(g_host->query_interface(S("shard.cvars"), 1, 9, &table) == SHARD_E_NOT_FOUND);
     CHECK(g_host->query_interface(S("shard.editor"), 1, 0, &table) == SHARD_E_NOT_FOUND);
     CHECK(g_host->query_interface(S("shard.hooks"), 1, 0, &table) == SHARD_E_NOT_FOUND);
     CHECK(g_host->query_interface(S("shard.services"), 1, 0, &table) == SHARD_E_NOT_FOUND);
     CHECK(g_host->query_interface(S("shard.extensions"), 1, 0, &table) == SHARD_E_NOT_FOUND);
     CHECK(g_host->query_interface(S("shard.nothing"), 1, 0, &table) == SHARD_E_NOT_FOUND);
-    CHECK(g_host->query_interface(S("shard.physics"), 1, 0, &table) == SHARD_E_NOT_FOUND);    /* not in the manifest's permissions */
+    CHECK(g_host->query_interface(S("shard.physics"), 1, 0, &table) == SHARD_E_NOT_FOUND);
     CHECK(g_host->query_interface(S("shard.audio"), 1, 0, &table) == SHARD_E_NOT_FOUND);
-    CHECK(g_input != 0);                                                                     /* "input" is */
+    CHECK(g_input != 0);
 
-    /* shard.cvars */
     CHECK(g_cvars->create_bool(g_ctx, S("flag"), 1, S("a flag"), 0, &g_flag) == SHARD_OK);
     CHECK(g_cvars->create_int(g_ctx, S("count"), 5, S("a count"), 0, 0, 10, &g_count) == SHARD_OK);
     CHECK(g_cvars->create_string(g_ctx, S("name"), S("start"), S("a text"), 0, &g_name) == SHARD_OK);
     CHECK(g_cvars->create_int(g_ctx, S("count"), 5, S("again"), 0, 0, 10, &g_dup) == SHARD_E_ALREADY_EXISTS);
     CHECK(g_cvars->get_bool(g_ctx, g_flag, &number) == SHARD_OK && number == 1);
     CHECK(g_cvars->set_int(g_ctx, g_count, 99) == SHARD_OK);
-    CHECK(g_cvars->get_int(g_ctx, g_count, &number) == SHARD_OK && number == 10);               /* clamped to its range */
-    CHECK(g_cvars->get_float(g_ctx, g_count, &real) == SHARD_E_INVALID_ARG);                    /* another type */
-    CHECK(g_cvars->get_int(g_ctx, 0x7777777700000001ull, &number) != SHARD_OK);                 /* never a handle of this plugin */
+    CHECK(g_cvars->get_int(g_ctx, g_count, &number) == SHARD_OK && number == 10);
+    CHECK(g_cvars->get_float(g_ctx, g_count, &real) == SHARD_E_INVALID_ARG);
+    CHECK(g_cvars->get_int(g_ctx, 0x7777777700000001ull, &number) != SHARD_OK);
     CHECK(g_cvars->set_string(g_ctx, g_name, S("a longer text than the buffer")) == SHARD_OK);
-    CHECK(g_cvars->get_string(g_ctx, g_name, buffer, 6, &needed) == SHARD_OK && needed == 29);  /* cut, and the whole length */
+    CHECK(g_cvars->get_string(g_ctx, g_name, buffer, 6, &needed) == SHARD_OK && needed == 29);
     CHECK(buffer[0] == 'a' && buffer[1] == ' ' && buffer[5] == 'g');
-    CHECK(g_cvars->get_string(g_ctx, g_name, 0, 0, &needed) == SHARD_OK && needed == 29);       /* asking for the length */
+    CHECK(g_cvars->get_string(g_ctx, g_name, 0, 0, &needed) == SHARD_OK && needed == 29);
 
-    /* shard.content : its own folder */
     {
         char uri[128];
         uint64_t uriSize = 0, fileSize = 0;
@@ -315,14 +297,13 @@ static void self_test(void)
         bytes = (char*)data;
         if (bytes && fileSize == 5) g_stats[S_HELLO_BYTES] = (bytes[0] == 'h') + (bytes[4] == 'o');
         g_host->free(g_ctx, data);
-        CHECK(g_content->read(g_ctx, S("mod://com.other.mod/x.txt"), &data, &fileSize) == SHARD_E_INVALID_ARG);   /* only its own */
+        CHECK(g_content->read(g_ctx, S("mod://com.other.mod/x.txt"), &data, &fileSize) == SHARD_E_INVALID_ARG);
         CHECK(g_content->read(g_ctx, S("mod://shard.test.wasm/../x.txt"), &data, &fileSize) == SHARD_E_INVALID_ARG);
-        CHECK(g_content->resolve(g_ctx, S("mod://shard.test.wasm/hello.txt"), uri, sizeof(uri), &uriSize) == SHARD_E_UNSUPPORTED);   /* a path of the host */
+        CHECK(g_content->resolve(g_ctx, S("mod://shard.test.wasm/hello.txt"), uri, sizeof(uri), &uriSize) == SHARD_E_UNSUPPORTED);
         CHECK(g_content->resolve_logical(g_ctx, S("hello.txt"), uri, sizeof(uri), &uriSize) == SHARD_E_UNSUPPORTED);
         CHECK(g_content->list(g_ctx, S(""), S(""), list_one, 0) == SHARD_OK);
     }
 
-    /* shard.components */
     CHECK(g_components->find_type(g_ctx, S("shard.test.wasm.Spin"), &g_spinType) == SHARD_OK);
     CHECK(g_components->type_layout(g_ctx, g_spinType, &size, &align) == SHARD_OK && size == sizeof(Spin) && align == 8);
     CHECK(g_components->field_count(g_ctx, g_spinType, &count) == SHARD_OK && count == 4);
@@ -335,10 +316,9 @@ static void self_test(void)
         CHECK(g_components->find_field(g_ctx, g_spinType, S("note"), &field) == SHARD_OK && field.type == SHARD_FIELD_STRING);
         CHECK(g_components->find_field(g_ctx, g_spinType, S("nothing"), &field) == SHARD_E_NOT_FOUND);
     }
-    CHECK(g_components->find_type(g_ctx, S("shard.LocalTransform"), &g_spinType) == SHARD_OK);   /* an engine's own */
+    CHECK(g_components->find_type(g_ctx, S("shard.LocalTransform"), &g_spinType) == SHARD_OK);
     CHECK(g_components->find_type(g_ctx, S("shard.test.wasm.Spin"), &g_spinType) == SHARD_OK);
 
-    /* blobs : the pointer is the module's copy, kept until it resizes or frees the blob */
     {
         ShardBlob blob = 0;
         void* data = 0;
@@ -349,7 +329,7 @@ static void self_test(void)
         CHECK(g_components->blob_data(g_ctx, blob, &data, &blobSize) == SHARD_OK && blobSize == 8 && data != 0);
         bytes = (unsigned char*)data;
         for (i = 0; i < 8; ++i) bytes[i] = (unsigned char)(i + 1);
-        CHECK(g_components->blob_resize(g_ctx, blob, 16) == SHARD_OK);                       /* the bytes it wrote are kept */
+        CHECK(g_components->blob_resize(g_ctx, blob, 16) == SHARD_OK);
         CHECK(g_components->blob_data(g_ctx, blob, &data, &blobSize) == SHARD_OK && blobSize == 16);
         bytes = (unsigned char*)data;
         CHECK(bytes[0] == 1 && bytes[7] == 8 && bytes[8] == 0 && bytes[15] == 0);
@@ -366,7 +346,6 @@ static void self_test(void)
         CHECK(g_components->blob_free(g_ctx, field) == SHARD_OK);
     }
 
-    /* shard.events : the handler runs while the module is inside emit */
     {
         int32_t one = 5;
         g_in_emit = 1;
@@ -379,7 +358,6 @@ static void self_test(void)
     }
 }
 
-/* ---- the plugin ---- */
 static ShardResult on_load(void* user, ShardPluginCtx ctx)
 {
     ShardComponentDesc desc;
@@ -415,7 +393,6 @@ static ShardResult on_load(void* user, ShardPluginCtx ctx)
     if (g_cvars->create_float(g_ctx, S("speed"), 2.5f, S("how fast"), 0, 0.0f, 10.0f, &g_speed) != SHARD_OK) return SHARD_E_INTERNAL;
     if (g_commands->add(g_ctx, S("sandbox.echo"), S("repeats a word"), echo, 0) != SHARD_OK) return SHARD_E_INTERNAL;
 
-    /* a component */
     memset(fields, 0, sizeof(fields));
     fields[0].structSize = sizeof(ShardFieldDesc); fields[0].type = SHARD_FIELD_F32; fields[0].name = S("angle"); fields[0].offset = offsetof(Spin, angle); fields[0].flags = SHARD_FIELD_RUNTIME;
     fields[1].structSize = sizeof(ShardFieldDesc); fields[1].type = SHARD_FIELD_F32; fields[1].name = S("speed"); fields[1].offset = offsetof(Spin, speed);
@@ -434,7 +411,6 @@ static ShardResult on_load(void* user, ShardPluginCtx ctx)
     desc.defaults = &defaults;
     if (g_components->register_type(g_ctx, &desc, &g_spinType) != SHARD_OK) return SHARD_E_INTERNAL;
 
-    /* its system */
     reads[0] = g_spinType;
     memset(&system, 0, sizeof(system));
     system.structSize = sizeof(system);
@@ -448,13 +424,11 @@ static ShardResult on_load(void* user, ShardPluginCtx ctx)
     system.run = spin_run;
     if (g_systems->add(g_ctx, &system) != SHARD_OK) return SHARD_E_INTERNAL;
 
-    /* an event, described and listened to */
     memset(ping, 0, sizeof(ping));
     ping[0].structSize = sizeof(ShardFieldDesc); ping[0].type = SHARD_FIELD_I32; ping[0].name = S("value"); ping[0].offset = 0;
     if (g_events->describe(g_ctx, S("sandbox.ping"), 4, ping, 1) != SHARD_OK) return SHARD_E_INTERNAL;
     if (g_events->subscribe(g_ctx, S("sandbox.ping"), on_ping, 0, &g_ping_subscription) != SHARD_OK) return SHARD_E_INTERNAL;
 
-    /* two scripts */
     memset(moverFields, 0, sizeof(moverFields));
     moverFields[0].structSize = sizeof(ShardFieldDesc); moverFields[0].type = SHARD_FIELD_F32; moverFields[0].name = S("speed"); moverFields[0].offset = offsetof(Mover, speed);
     moverFields[1].structSize = sizeof(ShardFieldDesc); moverFields[1].type = SHARD_FIELD_STRING; moverFields[1].name = S("label"); moverFields[1].offset = offsetof(Mover, label);
@@ -516,7 +490,6 @@ static ShardResult on_disable(void* user, ShardPluginCtx ctx) { (void)user; (voi
 static ShardResult on_frame_begin(void* user, ShardPluginCtx ctx, uint64_t frame) { (void)user; (void)ctx; (void)frame; ++g_stats[S_FRAME_BEGIN]; return SHARD_OK; }
 static ShardResult on_frame_end(void* user, ShardPluginCtx ctx, uint64_t frame) { (void)user; (void)ctx; (void)frame; ++g_stats[S_FRAME_END]; return SHARD_OK; }
 
-/* Hot reload : a number written before, read back in the new module */
 static ShardResult on_prepare_reload(void* user, ShardPluginCtx ctx, ShardState state)
 {
     (void)user; (void)ctx;
@@ -543,7 +516,6 @@ static ShardResult on_world_loaded(void* user, ShardPluginCtx ctx, const ShardWo
     return SHARD_OK;
 }
 
-/* ---- what the test calls ---- */
 EXPORT("wasm_make_blob") uint64_t wasm_make_blob(void)
 {
     void* data = 0;

@@ -84,7 +84,7 @@ namespace Shard::Engine::Core::Platform {
                 cpu.features.sse41 = (f1.ecx >> 19) & 1;
                 cpu.features.sse42 = (f1.ecx >> 20) & 1;
 
-                // AVX needs the OS to save the YMM registers (OSXSAVE + XCR0)
+                // AVX needs the OS to save YMM registers (OSXSAVE + XCR0).
                 const bool osxsave = (f1.ecx >> 27) & 1;
                 const uint64_t xcr0 = osxsave ? ReadXcr0() : 0;
                 const bool ymm = (xcr0 & 0x6) == 0x6;

@@ -1,12 +1,3 @@
-// Traversal layer of the shared BVH ray-tracing code - see raytracing_types.glsl for the struct types
-// these operate on and the required include order (this file must come AFTER the including shader
-// declares its own bvhNodes[]/triPos[] SSBOs, since these functions reference those global array names
-// directly rather than taking buffers as parameters).
-
-// Slab test returning the ray's ENTRY distance into the box (clamped to 0 when the ray starts inside),
-// or -1.0 when the box is missed entirely / lies beyond maxT. Returning the distance rather than just a
-// bool is what lets the traversal below descend into the nearer child first and skip the farther one
-// outright once a closer hit has been found - see TraceRay.
 float IntersectAABBDist(vec3 ro, vec3 invRd, vec3 boundsMin, vec3 boundsMax, float maxT)
 {
     vec3 t0 = (boundsMin - ro) * invRd;
@@ -25,17 +16,11 @@ bool IntersectAABB(vec3 ro, vec3 invRd, vec3 boundsMin, vec3 boundsMax, float ma
     return IntersectAABBDist(ro, invRd, boundsMin, boundsMax, maxT) >= 0.0;
 }
 
-// Whether a hit is on a face the raster does not draw, which the closest-hit rays (the camera's, the bounces) then go through :
-// the back face of a single sided material (see GPUMaterialDoubleSided). Not the shadow rays, see IntersectTriangleAny. `det` is Moller-Trumbore's : positive when the ray meets the side the vertices
-// wind counter-clockwise around (e1 x e2 turned toward it), the front face as OpenGL takes it by default (and the Vulkan
-// backend too). Only looked up for a hit, the material read is not paid by the triangles a ray misses.
 bool CulledFace(uint triIdx, float det)
 {
     return det < 0.0 && (materials[uint(triAttrib[triIdx].uvMatID.w)].flags & MAT_DOUBLE_SIDED_BIT) == 0u;
 }
 
-// Moller-Trumbore. Shrinks `closestT` (the caller's current best hit distance) in place so the BVH
-// walk below can use it to reject farther AABBs/triangles as it goes.
 bool IntersectTriangle(vec3 ro, vec3 rd, uint triIdx, inout float closestT, out vec2 outBary)
 {
     TrianglePos tri = triPos[triIdx];
@@ -66,8 +51,6 @@ bool IntersectTriangle(vec3 ro, vec3 rd, uint triIdx, inout float closestT, out 
     return true;
 }
 
-// Same Moller-Trumbore test as IntersectTriangle, but for shadow/occlusion rays that only need to know
-// IF something blocks the ray, not the closest hit or its barycentrics.
 bool IntersectTriangleAny(vec3 ro, vec3 rd, uint triIdx, float maxT)
 {
     TrianglePos tri = triPos[triIdx];
@@ -89,29 +72,14 @@ bool IntersectTriangleAny(vec3 ro, vec3 rd, uint triIdx, float maxT)
     if (v < 0.0 || u + v > 1.0)
         return false;
 
-    // Both faces block a shadow ray, single sided or not : the sun's shadow maps draw both by default (the project's Double-sided
-    // Casters), a roof modelled as one surface shades what is under it
+    // Both faces block a shadow ray: the sun's shadow maps draw both sides (Double-sided Casters).
     float t = dot(e2, q) * invDet;
     return t > 1e-4 && t < maxT;
 }
 
-// 64 stack slots comfortably covers even million-triangle scenes for a well-balanced tree (depth
-// ~log2(N)), but a pathologically unbalanced BVH (or corrupted node data) could in principle push past
-// that. Writing past the end of a local array in GLSL is undefined behavior - not a clean crash - and
-// has been observed to manifest as an effectively endless loop (garbage `sp`/node data keeps the loop
-// going) that hangs the driver instead of failing safely. Both the stack-depth checks on push and the
-// hard `iterations` caps below exist purely as a safety net against that : a correct traversal never
-// gets close to either limit.
+// Fixed stack. Writing past a local array is UB and was seen hanging the driver, so pushes and iterations are capped as a safety net.
 const int BVH_STACK_SIZE = 64;
 
-// Any-hit BVH traversal for shadow rays : returns as soon as a single occluder is found instead of
-// searching for the closest one - roughly halves the ray-tracing cost of NEE compared to reusing the
-// closest-hit TraceRay for occlusion tests too.
-//
-// Descends into a current node and only pushes a child whose AABB the ray actually hits (rather than
-// pushing both unconditionally and re-testing on pop, as this used to) : same number of slab tests, but
-// the stack stays shallow and every loop iteration does real work instead of popping nodes that are
-// immediately discarded.
 bool TraceRayAny(vec3 ro, vec3 rd, float maxT)
 {
     vec3 invRd = 1.0 / rd;
@@ -166,17 +134,6 @@ bool TraceRayAny(vec3 ro, vec3 rd, float maxT)
     return false;
 }
 
-// Iterative, ORDERED closest-hit BVH traversal (GLSL has no recursion) - see BVH_STACK_SIZE above for
-// the stack-depth/iteration safety nets.
-//
-// "Ordered" is what makes this much cheaper than the plain depth-first walk it replaces : at each
-// internal node both children are slab-tested, the ray descends into whichever one it enters FIRST, and
-// the other is pushed along with its own entry distance. Because hit.t only ever shrinks, a pushed
-// subtree whose entry distance has since fallen behind the best hit can be discarded outright when it
-// is popped, without loading a single one of its nodes. Visiting children in arbitrary order (what the
-// previous version did, pushing both unconditionally) instead lets a far subtree be fully traversed
-// before the near one has had a chance to tighten hit.t, so most of that work is wasted - the effect is
-// largest for exactly the kind of long, incoherent rays the DDGI probe tracer fires.
 bool TraceRay(vec3 ro, vec3 rd, float maxT, out HitInfo hit)
 {
     hit.t = maxT;
@@ -188,7 +145,7 @@ bool TraceRay(vec3 ro, vec3 rd, float maxT, out HitInfo hit)
         return false;
 
     uint  stackNode[BVH_STACK_SIZE];
-    float stackDist[BVH_STACK_SIZE]; // entry distance of the pushed subtree, see the pop loop below
+    float stackDist[BVH_STACK_SIZE];
     int sp = 0;
     uint nodeIdx = 0u;
 
@@ -218,8 +175,6 @@ bool TraceRay(vec3 ro, vec3 rd, float maxT, out HitInfo hit)
             float d0 = IntersectAABBDist(ro, invRd, bvhNodes[c0].boundsMin, bvhNodes[c0].boundsMax, hit.t);
             float d1 = IntersectAABBDist(ro, invRd, bvhNodes[c1].boundsMin, bvhNodes[c1].boundsMax, hit.t);
 
-            // Make (c0, d0) the child to descend into : the nearer of the two when both are hit, or
-            // whichever one is hit at all when only one is.
             if (d1 >= 0.0 && (d0 < 0.0 || d1 < d0))
             {
                 uint  swapIdx = c0; c0 = c1; c1 = swapIdx;
@@ -239,9 +194,6 @@ bool TraceRay(vec3 ro, vec3 rd, float maxT, out HitInfo hit)
             }
         }
 
-        // Leaf done, or both children missed : pop the next subtree still worth visiting. Anything
-        // pushed back when hit.t was larger than its own entry distance is now provably behind the
-        // closest hit and is dropped here for free.
         bool popped = false;
         while (sp > 0)
         {

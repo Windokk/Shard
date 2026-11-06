@@ -1,7 +1,3 @@
-# Wasmtime : the WebAssembly runtime of sandboxed (tier 2) plugins, docs/design-notes/wasm-sandbox.fr.md (W1b).
-# The prebuilt C API of a pinned release, downloaded at configure time and checked by its SHA-256 : no Rust toolchain is needed. Shared : on
-# Windows wasmtime.dll is copied next to the executables (like SDL3.dll), on Linux the build rpath points at libwasmtime.so.
-# To move to another release : change the version and the three hashes (sha256sum of the archives of the GitHub release).
 include(FetchContent)
 
 set(SHARD_WASMTIME_VERSION "50.0.0")
@@ -22,7 +18,7 @@ FetchContent_Declare(wasmtime
     URL "https://github.com/bytecodealliance/wasmtime/releases/download/v${SHARD_WASMTIME_VERSION}/wasmtime-v${SHARD_WASMTIME_VERSION}-${_shard_wasmtime_asset}"
     URL_HASH SHA256=${_shard_wasmtime_sha256}
     DOWNLOAD_EXTRACT_TIMESTAMP TRUE)
-FetchContent_MakeAvailable(wasmtime)       # the archive has no CMakeLists.txt : this only downloads and unpacks it
+FetchContent_MakeAvailable(wasmtime)
 
 add_library(ShardWasmtime SHARED IMPORTED GLOBAL)
 set_target_properties(ShardWasmtime PROPERTIES INTERFACE_INCLUDE_DIRECTORIES "${wasmtime_SOURCE_DIR}/include")
@@ -33,8 +29,7 @@ if(WIN32)
         IMPORTED_IMPLIB "${_shard_wasmtime_implib}")
     file(COPY "${wasmtime_SOURCE_DIR}/lib/wasmtime.dll" DESTINATION "${CMAKE_BINARY_DIR}")
 else()
-    # The prebuilt .so carries no SONAME : without NO_SONAME the linker records the (build-relative) path as the NEEDED entry, which the
-    # loader fails to resolve from another working directory (ctest). NO_SONAME makes CMake link with -L/-l instead (bare NEEDED, found via rpath).
+    # The prebuilt .so has no SONAME, so NO_SONAME makes CMake link with -L/-l. Otherwise the NEEDED entry is a build-relative path that breaks from other working dirs (ctest).
     set_target_properties(ShardWasmtime PROPERTIES
         IMPORTED_LOCATION "${wasmtime_SOURCE_DIR}/lib/libwasmtime.so"
         IMPORTED_NO_SONAME TRUE)

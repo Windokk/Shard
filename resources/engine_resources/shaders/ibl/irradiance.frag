@@ -13,8 +13,7 @@ void main()
 
     vec3 irradiance = vec3(0.0);   
     
-    // tangent space calculation from origin point
-    // (straight up is parallel to a vertical normal : cross() is then 0 and its normalize a NaN, which an 8 bit scene hid)
+    // Straight-up vector is parallel to a vertical normal, so cross() is 0 and normalize gives NaN.
     vec3 up    = abs(N.y) < 0.999 ? vec3(0.0, 1.0, 0.0) : vec3(0.0, 0.0, 1.0);
     vec3 right = normalize(cross(up, N));
     up         = normalize(cross(N, right));
@@ -25,13 +24,9 @@ void main()
     {
         for(float theta = 0.0; theta < 0.5 * PI; theta += sampleDelta)
         {
-            // spherical to cartesian (in tangent space)
             vec3 tangentSample = vec3(sin(theta) * cos(phi),  sin(theta) * sin(phi), cos(theta));
-            // tangent space to world
             vec3 sampleVec = tangentSample.x * right + tangentSample.y * up + tangentSample.z * N; 
 
-            // A sun disc is a few hundred times brighter than the sky around it : its share of the irradiance is the directional
-            // light's job, and left in it makes the diffuse term a flickering blob. Clamped, the way a convolution is kept stable.
             vec3 radiance = min(texture(uEnvironmentMap, sampleVec).rgb, vec3(MAX_RADIANCE));
             irradiance += radiance * cos(theta) * sin(theta);
             nrSamples++;

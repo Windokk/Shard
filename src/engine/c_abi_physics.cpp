@@ -31,10 +31,6 @@
 #include "engine/world/actor.hpp"
 #include "engine/world/engine.hpp"
 
-// shard.physics : the PhysicsBody of an actor, the physics manager's queries, and the colliders a plugin builds itself. Lives in the engine root,
-// not in src/engine/plugins/abi with the other interfaces: the plugin layer is below physics and may not include it (scripts/check_deps.py), and
-// c_internal.hpp declares what it needs from here (PhysicsApi, DecodeContact).
-
 namespace Shard::Engine::Plugins::CAbi {
 
     namespace {
@@ -52,7 +48,6 @@ namespace Shard::Engine::Plugins::CAbi {
             return engine ? engine->GetPhysicsManager() : nullptr;
         }
 
-        // The live body of an actor's physics component
         ShardResult BodyOf(ShardActor handle, std::shared_ptr<PhysicsBody>& out)
         {
             if (!OnScriptThread()) return SHARD_E_WRONG_THREAD;
@@ -142,14 +137,12 @@ namespace Shard::Engine::Plugins::CAbi {
             return WithBody(actor, g, [&](PhysicsBody& b) { b.SetCustomGravity(Vec(g)); });
         }
 
-        // ---- The colliders a plugin builds ----
-
         struct Collider {
             PluginOwner plugin = 0;
             uint64_t handle = 0;
             uint32_t kind = 0;
-            JPH::RefConst<JPH::Shape> shape;        // the shape not yet given to the body (a new one, or an update)
-            JPH::BodyID body;                       // invalid until the next frame begins
+            JPH::RefConst<JPH::Shape> shape;
+            JPH::BodyID body;
             ShardActor owner = 0;
             uint64_t userData = 0;
             float friction = 0.5f, restitution = 0.0f;
@@ -161,12 +154,11 @@ namespace Shard::Engine::Plugins::CAbi {
         };
 
         Plugins::CAbi::OwnedTable<Collider> gColliders;
-        std::mutex gColliderMutex;                  // the fields above, between the plugin's threads and the frame
-        std::vector<std::shared_ptr<Collider>> gToApply;    // created, updated or destroyed since the frame began
+        std::mutex gColliderMutex;
+        std::vector<std::shared_ptr<Collider>> gToApply;
         std::mutex gReleaseMutex;
         std::unordered_map<PluginOwner, bool> gReleaseHooked;
 
-        // A mesh or a box set as a Jolt shape, built on the calling thread (it can take a while)
         JPH::RefConst<JPH::Shape> BuildShape(const ShardColliderDesc& desc, std::string& why)
         {
             if (desc.kind == SHARD_COLLIDER_MESH) {
@@ -183,7 +175,7 @@ namespace Shard::Engine::Plugins::CAbi {
                 for (uint32_t t = 0; t < desc.indexCount / 3; ++t)
                     triangles.push_back(JPH::IndexedTriangle(desc.indices[t * 3], desc.indices[t * 3 + 1], desc.indices[t * 3 + 2], 0, t));
                 JPH::MeshShapeSettings settings(std::move(vertices), std::move(triangles));
-                settings.mPerTriangleUserData = true;       // the index of a triangle comes back in the hits
+                settings.mPerTriangleUserData = true;
                 const JPH::ShapeSettings::ShapeResult result = settings.Create();
                 if (result.HasError()) { why = std::string("Jolt refused the mesh : ") + result.GetError().c_str(); return nullptr; }
                 return result.Get();
@@ -233,7 +225,7 @@ namespace Shard::Engine::Plugins::CAbi {
                     std::lock_guard<std::mutex> lock(gReleaseMutex);
                     gReleaseHooked.erase(owner);
                 }
-                PhysicsBeginFrame();       // the bodies leave the world now, not at the next frame : the plugin may be about to go
+                PhysicsBeginFrame();       // the bodies leave now, not next frame: the plugin may be about to go
             });
         }
 
@@ -317,8 +309,6 @@ namespace Shard::Engine::Plugins::CAbi {
             } catch (...) { return SHARD_E_INTERNAL; }
         }
 
-        // ---- Queries ----
-
         struct QueryFilter {
             uint32_t layers = SHARD_LAYER_ALL;
             uint32_t flags = 0;
@@ -346,7 +336,6 @@ namespace Shard::Engine::Plugins::CAbi {
             return true;
         }
 
-        // Which bodies a query looks at : the actors' and the plugin's, the ones the filter lets through
         class PluginBodyFilter final : public JPH::BodyFilter {
         public:
             PluginBodyFilter(const QueryFilter& f, Physics::PhysicsManager& m) : mFilter(f), mManager(m) {}
@@ -372,7 +361,6 @@ namespace Shard::Engine::Plugins::CAbi {
             if (layers & SHARD_LAYER_MOVING) { objectMask |= Physics::ObjectLayer_Moving; broadMask |= Physics::BroadPhase_Moving; }
         }
 
-        // The hit written into the caller's struct : what fits its structSize
         void Store(const ShardRayHit& hit, ShardRayHit* out)
         {
             const uint32_t asked = out->structSize;
@@ -380,7 +368,6 @@ namespace Shard::Engine::Plugins::CAbi {
             out->structSize = asked;
         }
 
-        // The ShardRayHit of a body and a sub shape
         ShardRayHit Describe(Physics::PhysicsManager& manager, JPH::BodyID id, JPH::SubShapeID subShape)
         {
             ShardRayHit hit{};
@@ -425,7 +412,6 @@ namespace Shard::Engine::Plugins::CAbi {
             return SHARD_OK;
         }
 
-        // The `capacity` first hits written, how many there are in *count
         void StoreMany(const std::vector<ShardRayHit>& hits, ShardRayHit* out, uint32_t capacity, uint32_t* count)
         {
             *count = uint32_t(hits.size());
@@ -522,7 +508,6 @@ namespace Shard::Engine::Plugins::CAbi {
             } catch (...) { return SHARD_E_INTERNAL; }
         }
 
-        // The bodies that touch `shape` placed at `transform`
         ShardResult OverlapShape(const JPH::Shape* shape, JPH::RMat44Arg transform, const ShardQueryFilter* filter, ShardRayHit* out, uint32_t capacity, uint32_t* count)
         {
             if (!ValidOut(out, capacity, count)) return SHARD_E_INVALID_ARG;
@@ -540,7 +525,7 @@ namespace Shard::Engine::Plugins::CAbi {
             JPH::AllHitCollisionCollector<JPH::CollideShapeCollector> collector;
             p.manager->GetPhysicsSystem().GetNarrowPhaseQuery().CollideShape(shape, JPH::Vec3::sReplicate(1.0f), transform, settings, base, collector, broad, object, bodies);
 
-            // A body is reported once, with its deepest contact ; ordered by body so that the same world gives the same list
+            // One entry per body with its deepest contact, ordered by body so the same world gives the same list
             std::unordered_map<uint32_t, JPH::CollideShapeResult> deepest;
             for (const JPH::CollideShapeResult& r : collector.mHits) {
                 auto it = deepest.find(r.mBodyID2.GetIndexAndSequenceNumber());
@@ -558,7 +543,6 @@ namespace Shard::Engine::Plugins::CAbi {
                 if (!result.actor && !result.collider) continue;
                 const JPH::RVec3 point = base + JPH::RVec3(r.mContactPointOn2);
                 result.point[0] = float(point.GetX()); result.point[1] = float(point.GetY()); result.point[2] = float(point.GetZ());
-                // Pointing from the body toward the shape : the way to push the shape out
                 const JPH::Vec3 axis = -r.mPenetrationAxis.NormalizedOr(JPH::Vec3::sAxisY());
                 result.normal[0] = axis.GetX(); result.normal[1] = axis.GetY(); result.normal[2] = axis.GetZ();
                 result.distance = r.mPenetrationDepth;
@@ -594,7 +578,7 @@ namespace Shard::Engine::Plugins::CAbi {
             } catch (...) { return SHARD_E_INTERNAL; }
         }
 
-        // A capsule between two points : Jolt's stands along Y, around its centre
+        // Jolt's capsule stands along Y around its centre
         bool CapsuleOf(const float from[3], const float to[3], float radius, JPH::RefConst<JPH::Shape>& shape, JPH::RMat44& transform)
         {
             if (!from || !to || !Finite(from) || !Finite(to) || !(radius > 0.0f) || !std::isfinite(radius)) return false;
@@ -624,7 +608,6 @@ namespace Shard::Engine::Plugins::CAbi {
             } catch (...) { return SHARD_E_INTERNAL; }
         }
 
-        // The first body a shape meets going along `direction`
         ShardResult SweepShape(const JPH::Shape* shape, JPH::RMat44Arg start, const float direction[3], float maxDistance, const ShardQueryFilter* filter, ShardRayHit* out)
         {
             if (!out || !direction || !Finite(direction) || !(maxDistance > 0.0f) || !std::isfinite(maxDistance)) return SHARD_E_INVALID_ARG;
@@ -679,8 +662,7 @@ namespace Shard::Engine::Plugins::CAbi {
         }
     }
 
-    // Applies what the plugins asked of their colliders since the last call : bodies appear, move, change shape and go. Main thread, between the
-    // frames' simulations (the physics world does not accept changes while it steps).
+    // Main thread, between simulation steps: the physics world rejects changes while it steps.
     void PhysicsBeginFrame()
     {
         std::vector<std::shared_ptr<Collider>> work;
@@ -690,7 +672,7 @@ namespace Shard::Engine::Plugins::CAbi {
         }
         if (work.empty()) return;
         Physics::PhysicsManager* physics = Manager();
-        if (!physics || !physics->IsInitialized()) return;         // after Shutdown() the bodies went with the system
+        if (!physics || !physics->IsInitialized()) return;
         JPH::BodyInterface& bodies = physics->GetBodyInterface();
         for (const std::shared_ptr<Collider>& c : work) {
             std::lock_guard<std::mutex> lock(gColliderMutex);

@@ -2,11 +2,7 @@ file(GLOB_RECURSE GAME_SOURCES CONFIGURE_DEPENDS
   ${CMAKE_CURRENT_SOURCE_DIR}/*.cpp
 )
 
-# The game is the module "game" : built like any other plugin, laid out as <build>/plugins/game/{shard-plugin.json,bin/<platform>/}.
-# Pass the library to the executables with --game ($<TARGET_FILE:GameModule>), or --plugin <build>/plugins/game to use the manifest.
-#
-# It is written against the SDK alone (ABI c1) : it includes <shard/game.hpp> and nothing of the engine, and links nothing of it, so what
-# builds here is what a game outside this repository builds.
+# Module "game", built like any plugin. Written against the SDK alone (ABI c1), so what builds here builds for a game outside the repository.
 shard_add_plugin(
   NAME         GameModule
   ID           game

@@ -10,8 +10,8 @@ namespace Shard::Engine::Core::Platform {
 
     struct MonitorInfos{
         int width = 0, height = 0, refreshRate = 0;
-        int x = 0, y = 0;               // position of the monitor in the desktop space
-        float contentScale = 1.0f;      // DPI scale (1.0 = 96 dpi)
+        int x = 0, y = 0;
+        float contentScale = 1.0f;
         bool hdr = false;
         bool primary = false;
         std::string name;
@@ -20,7 +20,7 @@ namespace Shard::Engine::Core::Platform {
     enum WindowHost{
         SDL3,
         QT,
-        Headless    // no window at all (see windowing/headless)
+        Headless
     };
 
     struct SystemInfos{
@@ -32,7 +32,6 @@ namespace Shard::Engine::Core::Platform {
         WindowHost windowHost = SDL3;
         std::string windowHostVersion;
 
-        // CPU / RAM (platform/hardware)
         std::string cpuBrand;
         int cpuLogicalCores = 0;
         uint64_t totalRamMB = 0;
@@ -46,35 +45,23 @@ namespace Shard::Engine::Core::Platform {
                             const bool& fullscreen, const int& vsync, const uint32_t& api) = 0;
 
         virtual void* GetNativeHandle() const = 0;
-        /// @brief Pumps the OS events : they are dispatched to the listeners (see OSEventSource).
         virtual void PollEvents() = 0;
         virtual bool ShouldClose() const = 0;
 
-        /// @brief Called on the simulation thread once Extract has published the frame's snapshot, right before the frame is handed to the render thread.
-        /// What a window submits to the renderer here (draw commands for its overlays) is drawn in this frame, next to the snapshot's meshes : from SwapBuffers
-        /// it would reach the frame after, one behind a moving object.
+        // Called after Extract publishes the snapshot, before handing off to the render thread. From SwapBuffers overlay draws would land one frame late.
         virtual void PrepareFrame() {}
 
         virtual void SwapBuffers() = 0;
 
-        /// @brief Turns the vertical sync on or off while the window lives. Applied by the thread that presents, at its next frame.
-        /// Nothing for a window with no display to wait for.
         virtual void SetVSync(bool enabled) { (void)enabled; }
 
-        /// @brief Makes the window graphics context current on the calling thread, or releases it from there. The context
-        /// belongs to one thread at a time : it moves to the render thread when that starts, and back when it stops.
+        // One thread owns the context at a time. It moves to the render thread when that starts and back when it stops.
         virtual bool MakeContextCurrent(bool current) { (void)current; return true; }
 
-        // Renders a single minimal "loading" frame (progress in [0,1]) and presents it - called
-        // repeatedly by a blocking world load (e.g. the boot-time default world) so the window stays
-        // responsive and shows feedback instead of appearing frozen. No-op by default; only
-        // implementations with a UI system available.
         virtual void DrawLoadingFrame(float progress) {}
 
-        /// @brief Vulkan : the instance extensions the window's surface needs (empty for a window that is not a Vulkan one)
         virtual std::vector<std::string> GetVulkanInstanceExtensions() const { return {}; }
 
-        /// @brief Vulkan : makes the surface of the window on `vulkanInstance` (a VkInstance). The handle of the surface, 0 if there is none.
         virtual uint64_t CreateVulkanSurface(void* vulkanInstance) const { (void)vulkanInstance; return 0; }
 
         virtual int GetFramebufferWidth() const = 0;
@@ -91,18 +78,13 @@ namespace Shard::Engine::Core::Platform {
 
         virtual SystemInfos GetSystemInfos() const = 0;
 
-        /// @brief Every monitor connected to the machine.
         virtual std::vector<MonitorInfos> GetMonitors() const { return {}; }
 
-        /// @brief DPI scale of the monitor the window is on (1.0 = 96 dpi).
         virtual float GetContentScale() const { return 1.0f; }
 
-        /// @brief The mouse cursor's shape while it is over the window : 0 arrow, 1 text, 2 hand, 3 crosshair, 4 resize east-west, 5 resize
-        /// north-south, 6 resize north-west to south-east, 7 resize north-east to south-west, 8 move, 9 not allowed. Nothing for a window with no cursor.
+        // 0 arrow, 1 text, 2 hand, 3 crosshair, 4 resize E-W, 5 resize N-S, 6 resize NW-SE, 7 resize NE-SW, 8 move, 9 not allowed.
         virtual void SetCursorShape(int shape) { (void)shape; }
 
-        /// @brief A text field has the focus : the system sends TextInput events (and may show an on screen keyboard or an IME's window next to the
-        /// box x, y, width, height, in pixels of the window). Off when the field loses it.
         virtual void SetTextInputActive(bool active, int x, int y, int width, int height) { (void)active; (void)x; (void)y; (void)width; (void)height; }
     };
 

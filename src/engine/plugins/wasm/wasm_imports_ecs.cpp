@@ -10,12 +10,7 @@
 #include "engine/plugins/wasm/wasm_imports.hpp"
 #include "engine/plugins/wasm/wasm_marshal.hpp"
 
-// The imports whose arguments are descriptors with pointers, callbacks, or pointers into host memory : the components (registering a type,
-// blobs, text), the entities a system sees, the systems themselves and the events.
-//
-// A system of the sandbox is a native system for the scheduler : its function is a trampoline that copies the components it reads into the
-// module's memory, runs the module's function through the table, and copies back what the system may write (`writes` of its descriptor).
-// Systems of a sandbox are forced onto the main thread, so that its instance is never entered by two threads of the scheduler at once.
+// A sandbox system is a native system whose function is a trampoline: copy read components into module memory, run the module via the table, copy back what `writes` allows. Forced onto the main thread so an instance is never entered by two scheduler threads.
 
 namespace Shard::Engine::Plugins::Wasm {
 
@@ -25,7 +20,6 @@ namespace Shard::Engine::Plugins::Wasm {
         constexpr ValType I = ValType::I32, L = ValType::I64;
         constexpr uint32_t kMaxListed = 256;
 
-        // (see ReadFieldDescs below)
         bool ReadFieldDescsImpl(Instance& in, uint64_t at, uint32_t count, std::vector<ShardFieldDesc>& out, std::deque<std::string>& strings)
         {
             namespace Lf = Layout::ShardFieldDesc;
@@ -34,7 +28,7 @@ namespace Shard::Engine::Plugins::Wasm {
             if (count > SHARD_COMPONENT_MAX_FIELDS) { in.HostTrap("more fields than a component can have"); return false; }
             const uint8_t* base = Span(in, at, uint64_t(Lf::kSize) * count, "fields");
             if (!base) return false;
-            std::vector<uint8_t> copy(base, base + size_t(Lf::kSize) * count);       // the strings below may grow the memory
+            std::vector<uint8_t> copy(base, base + size_t(Lf::kSize) * count);
             for (uint32_t i = 0; i < count; ++i) {
                 const uint8_t* f = copy.data() + size_t(Lf::kSize) * i;
                 ShardFieldDesc d;
@@ -56,7 +50,6 @@ namespace Shard::Engine::Plugins::Wasm {
             return true;
         }
 
-        // A ShardFieldDesc the host filled (strings in host memory) as a wasm32 one in the module's memory, the strings copied in with it
         bool WriteFieldDesc(Sandbox& s, Instance& in, uint64_t at, const ShardFieldDesc& d)
         {
             namespace Lf = Layout::ShardFieldDesc;
@@ -81,7 +74,6 @@ namespace Shard::Engine::Plugins::Wasm {
             return in.Write(uint32_t(at), out, Lf::kSize) || (in.HostTrap("output out of the memory"), false);
         }
 
-        // A query with its arrays of component types, read from the module
         struct QueryData {
             std::vector<ShardComponentType> with, without;
             ShardQuery native{};
@@ -118,12 +110,10 @@ namespace Shard::Engine::Plugins::Wasm {
             return s.run->exclusive || (s.run->writes && std::find(s.run->writes->begin(), s.run->writes->end(), type) != s.run->writes->end());
         }
 
-        // ---- ecs.each_chunk : the columns go to the module a piece at a time ----
-
         struct ChunkCall {
             Sandbox* sandbox = nullptr;
             const QueryData* query = nullptr;
-            std::vector<uint32_t> sizes;            ///< the size of one block of each column's type
+            std::vector<uint32_t> sizes;
             uint32_t fn = 0, user = 0;
         };
 
@@ -167,7 +157,6 @@ namespace Shard::Engine::Plugins::Wasm {
 
                 const ShardResult result = s.CallResult(call->fn, type, { call->user, chunkAt }, Budget::Frame);
                 s.windows.resize(windowsBefore);
-                // What the system wrote : only the types it declared (an exclusive system may write any)
                 if (!s.dead) {
                     for (size_t c = 0; c < columns; ++c) {
                         if (!MayWrite(s, call->query->with[c]) || n * uint64_t(call->sizes[c]) == 0) continue;
@@ -180,8 +169,6 @@ namespace Shard::Engine::Plugins::Wasm {
             }
             return SHARD_OK;
         }
-
-        // ---- shard.systems ----
 
         struct WasmSystem final : Registration {
             Sandbox* sandbox = nullptr;
@@ -220,8 +207,6 @@ namespace Shard::Engine::Plugins::Wasm {
             s.run = previous;
             return result;
         }
-
-        // ---- shard.events ----
 
         struct WasmEvent final : Registration {
             Sandbox* sandbox = nullptr;
@@ -263,8 +248,6 @@ namespace Shard::Engine::Plugins::Wasm {
         const ShardEventsApi* events = apis.events;
         auto unsupported = [](Instance&, const uint64_t*, uint64_t* r) { r[0] = uint32_t(SHARD_E_UNSUPPORTED); return true; };
 
-        // ---- shard.components ----
-
         if (!components) {
             for (const char* name : { "components.register_type", "components.field_at", "components.find_field", "components.blob_data",
                                       "components.blob_resize", "components.blob_free", "components.string_get" })
@@ -302,7 +285,6 @@ namespace Shard::Engine::Plugins::Wasm {
                 return out.Commit();
             });
 
-            // The fields of a type, with their strings copied into the module (they live in the host)
             imports.AddManual("components.field_at", [&s, components](Instance& in, const uint64_t* a, uint64_t* r) {
                 if (!Span(in, a[3], Layout::ShardFieldDesc::kSize, "field")) return false;
                 ShardFieldDesc d;
@@ -322,7 +304,7 @@ namespace Shard::Engine::Plugins::Wasm {
                 return int32_t(uint32_t(r[0])) != SHARD_OK || WriteFieldDesc(s, in, a[3], d);
             });
 
-            // Blobs : the bytes live in the host, the module is given a lasting copy that is written back whenever a call of it ends
+            // Bytes live in the host, the module gets a lasting copy that is written back whenever a call of it ends
             imports.AddManual("components.blob_data", [&s, components](Instance& in, const uint64_t* a, uint64_t* r) {
                 if (!Span(in, a[2], 4, "data") || !Span(in, a[3], 8, "size")) return false;
                 void* host = nullptr;
@@ -353,7 +335,7 @@ namespace Shard::Engine::Plugins::Wasm {
                 if (int32_t(uint32_t(r[0])) != SHARD_OK) return true;
                 uint8_t out[16] = {};
                 if (text.data && text.size) {
-                    const uint32_t at = s.heap.Temp(text.size + 1, 1);       // valid until the call of the module ends
+                    const uint32_t at = s.heap.Temp(text.size + 1, 1);
                     if (!at) { r[0] = uint32_t(SHARD_E_OUT_OF_MEMORY); return true; }
                     in.Write(at, text.data, uint32_t(text.size));
                     Store<uint32_t>(out, 0, at);
@@ -362,8 +344,6 @@ namespace Shard::Engine::Plugins::Wasm {
                 return in.Write(uint32_t(a[2]), out, 16) || (in.HostTrap("output out of the memory"), false);
             });
         }
-
-        // ---- shard.ecs ----
 
         if (!ecs || !components) {
             for (const char* name : { "ecs.each_chunk", "ecs.count", "ecs.get" }) imports.AddManual(name, unsupported);
@@ -399,21 +379,17 @@ namespace Shard::Engine::Plugins::Wasm {
                 if (int32_t(uint32_t(r[0])) != SHARD_OK) return true;
                 uint32_t size = 0, align = 0;
                 if (components->type_layout(s.ctx, a[2], &size, &align) != SHARD_OK) { r[0] = uint32_t(SHARD_E_INTERNAL); return true; }
-                // A block of the chunk being run is already in the module : the same address
                 uint32_t at = 0;
                 for (const Sandbox::Window& w : s.windows) {
                     const uint8_t* p = static_cast<const uint8_t*>(host);
                     if (w.blockSize == size && p >= w.host && p < w.host + w.bytes && uint64_t(p - w.host) % size == 0) { at = w.wasm + uint32_t(p - w.host); break; }
                 }
-                // Otherwise the block stays in the host ; the module works on a copy, written back when its system returns (if the system may write it)
                 if (!at) at = s.MirrorTemp(host, size, MayWrite(s, a[2]));
                 if (!at) { r[0] = uint32_t(SHARD_E_OUT_OF_MEMORY); return true; }
                 in.Write(uint32_t(a[3]), &at, 4);
                 return true;
             });
         }
-
-        // ---- shard.systems ----
 
         if (!systems) {
             imports.AddManual("systems.add", unsupported);
@@ -464,7 +440,7 @@ namespace Shard::Engine::Plugins::Wasm {
                 std::memset(&native, 0, sizeof(native));
                 native.structSize = sizeof(ShardSystemDesc);
                 native.phase = Load<uint32_t>(desc, Ls::o_phase);
-                native.flags = Load<uint32_t>(desc, Ls::o_flags) | SHARD_SYSTEM_MAIN_THREAD;       // an instance has one stack : never two systems at once
+                native.flags = Load<uint32_t>(desc, Ls::o_flags) | SHARD_SYSTEM_MAIN_THREAD;       // An instance has one stack, never two systems at once
                 native.readCount = readCount;
                 native.writeCount = writeCount;
                 native.afterCount = afterCount;
@@ -480,8 +456,6 @@ namespace Shard::Engine::Plugins::Wasm {
                 return true;
             });
         }
-
-        // ---- shard.events ----
 
         if (!events) {
             for (const char* name : { "events.subscribe", "events.subscribe_world", "events.describe" }) imports.AddManual(name, unsupported);

@@ -13,10 +13,8 @@
 #include "engine/core/tags/tag_query.hpp"
 
 enum class TypeID : uint16_t {
-    // Invalid / base
     Unknown = 0,
 
-    // Integer types
     Int8,
     Int16,
     Int32,
@@ -27,15 +25,11 @@ enum class TypeID : uint16_t {
     UInt32,
     UInt64,
 
-    // Floating point
     Float,
     Double,
 
-    // Boolean
     Bool,
 
-    // Math vectors
-    // (glm / custom)
     Vec2,
     Vec3,
     Vec4,
@@ -48,33 +42,26 @@ enum class TypeID : uint16_t {
     UVec3,
     UVec4,
 
-    // Matrices
     Mat2,
     Mat3,
     Mat4,
 
-    // Quaternion
     Quat,
 
-    // Colors
     ColorRGB,
     ColorRGBA,
 
-    // Strings
-    String,        // std::string
-    CString,       // char*
+    String,
+    CString,
 
-    // Containers
     Vector,
     Map,
 
-    // User-defined / fallback
     Struct,
     Enum,
 
     Asset,
 
-    // Tags (engine/core/tags)
     Tag,
     TagContainer,
     TagQuery
@@ -92,7 +79,6 @@ struct EnumDescriptor {
 };
 
 static TypeID GetTypeIDFromString(std::string typeName) {
-    // Remove const/reference/pointer noise
     auto normalize = [](std::string& s) {
         s.erase(std::remove_if(s.begin(), s.end(), ::isspace), s.end());
         if (s.compare(0, 4, "const") == 0)
@@ -103,7 +89,6 @@ static TypeID GetTypeIDFromString(std::string typeName) {
 
     normalize(typeName);
 
-    // Template detection
     if (typeName.compare(0, 12, "std::vector<") == 0)
         return TypeID::Vector;
 
@@ -115,7 +100,6 @@ static TypeID GetTypeIDFromString(std::string typeName) {
     }
 
     static const std::unordered_map<std::string, TypeID> typeMap = {
-        // Integer types
         {"int8_t", TypeID::Int8},
         {"int16_t", TypeID::Int16},
         {"int32_t", TypeID::Int32},
@@ -126,14 +110,11 @@ static TypeID GetTypeIDFromString(std::string typeName) {
         {"uint32_t", TypeID::UInt32},
         {"uint64_t", TypeID::UInt64},
 
-        // Floating point
         {"float", TypeID::Float},
         {"double", TypeID::Double},
 
-        // Boolean
         {"bool", TypeID::Bool},
 
-        // Math vectors (glm)
         {"glm::vec2", TypeID::Vec2},
         {"glm::vec3", TypeID::Vec3},
         {"glm::vec4", TypeID::Vec4},
@@ -146,27 +127,21 @@ static TypeID GetTypeIDFromString(std::string typeName) {
         {"glm::uvec3", TypeID::UVec3},
         {"glm::uvec4", TypeID::UVec4},
 
-        // Matrices
         {"glm::mat2", TypeID::Mat2},
         {"glm::mat3", TypeID::Mat3},
         {"glm::mat4", TypeID::Mat4},
 
-        // Quaternion
         {"glm::quat", TypeID::Quat},
 
-        // Colors
         {"COL_RGB", TypeID::ColorRGB},
         {"COL_RGBA", TypeID::ColorRGBA},
 
-        // Strings
         {"std::string", TypeID::String},
         {"char*", TypeID::CString},
 
-        // User-defined
         {"struct", TypeID::Struct},
         {"enum", TypeID::Enum},
 
-        // Others
         {"AssetID", TypeID::Asset},
         {"Shard::Engine::Filesystem::AssetID", TypeID::Asset},
 
@@ -187,15 +162,13 @@ static TypeID GetTypeIDFromString(std::string typeName) {
     if (auto it = typeMap.find(typeName); it != typeMap.end())
         return it->second;
 
-    return TypeID::Unknown; // fallback if not found
+    return TypeID::Unknown;
 }
 
 inline std::string GetStringFromTypeID(TypeID type) {
     switch (type) {
-        // Invalid / base
         case TypeID::Unknown: return "Unknown";
 
-        // Integer types
         case TypeID::Int8:  return "Int8";
         case TypeID::Int16: return "Int16";
         case TypeID::Int32: return "Int32";
@@ -206,14 +179,11 @@ inline std::string GetStringFromTypeID(TypeID type) {
         case TypeID::UInt32: return "UInt32";
         case TypeID::UInt64: return "UInt64";
 
-        // Floating point
         case TypeID::Float:  return "Float";
         case TypeID::Double: return "Double";
 
-        // Boolean
         case TypeID::Bool: return "Bool";
 
-        // Vectors
         case TypeID::Vec2: return "Vec2";
         case TypeID::Vec3: return "Vec3";
         case TypeID::Vec4: return "Vec4";
@@ -226,27 +196,21 @@ inline std::string GetStringFromTypeID(TypeID type) {
         case TypeID::UVec3: return "UVec3";
         case TypeID::UVec4: return "UVec4";
 
-        // Matrices
         case TypeID::Mat2: return "Mat2";
         case TypeID::Mat3: return "Mat3";
         case TypeID::Mat4: return "Mat4";
 
-        // Quaternion
         case TypeID::Quat: return "Quat";
 
-        // Colors
         case TypeID::ColorRGB: return "ColorRGB";
         case TypeID::ColorRGBA: return "ColorRGBA";
 
-        // Strings
         case TypeID::String: return "String";
         case TypeID::CString: return "CString";
 
-        // Containers
         case TypeID::Vector: return "Vector";
         case TypeID::Map: return "Map";
 
-        // User-defined / fallback
         case TypeID::Struct: return "Struct";
         case TypeID::Enum: return "Enum";
 
@@ -257,7 +221,7 @@ inline std::string GetStringFromTypeID(TypeID type) {
         case TypeID::TagQuery: return "TagQuery";
     }
 
-    return "Unknown"; // fallback, should never hit
+    return "Unknown";
 }
 
 inline size_t GetTypeSize(TypeID type) {
@@ -303,6 +267,6 @@ inline size_t GetTypeSize(TypeID type) {
         case TypeID::TagQuery: return sizeof(Shard::Engine::Core::TagQuery);
 
         default:
-            return 0; // containers / structs handled separately
+            return 0;
     }
 }

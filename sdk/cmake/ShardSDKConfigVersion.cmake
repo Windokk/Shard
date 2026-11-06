@@ -1,5 +1,4 @@
-# The SDK's version is the C ABI's : a plugin that asks for 1.0 is built fine by a 1.3 SDK (and loads in every engine of ABI 1.x >= the
-# SDK's minor) ; one that asks for 1.4 is not, nor for 2.x.
+# SDK version is the C ABI's. Asking for 1.0 works with a 1.3 SDK, asking for 1.4 or 2.x does not.
 file(READ "${CMAKE_CURRENT_LIST_DIR}/../VERSION" PACKAGE_VERSION)
 string(STRIP "${PACKAGE_VERSION}" PACKAGE_VERSION)
 string(REGEX MATCH "^([0-9]+)" _shard_major "${PACKAGE_VERSION}")
@@ -14,7 +13,6 @@ elseif(PACKAGE_FIND_VERSION_MAJOR EQUAL _shard_major AND PACKAGE_FIND_VERSION VE
         set(PACKAGE_VERSION_EXACT TRUE)
     endif()
 endif()
-# A 64 bit SDK for a 64 bit build only
 if(CMAKE_SIZEOF_VOID_P AND NOT CMAKE_SIZEOF_VOID_P EQUAL 8)
     set(PACKAGE_VERSION_COMPATIBLE FALSE)
     set(PACKAGE_VERSION_UNSUITABLE TRUE)

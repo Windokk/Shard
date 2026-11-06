@@ -10,9 +10,6 @@
 #include "engine/plugins/abi/c_plugin.hpp"
 #include "engine/world/actor.hpp"
 
-// An editor that records what the plugins draw : a ShardUiApi and a ShardGizmoApi whose every function logs its name (and answers what a user who
-// clicks everything would), and the backend that goes with them. Used by the tests of the native and of the sandboxed game.
-
 namespace EditorFakes {
 
     inline std::vector<std::string>& Log() { static std::vector<std::string> log; return log; }

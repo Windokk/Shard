@@ -23,7 +23,6 @@ namespace Shard::Engine::Core::Platform {
         m_CursorX = x;
         m_CursorY = y;
 
-        // The pads that were already plugged in when the engine started
         int padCount = 0;
         if (SDL_JoystickID* pads = SDL_GetGamepads(&padCount))
         {
@@ -109,7 +108,7 @@ namespace Shard::Engine::Core::Platform {
                     pad->axes[static_cast<size_t>(event.gamepadAxis)] = event.axisValue;
                 break;
             case OSEventType::WindowFocusLost:
-                // The release events are not sent to a window that lost the focus.
+                // Release events are not sent to a window that lost focus.
                 m_Keys.fill(false);
                 m_Buttons.fill(false);
                 break;
@@ -171,7 +170,6 @@ namespace Shard::Engine::Core::Platform {
         else
             SDL_HideCursor();
 
-        // Disabled : the cursor is hidden and captured, the motion is reported as raw relative deltas.
         const bool capture = visibility == CursorVisibility::Disabled;
         SDL_SetWindowRelativeMouseMode(window, capture);
         m_Captured = capture;
@@ -194,7 +192,7 @@ namespace Shard::Engine::Core::Platform {
     void SDLInput::OpenGamepad(SDL_JoystickID id)
     {
         if (FindPad(id))
-            return;     // SDL also reports the pads that were plugged in before the start
+            return;
         SDL_Gamepad* handle = SDL_OpenGamepad(id);
         if (!handle)
             return;

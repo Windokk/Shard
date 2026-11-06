@@ -30,9 +30,7 @@ namespace Shard::Engine::Audio
 {
     using namespace Filesystem;
 
-    /// The reverb every sound sends to : a low cut and a high cut, then a pre-delay, then the Freeverb of verblib. The wet signal only,
-    /// the direct sound goes to the output on its own (see Sound::splitter). The settings are read from the audio thread, they are set
-    /// from the main one through atomics.
+    // Reverb bus: low cut, high cut, pre-delay, then verblib's Freeverb. Wet signal only. Settings are atomics set on the main thread, read on the audio thread.
     struct ReverbBusNode
     {
         ma_node_base base;      // must stay first
@@ -48,11 +46,10 @@ namespace Shard::Engine::Audio
         std::atomic<float> lowCutHz{20.0f};
         std::atomic<float> highCutHz{20000.0f};
 
-        // Audio thread only
         float appliedRoomSize = -1.0f;
         float appliedDamping = -1.0f;
         float appliedWidth = -1.0f;
-        std::vector<float> delayLine;       // interleaved, delayCapacity frames
+        std::vector<float> delayLine;
         ma_uint32 delayCapacity = 0;
         ma_uint32 writePosition = 0;
         float lowPass[2] = {0.0f, 0.0f};
@@ -122,9 +119,9 @@ namespace Shard::Engine::Audio
     {
         ReverbBusProcess,
         nullptr,
-        1,  // one input bus : the sends of the sounds
-        1,  // one output bus
-        MA_NODE_FLAG_CONTINUOUS_PROCESSING  // the tail goes on after the sounds have stopped
+        1,
+        1,
+        MA_NODE_FLAG_CONTINUOUS_PROCESSING
     };
 
     static void DestroyReverbBus(ReverbBusNode* bus)
@@ -154,8 +151,6 @@ namespace Shard::Engine::Audio
                 return sound;
             };
             info.setAssetID = [](void* resource, Filesystem::AssetID id){ static_cast<SoundAsset*>(resource)->SetAssetID(id); };
-            // The (multi-megabyte) file read moves off the main thread, so the first Play() of an
-            // AudioSource finds the bytes already cached instead of blocking on the disk.
             info.prefetch = [](Core::Resources::ResourcesManager& resources, const std::string& pathInProject, const Filesystem::Path& file) -> std::function<void()> {
                 auto bytes = std::make_shared<std::string>(file.ReadFile());
                 if(bytes->empty())
@@ -195,7 +190,7 @@ namespace Shard::Engine::Audio
 
     void AudioManager::InitReverbBus()
     {
-        // verblib is mono or stereo, and a node can only be connected to another of the same channel count
+        // verblib is mono or stereo, and a node only connects to another with the same channel count
         const ma_uint32 channels = ma_engine_get_channels(engine);
         if (channels != 1 && channels != 2)
             return;
@@ -211,7 +206,6 @@ namespace Shard::Engine::Audio
             delete bus;
             return;
         }
-        // Only the reverberated signal goes out of the bus : the level is the output volume of the node (see ApplyReverb)
         verblib_set_wet(&bus->reverb, verblib_initialwet);
         verblib_set_dry(&bus->reverb, 0.0f);
 
@@ -251,8 +245,6 @@ namespace Shard::Engine::Audio
         sound->decoder = new ma_decoder();
         sound->sound = new ma_sound();
 
-        // The engine mixes in f32 : decode to it and keep the file's own channel count / sample rate,
-        // the engine node converts both.
         ma_decoder_config decoderConfig = ma_decoder_config_init(ma_format_f32, 0, 0);
         ma_result result = ma_decoder_init_memory(file.data(), file.size(), &decoderConfig, sound->decoder);
         if (result != MA_SUCCESS) {
@@ -263,7 +255,7 @@ namespace Shard::Engine::Audio
             return;
         }
 
-        // Positioning is done by Update() (pan + linear attenuation), so miniaudio's own 3D is off
+        // Update() does pan and linear attenuation, so miniaudio's own 3D is off
         result = ma_sound_init_from_data_source(engine, sound->decoder, MA_SOUND_FLAG_NO_SPATIALIZATION, nullptr, sound->sound);
         if (result != MA_SUCCESS) {
             DEBUG_ERROR("miniaudio error creating sound '" + pathInProject + "': " + ma_result_description(result));
@@ -277,7 +269,6 @@ namespace Shard::Engine::Audio
         sound->pos = pos;
         sound->spatialize = spatialize;
 
-        // Direct sound to the output, a send of it to the reverb bus : two outputs of a splitter, each with its own volume
         if (reverbBus) {
             ma_splitter_node_config splitterConfig = ma_splitter_node_config_init(ma_engine_get_channels(engine));
             ma_splitter_node* splitter = new ma_splitter_node();
@@ -343,7 +334,7 @@ namespace Shard::Engine::Audio
         PlaySound(id, volume);
         SoundParams params;
         params.worldPosition = glm::dvec3(pos);
-        UpdateSound(id, pos, volume, params);       // after PlaySound, which scales the volume for a source that is updated every tick
+        UpdateSound(id, pos, volume, params);       // after PlaySound, which scales the volume of a source updated every tick
         oneShots.push_back(id);
         return true;
     }
@@ -383,7 +374,6 @@ namespace Shard::Engine::Audio
             DEBUG_FATAL("maxDistance can't be >= 0");
         }
 
-        // The velocities are smoothed : a source moved by the fixed steps of the simulation doesn't change place on every frame
         constexpr float kVelocitySmoothing = 0.08f;
         constexpr float kPitchSmoothing = 0.04f;
         const float velocityBlend = 1.0f - std::exp(-tickDelta / kVelocitySmoothing);
@@ -392,12 +382,10 @@ namespace Shard::Engine::Audio
         for (const auto& pair : Core::GetEngine().GetAudioIDManager()->GetAudioMap()) {
             Sound* sound = pair.second;
 
-            // Where it is, even when it isn't playing : so the first frame after it starts has a velocity to start from
             if(sound->velocityTick != tickIndex){
                 sound->velocityTick = tickIndex;
                 if(sound->hasPrevPos && tickDelta > 1e-4f){
                     glm::dvec3 measured = (sound->worldPos - sound->prevWorldPos) / static_cast<double>(tickDelta);
-                    // A jump (a teleport, a world that loads in) is not a movement
                     if(glm::length(measured) > static_cast<double>(listener.speedOfSound) * 2.0)
                         measured = glm::dvec3(0.0);
                     sound->velocity += (measured - sound->velocity) * static_cast<double>(velocityBlend);
@@ -412,13 +400,11 @@ namespace Shard::Engine::Audio
             if(!sound->isPlaying)
                 continue;
 
-            // Reached the end on its own (the audio thread never touches our state, it is polled here)
             if(ma_sound_at_end(sound->sound)){
                 sound->isPlaying = false;
                 continue;
             }
 
-            // Doppler : the pitch follows the speed at which the source and the listener come closer or move apart
             if(sound->spatialize){
                 const float target = ComputeDopplerPitch(listener.worldPosition, listener.velocity, sound->worldPos, sound->velocity,
                                                          listener.speedOfSound, listener.dopplerFactor * sound->dopplerLevel);
@@ -444,8 +430,6 @@ namespace Shard::Engine::Audio
                 ma_sound_set_volume(sound->sound, volume);
             }
             else{
-                // Ambient/music sources skip positional pan+attenuation entirely - flat volume,
-                // native stereo image left untouched (never panned away from center).
                 float volume = masterVolume/100 * sound->initialVolume;
                 if (volume < 0.0f) volume = 0.0f;
                 if (volume > 1.0f) volume = 1.0f;
@@ -466,13 +450,11 @@ namespace Shard::Engine::Audio
         if (!reverbBus)
             return;
 
-        // The bus moves toward the zone the listener is in. Out of every zone the settings are kept while the level fades out, so the
-        // tail dies with the acoustics it was made in rather than sliding to another room.
+        // The bus moves toward the listener's zone. Outside every zone the settings are kept while the level fades, so the tail dies in the acoustics it was made in.
         const float coverageBlend = 1.0f - std::exp(-tickDelta / 0.15f);
         const float paramsBlend = 1.0f - std::exp(-tickDelta / 0.30f);
 
         if (reverbTarget.coverage > 0.0f) {
-            // Next to nothing is heard yet : the settings can jump to the ones of the zone
             const float t = reverbCoverage < 0.01f ? 1.0f : paramsBlend;
             reverbCurrent = LerpReverb(reverbCurrent, reverbTarget.params, t);
         }
@@ -490,7 +472,6 @@ namespace Shard::Engine::Audio
         const float wet = std::clamp(reverbCurrent.wetLevel, 0.0f, 2.0f) * reverbCoverage * (masterVolume / 100.0f);
         ma_node_set_output_bus_volume(&reverbBus->base, 0, wet);
 
-        // What each sound sends to the bus, and how much of its direct sound the room takes away
         const float dryLoss = (1.0f - std::clamp(reverbCurrent.dryLevel, 0.0f, 1.0f)) * reverbCoverage;
         for (const auto& pair : Core::GetEngine().GetAudioIDManager()->GetAudioMap()) {
             Sound* sound = pair.second;
@@ -523,13 +504,11 @@ namespace Shard::Engine::Audio
 
     void AudioManager::Tick()
     {
-        // Real time between two ticks : the doppler and the fades don't follow the time scale of the game
         const double now = std::chrono::duration<double>(std::chrono::steady_clock::now().time_since_epoch()).count();
         tickDelta = lastTickTime < 0.0 ? 0.0f : static_cast<float>(std::clamp(now - lastTickTime, 0.0, 0.25));
         lastTickTime = now;
         ++tickIndex;
 
-        // The one shot sounds that ended
         for (size_t i = 0; i < oneShots.size();) {
             Sound* sound = Core::GetEngine().GetAudioIDManager()->GetSoundFromID(oneShots[i]);
             if (!sound || (sound->sound && ma_sound_at_end(sound->sound))) {
@@ -542,7 +521,6 @@ namespace Shard::Engine::Audio
 
         std::vector<ReverbZoneSample> zones;
 
-        // (Was `if(int worldCount = Count() > 0)` : the comparison bound first, so worldCount was 0 or 1 and only world 0 was heard)
         const int worldCount = Core::GetEngine().GetWorldManager()->GetLoadedWorldCount();
         {
             for(int i = 0; i < worldCount; i++){
@@ -550,7 +528,6 @@ namespace Shard::Engine::Audio
                     source->Update();
                 }
 
-                // The world is heard from its first active listener
                 std::shared_ptr<Objects::Components::AudioListener> listener;
                 for(auto& [id,candidate] : Core::GetEngine().GetWorldManager()->GetWorldAt(i)->Ext<AudioWorldData>().listeners){
                     if(candidate->Active()){
@@ -575,7 +552,6 @@ namespace Shard::Engine::Audio
                     glm::dvec3 measured = (state.worldPosition - previous->second) / static_cast<double>(tickDelta);
                     if(glm::length(measured) > static_cast<double>(state.speedOfSound) * 2.0)
                         measured = glm::dvec3(0.0);
-                    // Smoothed like the sources are
                     const double blend = 1.0 - std::exp(-static_cast<double>(tickDelta) / 0.08);
                     listenerVelocities[i] += (measured - listenerVelocities[i]) * blend;
                 }

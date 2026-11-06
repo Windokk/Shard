@@ -27,8 +27,6 @@ namespace Shard::Engine::Debugging { class Logger; }
 
 namespace Shard::Engine::Plugins {
 
-    /// Capabilities a plugin can ask for in its manifest (`permissions`). Native plugins are not held to them (see the docs,
-    /// "Trust levels") : they tell the user what the plugin means to do, and sandboxed plugins are refused what they did not ask.
     namespace Permissions {
         inline constexpr const char* kFsReadContent = "fs.read:content";
         inline constexpr const char* kFsReadProject = "fs.read:project";
@@ -39,12 +37,10 @@ namespace Shard::Engine::Plugins {
         inline constexpr const char* kEngineInternal = "engine.internal";
     }
 
-    /// @brief The objects of the host a context reaches. All of them belong to the executable that loaded the plugin : a plugin's
-    /// binary only holds pointers to them, never its own copy.
     struct HostBindings {
         Core::IEngineContext* engine = nullptr;
-        Core::Ecs::Scheduler* scheduler = nullptr;                      ///< null until the engine has built its systems
-        Events::EventDispatcher* events = nullptr;                      ///< idem
+        Core::Ecs::Scheduler* scheduler = nullptr;
+        Events::EventDispatcher* events = nullptr;
         Objects::Components::ComponentRegistry* components = nullptr;
         Core::CVarRegistry* cvars = nullptr;
         ServiceRegistry* services = nullptr;
@@ -53,15 +49,11 @@ namespace Shard::Engine::Plugins {
         ContentMounts* content = nullptr;
         Debugging::Logger* logger = nullptr;
 
-        /// The host's allocator, for PluginContext::Memory() : memory that crosses between the plugin and the host comes from one place
         std::function<void*(size_t size, size_t align)> allocate;
         std::function<void(void* pointer, size_t size, size_t align)> deallocate;
 
-        // Registries that live in process-wide statics (world_extension.cpp) : a plugin's binary carries its own copy of those, so it
-        // goes through the host's functions instead of calling them
-        /// Set to the plugin's owner id around every call into its systems, so a crash report can name the suspect ; null : not tracked
+        // Process-wide static registries (world_extension.cpp) are copied into each plugin binary, so plugins go through host functions. Set to the owner id around system calls for crash reports.
         std::atomic<uint32_t>* activePlugin = nullptr;
-        /// A system of the plugin threw : told to the host, which decides whether to keep the plugin
         std::function<void(PluginOwner, const std::string&)> reportError;
 
         std::function<bool(std::type_index, Worlds::WorldExtensionFactory)> registerWorldExtension;
@@ -72,14 +64,11 @@ namespace Shard::Engine::Plugins {
 
     class PluginContext;
 
-    /// @brief Memory the plugin takes from the host's allocator and the host counts : it is what the manifest's `budgets.memoryMB` is measured against.
-    /// Use it for the big things a plugin owns (caches, buffers), directly or through PluginAllocator for the standard containers. Memory taken any
-    /// other way is not counted. What is still allocated when the plugin is unloaded is reported as a leak.
+    // Memory taken from the host allocator and counted against budgets.memoryMB. Anything allocated another way is not counted. What is left at unload is reported as a leak.
     class PluginMemory {
     public:
         PluginMemory(const HostBindings& host, uint64_t limitBytes, bool enforce) : m_Allocate(host.allocate), m_Deallocate(host.deallocate), m_Limit(limitBytes), m_Enforce(enforce) {}
 
-        /// @return null if the plugin enforces its budget and this would pass it (counted in Failures())
         void* Allocate(size_t size, size_t align = 16);
         void Free(void* pointer);
 
@@ -102,7 +91,6 @@ namespace Shard::Engine::Plugins {
         uint64_t Limit() const { return m_Limit; }
         uint64_t Failures() const { return m_Failures.load(std::memory_order_relaxed); }
         uint64_t Allocations() const { return m_Count.load(std::memory_order_relaxed); }
-        /// True once the plugin went over its limit (enforced or not)
         bool WentOver() const { return m_WentOver.load(std::memory_order_relaxed); }
 
     private:
@@ -117,7 +105,6 @@ namespace Shard::Engine::Plugins {
         std::atomic<bool> m_WentOver{ false };
     };
 
-    /// A standard allocator over PluginMemory : `std::vector<int, PluginAllocator<int>> v{PluginAllocator<int>(ctx.Memory())};`
     template <typename T>
     class PluginAllocator {
     public:
@@ -138,11 +125,8 @@ namespace Shard::Engine::Plugins {
         PluginMemory* m_Memory;
     };
 
-    // ---- Registrars : the parts of a context ----
-
     class ComponentRegistrar {
     public:
-        /// Registers a component type under `name` (the name its serialized form carries) ; "<id>/<name>" is the convention
         bool Register(const std::string& name, Objects::Components::ComponentFactory factory);
 
         template <typename T>
@@ -151,14 +135,9 @@ namespace Shard::Engine::Plugins {
             return Register(name, Objects::Components::ComponentFactory(+[]() -> std::shared_ptr<Objects::Components::Component> { return Core::Object::Create<T>(nullptr, 0); }));
         }
 
-        /// @brief Runs the static registrars the old way of declaring components leaves (REGISTER_COMPONENT) and takes ownership of
-        /// the types they added, so that they leave with the plugin.
         size_t AdoptStaticRegistrars();
 
-        /// Takes ownership of every component type that is registered now and was not in `before` (names of the registry
-        /// at some earlier point) : for libraries that register components themselves.
         size_t AdoptNewSince(const std::vector<std::string>& before);
-        /// Names of the component types registered now, sorted
         std::vector<std::string> Snapshot() const;
 
     private:
@@ -169,17 +148,11 @@ namespace Shard::Engine::Plugins {
 
     class SystemRegistrar {
     public:
-        /// @brief Adds an ECS system. Its name becomes "<plugin id>/<name>", and a name written "./x" in after / before means this plugin's "x".
-        /// When the engine's scheduler does not exist yet, the system is added as soon as it does.
-        /// @return the name it was registered under
         std::string Add(Core::Ecs::SystemDesc desc);
         std::string Add(Core::Ecs::SystemDesc desc, Core::Ecs::SystemFn fn);
-        /// The full name of one of this plugin's systems
         std::string NameOf(const std::string& name) const;
         bool SetEnabled(const std::string& name, bool enabled);
-        /// Removes one of this plugin's systems (its local or its full name), from the scheduler or from those waiting for it
         bool Remove(const std::string& name);
-        /// True if this plugin has that system (local or full name), in the scheduler or waiting for it
         bool Has(const std::string& name) const;
 
     private:
@@ -190,7 +163,6 @@ namespace Shard::Engine::Plugins {
 
     class EventRegistrar {
     public:
-        /// Listens to an event sent globally. The subscription ends with the plugin.
         template <typename T>
         void Subscribe(std::function<void(const T&)> callback)
         {
@@ -207,20 +179,13 @@ namespace Shard::Engine::Plugins {
                 d.subscribeToWorld<T>(worldID, *cb, owner);
             });
         }
-        /// Sends an event globally (nothing if the engine has no dispatcher yet)
         template <typename T>
         void Emit(const T& event) const { if (Events::EventDispatcher* d = Dispatcher()) d->emitGlobal(event); }
 
-        /// @brief Events found by name (Events::NamedEvent) : the channel the plugins of the C ABI use. The returned id (never 0) is this
-        /// registrar's, valid before the engine has a dispatcher too ; give it to Unsubscribe.
         uint64_t SubscribeNamed(const std::string& name, std::function<void(const Events::NamedEvent&)> callback);
         uint64_t SubscribeNamedToWorld(int worldID, const std::string& name, std::function<void(const Events::NamedEvent&)> callback);
-        /// False if `id` is not a live subscription of SubscribeNamed*
         bool Unsubscribe(uint64_t id);
-        /// @brief Says what the payload of the events named `name` holds, for the tools that show them (Events::NamedEventLayout). False if
-        /// another plugin described that name. It goes with the plugin.
         bool DescribeNamed(const std::string& name, Events::NamedEventLayout layout);
-        /// @return false if the engine has no dispatcher (nothing sent)
         bool EmitNamed(const std::string& name, const void* payload, size_t size) const;
         bool EmitNamedToWorld(int worldID, const std::string& name, const void* payload, size_t size) const;
 
@@ -233,7 +198,7 @@ namespace Shard::Engine::Plugins {
         PluginContext& m_Ctx;
 
         struct NamedSubscription {
-            Events::EventDispatcher::Subscription token = 0;    // 0 : not subscribed yet (no dispatcher)
+            Events::EventDispatcher::Subscription token = 0;
             bool cancelled = false;
         };
         std::vector<std::pair<uint64_t, std::shared_ptr<NamedSubscription>>> m_Named;
@@ -242,7 +207,6 @@ namespace Shard::Engine::Plugins {
 
     class CommandRegistrar {
     public:
-        /// A console command, named "<name>" as given (use a prefix of your own : "weather.set")
         bool Add(const std::string& name, const std::string& help, Core::CVarRegistry::CommandFn fn);
 
     private:
@@ -253,7 +217,6 @@ namespace Shard::Engine::Plugins {
 
     class CVarRegistrar {
     public:
-        /// All of these create a variable named "<plugin id>.<name>" and return it. The variable lives as long as the plugin.
         Core::CVar<bool>* Bool(const std::string& name, bool value, const std::string& help = {}, Core::CVarFlags flags = Core::CVarFlags::None);
         Core::CVar<int>* Int(const std::string& name, int value, const std::string& help = {}, Core::CVarFlags flags = Core::CVarFlags::None,
                              int min = std::numeric_limits<int>::lowest(), int max = std::numeric_limits<int>::max());
@@ -261,7 +224,6 @@ namespace Shard::Engine::Plugins {
                                  float min = std::numeric_limits<float>::lowest(), float max = std::numeric_limits<float>::max());
         Core::CVar<std::string>* String(const std::string& name, const std::string& value, const std::string& help = {}, Core::CVarFlags flags = Core::CVarFlags::None);
 
-        /// The full name a variable of this plugin has
         std::string NameOf(const std::string& name) const;
 
     private:
@@ -273,13 +235,11 @@ namespace Shard::Engine::Plugins {
 
     class WorldRegistrar {
     public:
-        /// Attaches a T to every world (see IWorldExtension)
         template <typename T>
         bool RegisterExtension()
         {
             return AddExtension(std::type_index(typeid(T)), []() -> std::unique_ptr<Worlds::IWorldExtension> { return std::make_unique<T>(); });
         }
-        /// Assets the `settings` object of a world file references
         void RegisterSettingsAssetRefs(Worlds::WorldSettingsAssetRefs refs);
 
     private:
@@ -291,13 +251,9 @@ namespace Shard::Engine::Plugins {
 
     class AssetRegistrar {
     public:
-        /// An item for an extension point of a subsystem : an importer ("asset.importer"), an asset type ("asset.type")... The item's
-        /// type is defined by whoever owns the point.
         template <typename T>
         bool Add(const std::string& point, const std::string& name, std::shared_ptr<T> item);
-        /// The mod:// address of a file of this plugin
         std::string Uri(const std::string& path) const;
-        /// The stable id of one of this plugin's files
         Core::Guid GuidOf(const std::string& path) const;
 
     private:
@@ -308,8 +264,6 @@ namespace Shard::Engine::Plugins {
 
     class RenderRegistrar {
     public:
-        /// A render feature or pipeline for the renderer to pick up : "render.feature" / "render.pipeline". A feature reads the frame's
-        /// snapshot, never the world.
         template <typename T>
         bool AddFeature(const std::string& name, std::shared_ptr<T> feature);
         template <typename T>
@@ -323,24 +277,21 @@ namespace Shard::Engine::Plugins {
 
     class HookRegistrarApi {
     public:
-        /// Intercepts a hook of Hooks:: ; the token (0 when the engine has no hook registry) is for Off
         template <typename H>
         HookRegistry::Token On(Priority priority, std::function<void(H&)> handler);
         template <typename H>
         HookRegistry::Token On(std::function<void(H&)> handler) { return On<H>(Priority::Normal, std::move(handler)); }
-        /// Removes a handler On returned
         bool Off(HookRegistry::Token token);
 
     private:
         friend class PluginContext;
         explicit HookRegistrarApi(PluginContext& ctx) : m_Ctx(ctx) {}
         PluginContext& m_Ctx;
-        std::vector<HookRegistry::Token> m_Tokens;      // this plugin's : Off removes nobody else's
+        std::vector<HookRegistry::Token> m_Tokens;
     };
 
     class ServiceRegistrar {
     public:
-        /// Offers `instance` as service `name`. It stays valid until the plugin is disabled.
         template <typename T>
         bool Provide(const std::string& name, uint32_t versionMajor, T* instance, uint32_t versionMinor = 0);
         template <typename T>
@@ -353,8 +304,6 @@ namespace Shard::Engine::Plugins {
         PluginContext& m_Ctx;
     };
 
-    /// @brief What a plugin sees of the host, and the only way it adds anything to it. Every registration is tagged with the plugin so
-    /// that the host removes all of it when the plugin is disabled or reloaded.
     class PluginContext {
     public:
         PluginContext(const PluginManifest& manifest, PluginOwner owner, Host host, HostBindings bindings);
@@ -366,7 +315,6 @@ namespace Shard::Engine::Plugins {
         const std::string& Id() const { return m_Manifest->id; }
         PluginOwner Owner() const { return m_Owner; }
         Host CurrentHost() const { return m_Host; }
-        /// The folder of the plugin on disk
         const std::string& Directory() const { return m_Manifest->rootDir; }
 
         ComponentRegistrar& Components() { return m_Components; }
@@ -380,36 +328,24 @@ namespace Shard::Engine::Plugins {
         HookRegistrarApi& Hooks() { return m_Hooks; }
         ServiceRegistrar& Services() { return m_Services; }
         ContentMounts& Content() { return *m_B.content; }
-        /// Counted memory, measured against the manifest's budget
         PluginMemory& Memory() { return m_Memory; }
         ExtensionRegistry& Extensions() { return *m_B.extensions; }
         Core::IEngineContext* Engine() const { return m_B.engine; }
 
-        /// Writes to the log, tagged with the plugin id
         void Log(const std::string& message) const;
         void Warn(const std::string& message) const;
         void Error(const std::string& message) const;
 
-        /// @brief A random stream of this plugin, seeded from the run's seed and the names of the plugin and the stream : adding another plugin
-        /// does not change the numbers this one draws.
+        // Seeded from the run seed plus plugin and stream names, so adding a plugin does not change this one's numbers
         Core::Random MakeRandomStream(std::string_view name) const;
 
-        /// True if the plugin asked for `permission` in its manifest
         bool Has(const std::string& permission) const;
 
-        // ---- Used by the plugin manager ----
-        /// The engine's scheduler and dispatcher exist now : adds what was waiting for them. `engine` (when given) is what Engine() returns from now on.
         void BindEngine(Core::Ecs::Scheduler* scheduler, Events::EventDispatcher* events, Core::IEngineContext* engine = nullptr);
-        /// Removes everything the plugin registered, last registered first. Safe to call twice.
         void ReleaseAll();
-        /// How many registrations of each kind are live : for the plugin listing
         std::vector<std::pair<std::string, size_t>> Summary() const;
-        /// True when at least one registration of `kind` ("component", "system"...) is live
         bool Owns(const std::string& kind) const;
-        /// Names of the systems this plugin registered (full names)
         const std::vector<std::string>& SystemNames() const { return m_SystemNames; }
-        /// @brief Runs `release` when everything is released (ReleaseAll), after what is registered from now on : for code that keeps its own
-        /// state about what it registered through this context (the C ABI's handles).
         void OnRelease(const std::string& what, std::function<void()> release) { AddRecord("release", what, std::move(release)); }
         size_t RegistrationCount() const { return m_Records.size(); }
 
@@ -457,8 +393,6 @@ namespace Shard::Engine::Plugins {
         HookRegistrarApi m_Hooks{ *this };
         ServiceRegistrar m_Services{ *this };
     };
-
-    // ---- Templates that need the full context ----
 
     template <typename T, typename... Args>
     Core::CVar<T>* CVarRegistrar::Make(const std::string& name, Args&&... args)
@@ -531,7 +465,6 @@ namespace Shard::Engine::Plugins {
         return m_Ctx.m_B.services ? m_Ctx.m_B.services->Get<T>(name, range) : ServiceRef<T>();
     }
 
-    /// Adds a window to the editor's Window menu (see EditorPanelItem). Call it from EditorPlugin::OnEditorInit.
     inline bool AddEditorPanel(PluginContext& ctx, const std::string& title, std::function<void(bool* open)> draw)
     {
         auto item = std::make_shared<EditorPanelItem>();

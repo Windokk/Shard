@@ -12,10 +12,6 @@
 #include "engine/plugins/context.hpp"
 #include "engine/plugins/manager.hpp"
 
-// shard.editor : what a C plugin adds to the editor. The editor owns ImGui : it gives the widgets (a ShardUiApi made of ImGui calls) and the window
-// begin / end ; this file wraps the plugin's functions in them and registers each contribution as an item of an extension point of the plugin
-// ("editor.panel", "editor.menu", "editor.toolbar", "editor.inspector", "editor.gizmo"), which the editor reads and which go with the plugin.
-
 namespace Shard::Engine::Plugins {
 
     namespace {
@@ -71,7 +67,6 @@ namespace Shard::Engine::Plugins {
         }
 
         namespace {
-            // The common part of every contribution : the plugin's context, the editor's presence, the main thread
             PluginContext* Contribution(ShardPluginCtx handle, ShardResult& result)
             {
                 result = SHARD_OK;
@@ -82,7 +77,6 @@ namespace Shard::Engine::Plugins {
                 return ctx;
             }
 
-            // Runs a function of the plugin for the editor : attributed to the plugin, what it throws reported and counted as its error
             template <typename F>
             void Guarded(std::atomic<uint32_t>* active, PluginOwner owner, const std::function<void(PluginOwner, const std::string&)>& report, const std::string& what, F&& f)
             {
@@ -128,7 +122,6 @@ namespace Shard::Engine::Plugins {
                     PluginContext* ctx = Contribution(handle, result);
                     if (!ctx) return result;
                     const std::string where = ToString(path);
-                    // "Menu/Item" at least, no empty part
                     const size_t slash = where.find('/');
                     if (!run || slash == std::string::npos || slash == 0 || where.back() == '/' || where.find("//") != std::string::npos) return SHARD_E_INVALID_ARG;
                     std::atomic<uint32_t>* active = ActiveCounter(*ctx);
@@ -168,7 +161,7 @@ namespace Shard::Engine::Plugins {
                     PluginContext* ctx = Contribution(handle, result);
                     if (!ctx) return result;
                     if (!draw) return SHARD_E_INVALID_ARG;
-                    static std::atomic<uint32_t> counter{ 0 };      // several inspectors of one type are allowed : the key only has to be unique
+                    static std::atomic<uint32_t> counter{ 0 };
                     const std::string componentType = ToString(type);
                     std::atomic<uint32_t>* active = ActiveCounter(*ctx);
                     auto report = ctx->Bindings().reportError;
@@ -216,7 +209,6 @@ namespace Shard::Engine::Plugins {
                         first = std::none_of(gSelection.begin(), gSelection.end(), [&](const SelectionSubscription& s) { return s.owner == owner; });
                         gSelection.push_back(SelectionSubscription{ owner, fn, user, ActiveCounter(*ctx), ctx->Bindings().reportError });
                     }
-                    // They end with the plugin's context
                     if (first)
                         ctx->OnRelease("editor-selection", [owner] {
                             std::lock_guard<std::mutex> lock(gSelectionMutex);
@@ -267,9 +259,6 @@ namespace Shard::Engine::Plugins {
                 } catch (...) { return SHARD_E_INTERNAL; }
             }
 
-            // ---- 1.2 ----
-
-            // Whether a plugin's undo / redo functions may still be called : false once its context released everything
             std::mutex gUndoMutex;
             std::map<PluginOwner, std::shared_ptr<std::atomic<bool>>> gUndoAlive;
 

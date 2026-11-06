@@ -24,14 +24,12 @@ namespace Shard::Engine::Rendering{
 
     LightManager::~LightManager()
     {
-        // m_SSBO is a shared_ptr : it destroys the buffer itself (an explicit ~StorageBuffer() here destroyed it twice)
+        // m_SSBO is a shared_ptr and frees itself, an explicit ~StorageBuffer() freed it twice.
         m_SSBO.reset();
     }
 
     namespace {
 
-        /// Copies the proxy into the light the renderer keeps (leaving what the renderer assigns, like the shadow slot,
-        /// alone). @return whether anything differed
         bool ApplyProxy(const LightProxy& proxy, LightData& light)
         {
             const glm::vec4 position(proxy.position, 0.0f);
@@ -63,9 +61,7 @@ namespace Shard::Engine::Rendering{
 
     void LightManager::Sync(const std::vector<LightProxy>& proxies)
     {
-        // The proxies are sorted by key : when the lights already held are the first ones of the list, nothing moved and
-        // the new ones are simply appended. Otherwise the indices shifted, and the shadow maps (which are per index) have
-        // to be registered again.
+        // Proxies are sorted by key. If the held lights are a prefix, only append, else indices shifted and shadow maps must re-register.
         bool appendOnly = proxies.size() >= m_Keys.size();
         for (size_t i = 0; appendOnly && i < m_Keys.size(); i++)
             appendOnly = m_Keys[i] == proxies[i].key;
@@ -100,7 +96,7 @@ namespace Shard::Engine::Rendering{
 
         const bool sameCount = lights.size() == m_Lights.size();
         if (appendOnly && sameCount && dirty.empty())
-            return;                                                    // a still scene : nothing to register, nothing to upload
+            return;
 
         auto shadows = Core::GetEngine().GetRenderContext()->GetShadowManager();
 
@@ -111,7 +107,6 @@ namespace Shard::Engine::Rendering{
         m_ByKey = std::move(byKey);
 
         if (!appendOnly) {
-            // Only the shadow maps whose index now holds another light (or none) are torn down : the lights before a removed one keep theirs
             for (size_t i = 0; i < oldKeys.size(); i++)
                 if (shadows->HasShadowMap(static_cast<int>(i)) && (i >= m_Keys.size() || m_Keys[i] != oldKeys[i]))
                     shadows->UnregisterLight(static_cast<int>(i));
@@ -124,7 +119,6 @@ namespace Shard::Engine::Rendering{
                 if (isDirty[i] || (m_Lights[i]->castShadow && !shadows->HasShadowMap(static_cast<int>(i))))
                     shadows->RegisterOrUpdateLight(static_cast<int>(i), m_Lights[i]);
         } else {
-            // Registering assigns the shadow slot (LightData::shadowIndex), which the upload below has to carry
             for (size_t i : dirty)
                 shadows->RegisterOrUpdateLight(static_cast<int>(i), m_Lights[i]);
         }
@@ -182,8 +176,6 @@ namespace Shard::Engine::Rendering{
         return frustumCorners;
     }
 
-    /// @brief Getter for lights matrices
-    /// @return The view-projection matrix from the light's point of view
     glm::mat4 LightData::GetLightMatrix(const glm::mat4& cameraView, const float fov, const float aspectRatio, const float cascadeNear, const float cascadeFar, const float dirShadowRes, const float outerCutoff, const bool stabilizeCascade, const float casterRange)
     {
         if (type == static_cast<int>(LightType::Directional) && cascadeFar != -1 && fov != -1 && aspectRatio != -1 && cascadeFar != -1)
@@ -193,7 +185,6 @@ namespace Shard::Engine::Rendering{
                 cascadeFar);
             const auto corners = getFrustumCornersWorldSpace(proj * cameraView);
 
-            //Frustum center
             glm::vec3 center(0.0f);
             for (auto& v : corners)
                 center += glm::vec3(v);
@@ -204,27 +195,20 @@ namespace Shard::Engine::Rendering{
             for (const auto& v : corners)
                 radius = std::max(radius, glm::length(glm::vec3(v) - center));
 
-            // snap radius to reduce flicker
             radius = std::ceil(radius * 16.0f) / 16.0f;
 
-            // light direction
             glm::vec3 lightDir = glm::normalize(glm::vec3(direction));
 
-            // robust up vector
             glm::vec3 up = fabs(glm::dot(lightDir, glm::vec3(0,1,0))) > 0.99f
                 ? glm::vec3(1,0,0)
                 : glm::vec3(0,1,0);
 
-            // The box has to reach every caster between the sun and the cascade, not only the ones within two radii : a close cascade
-            // is small, and a ceiling or the top of a wall beyond its near plane would be clipped and cast no shadow (the light leaks
-            // through, in a bright line along walls and around shadowed areas)
+            // Reach every caster between the sun and the cascade, or ceilings and wall tops get clipped and light leaks.
             float backoff = std::max(radius * 2.0f, casterRange);
 
-            // Build light view
             glm::vec3 lightPos = center - lightDir * backoff;
             glm::mat4 lightView = glm::lookAt(lightPos, center, up);
 
-            // Build symmetric ortho projection (NO AABB)
             float extent = radius;
             float nearPlane = 0.0f;
             float farPlane  = backoff + radius;
@@ -235,7 +219,6 @@ namespace Shard::Engine::Rendering{
                 nearPlane, farPlane
             );
 
-            // Projection-space texel snapping
             glm::mat4 lightVP = lightProj * lightView;
 
             glm::vec4 origin = lightVP * glm::vec4(0, 0, 0, 1);
@@ -251,7 +234,6 @@ namespace Shard::Engine::Rendering{
                 lightProj[3][1] += offset.y;
             }
 
-            // Final matrix
             return lightProj * lightView;
         }
         else if (type == static_cast<int>(LightType::Spot))
@@ -270,7 +252,6 @@ namespace Shard::Engine::Rendering{
             return proj * view;
         }
 
-        // For point lights : returns identity matrix
         return glm::mat4(1.0f);
     }
 }

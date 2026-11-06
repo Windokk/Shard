@@ -7,16 +7,14 @@
 
 #include "engine/plugins/context.hpp"
 
-// A table of the things a plugin owns and the ABI names with a handle (a mesh, a socket, a job...). A handle is a generation and a slot, so a
-// stale one finds nothing instead of someone else's object, and an entry belongs to the plugin that made it : another plugin's handle is stale too.
-// Safe to use from several threads ; Get hands out a shared_ptr, so an entry removed while another thread uses it stays alive for that use.
+// Handle table: generation + slot, so a stale handle finds nothing. Entries are per plugin. Thread-safe; Get returns a shared_ptr so a removed entry outlives concurrent use.
 
 namespace Shard::Engine::Plugins::CAbi {
 
     template <typename T>
     class OwnedTable {
     public:
-        /// 0 is never a handle
+        // 0 is never a handle
         uint64_t Add(PluginOwner owner, std::shared_ptr<T> value)
         {
             std::lock_guard<std::mutex> lock(m_Mutex);
@@ -36,7 +34,6 @@ namespace Shard::Engine::Plugins::CAbi {
             return slot && slot->owner == owner ? slot->value : nullptr;
         }
 
-        /// The entry, whoever owns it (for the code that looks at all of them)
         std::shared_ptr<T> GetAny(uint64_t handle) const
         {
             std::lock_guard<std::mutex> lock(m_Mutex);
@@ -44,7 +41,6 @@ namespace Shard::Engine::Plugins::CAbi {
             return slot ? slot->value : nullptr;
         }
 
-        /// False if the handle is stale or not the owner's
         bool Remove(PluginOwner owner, uint64_t handle, std::shared_ptr<T>* removed = nullptr)
         {
             std::shared_ptr<T> value;
@@ -59,7 +55,6 @@ namespace Shard::Engine::Plugins::CAbi {
             return true;
         }
 
-        /// Removes everything of the owner and returns it (destroyed by the caller, outside the lock)
         std::vector<std::shared_ptr<T>> RemoveOwner(PluginOwner owner)
         {
             std::vector<std::shared_ptr<T>> out;
@@ -73,7 +68,7 @@ namespace Shard::Engine::Plugins::CAbi {
             return out;
         }
 
-        /// Calls fn(handle, entry) for every live entry of the owner, in the order of the slots (the lock is held : fn must not call back in)
+        // Lock is held while fn runs, fn must not call back in
         template <typename Fn>
         void ForEach(PluginOwner owner, Fn&& fn) const
         {
@@ -84,7 +79,6 @@ namespace Shard::Engine::Plugins::CAbi {
             }
         }
 
-        /// fn(handle, entry, owner) for every live entry of every plugin, in the order of the slots (the lock is held)
         template <typename Fn>
         void ForEachAll(Fn&& fn) const
         {

@@ -11,23 +11,12 @@
 
 namespace Shard::Engine::Objects::Components
 {
-    // Something that decides which way, and how hard, bodies fall in a region of the world, in place of (or on top of) the project's gravity.
-    // Not usable on its own : the four kinds below are what an actor gets. The physics reads the fields of the loaded worlds at every step
-    // (see PhysicsManager::CollectGravityFields) and gives each dynamic body the gravity the fields make where its center of mass is, by
-    // its PhysicsBody::gravityMode.
-    //
-    // Fields that overlap are combined by priority : the highest one that covers a body wins, the lower ones and the project's gravity only
-    // show through where it does not cover (a field fades out toward its edge, so the gravity changes smoothly from a field to the next).
-    // Fields of the same priority that overlap blend. An additive field is summed on top of the result whatever its priority.
     class CLASS() GravityField : public Component {
         public:
             GravityField(std::shared_ptr<Actor> parent, uint32_t local_id);
 
-            /// The numbers the simulation solves this field with, from the pose the actor has now (root frame, in double)
             Physics::GravityFieldData BuildData();
 
-            /// What this field alone gives at `position` (root frame) : false when it does not reach it, else its acceleration at full
-            /// strength and how much of the position it covers, 0 to 1 (less than 1 near its edge)
             bool Sample(const glm::dvec3& position, glm::vec3& acceleration, float& coverage);
 
             FIELD(Editable, range=-1000.0f|1000.0f, tooltip=Acceleration in world units per second squared (9.81 for the Earth, in a project in metres). Negative pushes away)
@@ -40,12 +29,9 @@ namespace Shard::Engine::Objects::Components
             Physics::GravityBlend blend = Physics::GravityBlend::Override;
 
         protected:
-            /// Fills what is specific to the kind of field, `data` already holding the common part
             virtual void Fill(Physics::GravityFieldData& data) = 0;
     };
 
-    // The same gravity everywhere : a direction and a strength. Replaces the project's gravity for the whole world, and is turned by the
-    // rotation of its actor (tilt the actor to tilt gravity). The way to give a level its own gravity, or a lower priority base for volumes.
     class CLASS() UniformGravityField : public GravityField {
         public:
             UniformGravityField(std::shared_ptr<Actor> parent, uint32_t local_id);
@@ -62,7 +48,6 @@ namespace Shard::Engine::Objects::Components
             void Fill(Physics::GravityFieldData& data) override;
     };
 
-    // Pulls toward the position of its actor, as a mass would : strongest next to it, weaker with the distance. Beyond its radius it does nothing.
     class CLASS() PointGravityField : public GravityField {
         public:
             PointGravityField(std::shared_ptr<Actor> parent, uint32_t local_id);
@@ -91,9 +76,6 @@ namespace Shard::Engine::Objects::Components
             void Fill(Physics::GravityFieldData& data) override;
     };
 
-    // The gravity of a planet : it pulls toward the center of its actor, with the strength of the surface at `radius`, which falls with the
-    // height above it (inverse square by default) and, inside the planet, with the distance to the center. Bodies stand on the surface
-    // whatever side of the planet they are on : read PhysicsBody::GetGravity to orient a character.
     class CLASS() RadialGravityField : public GravityField {
         public:
             RadialGravityField(std::shared_ptr<Actor> parent, uint32_t local_id);
@@ -122,9 +104,6 @@ namespace Shard::Engine::Objects::Components
             void Fill(Physics::GravityFieldData& data) override;
     };
 
-    // A region (the box of its actor, or the sphere / cylinder inscribed in it) where gravity is something else : a corridor where it points
-    // sideways, a zone without any, the inside of a rotating station. Moves, turns and scales with its actor. Fades out over `fadeDistance`
-    // inside its edge, so a body crossing it feels the change gradually.
     class CLASS() GravityVolume : public GravityField {
         public:
             GravityVolume(std::shared_ptr<Actor> parent, uint32_t local_id);

@@ -31,7 +31,6 @@ namespace {
         }
     };
 
-    // A datapack folder with a table
     void MakePack(const TempDir& dir, const std::string& folder, const std::string& id, const std::string& version, const std::string& table = R"({"a":1})",
                   json extra = json::object())
     {
@@ -39,7 +38,6 @@ namespace {
         dir.Write(folder + "/content/tables/t.json", table);
     }
 
-    // Packs, signs (optionally) and indexes a plugin folder into a registry folder ; returns the sha256 of the archive
     std::string Publish(const TempDir& dir, const std::string& folder, const std::string& registryFolder, const std::string& id, const std::string& version,
                         const Publisher* signer, json& index, json dependencies = json::array())
     {
@@ -62,7 +60,6 @@ namespace {
 
     json NewIndex() { return json{ { "schema", 1 }, { "name", "Test registry" }, { "plugins", json::array() } }; }
 
-    // A very small HTTP/1.0 server
     class TestHttpServer {
     public:
         struct Route { int status = 200; std::vector<uint8_t> body; std::string location; bool truncate = false; };
@@ -142,9 +139,7 @@ namespace {
     }
 }
 
-// ---- Signatures ----
-
-TEST(PluginPackage, ASignedFolderVerifiesAndAnyChangeBreaksIt)
+TEST(PluginPackage, SignedFolderVerifies)
 {
     TempDir dir;
     Publisher acme(1);
@@ -159,23 +154,21 @@ TEST(PluginPackage, ASignedFolderVerifiesAndAnyChangeBreaksIt)
     EXPECT_EQ(ok.status, SignatureInfo::Status::Valid) << ok.message;
     EXPECT_EQ(ok.publisher, "acme");
 
-    // a changed file
     dir.Write("p/content/tables/t.json", R"({"a":2})");
     EXPECT_EQ(VerifyPackage(dir.Sub("p"), trust).status, SignatureInfo::Status::Invalid);
     dir.Write("p/content/tables/t.json", R"({"a":1})");
     EXPECT_EQ(VerifyPackage(dir.Sub("p"), trust).status, SignatureInfo::Status::Valid);
 
-    // an added file
     dir.Write("p/content/extra.txt", "x");
     EXPECT_EQ(VerifyPackage(dir.Sub("p"), trust).status, SignatureInfo::Status::Invalid);
     std::filesystem::remove(dir.Sub("p/content/extra.txt"));
 
-    // the signature belongs to an id and a version : the same files under another version are not signed
+    // The signature covers id and version, so the same files under another version are unsigned.
     dir.Write("p/shard-plugin.json", PluginTest::DatapackManifest("pack.signed", "1.0.1"));
     EXPECT_EQ(VerifyPackage(dir.Sub("p"), trust).status, SignatureInfo::Status::Invalid);
 }
 
-TEST(PluginPackage, AForgedOrSwappedSignatureIsInvalid)
+TEST(PluginPackage, ForgedSignatureInvalid)
 {
     TempDir dir;
     Publisher acme(1), mallory(2);
@@ -184,13 +177,11 @@ TEST(PluginPackage, AForgedOrSwappedSignatureIsInvalid)
     TrustStore trust;
     trust.Trust("acme", acme.pk);
 
-    // Mallory signs the same files and claims to be acme
     MakePack(dir, "q", "pack.forged", "1.0.0");
     ASSERT_TRUE(SignPackage(dir.Sub("q"), "acme", mallory.sk));
     SignatureInfo forged = VerifyPackage(dir.Sub("q"), trust);
     EXPECT_EQ(forged.status, SignatureInfo::Status::Untrusted) << "the signature is real, but the key is not the trusted acme's";
 
-    // Acme's key written over Mallory's signature
     json sig = json::parse(dir.Read("q/shard-signature.json"));
     sig["publicKey"] = Crypto::ToHex(acme.pk);
     dir.Write("q/shard-signature.json", sig.dump());
@@ -200,7 +191,7 @@ TEST(PluginPackage, AForgedOrSwappedSignatureIsInvalid)
     EXPECT_EQ(VerifyPackage(dir.Sub("q"), trust).status, SignatureInfo::Status::Invalid);
 }
 
-TEST(PluginPackage, ARevokedKeyIsRefusedEvenWhenTrusted)
+TEST(PluginPackage, RevokedKeyRefused)
 {
     TempDir dir;
     Publisher acme(1);
@@ -214,7 +205,7 @@ TEST(PluginPackage, ARevokedKeyIsRefusedEvenWhenTrusted)
     EXPECT_FALSE(trust.IsTrusted("acme", acme.pk));
 }
 
-TEST(PluginPackage, TheDigestDoesNotDependOnTheFileSystemOrTheMarkers)
+TEST(PluginPackage, DigestIgnoresFileSystem)
 {
     TempDir a, b;
     for (const char* name : { "z.txt", "a.txt", "sub/m.txt" }) {
@@ -257,15 +248,12 @@ TEST(PluginPackage, TrustStoreFilesAndKeyFiles)
     ASSERT_TRUE(sk) << sk.GetError().message;
     EXPECT_EQ(sk.Value(), acme.sk);
     EXPECT_EQ(dir.Read("keys/acme.pub"), Crypto::ToHex(acme.pk) + "\n");
-    // a key whose public half is not the seed's
     std::string damaged = Crypto::ToHex(acme.sk);
     damaged[100] = damaged[100] == '0' ? '1' : '0';
     dir.Write("keys/damaged.key", damaged);
     EXPECT_FALSE(ReadSecretKey(dir.Sub("keys/damaged.key")));
     EXPECT_FALSE(ReadSecretKey(dir.Sub("keys/absent.key")));
 }
-
-// ---- Registry and installs ----
 
 TEST(PluginRegistry, SearchAndFind)
 {
@@ -303,7 +291,7 @@ TEST(PluginRegistry, SearchAndFind)
     EXPECT_FALSE(Registry().Load(dir.Sub("badreg")));
 }
 
-TEST(PluginRegistry, InstallsASignedPluginAndItsDependencies)
+TEST(PluginRegistry, InstallsSignedPlugin)
 {
     TempDir dir;
     Publisher acme(1);
@@ -328,7 +316,7 @@ TEST(PluginRegistry, InstallsASignedPluginAndItsDependencies)
     auto plan = installer.Plan("com.acme.app", VersionRange::Any(), options);
     ASSERT_TRUE(plan) << plan.GetError().message;
     ASSERT_EQ(plan.Value().size(), 2u);
-    EXPECT_EQ(plan.Value()[0].id, "com.acme.lib");          // dependencies first
+    EXPECT_EQ(plan.Value()[0].id, "com.acme.lib");
 
     auto installed = installer.Install("com.acme.app", VersionRange::Any(), options);
     ASSERT_TRUE(installed) << installed.GetError().message;
@@ -341,10 +329,9 @@ TEST(PluginRegistry, InstallsASignedPluginAndItsDependencies)
     EXPECT_EQ(marker.version, "1.0.0");
     EXPECT_EQ(marker.publisher, "acme");
     EXPECT_EQ(PluginInstaller::ListInstalled(options.installDirectory).size(), 2u);
-    // what was installed still verifies, the marker being left out of the digest
+    // Still verifies: the install marker is left out of the digest.
     EXPECT_EQ(VerifyPackage(dir.Sub("project/plugins/com.acme.app"), trust).status, SignatureInfo::Status::Valid);
 
-    // again : nothing is downloaded, nothing changes
     EXPECT_TRUE(installer.Install("com.acme.app", VersionRange::Any(), options));
 
     ASSERT_TRUE(PluginInstaller::Uninstall(options.installDirectory, "com.acme.app"));
@@ -353,7 +340,7 @@ TEST(PluginRegistry, InstallsASignedPluginAndItsDependencies)
     EXPECT_FALSE(PluginInstaller::Uninstall(options.installDirectory, "../escape"));
 }
 
-TEST(PluginRegistry, RefusesWhatIsNotWhatTheIndexSays)
+TEST(PluginRegistry, RefusesIndexMismatch)
 {
     TempDir dir;
     Publisher acme(1);
@@ -368,7 +355,6 @@ TEST(PluginRegistry, RefusesWhatIsNotWhatTheIndexSays)
     options.engineVersion = SemVer{ 0, 1, 0, {} };
     options.trust = &trust;
 
-    // the archive is replaced after the index was written
     Registry reg;
     ASSERT_TRUE(reg.Load(dir.Sub("reg")));
     std::string archive = dir.Read("reg/com.acme.p-1.0.0.shardplugin");
@@ -379,12 +365,11 @@ TEST(PluginRegistry, RefusesWhatIsNotWhatTheIndexSays)
     EXPECT_NE(tampered.GetError().message.find("SHA-256"), std::string::npos) << tampered.GetError().message;
     EXPECT_FALSE(std::filesystem::exists(dir.Sub("plugins/com.acme.p")));
 
-    // an unknown plugin and a range nothing satisfies
     EXPECT_FALSE(PluginInstaller({ reg }).Plan("com.acme.nobody", VersionRange::Any(), options));
     EXPECT_FALSE(PluginInstaller({ reg }).Plan("com.acme.p", *VersionRange::Parse("^2.0"), options));
 }
 
-TEST(PluginRegistry, UnsignedAndUntrustedPluginsNeedConsent)
+TEST(PluginRegistry, UnsignedNeedsConsent)
 {
     TempDir dir;
     Publisher acme(1);
@@ -419,14 +404,14 @@ TEST(PluginRegistry, UnsignedAndUntrustedPluginsNeedConsent)
     EXPECT_TRUE(installer.Install("com.acme.unsigned", VersionRange::Any(), options));
 }
 
-TEST(PluginRegistry, ABadSignatureIsNeverInstalledEvenWithConsent)
+TEST(PluginRegistry, BadSignatureNeverInstalled)
 {
     TempDir dir;
     Publisher acme(1);
     json index = NewIndex();
     MakePack(dir, "p", "com.acme.p", "1.0.0");
     ASSERT_TRUE(SignPackage(dir.Sub("p"), "acme", acme.sk));
-    dir.Write("p/content/tables/t.json", R"({"changed":true})");          // after signing
+    dir.Write("p/content/tables/t.json", R"({"changed":true})");
     Publish(dir, "p", "reg", "com.acme.p", "1.0.0", nullptr, index);
     dir.Write("reg/index.json", index.dump());
     Registry reg;
@@ -443,7 +428,7 @@ TEST(PluginRegistry, ABadSignatureIsNeverInstalledEvenWithConsent)
     EXPECT_NE(result.GetError().message.find("not the ones that were signed"), std::string::npos) << result.GetError().message;
 }
 
-TEST(PluginRegistry, ReplacesAnOlderVersionAndFindsUpdates)
+TEST(PluginRegistry, ReplacesOlderVersion)
 {
     TempDir dir;
     Publisher acme(1);
@@ -473,16 +458,14 @@ TEST(PluginRegistry, ReplacesAnOlderVersionAndFindsUpdates)
     PluginInstaller installer({ reg });
     const auto updates = installer.FindUpdates(options.installDirectory, options.engineVersion);
     ASSERT_EQ(updates.size(), 1u);
-    EXPECT_EQ(updates[0].second.version.ToString(), "1.1.0");          // 2.0.0 is another major
+    EXPECT_EQ(updates[0].second.version.ToString(), "1.1.0");
 
     ASSERT_TRUE(installer.Install("com.acme.p", *VersionRange::Parse("^1.0"), options));
     EXPECT_EQ(dir.Read("plugins/com.acme.p/content/tables/t.json"), R"({"a":11})");
     EXPECT_TRUE(installer.FindUpdates(options.installDirectory, options.engineVersion).empty());
 }
 
-// ---- Fetching over http ----
-
-TEST(PluginRegistryHttp, FetchesThroughRedirectsAndFailsCleanly)
+TEST(PluginRegistryHttp, FetchesThroughRedirects)
 {
     TestHttpServer server;
     server.SetBytes("/hello.txt", "hello over http");
@@ -512,7 +495,7 @@ TEST(PluginRegistryHttp, FetchesThroughRedirectsAndFailsCleanly)
     ASSERT_FALSE(https);
     EXPECT_NE(https.GetError().message.find("https"), std::string::npos);
     EXPECT_FALSE(FetchBytes("ftp://example.org/x"));
-    EXPECT_FALSE(FetchBytes("http://127.0.0.1:1/never", 1000, 500));          // nothing listens there
+    EXPECT_FALSE(FetchBytes("http://127.0.0.1:1/never", 1000, 500));
 }
 
 TEST(PluginRegistryHttp, InstallsFromAnHttpRegistry)
@@ -546,8 +529,6 @@ TEST(PluginRegistryHttp, InstallsFromAnHttpRegistry)
     EXPECT_FALSE(dir.Read("project/plugins/com.acme.web/content/tables/t.json").empty());
 }
 
-// ---- The manager : archives, signatures, trust ----
-
 namespace {
     class DistributionManagerTest : public ::testing::Test {
     protected:
@@ -570,7 +551,7 @@ namespace {
     };
 }
 
-TEST_F(DistributionManagerTest, LoadsAPluginFromAnArchive)
+TEST_F(DistributionManagerTest, LoadsFromArchive)
 {
     TempDir dir;
     MakePack(dir, "src", "pack.zipped", "1.0.0", R"({"zipped":true})");
@@ -586,13 +567,12 @@ TEST_F(DistributionManagerTest, LoadsAPluginFromAnArchive)
     EXPECT_EQ(pm().Content().LoadTable("t")["zipped"], true);
     EXPECT_TRUE(std::filesystem::exists(dir.Sub("cache")));
 
-    // a second start reuses the unpacked folder
     pm().ResetForTests();
     ASSERT_TRUE(Start());
     EXPECT_NE(pm().Find("pack.zipped"), nullptr);
 }
 
-TEST_F(DistributionManagerTest, AnArchiveGivenWithPluginOrInTheProjectList)
+TEST_F(DistributionManagerTest, ArchiveViaPluginOrProjectList)
 {
     TempDir dir;
     MakePack(dir, "src", "pack.direct", "1.0.0");
@@ -612,7 +592,7 @@ TEST_F(DistributionManagerTest, AnArchiveGivenWithPluginOrInTheProjectList)
     EXPECT_NE(pm().Find("pack.direct"), nullptr);
 }
 
-TEST_F(DistributionManagerTest, ABrokenArchiveIsReportedNotLoaded)
+TEST_F(DistributionManagerTest, BrokenArchiveReported)
 {
     TempDir dir;
     dir.Write("plugins/broken.shardplugin", "this is not a zip file at all, just text");
@@ -624,7 +604,7 @@ TEST_F(DistributionManagerTest, ABrokenArchiveIsReportedNotLoaded)
     EXPECT_TRUE(reported);
 }
 
-TEST_F(DistributionManagerTest, ASignedPluginIsRecordedAndATamperedOneIsRefused)
+TEST_F(DistributionManagerTest, SignedRecordedTamperedRefused)
 {
     TempDir dir;
     Publisher acme(1);
@@ -645,7 +625,7 @@ TEST_F(DistributionManagerTest, ASignedPluginIsRecordedAndATamperedOneIsRefused)
     EXPECT_TRUE(Rejected("pack.bad", Rejection::Kind::Untrusted));
 }
 
-TEST_F(DistributionManagerTest, AnInstalledPluginMustCarryATrustedSignature)
+TEST_F(DistributionManagerTest, InstalledNeedsTrustedSignature)
 {
     TempDir dir;
     Publisher acme(1), mallory(2);
@@ -672,7 +652,7 @@ TEST_F(DistributionManagerTest, AnInstalledPluginMustCarryATrustedSignature)
     EXPECT_TRUE(Rejected("pack.i2", Rejection::Kind::Untrusted));
 }
 
-TEST_F(DistributionManagerTest, NativePluginsNeedASignatureOrConsent)
+TEST_F(DistributionManagerTest, NativeNeedsSignatureOrConsent)
 {
     TempDir dir;
     Publisher acme(1);
@@ -682,7 +662,7 @@ TEST_F(DistributionManagerTest, NativePluginsNeedASignatureOrConsent)
         j["moduleKind"] = "mod";
         j["linkage"] = "dynamic";
         j["tier"] = 1;
-        j["binaries"] = { { "plan9-mips", "x.so" } };           // never loaded : only the trust decision is looked at
+        j["binaries"] = { { "plan9-mips", "x.so" } };
         dir.Write(folder + "/shard-plugin.json", j.dump());
     };
     native("plugins/unsigned", "native.unsigned");
@@ -696,9 +676,8 @@ TEST_F(DistributionManagerTest, NativePluginsNeedASignatureOrConsent)
 
     ASSERT_TRUE(Start());
     EXPECT_TRUE(Rejected("native.unsigned", Rejection::Kind::Untrusted));
-    EXPECT_FALSE(Rejected("native.signed", Rejection::Kind::Untrusted));          // passed the trust check (and was left out for its platform)
+    EXPECT_FALSE(Rejected("native.signed", Rejection::Kind::Untrusted));
 
-    // the project's consent for one plugin
     pm().ResetForTests();
     dir.Write("proj/project.json", R"({ "plugins": [ { "id": "native.unsigned", "allowUnsigned": true } ] })");
     config.projectFile = dir.Sub("proj/project.json");
@@ -707,7 +686,6 @@ TEST_F(DistributionManagerTest, NativePluginsNeedASignatureOrConsent)
     ASSERT_TRUE(Start());
     EXPECT_FALSE(Rejected("native.unsigned", Rejection::Kind::Untrusted));
 
-    // the command line's consent for all of them
     pm().ResetForTests();
     config.projectFile.clear();
     config.allowUnsigned = true;
@@ -739,7 +717,6 @@ TEST_F(DistributionManagerTest, InstallThroughTheManager)
     EXPECT_NE(console.Execute("plugin.installed").output.find("com.acme.managed"), std::string::npos);
     EXPECT_TRUE(console.Execute("plugin.updates").ok);
 
-    // the next start loads it, as an installed (so signed) plugin
     pm().ResetForTests();
     config.registerConsoleCommands = false;
     ASSERT_TRUE(Start());
@@ -749,7 +726,6 @@ TEST_F(DistributionManagerTest, InstallThroughTheManager)
     EXPECT_EQ(r->signature.status, SignatureInfo::Status::Valid);
     EXPECT_NE(pm().DescribePlugin("com.acme.managed").find("installed from a registry"), std::string::npos);
 
-    // loaded : it cannot be removed under the running engine
     config.registerConsoleCommands = true;
     pm().ResetForTests();
     ASSERT_TRUE(Start());
@@ -757,7 +733,7 @@ TEST_F(DistributionManagerTest, InstallThroughTheManager)
     EXPECT_NE(console.Execute("plugin.verify com.acme.managed").output.find("valid"), std::string::npos);
 }
 
-TEST_F(DistributionManagerTest, TrustingAPublisherIsSavedForTheNextRun)
+TEST_F(DistributionManagerTest, TrustedPublisherSaved)
 {
     TempDir dir;
     Publisher acme(1);

@@ -25,7 +25,7 @@ namespace Shard::Engine::Core::Platform {
         {
             out.name = "Windows";
 
-            // GetVersionEx lies to applications without a manifest : ask ntdll.
+            // GetVersionEx lies without a manifest, ask ntdll.
             using RtlGetVersionFn = LONG (WINAPI*)(OSVERSIONINFOW*);
             OSVERSIONINFOW info{};
             info.dwOSVersionInfoSize = sizeof(info);
@@ -91,10 +91,7 @@ namespace Shard::Engine::Core::Platform {
     }
 
     namespace {
-        // The PDH "GPU Process Memory" instance of this process only exists once it has allocated GPU memory, which
-        // hasn't happened yet at engine startup. The counters are therefore resolved lazily, retrying
-        // PdhExpandWildCardPath until the instance shows up (a wildcard passed straight to PdhAddCounter only binds
-        // whatever instance exists at that exact call and is never re-resolved).
+        // The PDH instance only exists after the process allocates GPU memory. Resolve lazily with PdhExpandWildCardPath, since a wildcard in PdhAddCounter binds once and is never re-resolved.
         class GpuMemoryCounters {
         public:
             ~GpuMemoryCounters()
@@ -123,7 +120,6 @@ namespace Shard::Engine::Core::Platform {
                     if (PdhGetFormattedCounterValue(counter, PDH_FMT_DOUBLE, nullptr, &value) != ERROR_SUCCESS ||
                         value.CStatus != ERROR_SUCCESS)
                     {
-                        // The instance can disappear (the app dropped all its GPU allocations) : rebind on the next call.
                         m_Bound = false;
                         m_Counters.clear();
                         continue;
@@ -146,7 +142,6 @@ namespace Shard::Engine::Core::Platform {
                     m_Failed = true;
                     return false;
                 }
-                // Wildcarded on the "phys_N" suffix : picks up every physical adapter this process has memory on.
                 m_Pattern = "\\GPU Process Memory(pid_" + std::to_string(_getpid()) + "_*)\\Dedicated Usage";
                 return true;
             }

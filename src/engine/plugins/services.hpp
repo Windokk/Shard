@@ -13,13 +13,11 @@
 
 namespace Shard::Engine::Plugins {
 
-    /// What a ServiceRef shares with the registry : the registry clears it when the provider goes away
     struct ServiceSlot {
         std::atomic<void*> instance{ nullptr };
     };
 
-    /// @brief A handle on a service another plugin provides. It becomes empty when the provider is disabled or unloaded, so check
-    /// it (`if (ref)`) before each use rather than keeping the raw pointer.
+    // Becomes empty when the provider goes away, so check it before each use instead of keeping the raw pointer
     template <typename T>
     class ServiceRef {
     public:
@@ -35,8 +33,6 @@ namespace Shard::Engine::Plugins {
         std::shared_ptr<ServiceSlot> m_Slot;
     };
 
-    /// @brief The interfaces plugins offer to each other, by name and version. Plugins never include each other's headers : one
-    /// provides `weather.query` 1.0, another asks for `weather.query` ">=1" and gets a handle.
     class ServiceRegistry {
     public:
         struct Info {
@@ -45,7 +41,6 @@ namespace Shard::Engine::Plugins {
             PluginOwner owner = 0;
         };
 
-        /// @return false if a service of this name is already provided
         bool Provide(const std::string& name, const SemVer& version, void* instance, PluginOwner owner)
         {
             std::lock_guard<std::mutex> lock(m_Mutex);
@@ -58,7 +53,6 @@ namespace Shard::Engine::Plugins {
             return true;
         }
 
-        /// @brief An empty ref when the service does not exist or its version is outside `range`
         template <typename T>
         ServiceRef<T> Get(const std::string& name, const VersionRange& range = VersionRange::Any()) const
         {

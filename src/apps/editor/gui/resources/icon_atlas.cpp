@@ -12,7 +12,6 @@ namespace Shard::Editor::GUI {
         width = atlasSize;
         height = atlasSize;
 
-        // Map paths to enum order
         std::vector<Engine::Filesystem::Type> iconTypes = {
             Engine::Filesystem::Type::T_IMAGE,
             Engine::Filesystem::Type::T_SOUND,
@@ -36,12 +35,9 @@ namespace Shard::Editor::GUI {
         std::vector<unsigned char*> images(iconPaths.size());
         int channels;
 
-        // The icons are drawn the way they are stored, top row first. The flip on load is a per thread setting that the texture
-        // decoding turns on (a GL texture starts at its bottom row) and leaves on : without this, an atlas built after the first
-        // texture was decoded on this thread came out upside down
+        // The icons are stored top row first. The stbi flip-on-load is per thread and texture decoding leaves it on, which turned atlases built later upside down.
         stbi_set_flip_vertically_on_load_thread(false);
 
-        // Load images
         for (size_t i = 0; i < iconPaths.size(); i++)
         {
             images[i] = stbi_load(iconPaths[i].c_str(),
@@ -57,13 +53,11 @@ namespace Shard::Editor::GUI {
             rects[i].id = static_cast<int>(i);
         }
 
-        // Pack rectangles
         stbrp_context ctx;
         std::vector<stbrp_node> nodes(atlasSize);
         stbrp_init_target(&ctx, atlasSize, atlasSize, nodes.data(), atlasSize);
         stbrp_pack_rects(&ctx, rects.data(), rects.size());
 
-        // Allocate atlas pixels
         std::vector<unsigned char> atlasPixels(width * height * 4, 0);
 
         for (size_t i = 0; i < rects.size(); i++)
@@ -85,15 +79,11 @@ namespace Shard::Editor::GUI {
             float u1 = (rect.x + rect.w) / (float)width;
             float v1 = (rect.y + rect.h) / (float)height;
 
-            // Assign region using the enum
             regions[iconTypes[i]] = { {u0, v0}, {u1, v1} };
         }
 
-        // Free images
         for (auto img : images)
             stbi_image_free(img);
-
-        // Create engine texture
 
         Engine::Rendering::TextureSpecifications specs;
 

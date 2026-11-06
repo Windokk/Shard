@@ -6,12 +6,7 @@
 
 namespace Shard::Engine::Core::Ecs {
 
-    /// @brief A 64-bit entity id : the low 32 bits are the INDEX (a slot in the registry), the high 32 bits are the
-    /// GENERATION (how many times that slot has been reused).
-    ///
-    /// The generation is what makes a stale id harmless : destroy an entity, its slot is recycled for another entity with
-    /// generation + 1, and the old id (generation N) no longer matches the slot (generation N + 1), so `IsAlive(old)` is false
-    /// instead of silently pointing at somebody else's data. Generation 0 is never used, so a zero-filled Entity is the null entity.
+    // Low 32 bits index, high 32 generation. Generation 0 is never used, so a zero Entity is null.
     struct Entity {
         uint64_t value = 0;
 

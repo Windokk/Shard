@@ -117,7 +117,6 @@ namespace Shard::Engine::Core {
         }
         else if (m_Mode == Mode::Play && m_Player && m_Verify && !m_Diverged)
         {
-            // A check set after the last frame that ran can never be reached : the run is shorter than the replay says
             for (const ReplayData::Check& check : m_Player->Data().checks)
             {
                 if (check.frames > m_Final.frame)

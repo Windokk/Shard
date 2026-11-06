@@ -32,7 +32,6 @@ namespace Shard::Engine::Core::Platform::AsyncIO {
 
         class UringBackend : public Backend {
         public:
-            // The ring is initialised by CreateNativeBackend (it can fail : old kernel, seccomp filter in a container...)
             explicit UringBackend(io_uring ring) : m_Ring(ring)
             {
                 m_Thread = std::thread([this] { Run(); });
@@ -42,7 +41,6 @@ namespace Shard::Engine::Core::Platform::AsyncIO {
             {
                 Drain();
 
-                // A NOP without a request wakes the completion thread up and tells it to stop
                 {
                     std::lock_guard<std::mutex> lock(m_RingMutex);
                     io_uring_sqe* sqe = GetSqe();
@@ -113,7 +111,6 @@ namespace Shard::Engine::Core::Platform::AsyncIO {
                 m_Idle.notify_all();
             }
 
-            // Called with m_RingMutex held. A full submission queue is flushed to make room.
             io_uring_sqe* GetSqe()
             {
                 io_uring_sqe* sqe = io_uring_get_sqe(&m_Ring);
@@ -194,10 +191,10 @@ namespace Shard::Engine::Core::Platform::AsyncIO {
                     io_uring_cqe_seen(&m_Ring, cqe);
 
                     if (!request)
-                        return;     // the stop NOP
+                        return;
 
                     if (result == -EINTR || result == -EAGAIN)
-                        Issue(request);     // nothing transferred : try the same chunk again
+                        Issue(request);
                     else if (result < 0)
                         Fail(request, std::string(request->write ? "can't write " : "can't read ") + request->path + " : " + std::strerror(-result));
                     else
@@ -214,7 +211,7 @@ namespace Shard::Engine::Core::Platform::AsyncIO {
             }
 
             io_uring m_Ring;
-            std::mutex m_RingMutex;     // the submission side of the ring is not thread safe
+            std::mutex m_RingMutex;
             std::thread m_Thread;
             std::mutex m_Mutex;
             std::condition_variable m_Idle;

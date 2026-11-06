@@ -1,17 +1,4 @@
-// shaderc : compiles the shaders of a directory to SPIR-V, with their reflection.
-//
-//   shaderc <shader root> <output directory> [options]
-//
-// Every program found under the root (name.vert + name.frag [+ name.geom], or name.comp, or one name.slang that has the entry points of its
-// stages : slangc compiles those, the Vulkan SDK has it, without it they are skipped) becomes <output>/<name>.spvpack. A program whose
-// sources, defines and compiler have not changed since the file was written is left alone (that is the cache : the output directory).
-//
-//   --define NAME[=VALUE]   a permutation : `#define NAME VALUE` is put before the first line of every stage. Several allowed.
-//   --only <name>           only the program with this name (relative to the root, no extension)
-//   --reflect               prints the reflection of what is compiled (JSON) instead of writing files
-//   --force                 compiles everything, whatever the cache says
-//   --quiet                 only errors
-//   -j <n>                  threads (default : all of them)
+// Compiles each shader program to <output>/<name>.spvpack with reflection. The output directory is also the cache.
 
 #include <algorithm>
 #include <atomic>
@@ -141,7 +128,6 @@ int main(int argc, char** argv)
             const ShaderCompiler::ProgramFiles& program = programs[index];
             const fs::path outPath = args.output / (program.name + ".spvpack");
 
-            // Includes are resolved first : they are part of what the cache is keyed on
             std::vector<ShaderCompiler::StageSource> stages;
             std::string includeErrors;
             for (size_t s = 0; s < static_cast<size_t>(ShaderStageKind::Count); s++)
@@ -167,7 +153,7 @@ int main(int argc, char** argv)
                 continue;
             }
 
-            // A Slang program needs slangc ; a machine that has none is not told that the whole build failed for it
+            // A Slang program needs slangc. Skip it quietly on machines without one instead of failing the build.
             if (stages.front().language == ShaderCompiler::SourceLanguage::Slang && slangc.empty())
             {
                 std::lock_guard<std::mutex> lock(printMutex);

@@ -15,8 +15,6 @@
 
 using namespace Shard::Engine::Core;
 
-// ------------------------------------------------------------------------------------------------------------ hash
-
 TEST(Hash, Fnv1aKnownVectors) {
     EXPECT_EQ(Fnv1a64(""), 0xcbf29ce484222325ull);
     EXPECT_EQ(Fnv1a64("a"), 0xaf63dc4c8601ec8cull);
@@ -38,11 +36,10 @@ TEST(Hash, Murmur3KnownVectors) {
 
 TEST(Hash, MixersScatterAndAreBijective) {
     EXPECT_NE(Mix32(1), Mix32(2));
-    EXPECT_EQ(Mix32(0), 0u);                         // known fixed point of the finaliser
+    EXPECT_EQ(Mix32(0), 0u);
     std::unordered_set<uint32_t> seen;
     for (uint32_t i = 0; i < 100000; ++i) seen.insert(Mix32(i));
-    EXPECT_EQ(seen.size(), 100000u);                 // no collision among consecutive inputs
-    // changing one input bit flips about half of the output bits
+    EXPECT_EQ(seen.size(), 100000u);
     int totalFlipped = 0;
     for (uint32_t i = 0; i < 1000; ++i) totalFlipped += __builtin_popcount(Mix32(i) ^ Mix32(i ^ 1));
     EXPECT_NEAR(totalFlipped / 1000.0, 16.0, 2.0);
@@ -53,23 +50,21 @@ TEST(Hash, CombineDependsOnOrder) {
     EXPECT_EQ(HashCombine(5, 6), HashCombine(5, 6));
 }
 
-TEST(Hash, HashIntsIsStableAndSensitive) {
+TEST(Hash, HashIntsIsStable) {
     EXPECT_EQ(HashInts(1, 2, 3, 4), HashInts(1, 2, 3, 4));
     EXPECT_NE(HashInts(1, 2, 3, 4), HashInts(2, 1, 3, 4));
     EXPECT_NE(HashInts(1, 2, 3, 4), HashInts(1, 2, 3, 5));
     EXPECT_NE(HashInts(-1, 0, 0, 0), HashInts(0, 0, 0, 0));
 }
 
-// -------------------------------------------------------------------------------------------------------- random
-
 TEST(Random, Pcg32ReferenceSequence) {
-    // The pcg32-demo of the PCG authors : seed 42, stream 54
+    // PCG authors' pcg32-demo: seed 42, stream 54.
     Random rng(42, 54);
     const uint32_t expected[] = {0xa15c02b7u, 0x7b47f409u, 0xba1d3330u, 0x83d2f293u, 0xbfa4784bu, 0xcbed606eu};
     for (uint32_t e : expected) EXPECT_EQ(rng.Next(), e);
 }
 
-TEST(Random, SameSeedSameSequenceDifferentSeedDiffers) {
+TEST(Random, SameSeedSameSequence) {
     Random a(1234), b(1234), c(1235);
     bool differs = false;
     for (int i = 0; i < 100; ++i) {
@@ -102,7 +97,7 @@ TEST(Random, FloatRangeAndMean) {
     EXPECT_NEAR(sum / 100000, 0.5, 0.01);
 }
 
-TEST(Random, BelowAndRangeStayInBoundsAndCoverAllValues) {
+TEST(Random, BelowAndRangeStayInBounds) {
     Random rng(5);
     std::set<int> seen;
     for (int i = 0; i < 2000; ++i) {
@@ -136,7 +131,7 @@ TEST(Random, GeometryHelpers) {
     }
 }
 
-TEST(Random, ShuffleIsAPermutationAndDeterministic) {
+TEST(Random, ShuffleIsPermutation) {
     std::vector<int> a(50), b(50);
     for (int i = 0; i < 50; ++i) a[i] = b[i] = i;
     Random r1(3), r2(3);
@@ -154,15 +149,13 @@ TEST(Random, SplitGivesIndependentGenerators) {
     Random child2 = parent.Split();
     EXPECT_NE(child1.Next(), child2.Next());
     Random parent2(11);
-    EXPECT_EQ(parent2.Split().Next(), Random(11).Split().Next());   // deterministic
+    EXPECT_EQ(parent2.Split().Next(), Random(11).Split().Next());
 }
 
 TEST(Random, SplitMixReference) {
     SplitMix64 sm(0);
-    EXPECT_EQ(sm.Next(), 0xe220a8397b1dcdafull);     // first output for seed 0 (Vigna's reference)
+    EXPECT_EQ(sm.Next(), 0xe220a8397b1dcdafull);     // SplitMix64 reference output for seed 0 (Vigna).
 }
-
-// --------------------------------------------------------------------------------------------------------- noise
 
 TEST(Noise, DeterministicAndSeedDependent) {
     EXPECT_EQ(Noise::Perlin(1.37f, 2.91f, 5), Noise::Perlin(1.37f, 2.91f, 5));
@@ -189,7 +182,7 @@ TEST(Noise, StaysInRange) {
     }
 }
 
-TEST(Noise, PerlinIsZeroOnTheLattice) {
+TEST(Noise, PerlinZeroOnLattice) {
     for (int x = -3; x <= 3; ++x)
         for (int y = -3; y <= 3; ++y) {
             EXPECT_FLOAT_EQ(Noise::Perlin(float(x), float(y), 77), 0.0f);
@@ -198,7 +191,6 @@ TEST(Noise, PerlinIsZeroOnTheLattice) {
 }
 
 TEST(Noise, IsContinuous) {
-    // A tiny step in the input never makes a big jump in the output
     const float eps = 1e-3f;
     float worst = 0;
     for (float x = -5; x < 5; x += 0.137f)
@@ -210,7 +202,7 @@ TEST(Noise, IsContinuous) {
     EXPECT_LT(worst, 0.02f);
 }
 
-TEST(Noise, HasVarianceAndIsRoughlyCentred) {
+TEST(Noise, HasVarianceAndCentred) {
     double sum = 0, sumSq = 0;
     constexpr int n = 40000;
     Random rng(2);
@@ -221,7 +213,7 @@ TEST(Noise, HasVarianceAndIsRoughlyCentred) {
     }
     const double mean = sum / n, variance = sumSq / n - mean * mean;
     EXPECT_NEAR(mean, 0.0, 0.03);
-    EXPECT_GT(variance, 0.03);                       // not flat
+    EXPECT_GT(variance, 0.03);
 }
 
 TEST(Noise, FbmCombinesOctaves) {
@@ -233,8 +225,7 @@ TEST(Noise, FbmCombinesOctaves) {
     EXPECT_NE(Noise::Fbm(0.5f, 0.7f, 4, many), Noise::Fbm(0.5f, 0.7f, 4, one));
 }
 
-TEST(Noise, WorleyIsZeroAtAFeaturePointAndSmallNearby) {
-    // somewhere the nearest feature point must be close : the maximum distance in a unit cell grid is < sqrt(2)
+TEST(Noise, WorleyZeroAtFeaturePoint) {
     Random rng(6);
     for (int i = 0; i < 1000; ++i)
         EXPECT_LT(Noise::Worley(rng.Range(-50.0f, 50.0f), rng.Range(-50.0f, 50.0f), 1), 1.42f);
@@ -253,15 +244,13 @@ TEST(Noise, ThreadSafe) {
     for (int t = 1; t < 4; ++t) EXPECT_EQ(results[0], results[t]);
 }
 
-// ---------------------------------------------------------------------------------------------------------- guid
-
-TEST(Guid, GenerateIsUniqueAndWellFormed) {
+TEST(Guid, GenerateIsUnique) {
     std::set<Guid> seen;
     for (int i = 0; i < 5000; ++i) {
         Guid g = Guid::Generate();
         EXPECT_FALSE(g.IsNull());
         EXPECT_EQ(g.Version(), 4);
-        EXPECT_EQ((g.low >> 62) & 0x3, 0x2u);        // RFC 4122 variant
+        EXPECT_EQ((g.low >> 62) & 0x3, 0x2u);
         EXPECT_TRUE(seen.insert(g).second);
     }
 }
@@ -283,8 +272,8 @@ TEST(Guid, StringRoundTrip) {
     auto parsed = Guid::Parse(g.ToString());
     ASSERT_TRUE(parsed.has_value());
     EXPECT_EQ(*parsed, g);
-    EXPECT_EQ(*Guid::Parse("01234567-89AB-CDEF-FEDC-BA9876543210"), g);    // case-insensitive
-    EXPECT_EQ(*Guid::Parse("{01234567-89ab-cdef-fedc-ba9876543210}"), g);  // braces
+    EXPECT_EQ(*Guid::Parse("01234567-89AB-CDEF-FEDC-BA9876543210"), g);
+    EXPECT_EQ(*Guid::Parse("{01234567-89ab-cdef-fedc-ba9876543210}"), g);
     Guid random = Guid::Generate();
     EXPECT_EQ(*Guid::Parse(random.ToString()), random);
 }
@@ -292,19 +281,19 @@ TEST(Guid, StringRoundTrip) {
 TEST(Guid, RejectsMalformedText) {
     EXPECT_FALSE(Guid::Parse("").has_value());
     EXPECT_FALSE(Guid::Parse("not a guid").has_value());
-    EXPECT_FALSE(Guid::Parse("01234567-89ab-cdef-fedc-ba987654321").has_value());       // too short
-    EXPECT_FALSE(Guid::Parse("01234567-89ab-cdef-fedc-ba98765432100").has_value());     // too long
-    EXPECT_FALSE(Guid::Parse("0123456789abcdef-fedc-ba9876543210xxxx").has_value());    // hyphens misplaced
-    EXPECT_FALSE(Guid::Parse("0123456g-89ab-cdef-fedc-ba9876543210").has_value());      // bad digit
-    EXPECT_FALSE(Guid::Parse("{01234567-89ab-cdef-fedc-ba9876543210").has_value());     // brace not closed
+    EXPECT_FALSE(Guid::Parse("01234567-89ab-cdef-fedc-ba987654321").has_value());
+    EXPECT_FALSE(Guid::Parse("01234567-89ab-cdef-fedc-ba98765432100").has_value());
+    EXPECT_FALSE(Guid::Parse("0123456789abcdef-fedc-ba9876543210xxxx").has_value());
+    EXPECT_FALSE(Guid::Parse("0123456g-89ab-cdef-fedc-ba9876543210").has_value());
+    EXPECT_FALSE(Guid::Parse("{01234567-89ab-cdef-fedc-ba9876543210").has_value());
 }
 
-TEST(Guid, FromNameIsDeterministicAndSensitive) {
+TEST(Guid, FromNameIsDeterministic) {
     EXPECT_EQ(Guid::FromName("textures/wall.png"), Guid::FromName("textures/wall.png"));
     EXPECT_NE(Guid::FromName("textures/wall.png"), Guid::FromName("textures/wall2.png"));
     EXPECT_EQ(Guid::FromName("x").Version(), 8);
     Guid ns1(1, 2), ns2(3, 4);
-    EXPECT_NE(Guid::FromName(ns1, "same"), Guid::FromName(ns2, "same"));    // the namespace matters
+    EXPECT_NE(Guid::FromName(ns1, "same"), Guid::FromName(ns2, "same"));
     EXPECT_FALSE(Guid::FromName("").IsNull());
 }
 
@@ -317,12 +306,10 @@ TEST(Guid, NullAndHash) {
     EXPECT_EQ(set.size(), 2u);
 }
 
-// ---------------------------------------------------------------------------------------------------------- math
-
 TEST(MathHelpers, Basics) {
     EXPECT_FLOAT_EQ(Math::Lerp(2.0f, 4.0f, 0.25f), 2.5f);
     EXPECT_FLOAT_EQ(Math::InverseLerp(2.0f, 4.0f, 3.0f), 0.5f);
-    EXPECT_FLOAT_EQ(Math::InverseLerp(1.0f, 1.0f, 5.0f), 0.0f);          // degenerate range
+    EXPECT_FLOAT_EQ(Math::InverseLerp(1.0f, 1.0f, 5.0f), 0.0f);
     EXPECT_FLOAT_EQ(Math::Remap(5.0f, 0.0f, 10.0f, 100.0f, 200.0f), 150.0f);
     EXPECT_FLOAT_EQ(Math::Saturate(1.5f), 1.0f);
     EXPECT_FLOAT_EQ(Math::Saturate(-1.0f), 0.0f);
@@ -345,12 +332,12 @@ TEST(MathHelpers, SmoothStepAndWrap) {
     EXPECT_FALSE(Math::Approx(1.0, 1.1));
 }
 
-TEST(LargeWorlds, DoubleKeepsPrecisionWhereFloatDoesNot) {
-    // 100 km from the origin a float cannot tell 1 mm apart, the double world position + local offset can
+TEST(LargeWorlds, DoubleKeepsPrecision) {
+    // At 100 km a float cannot resolve 1 mm. Double world position plus local offset can.
     const DVec3 origin(100000.0, 0.0, 0.0);
     const DVec3 a = origin + DVec3(0.001, 0.0, 0.0), b = origin + DVec3(0.002, 0.0, 0.0);
-    EXPECT_EQ(float(a.x), float(b.x));                                   // narrowed too early : they collapse
-    EXPECT_NE(ToLocal(a, origin).x, ToLocal(b, origin).x);               // relative to the origin : still distinct
+    EXPECT_EQ(float(a.x), float(b.x));
+    EXPECT_NE(ToLocal(a, origin).x, ToLocal(b, origin).x);
     EXPECT_NEAR(ToLocal(b, origin).x, 0.002f, 1e-6f);
     EXPECT_NEAR(ToWorld(ToLocal(b, origin), origin).x, b.x, 1e-6);
 }
@@ -362,7 +349,7 @@ TEST(LargeWorlds, MatrixIsRebasedBeforeNarrowing) {
     EXPECT_NEAR(local[3].x, 1.0f, 1e-6f);
     EXPECT_NEAR(local[3].y, 2.0f, 1e-6f);
     EXPECT_NEAR(local[3].z, 3.0f, 1e-6f);
-    EXPECT_NEAR(local[0].x, 2.0f, 1e-6f);                                // the scale survived
+    EXPECT_NEAR(local[0].x, 2.0f, 1e-6f);
 }
 
 TEST(LargeWorlds, ComposeTRSMatchesGlm) {

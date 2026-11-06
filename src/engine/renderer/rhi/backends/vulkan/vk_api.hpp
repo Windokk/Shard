@@ -25,7 +25,6 @@ namespace Shard::Engine::Rendering {
 
     namespace VK {
 
-        /// What a render pass draws into : the attachments of a framebuffer, as the API begins rendering with them
         struct RenderTarget
         {
             Image* color = nullptr;
@@ -33,7 +32,6 @@ namespace Shard::Engine::Rendering {
             VkImageView colorView = VK_NULL_HANDLE;
             VkImageView depthView = VK_NULL_HANDLE;
 
-            /// The colour attachments after the first (a G-buffer)
             static constexpr uint32_t kMaxExtraColors = 7;
             Image* extraColors[kMaxExtraColors] = {};
             VkImageView extraColorViews[kMaxExtraColors] = {};
@@ -44,25 +42,19 @@ namespace Shard::Engine::Rendering {
             VkImageView ColorViewAt(uint32_t index) const { return index == 0 ? colorView : extraColorViews[index - 1]; }
             uint32_t width = 0;
             uint32_t height = 0;
-            uint32_t layers = 1;        ///< more than one : a layered depth target (the point lights' shadow cubes), drawn with gl_Layer
+            uint32_t layers = 1;
             VkSampleCountFlagBits samples = VK_SAMPLE_COUNT_1_BIT;
 
             bool IsValid() const { return color || depth; }
             VkFormat ColorFormat() const { return color ? color->format : VK_FORMAT_UNDEFINED; }
             VkFormat DepthFormat() const { return depth ? depth->format : VK_FORMAT_UNDEFINED; }
 
-            /// What a pipeline has to be built for to draw into this target
             uint64_t Key() const;
         };
     }
 
-    /// @brief The Vulkan side of the renderer : it takes the same calls the OpenGL backend does (a bind of a framebuffer, a clear, uniforms
-    /// set by name on a shader, textures bound to units, a draw) and turns them into recorded commands.
-    ///
-    /// What OpenGL keeps as state of the context is kept here as tables : the texture units, the storage buffers, the image units. A draw
-    /// resolves them against the reflection of the shader it uses into descriptor sets, and the uniforms the shader was given by name into
-    /// a slice of the uniform ring. A render pass is begun when the first thing is drawn into the target (so that a Clear that follows a Bind
-    /// becomes the load operation of the pass), and ended when something else needs the command buffer to be outside of one.
+    // Takes the GL backend's calls and records them. GL context state is kept as tables, resolved against shader reflection into descriptor sets at draw.
+    // A render pass begins on the first draw into the target, so a Clear after Bind becomes its load op.
     class VKRendererAPI final : public RendererAPI
     {
         public:
@@ -72,10 +64,8 @@ namespace Shard::Engine::Rendering {
 
             static VKRendererAPI* Get() { return s_Instance; }
 
-            /// Creates the device. The window (if any) gives the surface the picture is presented on.
             bool Init();
 
-            // ---- RendererAPI ----
             void ExecuteDrawCommand(const DrawCommand& command, const std::shared_ptr<RenderPass> pass) override;
             void ExecuteComputeDispatch(const std::shared_ptr<ComputePipeline> pipeline, uint32_t groupsX, uint32_t groupsY, uint32_t groupsZ) override;
             void MemoryBarrier(MemoryBarrierBit barriers) override;
@@ -107,36 +97,24 @@ namespace Shard::Engine::Rendering {
             std::string GetRendererName() override;
             std::string GetDriverVersion() override;
 
-            // ---- What the objects of the backend call ----
-
             void BindStorageBuffer(uint32_t binding, uint32_t bufferId);
             void BindStorageImage(uint32_t unit, uint32_t textureId, TextureAccess access, uint32_t mip);
 
-            /// Framebuffer::Bind : what is drawn from now on goes there (null : nowhere)
             void SetTarget(VKFramebuffer* target);
             VKFramebuffer* GetTarget() const { return m_Target; }
 
-            /// Draws go to this render target (a face and a level of a cube map, a level of a texture...) instead of the framebuffer, until it is
-            /// set to null : what the generators of the image based lighting use. Ends the pass in progress.
             void SetTargetOverride(const VK::RenderTarget* target);
 
-            /// Issues a draw of `command` (a mesh and its index range) with a pipeline, the way it is, without the scene state a draw of the renderer gets
             void DrawDirect(const DrawCommand& command, const std::shared_ptr<Pipeline>& pipeline);
 
-            /// A framebuffer is going away or changing its attachments : it must not be the target
             void ForgetTarget(const VKFramebuffer* target);
 
-            /// Closes the render pass in progress (applying a clear nothing has drawn after). A no-op outside one.
             void EndRendering();
 
-            /// Whether a render pass is open
             bool IsRendering() const { return m_RenderingActive; }
 
-            /// Presents the picture : copies `color` over the window
             bool PresentImage(VK::Image& color, uint32_t screenWidth, uint32_t screenHeight);
 
-            /// Debug markers around a group of commands (RenderDoc, the validation layers' reports) : they stay balanced when the commands are
-            /// submitted in the middle of a group (the label is closed in one command buffer and opened again in the next)
             void PushDebugGroup(const char* name) override;
             void PopDebugGroup() override;
 
@@ -144,7 +122,6 @@ namespace Shard::Engine::Rendering {
 
         private:
 
-            /// A texture the user interface shows : the id it is drawn by is made of the image, the sampler and the layout at the time
             struct UITexture
             {
                 VkImageView view = VK_NULL_HANDLE;
@@ -167,10 +144,9 @@ namespace Shard::Engine::Rendering {
             void BeginRendering();
             void PrepareSampledImages(VKShader& shader);
 
-            /// Builds the descriptor sets the program reads from the tables (texture units, storage buffers, image units) and the uniforms, and binds them
             void BindDescriptors(VKProgram& program, VkPipelineBindPoint bindPoint, bool layoutChanged);
 
-            /// Only what is inside this rectangle (in the target's pixels, from the bottom left) is drawn, until it is cleared
+            // In target pixels, from the bottom left.
             void SetScissor(const VkRect2D* rect);
 
             void IssueDraw(const DrawCommand& command, const std::shared_ptr<Pipeline>& pipeline, bool fullscreen, bool depthOnly);
@@ -180,7 +156,6 @@ namespace Shard::Engine::Rendering {
             void BindLightmap(const DrawCommand& command, const std::shared_ptr<Shader>& shader);
             void ExecuteDepthOnlyDraw(const DrawCommand& command);
 
-            /// The first time a shader is drawn with this since the pass started (see NeedsPassGlobalsUpdate in the OpenGL backend)
             enum class PassGlobalsKind { World = 0, Camera = 1, DepthSweep = 2, Count = 3 };
             bool NeedsPassGlobalsUpdate(uint32_t shaderId, PassGlobalsKind kind);
 
@@ -192,13 +167,11 @@ namespace Shard::Engine::Rendering {
             ComputeLimits m_ComputeLimits;
             glm::vec4 m_ClearColor = glm::vec4(0, 0, 0, 1);
 
-            // The tables OpenGL keeps in its context
             std::array<uint32_t, 80> m_TextureUnits{};
             std::array<ImageUnit, 16> m_ImageUnits{};
             std::array<uint32_t, 40> m_StorageBuffers{};
             uint32_t m_IndirectBuffer = 0;
 
-            // The pass in progress
             VKFramebuffer* m_Target = nullptr;
             VK::RenderTarget m_OverrideTarget;
             bool m_HasOverride = false;
@@ -209,7 +182,6 @@ namespace Shard::Engine::Rendering {
             VkViewport m_Viewport{};
             bool m_ViewportSet = false;
 
-            // What is bound on the command buffer, to skip what is already in place
             VkPipeline m_BoundPipeline = VK_NULL_HANDLE;
             VkPipelineBindPoint m_BoundBindPoint = VK_PIPELINE_BIND_POINT_GRAPHICS;
             VkBuffer m_BoundVertexBuffer = VK_NULL_HANDLE;
@@ -225,18 +197,16 @@ namespace Shard::Engine::Rendering {
             bool m_ScissorSet = false;
             VkRect2D m_BoundScissor{};
 
-            // The 2D overlay of shard.render (see vk_overlay.cpp)
             struct OverlayResources
             {
                 std::shared_ptr<Shader> shader;
                 std::shared_ptr<Pipeline> pipeline;
                 std::shared_ptr<StorageBuffer> vertices, indices;
-                uint32_t vertexCapacity = 0, indexCapacity = 0;     // in bytes
+                uint32_t vertexCapacity = 0, indexCapacity = 0;
                 bool failed = false;
             };
             OverlayResources m_Overlay;
 
-            // Depth sweeps and wireframe
             DepthSweep m_Sweep = DepthSweep::None;
             std::vector<std::shared_ptr<Shader>> m_PrepassShaders;
             bool m_ForceLine = false;

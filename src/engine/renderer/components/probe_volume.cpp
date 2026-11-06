@@ -25,7 +25,6 @@ namespace Shard::Engine::Objects::Components{
 
     ProbeVolume::ProbeVolume(std::shared_ptr<Actor> parent, uint32_t local_id) : Volume(parent, local_id)
     {
-        // A probe volume defaults to a room-sized box rather than Volume's generic 1x1x1 default.
         halfExtent = glm::vec3(5.0f, 3.0f, 5.0f);
     }
 
@@ -50,16 +49,10 @@ namespace Shard::Engine::Objects::Components{
 
     void ProbeVolume::Deserialize(const json componentData)
     {
-        // "maxBounces" is deliberately not read any more : bounce depth stopped being a setting when
-        // multi-bounce moved to a cross-frame feedback loop (see ProbeManager's class comment), and a
-        // world authored before that change would otherwise keep asking for N times the ray cost to get
-        // FEWER bounces than it now gets for free. It is not a field, so it is simply ignored (and it
-        // stops being written on the next save).
+        // "maxBounces" is ignored on load. Multi-bounce is now a cross-frame feedback loop, and old worlds would pay N times the ray cost for fewer bounces. Not written on next save.
 
-        // The fields are only loaded, not applied : the renderer builds the grid when it first sees the volume
         DeserializeReflectedFields(componentData, false);
 
-        // Read by the renderer when it first sees the volume. Not a field : the editor doesn't show it
         if (componentData.contains("bakedData") && componentData["bakedData"].is_string())
             bakedData = componentData["bakedData"].get<std::string>();
         else
@@ -82,15 +75,13 @@ namespace Shard::Engine::Objects::Components{
     {
         std::shared_ptr<ProbeVolume> clone = Object::Create<ProbeVolume>(*this);
 
-        // A copy is a different volume : if it kept the reference, baking either of the two would
-        // overwrite the file the other one is still loading.
+        // A copy must not keep the reference, baking either volume would overwrite the file the other still loads
         clone->bakedData.clear();
 
         return clone;
     }
 
     namespace {
-        // Keeps a world/actor name usable as part of a file name on every platform.
         std::string SanitizeForFileName(const std::string& name)
         {
             std::string out;
@@ -112,9 +103,7 @@ namespace Shard::Engine::Objects::Components{
         Core::IEngineContext* engine = GetEngineContext();
         const Filesystem::Path resRoot = engine->GetFileManager()->GetProjectResRoot();
 
-        // Re-bake : overwrite this volume's own file. First bake : a new file in the project's "probes"
-        // folder. Its name only has to be unique NOW - once written, the world file stores the full path,
-        // so it doesn't matter that actor names (or the world's) can change later.
+        // Re-bake overwrites the volume's own file. First bake writes a new unique file in "probes". The world stores the full path, so later renames do not matter.
         std::string relative = bakedData;
         if (relative.empty())
         {
@@ -140,17 +129,14 @@ namespace Shard::Engine::Objects::Components{
             return;
         }
 
-        // The asset database is otherwise only read at project load, so without this the file has no ID
-        // and the next world load couldn't resolve its path.
+        // The asset database is only read at project load, so without this the file has no ID and the next world load cannot resolve it
         fileManager->RegisterAsset(file);
 
         bakedData = nameInProject;
 
-        // A previous bake of this volume may still be cached (CPU side) from an earlier load.
         engine->GetResourcesManager()->Unload(Core::Resources::AssetKind::ProbeBake, bakedData);
 
-        // Written straight away rather than at project shutdown, so a crash between here and then can't
-        // leave a saved world pointing at a file the database has never heard of.
+        // Written now, not at shutdown, so a crash cannot leave a saved world pointing at a file the database does not know
         if (auto project = engine->GetCurrentProject())
             Serialization::SerializeAssetDataBase(project->GetAssetDatabasePath(), *engine->GetAssetIDManager());
 
@@ -185,7 +171,6 @@ namespace Shard::Engine::Objects::Components{
             bakedData.clear();
         }
 
-        // The renderer sees the baked data gone at the next extraction and puts the volume back on live updates
         if (parent && parent->world)
             parent->world->SetDirty(true);
     }

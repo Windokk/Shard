@@ -33,7 +33,7 @@ TEST_F(ActorTest, CreationAutoAddsTransformComponent) {
     EXPECT_EQ(actor->GetComponents().size(), 1u);
 }
 
-TEST_F(ActorTest, GetNameAndSetNameRoundtrip) {
+TEST_F(ActorTest, NameRoundtrip) {
     auto actor = Object::CreateWithContext<Actor>(&context, std::string("Player"), &context);
 
     EXPECT_EQ(actor->GetName(), "Player");
@@ -43,7 +43,7 @@ TEST_F(ActorTest, GetNameAndSetNameRoundtrip) {
     EXPECT_EQ(actor->GetName(), "Renamed");
 }
 
-TEST_F(ActorTest, AddComponentAppendsToComponentList) {
+TEST_F(ActorTest, AddComponentAppends) {
     auto actor = Object::CreateWithContext<Actor>(&context, std::string("Player"), &context);
 
     auto camera = actor->AddComponent<Camera>();
@@ -53,13 +53,13 @@ TEST_F(ActorTest, AddComponentAppendsToComponentList) {
     EXPECT_EQ(actor->GetComponents().size(), 2u);
 }
 
-TEST_F(ActorTest, HasComponentIsFalseForComponentTypeNeverAdded) {
+TEST_F(ActorTest, HasComponentFalseWhenAbsent) {
     auto actor = Object::CreateWithContext<Actor>(&context, std::string("Player"), &context);
 
     EXPECT_FALSE(actor->HasComponent<PhysicsBody>());
 }
 
-TEST_F(ActorTest, GetComponentReturnsNthMatchByInsertionOrder) {
+TEST_F(ActorTest, GetComponentNthMatch) {
     auto actor = Object::CreateWithContext<Actor>(&context, std::string("Player"), &context);
 
     auto first = actor->AddComponent<Camera>();
@@ -69,7 +69,7 @@ TEST_F(ActorTest, GetComponentReturnsNthMatchByInsertionOrder) {
     EXPECT_EQ(actor->GetComponent<Camera>(1), second);
 }
 
-TEST_F(ActorTest, GetComponentsReturnsAllMatchesOfType) {
+TEST_F(ActorTest, GetComponentsAllMatches) {
     auto actor = Object::CreateWithContext<Actor>(&context, std::string("Player"), &context);
 
     actor->AddComponent<Camera>();
@@ -78,7 +78,7 @@ TEST_F(ActorTest, GetComponentsReturnsAllMatchesOfType) {
     EXPECT_EQ(actor->GetComponents<Camera>().size(), 2u);
 }
 
-TEST_F(ActorTest, AddingSecondTransformFailsAndReturnsNull) {
+TEST_F(ActorTest, SecondTransformFails) {
     auto actor = Object::CreateWithContext<Actor>(&context, std::string("Player"), &context);
 
     auto second = actor->AddComponent<Transform>();
@@ -93,7 +93,7 @@ TEST_F(ActorTest, IsActiveDefaultsToTrue) {
     EXPECT_TRUE(actor->IsActive());
 }
 
-TEST_F(ActorTest, ComponentParentPointsBackToOwningActor) {
+TEST_F(ActorTest, ComponentParentIsOwner) {
     auto actor = Object::CreateWithContext<Actor>(&context, std::string("Player"), &context);
 
     auto camera = actor->AddComponent<Camera>();
@@ -101,7 +101,7 @@ TEST_F(ActorTest, ComponentParentPointsBackToOwningActor) {
     EXPECT_EQ(camera->parent, actor);
 }
 
-TEST_F(ActorTest, GetComponentIDInWorldPacksActorAndComponentIndex) {
+TEST_F(ActorTest, ComponentIdPacksIndices) {
     auto actor = Object::CreateWithContext<Actor>(&context, std::string("Player"), &context);
 
     int packed = actor->GetComponentIDInWorld(2);
@@ -109,7 +109,7 @@ TEST_F(ActorTest, GetComponentIDInWorldPacksActorAndComponentIndex) {
     EXPECT_EQ(packed, (actor->GetID().GetAsInt() << 12) | 2);
 }
 
-TEST_F(ActorTest, ActorAndItsComponentsResolveTheInjectedEngineContext) {
+TEST_F(ActorTest, ComponentsResolveEngineContext) {
     auto actor = Object::CreateWithContext<Actor>(&context, std::string("Player"), &context);
     auto camera = actor->AddComponent<Camera>();
 
@@ -117,9 +117,9 @@ TEST_F(ActorTest, ActorAndItsComponentsResolveTheInjectedEngineContext) {
     EXPECT_EQ(camera->GetEngineContext(), &context);
 }
 
-// The Actor / Component API is a facade : every actor owns an entity of the engine's registry, kept in sync with it
+// The Actor/Component API is a facade: every actor owns an entity in the engine registry, kept in sync.
 
-TEST_F(ActorTest, EveryActorOwnsAnEntityLinkedBackToIt) {
+TEST_F(ActorTest, ActorOwnsLinkedEntity) {
     auto actor = Object::CreateWithContext<Actor>(&context, std::string("Player"), &context);
 
     Ecs::Registry* ecs = context.GetEcs();
@@ -129,7 +129,7 @@ TEST_F(ActorTest, EveryActorOwnsAnEntityLinkedBackToIt) {
     EXPECT_EQ(link->objectId, actor->GetID().GetAsInt());
 }
 
-TEST_F(ActorTest, ActorHierarchyIsMirroredByTheEntities) {
+TEST_F(ActorTest, HierarchyMirroredInEntities) {
     auto parent = Object::CreateWithContext<Actor>(&context, std::string("Parent"), &context);
     auto a = Object::CreateWithContext<Actor>(&context, std::string("A"), &context);
     auto b = Object::CreateWithContext<Actor>(&context, std::string("B"), &context);
@@ -141,15 +141,15 @@ TEST_F(ActorTest, ActorHierarchyIsMirroredByTheEntities) {
     EXPECT_EQ(ecs->ChildCount(parent->GetEntity()), 2u);
     EXPECT_EQ(ecs->FirstChild(parent->GetEntity()), a->GetEntity());
 
-    b->SetParent(a);                                           // reparent through the actor API
+    b->SetParent(a);
     EXPECT_EQ(ecs->GetParent(b->GetEntity()), a->GetEntity());
     EXPECT_EQ(ecs->ChildCount(parent->GetEntity()), 1u);
 
-    b->SetParent(nullptr);                                     // back to the root
+    b->SetParent(nullptr);
     EXPECT_EQ(ecs->GetParent(b->GetEntity()), Ecs::kNullEntity);
 }
 
-TEST_F(ActorTest, DestroyingAnActorReleasesItsEntityAndItsChildrens) {
+TEST_F(ActorTest, DestroyReleasesEntities) {
     auto parent = Object::CreateWithContext<Actor>(&context, std::string("Parent"), &context);
     auto child = Object::CreateWithContext<Actor>(&context, std::string("Child"), &context);
     parent->AddChild(child);
@@ -166,8 +166,8 @@ TEST_F(ActorTest, DestroyingAnActorReleasesItsEntityAndItsChildrens) {
     EXPECT_EQ(ecs->Count(), before - 2);
 }
 
-// Each child takes itself out of its parent's list while it is destroyed : walking that list directly skipped every other one
-TEST_F(ActorTest, DestroyingAnActorDestroysAllOfItsChildren) {
+// Each child removes itself from its parent's list while destroyed. Walking that list directly skipped every other one.
+TEST_F(ActorTest, DestroyDestroysChildren) {
     auto parent = Object::CreateWithContext<Actor>(&context, std::string("Parent"), &context);
     std::vector<std::shared_ptr<Actor>> children;
     for (int i = 0; i < 4; i++) {
@@ -188,12 +188,12 @@ TEST_F(ActorTest, DestroyingAnActorDestroysAllOfItsChildren) {
     }
 }
 
-TEST_F(ActorTest, TransformChangesAreMirroredOnTheEntity) {
+TEST_F(ActorTest, TransformMirroredOnEntity) {
     auto actor = Object::CreateWithContext<Actor>(&context, std::string("Mover"), &context);
     Ecs::Registry* ecs = context.GetEcs();
 
     const auto* mirror = ecs->TryGet<Shard::Engine::Worlds::LocalTransform>(actor->GetEntity());
-    ASSERT_NE(mirror, nullptr);                                       // there from the start
+    ASSERT_NE(mirror, nullptr);
     EXPECT_EQ(mirror->scale, glm::vec3(1.0f));
 
     actor->transform->SetPosition(glm::vec3(1, 2, 3));
@@ -202,7 +202,6 @@ TEST_F(ActorTest, TransformChangesAreMirroredOnTheEntity) {
     EXPECT_EQ(mirror->position, glm::vec3(1, 2, 3));
     EXPECT_EQ(mirror->scale, glm::vec3(2, 2, 2));
 
-    // A system sees it through an ordinary query
     int seen = 0;
     ecs->Each<const Shard::Engine::Worlds::LocalTransform>([&](const Shard::Engine::Worlds::LocalTransform& t) {
         if (t.position == glm::vec3(1, 2, 3)) ++seen;
@@ -210,20 +209,19 @@ TEST_F(ActorTest, TransformChangesAreMirroredOnTheEntity) {
     EXPECT_EQ(seen, 1);
 }
 
-TEST_F(ActorTest, DestroyingAnActorFromInsideAQueryIsDeferred) {
+TEST_F(ActorTest, DestroyInQueryIsDeferred) {
     auto actor = Object::CreateWithContext<Actor>(&context, std::string("Doomed"), &context);
     Ecs::Registry* ecs = context.GetEcs();
     const Ecs::Entity entity = actor->GetEntity();
 
     ecs->Each<Shard::Engine::Worlds::ActorLink>([&](Shard::Engine::Worlds::ActorLink&) { actor->Destroy(); });
-    EXPECT_TRUE(ecs->IsAlive(entity));                                // the query was running
+    EXPECT_TRUE(ecs->IsAlive(entity));
     ecs->FlushDeferred();
     EXPECT_FALSE(ecs->IsAlive(entity));
 }
 
-// An actor and its components point at each other : once the actor is destroyed and the world changed (which resets the object IDs), nothing
-// of it may survive, or what a component holds (a model's mesh) stays loaded for good and its asset can never be deleted
-TEST_F(ActorTest, ADestroyedActorAndItsComponentsAreFreedOnceTheWorldChanges) {
+// Actor and components point at each other. After destroy plus world change (object IDs reset) nothing may survive, or a model's mesh stays loaded and its asset can never be deleted.
+TEST_F(ActorTest, DestroyedActorFreedOnChange) {
     std::weak_ptr<Actor> weakActor;
     std::weak_ptr<Transform> weakTransform;
     {
@@ -232,9 +230,9 @@ TEST_F(ActorTest, ADestroyedActorAndItsComponentsAreFreedOnceTheWorldChanges) {
         weakTransform = actor->transform;
         actor->Destroy();
     }
-    EXPECT_TRUE(weakActor.expired());                                 // nothing outside holds it, and its components do not either
+    EXPECT_TRUE(weakActor.expired());
 
-    context.GetObjectIDManager()->Reset();                            // what loading another world does
+    context.GetObjectIDManager()->Reset();
     EXPECT_TRUE(weakTransform.expired());
 }
 

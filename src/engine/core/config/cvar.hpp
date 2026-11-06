@@ -22,23 +22,20 @@
 
 namespace Shard::Engine::Core {
 
-    /// Where a value comes from. Later layers override earlier ones : a value set on the command line wins over the
-    /// user's file, which wins over the project's, which wins over the engine's, which wins over the default in the code.
-    /// Runtime (the console, code calling Set) wins over everything and is dropped by Reset.
+    // Later layers win: Default, Engine, Project, User, CommandLine, Runtime (console, Set). Reset drops Runtime.
     enum class ConfigLayer : uint8_t { Default, Engine, Project, User, CommandLine, Runtime };
     inline constexpr size_t kConfigLayerCount = 6;
     const char* ConfigLayerName(ConfigLayer layer);
 
     enum class CVarFlags : uint32_t {
         None = 0,
-        ReadOnly = 1 << 0,      ///< cannot be changed from the console or by Set() : only config files and the owner (ForceSet)
-        Archive = 1 << 1,       ///< saved to the user config file when its value differs from the default
-        Hidden = 1 << 2,        ///< not listed by `list` and completion (still usable by name)
+        ReadOnly = 1 << 0,
+        Archive = 1 << 1,
+        Hidden = 1 << 2,
     };
     constexpr CVarFlags operator|(CVarFlags a, CVarFlags b) { return CVarFlags(uint32_t(a) | uint32_t(b)); }
     constexpr bool HasFlag(CVarFlags flags, CVarFlags flag) { return (uint32_t(flags) & uint32_t(flag)) != 0; }
 
-    /// @brief What the registry sees of a console variable, whatever its type.
     class CVarBase {
     public:
         using ChangeFn = std::function<void(const CVarBase&)>;
@@ -52,16 +49,13 @@ namespace Shard::Engine::Core {
         CVarFlags Flags() const { return m_Flags; }
 
         virtual const char* TypeName() const = 0;
-        virtual std::string ToString() const = 0;               ///< current value, as text
+        virtual std::string ToString() const = 0;
         virtual std::string DefaultString() const = 0;
-        /// @brief Parses `text`, applies it (clamped to the range of numeric variables). False + message if it is not a
-        /// valid value of this type. Layers and ReadOnly are the registry's business, this just sets the value.
         virtual bool FromString(std::string_view text, std::string* error) = 0;
         virtual void ResetToDefault() = 0;
 
         bool IsDefault() const { return ToString() == DefaultString(); }
 
-        /// @brief Called (on the thread that changed the value) after every change of value.
         void AddOnChange(ChangeFn fn);
 
     protected:
@@ -109,8 +103,7 @@ namespace Shard::Engine::Core {
         template <> struct CVarTraits<float> {
             static constexpr const char* kName = "float";
             static std::string Format(float v) {
-                // The shortest text that reads back as the same float ("0.5", "1e-07") : std::to_string's 6 fixed decimals
-                // saved 1e-7 as "0", and IsDefault() / the archive compare these strings
+                // Shortest text that reads back as the same float. std::to_string saved 1e-7 as "0", and IsDefault() and the archive compare these strings.
                 char buffer[32];
                 for (int precision = 6; precision <= 9; ++precision) {
                     std::snprintf(buffer, sizeof(buffer), "%.*g", precision, static_cast<double>(v));
@@ -124,7 +117,7 @@ namespace Shard::Engine::Core {
                 char* end = nullptr;
                 errno = 0;
                 const float v = std::strtof(s.c_str(), &end);
-                // strtof takes "nan" / "inf", which std::clamp lets through the cvar's range
+                // strtof accepts "nan" and "inf", which std::clamp lets through the range
                 if (errno == ERANGE || end != s.c_str() + s.size() || !std::isfinite(v)) return false;
                 out = v;
                 return true;
@@ -137,7 +130,6 @@ namespace Shard::Engine::Core {
             static bool Parse(std::string_view text, std::string& out) { out = std::string(text); return true; }
         };
 
-        /// Atomic for the arithmetic types (read from any thread, e.g. by jobs), a mutex for strings.
         template <typename T, bool = std::is_arithmetic_v<T>>
         struct CVarStorage {
             explicit CVarStorage(T v) : value(v) {}
@@ -158,18 +150,7 @@ namespace Shard::Engine::Core {
 
     class CVarRegistry;
 
-    /// @brief A named, typed setting that can be read from anywhere, changed from the console or a config file, and
-    /// reacted to. Declare it as a static or a member :
-    ///
-    ///     static CVar<int> cvIdleSpins("jobs.idle_spins", 64, "Spins before an idle worker sleeps", CVarFlags::Archive, 0, 100000);
-    ///     ...
-    ///     for (int i = 0; i < cvIdleSpins.Get(); ++i) ...
-    ///
-    /// Supported types : bool, int, float, std::string. Names are case-insensitive, dotted by convention
-    /// ("system.name"). A CVar registers itself with CVarRegistry::Global() and unregisters when destroyed.
-    ///
-    /// A CVar defined in a translation unit that nothing else references can be dropped by the linker when it sits in
-    /// a static library : define them next to the code that reads them.
+    // Define CVars next to the code that reads them. The linker can drop an unreferenced one from a static library.
     template <typename T>
     class CVar final : public CVarBase {
         static_assert(std::is_same_v<T, bool> || std::is_same_v<T, int> || std::is_same_v<T, float> || std::is_same_v<T, std::string>,
@@ -177,11 +158,9 @@ namespace Shard::Engine::Core {
         using Traits = Detail::CVarTraits<T>;
 
     public:
-        /// @param min,max range of numeric variables (values outside are clamped) ; ignored for bool and string.
         CVar(std::string name, T defaultValue, std::string description = {}, CVarFlags flags = CVarFlags::None,
              T min = DefaultMin(), T max = DefaultMax());
-        /// In a given registry instead of Global() : a plugin's variables go to the host's registry, not to the copy of the
-        /// registry its own binary carries.
+        // A plugin's variables go to the host's registry, not the copy its own binary carries
         CVar(CVarRegistry& registry, std::string name, T defaultValue, std::string description = {}, CVarFlags flags = CVarFlags::None,
              T min = DefaultMin(), T max = DefaultMax());
         ~CVar() override;
@@ -189,12 +168,8 @@ namespace Shard::Engine::Core {
         T Get() const { return m_Storage.Load(); }
         operator T() const { return Get(); }
 
-        /// @brief Sets the value on the Runtime layer, like typing it in the console. False if the variable is
-        /// ReadOnly or the value is out of what it accepts.
         bool Set(const T& value);
 
-        /// @brief The owner changing its own variable (even a ReadOnly one), bypassing the layers : to publish a
-        /// computed value such as "jobs.workers".
         void ForceSet(const T& value) { Apply(value); }
 
         const char* TypeName() const override { return Traits::kName; }
@@ -228,17 +203,11 @@ namespace Shard::Engine::Core {
         CVarRegistry* m_Registry;
     };
 
-    /// @brief What running a console line gives back.
     struct CommandResult {
         bool ok = true;
-        std::string output;             ///< text to show the user (may be empty, may span lines)
+        std::string output;
     };
 
-    /// @brief Every CVar and console command, plus the layered values that feed the CVars.
-    ///
-    /// Values can arrive before the CVar exists (a config file is loaded at startup, the CVar is created by a later
-    /// static initialiser or a module loaded afterwards) : the registry keeps them per layer and applies the winning one
-    /// as soon as the CVar registers.
     class CVarRegistry {
     public:
         using CommandFn = std::function<CommandResult(const std::vector<std::string>& args)>;
@@ -248,75 +217,47 @@ namespace Shard::Engine::Core {
         CVarRegistry(const CVarRegistry&) = delete;
         CVarRegistry& operator=(const CVarRegistry&) = delete;
 
-        /// The process-wide registry that CVar uses.
         static CVarRegistry& Global();
 
-        // ---- CVars ----
         CVarBase* Find(std::string_view name) const;
-        /// Non-hidden variables whose name starts with `prefix`, sorted by name.
         std::vector<CVarBase*> List(std::string_view prefix = {}) const;
-        /// Names (variables and commands) starting with `prefix`, sorted : for console completion.
         std::vector<std::string> Complete(std::string_view prefix) const;
 
-        /// @brief One thing the console can offer while the user types : a command or a variable, with what is useful to pick it.
         struct Suggestion {
             enum class Kind : uint8_t { Command, Variable };
             Kind kind = Kind::Command;
             std::string name;
-            std::string help;           ///< a command's usage line, or a variable's description
-            std::string type;           ///< variables : bool / int / float / string
-            std::string value;          ///< variables : the current value
-            std::string defaultValue;   ///< variables : what it is without config files and console
+            std::string help;
+            std::string type;
+            std::string value;
+            std::string defaultValue;
             bool readOnly = false;
         };
 
-        /// @brief What matches `text`, best first : names that start with it, then names that contain it (a name's later words
-        /// count : "occ" finds "render.occlusion"). Hidden variables are left out. At most `max` entries.
         std::vector<Suggestion> Suggest(std::string_view text, size_t max = 64, bool commands = true, bool variables = true) const;
 
-        /// @brief The command or variable called exactly `name` (case does not matter), or nothing.
         std::optional<Suggestion> Describe(std::string_view name) const;
 
-        // Used by CVar's constructor and destructor
         void Register(CVarBase* cvar);
         void Unregister(CVarBase* cvar);
 
-        // ---- Layers ----
-        /// @brief Records `value` for `name` in `layer` and, if the variable exists, applies the value that now wins.
-        /// The Runtime layer refuses ReadOnly variables. False + message if the value is not valid for the variable
-        /// (the layer then keeps nothing for it).
         bool SetLayerValue(ConfigLayer layer, std::string_view name, std::string_view value, std::string* error = nullptr);
-        /// @brief Forgets the value of `name` in `layer` and re-applies whatever wins now (or the default).
         bool ClearLayerValue(ConfigLayer layer, std::string_view name);
         void ClearLayer(ConfigLayer layer);
         std::optional<std::string> GetLayerValue(ConfigLayer layer, std::string_view name) const;
-        /// The layer whose value is applied to `name` (Default when no layer has one).
         ConfigLayer WinningLayer(std::string_view name) const;
-        /// @brief Drops the Runtime value : the variable goes back to what the other layers say.
         bool Reset(std::string_view name);
 
-        // ---- Files ----
-        /// @brief Reads "key = value" lines into `layer`. `# comment` and `; comment` lines are ignored, `[section]` prefixes
-        /// the following keys with "section.". Returns how many values were set ; lines that are wrong are skipped and
-        /// described in `warnings`.
         size_t LoadText(ConfigLayer layer, std::string_view text, std::vector<std::string>* warnings = nullptr);
         Result<size_t> LoadFile(ConfigLayer layer, const std::string& path, std::vector<std::string>* warnings = nullptr);
-        /// @brief Writes the Archive variables set by the user (console, or the user file) and different from their default, as
-        /// "key = value" lines. Values that come from the engine / project files or the command line are not the user's choice.
         Result<size_t> SaveArchive(const std::string& path) const;
         std::string ArchiveText() const;
-        /// @brief Command line : "+name=value" or "+name value" sets `name` on the CommandLine layer. Other arguments are
-        /// left alone. Returns how many were applied.
         size_t ParseCommandLine(int argc, const char* const* argv, std::vector<std::string>* warnings = nullptr);
 
-        // ---- Commands ----
         void RegisterCommand(std::string name, std::string help, CommandFn fn);
         void UnregisterCommand(std::string_view name);
-        /// @brief Runs one console line : a command with its arguments, or a variable name (shows it) or a variable name
-        /// followed by a value (sets it on the Runtime layer). Quotes group words : set name "a b".
         CommandResult Execute(std::string_view line);
 
-        /// @brief Splits a line into words ("double quotes" keep spaces together).
         static std::vector<std::string> Tokenize(std::string_view line);
 
     private:
@@ -332,12 +273,10 @@ namespace Shard::Engine::Core {
         void RegisterBuiltinCommands();
 
         mutable std::mutex m_Mutex;
-        std::vector<std::pair<std::string, CVarBase*>> m_CVars;        // lowercase name -> variable
-        std::vector<std::pair<std::string, LayerValues>> m_Layers;      // lowercase name -> value per layer
+        std::vector<std::pair<std::string, CVarBase*>> m_CVars;
+        std::vector<std::pair<std::string, LayerValues>> m_Layers;
         std::vector<std::pair<std::string, Command>> m_Commands;
     };
-
-    // ---- CVar<T> out-of-line ----
 
     template <typename T>
     CVar<T>::CVar(std::string name, T defaultValue, std::string description, CVarFlags flags, T min, T max)
@@ -347,7 +286,7 @@ namespace Shard::Engine::Core {
             m_Default = std::clamp(m_Default, m_Min, m_Max);
             m_Storage.Store(m_Default);
         }
-        m_Registry->Register(this);          // applies a value that was waiting for this variable
+        m_Registry->Register(this);
     }
 
     template <typename T>

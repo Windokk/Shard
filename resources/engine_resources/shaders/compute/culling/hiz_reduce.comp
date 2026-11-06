@@ -1,9 +1,6 @@
 #version 430 core
 
-// One step down the Hi-Z pyramid : each texel of level L is the MAX (farthest) of the level L-1 texels it covers.
-// A level with an odd size can't be split into exact 2x2 blocks, so the last texel of an odd dimension also takes
-// the one extra source row/column left over - otherwise that sliver of the screen would drop out of the pyramid and
-// an object over it could be tested against a depth that doesn't include it.
+// Odd-sized levels: the last texel also takes the leftover source row/column, or that sliver would drop out of the pyramid.
 
 layout(local_size_x = 8, local_size_y = 8) in;
 

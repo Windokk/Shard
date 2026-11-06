@@ -26,9 +26,6 @@
 
 #include "config.h"
 
-// The interfaces of the C ABI past the base (components, ECS, systems, events, hooks, services, extensions, content, state), through
-// the C plugins of tests/plugin_fixtures/c_plugin and c_consumer, loaded for real.
-
 using namespace Shard::Engine;
 using namespace Shard::Engine::Plugins;
 using nlohmann::json;
@@ -40,7 +37,6 @@ namespace {
 
     std::string FixtureDir(const char* id) { return std::string(SHARD_TEST_PLUGIN_DIR) + "/" + id; }
 
-    // The block the plugin's Counter type describes (tests/plugin_fixtures/c_plugin/c_plugin.c)
     struct Counter {
         float value;
         int32_t ticks;
@@ -100,9 +96,7 @@ namespace {
     };
 }
 
-// ---- shard.components ----
-
-TEST_F(CAbiTest, AComponentTypeIsAnActorComponentAndAnEcsComponent)
+TEST_F(CAbiTest, ComponentTypeIsActorAndEcs)
 {
     Start();
     const std::string name = std::string(kId) + ".Counter";
@@ -110,9 +104,8 @@ TEST_F(CAbiTest, AComponentTypeIsAnActorComponentAndAnEcsComponent)
     const Core::Ecs::ComponentInfo& info = Core::Ecs::ComponentRegistry::Global().Info(CounterId());
     EXPECT_EQ(info.size, sizeof(Counter));
     EXPECT_EQ(info.name, "c:" + name);
-    EXPECT_TRUE(Rec()->context->Systems().Has("tick"));         // no scheduler yet : the system waits for it
+    EXPECT_TRUE(Rec()->context->Systems().Has("tick"));
 
-    // Another plugin reads the layout without the header
     uint32_t offset = 0, type = 0;
     auto describe = Export<int (*)(const char*, uint32_t*, uint32_t*)>("c_plugin_describe_field");
     EXPECT_EQ(describe("axis", &offset, &type), SHARD_OK);
@@ -123,14 +116,12 @@ TEST_F(CAbiTest, AComponentTypeIsAnActorComponentAndAnEcsComponent)
     std::string error;
     ASSERT_TRUE(pm().Disable(kId, true, &error)) << error;
     EXPECT_FALSE(Objects::Components::GetComponentRegistry().IsRegistered(name));
-    ASSERT_TRUE(pm().Enable(kId, &error)) << error;                  // registered again, under the same ECS id
+    ASSERT_TRUE(pm().Enable(kId, &error)) << error;
     EXPECT_EQ(Int("c_plugin_setup_error"), 0);
     EXPECT_TRUE(Objects::Components::GetComponentRegistry().IsRegistered(name));
 }
 
-// ---- shard.systems, shard.ecs ----
-
-TEST_F(CAbiTest, ACSystemRunsOverTheEntitiesThatHaveItsComponent)
+TEST_F(CAbiTest, CSystemRunsOverEntities)
 {
     Start();
     BringUpEngine();
@@ -139,7 +130,7 @@ TEST_F(CAbiTest, ACSystemRunsOverTheEntitiesThatHaveItsComponent)
     start.rate = 4.0f;
     const Core::Ecs::Entity e = registry.Create();
     ASSERT_TRUE(registry.AddRaw(e, CounterId(), &start));
-    registry.Create();                                              // no Counter : not visited
+    registry.Create();
 
     RunFrame(registry, 0.5f);
     EXPECT_EQ(Int("c_plugin_system_runs"), 1);
@@ -149,19 +140,18 @@ TEST_F(CAbiTest, ACSystemRunsOverTheEntitiesThatHaveItsComponent)
     EXPECT_FLOAT_EQ(after->value, 2.0f);
     EXPECT_EQ(after->ticks, 1);
 
-    // The entity it spawned through the commands exists once the phase is over, with the value it gave
     EXPECT_EQ(registry.CountRaw({ CounterId() }, {}), 2u);
     RunFrame(registry, 0.5f);
     EXPECT_EQ(Export<uint64_t (*)()>("c_plugin_chunk_entities")(), 2u);
 
-    EXPECT_EQ(Int("c_plugin_undeclared_get"), SHARD_E_INVALID_ARG);   // it did not declare shard.LocalTransform
-    EXPECT_EQ(Int("c_plugin_wrong_thread"), SHARD_E_WRONG_THREAD);     // a "thread : main" function from a system
+    EXPECT_EQ(Int("c_plugin_undeclared_get"), SHARD_E_INVALID_ARG);
+    EXPECT_EQ(Int("c_plugin_wrong_thread"), SHARD_E_WRONG_THREAD);
     EXPECT_EQ(Int("c_plugin_frames_begun"), 2);
     EXPECT_EQ(Int("c_plugin_frames_ended"), 2);
     EXPECT_EQ(Rec()->errorCount, 0u);
 }
 
-TEST_F(CAbiTest, TheSystemLeavesWithThePlugin)
+TEST_F(CAbiTest, SystemLeavesWithPlugin)
 {
     Start();
     BringUpEngine();
@@ -172,9 +162,7 @@ TEST_F(CAbiTest, TheSystemLeavesWithThePlugin)
     EXPECT_FALSE(scheduler.Has(full));
 }
 
-// What the plugin's systems wrote is what the actor's component saves ; loading the saved component puts the values back on the entity
-
-TEST_F(CAbiTest, AnActorComponentMirrorsItsEntityAndSavesWhatTheSystemsWrote)
+TEST_F(CAbiTest, ComponentMirrorsEntityAndSaves)
 {
     Start();
     BringUpEngine();
@@ -188,7 +176,7 @@ TEST_F(CAbiTest, AnActorComponentMirrorsItsEntityAndSavesWhatTheSystemsWrote)
         Core::Ecs::Registry& ecs = *context.GetEcs();
         const auto* onEntity = static_cast<const Counter*>(ecs.GetRaw(actor->GetEntity(), CounterId()));
         ASSERT_NE(onEntity, nullptr) << "attaching the component put its values on the actor's entity";
-        EXPECT_FLOAT_EQ(onEntity->rate, 2.0f);                        // the defaults the plugin gave
+        EXPECT_FLOAT_EQ(onEntity->rate, 2.0f);
         EXPECT_EQ(onEntity->enabled, 1);
 
         RunFrame(ecs, 1.0f);
@@ -199,9 +187,8 @@ TEST_F(CAbiTest, AnActorComponentMirrorsItsEntityAndSavesWhatTheSystemsWrote)
         EXPECT_FLOAT_EQ(saved["value"].get<float>(), 4.0f);
         EXPECT_EQ(saved["ticks"].get<int>(), 2);
         EXPECT_FLOAT_EQ(saved["axis"]["y"].get<float>(), 1.0f);
-        EXPECT_FALSE(saved.contains("scratch"));                       // private : not saved
+        EXPECT_FALSE(saved.contains("scratch"));
 
-        // Loaded on another actor : the values reach its entity
         auto other = Core::Object::CreateWithContext<Objects::Actor>(&context, std::string("Copy"), &context);
         auto loaded = other->AddComponentByName(type);
         ASSERT_NE(loaded, nullptr);
@@ -212,14 +199,12 @@ TEST_F(CAbiTest, AnActorComponentMirrorsItsEntityAndSavesWhatTheSystemsWrote)
         EXPECT_EQ(copy->ticks, 2);
         EXPECT_EQ(copy->scratch, 0u);
 
-        // A deactivated component leaves the entity (the systems skip it), and comes back with its values
         loaded->DeActivate();
         EXPECT_EQ(ecs.GetRaw(other->GetEntity(), CounterId()), nullptr);
         loaded->Activate();
         ASSERT_NE(ecs.GetRaw(other->GetEntity(), CounterId()), nullptr);
         EXPECT_EQ(static_cast<const Counter*>(ecs.GetRaw(other->GetEntity(), CounterId()))->ticks, 2);
 
-        // A copy of the actor (play mode) carries the values to its own entity
         auto clone = other->Clone();
         ASSERT_NE(clone, nullptr);
         const auto* cloned = static_cast<const Counter*>(ecs.GetRaw(clone->GetEntity(), CounterId()));
@@ -229,9 +214,7 @@ TEST_F(CAbiTest, AnActorComponentMirrorsItsEntityAndSavesWhatTheSystemsWrote)
     Core::SetEngine(nullptr);
 }
 
-// ---- shard.events ----
-
-TEST_F(CAbiTest, EventsASystemEmitsArriveAtTheEndOfTheFrame)
+TEST_F(CAbiTest, SystemEventsArriveAtFrameEnd)
 {
     Start();
     BringUpEngine();
@@ -246,12 +229,11 @@ TEST_F(CAbiTest, EventsASystemEmitsArriveAtTheEndOfTheFrame)
 
     RunFrame(registry);
     RunFrame(registry);
-    EXPECT_EQ(heard, 2);                        // C++ code hears the C plugin's events
+    EXPECT_EQ(heard, 2);
     EXPECT_EQ(ticks, 2);
     EXPECT_EQ(Int("c_plugin_ticks_received"), 2);
     EXPECT_EQ(Int("c_plugin_last_ticks"), 2);
 
-    // An event emitted from the main thread reaches the C subscriber at once
     const int32_t value = 99;
     events.emitNamed("shard.test.cplugin.Ticked", &value, sizeof(value));
     EXPECT_EQ(Int("c_plugin_last_ticks"), 99);
@@ -259,13 +241,11 @@ TEST_F(CAbiTest, EventsASystemEmitsArriveAtTheEndOfTheFrame)
     EXPECT_EQ(Int("c_plugin_unsubscribe"), SHARD_OK);
     EXPECT_EQ(Int("c_plugin_unsubscribe"), SHARD_E_NOT_FOUND);
     RunFrame(registry);
-    EXPECT_EQ(Int("c_plugin_ticks_received"), 3);   // the 99 above ; nothing after the unsubscribe
+    EXPECT_EQ(Int("c_plugin_ticks_received"), 3);
     EXPECT_EQ(heard, 4);
 }
 
-// ---- shard.hooks ----
-
-TEST_F(CAbiTest, AHookWrittenInCCanCancel)
+TEST_F(CAbiTest, CHookCanCancel)
 {
     Start();
     BringUpEngine();
@@ -281,12 +261,10 @@ TEST_F(CAbiTest, AHookWrittenInCCanCancel)
 
     std::string error;
     ASSERT_TRUE(pm().Disable(kId, true, &error)) << error;
-    EXPECT_TRUE(pm().BeforeSave("forbidden.world"));               // gone with the plugin
+    EXPECT_TRUE(pm().BeforeSave("forbidden.world"));
 }
 
-// ---- shard.services ----
-
-TEST_F(CAbiTest, OneCPluginUsesAServiceAnotherProvidesAndLosesItWhenItGoes)
+TEST_F(CAbiTest, CServiceProvidedAndLost)
 {
     config.pluginPaths.push_back(FixtureDir(kConsumer));
     Start();
@@ -297,18 +275,16 @@ TEST_F(CAbiTest, OneCPluginUsesAServiceAnotherProvidesAndLosesItWhenItGoes)
     auto add = Export<int (*)(int, int, int*)>("c_consumer_add", kConsumer);
     int sum = 0;
     ASSERT_EQ(add(2, 3, &sum), SHARD_OK);
-    EXPECT_EQ(sum, 1005);                                           // the provider's table, with its `self`
+    EXPECT_EQ(sum, 1005);
     EXPECT_EQ(Export<unsigned (*)()>("c_consumer_version", kConsumer)(), 102u);
 
     std::string error;
     ASSERT_TRUE(pm().Disable(kId, true, &error)) << error;
-    ASSERT_EQ(Rec(kConsumer)->state, PluginState::Initialized);    // no declared dependency : it keeps running
-    EXPECT_EQ(add(2, 3, &sum), SHARD_E_NOT_FOUND);                  // its ref is empty, not dangling
+    ASSERT_EQ(Rec(kConsumer)->state, PluginState::Initialized);
+    EXPECT_EQ(add(2, 3, &sum), SHARD_E_NOT_FOUND);
 }
 
-// ---- shard.extensions ----
-
-TEST_F(CAbiTest, AValidatorWrittenInCRunsInTheAssetValidator)
+TEST_F(CAbiTest, CValidatorRuns)
 {
     Start();
     BringUpEngine();
@@ -317,7 +293,7 @@ TEST_F(CAbiTest, AValidatorWrittenInCRunsInTheAssetValidator)
     EXPECT_EQ(problems[0], "cplugin.check : checked project.json");
 }
 
-TEST_F(CAbiTest, AnImporterAndAnAssetTypeWrittenInC)
+TEST_F(CAbiTest, CImporterAndAssetType)
 {
     Start();
     BringUpEngine();
@@ -339,8 +315,8 @@ TEST_F(CAbiTest, AnImporterAndAnAssetTypeWrittenInC)
     std::shared_ptr<void> resource = types[0]->info.load("data/a.cpasset", infos);
     ASSERT_NE(resource, nullptr);
     EXPECT_EQ(*static_cast<int32_t*>(resource.get()), 77);
-    EXPECT_GT(Rec()->context->Memory().Used(), before);             // the plugin allocated it from the host
-    resource.reset();                                               // the cache let it go : back to the plugin
+    EXPECT_GT(Rec()->context->Memory().Used(), before);
+    resource.reset();
     EXPECT_EQ(Int("c_plugin_unloaded_assets"), 1);
     EXPECT_EQ(Rec()->context->Memory().Used(), before);
 
@@ -349,7 +325,7 @@ TEST_F(CAbiTest, AnImporterAndAnAssetTypeWrittenInC)
     EXPECT_TRUE(pm().Extensions().Get<Filesystem::AssetImporterExtension>("asset.importer").empty());
 }
 
-TEST_F(CAbiTest, AToolTaskCanBeRefusedFromC)
+TEST_F(CAbiTest, CToolTaskRefusal)
 {
     Start();
     BringUpEngine();
@@ -360,20 +336,16 @@ TEST_F(CAbiTest, AToolTaskCanBeRefusedFromC)
     EXPECT_TRUE(pm().NotifyToolTask("bake", "project.json", message));
 }
 
-// ---- shard.content ----
-
-TEST_F(CAbiTest, ThePluginReadsItsContentThroughModUris)
+TEST_F(CAbiTest, ReadsContentViaModUris)
 {
     Start();
     EXPECT_EQ(Int("c_plugin_content_mounted"), 1);
     EXPECT_STREQ(Export<const char* (*)()>("c_plugin_content_text")(), "hello from content");
     EXPECT_EQ(Int("c_plugin_content_files"), 2);
-    EXPECT_EQ(Rec()->context->Memory().Used(), 0u);                 // the file's memory was given back
+    EXPECT_EQ(Rec()->context->Memory().Used(), 0u);
 }
 
-// ---- shard.state ----
-
-TEST_F(CAbiTest, AHotReloadKeepsWhatThePluginSaved)
+TEST_F(CAbiTest, HotReloadKeepsSavedState)
 {
     config.allowHotReload = true;
     Start();
@@ -382,13 +354,11 @@ TEST_F(CAbiTest, AHotReloadKeepsWhatThePluginSaved)
     ASSERT_TRUE(Core::CVarRegistry::Global().Execute("cplugin.persist 42").ok);
     ASSERT_TRUE(pm().Reload(kId, &error)) << error;
     ASSERT_EQ(Rec()->state, PluginState::Enabled) << Rec()->error;
-    EXPECT_EQ(Int("c_plugin_restored"), 42);                        // read by the new copy of the library
+    EXPECT_EQ(Int("c_plugin_restored"), 42);
     EXPECT_EQ(Rec()->reloadCount, 1u);
 }
 
-// ---- The tables ----
-
-TEST_F(CAbiTest, EveryInterfaceOfTheV1IsOffered)
+TEST_F(CAbiTest, V1InterfacesOffered)
 {
     Start();
     const char* ids[] = { SHARD_IFACE_PLUGIN, SHARD_IFACE_CVARS, SHARD_IFACE_COMMANDS, SHARD_IFACE_COMPONENTS, SHARD_IFACE_ECS, SHARD_IFACE_SYSTEMS,
@@ -403,47 +373,42 @@ TEST_F(CAbiTest, EveryInterfaceOfTheV1IsOffered)
     }
 }
 
-// ---- Crash attribution ----
-
 namespace {
     std::vector<uint32_t> gSeenActive;
     void RecordActive() { gSeenActive.push_back(PluginManager::Get().ActivePlugin()); }
 }
 
-TEST_F(CAbiTest, EveryCallbackIntoThePluginNamesItForACrashReport)
+TEST_F(CAbiTest, CallbacksNamedForCrashReport)
 {
     Start();
     BringUpEngine();
     gSeenActive.clear();
     Export<void (*)(void (*)())>("c_plugin_set_probe")(&RecordActive);
 
-    ASSERT_TRUE(Core::CVarRegistry::Global().Execute("cplugin.echo x").ok);                 // a command
+    ASSERT_TRUE(Core::CVarRegistry::Global().Execute("cplugin.echo x").ok);
     const int32_t ticks = 1;
-    events.emitNamed("shard.test.cplugin.Ticked", &ticks, sizeof(ticks));                   // an event
-    pm().BeforeSave("fine.world");                                                          // a hook
-    pm().RunToolValidators("project.json");                                                 // a validator
+    events.emitNamed("shard.test.cplugin.Ticked", &ticks, sizeof(ticks));
+    pm().BeforeSave("fine.world");
+    pm().RunToolValidators("project.json");
     TempDir dir;
     std::filesystem::create_directories(dir.Sub("out"));
-    pm().Extensions().Get<Filesystem::AssetImporterExtension>("asset.importer")[0]->import("a.cpin", dir.Sub("out"));    // an importer
+    pm().Extensions().Get<Filesystem::AssetImporterExtension>("asset.importer")[0]->import("a.cpin", dir.Sub("out"));
     Filesystem::AssetInfos infos;
-    pm().Extensions().Get<Core::Resources::AssetTypeExtension>("asset.type")[0]->info.load("a.cpasset", infos).reset();   // load + unload
+    pm().Extensions().Get<Core::Resources::AssetTypeExtension>("asset.type")[0]->info.load("a.cpasset", infos).reset();
     Export<void (*)(void (*)())>("c_plugin_set_probe")(nullptr);
 
     ASSERT_EQ(gSeenActive.size(), 7u);
     for (uint32_t active : gSeenActive) EXPECT_EQ(active, Rec()->owner);
-    EXPECT_EQ(pm().ActivePlugin(), 0u);                                     // and nobody once they returned
+    EXPECT_EQ(pm().ActivePlugin(), 0u);
 }
 
-TEST_F(CAbiTest, TheHostSaysWhichEngineItIs)
+TEST_F(CAbiTest, HostIdentifiesEngine)
 {
     const ShardHostApi* host = GetCHostApi();
     EXPECT_EQ(std::string(host->engineVersion.data, size_t(host->engineVersion.size)), VERSION);
 }
 
-// ---- ABI 1.2 : blobs (shard.components 1.1) ----
-
 namespace {
-    // The block of the plugin's Chunk type
     struct Chunk {
         uint32_t count;
         uint32_t pad;
@@ -451,7 +416,7 @@ namespace {
     };
 }
 
-TEST_F(CAbiTest, ABlobIsSavedWithTheWorldCopiedWithTheActorAndFreedWithTheComponent)
+TEST_F(CAbiTest, BlobSavedCopiedFreed)
 {
     Start();
     BringUpEngine();
@@ -470,21 +435,19 @@ TEST_F(CAbiTest, ABlobIsSavedWithTheWorldCopiedWithTheActorAndFreedWithTheCompon
         ASSERT_NE(component, nullptr);
         auto* block = static_cast<Chunk*>(ecs.GetRaw(actor->GetEntity(), chunkId));
         ASSERT_NE(block, nullptr);
-        EXPECT_EQ(block->voxels, 0u);                                   // a blob field starts empty
+        EXPECT_EQ(block->voxels, 0u);
 
-        // What a system would do : a blob of 1000 bytes into the block
         const uint64_t blob = makeBlob(1000);
         ASSERT_NE(blob, 0u);
         block->voxels = blob;
         block->count = 7;
-        EXPECT_GE(Rec()->context->Memory().Used(), memoryBefore + 1000);   // counted against the plugin's budget
+        EXPECT_GE(Rec()->context->Memory().Used(), memoryBefore + 1000);
 
         const ordered_json saved = component->Serialize();
         EXPECT_EQ(saved["count"].get<uint32_t>(), 7u);
         ASSERT_TRUE(saved["voxels"].is_string());
         EXPECT_EQ(saved["voxels"].get<std::string>().size(), 1336u);     // base64 of 1000 bytes
 
-        // Loaded on another actor : a blob of its own, with the same bytes
         auto other = Core::Object::CreateWithContext<Objects::Actor>(&context, std::string("Loaded"), &context);
         auto loaded = other->AddComponentByName(type);
         loaded->Deserialize(json::parse(saved.dump()));
@@ -494,23 +457,19 @@ TEST_F(CAbiTest, ABlobIsSavedWithTheWorldCopiedWithTheActorAndFreedWithTheCompon
         EXPECT_EQ(checkBlob(loadedBlock->voxels, 1000), SHARD_OK);
         EXPECT_EQ(loadedBlock->count, 7u);
 
-        // A copy of the actor (play mode) : another blob again
         auto clone = other->Clone();
         const auto* cloneBlock = static_cast<const Chunk*>(ecs.GetRaw(clone->GetEntity(), chunkId));
         ASSERT_NE(cloneBlock, nullptr);
         EXPECT_NE(cloneBlock->voxels, loadedBlock->voxels);
         EXPECT_EQ(checkBlob(cloneBlock->voxels, 1000), SHARD_OK);
 
-        // Removing the component frees the blob it owned
         actor->RemoveComponent(component);
         EXPECT_EQ(checkBlob(blob, 1000), SHARD_E_STALE_HANDLE);
 
-        // Resize keeps the first bytes ; free makes the handle stale
         const uint64_t loose = makeBlob(10);
         EXPECT_EQ(Export<int (*)(uint64_t, uint32_t)>("c_plugin_resize_and_free")(loose, 4), SHARD_OK);
         EXPECT_EQ(checkBlob(loose, 4), SHARD_E_STALE_HANDLE);
 
-        // The blobs go with the plugin : nothing of its budget is left when its context goes
         const uint64_t kept = loadedBlock->voxels;
         std::string error;
         ASSERT_TRUE(pm().Disable(kId, true, &error)) << error;
@@ -520,9 +479,7 @@ TEST_F(CAbiTest, ABlobIsSavedWithTheWorldCopiedWithTheActorAndFreedWithTheCompon
     Core::SetEngine(nullptr);
 }
 
-// ---- shard.experimental.* ----
-
-TEST_F(CAbiTest, TheEngineRegistryFromTheMainThreadIsExperimental)
+TEST_F(CAbiTest, MainThreadRegistryExperimental)
 {
     Start();
     Shard::Tests::TestEngineContext engine;
@@ -536,10 +493,9 @@ TEST_F(CAbiTest, TheEngineRegistryFromTheMainThreadIsExperimental)
     uint64_t count = 0;
     EXPECT_EQ(Export<int (*)(uint64_t*)>("c_plugin_world_count")(&count), SHARD_OK);
     EXPECT_EQ(count, 1u);
-    EXPECT_EQ(ecs.CountRaw({ CounterId() }, {}), 2u);                 // what it spawned, applied at close
-    EXPECT_EQ(Core::CVarRegistry::Global().Find("shard.test.cplugin.counter")->ToString(), "3");     // main thread functions kept working
+    EXPECT_EQ(ecs.CountRaw({ CounterId() }, {}), 2u);
+    EXPECT_EQ(Core::CVarRegistry::Global().Find("shard.test.cplugin.counter")->ToString(), "3");
 
-    // Only that revision : no promise between two of them
     const ShardHostApi* host = GetCHostApi();
     const void* table = nullptr;
     const ShardStr id{ SHARD_IFACE_EXPERIMENTAL_WORLD_ECS, std::strlen(SHARD_IFACE_EXPERIMENTAL_WORLD_ECS) };
@@ -548,18 +504,16 @@ TEST_F(CAbiTest, TheEngineRegistryFromTheMainThreadIsExperimental)
     EXPECT_EQ(host->query_interface(id, 1, 1, &table), SHARD_E_NOT_FOUND);
 }
 
-TEST_F(CAbiTest, ADistributedPluginIsRefusedTheExperimentalInterfaces)
+TEST_F(CAbiTest, DistributedRefusedExperimental)
 {
     using Status = SignatureInfo::Status;
-    EXPECT_FALSE(MayUseExperimental(TrustTier::Native, Status::Valid));         // signed by a trusted publisher : distributed
-    EXPECT_TRUE(MayUseExperimental(TrustTier::Native, Status::Unsigned));       // in development
+    EXPECT_FALSE(MayUseExperimental(TrustTier::Native, Status::Valid));
+    EXPECT_TRUE(MayUseExperimental(TrustTier::Native, Status::Unsigned));
     EXPECT_TRUE(MayUseExperimental(TrustTier::Native, Status::Untrusted));
-    EXPECT_TRUE(MayUseExperimental(TrustTier::FirstParty, Status::Valid));      // the engine's own
+    EXPECT_TRUE(MayUseExperimental(TrustTier::FirstParty, Status::Valid));
 }
 
-// ---- shard.events 1.1 : described events ----
-
-TEST_F(CAbiTest, AnEventThePluginDescribedIsShownWithItsFields)
+TEST_F(CAbiTest, EventShownWithFields)
 {
     config.registerConsoleCommands = true;
     Start();
@@ -571,27 +525,24 @@ TEST_F(CAbiTest, AnEventThePluginDescribedIsShownWithItsFields)
     EXPECT_EQ(layout->fields[0].name, "ticks");
     const int32_t ticks = 5;
     EXPECT_EQ(Events::FormatNamedEvent(*layout, &ticks, sizeof(ticks)), "{ ticks: 5 }");
-    EXPECT_EQ(events.namedLayout("shard.test.cplugin.Broken"), nullptr);       // refused : a field past the payload
+    EXPECT_EQ(events.namedLayout("shard.test.cplugin.Broken"), nullptr);
 
     auto& console = Core::CVarRegistry::Global();
     const Core::CommandResult list = console.Execute("event.list");
     EXPECT_TRUE(list.ok);
     EXPECT_NE(list.output.find("shard.test.cplugin.Ticked (4 bytes) : ticks@0"), std::string::npos) << list.output;
     EXPECT_TRUE(console.Execute("event.watch shard.test.cplugin.Ticked").ok);
-    events.emitNamed("shard.test.cplugin.Ticked", &ticks, sizeof(ticks));     // logged, and still delivered to the plugin
+    events.emitNamed("shard.test.cplugin.Ticked", &ticks, sizeof(ticks));
     EXPECT_EQ(Int("c_plugin_last_ticks"), 5);
     EXPECT_TRUE(console.Execute("event.unwatch shard.test.cplugin.Ticked").ok);
     EXPECT_FALSE(console.Execute("event.unwatch shard.test.cplugin.Ticked").ok);
 
     std::string error;
     ASSERT_TRUE(pm().Disable(kId, true, &error)) << error;
-    EXPECT_EQ(events.namedLayout("shard.test.cplugin.Ticked"), nullptr);      // gone with the plugin
+    EXPECT_EQ(events.namedLayout("shard.test.cplugin.Ticked"), nullptr);
 }
 
-// ---- ABI 1.3 : text and assets in a component, moving an actor ----
-
 namespace {
-    // The block of the plugin's Label type
     struct Label {
         uint64_t name;
         int32_t icon;
@@ -599,7 +550,7 @@ namespace {
     };
 }
 
-TEST_F(CAbiTest, ATextAndAnAssetAreSavedShownAndOwnedByTheActorComponent)
+TEST_F(CAbiTest, TextAndAssetOwnedByComponent)
 {
     Start();
     BringUpEngine();
@@ -618,7 +569,6 @@ TEST_F(CAbiTest, ATextAndAnAssetAreSavedShownAndOwnedByTheActorComponent)
         auto component = actor->AddComponentByName(type);
         ASSERT_NE(component, nullptr);
 
-        // The inspector sees the text as a string and the asset as an asset ; the blob handle is no field of its own
         const ClassDescriptor* descriptor = component->GetDescriptor();
         ASSERT_NE(descriptor, nullptr);
         EXPECT_EQ(descriptor->fields.size(), 3u);
@@ -630,7 +580,6 @@ TEST_F(CAbiTest, ATextAndAnAssetAreSavedShownAndOwnedByTheActorComponent)
         EXPECT_TRUE(sawText);
         EXPECT_TRUE(sawAsset);
 
-        // Loaded from a world file : the text is in a blob on the entity, the asset is the number
         component->Deserialize(json::parse(R"({"active":true,"name":"hello","icon":7,"visits":3})"));
         auto* block = static_cast<Label*>(ecs.GetRaw(actor->GetEntity(), labelId));
         ASSERT_NE(block, nullptr);
@@ -639,23 +588,20 @@ TEST_F(CAbiTest, ATextAndAnAssetAreSavedShownAndOwnedByTheActorComponent)
         ASSERT_NE(block->name, 0u);
         EXPECT_EQ(textOf(block->name), "hello");
 
-        // Edited : the same blob holds the new text
         const uint64_t first = block->name;
         component->Deserialize(json::parse(R"({"active":true,"name":"edited a lot","icon":7,"visits":3})"));
         block = static_cast<Label*>(ecs.GetRaw(actor->GetEntity(), labelId));
         EXPECT_EQ(block->name, first);
         EXPECT_EQ(textOf(block->name), "edited a lot");
 
-        // What the system wrote into the text is what is saved
         RunFrame(ecs);
         RunFrame(ecs);
         EXPECT_EQ(Int("c_plugin_label_result"), 0);
         const ordered_json saved = component->Serialize();
         EXPECT_EQ(saved["name"].get<std::string>(), "edited a lot!!");
         EXPECT_EQ(saved["visits"].get<int>(), 5);
-        EXPECT_TRUE(saved.contains("icon"));                           // by name, which an empty database does not have
+        EXPECT_TRUE(saved.contains("icon"));
 
-        // A copy of the actor (play mode) has a text of its own
         auto clone = actor->Clone();
         const auto* cloned = static_cast<const Label*>(ecs.GetRaw(clone->GetEntity(), labelId));
         ASSERT_NE(cloned, nullptr);
@@ -663,7 +609,6 @@ TEST_F(CAbiTest, ATextAndAnAssetAreSavedShownAndOwnedByTheActorComponent)
         EXPECT_EQ(textOf(cloned->name), "edited a lot!!");
         EXPECT_EQ(cloned->icon, 7);
 
-        // Removing the component frees its text
         const uint64_t owned = block->name;
         actor->RemoveComponent(component);
         EXPECT_EQ(textOf(owned), "<stale>");
@@ -671,7 +616,7 @@ TEST_F(CAbiTest, ATextAndAnAssetAreSavedShownAndOwnedByTheActorComponent)
     Core::SetEngine(nullptr);
 }
 
-TEST_F(CAbiTest, ASystemMovesTheActorBehindAnEntityAtTheEndOfThePhase)
+TEST_F(CAbiTest, SystemMovesActorAtPhaseEnd)
 {
     Start();
     PluginTest::AssetContext context;
@@ -688,27 +633,25 @@ TEST_F(CAbiTest, ASystemMovesTheActorBehindAnEntityAtTheEndOfThePhase)
         ASSERT_NE(actor->AddComponentByName(type), nullptr);
         ASSERT_NE(actor->transform, nullptr);
 
-        // An entity the plugin made itself has no actor : set_local_transform says so, nothing moves
         const Core::Ecs::Entity bare = ecs.Create();
         const Label none{};
         ASSERT_TRUE(ecs.AddRaw(bare, labelId, &none));
 
         RunFrame(ecs);
-        EXPECT_FLOAT_EQ(actor->transform->GetPosition().x, 1.0f);            // the Transform took the pose...
+        EXPECT_FLOAT_EQ(actor->transform->GetPosition().x, 1.0f);
         EXPECT_FLOAT_EQ(actor->transform->GetScale().y, 2.0f);
         const auto* mirror = ecs.TryGet<Worlds::LocalTransform>(actor->GetEntity());
         ASSERT_NE(mirror, nullptr);
-        EXPECT_FLOAT_EQ(mirror->position.x, 1.0f);                           // ...and so did its entity
+        EXPECT_FLOAT_EQ(mirror->position.x, 1.0f);
         EXPECT_FLOAT_EQ(mirror->scale.z, 2.0f);
         RunFrame(ecs);
         EXPECT_FLOAT_EQ(actor->transform->GetPosition().x, 2.0f);
 
         EXPECT_EQ(Int("c_plugin_label_result"), 0);
-        EXPECT_EQ(Int("c_plugin_label_no_actor"), 2);                        // the bare entity, twice
-        EXPECT_EQ(Int("c_plugin_undeclared_pose"), SHARD_E_INVALID_ARG);     // a system that did not declare the transform may not move anything
+        EXPECT_EQ(Int("c_plugin_label_no_actor"), 2);
+        EXPECT_EQ(Int("c_plugin_undeclared_pose"), SHARD_E_INVALID_ARG);
         EXPECT_EQ(Rec()->errorCount, 0u);
 
-        // A deactivated actor ignores it
         actor->transform->DeActivate();
         RunFrame(ecs);
         EXPECT_FLOAT_EQ(actor->transform->GetPosition().x, 2.0f);
@@ -716,28 +659,28 @@ TEST_F(CAbiTest, ASystemMovesTheActorBehindAnEntityAtTheEndOfThePhase)
     Core::SetEngine(nullptr);
 }
 
-TEST_F(CAbiTest, TheInterfacesOfEachRevisionAreOffered)
+TEST_F(CAbiTest, RevisionInterfacesOffered)
 {
     Start();
     const ShardHostApi* api = GetCHostApi();
     const void* table = nullptr;
     auto ask = [&](const char* id, uint32_t minor) { return api->query_interface(ShardStr{ id, std::strlen(id) }, 1, minor, &table); };
-    EXPECT_EQ(ask(SHARD_IFACE_COMPONENTS, 4), SHARD_OK);            // 1.7 : life cycle callbacks (1.5 : actor references and accessor strings)
+    EXPECT_EQ(ask(SHARD_IFACE_COMPONENTS, 4), SHARD_OK);
     EXPECT_EQ(ask(SHARD_IFACE_COMPONENTS, 5), SHARD_E_NOT_FOUND);
-    EXPECT_EQ(ask(SHARD_IFACE_ECS, 1), SHARD_OK);                   // 1.3 : set_local_transform
+    EXPECT_EQ(ask(SHARD_IFACE_ECS, 1), SHARD_OK);
     EXPECT_EQ(ask(SHARD_IFACE_ECS, 2), SHARD_E_NOT_FOUND);
-    EXPECT_EQ(ask(SHARD_IFACE_ACTORS, 2), SHARD_OK);                // 1.7 : stable ids, bounds, neighbours (1.4 : actors, 1.5 : one field of a component at a time)
+    EXPECT_EQ(ask(SHARD_IFACE_ACTORS, 2), SHARD_OK);
     EXPECT_EQ(ask(SHARD_IFACE_ACTORS, 3), SHARD_E_NOT_FOUND);
-    EXPECT_EQ(ask(SHARD_IFACE_SCRIPTS, 2), SHARD_OK);               // 1.7 : edit mode, field changes (1.5 : contacts, accessor strings)
+    EXPECT_EQ(ask(SHARD_IFACE_SCRIPTS, 2), SHARD_OK);
     EXPECT_EQ(ask(SHARD_IFACE_SCRIPTS, 3), SHARD_E_NOT_FOUND);
-    EXPECT_EQ(ask(SHARD_IFACE_INPUT, 1), SHARD_OK);                 // 1.7 : events, clipboard, capture
+    EXPECT_EQ(ask(SHARD_IFACE_INPUT, 1), SHARD_OK);
     EXPECT_EQ(ask(SHARD_IFACE_INPUT, 2), SHARD_E_NOT_FOUND);
-    EXPECT_EQ(ask(SHARD_IFACE_PHYSICS, 1), SHARD_OK);               // 1.7 : volume queries and colliders (1.5 : physics, audio, worlds)
+    EXPECT_EQ(ask(SHARD_IFACE_PHYSICS, 1), SHARD_OK);
     EXPECT_EQ(ask(SHARD_IFACE_PHYSICS, 2), SHARD_E_NOT_FOUND);
     EXPECT_EQ(ask(SHARD_IFACE_AUDIO, 0), SHARD_OK);
-    EXPECT_EQ(ask(SHARD_IFACE_WORLDS, 1), SHARD_OK);                // 1.7 : world_at
-    EXPECT_EQ(ask(SHARD_IFACE_COMMANDS, 1), SHARD_OK);              // 1.7 : execute
-    EXPECT_EQ(ask(SHARD_IFACE_JOBS, 0), SHARD_OK);                  // 1.7 : the new interfaces
+    EXPECT_EQ(ask(SHARD_IFACE_WORLDS, 1), SHARD_OK);
+    EXPECT_EQ(ask(SHARD_IFACE_COMMANDS, 1), SHARD_OK);
+    EXPECT_EQ(ask(SHARD_IFACE_JOBS, 0), SHARD_OK);
     EXPECT_EQ(ask(SHARD_IFACE_TIME, 0), SHARD_OK);
     EXPECT_EQ(ask(SHARD_IFACE_ASSETS, 0), SHARD_OK);
     EXPECT_EQ(ask(SHARD_IFACE_RENDER, 0), SHARD_OK);
@@ -745,6 +688,6 @@ TEST_F(CAbiTest, TheInterfacesOfEachRevisionAreOffered)
     EXPECT_EQ(ask(SHARD_IFACE_REFLECT, 0), SHARD_OK);
     EXPECT_EQ(ask(SHARD_IFACE_NET, 0), SHARD_OK);
     EXPECT_EQ(ask(SHARD_IFACE_NET, 1), SHARD_E_NOT_FOUND);
-    EXPECT_EQ(ask(SHARD_IFACE_EDITOR, 0), SHARD_E_NOT_FOUND);       // only the editor has it
-    EXPECT_EQ(SHARD_ABI_MINOR, 7);                                  // 1.7 : the interfaces for particles, navigation, voxels, UI, animation, networking, visual scripting
+    EXPECT_EQ(ask(SHARD_IFACE_EDITOR, 0), SHARD_E_NOT_FOUND);
+    EXPECT_EQ(SHARD_ABI_MINOR, 7);
 }

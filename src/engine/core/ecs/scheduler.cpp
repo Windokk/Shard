@@ -22,7 +22,6 @@ namespace Shard::Engine::Core::Ecs {
     }
 
     namespace {
-        /// Two systems can't overlap if one writes something the other reads or writes (or if one declared itself exclusive)
         bool Conflicts(const SystemDesc& a, const SystemDesc& b) {
             if (a.exclusive || b.exclusive) return true;
             return Intersects(a.writes, b.writes) || Intersects(a.writes, b.reads) || Intersects(a.reads, b.writes);
@@ -84,7 +83,6 @@ namespace Shard::Engine::Core::Ecs {
         graph = PhaseGraph{};
         graph.dirty = false;
 
-        // The enabled systems of the phase, by registration order
         std::vector<System*> systems;
         for (auto& system : m_Systems)
             if (system->enabled && system->desc.phase == phase) systems.push_back(system.get());
@@ -94,13 +92,11 @@ namespace Shard::Engine::Core::Ecs {
         std::unordered_map<std::string, uint32_t> byName;
         for (uint32_t i = 0; i < n; ++i) byName[systems[i]->desc.name] = i;
 
-        // Data conflicts : the earlier registered goes first
         std::vector<std::vector<uint32_t>> dataPreds(n);
         for (uint32_t j = 0; j < n; ++j)
             for (uint32_t i = 0; i < j; ++i)
                 if (Conflicts(systems[i]->desc, systems[j]->desc)) dataPreds[j].push_back(i);
 
-        // Explicit constraints
         std::vector<std::vector<uint32_t>> preds = dataPreds;
         for (uint32_t j = 0; j < n; ++j) {
             for (const std::string& other : systems[j]->desc.after) {
@@ -115,7 +111,7 @@ namespace Shard::Engine::Core::Ecs {
             }
         }
 
-        // Kahn's algorithm, always taking the READY system with the lowest registration number : the order is stable
+        // Kahn's algorithm, always taking the ready system with the lowest registration number, so the order is stable
         auto topological = [n](const std::vector<std::vector<uint32_t>>& p, std::vector<uint32_t>& out) {
             std::vector<uint32_t> remaining(n, 0);
             std::vector<std::vector<uint32_t>> successors(n);
@@ -124,7 +120,7 @@ namespace Shard::Engine::Core::Ecs {
             for (uint32_t step = 0; step < n; ++step) {
                 uint32_t pick = n;
                 for (uint32_t j = 0; j < n; ++j) if (!done[j] && remaining[j] == 0) { pick = j; break; }
-                if (pick == n) return false;                                    // nothing ready but systems left : a cycle
+                if (pick == n) return false;
                 done[pick] = true;
                 out.push_back(pick);
                 for (uint32_t s : successors[pick]) --remaining[s];
@@ -138,10 +134,9 @@ namespace Shard::Engine::Core::Ecs {
             graph.error += std::string("The after / before constraints of phase ") + PhaseName(phase) + " form a cycle ; they are ignored. ";
             preds = dataPreds;
             order.clear();
-            topological(preds, order);                                          // data edges only point backwards : always succeeds
+            topological(preds, order);
         }
 
-        // Re-index everything by position in the final order
         std::vector<uint32_t> position(n);
         for (uint32_t k = 0; k < n; ++k) position[order[k]] = k;
         graph.order.reserve(n);
@@ -185,8 +180,6 @@ namespace Shard::Engine::Core::Ecs {
                                   fixed ? m_RunTiming->fixedDeltaTime : m_RunTiming->deltaTime, m_RunTiming->fixedDeltaTime,
                                   m_RunFixedStep, m_RunTiming->fixedSteps, m_Frame};
             system->commands.Clear();
-            // An exclusive system runs alone even in a parallel phase (it conflicts with every other one) : it may change the
-            // registry's structure directly, as it would in a serial phase
             const bool alone = system->desc.exclusive && m_RunRegistry->IsConcurrent();
             if (alone) m_RunRegistry->EndConcurrent();
             const auto start = std::chrono::steady_clock::now();
@@ -196,7 +189,7 @@ namespace Shard::Engine::Core::Ecs {
             system->averageMs = system->averageMs == 0.0 ? system->lastMs : system->averageMs * 0.95 + system->lastMs * 0.05;
         };
 
-        // A system bound to the calling thread cannot be handed to a worker : the whole phase then runs here, in order
+        // A system bound to the calling thread cannot go to a worker, so the whole phase runs here in order
         bool bound = false;
         for (const System* system : graph.order)
             bound = bound || system->desc.mainThread;
@@ -214,14 +207,12 @@ namespace Shard::Engine::Core::Ecs {
                     for (uint32_t p : graph.predecessors[k]) graph.tasks.DependsOn(graph.taskIds[k], graph.taskIds[p]);
                 graph.tasksBuilt = true;
             }
-            // Systems may now run on several threads : structural changes are refused and DestroyDeferred queues until the
-            // flush below
             registry.BeginConcurrent();
             graph.tasks.Run(*jobs);
             registry.EndConcurrent();
         }
 
-        // Apply the recorded structural changes, system by system in registration order : same result serial or parallel
+        // Apply recorded changes system by system in registration order: same result serial or parallel
         std::vector<System*> byRegistration = graph.order;
         std::sort(byRegistration.begin(), byRegistration.end(), [](const System* a, const System* b) { return a->sequence < b->sequence; });
         for (System* system : byRegistration)
@@ -229,7 +220,6 @@ namespace Shard::Engine::Core::Ecs {
 
         if (m_PhaseEnd) m_PhaseEnd(phase);
 
-        // Entities whose destruction was asked while something was iterating
         registry.FlushDeferred();
     }
 
@@ -239,7 +229,7 @@ namespace Shard::Engine::Core::Ecs {
             const Phase phase = static_cast<Phase>(p);
             for (System* system : Compile(phase).order)
                 out.push_back(SystemStats{system->desc.name, phase, true, system->lastMs, system->averageMs});
-            for (auto& system : m_Systems)                                  // the disabled ones, after
+            for (auto& system : m_Systems)
                 if (!system->enabled && system->desc.phase == phase)
                     out.push_back(SystemStats{system->desc.name, phase, false, system->lastMs, system->averageMs});
         }

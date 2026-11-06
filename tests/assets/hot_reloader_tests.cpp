@@ -20,7 +20,6 @@ namespace {
     };
     struct Blob {};
 
-    // The hot reloader over a real folder, with a made-up texture kind that counts its reloads
     class HotReloaderTest : public ::testing::Test {
     protected:
         fs::path root;
@@ -55,7 +54,7 @@ namespace {
             rm.RegisterKind(AssetKind::Texture, std::move(info));
 
             {
-                AssetKindInfo mesh;     // no in-place reload : replaced in the cache
+                AssetKindInfo mesh;
                 mesh.load = [](const std::string&, const Filesystem::AssetInfos&) -> std::shared_ptr<void> { return std::make_shared<Blob>(); };
                 rm.RegisterKind(AssetKind::Mesh, std::move(mesh));
 
@@ -132,7 +131,7 @@ namespace {
         EXPECT_GE(databaseSaves, 1);
     }
 
-    TEST_F(HotReloaderTest, AModifiedResidentResourceIsReloadedInPlace)
+    TEST_F(HotReloaderTest, ModifiedResourceReloadsInPlace)
     {
         Write("textures/a.png", "one");
         files.RegisterAsset(Filesystem::Path((root / "resources" / "textures" / "a.png").generic_string(), true));
@@ -147,7 +146,7 @@ namespace {
         EXPECT_EQ(rm.Get<Tex>(AssetKind::Texture, "textures/a.png"), texture);
     }
 
-    TEST_F(HotReloaderTest, ARenamedFileKeepsItsIDAndItsResidentResource)
+    TEST_F(HotReloaderTest, RenamedFileKeepsId)
     {
         Write("textures/a.png", "one");
         const Filesystem::AssetID id = files.RegisterAsset(Filesystem::Path((root / "resources" / "textures" / "a.png").generic_string(), true));
@@ -163,7 +162,7 @@ namespace {
         EXPECT_FALSE(rm.Has(AssetKind::Texture, "textures/a.png"));
     }
 
-    TEST_F(HotReloaderTest, ARenamedFolderMovesItsAssets)
+    TEST_F(HotReloaderTest, RenamedFolderMovesAssets)
     {
         Write("textures/sub/a.png", "one");
         const Filesystem::AssetID id = files.RegisterAsset(Filesystem::Path((root / "resources" / "textures" / "sub" / "a.png").generic_string(), true));
@@ -176,7 +175,7 @@ namespace {
         EXPECT_FALSE(Registered("textures/sub/a.png"));
     }
 
-    TEST_F(HotReloaderTest, ADeletedFileIsUnregisteredAndUnloaded)
+    TEST_F(HotReloaderTest, DeletedFileUnregisters)
     {
         Write("textures/a.png", "one");
         files.RegisterAsset(Filesystem::Path((root / "resources" / "textures" / "a.png").generic_string(), true));
@@ -189,7 +188,7 @@ namespace {
         EXPECT_FALSE(rm.Has(AssetKind::Texture, "textures/a.png"));
     }
 
-    TEST_F(HotReloaderTest, ADeletedFileStillUsedStaysRegistered)
+    TEST_F(HotReloaderTest, UsedDeletedFileStaysRegistered)
     {
         Write("textures/a.png", "one");
         files.RegisterAsset(Filesystem::Path((root / "resources" / "textures" / "a.png").generic_string(), true));
@@ -199,13 +198,12 @@ namespace {
         ASSERT_TRUE(StartReloader());
         fs::remove(root / "resources" / "textures" / "a.png");
 
-        // Give the change time to be seen and applied : the asset must still be there afterwards
         Pump([] { return false; });
         EXPECT_TRUE(Registered("textures/a.png"));
         EXPECT_TRUE(rm.Has(AssetKind::Texture, "textures/a.png"));
     }
 
-    TEST_F(HotReloaderTest, AFileWrittenUnderATemporaryNameThenRenamedOntoTheRealOneIsAModification)
+    TEST_F(HotReloaderTest, TempNameRenameIsModification)
     {
         Write("textures/a.png", "one");
         files.RegisterAsset(Filesystem::Path((root / "resources" / "textures" / "a.png").generic_string(), true));
@@ -221,7 +219,7 @@ namespace {
         EXPECT_FALSE(Registered("textures/a.png.tmp"));
     }
 
-    TEST_F(HotReloaderTest, AModifiedMeshReplacesTheCachedOneAndTellsTheModels)
+    TEST_F(HotReloaderTest, ModifiedMeshReplacesCache)
     {
         Write("models/m.fbx", "one");
         files.RegisterAsset(Filesystem::Path((root / "resources" / "models" / "m.fbx").generic_string(), true));
@@ -236,7 +234,7 @@ namespace {
         EXPECT_NE(rm.Get<Blob>(AssetKind::Mesh, "models/m.fbx"), old);
     }
 
-    TEST_F(HotReloaderTest, AChangedBakeReloadsTheWorldThatUsesIt)
+    TEST_F(HotReloaderTest, ChangedBakeReloadsWorld)
     {
         Write("w.world", "{}");
         Write("probes/p.probes", "one");
@@ -244,17 +242,17 @@ namespace {
         files.RegisterAsset(Filesystem::Path((root / "resources" / "probes" / "p.probes").generic_string(), true));
         auto world = rm.Get<Blob>(AssetKind::World, "w.world");
         ASSERT_NE(world, nullptr);
-        { ASSERT_NE(rm.Get<Blob>(AssetKind::ProbeBake, "probes/p.probes"), nullptr); }      // what the world's prefetch does
+        { ASSERT_NE(rm.Get<Blob>(AssetKind::ProbeBake, "probes/p.probes"), nullptr); }
 
         ASSERT_TRUE(StartReloader());
         Write("probes/p.probes", "two");
 
         ASSERT_TRUE(Pump([&] { return !changedWorlds.empty(); }));
         EXPECT_EQ(changedWorlds[0], "w.world");
-        EXPECT_FALSE(rm.Has(AssetKind::ProbeBake, "probes/p.probes"));   // read again the next time the world asks
+        EXPECT_FALSE(rm.Has(AssetKind::ProbeBake, "probes/p.probes"));
     }
 
-    TEST_F(HotReloaderTest, AModifiedWorldFileIsReported)
+    TEST_F(HotReloaderTest, ModifiedWorldIsReported)
     {
         Write("w.world", "{}");
         files.RegisterAsset(Filesystem::Path((root / "resources" / "w.world").generic_string(), true));
@@ -266,7 +264,7 @@ namespace {
         EXPECT_EQ(changedWorlds[0], "w.world");
     }
 
-    TEST_F(HotReloaderTest, WhatTheEngineWroteItselfIsNotAnOutsideChange)
+    TEST_F(HotReloaderTest, OwnWritesAreIgnored)
     {
         Write("w.world", "{}");
         files.RegisterAsset(Filesystem::Path((root / "resources" / "w.world").generic_string(), true));
@@ -278,12 +276,11 @@ namespace {
         Pump([] { return false; });
         EXPECT_TRUE(changedWorlds.empty());
 
-        // ... while the next edit from outside is
         Write("w.world", "{ edited by someone else }");
         ASSERT_TRUE(Pump([&] { return !changedWorlds.empty(); }));
     }
 
-    TEST_F(HotReloaderTest, ListenersAreToldOfTheChangedAssetAndOfWhatDependsOnIt)
+    TEST_F(HotReloaderTest, ListenersGetDependents)
     {
         Write("textures/a.png", "one");
         Write("materials/m.mat", "{}");

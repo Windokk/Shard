@@ -28,8 +28,6 @@ namespace Shard::Editor::GUI{
             void DrawSaveAsPopup();
             void DrawAboutPopup();
 
-            // Shared by "New World" and "Exit", both of which need to warn about (and optionally
-            // save) unsaved changes on the current world before proceeding.
             void CreateNewWorld();
             void SaveCurrentWorld();
 

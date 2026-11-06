@@ -9,29 +9,13 @@
 
 namespace Shard::Engine::Rendering {
 
-    // The display transform : how the linear HDR light the renderer computes becomes the 8 bit colours a monitor shows.
-    //
-    // Lighting is arithmetic on physical quantities, so it only gives the right answers on LINEAR values : textures are
-    // linearized as they are sampled (sRGB textures, see TextureSpecifications::srgb), the scene is rendered into a floating
-    // point target whose values may be far above 1 (a sun, a lamp, a specular glint), and one last pass maps that range onto
-    // what the screen can show - exposure, a tonemapper (an S shaped curve that rolls the highlights off instead of clipping
-    // them, as a film does) and the sRGB transfer curve that a monitor expects.
-    //
-    // This is the C++ twin of shaders/common/tonemap.glsl : every constant and formula below is the same there, and
-    // has to stay so (the offline raytrace's preview, the tests and the shader all have to agree).
+    // C++ twin of shaders/common/tonemap.glsl. Every constant and formula must match (offline preview, tests, shader).
 
-    /// Mirrored by `tonemapper` in tonemap.frag / lit.frag - keep in sync.
     enum class Tonemapper : int
     {
-        /// No curve : clamped to [0, 1] (everything brighter than white is white). Exposure and the sRGB curve still apply.
         None = 0,
-        /// The Academy filmic curve (Stephen Hill's fit of the RRT and ODT) : contrasty, desaturates bright colours toward
-        /// white. The look of most AAA games and of Unreal Engine.
         ACES = 1,
-        /// Khronos PBR Neutral : leaves everything below ~0.8 untouched and only compresses what is brighter, so the colours
-        /// of a material stay the colours of the material. Made for product shots.
         Neutral = 2,
-        /// Reinhard on the luminance : the simplest soft shoulder, keeps hues.
         Reinhard = 3
     };
 
@@ -64,20 +48,17 @@ namespace Shard::Engine::Rendering {
         return false;
     }
 
-    /// How a world is shown : the curve, and the exposure in stops (EV : every +1 doubles the light, every -1 halves it)
     struct DisplaySettings
     {
         Tonemapper tonemapper = Tonemapper::ACES;
         float exposure = 0.0f;
 
-        /// The factor the scene's light is multiplied by before the curve
         float ExposureScale() const { return std::exp2(exposure); }
 
         bool operator==(const DisplaySettings& o) const { return tonemapper == o.tonemapper && exposure == o.exposure; }
         bool operator!=(const DisplaySettings& o) const { return !(*this == o); }
     };
 
-    /// Linear light -> the sRGB transfer curve (IEC 61966-2-1) : what a monitor expects, and what a texture holds
     inline float LinearToSRGB(float linear)
     {
         linear = std::clamp(linear, 0.0f, 1.0f);
@@ -95,8 +76,7 @@ namespace Shard::Engine::Rendering {
 
     namespace Detail {
 
-        // Hill's fit of the ACES reference rendering transform and sRGB output transform. The matrices take sRGB to the
-        // working space of the curve and back (written here by columns, as GLSL's mat3 constructor takes them).
+        // Hill's fit of the ACES RRT and ODT. Matrices are written by columns, as GLSL's mat3 constructor takes them.
         inline glm::vec3 RRTAndODTFit(const glm::vec3& v)
         {
             const glm::vec3 a = v * (v + 0.0245786f) - 0.000090537f;
@@ -140,7 +120,6 @@ namespace Shard::Engine::Rendering {
         }
     }
 
-    /// Linear scene light (any range) -> linear light in [0, 1] : the curve alone
     inline glm::vec3 ApplyTonemap(const glm::vec3& color, Tonemapper tonemapper)
     {
         const glm::vec3 c = glm::max(color, glm::vec3(0.0f));
@@ -154,7 +133,6 @@ namespace Shard::Engine::Rendering {
         return glm::clamp(c, 0.0f, 1.0f);
     }
 
-    /// The whole transform of a pixel : exposure, curve, sRGB encoding. The result is what is stored in the 8 bit display target.
     inline glm::vec3 DisplayTransform(const glm::vec3& hdr, const DisplaySettings& settings)
     {
         return LinearToSRGB(ApplyTonemap(hdr * settings.ExposureScale(), settings.tonemapper));

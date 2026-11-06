@@ -14,44 +14,41 @@
 
 namespace Shard::Engine::Core::Ecs {
 
-    /// The stages of a frame, always run in this order. Fixed runs 0..N times per frame (as many fixed steps as elapsed time pays for).
+    // Stages always run in this order. Fixed runs 0..N times per frame.
     enum class Phase : uint8_t {
-        Input,          // read devices, turn them into input state
-        PreSim,         // before simulating : load streamed worlds, apply what Input decided
-        Fixed,          // fixed time step : physics, gameplay that must not depend on the frame rate
-        PostPhysics,    // read physics back, once per frame
-        Update,         // variable time step : scripts, animation, audio
-        Late,           // after everything moved : cameras, transform sync
-        Extract,        // copy what the renderer needs out of the simulation, then render
+        Input,
+        PreSim,
+        Fixed,
+        PostPhysics,
+        Update,
+        Late,
+        Extract,
         Count
     };
 
     const char* PhaseName(Phase phase);
 
-    /// What a system receives each time it runs
     struct SystemContext {
         Registry& registry;
-        CommandBuffer& commands;        // this system's own : structural changes recorded here are applied at the end of the phase
-        JobSystem* jobs;                // may be null (serial) ; a system can use it for its own parallel loops
-        float deltaTime;                // variable step (Update...) ; the fixed step in the Fixed phase
+        CommandBuffer& commands;
+        JobSystem* jobs;
+        float deltaTime;
         float fixedDeltaTime;
-        int fixedStep;                  // Fixed phase : index of this step in the frame (0-based)
-        int fixedStepCount;             // Fixed phase : how many steps this frame runs
+        int fixedStep;
+        int fixedStepCount;
         uint64_t frame;
     };
 
     using SystemFn = std::function<void(SystemContext&)>;
 
-    /// @brief How a system is declared. `reads` / `writes` are the component types (or any ComponentIdOf<T> "resource" key) it
-    /// touches : the scheduler runs two systems of a phase at the same time only if neither writes what the other reads or writes.
     struct SystemDesc {
         std::string name;
         Phase phase = Phase::Update;
         ComponentSet reads;
         ComponentSet writes;
-        bool exclusive = false;                 // touches things the declaration cannot express : runs alone, in order
-        bool mainThread = false;                // needs the thread that calls RunFrame (the GL context, the window) : the phase then runs on it, in order
-        std::vector<std::string> after;         // explicit ordering by name (systems of the same phase only)
+        bool exclusive = false;
+        bool mainThread = false;
+        std::vector<std::string> after;
         std::vector<std::string> before;
         SystemFn run;
 
@@ -63,19 +60,10 @@ namespace Shard::Engine::Core::Ecs {
         SystemDesc& Before(std::string other) { before.push_back(std::move(other)); return *this; }
     };
 
-    /// @brief Runs the systems of every phase, in a stable order, in parallel when their data allows it.
-    ///
-    /// Within a phase, systems are ordered by REGISTRATION : if two of them conflict (one writes what the other reads or writes)
-    /// the earlier registered runs first. Systems that don't conflict can run at the same time on the job system. The result of a
-    /// phase is therefore the same whether it ran on one thread or on twenty, which is what makes replays reproducible.
-    ///
-    /// Structural changes made by systems go through their CommandBuffer and are applied, system by system in registration order,
-    /// once the phase is over.
     class Scheduler {
     public:
         using SystemId = uint32_t;
 
-        /// @return the id, or kInvalid if the name is already taken or there is no function
         SystemId Add(SystemDesc desc);
         static constexpr SystemId kInvalid = ~0u;
 
@@ -89,23 +77,16 @@ namespace Shard::Engine::Core::Ecs {
             int fixedSteps = 0;
         };
 
-        /// @brief Runs one whole frame : Input, PreSim, Fixed x N, PostPhysics, Update, Late, Extract.
         void RunFrame(Registry& registry, JobSystem* jobs, const FrameTiming& timing);
 
-        /// @brief Runs a single phase (tests, tools, or a game that drives its own loop)
         void RunPhase(Phase phase, Registry& registry, JobSystem* jobs, const FrameTiming& timing, int fixedStep = 0);
 
-        /// The names of the enabled systems of a phase, in the order they would start
         std::vector<std::string> Order(Phase phase);
 
-        /// False if the explicit after / before constraints form a cycle, or name a system that doesn't exist ; `error` says what.
         bool Validate(std::string* error = nullptr);
 
         uint64_t FrameCount() const { return m_Frame; }
 
-        /// @brief Called on the thread that runs the phase, once the systems of a phase are done and their recorded changes applied (not
-        /// for a phase that has no system). For what must touch more than the registry and so cannot be done from a system, such as the
-        /// actors behind the entities. An empty function removes it.
         using PhaseEndFn = std::function<void(Phase)>;
         void SetPhaseEndHook(PhaseEndFn hook) { m_PhaseEnd = std::move(hook); }
 
@@ -113,19 +94,17 @@ namespace Shard::Engine::Core::Ecs {
             std::string name;
             Phase phase;
             bool enabled;
-            double lastMs;          // duration of its last run (the last fixed step for a Fixed system)
-            double averageMs;       // moving average over the recent runs
+            double lastMs;
+            double averageMs;
         };
-        /// Every system, phase by phase, in the order they start
         std::vector<SystemStats> Stats();
-        /// Text table of Stats() : for the console
         std::string Describe();
 
     private:
         struct System {
             SystemDesc desc;
             bool enabled = true;
-            uint32_t sequence = 0;                  // registration order, never reused
+            uint32_t sequence = 0;
             CommandBuffer commands;
             double lastMs = 0.0;
             double averageMs = 0.0;
@@ -135,8 +114,8 @@ namespace Shard::Engine::Core::Ecs {
             bool dirty = true;
             bool valid = true;
             std::string error;
-            std::vector<System*> order;             // enabled systems, in start order
-            std::vector<std::vector<uint32_t>> predecessors;     // indices into `order`
+            std::vector<System*> order;
+            std::vector<std::vector<uint32_t>> predecessors;
             TaskGraph tasks;
             std::vector<TaskGraph::TaskId> taskIds;
             bool tasksBuilt = false;
@@ -154,7 +133,6 @@ namespace Shard::Engine::Core::Ecs {
         uint64_t m_Frame = 0;
         PhaseEndFn m_PhaseEnd;
 
-        // The context of the run in progress, read by the tasks of the TaskGraph
         Registry* m_RunRegistry = nullptr;
         JobSystem* m_RunJobs = nullptr;
         const FrameTiming* m_RunTiming = nullptr;

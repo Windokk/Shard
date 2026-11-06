@@ -18,7 +18,6 @@ namespace Shard::Engine::Objects::Components{
         data.priority = priority;
         data.strength = strength;
 
-        // Jolt, and so the simulation, is in the root frame : the pose of the actor is taken there, in double
         if (parent && parent->transform)
         {
             data.position = parent->transform->GetWorldPositionD();
@@ -34,8 +33,6 @@ namespace Shard::Engine::Objects::Components{
     {
         return Physics::EvaluateGravityField(BuildData(), position, acceleration, coverage);
     }
-
-    // ---------------- Uniform ----------------
 
     UniformGravityField::UniformGravityField(std::shared_ptr<Actor> parent, uint32_t local_id) : GravityField(parent, local_id)
     {
@@ -56,8 +53,6 @@ namespace Shard::Engine::Objects::Components{
         data.kind = Physics::GravityFieldKind::Uniform;
         data.direction = direction;
     }
-
-    // ---------------- Point ----------------
 
     PointGravityField::PointGravityField(std::shared_ptr<Actor> parent, uint32_t local_id) : GravityField(parent, local_id)
     {
@@ -83,8 +78,6 @@ namespace Shard::Engine::Objects::Components{
         data.fadeDistance = fadeDistance;
     }
 
-    // ---------------- Radial ----------------
-
     RadialGravityField::RadialGravityField(std::shared_ptr<Actor> parent, uint32_t local_id) : GravityField(parent, local_id)
     {
     }
@@ -108,8 +101,6 @@ namespace Shard::Engine::Objects::Components{
         data.solidInterior = solidInterior;
         data.fadeDistance = fadeDistance;
     }
-
-    // ---------------- Volume ----------------
 
     GravityVolume::GravityVolume(std::shared_ptr<Actor> parent, uint32_t local_id) : GravityField(parent, local_id)
     {

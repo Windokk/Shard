@@ -40,27 +40,16 @@ Debugging::Level minDebugLevel = Debugging::Level::Log;
 std::string mainModuleLib = "";
 Shard::Engine::PluginStartupOptions pluginOptions;
 
-// --view-mode : a debug view of the scene (what the editor's viewport "View Mode" shows), for tracking a rendering
-// problem down in the player itself. None : the normal render.
 std::optional<ViewMode> debugViewMode;
 
-// --frames : render that many frames, then shut down. It is a non-interactive run (what the CI's smoke test does, see
-// scripts/smoke_test.sh) : nothing waits for Enter, the exit code says whether it went well, and the project is not
-// written to (EngineCreationSettings::readOnly). -1 : a normal run.
 int maxFrames = -1;
 
-// --bench : with --frames, prints the average / worst frame times and the memory the process holds at the end
-// ("[BENCH] ..." lines), the first --bench-warmup frames (shader compiles, streaming) left out.
 bool benchmark = false;
 int benchWarmup = 120;
 
-// --screenshot : writes the last rendered frame (the viewport, before it is presented) to that PNG
 std::string screenshotPath;
 
-// --record <file> : writes the input of the run (and the state of the simulation every --check-every frames) to a replay file
-// when the run ends ; --replay <file> : plays such a file back instead of reading the keyboard, and verifies its state checks.
-// Both make the run deterministic (every frame is one fixed step : see EngineCreationSettings::deterministic), which is not
-// what a normal run is : the clock no longer drives the simulation. --seed picks the seed the random streams derive from.
+// Record and replay make the run deterministic: every frame is one fixed step, so the clock no longer drives the simulation.
 std::string recordPath;
 std::string replayPath;
 std::optional<uint64_t> seedArgument;
@@ -94,7 +83,6 @@ bool ParseViewMode(const std::string& name, ViewMode& out)
 }
 
 EngineCreationSettings ComputeEngineSettings(int argc, char* argv[]) {
-    // "+name=value" or "+name value" : sets a console variable (see engine/core/config/cvar.hpp) before the engine starts
     {
         std::vector<std::string> cvarWarnings;
         Shard::Engine::Core::CVarRegistry::Global().ParseCommandLine(argc, argv, &cvarWarnings);
@@ -215,11 +203,9 @@ void early_crash(){
 
 int main(int argc, char* argv[]) {
 
-    // Engine init parameters
     EngineCreationSettings engineSettings = ComputeEngineSettings(argc, argv);
     engineSettings.readOnly = maxFrames >= 0;
 
-    // A replay says which seed and world it was recorded with
     Engine::Core::Platform::ReplayData replay;
     const bool playing = !replayPath.empty();
     const bool recording = !recordPath.empty();
@@ -232,14 +218,13 @@ int main(int argc, char* argv[]) {
         if (engineSettings.startWorld.empty())
             engineSettings.startWorld = replay.world;
         if (maxFrames < 0) {
-            // The replay is a non-interactive run : as long as it says, then it stops
             maxFrames = int(replay.Length());
             engineSettings.readOnly = true;
         }
     }
     if (playing || recording) {
         engineSettings.deterministic = true;
-        engineSettings.readOnly = true;     // a run that is recorded or replayed leaves the project as it found it
+        engineSettings.readOnly = true;
         engineSettings.seed = seedArgument ? seedArgument : (playing ? std::optional<uint64_t>(replay.seed) : std::optional<uint64_t>(1));
     }
     else if (seedArgument) {
@@ -257,7 +242,6 @@ int main(int argc, char* argv[]) {
     Engine::Core::SetEngine(engine);
     Engine::Debugging::SetLogger(&Engine::Debugging::Logger::GetInstance());
 
-    //Game module loading and init
     pluginOptions.host = Engine::Plugins::Host::Player;
     pluginOptions.gameModule = mainModuleLib;
     pluginOptions.project = engineSettings.project;
@@ -275,13 +259,10 @@ int main(int argc, char* argv[]) {
         }
     }
 
-    // Platform creation
     engineSettings.platform = new Shard::Engine::Core::Platform::SDLPlatform<Shard::Game::Core::Platform::PlayerWindow>();
 
-    // Engine startup
     Engine::Core::GetEngine().Init(engineSettings);
 
-    // Playing needs a world : a project that loaded, but whose world did not (a bad path, a broken file), stops here
     if (Engine::Core::GetEngine().GetWorldManager()->GetLoadedWorldCount() == 0) {
         std::cerr << "No world was loaded, aborting..." << std::endl;
         early_crash();
@@ -296,8 +277,6 @@ int main(int argc, char* argv[]) {
 
     Engine::Core::GetEngine().SetPlayMode(true);
 
-    // The replay : played back (the keyboard is ignored, the replay's events are posted to the window) or recorded (what the
-    // window sends is stored)
     Engine::Core::ReplaySession session;
     Engine::Core::Platform::SDLWindow* sdlWindow = dynamic_cast<Engine::Core::Platform::SDLWindow*>(Engine::Core::GetEngine().GetWindow());
     const float fixedStep = Engine::Core::GetEngine().GetTimeManager()->GetFixedDeltaTime();
@@ -320,7 +299,6 @@ int main(int argc, char* argv[]) {
             session.Record(*sdlWindow, *engineSettings.seed, fixedStep, engineSettings.startWorld);
     }
 
-    //Main Loop
     int frames = 0;
     std::vector<float> frameTimes;
     Engine::Debugging::FrameProfile profileSum;
@@ -374,11 +352,10 @@ int main(int argc, char* argv[]) {
     if (!screenshotPath.empty()) {
         std::vector<uint8_t> pixels;
         auto viewport = Engine::Core::GetEngine().GetRenderer()->GetViewportFramebuffer();
-        Engine::Rendering::RenderThread::Get().Flush();     // the last frame is drawn before it is read back
+        Engine::Rendering::RenderThread::Get().Flush();     // flush so the last frame is drawn before readback
         if (viewport && Engine::Rendering::OnGraphicsThread([&] { return viewport->ReadPixelsRGBA8(pixels); }))
         {
-            // ReadPixelsRGBA8 gives the top row first, and WritePNG flips (it expects the bottom row first, like a GL texture) :
-            // flip back, or the picture comes out upside down
+            // ReadPixelsRGBA8 returns the top row first, WritePNG expects the bottom row first. Flip back or the PNG is upside down.
             const size_t rowBytes = size_t(viewport->GetWidth()) * 4;
             for (size_t y = 0; y < size_t(viewport->GetHeight()) / 2; y++)
                 std::swap_ranges(pixels.begin() + y * rowBytes, pixels.begin() + (y + 1) * rowBytes, pixels.begin() + (size_t(viewport->GetHeight()) - 1 - y) * rowBytes);
@@ -420,7 +397,6 @@ int main(int argc, char* argv[]) {
                   << Engine::Core::Platform::ProcessGpuMemoryUsage() / (1024.0 * 1024.0) << " MB" << std::endl;
     }
 
-    //Cleaning
     Engine::Core::GetEngine().Destroy();
 
     Engine::StopPlugins();

@@ -23,14 +23,13 @@ namespace Shard::Engine::Rendering {
 
     namespace {
 
-        // Texture units the chain's samplers sit on : above the 0-31 the forward shader uses, clear of the occlusion culling's (47, 48) and the probes' (44+)
-        constexpr uint32_t kUnitSource = 49;      // the depth of the prepass / the last picture (level 0 copies)
+        constexpr uint32_t kUnitSource = 49;
         constexpr uint32_t kUnitHiZ = 50;
         constexpr uint32_t kUnitNormal = 51;
-        constexpr uint32_t kUnitHistory = 52;     // the previous trace / the trace, for the resolve
+        constexpr uint32_t kUnitHistory = 52;
 
-        constexpr uint32_t kMaxHiZLevels = 10;        // a cell of the top level is 512 pixels wide : more would be steps the march never takes
-        constexpr uint32_t kMaxPyramidLevels = 9;     // a blur of more than 256 pixels does not look like a reflection any more
+        constexpr uint32_t kMaxHiZLevels = 10;
+        constexpr uint32_t kMaxPyramidLevels = 9;
 
         uint32_t MipLevelsOf(uint32_t width, uint32_t height)
         {
@@ -68,8 +67,8 @@ namespace Shard::Engine::Rendering {
             specs.magFilter = magFilter;
             specs.wrapS = TextureWrap::ClampEdge;
             specs.wrapT = TextureWrap::ClampEdge;
-            specs.generateMips = mips;       // the whole chain is allocated
-            specs.immutableStorage = true;   // a level can only be bound as an image of an immutable texture
+            specs.generateMips = mips;
+            specs.immutableStorage = true;
 
             return Texture2D::Create(specs, static_cast<const void*>(nullptr));
         }
@@ -79,7 +78,6 @@ namespace Shard::Engine::Rendering {
     {
         m_Renderer = renderer;
 
-        // The chain is image load / store and bindless handles, which the OpenGL and Vulkan backends both have. Headless runs draw nothing.
         if (RendererAPI::Current() && RendererAPI::Current()->GetAPI() == RendererAPI::API::Null)
             return;
 
@@ -106,8 +104,6 @@ namespace Shard::Engine::Rendering {
             return;
         }
 
-        // The pass stands for the chain in the render graph : it comes after the prepass it reads, before whatever lights the scene. It draws
-        // nothing (no target), and must not be dropped for it.
         std::shared_ptr<RenderPass> pass = std::make_shared<RenderPass>();
         pass->target = nullptr;
         pass->allowResize = false;
@@ -129,7 +125,6 @@ namespace Shard::Engine::Rendering {
         const SSRSettings& settings = snapshot.environment.ssr;
         const CameraProxy& camera = snapshot.camera;
 
-        // An orthographic view has no perspective for the march's straight line in screen space to rely on : the pass stays off
         const bool active = settings.enabled && camera.valid && !camera.orthographic;
 
         if (auto pass = m_Renderer->GetRenderPass(kPassName))
@@ -141,11 +136,9 @@ namespace Shard::Engine::Rendering {
         if (!camera.valid)
             return;
 
-        // The frame before's camera is where the picture the reflections are read from was seen from
         m_PrevViewProj = m_HaveCamera ? m_ViewProj : camera.viewProjection;
         m_ViewProj = camera.viewProjection;
 
-        // How much the view moved : the reflection is view dependent, so a history blended while it moves would trail
         if (m_HaveCamera)
         {
             const float moved = glm::length(camera.position - m_PrevPosition);
@@ -192,7 +185,6 @@ namespace Shard::Engine::Rendering {
             return false;
         }
 
-        // Read by lit.frag through bindless handles (a texture unit is not to be had there, see SampleSSR)
         m_ResultHandle = m_Result->GetBindlessHandle();
         m_PyramidHandle = m_Pyramid->GetBindlessHandle();
         return true;
@@ -231,7 +223,6 @@ namespace Shard::Engine::Rendering {
 
         const int hizTop = static_cast<int>(m_HiZLevels) - 1;
 
-        // ---- 1. Hi-Z : the closest depth, level by level ----
         {
             GpuScope scope(profiler, "SSR Hi-Z");
 
@@ -262,7 +253,6 @@ namespace Shard::Engine::Rendering {
             }
         }
 
-        // ---- 2. The colour the reflections show : the last picture, with the mips that blur it ----
         {
             GpuScope scope(profiler, "SSR Colour");
 
@@ -300,7 +290,6 @@ namespace Shard::Engine::Rendering {
         const int writeIndex = m_HistoryIndex;
         const int readIndex = 1 - m_HistoryIndex;
 
-        // ---- 3. The march ----
         {
             GpuScope scope(profiler, "SSR Trace");
 
@@ -331,7 +320,6 @@ namespace Shard::Engine::Rendering {
             Dispatch(m_TracePipeline, m_TraceWidth, m_TraceHeight);
         }
 
-        // ---- 4. One entry per pixel of the screen ----
         {
             GpuScope scope(profiler, "SSR Resolve");
 

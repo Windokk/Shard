@@ -17,7 +17,6 @@ using namespace Shard::Engine::Rendering;
 
 namespace {
 
-    // The tests run from the build folder (or the repo root); find the sample project's models from either.
     std::optional<std::string> FindModel(const std::string& name)
     {
         for (const char* prefix : { "../example_project/resources/models/", "example_project/resources/models/" })
@@ -42,8 +41,6 @@ namespace {
         return position;
     }
 
-    // Everything a draw relies on : submeshes tile the index buffer exactly, every index is valid, every
-    // submesh's bounds contain the triangles it draws, and no chunk exceeds the budget.
     void ExpectConsistentSubmeshes(const MeshCPUData& data)
     {
         ASSERT_TRUE(data.success);
@@ -77,7 +74,7 @@ namespace {
 
 }
 
-TEST(MeshChunking, SmallMeshKeepsOneSubmeshPerMaterialSlot)
+TEST(MeshChunking, SmallMeshOneSubmeshPerSlot)
 {
     auto path = FindModel("Dragon.fbx");
     if (!path)
@@ -90,13 +87,11 @@ TEST(MeshChunking, SmallMeshKeepsOneSubmeshPerMaterialSlot)
     for (const SubMesh& submesh : data.submeshes)
         slots.insert(submesh.materialIndex);
 
-    // Below kMaxSubMeshTriangles nothing is split : same layout as before chunking existed
     EXPECT_EQ(slots.size(), data.submeshes.size());
 }
 
-// Sponza is ~5.7M triangles : too slow for a Debug run of the whole suite, so it is opt-in
-// (ShardTests --gtest_also_run_disabled_tests --gtest_filter=*Sponza*).
-TEST(MeshChunking, DISABLED_LargeMeshIsSplitIntoCullableChunks)
+// Sponza is ~5.7M triangles, too slow for Debug. Opt-in: --gtest_also_run_disabled_tests --gtest_filter=*LargeMeshSplits
+TEST(MeshChunking, DISABLED_LargeMeshSplits)
 {
     auto path = FindModel("Sponza.fbx");
     if (!path)
@@ -111,7 +106,6 @@ TEST(MeshChunking, DISABLED_LargeMeshIsSplitIntoCullableChunks)
 
     EXPECT_GT(data.submeshes.size(), slots.size());
 
-    // Chunks must actually be smaller than the whole mesh, or culling them could never drop anything
     const glm::vec3 meshSize = data.boundsMax - data.boundsMin;
     size_t smallChunks = 0;
     for (const SubMesh& submesh : data.submeshes)
@@ -119,8 +113,6 @@ TEST(MeshChunking, DISABLED_LargeMeshIsSplitIntoCullableChunks)
             smallChunks++;
     EXPECT_GT(smallChunks, data.submeshes.size() / 2);
 
-    // Informational : how much of the mesh a camera inside the atrium still has to draw once chunks are culled
-    // individually (before chunking the whole mesh was drawn whenever any of it was in view).
     size_t totalTriangles = data.indices.size() / 3;
     std::cout << "[ info ] " << data.submeshes.size() << " submeshes over " << slots.size() << " material slots, "
               << totalTriangles << " triangles, mesh size " << meshSize.x << " x " << meshSize.y << " x " << meshSize.z << std::endl;
@@ -141,27 +133,26 @@ TEST(MeshChunking, DISABLED_LargeMeshIsSplitIntoCullableChunks)
     }
 }
 
-TEST(Frustum, OrthographicBoxCullsWhatLiesOutsideIt)
+TEST(Frustum, OrthoBoxCulls)
 {
-    // The shape of a directional light's view volume
     glm::mat4 vp = glm::ortho(-5.0f, 5.0f, -5.0f, 5.0f, 0.0f, 20.0f) * glm::lookAt(glm::vec3(0, 0, 10), glm::vec3(0), glm::vec3(0, 1, 0));
     FrustumPlanes planes = ExtractFrustumPlanes(vp);
 
     EXPECT_TRUE(AABBInFrustum(planes, glm::vec3(-1), glm::vec3(1)));
-    EXPECT_TRUE(AABBInFrustum(planes, glm::vec3(4, 4, -5), glm::vec3(8, 8, 5))); // straddles the side planes
-    EXPECT_FALSE(AABBInFrustum(planes, glm::vec3(6, -1, -1), glm::vec3(8, 1, 1))); // right of it
-    EXPECT_FALSE(AABBInFrustum(planes, glm::vec3(-1, 6, -1), glm::vec3(1, 8, 1))); // above it
-    EXPECT_FALSE(AABBInFrustum(planes, glm::vec3(-1, -1, 11), glm::vec3(1, 1, 12))); // behind the near plane
-    EXPECT_FALSE(AABBInFrustum(planes, glm::vec3(-1, -1, -11), glm::vec3(1, 1, -10.5f))); // past the far plane
+    EXPECT_TRUE(AABBInFrustum(planes, glm::vec3(4, 4, -5), glm::vec3(8, 8, 5)));
+    EXPECT_FALSE(AABBInFrustum(planes, glm::vec3(6, -1, -1), glm::vec3(8, 1, 1)));
+    EXPECT_FALSE(AABBInFrustum(planes, glm::vec3(-1, 6, -1), glm::vec3(1, 8, 1)));
+    EXPECT_FALSE(AABBInFrustum(planes, glm::vec3(-1, -1, 11), glm::vec3(1, 1, 12)));
+    EXPECT_FALSE(AABBInFrustum(planes, glm::vec3(-1, -1, -11), glm::vec3(1, 1, -10.5f)));
 }
 
-TEST(Frustum, PerspectiveMatchesTheCameraConvention)
+TEST(Frustum, PerspectiveMatchesCamera)
 {
     glm::mat4 vp = glm::perspective(glm::radians(60.0f), 1.0f, 0.1f, 100.0f) * glm::lookAt(glm::vec3(0), glm::vec3(0, 0, -1), glm::vec3(0, 1, 0));
     FrustumPlanes planes = ExtractFrustumPlanes(vp);
 
     EXPECT_TRUE(AABBInFrustum(planes, glm::vec3(-1, -1, -10), glm::vec3(1, 1, -8)));
-    EXPECT_FALSE(AABBInFrustum(planes, glm::vec3(-1, -1, 8), glm::vec3(1, 1, 10)));      // behind the camera
-    EXPECT_FALSE(AABBInFrustum(planes, glm::vec3(50, -1, -10), glm::vec3(52, 1, -8)));   // far off to the side
-    EXPECT_FALSE(AABBInFrustum(planes, glm::vec3(-1, -1, -200), glm::vec3(1, 1, -150))); // beyond the far plane
+    EXPECT_FALSE(AABBInFrustum(planes, glm::vec3(-1, -1, 8), glm::vec3(1, 1, 10)));
+    EXPECT_FALSE(AABBInFrustum(planes, glm::vec3(50, -1, -10), glm::vec3(52, 1, -8)));
+    EXPECT_FALSE(AABBInFrustum(planes, glm::vec3(-1, -1, -200), glm::vec3(1, 1, -150)));
 }

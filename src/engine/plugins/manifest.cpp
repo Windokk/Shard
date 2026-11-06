@@ -74,7 +74,7 @@ namespace Shard::Engine::Plugins {
         bool segmentStart = true;
         for (char c : id) {
             if (c == '.') {
-                if (segmentStart) return false;         // empty segment
+                if (segmentStart) return false;
                 segmentStart = true;
                 continue;
             }
@@ -140,7 +140,6 @@ namespace Shard::Engine::Plugins {
                     errors.push_back(std::string("'") + key + "' entries are an id or an object with an id");
                     continue;
                 }
-                // "service:<name>" : any plugin that provides the service
                 const bool isService = spec.id.compare(0, 8, "service:") == 0;
                 if (!IsValidPluginId(isService ? spec.id.substr(8) : spec.id)) { errors.push_back(std::string(key) + " : '" + spec.id + "' is not a valid plugin id"); continue; }
                 out.push_back(std::move(spec));
@@ -173,7 +172,6 @@ namespace Shard::Engine::Plugins {
         else if (auto v = SemVer::Parse(versionText)) m.version = *v;
         else errors.push_back("'version' : '" + versionText + "' is not a semantic version (major.minor.patch)");
 
-        // kind / moduleKind
         const std::string kind = r.String("kind", "plugin");
         if (kind == "plugin") m.kind = PluginKind::Plugin;
         else if (kind == "module") m.kind = PluginKind::Module;
@@ -197,7 +195,6 @@ namespace Shard::Engine::Plugins {
         else if (linkage == "dynamic") m.linkage = Linkage::Dynamic;
         else errors.push_back("'linkage' must be \"static\" or \"dynamic\"");
 
-        // tier
         if (m.moduleKind == ModuleKind::Datapack) m.tier = TrustTier::Data;
         else if (m.linkage == Linkage::Static || m.moduleKind == ModuleKind::Engine) m.tier = TrustTier::FirstParty;
         else m.tier = TrustTier::FirstParty;
@@ -208,7 +205,6 @@ namespace Shard::Engine::Plugins {
         if (m.moduleKind == ModuleKind::Datapack && m.tier != TrustTier::Data) errors.push_back("a datapack is tier 3 (it has no code)");
         if (m.tier == TrustTier::Data && m.moduleKind != ModuleKind::Datapack) errors.push_back("tier 3 is for datapacks");
 
-        // hosts
         if (r.Has("hosts")) {
             m.hosts = 0;
             for (const std::string& name : r.Strings("hosts")) {
@@ -221,7 +217,6 @@ namespace Shard::Engine::Plugins {
             m.hosts = kAllSimulationHosts | HostBit(Host::Tool);
         }
 
-        // engine
         if (r.Has("engine")) {
             const json& e = j["engine"];
             if (!e.is_object()) errors.push_back("'engine' must be an object");
@@ -248,7 +243,6 @@ namespace Shard::Engine::Plugins {
         }
         m.abiFingerprint = r.String("abiFingerprint");
 
-        // binaries
         if (r.Has("binaries")) {
             if (!j["binaries"].is_object()) errors.push_back("'binaries' must map a platform to a path");
             else for (auto it = j["binaries"].begin(); it != j["binaries"].end(); ++it) {
@@ -262,7 +256,6 @@ namespace Shard::Engine::Plugins {
         m.entry = r.String("entry", m.entry);
         if (m.moduleKind == ModuleKind::Datapack && !m.binaries.empty()) errors.push_back("a datapack has no binaries");
 
-        // dependency lists
         if (j.contains("dependencies")) ReadDependencies(j["dependencies"], "dependencies", m.dependencies, errors);
         if (j.contains("conflicts")) ReadDependencies(j["conflicts"], "conflicts", m.conflicts, errors);
         for (const DependencySpec& c : m.conflicts) if (c.id == m.id) errors.push_back("a plugin cannot conflict with itself");
@@ -277,7 +270,6 @@ namespace Shard::Engine::Plugins {
                 s.version = SemVer{ 1, 0, 0, {} };
                 if (p.contains("version") && p["version"].is_string()) {
                     std::string text = p["version"].get<std::string>();
-                    // "1.0" is a fine way to write a service version
                     if (std::count(text.begin(), text.end(), '.') == 1) text += ".0";
                     if (auto v = SemVer::Parse(text)) s.version = *v;
                     else { errors.push_back("service '" + s.service + "' : bad version"); continue; }
@@ -296,7 +288,6 @@ namespace Shard::Engine::Plugins {
                 m.deterministic = s.value("deterministic", true);
             }
         } else {
-            // A code module changes the game ; a plugin for the editor or the tools does not
             m.affectsSimulation = m.moduleKind == ModuleKind::Code || m.moduleKind == ModuleKind::Genre || m.moduleKind == ModuleKind::Mod || m.moduleKind == ModuleKind::Datapack;
         }
 
@@ -310,7 +301,7 @@ namespace Shard::Engine::Plugins {
                     for (const json& o : c["overrides"]) if (o.is_string()) m.overrides.push_back(o.get<std::string>());
             }
         } else if (m.kind == PluginKind::Plugin) {
-            m.contentMount.clear();         // a plain plugin has no content unless it says so
+            m.contentMount.clear();
         }
         if (m.kind == PluginKind::Plugin && !m.contentMount.empty() && !r.Has("content")) m.contentMount.clear();
         if (m.contentMount.find("..") != std::string::npos || (!m.contentMount.empty() && (m.contentMount[0] == '/' || m.contentMount[0] == '\\')))
@@ -332,7 +323,6 @@ namespace Shard::Engine::Plugins {
             else m.settings = j["settings"];
         }
 
-        // "tags" : { "Weather.Rain" : { "comment" : "..." } }, or an array of names
         if (r.Has("tags")) {
             const json& t = j["tags"];
             auto add = [&](const std::string& name, std::string comment) {

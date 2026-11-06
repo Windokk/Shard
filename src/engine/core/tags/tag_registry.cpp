@@ -7,7 +7,6 @@
 namespace Shard::Engine::Core {
 
     namespace {
-        /// The registry this copy of the code talks to : its own until a host links it
         TagRegistry*& Current()
         {
             static TagRegistry own;
@@ -54,7 +53,7 @@ namespace Shard::Engine::Core {
         if (!host || host == current)
             return;
 
-        // What the library's SH_DECLARE_TAG declared while it was being loaded (static initialization runs before the link)
+        // Static init of a loaded library runs before the link, so re-declare what it declared.
         for (const Entry& e : current->m_Entries)
             if (e.declaration.source == TagSource::Code)
                 host->Declare(e.name, TagSource::Code, e.declaration.owner, e.declaration.comment);
@@ -155,7 +154,6 @@ namespace Shard::Engine::Core {
     std::string TagRegistry::ApplyRedirects(std::string_view name) const
     {
         std::string current(name);
-        // A chain (A -> B -> C) is followed ; a loop stops after as many steps as there are redirects
         for (size_t step = 0; step <= m_Redirects.size(); ++step) {
             auto it = m_Redirects.find(current);
             if (it == m_Redirects.end() || it->second == current)
@@ -192,7 +190,6 @@ namespace Shard::Engine::Core {
         if (!keep)
             return tag;
 
-        // Kept by name, so that what the file held is written back
         Remember(target);
         ReportUnknown(target);
         return tag;
@@ -229,7 +226,6 @@ namespace Shard::Engine::Core {
         if (!info || !target || target->depth >= info->depth)
             return false;
 
-        // Up as many levels as separate them : the ancestor at that depth is the only one that can be it
         for (uint8_t depth = info->depth; depth > target->depth && info; --depth)
             info = GetInfo(info->parent);
         return info && info->tag == tagOrParent;
@@ -307,7 +303,6 @@ namespace Shard::Engine::Core {
         m_Nodes.clear();
 
         for (const Entry& e : m_Entries) {
-            // The tag and each of its parents : "A.B.C" makes A, A.B and A.B.C
             Tag child;
             size_t end = e.name.size();
             while (true) {
@@ -344,8 +339,6 @@ namespace Shard::Engine::Core {
 
         ++m_Version;
     }
-
-    // ---- Tag ----
 
     Tag Tag::Request(std::string_view name)
     {

@@ -27,8 +27,7 @@ namespace Shard::Engine::Rendering {
             image.Transition(cmd, image.RestingLayout());
         }
 
-        // One texel of a format VKFramebuffer::ReadColorTexels reads, as RGBA floats : the channels the format does not have read
-        // as 0, alpha as 1 (what glReadPixels gives)
+        // Missing channels read 0 and alpha 1, like glReadPixels.
         void TexelToRGBA(const uint8_t* in, VkFormat format, uint32_t texel, float out[4])
         {
             out[0] = 0.0f; out[1] = 0.0f; out[2] = 0.0f; out[3] = 1.0f;
@@ -93,7 +92,6 @@ namespace Shard::Engine::Rendering {
         const VkSampleCountFlags supported = Context::Get().GetCaps().sampleCounts;
         uint32_t wanted = std::max(m_Specifications.samplesCount, 1u);
 
-        // The biggest count the GPU does that is not above what is asked for
         for (uint32_t samples = 64; samples >= 1; samples /= 2)
         {
             if (samples <= wanted && (supported & samples))
@@ -130,7 +128,6 @@ namespace Shard::Engine::Rendering {
                 return;
             }
 
-            // A target that is sampled with a filter the GPU may not have (depth, 32 bit floats) : the specifications decide, nearest by default
             SamplerKey sampler = MakeSamplerKey(textureSpecs, 1);
             if (count != VK_SAMPLE_COUNT_1_BIT)
                 sampler.compare = false;
@@ -145,7 +142,7 @@ namespace Shard::Engine::Rendering {
 
         if (specs.hasColor)
         {
-            // The extra outputs have the sample count of the colour : one draw writes all of them. They are never resolved, a G-buffer is read sample by sample
+            // Extra outputs have the colour's sample count and are never resolved, a G-buffer is read per sample.
             m_ExtraColors.resize(specs.extraColorSpecs.size());
             for (size_t i = 0; i < specs.extraColorSpecs.size(); i++)
                 make(m_ExtraColors[i], specs.extraColorSpecs[i], false, multisampled ? samples : VK_SAMPLE_COUNT_1_BIT, "Framebuffer extra color");
@@ -159,7 +156,6 @@ namespace Shard::Engine::Rendering {
                 make(m_ResolveDepth, specs.depthSpecs, true, VK_SAMPLE_COUNT_1_BIT, "Framebuffer resolved depth");
         }
 
-        // What the GPU keeps for this framebuffer
         int64_t bytes = 0;
         std::vector<const std::unique_ptr<TextureResource>*> everything = {&m_Color, &m_Depth, &m_ResolveColor, &m_ResolveDepth};
         for (const auto& extra : m_ExtraColors)
@@ -271,7 +267,7 @@ namespace Shard::Engine::Rendering {
 
         if (m_AttachedCubemap != 0)
         {
-            // The shadow cubes of the point lights : every layer of the array is a target, the geometry shader says which one a primitive goes to
+            // Point light shadow cubes: every layer is a target, the geometry shader picks the layer.
             if (TextureResource* cubemap = TextureResource::Find(m_AttachedCubemap); cubemap && cubemap->image.IsValid())
             {
                 target.depth = &cubemap->image;
@@ -284,7 +280,6 @@ namespace Shard::Engine::Rendering {
         }
         else if (m_AttachedLayerTexture != 0)
         {
-            // A layer of the shadow maps of the suns or of the spot lights : the others are left as they are
             TextureResource* array = TextureResource::Find(m_AttachedLayerTexture);
             if (array && array->image.IsValid() && m_AttachedLayer < array->image.layers)
             {
@@ -373,7 +368,7 @@ namespace Shard::Engine::Rendering {
         ClearToResting(cmd, source);
         ClearToResting(cmd, destination);
 
-        // The depth is not resolved by a command of the API (a depth image cannot be) : whoever needs a single sample depth reads the samples
+        // A depth image cannot be resolved by an API command, so readers of single-sample depth read the samples.
     }
 
     void VKFramebuffer::CopyFrom(std::shared_ptr<Framebuffer> src)
@@ -549,7 +544,6 @@ namespace Shard::Engine::Rendering {
         if (!ReadColorTexels(texels, format, width, height))
             return false;
 
-        // The rows are stored bottom first (like OpenGL's) : the picture the caller wants starts at the top
         const uint32_t texel = TexelSize(format);
         const size_t rowBytes = size_t(width) * 4;
         outPixels.resize(rowBytes * height);
@@ -617,7 +611,6 @@ namespace Shard::Engine::Rendering {
         if (!context.AllocStaging(rowBytes * height, staging, offset, mapped))
             return;
 
-        // The rows come top first, the texture stores them bottom first
         for (uint32_t row = 0; row < height; row++)
             std::memcpy(static_cast<uint8_t*>(mapped) + size_t(row) * rowBytes, rgba + size_t(height - 1 - row) * rowBytes, rowBytes);
 

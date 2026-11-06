@@ -38,7 +38,7 @@ namespace {
     }
 }
 
-TEST(PluginResolver, OrdersDependenciesFirstAndTiesById)
+TEST(PluginResolver, DependenciesFirstTiesById)
 {
     std::vector<PluginManifest> all = {
         Make("c", "1.0.0", [](json& j) { j["dependencies"] = json::array({ "b" }); }),
@@ -52,7 +52,7 @@ TEST(PluginResolver, OrdersDependenciesFirstAndTiesById)
     EXPECT_EQ(Order(all, r), (std::vector<std::string>{ "a", "b", "c", "m", "z" }));
 }
 
-TEST(PluginResolver, OrderDoesNotDependOnTheOrderPluginsWereFound)
+TEST(PluginResolver, OrderIgnoresDiscoveryOrder)
 {
     std::vector<PluginManifest> one = { Make("x"), Make("y"), Make("w", "1.0.0", [](json& j) { j["loadAfter"] = json::array({ "y" }); }) };
     std::vector<PluginManifest> two = { one[2], one[1], one[0] };
@@ -70,7 +70,7 @@ TEST(PluginResolver, LoadAfterAndLoadBefore)
     EXPECT_EQ(Order(all, r), (std::vector<std::string>{ "b", "z", "a" }));
 }
 
-TEST(PluginResolver, DropsWhatDependsOnAMissingPluginAndCascades)
+TEST(PluginResolver, MissingDependencyCascades)
 {
     std::vector<PluginManifest> all = {
         Make("a", "1.0.0", [](json& j) { j["dependencies"] = json::array({ "gone" }); }),
@@ -85,7 +85,7 @@ TEST(PluginResolver, DropsWhatDependsOnAMissingPluginAndCascades)
     EXPECT_EQ(Rejected(r, "b")->kind, Rejection::Kind::MissingDependency);
 }
 
-TEST(PluginResolver, AnOptionalDependencyMayBeAbsent)
+TEST(PluginResolver, OptionalDependencyMayBeAbsent)
 {
     std::vector<PluginManifest> all = {
         Make("a", "1.0.0", [](json& j) { j["dependencies"] = json::array({ json{ { "id", "maybe" }, { "optional", true } } }); }),
@@ -93,13 +93,12 @@ TEST(PluginResolver, AnOptionalDependencyMayBeAbsent)
     ResolveResult r = ResolvePlugins(all, Options());
     EXPECT_EQ(Order(all, r), std::vector<std::string>{ "a" });
 
-    // present, it loads first
     all.push_back(Make("maybe"));
     r = ResolvePlugins(all, Options());
     EXPECT_EQ(Order(all, r), (std::vector<std::string>{ "maybe", "a" }));
 }
 
-TEST(PluginResolver, ChecksTheVersionOfADependency)
+TEST(PluginResolver, ChecksDependencyVersion)
 {
     std::vector<PluginManifest> all = {
         Make("a", "1.0.0", [](json& j) { j["dependencies"] = json::array({ json{ { "id", "lib" }, { "version", "^2.0" } } }); }),
@@ -126,7 +125,7 @@ TEST(PluginResolver, ServicesMeetServiceDependencies)
     EXPECT_TRUE(Rejected(r, "user"));
 }
 
-TEST(PluginResolver, ConflictsDropTheLastById)
+TEST(PluginResolver, ConflictsDropLastById)
 {
     std::vector<PluginManifest> all = {
         Make("a.weather", "1.0.0", [](json& j) { j["conflicts"] = json::array({ "b.weather" }); }),
@@ -139,7 +138,7 @@ TEST(PluginResolver, ConflictsDropTheLastById)
     EXPECT_EQ(Rejected(r, "b.weather")->kind, Rejection::Kind::Conflict);
 }
 
-TEST(PluginResolver, TheProjectsRequiredPluginWinsAConflict)
+TEST(PluginResolver, RequiredWinsConflict)
 {
     std::vector<PluginManifest> all = {
         Make("a.weather", "1.0.0", [](json& j) { j["conflicts"] = json::array({ "b.weather" }); }),
@@ -152,7 +151,7 @@ TEST(PluginResolver, TheProjectsRequiredPluginWinsAConflict)
     EXPECT_TRUE(r.Ok());
 }
 
-TEST(PluginResolver, ARequiredPluginThatCannotLoadIsAnError)
+TEST(PluginResolver, UnloadableRequiredIsError)
 {
     std::vector<PluginManifest> all = { Make("needs.gone", "1.0.0", [](json& j) { j["dependencies"] = json::array({ "gone" }); }) };
     ResolveOptions o = Options();
@@ -178,7 +177,7 @@ TEST(PluginResolver, ReportsACycle)
     EXPECT_NE(Rejected(r, "a")->reason.find("->"), std::string::npos);
 }
 
-TEST(PluginResolver, FiltersByHostEngineVersionApiAndFeatures)
+TEST(PluginResolver, FiltersByHostAndVersion)
 {
     std::vector<PluginManifest> all = {
         Make("editor.only", "1.0.0", [](json& j) { j["hosts"] = json::array({ "editor" }); }),
@@ -200,7 +199,7 @@ TEST(PluginResolver, FiltersByHostEngineVersionApiAndFeatures)
     EXPECT_FALSE(Rejected(r, "needs.feature"));
 }
 
-TEST(PluginResolver, KeepsTheHighestVersionOfTheSamePlugin)
+TEST(PluginResolver, KeepsHighestVersion)
 {
     std::vector<PluginManifest> all = { Make("p", "1.0.0"), Make("p", "1.2.0"), Make("p", "1.1.0") };
     ResolveResult r = ResolvePlugins(all, Options());
@@ -209,7 +208,7 @@ TEST(PluginResolver, KeepsTheHighestVersionOfTheSamePlugin)
     EXPECT_EQ(r.rejected.size(), 2u);
 }
 
-TEST(PluginResolver, TheProjectsRangePicksTheVersion)
+TEST(PluginResolver, ProjectRangePicksVersion)
 {
     std::vector<PluginManifest> all = { Make("p", "1.0.0"), Make("p", "2.0.0") };
     ResolveOptions o = Options();
@@ -218,14 +217,13 @@ TEST(PluginResolver, TheProjectsRangePicksTheVersion)
     ASSERT_EQ(r.order.size(), 1u);
     EXPECT_EQ(all[r.order[0]].version.ToString(), "1.0.0");
 
-    // nothing fits : it is reported, not silently loaded
     o.projectRanges.clear();
     o.projectRanges.emplace_back("p", *VersionRange::Parse("^3.0"));
     r = ResolvePlugins(all, o);
     EXPECT_TRUE(r.order.empty());
 }
 
-TEST(PluginResolver, ProjectCanTurnAPluginOff)
+TEST(PluginResolver, ProjectDisablesPlugin)
 {
     std::vector<PluginManifest> all = { Make("a"), Make("b", "1.0.0", [](json& j) { j["dependencies"] = json::array({ "a" }); }) };
     ResolveOptions o = Options();
@@ -236,7 +234,7 @@ TEST(PluginResolver, ProjectCanTurnAPluginOff)
     EXPECT_EQ(Rejected(r, "b")->kind, Rejection::Kind::MissingDependency);
 }
 
-TEST(PluginResolver, TheEnginesModulesLoadBeforeEverythingElse)
+TEST(PluginResolver, EngineModulesLoadFirst)
 {
     std::vector<PluginManifest> all = {
         Make("aaa.game", "1.0.0", [](json& j) { j["kind"] = "module"; j["moduleKind"] = "code"; }),

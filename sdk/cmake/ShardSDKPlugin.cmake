@@ -1,40 +1,7 @@
-# shard_sdk_add_plugin : builds a plugin of the C ABI against the Shard SDK alone, and lays it out the way the engine finds it.
-#
-#   find_package(ShardSDK 1.0 REQUIRED)
-#   shard_sdk_add_plugin(weather
-#       SOURCES      src/weather.cpp ...       # files, and / or :
-#       SOURCE_DIRS  src                       # folders : every .cpp / .cc / .cxx / .c under them is part of the plugin (found again when a file is added)
-#       MANIFEST     shard-plugin.json        # the plugin's manifest : the SDK adds "abi", "linkage" and "binaries" to it
-#     # or, without a manifest of your own :
-#       ID           com.acme.weather         # reverse DNS, lowercase
-#       VERSION      1.4.2
-#       [KIND        plugin|module]           # default : plugin
-#       [MODULE_KIND code|genre|mod]          # default : code, when KIND is module
-#       [HOSTS       engine player headless editor]   # default : engine
-#       [DEPENDS     shard.audio "com.acme.clouds@^2.1" ...]   # "id" or "id@range" ; "id?" for an optional one
-#       [DESCRIPTION "..."]
-#       [AFFECTS_SIMULATION] [NO_SIMULATION]  # default : modules affect the simulation, plugins do not
-#     # either way :
-#       [CONTENT_DIR content]                 # a folder of the source tree copied next to the plugin as its content
-#       [OUTPUT_DIR  <dir>]                   # where plugin folders go (default : <build>/plugins)
-#       [PACKAGE]                             # a target <target>_package that makes a .shardplugin with ShardPkg (SHARD_PKG_EXECUTABLE, or found on PATH)
-#       [TARGET wasm]                         # a sandboxed plugin (tier 2) : compiled to WebAssembly with a wasi-sdk (SHARD_WASM_TOOLCHAIN, see
-#                                             # ShardSDKWasm.cmake), <OUTPUT_DIR>/<id>/plugin.wasm, loaded without signature or consent
-#       [PERMISSIONS fs.read:content input ...]  # what a sandboxed plugin may use beyond the basics (it is refused the rest)
-#   )
-#
-# The result :
-#   <OUTPUT_DIR>/<id>/shard-plugin.json
-#   <OUTPUT_DIR>/<id>/bin/<platform>/<library>
-#   <OUTPUT_DIR>/<id>/content/...
-# The library is shared, its symbols hidden but the entry point (SHARD_PLUGIN_EXPORT), and built with the warnings the headers promise to
-# pass (-Wall -Wextra -pedantic). Point the engine at the folder : ShardHeadless --plugin <OUTPUT_DIR>/<id>, or the project's plugins folder.
-
 include_guard(GLOBAL)
 
 include("${CMAKE_CURRENT_LIST_DIR}/ShardSDKWasm.cmake")
 
-# The platform key a manifest names its binary under ("windows-x86_64", "linux-arm64"...) : the same as the engine's CurrentPlatformKey()
 function(shard_sdk_platform out)
     string(TOLOWER "${CMAKE_SYSTEM_NAME}" _os)
     if(_os STREQUAL "darwin")
@@ -48,8 +15,7 @@ function(shard_sdk_platform out)
     set(${out} "${_os}-${_arch}" PARENT_SCOPE)
 endfunction()
 
-# Puts the library of `target` in <root>/bin/<platform>/ (every configuration). Its import library (.lib / .dll.a on Windows) stays in the
-# build folder : nothing links against a plugin, and it would be shipped with it.
+# The import library stays in the build folder, nothing links against a plugin.
 function(shard_sdk_place_binary target root platform)
     set(_bin "${root}/bin/${platform}")
     set(_imports "${CMAKE_CURRENT_BINARY_DIR}/shard_import_libraries/${target}")
@@ -66,9 +32,6 @@ function(shard_sdk_place_binary target root platform)
     endforeach()
 endfunction()
 
-# Writes <root>/shard-plugin.json from the arguments (no MANIFEST). Used by shard_sdk_add_plugin and by the engine's own shard_add_plugin.
-#   shard_sdk_write_manifest(TARGET t ROOT dir PLATFORM p ID id NAME n VERSION v KIND k [MODULE_KIND mk] [ABI c1] HOSTS ... DEPENDS ...
-#                            ENGINE_REQUIRES ... AFFECTS true|false [CONTENT] [DESCRIPTION d])
 function(shard_sdk_write_manifest)
     set(options CONTENT)
     set(one TARGET ROOT PLATFORM ID NAME VERSION KIND MODULE_KIND ABI AFFECTS DESCRIPTION BINARY_KEY BINARY_FILE TIER)
@@ -83,7 +46,6 @@ function(shard_sdk_write_manifest)
         string(APPEND _hosts "\"${_h}\"")
     endforeach()
 
-    # dependencies : "id", "id@range", "id?" or "id?@range"
     set(_deps "")
     foreach(_d ${M_DEPENDS})
         string(REGEX MATCH "^([^@?]+)(\\?)?(@(.+))?$" _m "${_d}")
@@ -173,7 +135,6 @@ function(shard_sdk_add_plugin target)
     set(multi SOURCES SOURCE_DIRS HOSTS DEPENDS ENGINE_REQUIRES PERMISSIONS)
     cmake_parse_arguments(P "${options}" "${one}" "${multi}" ${ARGN})
 
-    # A game is a folder of files: the ones under SOURCE_DIRS, found again by CMake whenever one is added or removed
     foreach(_dir ${P_SOURCE_DIRS})
         if(NOT IS_ABSOLUTE "${_dir}")
             set(_dir "${CMAKE_CURRENT_SOURCE_DIR}/${_dir}")
@@ -191,7 +152,6 @@ function(shard_sdk_add_plugin target)
         set(P_OUTPUT_DIR "${CMAKE_BINARY_DIR}/plugins")
     endif()
 
-    # The id and version : from the manifest given, or from the arguments
     if(P_MANIFEST)
         if(NOT IS_ABSOLUTE "${P_MANIFEST}")
             set(P_MANIFEST "${CMAKE_CURRENT_SOURCE_DIR}/${P_MANIFEST}")
@@ -217,7 +177,6 @@ function(shard_sdk_add_plugin target)
     endif()
 
     if(_wasm)
-        # A sandboxed plugin : one module for every platform, next to its manifest
         shard_sdk_add_wasm_module(${target} OUTPUT "${_root}/plugin.wasm" SOURCES ${P_SOURCES} INCLUDE_DIRS "${SHARD_SDK_INCLUDE_DIR}")
     else()
         add_library(${target} SHARED ${P_SOURCES})
@@ -232,7 +191,6 @@ function(shard_sdk_add_plugin target)
         else()
             target_compile_options(${target} PRIVATE -Wall -Wextra -pedantic)
             if(MINGW)
-                # The plugin carries its C and C++ runtimes : nothing to install next to the engine for it
                 target_link_options(${target} PRIVATE -static-libgcc -static-libstdc++)
             endif()
         endif()
@@ -241,7 +199,6 @@ function(shard_sdk_add_plugin target)
     endif()
 
     if(P_MANIFEST)
-        # The manifest as written, plus what only the build knows
         if(_wasm)
             string(JSON _manifest SET "${_manifest}" abi "\"wasm1\"")
             string(JSON _manifest SET "${_manifest}" tier "2")

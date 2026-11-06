@@ -10,15 +10,11 @@
 #include "engine/plugins/abi/c_internal.hpp"
 #include "engine/plugins/version.hpp"
 
-// shard.services : what a C plugin provides is a ShardService the host owns (its table and self), registered in the engine's ServiceRegistry
-// like a C++ service ; what it asks for is a ServiceRef kept in a table of handles.
-
 namespace Shard::Engine::Plugins::CAbi {
 
     namespace {
         std::mutex gServicesMutex;
 
-        // The ShardService objects C plugins provide : resolve only reads an object it knows is one
         struct Provided {
             PluginOwner owner = 0;
             std::unique_ptr<ShardService> service;
@@ -144,7 +140,6 @@ namespace Shard::Engine::Plugins::CAbi {
             slot.owner = 0;
             if (++slot.generation == 0) slot.generation = 1;
         }
-        // Its services were revoked by the context (their refs are empty now) : the objects can go
         gProvided.erase(std::remove_if(gProvided.begin(), gProvided.end(), [owner](const Provided& p) { return p.owner == owner; }), gProvided.end());
     }
 }

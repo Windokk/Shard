@@ -23,29 +23,23 @@ enum FieldFlags : uint32_t {
 };
 
 struct Container{
-    // element info
     TypeID elementType;
     size_t elementSize;
 
-    // common queries
     size_t (*size)(void* container);
     bool   (*isAssociative)();
 };
 
 struct FieldInfo {
-    // Identity
-    const char* name;         // Field name
-    TypeID type;      // Type stored in the component
+    const char* name;
+    TypeID type;
 
-    // Memory access
-    uint32_t offset;          // Offset in the struct (used if no getter/setter)
+    uint32_t offset;
 
-    // Editor metadata
-
-    uint32_t flags;           // Editable / ReadOnly
-    float min;                // Optional min value for editor widgets
-    float max;                // Optional max value for editor widgets
-    const char* tooltip;      // Optional help text shown by the editor when the field is hovered
+    uint32_t flags;
+    float min;
+    float max;
+    const char* tooltip;
 
     const Container* container = nullptr;
     const EnumDescriptor* enumDesc = nullptr;
@@ -91,25 +85,22 @@ Container MakeMapContainer() {
 QualType getInnerTypeFromStdVector(QualType type, ASTContext& Context) {
     type = type.getCanonicalType().getUnqualifiedType();
 
-    // Makin sure it's a class template specialization
     if (const auto* recordType = type->getAs<RecordType>()) {
         const auto* decl = recordType->getDecl();
         if (const auto* tmplSpec = dyn_cast<ClassTemplateSpecializationDecl>(decl)) {
             const TemplateArgument& arg = tmplSpec->getTemplateArgs()[0];
             QualType innerType = arg.getAsType();
 
-            // Keep shared_ptr as-is
             return innerType;
         }
     }
 
-    return QualType(); // failed to extract
+    return QualType();
 }
 
 std::pair<QualType, QualType> getKeyValueTypeFromStdMap(QualType type, ASTContext& Context) {
     type = type.getCanonicalType().getUnqualifiedType();
 
-    // Make sure it's a class template specialization
     if (const auto* recordType = type->getAs<RecordType>()) {
         const auto* decl = recordType->getDecl();
         if (const auto* tmplSpec = dyn_cast<ClassTemplateSpecializationDecl>(decl)) {
@@ -121,12 +112,11 @@ std::pair<QualType, QualType> getKeyValueTypeFromStdMap(QualType type, ASTContex
             QualType keyType   = argsList[0].getAsType();
             QualType valueType = argsList[1].getAsType();
 
-            // Keep shared_ptr or unique_ptr as-is for valueType
             return {keyType, valueType};
         }
     }
 
-    return {QualType(), QualType()}; // failed to extract
+    return {QualType(), QualType()};
 }
 
 struct StructDescriptor{
@@ -145,23 +135,18 @@ public:
         const auto &SM = *Result.SourceManager;
         const CXXRecordDecl* Definition = Decl->getDefinition();
         if (!Definition) {
-            // No definition in this TU, skip it
             return;
         }
 
-        // Only what the header being processed defines : the annotated classes of the headers it includes have their
-        // own reflection file, written when that header is processed (here they would be written a second time, and
-        // by a pass that does not own them).
+        // Only what the header being processed defines. Annotated classes of included headers get their own reflection file when that header is processed.
         if (!SM.isWrittenInMainFile(Definition->getLocation()))
             return;
 
         std::string filename = SM.getFilename(Definition->getLocation()).str();
 
-        // Check all annotations
         for (auto* Attr : Decl->specific_attrs<AnnotateAttr>()) {
             std::string annotation = Attr->getAnnotation().str();
 
-            // A file is only created for a header that has something to write : an empty one would be noise
             if (annotation == "class") {
                 std::string code = handleClass(Decl, SM);
                 if (!code.empty())
@@ -175,7 +160,6 @@ public:
         }
     }
 
-    // Call this at the end of the tool run to write the file
     void writeAllFiles() {
         for (auto& [file, codeList] : perFileGenerated) {
             std::filesystem::path p(file);
@@ -201,11 +185,9 @@ public:
 
 private:
     std::map<std::string, std::vector<std::string>> perFileGenerated;
-    std::set<std::string> emittedEnums;     // "file|enum" : the enum descriptors already written (see handleField)
+    std::set<std::string> emittedEnums;
 
-    /// Whether the class declares the static `descriptor` that DECLARE_DESCRIPTOR() adds. An annotated class without
-    /// it (the abstract Volume : its GetDescriptor() stays pure virtual) has no descriptor to define, its fields are
-    /// reflected by the classes derived from it.
+    // Annotated classes without the static `descriptor` (e.g. abstract Volume) have nothing to define. Derived classes reflect their fields.
     static bool declaresDescriptor(const CXXRecordDecl* C) {
         for (const Decl* D : C->decls()) {
             if (const auto* V = dyn_cast<VarDecl>(D)) {
@@ -216,7 +198,6 @@ private:
         return false;
     }
 
-    /// The annotated classes C derives from, the most distant ancestor first : their fields are part of C's descriptor.
     static void collectAnnotatedBases(const CXXRecordDecl* C, std::vector<const CXXRecordDecl*>& out) {
         for (const CXXBaseSpecifier& base : C->bases()) {
             const CXXRecordDecl* B = base.getType()->getAsCXXRecordDecl();
@@ -245,8 +226,6 @@ private:
 
         std::vector<std::string> fieldInfos;
 
-        // What a class inherits from an annotated base (a ProbeVolume's halfExtent comes from Volume) is edited and
-        // saved through the derived class's descriptor : the base's fields come first, as they do in memory.
         std::vector<const CXXRecordDecl*> owners;
         collectAnnotatedBases(C, owners);
         owners.push_back(C);
@@ -334,7 +313,6 @@ private:
         return out.str();
     }
 
-    /// @param Parent the class whose descriptor the field goes in : the one that declares it, or one derived from it
     std::string handleField(const FieldDecl* F, const CXXRecordDecl* Parent, const clang::SourceManager &SM){
 
         if (!F || !Parent)
@@ -342,7 +320,6 @@ private:
 
         std::ostringstream out;
 
-        // ---------- parse annotations ----------
         bool isEditable = false;
         bool isReadOnly = false;
 
@@ -353,7 +330,7 @@ private:
         for (const Attr* attr : F->attrs()) {
             if (const auto* aa = dyn_cast<AnnotateAttr>(attr)) {
                 if (aa->getAnnotation() == "field")
-                    continue; // skip kind tag
+                    continue;
 
                 std::istringstream ss(aa->getAnnotation().str());
                 std::string token;
@@ -362,7 +339,7 @@ private:
                     token.erase(token.find_last_not_of(" \t") + 1);
 
                     if (token.find("tooltip=") == 0) {
-                        // The text may hold commas : it runs to the end of the annotation, so it goes last
+                        // The annotation text may contain commas, so it runs to the end and is parsed last.
                         std::string rest;
                         std::getline(ss, rest, '\0');
                         tooltip = token.substr(8) + (rest.empty() ? "" : "," + rest);
@@ -390,9 +367,8 @@ private:
         }
 
         if (isEditable == isReadOnly)
-            return {}; // invalid or irrelevant
+            return {};
 
-        // ---------- type inspection ----------
         ASTContext& Ctx = F->getASTContext();
         PrintingPolicy policy(Ctx.getLangOpts());
         policy.SuppressTagKeyword = true;
@@ -416,7 +392,6 @@ private:
         std::string containerVar = Parent->getNameAsString() + "_" + fieldName + "_container";
         std::string enumDescVar;
 
-        // ---------- container / enum generation ----------
         if (isVector) {
             std::string inner =
                 getInnerTypeFromStdVector(fieldType, Ctx).getAsString(policy);
@@ -462,8 +437,6 @@ private:
             
             typeName = "struct";
         }
-
-        // ---------- FieldInfo ----------
 
         std::string quotedTooltip = "nullptr";
         if (!tooltip.empty()) {

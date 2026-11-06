@@ -12,9 +12,7 @@ namespace Shard::Engine::Rendering{
 
     void GLShader::CompileErrors(unsigned int shader, const char* type)
     {
-        // Stores status of compilation
         GLint hasCompiled;
-        // Character array to store error message in
         char infoLog[1024];
         if (std::strcmp(type, "PROGRAM") != 0)
         {
@@ -49,32 +47,20 @@ namespace Shard::Engine::Rendering{
             m_VertexFilePath = vertexPath.full;
             m_FragmentFilePath = fragmentPath.full;
 
-            // Read vertexFile and fragmentFile, expanding any `#include "..."` directives (see
-            // glsl_preprocessor.hpp) before handing the source to the driver - GLSL itself has no
-            // include support.
             std::string vertexCode = InjectGLSLDefines(ResolveGLSLIncludes(vertexPath), defines);
             std::string fragmentCode = InjectGLSLDefines(ResolveGLSLIncludes(fragmentPath), defines);
     
-            // Convert the shader source strings into character arrays
             const char* vertexSource = vertexCode.c_str();
             const char* fragmentSource = fragmentCode.c_str();
     
-            // Create Vertex Shader Object and get its reference
             GLuint vertexShader = glCreateShader(GL_VERTEX_SHADER);
-            // Attach Vertex Shader source to the Vertex Shader Object
             glShaderSource(vertexShader, 1, &vertexSource, NULL);
-            // Compile the Vertex Shader into machine code
             glCompileShader(vertexShader);
-            // Checks if Shader compiled succesfully
             CompileErrors(vertexShader, "VERTEX");
     
-            // Create Fragment Shader Object and get its reference
             GLuint fragmentShader = glCreateShader(GL_FRAGMENT_SHADER);
-            // Attach Fragment Shader source to the Fragment Shader Object
             glShaderSource(fragmentShader, 1, &fragmentSource, NULL);
-            // Compile the Vertex Shader into machine code
             glCompileShader(fragmentShader);
-            // Checks if Shader compiled succesfully
             CompileErrors(fragmentShader, "FRAGMENT");
     
             GLuint geometryShader = 0;
@@ -131,9 +117,6 @@ namespace Shard::Engine::Rendering{
 
                 GLint location = glGetUniformLocation(m_Program, name.c_str());
 
-                // -------------------------
-                // Data uniforms
-                // -------------------------
                 ShaderDataType dataType = ShaderDataType::None;
 
                 switch (type)
@@ -187,9 +170,6 @@ namespace Shard::Engine::Rendering{
                     }
                 }
 
-                // -------------------------
-                // Samplers
-                // -------------------------
                 ShaderSamplerType samplerType = ShaderSamplerType::None;
 
                 switch (type)
@@ -281,9 +261,9 @@ namespace Shard::Engine::Rendering{
 
         GLShader fresh{ Filesystem::Path(m_VertexFilePath), Filesystem::Path(m_FragmentFilePath), Filesystem::Path(m_GeometryFilePath), m_Defines };
         if (fresh.m_CompileFailed || fresh.m_Program == 0)
-            return false;       // `fresh` deletes its broken program, this one keeps running
+            return false;
 
-        // The state cache must not keep the id of a program that is about to be deleted
+        // The state cache must not keep the id of a program about to be deleted.
         GLStateCache::BindProgram(0);
 
         std::swap(m_Program, fresh.m_Program);
@@ -334,8 +314,7 @@ namespace Shard::Engine::Rendering{
         if (it != m_ActiveUniformsMap.end())
             return it->second.location;
 
-        // Array uniforms are cached under "name[0]" ; fall back to that so SetXxx("arr", ...)
-        // keeps working the same way glGetUniformLocation("arr") used to (only hit on a miss).
+        // Array uniforms are cached as "name[0]", fall back to that on a miss.
         if (name.empty() || name.back() != ']')
         {
             auto arrayIt = m_ActiveUniformsMap.find(name + "[0]");
@@ -343,12 +322,7 @@ namespace Shard::Engine::Rendering{
                 return arrayIt->second.location;
         }
 
-        // Last resort : ask the driver once and remember the answer, -1 included. m_ActiveUniformsMap
-        // only holds the GL types the constructor's switch knows how to classify, so a uniform of any
-        // other type would otherwise resolve to -1 forever - and glUniform*(-1, ...) is defined to do
-        // nothing silently, which turns the whole SetXxx into a no-op with no error anywhere. That's
-        // how lit.frag's two uvec2 uniforms (ssaoTextureHandle, clusterGridSizeXY) sat at zero. Still
-        // one round-trip per name per program, not per call, so the hot path is unchanged.
+        // Ask the driver once and remember the answer, -1 included. Uniforms of unclassified GL types would stay at -1, and glUniform*(-1) silently does nothing (lit.frag's uvec2 uniforms sat at zero).
         auto [fallbackIt, inserted] = m_UnmappedLocations.try_emplace(name, -1);
         if (inserted)
             fallbackIt->second = glGetUniformLocation(m_Program, name.c_str());

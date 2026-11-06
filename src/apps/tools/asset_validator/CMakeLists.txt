@@ -1,5 +1,3 @@
-# asset_validator : checks a project (its file, its plugins, its asset database, its worlds) without starting the engine, and runs the checks
-# plugins add (see main.cpp). Exit code 0 : nothing wrong.
 add_executable(ShardAssetValidator ${CMAKE_CURRENT_SOURCE_DIR}/main.cpp)
 
 target_compile_definitions(ShardAssetValidator PRIVATE BUILD_ENGINE)

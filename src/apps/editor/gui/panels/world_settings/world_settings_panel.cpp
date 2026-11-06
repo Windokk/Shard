@@ -64,7 +64,6 @@ namespace Shard::Editor::GUI{
 
         ImGui::EndDisabled();
 
-        // The world's own tags (a game mode, a biome...) : a script reads them with GetTags() on its world
         ImGui::AlignTextToFramePadding();
         ImGui::TextUnformatted("Tags");
         ImGui::SameLine();
@@ -119,7 +118,6 @@ namespace Shard::Editor::GUI{
         if (!ImGui::TreeNodeEx("Skybox", ImGuiTreeNodeFlags_DefaultOpen | ImGuiTreeNodeFlags_Framed))
             return;
 
-        // A different world is now shown - drop the previous one's half-typed text and error.
         if (world != m_LastWorld)
         {
             m_LastWorld = world;
@@ -153,7 +151,6 @@ namespace Shard::Editor::GUI{
         if (submitted)
             ApplySkybox(world, buffer);
 
-        // Same drag-and-drop the Properties panel's asset fields accept.
         if (ImGui::BeginDragDropTarget())
         {
             std::vector<std::string> dropped = DragDrop::AcceptAssetDragDropPayload();
@@ -252,7 +249,6 @@ namespace Shard::Editor::GUI{
         if (!ssr.enabled)
             ImGui::BeginDisabled();
 
-        // ---- Quality : the cost knobs, as a preset or by hand ----
         struct QualityEntry { Rendering::SSRQuality quality; const char* label; };
         static const QualityEntry kQualities[] = {
             { Rendering::SSRQuality::Low, "Low" },
@@ -282,7 +278,6 @@ namespace Shard::Editor::GUI{
         if (ImGui::IsItemHovered())
             ImGui::SetTooltip("A preset of the cost knobs below (steps, resolution, temporal).\nLow : a quarter of the screen. Ultra : the whole screen, 96 steps.");
 
-        // A cost knob touched by hand makes the quality Custom
         bool costChanged = false;
         costChanged |= ImGui::SliderInt("Max steps", &ssr.maxSteps, 8, 128);
         if (ImGui::IsItemHovered())
@@ -326,7 +321,6 @@ namespace Shard::Editor::GUI{
 
         ImGui::Separator();
 
-        // ---- Look ----
         changed |= ImGui::SliderFloat("Intensity", &ssr.intensity, 0.0f, 1.0f);
         if (ImGui::IsItemHovered())
             ImGui::SetTooltip("How much of the screen-space reflection replaces the probe / sky reflection where a ray found something.");
@@ -423,7 +417,6 @@ namespace Shard::Editor::GUI{
         if (ImGui::IsItemHovered())
             ImGui::SetTooltip("Filters the noise of the bake with an edge aware filter that follows the surfaces and the shadows.");
 
-        // The denoiser's own settings : a filter run once, at the end of the bake of every page
         if (ImGui::TreeNode("Denoiser settings"))
         {
             ImGui::BeginDisabled(!settings.denoise);
@@ -539,8 +532,6 @@ namespace Shard::Editor::GUI{
 
         DrawSkyboxSection(world);
 
-        // Ambient - see the comment on World::ambientColor/lit.frag's SampleSSAO for the exact
-        // semantics : an additive light floor always present, even with zero real lights/DDGI/IBL.
         if (ImGui::TreeNodeEx("Ambient", ImGuiTreeNodeFlags_DefaultOpen | ImGuiTreeNodeFlags_Framed))
         {
             if (ImGui::ColorEdit3("Color", &world->ambientColor.x, ImGuiColorEditFlags_HDR | ImGuiColorEditFlags_Float))

@@ -1,5 +1,3 @@
-// The console commands that look at the engine. They are registered once by EngineInstance::RegisterEngineSystems.
-
 #include "engine/world/engine.hpp"
 
 #include <algorithm>
@@ -42,7 +40,6 @@ namespace Shard::Engine::Core {
             return buffer;
         }
 
-        /// "on" / "off" / "1" / "0" / "true" / "false" ; nothing if it is none of them
         bool ParseSwitch(const std::string& text, bool& out)
         {
             std::string lower = text;

@@ -25,11 +25,10 @@
 namespace Shard::Engine::Objects::Components{
 
     namespace {
-        // Folder of the project the baked pictures go in
         constexpr const char* kBakeFolder = "reflection_probes/";
         constexpr const char* kBakeExtension = ".hdr";
 
-        // One bake at a time : the raytracer owns the GPU buffers of the scene it traces, and a probe bake is short
+        // One bake at a time, the raytracer owns the GPU buffers of the scene it traces.
         struct ActiveBake
         {
             std::unique_ptr<Rendering::Raytracing::Raytracer> tracer;
@@ -38,7 +37,6 @@ namespace Shard::Engine::Objects::Components{
         };
         std::unique_ptr<ActiveBake> g_Bake;
 
-        // Keeps a world/actor name usable as part of a file name on every platform.
         std::string SanitizeForFileName(const std::string& name)
         {
             std::string out;
@@ -51,7 +49,6 @@ namespace Shard::Engine::Objects::Components{
 
     ReflectionProbe::ReflectionProbe(std::shared_ptr<Actor> parent, uint32_t local_id) : Volume(parent, local_id)
     {
-        // A probe's box is the part of the world it stands for : a room, not Volume's generic 1x1x1 default
         halfExtent = glm::vec3(5.0f, 3.0f, 5.0f);
     }
 
@@ -65,7 +62,6 @@ namespace Shard::Engine::Objects::Components{
 
     void ReflectionProbe::Deserialize(const json componentData)
     {
-        // The fields are only loaded, not applied : the picture is loaded by the engine's update (see TickAll)
         DeserializeReflectedFields(componentData, false);
 
         if (componentData.contains("bakedData") && componentData["bakedData"].is_string())
@@ -90,7 +86,7 @@ namespace Shard::Engine::Objects::Components{
     {
         std::shared_ptr<ReflectionProbe> clone = Object::Create<ReflectionProbe>(*this);
 
-        // A copy is a different probe : if it kept the reference, baking either of the two would overwrite the file the other one reflects.
+        // A copy must not share the file, or baking one would overwrite the other's picture.
         clone->bakedData.clear();
         clone->m_Environment.reset();
         clone->m_EnvironmentPath.clear();
@@ -103,7 +99,6 @@ namespace Shard::Engine::Objects::Components{
         if (bakedData == m_EnvironmentPath)
             return;
 
-        // Remembered even when the load fails : a missing file is logged once, not at every update
         m_EnvironmentPath = bakedData;
         m_Environment.reset();
 
@@ -135,8 +130,6 @@ namespace Shard::Engine::Objects::Components{
 
         const Filesystem::Path resRoot = engine->GetFileManager()->GetProjectResRoot();
 
-        // Re-bake : over this probe's own file. First bake : a new file in the project's folder. Its name only has to be unique NOW - once
-        // written, the world file stores the full path, so it doesn't matter that actor names (or the world's) can change later.
         std::string relative = bakedData;
         if (relative.empty())
         {
@@ -158,11 +151,10 @@ namespace Shard::Engine::Objects::Components{
         settings.samplesPerPixel = static_cast<uint32_t>(std::max(bakeSamples, 1));
         settings.maxBounces = static_cast<uint32_t>(std::max(bakeBounces, 1));
         settings.useLevelSky = true;
-        // A rare very bright path would be a white speck that averaging never removes, and the roughness filter spreads it over a whole lobe
+        // Clamp rare bright paths: a white speck never averages out and the roughness filter spreads it.
         settings.fireflyClamp = 100.0f;
         settings.writePreview = false;
 
-        // Only the position matters for a panorama
         Rendering::CameraProxy camera;
         camera.valid = true;
         camera.position = parent->transform->GetWorldPosition();
@@ -199,7 +191,6 @@ namespace Shard::Engine::Objects::Components{
     }
 
     namespace {
-        // Called on the main thread when the bake of `probe` has written `file`
         void OnBakeWritten(ReflectionProbe& probe, const Filesystem::Path& file)
         {
             Core::IEngineContext* engine = &Core::GetEngine();
@@ -212,16 +203,14 @@ namespace Shard::Engine::Objects::Components{
                 return;
             }
 
-            // The asset database is otherwise only read at project load, so without this the file has no ID and the next world load couldn't resolve its path
+            // The asset database is only read at project load, so register the file or the next world load can't resolve it.
             fileManager->RegisterAsset(file);
 
-            // A previous bake of this probe may still be cached : it is the old picture
             engine->GetResourcesManager()->Unload(Core::Resources::AssetKind::EnvMap, nameInProject);
             probe.bakedData = nameInProject;
             probe.RefreshEnvironment();
 
-            // Written straight away rather than at project shutdown, so a crash between here and then can't leave a saved world pointing at a
-            // file the database has never heard of
+            // Write now, not at shutdown, so a crash can't leave a saved world pointing at an unknown file.
             if (auto project = engine->GetCurrentProject())
                 Serialization::SerializeAssetDataBase(project->GetAssetDatabasePath(), *engine->GetAssetIDManager());
 

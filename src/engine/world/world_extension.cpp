@@ -59,7 +59,6 @@ namespace Shard::Engine::Worlds{
 
     uint32_t RegisterWorldSettingsAssetRefsWithId(WorldSettingsAssetRefs refs)
     {
-        // Ids run parallel to SettingsRefs() ; entries registered without an id carry 0
         while(SettingsRefIds().size() < SettingsRefs().size())
             SettingsRefIds().push_back(0);
         const uint32_t id = ++gNextSettingsRefId;
@@ -74,7 +73,7 @@ namespace Shard::Engine::Worlds{
         auto& ids = SettingsRefIds();
         for(size_t i = 0; i < ids.size() && i < SettingsRefs().size(); ++i){
             if(ids[i] == id){
-                // The slot stays (callers hold the vector by reference while they iterate) but does nothing any more
+                // The slot stays, callers hold the vector by reference while iterating.
                 SettingsRefs()[i] = [](const nlohmann::json&, std::vector<Core::Resources::ResourceKey>&) {};
                 ids[i] = 0;
                 return true;
@@ -113,7 +112,6 @@ namespace Shard::Engine::Worlds{
 
     void ApplyWorldJsonFilters(const std::string& pathInProject, nlohmann::json& world)
     {
-        // A copy of the list : a filter may add or remove filters
         const auto filters = JsonFilters();
         for(const auto& [id, filter] : filters)
             filter(pathInProject, world);

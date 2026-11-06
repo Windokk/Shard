@@ -21,8 +21,7 @@ using Shard::Engine::Physics::PhysicsManager;
 
 namespace {
 
-    /// Destroys its actor the first time it touches something. Reads its own body first : with the bodies still locked by Jolt
-    /// (the callback running inside the step, on one of its jobs) that read would deadlock or assert.
+    // Reads its body first: Jolt keeps bodies locked inside the step callback, so that read would deadlock or assert.
     class DestroyOnContact : public Script {
         public:
             using Script::Script;
@@ -43,7 +42,6 @@ namespace {
             float heightAtContact = -1.0f;
     };
 
-    /// On the ground : must never be told about a body that a script destroyed earlier in the same dispatch
     class ContactWitness : public Script {
         public:
             using Script::Script;
@@ -64,8 +62,7 @@ namespace {
             int offThread = 0;
     };
 
-    // Physics on the engine's job system (several workers, the contact callbacks then come from several threads at once), with
-    // actors that carry a PhysicsBody and scripts
+    // Physics on the job system: contact callbacks arrive from several threads at once.
     class ContactDispatch : public ::testing::Test {
         protected:
             void SetUp() override {
@@ -90,7 +87,7 @@ namespace {
                 auto actor = Object::CreateWithContext<Actor>(&context, std::string(name), &context);
                 actor->transform->SetPosition(position);
                 actor->transform->SetScale(scale);
-                actor->AddComponent<PhysicsBody>()->CreateBody(motion);                // a 1x1x1 box, scaled
+                actor->AddComponent<PhysicsBody>()->CreateBody(motion);
                 actors.push_back(actor);
                 return actor;
             }
@@ -102,14 +99,13 @@ namespace {
     };
 }
 
-TEST_F(ContactDispatch, AScriptCanDestroyItsActorWhenItLands) {
+TEST_F(ContactDispatch, ScriptDestroysActorOnLanding) {
     const std::thread::id caller = std::this_thread::get_id();
 
     auto ground = MakeBox("Ground", glm::vec3(0.0f, -0.5f, 0.0f), glm::vec3(40.0f, 1.0f, 40.0f), JPH::EMotionType::Static);
     auto witness = ground->AddComponent<ContactWitness>();
     witness->caller = caller;
 
-    // A grid of boxes landing in the same step : their contacts are found by different jobs
     std::vector<std::shared_ptr<DestroyOnContact>> scripts;
     for (int x = 0; x < 6; ++x) {
         for (int z = 0; z < 6; ++z) {
@@ -125,17 +121,17 @@ TEST_F(ContactDispatch, AScriptCanDestroyItsActorWhenItLands) {
         physics.StepSimulation(1.0f / 60.0f, false);
 
     for (const auto& script : scripts) {
-        EXPECT_EQ(script->calls, 1);                                   // destroyed by the first contact : no other one followed
+        EXPECT_EQ(script->calls, 1);
         EXPECT_TRUE(script->onCallerThread);
         EXPECT_TRUE(script->otherBodyAlive);
-        EXPECT_NEAR(script->heightAtContact, 0.5f, 0.1f);              // resting on the ground's top face
+        EXPECT_NEAR(script->heightAtContact, 0.5f, 0.1f);
     }
-    EXPECT_EQ(physics.GetPhysicsSystem().GetNumBodies(), 1u);          // only the ground is left
+    EXPECT_EQ(physics.GetPhysicsSystem().GetNumBodies(), 1u);
     EXPECT_EQ(witness->deadBodies, 0);
     EXPECT_EQ(witness->offThread, 0);
 }
 
-TEST_F(ContactDispatch, ContactsReachTheScriptsOnTheSteppingThread) {
+TEST_F(ContactDispatch, ContactsReachSteppingThread) {
     const std::thread::id caller = std::this_thread::get_id();
 
     auto ground = MakeBox("Ground", glm::vec3(0.0f, -0.5f, 0.0f), glm::vec3(40.0f, 1.0f, 40.0f), JPH::EMotionType::Static);
@@ -147,7 +143,7 @@ TEST_F(ContactDispatch, ContactsReachTheScriptsOnTheSteppingThread) {
     for (int step = 0; step < 90; ++step)
         physics.StepSimulation(1.0f / 60.0f, false);
 
-    EXPECT_GE(witness->calls, 16);                                     // every box landed (and kept touching)
+    EXPECT_GE(witness->calls, 16);
     EXPECT_EQ(witness->offThread, 0);
     EXPECT_EQ(witness->deadBodies, 0);
 }

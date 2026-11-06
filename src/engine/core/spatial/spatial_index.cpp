@@ -19,8 +19,6 @@ namespace Shard::Engine::Core {
         }
     }
 
-    // ---- Geometry ---------------------------------------------------------------------------------------------
-
     bool SpatialRay::Intersect(const AABB& box, double& tEnter) const
     {
         double t0 = 0.0;
@@ -28,7 +26,7 @@ namespace Shard::Engine::Core {
         for (int a = 0; a < 3; ++a) {
             const double o = origin[a];
             const double d = direction[a];
-            if (d == 0.0) {                         // parallel to this slab : inside it or never
+            if (d == 0.0) {
                 if (o < box.min[a] || o > box.max[a]) return false;
                 continue;
             }
@@ -64,7 +62,6 @@ namespace Shard::Engine::Core {
 
     SpatialFrustum SpatialFrustum::FromViewProjection(const DMat4& m, bool zeroToOne)
     {
-        // Row i of the matrix (glm is column-major : m[column][row])
         const auto row = [&](int i) { return DVec4(m[0][i], m[1][i], m[2][i], m[3][i]); };
         const DVec4 r0 = row(0), r1 = row(1), r2 = row(2), r3 = row(3);
         const DVec4 raw[6] = {
@@ -85,7 +82,6 @@ namespace Shard::Engine::Core {
     bool SpatialFrustum::Intersects(const AABB& box) const
     {
         for (const SpatialPlane& p : planes) {
-            // The corner of the box furthest along the normal : if even that one is behind the plane, the box is outside
             double dist = p.d;
             for (int a = 0; a < 3; ++a) {
                 const double n = p.normal[a];
@@ -96,8 +92,6 @@ namespace Shard::Engine::Core {
         }
         return true;
     }
-
-    // ---- ISpatialIndex queries --------------------------------------------------------------------------------
 
     void ISpatialIndex::QueryAABB(const AABB& box, Visitor visit) const
     {
@@ -152,8 +146,6 @@ namespace Shard::Engine::Core {
         std::sort(out.begin(), out.end(), [](const SpatialRayHit& a, const SpatialRayHit& b) { return a.t != b.t ? a.t < b.t : a.id < b.id; });
     }
 
-    // ---- BVH --------------------------------------------------------------------------------------------------
-
     int BVHIndex::AllocNode()
     {
         if (freeList_ >= 0) {
@@ -181,7 +173,7 @@ namespace Shard::Engine::Core {
 
         const AABB leafBox = nodes_[leaf].fat;
 
-        // Walk down to the sibling that makes the tree grow the least (surface area heuristic)
+        // Descend by surface area heuristic.
         int index = root_;
         while (!nodes_[index].IsLeaf()) {
             const int c1 = nodes_[index].child1;
@@ -189,8 +181,8 @@ namespace Shard::Engine::Core {
 
             const double area = nodes_[index].fat.SurfaceArea();
             const double combinedArea = AABB::Union(nodes_[index].fat, leafBox).SurfaceArea();
-            const double cost = 2.0 * combinedArea;                 // new parent over this node
-            const double inheritance = 2.0 * (combinedArea - area); // pushing the leaf lower
+            const double cost = 2.0 * combinedArea;
+            const double inheritance = 2.0 * (combinedArea - area);
 
             const auto childCost = [&](int c) {
                 const double grown = AABB::Union(leafBox, nodes_[c].fat).SurfaceArea();
@@ -205,7 +197,7 @@ namespace Shard::Engine::Core {
 
         const int sibling = index;
         const int oldParent = nodes_[sibling].parent;
-        const int newParent = AllocNode();      // may reallocate : no reference is held across it
+        const int newParent = AllocNode();      // AllocNode may reallocate, so hold no reference across it.
         nodes_[newParent].parent = oldParent;
         nodes_[newParent].fat = AABB::Union(leafBox, nodes_[sibling].fat);
         nodes_[newParent].height = nodes_[sibling].height + 1;
@@ -260,7 +252,6 @@ namespace Shard::Engine::Core {
         }
     }
 
-    // Rotates a node up when its children's heights differ by more than 1 (returns the new root of that subtree)
     int BVHIndex::Balance(int iA)
     {
         if (nodes_[iA].IsLeaf() || nodes_[iA].height < 2) return iA;
@@ -269,8 +260,6 @@ namespace Shard::Engine::Core {
         const int iC = nodes_[iA].child2;
         const int balance = nodes_[iC].height - nodes_[iB].height;
 
-        // `up` takes A's place, A becomes its child1 ; `other` is up's child that stays with `up`, the two grandchildren are
-        // split between A and up so that the taller one stays under up
         const auto rotate = [&](int up, int stay, bool upIsChild2) {
             const int iF = nodes_[up].child1;
             const int iG = nodes_[up].child2;
@@ -288,13 +277,13 @@ namespace Shard::Engine::Core {
             }
 
             const bool keepF = nodes_[iF].height > nodes_[iG].height;
-            const int stays = keepF ? iF : iG;      // remains a child of `up`
-            const int moves = keepF ? iG : iF;      // goes down to A
+            const int stays = keepF ? iF : iG;
+            const int moves = keepF ? iG : iF;
             nodes_[up].child2 = stays;
             if (upIsChild2) nodes_[iA].child2 = moves; else nodes_[iA].child1 = moves;
             nodes_[moves].parent = iA;
 
-            const int aOther = stay;                // A's remaining original child
+            const int aOther = stay;
             nodes_[iA].fat = AABB::Union(nodes_[aOther].fat, nodes_[moves].fat);
             nodes_[up].fat = AABB::Union(nodes_[iA].fat, nodes_[stays].fat);
             nodes_[iA].height = 1 + std::max(nodes_[aOther].height, nodes_[moves].height);
@@ -329,7 +318,7 @@ namespace Shard::Engine::Core {
 
         const int leaf = it->second;
         nodes_[leaf].tight = box;
-        if (nodes_[leaf].fat.Contains(box)) return true;        // still inside its fat box : the tree is untouched
+        if (nodes_[leaf].fat.Contains(box)) return true;
 
         RemoveLeaf(leaf);
         nodes_[leaf].fat = box.Inflated(margin_);
@@ -405,8 +394,6 @@ namespace Shard::Engine::Core {
         return ValidateNode(root_, -1);
     }
 
-    // ---- Grid -------------------------------------------------------------------------------------------------
-
     size_t GridIndex::CellKeyHash::operator()(const CellKey& k) const noexcept
     {
         uint64_t h = static_cast<uint64_t>(k.x) * 0x9E3779B97F4A7C15ull;
@@ -418,7 +405,6 @@ namespace Shard::Engine::Core {
 
     GridIndex::CellKey GridIndex::KeyOf(const DVec3& p) const
     {
-        // Clamped so a huge coordinate cannot overflow the integer
         constexpr double kLimit = 4.0e18;
         const auto f = [&](double v) { return static_cast<int64_t>(std::clamp(std::floor(v / cellSize_), -kLimit, kLimit)); };
         return {f(p.x), f(p.y), f(p.z)};
@@ -483,7 +469,7 @@ namespace Shard::Engine::Core {
         const CellKey hi = KeyOf(box.max);
         const bool oversized = CellsCovered(lo, hi) > kMaxCellsPerItem;
         if (oversized == item.oversized && (oversized || (lo == item.lo && hi == item.hi))) {
-            item.box = box;                     // same cells : only the box changes
+            item.box = box;
             extents_.Expand(box);
             return true;
         }
@@ -531,7 +517,6 @@ namespace Shard::Engine::Core {
         const CellKey lo = KeyOf(clip.min);
         const CellKey hi = KeyOf(clip.max);
 
-        // An item in several cells is met once per cell : remember the ones already handled
         std::unordered_set<Id> seen;
         bool stopped = false;
         const auto visitCell = [&](const CellKey& key, const std::vector<Id>& ids) {
@@ -544,7 +529,6 @@ namespace Shard::Engine::Core {
         };
 
         if (CellsCovered(lo, hi) > double(cells_.size())) {
-            // Fewer occupied cells than cells in the region : walk the occupied ones
             for (const auto& [key, ids] : cells_) {
                 if (key.x < lo.x || key.x > hi.x || key.y < lo.y || key.y > hi.y || key.z < lo.z || key.z > hi.z) continue;
                 visitCell(key, ids);
@@ -565,14 +549,12 @@ namespace Shard::Engine::Core {
         return true;
     }
 
-    // ---- Octree -----------------------------------------------------------------------------------------------
-
     OctreeIndex::OctreeIndex(const DVec3& center, double halfSize, uint32_t maxDepth)
         : rootSize_((halfSize > 0.0 ? halfSize : 1.0) * 2.0)
         , maxDepth_(std::min(maxDepth, kMaxDepthLimit))
     {
         rootMin_ = center - DVec3(rootSize_ * 0.5);
-        Alloc();                                // the root, always node 0
+        Alloc();
     }
 
     int OctreeIndex::Alloc()
@@ -613,7 +595,6 @@ namespace Shard::Engine::Core {
         }
         item.outside = false;
 
-        // Deepest level whose cells are still at least as big as the item : the item then fits in its (loose) node
         const DVec3 size = box.max - box.min;
         const double extent = std::max({size.x, size.y, size.z});
         uint32_t depth = maxDepth_;
@@ -657,7 +638,7 @@ namespace Shard::Engine::Core {
             const uint32_t oct = OctantAt(item, level);
             int child = nodes_[node].children[oct];
             if (child < 0) {
-                child = Alloc();                // may reallocate nodes_
+                child = Alloc();                // Alloc may reallocate nodes_.
                 nodes_[child].parent = node;
                 nodes_[child].octant = static_cast<uint8_t>(oct);
                 nodes_[node].children[oct] = child;
@@ -694,7 +675,7 @@ namespace Shard::Engine::Core {
         if (items_.count(id)) Remove(id);
         Item item;
         Place(box, item);
-        // The node bounds are recomputed from items_, so the item has to be there before it is linked
+        // Node bounds are recomputed from items_, so the item must be there before linking.
         items_[id] = item;
         Link(id, item);
         return true;
@@ -728,8 +709,7 @@ namespace Shard::Engine::Core {
         const auto it = items_.find(id);
         if (it == items_.end()) return false;
         const Item item = it->second;
-        // Unlink recomputes the bounds from items_ : the removed item must no longer be counted... it is only in the node's list until
-        // the SwapPop, which comes first
+        // Unlink recomputes bounds from items_, so the SwapPop must come first.
         Unlink(id, item);
         items_.erase(it);
         return true;
@@ -774,8 +754,6 @@ namespace Shard::Engine::Core {
         }
         return true;
     }
-
-    // ---- Factory ----------------------------------------------------------------------------------------------
 
     std::unique_ptr<ISpatialIndex> CreateSpatialIndex(const SpatialIndexConfig& config)
     {

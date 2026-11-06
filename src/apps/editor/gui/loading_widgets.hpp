@@ -1,11 +1,5 @@
 #pragma once
 
-// Small shared drawing helpers for "something is loading" UI - used by both the full-screen world
-// loading overlay (main_window.cpp) and the DDGI probe-bake progress toast (ImGuiNotify.hpp), so the
-// two don't drift into two different-looking loading widgets. Header-only (inline), matching
-// ImGuiNotify.hpp's own style, so either caller can use it without a new translation unit to wire into
-// CMake's file(GLOB_RECURSE ...) source list.
-
 #include <cmath>
 #include <algorithm>
 
@@ -13,16 +7,12 @@
 
 namespace Shard::Editor::GUI::LoadingWidgets
 {
-    // Rotating, breathing arc - draws an open circle whose arc length eases between minArc and maxArc
-    // turns of the circle while the whole thing spins, the standard "indeterminate activity" spinner
-    // look. Used in place of a static icon glyph, which reads as frozen/stuck the instant a load takes
-    // more than a second.
     inline void DrawSpinner(ImDrawList* drawList, ImVec2 centre, float radius, float thickness, ImU32 color)
     {
-        constexpr float kSpinSpeed = 2.6f;   // radians/sec the arc's leading edge rotates at
-        constexpr float kPulseSpeed = 1.8f;  // rad/sec of the arc-length breathing cycle
-        constexpr float kMinArc = 0.12f;     // shortest arc, in full turns
-        constexpr float kMaxArc = 0.75f;     // longest arc, in full turns
+        constexpr float kSpinSpeed = 2.6f;
+        constexpr float kPulseSpeed = 1.8f;
+        constexpr float kMinArc = 0.12f;
+        constexpr float kMaxArc = 0.75f;
         constexpr int kSegments = 32;
 
         float time = (float)ImGui::GetTime();
@@ -42,9 +32,6 @@ namespace Shard::Editor::GUI::LoadingWidgets
         drawList->PathStroke(color, ImDrawFlags_None, thickness);
     }
 
-    // Rounded, filled bar with a thin border - ImGui::ProgressBar() draws a flat, square-cornered
-    // rectangle with no room for either, which is what made the old loading bars look like a
-    // placeholder rather than a finished piece of UI.
     inline void DrawProgressBar(ImDrawList* drawList, ImVec2 pos, ImVec2 size, float fraction,
         ImU32 bgColor, ImU32 fillColor, ImU32 borderColor)
     {
@@ -58,8 +45,7 @@ namespace Shard::Editor::GUI::LoadingWidgets
         if (fillWidth > 1.0f)
         {
             ImVec2 fillMax(pos.x + fillWidth, max.y);
-            // Only round the right edge once the fill has grown past the left edge's own rounding,
-            // otherwise a freshly-started bar draws a rounded cap floating past its actual fill edge.
+            // Round the right edge only once the fill exceeds the left rounding, else a fresh bar draws a cap past its fill.
             ImDrawFlags fillRounding = fillWidth >= size.y ? ImDrawFlags_RoundCornersAll : ImDrawFlags_RoundCornersLeft;
             drawList->AddRectFilled(pos, fillMax, fillColor, rounding, fillRounding);
         }
@@ -101,7 +87,6 @@ namespace Shard::Editor::GUI::LoadingWidgets
         const ImGuiID id = window->GetID(label);
 
         pos = window->DC.CursorPos;
-        // The size of the spinner is set to twice the radius, plus some padding based on the style
         size = ImVec2((radius) * 2, (radius + style.FramePadding.y) * 2);
 
         const ImRect bb(pos, ImVec2(pos.x + size.x, pos.y + size.y));
@@ -110,7 +95,6 @@ namespace Shard::Editor::GUI::LoadingWidgets
         num_segments = window->DrawList->_CalcCircleAutoSegmentCount(radius);
 
         centre = bb.GetCenter();
-        // If the item cannot be added to the window, return false
         if (!ImGui::ItemAdd(bb, id))
           return false;
 
@@ -163,9 +147,6 @@ namespace Shard::Editor::GUI::LoadingWidgets
         return 0.f;
     }
 
-    // Concentric filled rings that pulse outward and fade - a solid-circle alternative to DrawSpinner's
-    // outlined arc. Takes an explicit draw list and centre position, like DrawSpinner above, rather than
-    // reserving its own ImGui layout item, so callers can place (and spin) it anywhere.
     inline void SpinnerFadePulsar(ImDrawList* drawList, ImVec2 centre, float radius, const ImColor &color = ImColor(1, 1, 1, 1), float speed = 2.8f, int rings = 2)
     {
       constexpr int kSegments = 32;

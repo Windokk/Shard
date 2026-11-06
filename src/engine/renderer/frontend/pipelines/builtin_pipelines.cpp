@@ -21,7 +21,6 @@ namespace Shard::Engine::Rendering {
         constexpr const char* kLightingPass = "DeferredLightingPass";
         constexpr const char* kWireOverlayPass = "DeferredWireOverlayPass";
 
-        /// The forward pass is the renderer's : a pipeline sets it up for what it makes of it
         void ConfigureForwardPass(Renderer& renderer, bool clear, bool depthPrepass)
         {
             if (std::shared_ptr<RenderPass> pass = renderer.GetRenderPass(kForwardPass))
@@ -32,11 +31,6 @@ namespace Shard::Engine::Rendering {
             }
         }
 
-        // ---- Forward+ ----------------------------------------------------------------------------------------------------------
-
-        /// Every mesh is drawn with its material, lit where it is drawn : the opaque geometry lays its depth down first (a depth sweep) so that each pixel
-        /// is shaded once, the lights come from the clusters the light culling compute pass filled. Translucent geometry is blended on top. This is
-        /// the pipeline the engine was built around : the passes it needs (the forward pass, the shadows, SSAO) are the renderer's.
         class ForwardPlusPipeline final : public RenderPipeline
         {
             public:
@@ -47,20 +41,7 @@ namespace Shard::Engine::Rendering {
                 void Deactivate(Renderer&) override {}
         };
 
-        // ---- Deferred ----------------------------------------------------------------------------------------------------------
-
-        /// The materials of the opaque and masked geometry are evaluated once per pixel into a G-buffer (the same lit shader, permutation GBUFFER),
-        /// then one full screen pass lights every pixel from it (permutation SHARD_DEFERRED_LIGHTING : the same lighting code, ShadeSurface). Lighting cost
-        /// no longer depends on how many layers of geometry overlap, and the cost of a material is paid once. The forward pass still runs afterwards, for
-        /// what a G-buffer cannot hold : the translucent geometry, and the sky.
-        ///
-        /// The G-buffer has the sample count of the scene target (the project's MSAA setting) : the lighting pass runs once per sample (the
-        /// SHARD_GBUFFER_MS permutation of the lit shader), so the geometry edges are anti-aliased like the forward pipelines' - at the price of lighting
-        /// every sample of every pixel, edges or not.
-        ///
-        /// The editor's debug views are drawn by the pipeline itself (see DebugViewRole) : the lighting pass shows the normals, the depth, the GI, the
-        /// SSAO... from the G-buffer ; the views of what only the vertices carry (the UVs, the lightmap UVs, the wireframe) are written into the
-        /// G-buffer's albedo by the material pass ; the lines of the shaded wireframe are one more sweep over the G-buffer's draws.
+        // G-buffer comes from the lit shader's GBUFFER permutation, lit once per MSAA sample. Forward pass still draws translucent and sky.
         class DeferredPipeline final : public RenderPipeline
         {
             public:
@@ -71,7 +52,7 @@ namespace Shard::Engine::Rendering {
                 {
                     const glm::ivec2 size = renderer.GetViewportSize();
 
-                    // RGBA8 albedo, then three RGBA16F : the normals (octahedral, shading and geometric), the emission with the metallic, the baked light with the roughness
+                    // RGBA8 albedo + 3x RGBA16F: octahedral normals (shading, geometric), emission+metallic, baked light+roughness.
                     FramebufferSpecifications specs;
                     specs.width = size.x;
                     specs.height = size.y;
@@ -108,8 +89,6 @@ namespace Shard::Engine::Rendering {
                     gbufferPass->debugViewRole = DebugViewRole::GBuffer;
                     renderer.AddRenderPass(gbufferPass, kGBufferPass, {});
 
-                    // The lighting : a quad over the whole screen drawn with the lit shader's deferred permutation (a mesh, not a fullscreen triangle :
-                    // the draws of meshes are the ones that get the scene's lights, shadows and probes bound)
                     const Filesystem::Path directory = Core::GetEngine().GetFileManager()->GetEngineResRoot() / "shaders/mesh";
                     std::vector<std::string> defines = {"SHARD_DEFERRED_LIGHTING"};
                     if (m_Multisampled)
@@ -125,8 +104,6 @@ namespace Shard::Engine::Rendering {
                     pipeline.shader = shader;
                     pipeline.topology = PrimitiveTopology::Triangles;
                     pipeline.cullMode = CullMode::None;
-                    // The depth of the opaque geometry is written into the scene's depth, for what is drawn after (the translucent geometry, the sky,
-                    // the overlays) : the test that lets a draw write depth has to be on, and passes always
                     pipeline.depthTest = true;
                     pipeline.depthWrite = true;
                     pipeline.depthCompare = DepthCompareOp::Always;
@@ -144,8 +121,6 @@ namespace Shard::Engine::Rendering {
                     lightingPass->debugViewRole = DebugViewRole::Lighting;
                     renderer.AddRenderPass(lightingPass, kLightingPass, {kGBufferPass});
 
-                    // The shaded wireframe's lines : the G-buffer's draws again, as lines with the forward shader, over the lit picture (the renderer
-                    // enables the pass in that view only)
                     auto wirePass = std::make_shared<RenderPass>();
                     wirePass->target = renderer.GetSceneFramebuffer();
                     wirePass->clearColor = false;
@@ -156,7 +131,6 @@ namespace Shard::Engine::Rendering {
                     wirePass->enabled = false;
                     renderer.AddRenderPass(wirePass, kWireOverlayPass, {kLightingPass});
 
-                    // The sky and the translucent geometry go on top of the lit picture
                     ConfigureForwardPass(renderer, false, false);
 
                     SubmitLightingCommand(renderer);
@@ -187,8 +161,6 @@ namespace Shard::Engine::Rendering {
                     if (!pass || !m_GBuffer)
                         return;
 
-                    // The project's sample count can change after the pipeline was activated : the G-buffer follows the scene target, the lighting pass
-                    // reads one G-buffer sample per sample of the target
                     if (m_Multisampled)
                     {
                         const uint32_t sceneSamples = renderer.GetSceneFramebuffer()->GetSpecifications().samplesCount;
@@ -196,7 +168,6 @@ namespace Shard::Engine::Rendering {
                             m_GBuffer->SetSamplesCount(sceneSamples);
                     }
 
-                    // The camera's matrices come with the draw (the camera state) ; what the shader needs on top is where a pixel is in the world
                     pass->customUniforms["uInvViewProjection"] = glm::inverse(snapshot.camera.viewProjection);
 
                     pass->customSamplers["gAlbedoTex"] = m_GBuffer->GetColorAttachmentAt(0);
@@ -213,12 +184,9 @@ namespace Shard::Engine::Rendering {
                     if (requested != kForwardPass)
                         return requested;
 
-                    // The sky is a full screen triangle that sits behind everything (it is drawn first, geometry covers it) : it goes in the lighting
-                    // pass, ahead of the lighting quad, which leaves the pixels without geometry alone
                     if (command.fullscreenTri)
                         return kLightingPass;
 
-                    // The scene submits to the forward pass : what the G-buffer can hold goes there instead
                     if (command.material && command.material->GetOpacity() != Opacity::Translucent)
                         return kGBufferPass;
                     return requested;
@@ -236,7 +204,6 @@ namespace Shard::Engine::Rendering {
 
                 void AdjustDependencies(std::unordered_map<std::string, std::vector<std::string>>& dependencies) const override
                 {
-                    // What the forward pass waited for (the shadow maps, the AO) is what the lighting needs : the forward pass now comes after the lighting
                     std::vector<std::string> lighting = {kGBufferPass};
                     for (const std::string& dependency : dependencies[kForwardPass])
                     {

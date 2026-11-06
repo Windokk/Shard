@@ -11,8 +11,6 @@ using Shard::Engine::Physics::PhysicsManager;
 
 namespace {
 
-    // With an engine context that owns a JobSystem, PhysicsManager runs Jolt on it (JoltJobSystem) instead of on a
-    // thread pool of Jolt's own. Same physics, so the same answers as without.
     class PhysicsOnJobSystem : public ::testing::Test {
         protected:
             void SetUp() override {
@@ -33,7 +31,7 @@ namespace {
     };
 }
 
-TEST_F(PhysicsOnJobSystem, ManyBodiesFallLikeTheTextbook) {
+TEST_F(PhysicsOnJobSystem, ManyBodiesFallCorrectly) {
     constexpr float kGravity = 9.81f, kStep = 1.0f / 60.0f;
     constexpr int kBodies = 300, kSteps = 60;
 
@@ -60,7 +58,7 @@ TEST_F(PhysicsOnJobSystem, ManyBodiesFallLikeTheTextbook) {
     physics.Shutdown();
 }
 
-TEST_F(PhysicsOnJobSystem, ShutsDownCleanlyAndCanBeRestarted) {
+TEST_F(PhysicsOnJobSystem, ShutsDownAndRestarts) {
     for (int round = 0; round < 3; ++round) {
         PhysicsManager physics;
         physics.Init(glm::vec3(0.0f, -9.81f, 0.0f));

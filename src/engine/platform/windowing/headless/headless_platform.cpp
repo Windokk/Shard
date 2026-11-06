@@ -4,8 +4,6 @@
 
 namespace Shard::Engine::Core::Platform {
 
-    // ---- window ---------------------------------------------------------------------------------------------------
-
     void HeadlessWindow::Init(const std::string& title, const int& width, const int& height,
                               const bool& fullscreen, const int& vsync, const uint32_t& api)
     {
@@ -26,7 +24,6 @@ namespace Shard::Engine::Core::Platform {
 
     void HeadlessWindow::PollEvents()
     {
-        // What a listener posts while it runs waits for the next poll, like events that arrive during a real one
         std::deque<OSEvent> events;
         events.swap(m_Pending);
         for (const OSEvent& event : events)
@@ -58,8 +55,6 @@ namespace Shard::Engine::Core::Platform {
         info.totalRamMB = system.memory.totalPhysical / (1024 * 1024);
         return info;
     }
-
-    // ---- input ----------------------------------------------------------------------------------------------------
 
     void HeadlessInput::Init()
     {
@@ -107,7 +102,6 @@ namespace Shard::Engine::Core::Platform {
                 m_Buttons[static_cast<size_t>(event.button)] = event.type == OSEventType::MouseButtonDown;
                 break;
             case OSEventType::MouseMotion:
-                // Captured : the cursor is unbounded and moves by the relative motion (like a disabled cursor)
                 if (m_Captured)
                 {
                     m_CursorX += event.deltaX;
@@ -183,8 +177,6 @@ namespace Shard::Engine::Core::Platform {
         const float value = p->axes[static_cast<size_t>(axis)];
         return (value < deadZone && value > -deadZone) ? 0.0f : value;
     }
-
-    // ---- platform -------------------------------------------------------------------------------------------------
 
     void HeadlessPlatform::CreateWindow(const std::string& title, const int& width, const int& height,
                                         const bool& fullscreen, const int& vsync, const uint32_t& api)

@@ -12,8 +12,8 @@ namespace Shard::Engine::Plugins::Wasm {
 
     namespace {
         constexpr uint64_t kPageSize = 65536;
-        constexpr uint32_t kPersistentChunkPages = 4;               // 256 KiB
-        constexpr uint32_t kTempChunkPages = 8;                     // 512 KiB
+        constexpr uint32_t kPersistentChunkPages = 4;
+        constexpr uint32_t kTempChunkPages = 8;
 
         uint32_t SizeClass(uint32_t size)
         {
@@ -23,8 +23,6 @@ namespace Shard::Engine::Plugins::Wasm {
         }
     }
 
-    // ---- SandboxHeap ----
-
     bool SandboxHeap::NewRegion(std::vector<Region>& regions, uint64_t minBytes, uint32_t minPages)
     {
         if (!m_In) return false;
@@ -33,7 +31,6 @@ namespace Shard::Engine::Plugins::Wasm {
         uint64_t pages = std::max<uint64_t>(minPages, needed);
         uint32_t first = 0;
         if (!m_In->GrowMemory(uint32_t(pages), first)) {
-            // The usual step does not fit : the least that does the job may
             if (pages == needed || !m_In->GrowMemory(uint32_t(needed), first)) return false;
             pages = needed;
         }
@@ -82,7 +79,6 @@ namespace Shard::Engine::Plugins::Wasm {
     {
         if (!m_In || align == 0 || (align & (align - 1)) != 0 || align > 4096 || size > 0xFFFFFFF0ull) return 0;
         const uint64_t need = std::max<uint64_t>(size, 1);
-        // The current region, then the ones after it (kept from an earlier call), then a new one
         for (size_t i = m_TempAt; i < m_Temp.size(); ++i) {
             Region& r = m_Temp[i];
             const uint64_t start = (uint64_t(r.base) + r.used + align - 1) / align * align;
@@ -121,12 +117,10 @@ namespace Shard::Engine::Plugins::Wasm {
         if (it != m_Interned.end()) return it->second;
         const uint32_t at = Alloc(uint32_t(text.size() + 1), 1);
         if (!at) return 0;
-        m_In->Write(at, text.data(), uint32_t(text.size()));        // the zero terminator is already there : Alloc zeroes
+        m_In->Write(at, text.data(), uint32_t(text.size()));
         m_Interned.emplace(text, at);
         return at;
     }
-
-    // ---- Sandbox ----
 
     void Sandbox::Log(uint32_t level, const std::string& message)
     {
@@ -192,8 +186,7 @@ namespace Shard::Engine::Plugins::Wasm {
         return out.empty() ? SHARD_E_INTERNAL : ShardResult(int32_t(uint32_t(out[0])));
     }
 
-    // The outermost call returned : what the module changed in its copies goes back to the host, the temporary memory is free again. After a
-    // trap the module's state is not to be trusted, so nothing it wrote is passed on.
+    // After a trap the module's state is untrusted, so nothing it wrote is passed on
     void Sandbox::EndOutermost(bool ok)
     {
         if (ok && instance) {
@@ -202,7 +195,6 @@ namespace Shard::Engine::Plugins::Wasm {
                 if (const uint8_t* p = instance->MemoryAt(m.at, m.size)) std::memcpy(m.host, p, m.size);
             }
             for (auto& fn : m_AfterCall) fn();
-            // The blobs the module holds a pointer to : validated again (the blob may be gone), written only when something changed
             if (apis.components) {
                 for (auto it = m_Blobs.begin(); it != m_Blobs.end();) {
                     void* host = nullptr;
@@ -259,7 +251,6 @@ namespace Shard::Engine::Plugins::Wasm {
         if (it == m_Blobs.end()) return;
         const BlobMirror m = it->second;
         m_Blobs.erase(it);
-        // Written back first (the host is about to resize or free the blob) : only if it is still the same one
         void* host = nullptr;
         uint64_t size = 0;
         if (apis.components && apis.components->blob_data(ctx, blob, &host, &size) == SHARD_OK && host == m.host && size == m.size)
@@ -276,7 +267,7 @@ namespace Shard::Engine::Plugins::Wasm {
         if (text.data && text.size) {
             const uint32_t at = heap.Intern(std::string(text.data, size_t(text.size)));
             if (!at) { in.HostTrap("no room left in the memory for a string"); return false; }
-            out = Marshal::Span(in, sret, Layout::ShardStr::kSize, "result");     // the heap may have grown the memory
+            out = Marshal::Span(in, sret, Layout::ShardStr::kSize, "result");
             if (!out) return false;
             Marshal::Store<uint32_t>(out, Layout::ShardStr::o_data, at);
             Marshal::Store<uint64_t>(out, Layout::ShardStr::o_size, text.size);

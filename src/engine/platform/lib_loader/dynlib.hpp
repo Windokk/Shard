@@ -4,7 +4,6 @@
 
 namespace Shard::Engine::Core::Platform {
 
-    /// @brief A shared library (.dll / .so / .dylib) loaded in the process.
     class DynLib {
     public:
         DynLib() = default;
@@ -15,15 +14,12 @@ namespace Shard::Engine::Core::Platform {
         DynLib(const DynLib&) = delete;
         DynLib& operator=(const DynLib&) = delete;
 
-        /// @brief Loads the library. On failure LastError() tells why.
         bool Open(const std::string& path);
 
-        /// @brief Takes the library only if the process has it already (a tool injected it, like RenderDoc does) : nothing is loaded.
         bool OpenIfLoaded(const std::string& name);
         void Close();
         bool IsOpen() const { return m_Handle != nullptr; }
 
-        /// @brief Address of an exported symbol, nullptr if there is none.
         void* Symbol(const std::string& name) const;
 
         template <typename T>
@@ -31,10 +27,8 @@ namespace Shard::Engine::Core::Platform {
 
         const std::string& LastError() const { return m_LastError; }
 
-        /// @brief Platform extension of a shared library, with the dot (".dll", ".so", ".dylib").
         static const char* Extension();
 
-        /// @brief File name of the library called `name` : "name.dll" on Windows, "libname.so" elsewhere.
         static std::string FileName(const std::string& name);
 
     private:

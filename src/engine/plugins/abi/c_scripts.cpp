@@ -15,35 +15,30 @@
 #include "engine/world/components/script.hpp"
 #include "engine/world/time_manager.hpp"
 
-// shard.scripts : a script type of a plugin is a Script component of the engine (the same one the game's own C++ scripts derive from, so the
-// world ticks it in the same order, play mode starts and stops it, and the inspector and the world file see its fields) whose object lives in
-// storage the component holds, built and destroyed by the plugin's callbacks.
-
 namespace Shard::Engine::Plugins::CAbi {
 
     struct CScriptType : FieldSet {
-        std::string name;                       // full : "<plugin id>.<name>"
+        std::string name;
         std::string shortName;
         PluginOwner owner = 0;
         uint32_t size = 0;
         uint32_t align = 0;
         void* user = nullptr;
         ShardScriptCallbacks cb{};
-        uint32_t flags = 0;                     // SHARD_SCRIPT_*
+        uint32_t flags = 0;
         std::atomic<uint32_t>* active = nullptr;
         std::function<void(PluginOwner, const std::string&)> report;
-        std::atomic<bool> alive{ true };        // false once the plugin's context released everything: its callbacks are not called any more
+        std::atomic<bool> alive{ true };
     };
 
     namespace {
         std::mutex gMutex;
-        std::map<std::string, std::shared_ptr<CScriptType>> gTypes;     // by full name
+        std::map<std::string, std::shared_ptr<CScriptType>> gTypes;
 
         class CScriptBase : public Objects::Components::Script {
         public:
             explicit CScriptBase(std::shared_ptr<const CScriptType> type) : Script(nullptr, 0), m_Type(std::move(type))
             {
-                // What the field helpers need from the script : its own strings, and the actors its fields refer to
                 m_Hooks.user = this;
                 m_Hooks.textGet = &TextGetThunk;
                 m_Hooks.textSet = &TextSetThunk;
@@ -80,8 +75,6 @@ namespace Shard::Engine::Plugins::CAbi {
                 return built;
             }
 
-            // ---- The callbacks of the engine's Script, into the plugin's ----
-
             void OnCreate() override { ResolveRefs(); Fire(m_Type->cb.on_create, "on_create"); }
             void OnWorldLoaded() override { ResolveRefs(); Fire(m_Type->cb.on_world_loaded, "on_world_loaded"); }
             void OnWorldUnloaded() override { Fire(m_Type->cb.on_world_unloaded, "on_world_unloaded"); }
@@ -93,11 +86,8 @@ namespace Shard::Engine::Plugins::CAbi {
             void OnFixedTick() override { ResolveRefs(); Tick(m_Type->cb.on_fixed_tick, "on_fixed_tick", true); }
             void OnLateTick() override { Tick(m_Type->cb.on_late_tick, "on_late_tick", false); }
 
-            // 1.2 : the editor's edit mode
             bool RunsInEditMode() const override { return (m_Type->flags & SHARD_SCRIPT_EDIT_MODE) != 0 && m_Type->cb.on_edit_tick != nullptr; }
             void OnEditTick() override { ResolveRefs(); Tick(m_Type->cb.on_edit_tick, "on_edit_tick", false); }
-
-            // ---- Physics contacts ----
 
             void OnContactAdded(const Events::ContactAddedEvent& e) override { if (m_Type->cb.on_contact_added) Contact(m_Type->cb.on_contact_added, "on_contact_added", DecodeContact(e)); }
             void OnContactPersisted(const Events::ContactPersistedEvent& e) override { if (m_Type->cb.on_contact_persisted) Contact(m_Type->cb.on_contact_persisted, "on_contact_persisted", DecodeContact(e)); }
@@ -124,11 +114,9 @@ namespace Shard::Engine::Plugins::CAbi {
                 Call("attach", [&] { return m_Type->cb.attach(m_Type->user, Data(), owner); });
             }
 
-            // ---- What the world file and the inspector see ----
-
             const ClassDescriptor* GetDescriptor() const override
             {
-                if (m_Constructed) PullTexts(*m_Type, m_Type->owner, Data(), m_Text, &m_Hooks);      // what the script put in its texts since
+                if (m_Constructed) PullTexts(*m_Type, m_Type->owner, Data(), m_Text, &m_Hooks);
                 return &m_Type->descriptor;
             }
 
@@ -171,14 +159,11 @@ namespace Shard::Engine::Plugins::CAbi {
             void DeActivate() override { Script::DeActivate(); }
 
         protected:
-            // Pulls the texts the script wrote, for CopyFrom
             void PullAll() const { if (m_Constructed) PullTexts(*m_Type, m_Type->owner, Data(), m_Text, &m_Hooks); }
             void CopyFrom(const CScriptBase& other)
             {
                 other.PullAll();
                 CopyFields(*m_Type, m_Type->owner, Data(), m_Text, other.Data(), other.m_Text);
-                // The plugin's own strings go into the new object ; an actor reference keeps its path until the copy is in a world and the
-                // actor it names can be found there
                 PushTexts(*m_Type, m_Type->owner, Data(), m_Text, &m_Hooks);
                 activated = other.activated;
             }
@@ -208,7 +193,6 @@ namespace Shard::Engine::Plugins::CAbi {
                 }
             }
 
-            // The plugin's text_get / text_set, entered like any other call into it
             static void TextGetThunk(void* self, void*, uint32_t offset, ShardStr* out) { static_cast<CScriptBase*>(self)->DoTextGet(offset, out); }
             static ShardResult TextSetThunk(void* self, void*, uint32_t offset, ShardStr text) { return static_cast<CScriptBase*>(self)->DoTextSet(offset, text); }
 
@@ -227,7 +211,6 @@ namespace Shard::Engine::Plugins::CAbi {
                 try { return m_Type->cb.text_set(m_Type->user, Data(), offset, text); } catch (...) { return SHARD_E_INTERNAL; }
             }
 
-            // The actors the fields refer to, once they exist
             void ResolveRefs()
             {
                 if (!m_Constructed || !m_HasActorFields || !parent) return;
@@ -244,7 +227,7 @@ namespace Shard::Engine::Plugins::CAbi {
                 contact.other = ActorHandle(info.other);
                 if (info.hasManifold) {
                     glm::vec3 normal(info.normal[0], info.normal[1], info.normal[2]);
-                    // Jolt's normal runs from the first body to the second : this one is either
+                    // Jolt's normal runs first body to second, so flip it when needed
                     const glm::vec3 toOther = info.other->transform->GetWorldPosition() - parent->transform->GetWorldPosition();
                     if (glm::dot(normal, toOther) < 0.0f) normal = -normal;
                     contact.normal[0] = normal.x; contact.normal[1] = normal.y; contact.normal[2] = normal.z;
@@ -271,7 +254,7 @@ namespace Shard::Engine::Plugins::CAbi {
             }
 
             std::shared_ptr<const CScriptType> m_Type;
-            mutable std::string m_Text[SHARD_COMPONENT_MAX_STRINGS];        // the string and actor fields, as the inspector and the world file see them
+            mutable std::string m_Text[SHARD_COMPONENT_MAX_STRINGS];
             mutable FieldHooks m_Hooks;
             bool m_Destroyed = false;
 
@@ -283,7 +266,6 @@ namespace Shard::Engine::Plugins::CAbi {
         class CScriptComponent final : public CScriptBase {
         public:
             explicit CScriptComponent(std::shared_ptr<const CScriptType> type) : CScriptBase(std::move(type)) { std::memset(m_Storage, 0, N); }
-            // The component's constructor is the one Object::Create hands (parent, local id, type): the parent comes with OnAttached
             CScriptComponent(std::shared_ptr<Objects::Actor>, uint32_t, std::shared_ptr<const CScriptType> type) : CScriptComponent(std::move(type)) {}
 
             ~CScriptComponent() override
@@ -325,7 +307,6 @@ namespace Shard::Engine::Plugins::CAbi {
             return component;
         }
 
-        // A copy of the actor (play mode): a new object, with the fields of this one in it
         template <size_t N>
         std::shared_ptr<Objects::Components::Component> CScriptComponent<N>::Clone() const
         {
@@ -345,7 +326,7 @@ namespace Shard::Engine::Plugins::CAbi {
                 if (!OnMainThread()) return SHARD_E_WRONG_THREAD;
                 auto refuse = [&](const std::string& why) { ctx->Error("script type : " + why); return SHARD_E_INVALID_ARG; };
 
-                // The description of ABI 1.4 and 1.5 ends at `callbacks` ; `flags` came with 1.7
+                // ABI 1.4 and 1.5 descriptors end at `callbacks`, `flags` came with 1.7
                 if (desc->structSize < offsetof(ShardScriptDesc, flags)) return refuse("its ShardScriptDesc is too small");
                 const std::string local = ToString(desc->name);
                 if (!IsFieldName(local)) return refuse("'" + local + "' is not a script name (letters, digits and '_')");
@@ -369,7 +350,6 @@ namespace Shard::Engine::Plugins::CAbi {
                 type->active = ActiveCounter(*ctx);
                 type->report = ctx->Bindings().reportError;
 
-                // The storage comes in the smallest size class that holds the object ; its place in the component is the same in all of them
                 size_t storageOffset = 0;
                 std::function<std::shared_ptr<Objects::Components::Component>(const std::shared_ptr<const CScriptType>&)> make;
                 if (desc->size <= 256) { storageOffset = CScriptComponent<256>::StorageOffset(); make = &MakeComponent<256>; }
@@ -398,7 +378,6 @@ namespace Shard::Engine::Plugins::CAbi {
             } catch (...) { return SHARD_E_INTERNAL; }
         }
 
-        // The object of the script `full` on the actor, if it is one of this plugin's
         ShardResult ObjectOf(ShardPluginCtx handle, const std::shared_ptr<Objects::Actor>& actor, const std::string& full, void** out)
         {
             *out = nullptr;

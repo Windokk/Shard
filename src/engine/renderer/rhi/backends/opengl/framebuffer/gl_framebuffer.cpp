@@ -91,7 +91,6 @@ namespace Shard::Engine::Rendering{
 
             if (m_Specifications.multisampled)
             {
-                // Same sample count as the colour attachment, so that one draw writes all of them ; a multisampled texture has no filter or wrap
                 glBindTexture(GL_TEXTURE_2D_MULTISAMPLE, m_ExtraColorAttachments[i]);
                 glTexImage2DMultisample(GL_TEXTURE_2D_MULTISAMPLE, m_Specifications.samplesCount, specs.internalFormat, width, height, GL_TRUE);
                 glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT1 + static_cast<GLenum>(i), GL_TEXTURE_2D_MULTISAMPLE, m_ExtraColorAttachments[i], 0);
@@ -140,8 +139,6 @@ namespace Shard::Engine::Rendering{
             {
                 glGenTextures(1, &m_ColorAttachment);
                 glBindTexture(GL_TEXTURE_2D_MULTISAMPLE, m_ColorAttachment);
-                /// @todo option to modify samples count at runtime
-                // The format of the color specs : a render target of the HDR scene is 16 bit floats, not 8 bit
                 glTexImage2DMultisample(GL_TEXTURE_2D_MULTISAMPLE, spec.samplesCount, GLTextureSpec::FromTextureSpecifications(spec.colorSpecs).internalFormat, spec.width, spec.height, GL_TRUE);
                 glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D_MULTISAMPLE, m_ColorAttachment, 0);
             }
@@ -153,7 +150,6 @@ namespace Shard::Engine::Rendering{
                 glFramebufferTexture2D(GL_FRAMEBUFFER, GL_DEPTH_ATTACHMENT, GL_TEXTURE_2D_MULTISAMPLE, m_DepthAttachment, 0);
             }
 
-            // A G-buffer : the extra outputs are multisampled too (m_FBO is the bound one, the resolve framebuffer below has none of them)
             if (spec.hasColor && !spec.extraColorSpecs.empty())
             {
                 CreateExtraColorAttachments(spec.width, spec.height);
@@ -231,7 +227,6 @@ namespace Shard::Engine::Rendering{
         if (!spec.multisampled && spec.hasColor)
             CreateExtraColorAttachments(spec.width, spec.height);
 
-        // What is bound here is the resolve framebuffer when multisampled : the extra outputs belong to m_FBO, set above
         ApplyDrawBuffers(!spec.multisampled);
 
         CheckFBStatus();
@@ -288,9 +283,7 @@ namespace Shard::Engine::Rendering{
             glDeleteFramebuffers(1, &m_FBO);
         if(m_Specifications.hasColor)
         {
-            // GL recycles texture IDs, so a handle left cached under a deleted ID would be handed back
-            // for whatever texture claims that ID next (see GLTexture2D::GetBindlessHandle's cache) -
-            // same cleanup ~GLTexture2D does for textures it owns.
+            // GL recycles texture IDs, so drop the cached bindless handle of the deleted one.
             GLTexture2D::ReleaseBindlessHandle(m_ColorAttachment);
             glDeleteTextures(1, &m_ColorAttachment);
         }
@@ -363,7 +356,6 @@ namespace Shard::Engine::Rendering{
         glBindFramebuffer(GL_READ_FRAMEBUFFER, src->GetHandle());
         glBindFramebuffer(GL_DRAW_FRAMEBUFFER, m_FBO);
 
-        // Same size, no filtering : a depth blit between two multisampled targets is a copy of every sample
         glBlitFramebuffer(
             0, 0, srcSpecs.width, srcSpecs.height,
             0, 0, m_Specifications.width, m_Specifications.height,
@@ -412,7 +404,7 @@ namespace Shard::Engine::Rendering{
         glReadPixels(0, 0, width, height, GL_RGBA, GL_UNSIGNED_BYTE, bottomUp.data());
         glBindFramebuffer(GL_FRAMEBUFFER, 0);
 
-        // GL rows start at the bottom; image files / CPU consumers expect the top row first.
+        // GL rows start at the bottom, flip for top-first consumers.
         outPixels.resize(bottomUp.size());
         for (uint32_t y = 0; y < height; ++y)
             memcpy(outPixels.data() + y * rowBytes, bottomUp.data() + (height - 1 - y) * rowBytes, rowBytes);
@@ -474,7 +466,6 @@ namespace Shard::Engine::Rendering{
         if (!m_Specifications.hasColor || m_Specifications.multisampled)
             return;
 
-        // GL texture rows start at the bottom : flip the top-first input.
         const size_t rowBytes = size_t(width) * 4;
         std::vector<uint8_t> bottomUp(rowBytes * height);
         for (uint32_t row = 0; row < height; ++row)
@@ -614,13 +605,7 @@ namespace Shard::Engine::Rendering{
         else {
             if (m_Specifications.hasColor)
             {
-                // A color attachment that's already been handed out as a bindless handle (SSAO's blurred
-                // AO target - see SSAOManager::BindSSAOTexture) can't be re-specified in place :
-                // ARB_bindless_texture freezes a texture the moment a handle references it, so the
-                // glTexImage2D below would raise INVALID_OPERATION and silently do nothing, leaving that
-                // attachment stuck at its creation size while every other framebuffer follows the
-                // viewport. Recreate the object instead - the next GetColorAttachmentBindlessHandle()
-                // mints a handle for the new texture ID, and callers re-read it per draw anyway.
+                // A bindless handle freezes the texture, so glTexImage2D would fail with INVALID_OPERATION. Recreate the object instead.
                 if (GLTexture2D::HasBindlessHandle(m_ColorAttachment))
                 {
                     GLTexture2D::ReleaseBindlessHandle(m_ColorAttachment);
@@ -647,7 +632,6 @@ namespace Shard::Engine::Rendering{
 
         CheckFBStatus();
 
-        // Unbind everything
         glBindFramebuffer(GL_FRAMEBUFFER, 0);
         if (m_Specifications.multisampled)
             glBindTexture(GL_TEXTURE_2D_MULTISAMPLE, 0);
@@ -667,14 +651,11 @@ namespace Shard::Engine::Rendering{
         glGetIntegerv(GL_MAX_SAMPLES, &maxSamples);
         m_Specifications.samplesCount = std::clamp<uint32_t>(samples, 1u, std::max<GLint>(maxSamples, 1));
 
-        // Re-specifies the multisampled storage with the new count
         Resize(m_Specifications.width, m_Specifications.height);
     }
 
     bool GLFramebuffer::IsValid() const
     {
-        // Answered from what is known on the CPU side (it is asked from any thread, often) : the object exists from its creation
-        // until Destroy()
         return m_FBO != 0 && !m_Destroyed;
     }
 

@@ -11,9 +11,6 @@
 #include "engine/renderer/rhi/resources/texture/texture.hpp"
 #include "engine/world/engine.hpp"
 
-// shard.assets, the part that needs the renderer's types : the geometry of a mesh asset and the pixels of an image asset. The rest is in
-// src/engine/plugins/abi/c_assets.cpp ; c_internal.hpp declares these.
-
 namespace Shard::Engine::Plugins::CAbi {
 
     namespace {
@@ -31,7 +28,6 @@ namespace Shard::Engine::Plugins::CAbi {
             return false;
         }
 
-        // The mesh asset and its geometry on the CPU side
         ShardResult MeshOf(int32_t id, std::shared_ptr<Rendering::Mesh>& mesh, std::shared_ptr<const Rendering::MeshCPUCopy>& cpu)
         {
             auto infos = InfosOf(id);
@@ -115,7 +111,6 @@ namespace Shard::Engine::Plugins::CAbi {
     }
 
     namespace {
-        // The image as 8 bit RGBA, rows from the top
         ShardResult Decode(int32_t id, std::vector<uint8_t>& rgba, uint32_t& width, uint32_t& height)
         {
             auto infos = InfosOf(id);
@@ -136,7 +131,7 @@ namespace Shard::Engine::Plugins::CAbi {
             if (decoded.pixels.size() < pixels * channels) return SHARD_E_UNSUPPORTED;
             rgba.resize(pixels * 4);
             for (uint32_t y = 0; y < height; ++y) {
-                // The decoder flips the image (bottom row first) : the ABI wants the top row first
+                // The decoder flips the image (bottom row first), the ABI wants the top row first
                 const uint8_t* src = decoded.pixels.data() + size_t(height - 1 - y) * width * channels;
                 uint8_t* dst = rgba.data() + size_t(y) * width * 4;
                 for (uint32_t x = 0; x < width; ++x, src += channels, dst += 4) {

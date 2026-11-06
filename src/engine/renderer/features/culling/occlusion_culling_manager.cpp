@@ -53,8 +53,7 @@ namespace Shard::Engine::Rendering {
         m_HiZReduceShader = ComputeShader::Create(resRoot / "shaders/compute/culling/hiz_reduce.comp");
         m_CullShader = ComputeShader::Create(resRoot / "shaders/compute/culling/occlusion_cull.comp");
 
-        // ComputeShader::Create hands back an object even when the file is missing (it then has no name and no program),
-        // and dispatching that is a silent no-op - every indirect command would stay zero and nothing would be drawn.
+        // ComputeShader::Create returns an object even if the file is missing, and dispatching it is a silent no-op.
         const auto loaded = [](const std::shared_ptr<ComputeShader>& shader) { return shader && !shader->GetShaderName().empty(); };
 
         if (!loaded(m_HiZInitShader) || !loaded(m_HiZInitMSShader) || !loaded(m_HiZReduceShader) || !loaded(m_CullShader))
@@ -92,8 +91,6 @@ namespace Shard::Engine::Rendering {
         pass.cpuInstances.resize(capacity);
         std::memset(pass.cpuInstances.data() + previousSize, 0, (capacity - previousSize) * sizeof(InstanceGPU));
 
-        // The visibility history starts empty with the new buffer : it is only a hint for phase 1, so losing it
-        // costs one frame of everything being drawn in phase 2 instead, never a wrong image.
         std::vector<uint32_t> zeroState(capacity, 0u);
         std::vector<uint32_t> zeroCommands((size_t)capacity * 5, 0u);
 
@@ -118,13 +115,13 @@ namespace Shard::Engine::Rendering {
         specs.height = height;
         specs.format = TextureFormat::RED;
         specs.internalFormat = TextureInternalFormat::R32F;
-        // texelFetch only, but a mip-filtered min filter keeps every level of the immutable chain "complete"
+        // texelFetch only, but a mip min filter keeps every level of the immutable chain complete.
         specs.minFilter = TextureFilter::NearestMipmapNearest;
         specs.magFilter = TextureFilter::Nearest;
         specs.wrapS = TextureWrap::ClampEdge;
         specs.wrapT = TextureWrap::ClampEdge;
-        specs.generateMips = true;       // allocates the whole chain
-        specs.immutableStorage = true;   // required to bind levels as images
+        specs.generateMips = true;
+        specs.immutableStorage = true;
 
         pass.hiz = Texture2D::Create(specs, static_cast<const void*>(nullptr));
         pass.hizWidth = width;
@@ -148,7 +145,6 @@ namespace Shard::Engine::Rendering {
         m_CullShader->SetInt("hizSizeX", (int)pass.hizWidth);
         m_CullShader->SetInt("hizSizeY", (int)pass.hizHeight);
 
-        // ShaderStorage : phase 2 reads the state phase 1 wrote. Command : the draws that follow read the commands.
         MemoryBarrierBit barriers = MemoryBarrierBit::ShaderStorage | MemoryBarrierBit::Command;
         if (m_CollectStats)
             barriers = barriers | MemoryBarrierBit::BufferUpdate;
@@ -194,7 +190,6 @@ namespace Shard::Engine::Rendering {
     {
         RendererAPI* api = m_Renderer->GetRendererAPI();
 
-        // ---- Level 0 from the pass's depth ----
         auto& initPipeline = target.multisampled ? m_HiZInitMSPipeline : m_HiZInitPipeline;
         auto& initShader = target.multisampled ? m_HiZInitMSShader : m_HiZInitShader;
 
@@ -210,7 +205,6 @@ namespace Shard::Engine::Rendering {
         m_Renderer->DispatchCompute(initPipeline, (pass.hizWidth + 7) / 8, (pass.hizHeight + 7) / 8, 1,
             MemoryBarrierBit::ImageAccess | MemoryBarrierBit::TextureFetch);
 
-        // ---- Each further level is the farthest of the 2x2 (or 3x2 / 2x3 / 3x3 at an odd edge) texels above it ----
         uint32_t srcWidth = pass.hizWidth;
         uint32_t srcHeight = pass.hizHeight;
 
@@ -286,7 +280,7 @@ namespace Shard::Engine::Rendering {
             pass.lastSeen[slot] = pass.frame;
 
             InstanceGPU instance;
-            std::memset(&instance, 0, sizeof(instance)); // padding included, so the comparison below is exact
+            std::memset(&instance, 0, sizeof(instance));
             instance.model = command.modelMatrix;
             instance.boundsMin = glm::vec4(command.boundsMin, 1.0f);
             instance.boundsMax = glm::vec4(command.boundsMax, 0.0f);
@@ -302,7 +296,6 @@ namespace Shard::Engine::Rendering {
             found++;
         }
 
-        // Commands that left the list : free their slots (and mark them dead for the compute pass)
         if (pass.slotOf.size() != found)
         {
             for (auto it = pass.slotOf.begin(); it != pass.slotOf.end();)

@@ -57,13 +57,13 @@ TEST_F(DeclaredComponentTest, StartsAtItsDeclaredDefaults)
     EXPECT_EQ(c->Get("alive"), true);
     EXPECT_EQ(c->Get("label"), "player");
     EXPECT_EQ(c->Get("offset"), json::array({ 1.0, 2.0, 3.0 }));
-    EXPECT_EQ(c->Get("tint"), json::array({ 0.5, 0.25, 1.0, 1.0 }));          // a color given without alpha is opaque
+    EXPECT_EQ(c->Get("tint"), json::array({ 0.5, 0.25, 1.0, 1.0 }));
     EXPECT_TRUE(c->Get("nothing").is_null());
     EXPECT_EQ(c->GetDescriptor()->name, "Health");
     EXPECT_EQ(c->GetDescriptor()->fields.size(), 6u);
 }
 
-TEST_F(DeclaredComponentTest, SetChecksTheTypeOfTheValue)
+TEST_F(DeclaredComponentTest, SetChecksType)
 {
     auto c = Make();
     EXPECT_TRUE(c->Set("hp", 12.5));
@@ -100,7 +100,6 @@ TEST_F(DeclaredComponentTest, SavesAndLoadsThroughReflection)
     loaded->Deserialize(json::parse(saved.dump()));
     EXPECT_EQ(loaded->Values(), c->Values());
 
-    // a field missing from the file keeps its default, an unknown one is ignored
     auto partial = Make();
     actor->AddComponentRaw(partial);
     partial->Deserialize(json::parse(R"({ "type": "Health", "hp": 5, "unknownField": 1 })"));
@@ -108,7 +107,7 @@ TEST_F(DeclaredComponentTest, SavesAndLoadsThroughReflection)
     EXPECT_EQ(partial->Get("label"), "player");
 }
 
-TEST_F(DeclaredComponentTest, CloningCopiesTheFieldsNotTheStorage)
+TEST_F(DeclaredComponentTest, CloneCopiesFields)
 {
     auto c = Make();
     c->Set("label", "original label that is long enough to live on the heap, not inline");
@@ -118,11 +117,11 @@ TEST_F(DeclaredComponentTest, CloningCopiesTheFieldsNotTheStorage)
     EXPECT_EQ(copy->Values(), c->Values());
     copy->Set("label", "changed");
     EXPECT_NE(copy->Get("label"), c->Get("label"));
-    c.reset();                       // the copy owns its strings
+    c.reset();
     EXPECT_EQ(copy->Get("label"), "changed");
 }
 
-TEST_F(DeclaredComponentTest, TheEditorSeesEditableFieldsOfTheRightTypes)
+TEST_F(DeclaredComponentTest, EditorSeesEditableFields)
 {
     auto c = Make();
     std::map<std::string, TypeID> types;
@@ -156,15 +155,15 @@ TEST(DeclaredComponentBuild, RefusesWhatCannotBeBuilt)
     EXPECT_NE(tooMany.GetError().message.find("fields"), std::string::npos);
 
     json big = { { "name", "Big" }, { "fields", json::object() } };
-    for (int i = 0; i < 40; ++i) big["fields"]["s" + std::to_string(i)] = { { "type", "string" } };          // 40 * 32 bytes
+    for (int i = 0; i < 40; ++i) big["fields"]["s" + std::to_string(i)] = { { "type", "string" } };
     EXPECT_FALSE(DeclaredComponentType::Build(Declare(big.dump())));
 
     EXPECT_TRUE(build(R"({ "name": "Empty", "fields": {} })"));
 }
 
-TEST(DeclaredComponentManager, ADatapackComponentIsARegisteredComponentType)
+TEST(DeclaredComponentManager, DatapackComponentRegistered)
 {
-    Shard::Tests::TestEngineContext context;        // creating a component asks the engine for its id manager
+    Shard::Tests::TestEngineContext context;
     Core::SetEngine(&context);
     PluginManager& pm = PluginManager::Get();
     pm.ResetForTests();
@@ -187,7 +186,7 @@ TEST(DeclaredComponentManager, ADatapackComponentIsARegisteredComponentType)
     EXPECT_EQ(declared->Get("maxHp"), 100);
     EXPECT_FALSE(registry.IsRegistered("Broken"));
     ASSERT_NE(pm.Find("pack.health"), nullptr);
-    EXPECT_FALSE(pm.Find("pack.health")->warnings.empty());          // why Broken was not built
+    EXPECT_FALSE(pm.Find("pack.health")->warnings.empty());
 
     made.reset();
     declared.reset();

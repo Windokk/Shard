@@ -10,7 +10,7 @@ using namespace Shard::Engine;
 using nlohmann::json;
 using PluginTest::TempDir;
 
-// Opening a world whose plugin is not loaded, then saving it, must not cost the plugin's data.
+// Opening a world whose plugin is not loaded, then saving, must not lose the plugin's data.
 class UnknownComponentTest : public ::testing::Test {
 protected:
     void SetUp() override { Core::SetEngine(&context); }
@@ -18,7 +18,7 @@ protected:
     Shard::Tests::TestEngineContext context;
 };
 
-TEST_F(UnknownComponentTest, AComponentOfAMissingPluginSurvivesALoadAndASave)
+TEST_F(UnknownComponentTest, MissingPluginComponentSurvives)
 {
     TempDir dir;
     json world = json::parse(R"({
@@ -36,7 +36,6 @@ TEST_F(UnknownComponentTest, AComponentOfAMissingPluginSurvivesALoadAndASave)
     ASSERT_EQ(roots.size(), 1u);
     ASSERT_EQ(roots.begin()->second->GetUnknownComponents().size(), 1u);
 
-    // What World::Serialize writes for an actor
     const json saved = json::object({ { "actors", json::array({ json(Worlds::SerializeActorToJson(roots.begin()->second)) }) } });
     bool found = false;
     for (const json& c : saved["actors"][0]["components"]) {

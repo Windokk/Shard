@@ -42,9 +42,9 @@ namespace Shard::Engine::Debugging{
 
         std::tm tm{};
     #ifdef _WIN32
-        localtime_s(&tm, &now_c);      // Windows
+        localtime_s(&tm, &now_c);
     #else
-        localtime_r(&now_c, &tm);      // POSIX
+        localtime_r(&now_c, &tm);
     #endif
 
         std::ostringstream oss;

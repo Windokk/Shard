@@ -22,29 +22,18 @@ namespace Shard::Engine::Rendering {
     class Framebuffer;
     class EnvironmentMap;
 
-    // Render proxies : what the renderer knows of the simulation. Plain data, no pointer back to an actor, a component
-    // or a world, so a frame can be rendered (later : on its own thread) while the simulation already works on the next.
-    // The only shared things are the GPU resources (mesh, materials, environment map), which are owned by the resources
-    // manager and immutable while a frame uses them.
-    //
-    // `key` identifies the source object from one snapshot to the next (an actor id for a camera, the component id
-    // in its world for the rest), `changed` says whether the proxy differs from the one with the same key in the
-    // previous snapshot, so a consumer can update only what moved.
+    // Plain-data proxies, no pointers to actors or worlds, so a frame can render while the simulation builds the next.
+    // `key` identifies the source across snapshots, `changed` says whether it differs from the previous one.
 
     struct MeshProxy {
         uint64_t key = 0;
-        int objectId = -1;                              // the actor, for picking / outlines
-        int componentId = -1;                           // the model component, in its world
+        int objectId = -1;
+        int componentId = -1;
         std::shared_ptr<Mesh> mesh;
         std::vector<std::shared_ptr<Material>> materials;
         glm::mat4 worldMatrix = glm::mat4(1.0f);
-        /// Passes the mesh is drawn into besides the standing ones (ForwardPass, the SSAO prepass and the shadow list) :
-        /// the editor adds the selected actor to its outline mask this way.
         std::vector<std::string> extraPasses;
 
-        /// Baked lighting (see LightmapManager) : whether the mesh takes part in a bake, the resolution asked for its lightmap
-        /// (0 : by density), and where its lightmap is in the baked atlas (a negative page : none) - uv * xy + zw maps the
-        /// mesh's lightmap coordinates onto the page
         bool staticLighting = true;
         int lightmapResolution = 0;
         int lightmapPage = -1;
@@ -55,53 +44,44 @@ namespace Shard::Engine::Rendering {
 
     enum class BillboardProxyFacing : uint8_t { Camera = 0, AxisY = 1, Fixed = 2 };
 
-    /// Bits of BillboardProxy::flags
     namespace BillboardFlag {
-        constexpr uint8_t ScreenSpaceSize = 1 << 0;   // size is in pixels (constant on screen), else in meters
-        constexpr uint8_t DepthTest       = 1 << 1;   // hidden by the geometry in front of it
-        constexpr uint8_t EditorOnly      = 1 << 2;   // only drawn when the editor asks for its helpers (see Renderer::SetShowEditorBillboards)
-        constexpr uint8_t Pickable        = 1 << 3;   // the editor can select its actor by clicking it
+        constexpr uint8_t ScreenSpaceSize = 1 << 0;
+        constexpr uint8_t DepthTest       = 1 << 1;
+        constexpr uint8_t EditorOnly      = 1 << 2;
+        constexpr uint8_t Pickable        = 1 << 3;
     }
 
-    /// A camera-facing (or axis-aligned) quad : an editor icon (light, camera, probe volume...), a sprite, a future bone / IK handle.
-    /// Every kind of billboard goes through this one proxy ; what changes is the provider that extracts it.
     struct BillboardProxy {
-        uint64_t key = 0;                        // (world<<48)|id
-        int objectId = -1;                       // the actor it stands for (picking)
-        glm::dvec3 position = glm::dvec3(0);     // 64-bit, brought relative to the camera when it is drawn
-        float size = 0;                          // pixels or meters (ScreenSpaceSize)
-        uint32_t sprite = 0;                     // index in the BillboardAtlas (icons, sprites...)
+        uint64_t key = 0;
+        int objectId = -1;
+        glm::dvec3 position = glm::dvec3(0);
+        float size = 0;
+        uint32_t sprite = 0;
         glm::vec4 tint = glm::vec4(1,1,1,1);
         BillboardProxyFacing facing = BillboardProxyFacing::Camera;
         uint8_t flags = BillboardFlag::ScreenSpaceSize | BillboardFlag::DepthTest;
     };
 
-    // ---- What plugins put on screen (shard.render) ----
-
-    /// A sprite of a batch, positions already in render space. Mirrors ShardSprite (sdk/include/shard/shard_render.h).
     struct SpriteInstance {
         glm::vec3 position = glm::vec3(0);
         float rotation = 0;
         glm::vec2 size = glm::vec2(1);
-        uint32_t color = 0xFFFFFFFFu;               // r | g << 8 | b << 16 | a << 24
+        uint32_t color = 0xFFFFFFFFu;
         glm::vec4 uv = glm::vec4(0, 0, 1, 1);
         glm::vec3 axis = glm::vec3(0, 1, 0);
         float custom = 0;
     };
 
-    /// A batch of camera-facing (or axis-aligned) quads that share a texture and a blend mode : particles, flares. Drawn by the SpriteRenderer.
     struct SpriteBatchProxy {
         uint64_t key = 0;
-        std::shared_ptr<Texture2D> texture;         // null : a white texel
-        uint8_t facing = 0;                         // SHARD_SPRITE_FACE_*
-        uint8_t blend = 2;                          // SHARD_BLEND_*
-        uint8_t sort = 0;                           // SHARD_SPRITE_SORT_*
-        uint8_t flags = 0;                          // SHARD_SPRITE_*
+        std::shared_ptr<Texture2D> texture;
+        uint8_t facing = 0;
+        uint8_t blend = 2;
+        uint8_t sort = 0;
+        uint8_t flags = 0;
         std::vector<SpriteInstance> sprites;
     };
 
-    /// 2D geometry a plugin draws again and again (an element of a UI). The data is immutable ; the backend keeps what it uploaded in `gpu`
-    /// (graphics thread only), and lets go of it when the geometry dies.
     struct OverlayVertex {
         float x = 0, y = 0;
         uint32_t color = 0xFFFFFFFFu;               // premultiplied alpha, r | g << 8 | b << 16 | a << 24
@@ -111,31 +91,30 @@ namespace Shard::Engine::Rendering {
     struct OverlayGeometry {
         std::vector<OverlayVertex> vertices;
         std::vector<uint32_t> indices;
-        uint32_t gpu[3] = {0, 0, 0};                // the backend's buffers (vertex array, vertex buffer, index buffer)
+        uint32_t gpu[3] = {0, 0, 0};
         ~OverlayGeometry();
     };
 
     struct OverlayCommand {
         enum class Kind : uint8_t { Geometry, Triangles, Scissor, Transform, ClipMask, Clear };
         Kind kind = Kind::Geometry;
-        std::shared_ptr<OverlayGeometry> geometry;  // Geometry, ClipMask
-        std::shared_ptr<Texture2D> texture;         // Geometry, Triangles
-        glm::vec2 translation = glm::vec2(0);       // Geometry, ClipMask
-        glm::mat4 transform = glm::mat4(1.0f);      // Transform (identity : none)
-        int32_t scissor[4] = {0, 0, 0, 0};          // Scissor : x, y, width, height
-        bool enabled = false;                       // Scissor
-        uint32_t operation = 0;                     // ClipMask : SHARD_CLIP_*
-        glm::vec4 color = glm::vec4(0);             // Clear
-        uint32_t first = 0, count = 0;              // Triangles : the range of the proxy's inline indices
+        std::shared_ptr<OverlayGeometry> geometry;
+        std::shared_ptr<Texture2D> texture;
+        glm::vec2 translation = glm::vec2(0);
+        glm::mat4 transform = glm::mat4(1.0f);
+        int32_t scissor[4] = {0, 0, 0, 0};
+        bool enabled = false;
+        uint32_t operation = 0;
+        glm::vec4 color = glm::vec4(0);
+        uint32_t first = 0, count = 0;
     };
 
-    /// What one overlay drew this frame, in order, over `target` (null : the viewport)
     struct OverlayProxy {
         int order = 0;
         std::shared_ptr<Framebuffer> target;
         uint32_t width = 0, height = 0;
         std::vector<OverlayCommand> commands;
-        std::vector<OverlayVertex> inlineVertices;  // for Triangles
+        std::vector<OverlayVertex> inlineVertices;
         std::vector<uint32_t> inlineIndices;
     };
 
@@ -150,16 +129,16 @@ namespace Shard::Engine::Rendering {
         glm::vec3 color = glm::vec3(1.0f);
         float intensity = 1.0f;
         float radius = 0.0f;
-        float innerCutoff = 0.0f;                       // cosine of the inner cone's half angle (what the shader compares against)
-        float outerCutoff = 0.0f;                       // cosine of the outer cone's half angle
+        float innerCutoff = 0.0f;
+        float outerCutoff = 0.0f;
         bool castShadows = false;
-        float sourceSize = 0.0f;                        // emitter size for the offline renderers' soft shadows (see LightData::sourceSize)
-        int bakeMode = 0;                               // LightBakeMode : what the light does for baked lighting
+        float sourceSize = 0.0f;
+        int bakeMode = 0;
         bool changed = true;
     };
 
     struct CameraProxy {
-        bool valid = false;                             // false : the world has no usable camera this frame
+        bool valid = false;
         uint64_t key = 0;
         int objectId = -1;
         glm::mat4 view = glm::mat4(1.0f);
@@ -182,7 +161,6 @@ namespace Shard::Engine::Rendering {
         float AspectRatio() const { return height > 0 ? float(width) / float(height) : 1.0f; }
     };
 
-    /// A region of the world with a box shape (a GI probe volume today).
     struct VolumeProxy {
         uint64_t key = 0;
         int objectId = -1;
@@ -192,15 +170,12 @@ namespace Shard::Engine::Rendering {
         bool changed = true;
     };
 
-    /// World-space distance between adjacent probes of a grid that fills a box of `halfExtent` with `probeCounts` probes
     inline glm::vec3 ProbeGridSpacing(const glm::vec3& halfExtent, const glm::ivec3& probeCounts)
     {
         return (halfExtent * 2.0f) / glm::vec3(glm::max(probeCounts, glm::ivec3(1)));
     }
 
-    /// World-space position of probe (0,0,0). Inset by half a cell so the outermost layer of probes sits inside the box
-    /// instead of exactly on its surface : a volume is typically sized flush against a room's walls, and a probe placed on a
-    /// wall sees it fill almost its whole hemisphere, which shows as a faceted pattern on that wall.
+    // World-space position of probe (0,0,0). Inset half a cell: probes on a wall see a full hemisphere and give a faceted pattern.
     inline glm::vec3 ProbeGridOrigin(const glm::vec3& center, const glm::vec3& halfExtent, const glm::ivec3& probeCounts)
     {
         return center - halfExtent + ProbeGridSpacing(halfExtent, probeCounts) * 0.5f;
@@ -213,27 +188,23 @@ namespace Shard::Engine::Rendering {
         int probeUpdateStride = 1;
         float indirectIntensity = 1.0f;
         bool enableRelocation = true;
-        std::string bakedData;                          // path in the project of the baked probes, empty if never baked
+        std::string bakedData;
 
         glm::vec3 GridSpacing() const { return ProbeGridSpacing(volume.halfExtent, probeCounts); }
         glm::vec3 GridOrigin() const { return ProbeGridOrigin(volume.center, volume.halfExtent, probeCounts); }
     };
 
-    /// The shape of the region a reflection probe covers, inscribed in its box (the volume's half extent). Cylinder and cone stand along Y,
-    /// the cone and the pyramid narrow toward +Y.
     enum class ReflectionProbeShape : int { Box = 0, Sphere, Cylinder, Cone, Pyramid };
 
-    /// A baked picture of the surroundings of a point, which the surfaces in its box reflect (see ReflectionProbe)
     struct ReflectionProbeProxy {
         VolumeProxy volume;
         ReflectionProbeShape shape = ReflectionProbeShape::Box;
         float intensity = 1.0f;
         float blendDistance = 1.0f;
         bool boxProjection = true;
-        std::shared_ptr<EnvironmentMap> environment;    // the baked picture, null while there is none (the probe then does nothing)
+        std::shared_ptr<EnvironmentMap> environment;
     };
 
-    /// Everything that is not an object of the scene : the world's ambient, SSAO and sky settings.
     struct EnvironmentProxy {
         glm::vec3 ambientColor = glm::vec3(0.3f);
         bool ssaoEnabled = true;
@@ -241,40 +212,34 @@ namespace Shard::Engine::Rendering {
         float ssaoBias = 0.025f;
         float ssaoIntensity = 1.0f;
         float ssaoPower = 2.0f;
-        DisplaySettings display;                        // how the scene's light is turned into the picture : tonemapper and exposure
-        SSRSettings ssr;                                // the screen-space reflections (see SSRManager)
-        std::string lightmapData;                       // path in the project of the baked lightmap pages, empty if none
-        std::shared_ptr<EnvironmentMap> skybox;         // null : no sky
-        std::shared_ptr<Material> skyboxMaterial;       // what draws it : a fullscreen triangle, set up by the world's skybox
+        DisplaySettings display;
+        SSRSettings ssr;
+        std::string lightmapData;
+        std::shared_ptr<EnvironmentMap> skybox;
+        std::shared_ptr<Material> skyboxMaterial;
         int skyboxObjectId = -1;
     };
 
-    /// @brief One frame of the simulation, as the renderer sees it. Built by the Extract stage, then only read.
     struct RenderSnapshot {
-        uint64_t frame = 0;                             // 0 : nothing was ever extracted
+        uint64_t frame = 0;
         int viewportWidth = 0;
         int viewportHeight = 0;
 
-        /// Large worlds : every position, matrix and view of this snapshot is in float, RELATIVE to this point of the root frame
-        /// (the render origin, which follows the camera : see RenderExtractor). The renderer never needs to know : it draws what the
-        /// snapshot holds. Only something that carries a position from one frame to the next (temporal history, a baked cache keyed by
-        /// position) has to look at it : when the origin moves, `originShift` is where the previous origin is, seen from the new one,
-        /// so a stored render-space position p becomes p + originShift. Zero while the camera stays near the origin (every scene that fits
-        /// in a few kilometres : then render space IS the root frame).
+        // Positions, matrices and views are float, relative to this render origin (follows the camera).
+        // Temporal history or position-keyed caches must add `originShift` when the origin moves. Zero near the origin.
         Core::WorldPosition renderOrigin;
         glm::dvec3 originShift = glm::dvec3(0.0);
 
-        CameraProxy camera;                             // the main camera
+        CameraProxy camera;
         EnvironmentProxy environment;
         std::vector<MeshProxy> meshes;
         std::vector<LightProxy> lights;
         std::vector<ProbeVolumeProxy> probeVolumes;
         std::vector<ReflectionProbeProxy> reflectionProbes;
         std::vector<BillboardProxy> billboards;
-        std::vector<SpriteBatchProxy> spriteBatches;    // from the plugins (shard.render)
-        std::vector<OverlayProxy> overlays;             // idem, in the order they are drawn
+        std::vector<SpriteBatchProxy> spriteBatches;
+        std::vector<OverlayProxy> overlays;
 
-        /// Empties the lists but keeps their memory : the next extraction refills the same buffers.
         void Reset()
         {
             frame = 0;
@@ -291,7 +256,6 @@ namespace Shard::Engine::Rendering {
             overlays.clear();
         }
 
-        /// The proxy of the previous snapshot with the same key, or null
         template <typename Proxy>
         static const Proxy* Find(const std::vector<Proxy>& proxies, uint64_t key)
         {
@@ -302,26 +266,15 @@ namespace Shard::Engine::Rendering {
         }
     };
 
-    /// @brief The view the main camera sees the snapshot from. Returns false when the snapshot has no camera.
     bool BuildMainView(const RenderSnapshot& snapshot, RenderView& out);
 
-    /// @brief A view from a camera proxy (main, portal, probe capture, render-to-texture : any camera of the scene).
     RenderView BuildView(const CameraProxy& camera);
 
-    /// @brief Frustum culling happens against this matrix : the camera's view-projection.
     inline const glm::mat4& CullMatrix(const CameraProxy& camera) { return camera.viewProjection; }
 
-    /// @brief The two snapshots the frame is double buffered with : the Extract stage fills one while the renderer reads the other.
-    ///
-    /// Write side (simulation) :   RenderSnapshot& next = buffer.BeginWrite();  ... fill ...  buffer.Publish();
-    /// Read side (renderer)    :   { auto frame = buffer.Acquire(); use(frame.Get()); }
-    ///
-    /// Publish() makes the written snapshot the current one. BeginWrite() waits only if the renderer still reads the
-    /// buffer it is about to reuse, which cannot happen while both run on the same thread. A reader only ever gets a
-    /// const reference : a published snapshot is immutable.
+    // Double buffer: Extract fills one while the renderer reads the other. BeginWrite() waits only if the renderer still reads the buffer being reused.
     class RenderSnapshotBuffer {
     public:
-        /// Keeps the snapshot it was acquired from alive and unmodified until it goes out of scope
         class ReadLease {
         public:
             ReadLease() = default;
@@ -359,28 +312,23 @@ namespace Shard::Engine::Rendering {
             int m_Index = 0;
         };
 
-        /// The buffer to fill. Its content is the snapshot from two publishes ago : the previous one (Latest()) is the
-        /// one to compare with for the `changed` flags.
+        // Holds the snapshot from two publishes ago. Diff against Latest() for the `changed` flags.
         RenderSnapshot& BeginWrite();
 
-        /// Makes the buffer returned by BeginWrite() the current snapshot
         void Publish();
 
-        /// The current snapshot, held until the lease is dropped
         ReadLease Acquire();
 
-        /// The current snapshot without a lease : only valid on the thread that publishes (the simulation, e.g. to diff
-        /// against), or while nothing publishes.
+        // Only valid on the publishing thread, or while nothing publishes.
         const RenderSnapshot& Latest() const { return m_Buffers[m_Current]; }
 
-        /// How many snapshots were published
         uint64_t PublishedCount() const { return m_Published; }
 
     private:
         void ReleaseRead(int index);
 
         RenderSnapshot m_Buffers[2];
-        int m_Current = 0;                              // the published one ; the other is the write buffer
+        int m_Current = 0;
         int m_Readers[2] = {0, 0};
         bool m_Writing = false;
         uint64_t m_Published = 0;

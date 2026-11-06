@@ -13,7 +13,6 @@ namespace Shard::Engine::Objects::Components{
 
 namespace Shard::Engine::Audio{
 
-    /// What the audio keeps on a world : its sources, listeners and reverb zones, by id in the world.
     class AudioWorldData : public Worlds::IWorldExtension{
         public:
             std::unordered_map<int, std::shared_ptr<Objects::Components::AudioSource>> sources;
@@ -25,6 +24,5 @@ namespace Shard::Engine::Audio{
             void OnPlay(Worlds::World& world) override;
     };
 
-    /// Declares to the world what the audio adds to it : its component type and its world extension.
     void RegisterAudioModule();
 }

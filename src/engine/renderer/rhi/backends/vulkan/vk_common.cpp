@@ -135,7 +135,7 @@ namespace Shard::Engine::Rendering::VK {
             case TextureInternalFormat::Depth32:
             case TextureInternalFormat::Depth32F:
             case TextureInternalFormat::Depth24Stencil8:
-            case TextureInternalFormat::RGB9E5:         return 1;       // RGB9E5 is one packed word per texel
+            case TextureInternalFormat::RGB9E5:         return 1;
             case TextureInternalFormat::RG:
             case TextureInternalFormat::RG16F:          return 2;
             case TextureInternalFormat::RGB:

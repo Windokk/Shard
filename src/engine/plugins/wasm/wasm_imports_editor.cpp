@@ -5,10 +5,6 @@
 #include "engine/plugins/wasm/wasm_imports.hpp"
 #include "engine/plugins/wasm/wasm_marshal.hpp"
 
-// shard.editor for a sandboxed plugin (permission "editor"). What the module adds is added to the editor through the C ABI of the host, with
-// trampolines that call the module's functions : a panel, an inspector or a gizmo is called with the table of widgets (or of the gizmo painter)
-// that the module built from its own ui.* / gizmo.* imports ; those imports act on what the host is drawing at that moment (Sandbox::ui, ::gizmo).
-
 namespace Shard::Engine::Plugins::Wasm {
 
     using namespace Marshal;
@@ -21,7 +17,6 @@ namespace Shard::Engine::Plugins::Wasm {
             uint32_t fn = 0, user = 0;
         };
 
-        // Sets what the module's ui.* or gizmo.* imports draw with, for the length of a callback
         template <typename T, typename F>
         void WithDrawing(Sandbox& s, const T* Sandbox::*member, const T* table, F&& call)
         {
@@ -107,7 +102,6 @@ namespace Shard::Engine::Plugins::Wasm {
                 c->user = uint32_t(user);
                 return c;
             };
-            // Each of them is the C ABI's own function with a trampoline in place of the module's function pointer
             imports.AddManual("editor.add_panel", [&s, api, callback](Instance& in, const uint64_t* a, uint64_t* r) {
                 if (!s.Allowed(Permission::Editor)) { r[0] = uint32_t(SHARD_E_UNSUPPORTED); return true; }
                 std::string title;
@@ -150,7 +144,6 @@ namespace Shard::Engine::Plugins::Wasm {
             });
         }
 
-        // The widget with an array of strings, the only one the generator cannot marshal
         imports.AddManual("ui.combo", [&s](Instance& in, const uint64_t* a, uint64_t* r) {
             r[0] = 0;
             const ShardUiApi* ui = s.ui;

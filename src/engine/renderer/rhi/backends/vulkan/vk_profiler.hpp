@@ -10,8 +10,6 @@
 
 namespace Shard::Engine::Rendering {
 
-    /// GPU time of the scopes of a frame (the passes) : a timestamp at the start and at the end of each, in the command buffer, read back a few frames
-    /// later once the GPU is done with them.
     class VKGpuProfiler final : public GpuProfiler
     {
         public:

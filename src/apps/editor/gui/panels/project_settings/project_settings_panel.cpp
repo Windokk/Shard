@@ -52,7 +52,6 @@ namespace Shard::Editor::GUI{
             return false;
         }
 
-        /// The open world as the build settings name it (its name in the project), empty when none is open
         std::string OpenWorldName()
         {
             Worlds::World* world = GetEngine().GetWorldManager()->GetWorldAt(0);
@@ -85,8 +84,6 @@ namespace Shard::Editor::GUI{
         });
     }
 
-    // ---- Saving ----
-
     bool ProjectSettingsPanel::IsDirty() const
     {
         auto project = GetEngine().GetCurrentProject();
@@ -95,8 +92,7 @@ namespace Shard::Editor::GUI{
         if (m_CVarsDirty)
             return true;
 
-        // Compared with what the file holds : a change made anywhere (a world added to the build from the menu) counts too.
-        // That serializes the whole project, so not on every frame : a few times a second is plenty for a "unsaved" label
+        // Compared with the file, which serializes the whole project, so not every frame.
         const double now = ImGui::GetTime();
         if (now - m_LastDirtyCheck >= 0.25)
         {
@@ -116,7 +112,6 @@ namespace Shard::Editor::GUI{
     {
         CVarRegistry& registry = CVarRegistry::Global();
 
-        // Only the variables the registry lists (the hidden ones, and those of modules not loaded, are not written back)
         std::string text = "# Console variables the project sets (name = value), read when the engine starts.\n"
                            "# The user's user.cfg, the command line and the console still win over them. Edited by Project Settings.\n";
         size_t count = 0;
@@ -201,7 +196,6 @@ namespace Shard::Editor::GUI{
         *project->GetTagSettings() = *saved->GetTagSettings();
         ApplyToEngine();
 
-        // The console variables : what project.cfg says again
         CVarRegistry& registry = CVarRegistry::Global();
         registry.ClearLayer(ConfigLayer::Project);
         if (std::filesystem::exists(GetProjectConfigPath()))
@@ -213,19 +207,15 @@ namespace Shard::Editor::GUI{
         Notifications::Info("Project settings reverted to the saved ones");
     }
 
-    // ---- Window ----
-
     void ProjectSettingsPanel::Draw(bool* open)
     {
         auto project = GetEngine().GetCurrentProject();
         const bool dirty = IsDirty();
 
-        // The same window whatever its title says (### keeps its identity)
         ImGui::SetNextWindowSize(ImVec2(820, 500), ImGuiCond_FirstUseEver);
         const bool wasOpen = *open;
         const bool visible = ImGui::Begin(dirty ? "Project Settings *###ProjectSettings" : "Project Settings###ProjectSettings", open);
 
-        // Closing with unsaved changes asks first ; the window stays until the answer
         if (wasOpen && !*open && dirty)
         {
             *open = true;
@@ -247,7 +237,6 @@ namespace Shard::Editor::GUI{
             return;
         }
 
-        // Top bar : search, revert, save
         const char* revertLabel = ICON_LC_UNDO_2 " Revert";
         const char* saveLabel = ICON_LC_SAVE " Save";
         const ImGuiStyle& style = ImGui::GetStyle();
@@ -280,8 +269,6 @@ namespace Shard::Editor::GUI{
 
         ImGui::End();
     }
-
-    // ---- General ----
 
     void ProjectSettingsPanel::PathRow(const char* label, const std::string& path, const char* tooltip)
     {
@@ -317,8 +304,7 @@ namespace Shard::Editor::GUI{
             ImGui::InputText("##Name", name.data(), name.size() + 1, ImGuiInputTextFlags_ReadOnly);
         }
 
-        // Read only : the engine only opens a project whose version is its own, so a project saved with another one could
-        // not be opened again (nor reverted to)
+        // Read only: the engine only opens a project of its own version, a project saved with another could not be reopened or reverted.
         if (m_View.BeginRow("Version", "Major.Minor.Patch : the version of the engine the project is made for. The engine only opens a project whose version is its own."))
         {
             std::string version = std::to_string(project->versionMajor) + "." + std::to_string(project->versionMinor) + "." + std::to_string(project->versionPatch);
@@ -335,13 +321,10 @@ namespace Shard::Editor::GUI{
         PathRow("Console Variables File", GetProjectConfigPath(), "project.cfg : the console variables the project sets (see Console Variables).");
     }
 
-    // ---- Build ----
-
     void ProjectSettingsPanel::DrawBuildCategory()
     {
         Projects::BuildSettings* build = GetEngine().GetCurrentProject()->GetBuildSettings();
 
-        // Every world asset of the project, to offer the ones not in the build yet and to flag entries that point at nothing
         m_WorldAssets.clear();
         for (const auto& [id, info] : GetEngine().GetAssetIDManager()->AssetIDMap)
             if (info && info->baseInfos.type == Filesystem::Type::T_WORLD && !info->baseInfos.nameInProject.empty())
@@ -353,7 +336,6 @@ namespace Shard::Editor::GUI{
 
         m_View.Section("Worlds in Build");
 
-        // The block shows when the search names one of the worlds too
         std::string keywords = "worlds in build index start";
         for (const Filesystem::Path& world : build->buildIndex)
             keywords += " " + world.full;
@@ -393,7 +375,6 @@ namespace Shard::Editor::GUI{
                 ImGui::Selectable(name.c_str(), false, ImGuiSelectableFlags_AllowOverlap, ImVec2(0, ImGui::GetFrameHeight()));
                 ImGui::PopStyleVar();
 
-                // Reordering : drag a row onto another
                 if (ImGui::BeginDragDropSource())
                 {
                     ImGui::SetDragDropPayload(kBuildWorldPayload, &i, sizeof(int));
@@ -405,7 +386,6 @@ namespace Shard::Editor::GUI{
                     if (const ImGuiPayload* payload = ImGui::AcceptDragDropPayload(kBuildWorldPayload))
                     {
                         moveFrom = *static_cast<const int*>(payload->Data);
-                        // Dropped on a row : takes that row's place
                         moveTo = moveFrom < i ? i + 1 : i;
                     }
                     ImGui::EndDragDropTarget();
@@ -453,7 +433,6 @@ namespace Shard::Editor::GUI{
         else if (remove >= 0)
             build->buildIndex.erase(build->buildIndex.begin() + remove);
 
-        // Adding : drop world assets from the asset browser, pick one, or take the open one
         ImGui::Spacing();
         ImGui::PushStyleColor(ImGuiCol_Button, ImVec4(0, 0, 0, 0));
         ImGui::PushStyleColor(ImGuiCol_ButtonHovered, ImVec4(0, 0, 0, 0));
@@ -500,8 +479,6 @@ namespace Shard::Editor::GUI{
         ImGui::EndDisabled();
     }
 
-    // ---- Physics ----
-
     void ProjectSettingsPanel::DrawPhysicsCategory()
     {
         Projects::PhysicsSettings* physics = GetEngine().GetCurrentProject()->GetPhysicsSettings();
@@ -530,7 +507,6 @@ namespace Shard::Editor::GUI{
             time->SetMaxAccumulatedTime(physics->maxAccumulatedTime);
         }
 
-        // The same setting, the way it is usually thought of
         if (m_View.BeginRow("Steps per Second", "1 / Fixed Time Step."))
         {
             float hz = 1.0f / physics->fixedTimeStep;
@@ -556,8 +532,6 @@ namespace Shard::Editor::GUI{
             ImGui::TextDisabled("At most %.0f steps in one frame after a stall.", std::floor(maxSteps));
         }
     }
-
-    // ---- Rendering ----
 
     void ProjectSettingsPanel::DrawRenderingCategory()
     {
@@ -633,13 +607,10 @@ namespace Shard::Editor::GUI{
             }
         }
 
-        // ---- Shadows ----
-
         Projects::ShadowSettings& shadows = rendering->shadows;
         const Projects::ShadowSettings& shadowDefaults = defaults.shadows;
         auto applyShadows = [&] { renderer->SetShadowSettings(shadows); };
 
-        // The side of a shadow map : a power of two from 512, the cost grows with its square
         static const char* const resolutionLabels[] = { "512", "1024", "2048", "4096" };
         static const uint32_t resolutions[] = { 512, 1024, 2048, 4096 };
         auto resolutionRow = [&](const char* label, const char* tooltip, uint32_t& value, uint32_t defaultValue) {
@@ -762,14 +733,13 @@ namespace Shard::Editor::GUI{
             return ImGui::ColorConvertFloat4ToU32(ImVec4(c.x, c.y, c.z, alpha));
         };
 
-        // The cascades : a click selects one
         for (int c = 0; c < count; c++)
         {
             const float x0 = origin.x + boundary(c) * width;
             const float x1 = origin.x + boundary(c + 1) * width;
             ImGui::SetCursorScreenPos(ImVec2(x0, origin.y));
             ImGui::PushID(c);
-            // The handles are drawn over the cascades : without this the cascade under the cursor keeps the hover and a handle never gets it
+            // Handles are drawn over the cascades, without this the cascade keeps the hover and a handle never gets it.
             ImGui::SetNextItemAllowOverlap();
             if (ImGui::InvisibleButton("##Cascade", ImVec2(std::max(x1 - x0, 1.0f), height)))
                 m_SelectedCascade = c;
@@ -782,7 +752,6 @@ namespace Shard::Editor::GUI{
             const ImVec2 textSize = ImGui::CalcTextSize(label);
             if (x1 - x0 > textSize.x + 4.0f)
             {
-                // Dark or light, whichever reads on the color
                 const glm::vec3& color = shadows.cascadeColors[c];
                 const float luma = 0.299f * color.r + 0.587f * color.g + 0.114f * color.b;
                 draw->AddText(ImVec2((x0 + x1 - textSize.x) * 0.5f, origin.y + (height - textSize.y) * 0.5f),
@@ -790,11 +759,9 @@ namespace Shard::Editor::GUI{
             }
         }
 
-        // The selection is outlined
         draw->AddRect(ImVec2(origin.x + boundary(m_SelectedCascade) * width, origin.y),
                       ImVec2(origin.x + boundary(m_SelectedCascade + 1) * width, origin.y + height), IM_COL32(255, 255, 255, 255), 0.0f, 0, 2.0f);
 
-        // The splits : a handle each, over the cascades
         int removeSplit = -1;
         for (int i = 0; i + 1 < count; i++)
         {
@@ -844,7 +811,6 @@ namespace Shard::Editor::GUI{
             changed = true;
         }
 
-        // Under the bar : the selected cascade, and the buttons that add or merge cascades
         ImGui::SetCursorScreenPos(ImVec2(origin.x, origin.y + height + ImGui::GetStyle().ItemSpacing.y));
         count = int(shadows.CascadeCount());
         m_SelectedCascade = std::clamp(m_SelectedCascade, 0, count - 1);
@@ -861,7 +827,6 @@ namespace Shard::Editor::GUI{
         ImGui::BeginDisabled(uint32_t(count) >= Projects::ShadowSettings::MaxCascades);
         if (ImGui::Button("Split"))
         {
-            // The selected cascade becomes two halves
             const float middle = (selectedBoundary(m_SelectedCascade) + selectedBoundary(m_SelectedCascade + 1)) * 0.5f;
             shadows.cascadeSplits.insert(shadows.cascadeSplits.begin() + m_SelectedCascade, middle);
             shadows.cascadeColors.insert(shadows.cascadeColors.begin() + m_SelectedCascade + 1, shadows.cascadeColors[m_SelectedCascade]);
@@ -875,7 +840,6 @@ namespace Shard::Editor::GUI{
         ImGui::BeginDisabled(count <= 1);
         if (ImGui::Button("Remove"))
         {
-            // Its range goes to the next cascade (to the previous one for the last)
             const int splitIndex = m_SelectedCascade < count - 1 ? m_SelectedCascade : m_SelectedCascade - 1;
             shadows.cascadeSplits.erase(shadows.cascadeSplits.begin() + splitIndex);
             shadows.cascadeColors.erase(shadows.cascadeColors.begin() + m_SelectedCascade);
@@ -891,8 +855,6 @@ namespace Shard::Editor::GUI{
             shadows.SanitizeCascades();
         return changed;
     }
-
-    // ---- Console variables ----
 
     void ProjectSettingsPanel::DrawConsoleVariablesCategory()
     {
@@ -914,7 +876,6 @@ namespace Shard::Editor::GUI{
 
         if (m_View.IsSearching() && shown.empty())
             return;
-        // Names the variables kept : the block shows whenever one of them matched
         std::string keywords = "console variables project.cfg";
         for (CVarBase* cvar : shown)
             keywords += " " + cvar->Name() + " " + cvar->Description();
@@ -949,7 +910,6 @@ namespace Shard::Editor::GUI{
             ImGui::PushID(name.c_str());
             ImGui::TableNextRow();
 
-            // Name, with what it is for
             ImGui::TableNextColumn();
             ImGui::AlignTextToFramePadding();
             ImGui::TextColored(projectValue ? setColor : unsetColor, "%s", name.c_str());
@@ -961,10 +921,9 @@ namespace Shard::Editor::GUI{
                 Tooltip(tip.c_str());
             }
 
-            // The project's value : edited in place, the arrow takes it out of project.cfg
             ImGui::TableNextColumn();
             const std::string shownValue = projectValue ? *projectValue : cvar->DefaultString();
-            // Room for the reset arrow on the right when there is one (-FLT_MIN : the whole cell, a width of -0 would be none)
+            // -FLT_MIN means the whole cell, a width of -0 would be none.
             ImGui::SetNextItemWidth(projectValue ? -(ImGui::GetFrameHeight() + ImGui::GetStyle().ItemSpacing.x) : -FLT_MIN);
 
             if (std::strcmp(cvar->TypeName(), "bool") == 0)
@@ -1022,7 +981,6 @@ namespace Shard::Editor::GUI{
                 Tooltip("Take it out of project.cfg");
             }
 
-            // What the engine uses now, and who decided it
             ImGui::TableNextColumn();
             ImGui::AlignTextToFramePadding();
             const std::string current = cvar->ToString();

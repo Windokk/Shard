@@ -57,8 +57,7 @@ namespace Shard::Engine::Core::Platform {
         alignas(DWORD) char buffer[64 * 1024];
         OVERLAPPED overlapped{};
 
-        // Asks the OS for the next batch of changes. Done by Start() before the thread exists, so that nothing
-        // that happens right after Start() returns is missed.
+        // Armed in Start() before the thread exists so changes right after Start() are not missed.
         bool Arm()
         {
             constexpr DWORD kFilter = FILE_NOTIFY_CHANGE_FILE_NAME | FILE_NOTIFY_CHANGE_DIR_NAME |
@@ -85,7 +84,7 @@ namespace Shard::Engine::Core::Platform {
                 DWORD bytes = 0;
                 const bool completed = GetOverlappedResult(directory, &overlapped, &bytes, FALSE) != 0;
 
-                if (completed && bytes > 0)    // 0 bytes : buffer overflow, the changes are lost and there is nothing to report
+                if (completed && bytes > 0)    // 0 bytes means buffer overflow, changes are lost.
                 {
                     const char* cursor = buffer;
                     for (;;)
@@ -119,7 +118,7 @@ namespace Shard::Engine::Core::Platform {
                     }
                 }
                 else if (!completed)
-                    break;      // the directory went away
+                    break;
 
                 if (!Arm())
                     break;

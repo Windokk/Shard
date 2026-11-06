@@ -1,17 +1,5 @@
 #version 430 core
 
-// Screen-space reflections, the resolve (see SSRManager) : from the trace's grid (which may be smaller than the screen) to one entry per pixel of
-// the screen, in the form lit.frag reads :
-//   x, y  where the hit is in the PREVIOUS frame's picture, in uv. The colour pyramid is that picture, and the hit was found on the depth of this
-//         frame : a surface that moved on the screen since (the camera moved) is looked up where it was
-//   z     how many pixels wide a unit of tangent of the specular lobe is at the hit (distance of the hit from the surface x focal length / depth
-//         of the hit) : lit.frag turns it into a blur radius with the roughness, and so a level of the pyramid
-//   w     the confidence (0 : no reflection)
-//
-// A pixel takes the hit of one of the four trace texels around it, the one that is the most on its surface (depth and normal alike, and close).
-// The hit is a point of the world, so what changes from one pixel to the other is the distance and the direction it is seen in : both are
-// recomputed for this pixel, and the confidence drops where the point is not on this pixel's mirror ray (the neighbour's hit on a curved surface).
-
 layout(local_size_x = 8, local_size_y = 8) in;
 
 layout(binding = 50) uniform sampler2D uHiZ;
@@ -54,8 +42,7 @@ void main()
     vec3 P = ViewPos((vec2(p) + 0.5) / vec2(uFullSize), depth);
     vec3 N = normalize(texelFetch(uNormal, p, 0).xyz);
 
-    // The four trace texels around the pixel : their centres stand at (texel * divisor + divisor / 2) on the screen
-    vec2 gridPos = (vec2(p) - float(uDivisor / 2)) / float(uDivisor);   // in trace texels, whole numbers at the texels' centres
+    vec2 gridPos = (vec2(p) - float(uDivisor / 2)) / float(uDivisor);
     ivec2 base = ivec2(floor(gridPos));
     vec2 frac = gridPos - vec2(base);
     float tolerance = max(0.05, 0.02 * -P.z);
@@ -105,11 +92,9 @@ void main()
 
     float confidence = hit.w;
 
-    // Is the point on this pixel's own mirror ray ? (it is its own hit when the trace is not reduced, a neighbour's otherwise)
     vec3 R = reflect(normalize(P), N);
     confidence *= smoothstep(0.85, 0.97, dot(toHit / hitDistance, R));
 
-    // Where the point was in the last picture
     vec4 prevClip = uPrevViewProj * vec4(hit.xyz, 1.0);
     if (prevClip.w <= 0.0)
     {

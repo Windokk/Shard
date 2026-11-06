@@ -11,34 +11,25 @@
 
 namespace Shard::Engine::Core::Ecs {
 
-    /// @brief A list of structural changes (create / destroy an entity, add / remove a component, set the parent) recorded now
-    /// and applied later, in one go, with Registry::Playback.
-    ///
-    /// Why : adding a component moves the entity to another archetype, i.e. moves memory under the feet of whoever is iterating.
-    /// While a query runs, structural changes are refused ; a system records them here instead, and they are applied when it is
-    /// safe (the end of the phase). Each system owns its buffer, so recording needs no lock, and playing the buffers back in a
-    /// fixed order makes the result the same whether the systems ran in parallel or not.
-    ///
-    /// Create() returns a PLACEHOLDER entity : a stand-in that later commands of the SAME buffer can use ("create, then add
-    /// Position to it, then parent it under this one"). Playback maps each placeholder to the entity it really created.
+    // Structural changes are recorded now and applied later with Registry::Playback, since adding a component moves memory under iterators.
+    // Create() returns a placeholder valid for later commands of the same buffer.
     class CommandBuffer {
     public:
         enum class Op : uint8_t { Create, Destroy, Add, Remove, SetParent };
 
         struct Command {
             Op op;
-            Entity target;              // the entity (or placeholder) the command is about
-            Entity other;               // SetParent : the parent
+            Entity target;
+            Entity other;
             ComponentId component = kInvalidComponent;
-            uint32_t size = 0;          // Add : bytes of the component value
-            size_t dataOffset = 0;      // Add : where those bytes are in m_Data
+            uint32_t size = 0;
+            size_t dataOffset = 0;
         };
 
-        /// A placeholder is recognisable by its generation, which no real entity ever reaches
+        // A placeholder is recognisable by its generation, which no real entity reaches
         static constexpr uint32_t kPlaceholderGeneration = ~0u;
         static bool IsPlaceholder(Entity e) { return e.Generation() == kPlaceholderGeneration; }
 
-        /// Records "create an entity". The returned id only means something to the commands of this buffer.
         Entity Create() {
             const Entity placeholder = Entity::Make(m_Placeholders++, kPlaceholderGeneration);
             m_Commands.push_back(Command{Op::Create, placeholder, kNullEntity});
@@ -47,7 +38,6 @@ namespace Shard::Engine::Core::Ecs {
 
         void Destroy(Entity e) { m_Commands.push_back(Command{Op::Destroy, e, kNullEntity}); }
 
-        /// Records "add (or overwrite) component T on e". The value is copied now.
         template <typename T>
         void Add(Entity e, const T& value) {
             static_assert(std::is_trivially_copyable<T>::value, "components must be trivially copyable (POD-like)");
@@ -66,7 +56,6 @@ namespace Shard::Engine::Core::Ecs {
 
         void RemoveRaw(Entity e, ComponentId id) { m_Commands.push_back(Command{Op::Remove, e, kNullEntity, id}); }
 
-        /// Records "make `parent` the parent of `child`" (a null parent detaches it)
         void SetParent(Entity child, Entity parent) { m_Commands.push_back(Command{Op::SetParent, child, parent}); }
 
         size_t Size() const { return m_Commands.size(); }

@@ -39,7 +39,6 @@ namespace Shard::Engine::Rendering {
             return false;
         }
 
-        /// A texture of the table that a shader of this kind of sampler can read : the right kind of view, the right sample count, depth for a shadow sampler
         bool Matches(const Image& image, const SamplerKey& key, ShaderSamplerType expected)
         {
             if (!image.IsValid() || image.view == VK_NULL_HANDLE)
@@ -60,7 +59,6 @@ namespace Shard::Engine::Rendering {
             if (shadow && !image.IsDepth())
                 return false;
 
-            // A sampler that compares only reads through a shadow sampler, and a shadow sampler only reads one that compares
             if (key.compare != shadow)
                 return false;
             return true;
@@ -114,11 +112,9 @@ namespace Shard::Engine::Rendering {
 
         VK::Context::Get().SetOutsideRenderingHook([this] { EndRendering(); });
 
-        // A command buffer is submitted in the middle of a group (a readback flushes the frame) : the groups it had open are closed, and open again
-        // in the next one, so that every command buffer is balanced
+        // Submitting mid-group closes the open debug groups and reopens them in the next command buffer, so each stays balanced.
         VK::Context::Get().SetCommandBufferHooks(
             [this](VkCommandBuffer cmd) {
-                // Nothing is bound in a command buffer that has just begun : what was remembered of the last one says nothing about this one
                 m_BoundVertexBuffer = VK_NULL_HANDLE;
                 m_BoundIndexBuffer = VK_NULL_HANDLE;
                 m_BoundLayout = VK_NULL_HANDLE;
@@ -150,15 +146,12 @@ namespace Shard::Engine::Rendering {
         m_ComputeLimits.maxWorkGroupInvocations = limits.maxComputeWorkGroupInvocations;
         m_ComputeLimits.maxSharedMemorySize = limits.maxComputeSharedMemorySize;
 
-        // What a table entry nobody filled reads
         if (!m_DummyBuffer.Create(m_DummyBufferSize, VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT, false, "Dummy storage buffer"))
             return false;
         VK::Context::Get().ImmediateSubmit([&](VkCommandBuffer cmd) { vkCmdFillBuffer(cmd, m_DummyBuffer.buffer, 0, VK_WHOLE_SIZE, 0); });
 
         return true;
     }
-
-    // ---- Information ---------------------------------------------------------------------------------------------------------------
 
     std::string VKRendererAPI::GetDeviceVendor()
     {
@@ -191,8 +184,6 @@ namespace Shard::Engine::Rendering {
             m_GpuProfiler = std::make_unique<VKGpuProfiler>();
         return m_GpuProfiler.get();
     }
-
-    // ---- Frames --------------------------------------------------------------------------------------------------------------------
 
     void VKRendererAPI::BeginFrame()
     {
@@ -231,7 +222,6 @@ namespace Shard::Engine::Rendering {
 
         UITexture& entry = m_UITextures[handle];
 
-        // The texture was made again (a framebuffer that was resized) : what the id points at is gone
         if (entry.id != 0 && (entry.view != resource->GetView() || entry.sampler != resource->GetSampler()))
         {
             ReleaseUITexture(entry.id);
@@ -253,7 +243,6 @@ namespace Shard::Engine::Rendering {
         if (id == 0 || !m_UIHooks.remove)
             return;
 
-        // The frames in flight may still read it : it goes when the GPU is done with them
         auto remove = m_UIHooks.remove;
         VK::Context::Get().Defer([remove, id] { remove(id); });
     }
@@ -265,7 +254,6 @@ namespace Shard::Engine::Rendering {
         VK::Context& context = VK::Context::Get();
         VkCommandBuffer cmd = context.Cmd();
 
-        // What the interface shows is in the layout its descriptors say ; the ones whose texture is gone are let go
         for (auto it = m_UITextures.begin(); it != m_UITextures.end();)
         {
             TextureResource* resource = TextureResource::Find(it->first);
@@ -292,7 +280,6 @@ namespace Shard::Engine::Rendering {
 
     void VKRendererAPI::PushDebugGroup(const char* name)
     {
-        // The command buffer first : if it begins now, it opens the groups that were open (not this one)
         VkCommandBuffer cmd = VK::Context::Get().Cmd();
         m_Labels.push_back(name);
 
@@ -315,8 +302,6 @@ namespace Shard::Engine::Rendering {
         if (VK::Context::Get().GetCaps().debugUtils && vkCmdEndDebugUtilsLabelEXT)
             vkCmdEndDebugUtilsLabelEXT(cmd);
     }
-
-    // ---- State tables --------------------------------------------------------------------------------------------------------------
 
     void VKRendererAPI::BindTextureUnit(uint32_t binding, uint32_t handle)
     {
@@ -370,8 +355,6 @@ namespace Shard::Engine::Rendering {
         return true;
     }
 
-    // ---- Targets and render passes -------------------------------------------------------------------------------------------------
-
     void VKRendererAPI::SetTarget(VKFramebuffer* target)
     {
         if (target == m_Target)
@@ -384,7 +367,6 @@ namespace Shard::Engine::Rendering {
 
     void VKRendererAPI::ForgetTarget(const VKFramebuffer* target)
     {
-        // The images it drew into are about to change : the pass in progress ends while they are valid
         if (m_Target == target)
             EndRendering();
     }
@@ -488,7 +470,6 @@ namespace Shard::Engine::Rendering {
 
     void VKRendererAPI::EndRendering()
     {
-        // A clear that nothing was drawn after still has to happen
         if (!m_RenderingActive && HasTarget() && m_PendingClear != ClearBit::None)
             BeginRendering();
 
@@ -500,7 +481,6 @@ namespace Shard::Engine::Rendering {
         vkCmdEndRendering(cmd);
         m_RenderingActive = false;
 
-        // Where the targets wait until something samples them
         for (uint32_t i = 0; i < m_ActiveTarget.ColorCount(); i++)
             m_ActiveTarget.ColorAt(i)->TransitionToResting(cmd);
         if (m_ActiveTarget.depth)
@@ -511,7 +491,6 @@ namespace Shard::Engine::Rendering {
 
     void VKRendererAPI::Clear(ClearBit clearBits)
     {
-        // The start of a pass : what was given to the shaders for the last one is not what the next one expects
         m_LastDraw = LastDraw{};
         for (bool& valid : m_PassGlobalsValid)
             valid = false;
@@ -528,7 +507,6 @@ namespace Shard::Engine::Rendering {
             return;
         }
 
-        // Inside a pass already (a second pass on the same target) : cleared where it stands
         VkCommandBuffer cmd = VK::Context::Get().Cmd();
 
         VkClearAttachment attachments[2 + RenderTarget::kMaxExtraColors];
@@ -558,8 +536,6 @@ namespace Shard::Engine::Rendering {
             vkCmdClearAttachments(cmd, count, attachments, 1, &rect);
         }
     }
-
-    // ---- Barriers, depth sweeps -----------------------------------------------------------------------------------------------------
 
     void VKRendererAPI::MemoryBarrier(MemoryBarrierBit barriers)
     {
@@ -594,7 +570,6 @@ namespace Shard::Engine::Rendering {
     {
         if (m_Sweep == DepthSweep::Prepass && sweep != DepthSweep::Prepass)
         {
-            // The shaders go back to shading : the switch is a uniform of the program, it would stay on for any later draw
             for (const std::shared_ptr<Shader>& shader : m_PrepassShaders)
                 shader->SetBool("depthPrepass", false);
             m_PrepassShaders.clear();
@@ -603,8 +578,6 @@ namespace Shard::Engine::Rendering {
         m_Sweep = sweep;
         InvalidateStateCache();
     }
-
-    // ---- Descriptors ---------------------------------------------------------------------------------------------------------------
 
     void VKRendererAPI::PrepareSampledImages(VKShader& shader)
     {
@@ -628,7 +601,7 @@ namespace Shard::Engine::Rendering {
 
                 Image& image = texture->image;
                 if (m_RenderingActive && IsActiveAttachment(m_ActiveTarget, &image))
-                    continue;       // read while it is drawn into : it reads the dummy instead
+                    continue;       // Read while drawn into, so bind the dummy instead.
 
                 if (image.layout != image.RestingLayout())
                     toTransition.push_back(&image);
@@ -643,8 +616,6 @@ namespace Shard::Engine::Rendering {
         for (Image* image : toTransition)
             image->TransitionToResting(cmd);
     }
-
-    // ---- Drawing -------------------------------------------------------------------------------------------------------------------
 
     void VKRendererAPI::BindPassData(const std::shared_ptr<RenderPass> pass, std::shared_ptr<Pipeline> pipeline)
     {
@@ -689,7 +660,6 @@ namespace Shard::Engine::Rendering {
 
     void VKRendererAPI::BindPassData(const std::shared_ptr<RenderPass> pass, std::shared_ptr<Material> material)
     {
-        // The parameters of the pass a material's shader does not read are skipped, not reported
         const auto& samplers = material->GetShader()->GetActiveSamplersMap();
         const auto& uniforms = material->GetShader()->GetActiveUniformsMap();
 
@@ -708,7 +678,6 @@ namespace Shard::Engine::Rendering {
 
     void VKRendererAPI::BindLightmap(const DrawCommand& command, const std::shared_ptr<Shader>& shader)
     {
-        // A uniform the program does not have is a no-op, so every shader can be given these : only the lit one reads them
         shader->SetBool("lightmapEnabled", command.lightmapHandle != 0);
         if (command.lightmapHandle != 0)
         {
@@ -768,7 +737,6 @@ namespace Shard::Engine::Rendering {
 
         std::shared_ptr<Pipeline> pipeline = pass->overridePipeline ? pass->customPipeline : command.material->GetPipeline();
 
-        // A pass that draws the materials with another permutation of their shader (the G-buffer of the deferred pipeline)
         if (!pass->overridePipeline && !pass->shaderVariant.empty())
         {
             if (std::shared_ptr<Pipeline> variant = pipeline->GetVariant(pass->shaderVariant))
@@ -792,7 +760,6 @@ namespace Shard::Engine::Rendering {
         {
             if (sameAsLastDraw)
             {
-                // Nothing scene-wide or material-specific can have changed since the previous draw : only what is genuinely per-object
                 if (command.modelMatrix != m_LastDraw.modelMatrix)
                     shader->SetMat4("model", command.modelMatrix);
                 if (command.objectID != m_LastDraw.objectID)
@@ -832,7 +799,6 @@ namespace Shard::Engine::Rendering {
 
         if (sameAsLastDraw)
         {
-            // Same pass, pipeline and material as the draw before : its uniforms and texture units are still set
         }
         else if (pass->overridePipeline)
         {
@@ -867,7 +833,6 @@ namespace Shard::Engine::Rendering {
 
         VK::Context& context = VK::Context::Get();
 
-        // Layout changes cannot be recorded inside a pass : they come first
         PrepareSampledImages(*shader);
 
         if (!m_RenderingActive)
@@ -880,7 +845,6 @@ namespace Shard::Engine::Rendering {
         VkCommandBuffer cmd = context.Cmd();
         VKProgram& program = shader->Program();
 
-        // ---- Pipeline ----
         const VertexLayout emptyLayout;
         PipelineVariant variant;
         variant.depthOnly = depthOnly;
@@ -898,7 +862,6 @@ namespace Shard::Engine::Rendering {
             m_BoundBindPoint = VK_PIPELINE_BIND_POINT_GRAPHICS;
         }
 
-        // ---- Dynamic state ----
         const PipelineSpecifications& specs = pipeline->GetSpecifications();
 
         bool depthTest = specs.depthTest;
@@ -973,11 +936,9 @@ namespace Shard::Engine::Rendering {
         }
         m_DynamicStateValid = true;
 
-        // ---- Descriptors ----
         BindDescriptors(program, VK_PIPELINE_BIND_POINT_GRAPHICS, layoutChanged);
         m_BoundLayout = program.GetPipelineLayout();
 
-        // ---- Vertices and draw ----
         if (fullscreen)
         {
             const uint32_t vertices = command.proceduralVertexCount > 0 ? command.proceduralVertexCount : 3;
@@ -1007,8 +968,6 @@ namespace Shard::Engine::Rendering {
             vkCmdDrawIndexed(cmd, command.indexCount, 1, command.indexOffset, 0, 0);
     }
 
-    // ---- Compute -------------------------------------------------------------------------------------------------------------------
-
     void VKRendererAPI::ExecuteComputeDispatch(const std::shared_ptr<ComputePipeline> pipelineBase, uint32_t groupsX, uint32_t groupsY, uint32_t groupsZ)
     {
         VKComputePipeline* pipeline = static_cast<VKComputePipeline*>(pipelineBase.get());
@@ -1033,7 +992,6 @@ namespace Shard::Engine::Rendering {
         VK::Context& context = VK::Context::Get();
         VkCommandBuffer cmd = context.Cmd();
 
-        // What the shader samples is in its resting layout, what it stores to is in GENERAL
         for (const ReflectedBinding& binding : reflection.bindings)
         {
             if (binding.kind == BindingKind::SampledImage)
@@ -1067,15 +1025,13 @@ namespace Shard::Engine::Rendering {
 
         const bool layoutChanged = program.GetPipelineLayout() != m_BoundLayout;
         vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, vkPipeline);
-        m_BoundPipeline = VK_NULL_HANDLE;       // the graphics pipeline that was bound is not any more
+        m_BoundPipeline = VK_NULL_HANDLE;
 
         BindDescriptors(program, VK_PIPELINE_BIND_POINT_COMPUTE, layoutChanged);
         m_BoundLayout = program.GetPipelineLayout();
 
         vkCmdDispatch(cmd, groups[0], groups[1], groups[2]);
     }
-
-    // ---- Descriptor sets -----------------------------------------------------------------------------------------------------------
 
     void VKRendererAPI::BindDescriptors(VKProgram& program, VkPipelineBindPoint bindPoint, bool layoutChanged)
     {
@@ -1095,7 +1051,6 @@ namespace Shard::Engine::Rendering {
             if (set == VK_NULL_HANDLE)
                 return;
 
-            // A set with a dynamic offset is bound again whenever it moves
             if (dynamicOffsets == 0 && m_BoundSets[index] == set)
                 return;
 
@@ -1103,7 +1058,6 @@ namespace Shard::Engine::Rendering {
             m_BoundSets[index] = dynamicOffsets ? VK_NULL_HANDLE : set;
         };
 
-        // ---- Set 0 : the textures, from the texture units ----
         {
             uint64_t key = HashCombine64(reinterpret_cast<uint64_t>(program.GetSetLayout(BindingSets::Textures)), 0x7E87);
             static thread_local std::vector<VkDescriptorImageInfo> infos;
@@ -1130,7 +1084,6 @@ namespace Shard::Engine::Rendering {
                     VkDescriptorImageInfo info{};
                     bool usable = texture && Matches(texture->image, texture->samplerKey, binding.samplerType) && !(m_RenderingActive && IsActiveAttachment(m_ActiveTarget, &texture->image));
 
-                    // Reading what is drawn into, or a texture of another kind than the sampler : the dummy of the kind of the sampler
                     if (usable)
                     {
                         info.imageView = texture->image.view;
@@ -1179,7 +1132,6 @@ namespace Shard::Engine::Rendering {
             }
         }
 
-        // ---- Set 1 : the storage buffers ----
         {
             uint64_t key = HashCombine64(reinterpret_cast<uint64_t>(program.GetSetLayout(BindingSets::StorageBuffers)), 0x5B0);
             static thread_local std::vector<VkDescriptorBufferInfo> infos;
@@ -1241,7 +1193,6 @@ namespace Shard::Engine::Rendering {
             }
         }
 
-        // ---- Set 2 : the images the shader loads from and stores to ----
         {
             uint64_t key = HashCombine64(reinterpret_cast<uint64_t>(program.GetSetLayout(BindingSets::StorageImages)), 0x1A6E);
             static thread_local std::vector<VkDescriptorImageInfo> infos;
@@ -1305,12 +1256,10 @@ namespace Shard::Engine::Rendering {
             }
         }
 
-        // ---- Set 3 : the uniforms set by name ----
         uint32_t uniformOffset = 0;
         if (program.FlushUniforms(uniformOffset))
             bind(BindingSets::Uniforms, program.GetUniformSet(), 1, &uniformOffset);
 
-        // ---- Set 4 : the bindless textures ----
         for (const ReflectedBinding& binding : reflection.bindings)
         {
             if (binding.kind == BindingKind::BindlessTextures)

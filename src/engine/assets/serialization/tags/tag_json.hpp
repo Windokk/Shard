@@ -11,7 +11,6 @@
 
 namespace Shard::Engine::Serialization {
 
-    /// The names of the tags, sorted : the "tags" array of a world, an actor or a component
     inline nlohmann::ordered_json TagsToJson(const Core::TagContainer& tags)
     {
         nlohmann::ordered_json array = nlohmann::ordered_json::array();
@@ -20,8 +19,6 @@ namespace Shard::Engine::Serialization {
         return array;
     }
 
-    /// @brief What TagsToJson wrote. The names are resolved like any file's (redirects followed, an unknown tag kept and reported) ;
-    /// what is not a string is skipped.
     inline Core::TagContainer TagsFromJson(const nlohmann::json& array)
     {
         Core::TagContainer tags;

@@ -24,8 +24,7 @@ namespace Shard::Engine::Objects{
                 parentObject->DeleteChildRef(id);
         }
 
-        // Taken out first : each child removes itself from this list while it is destroyed (DeleteChildRef above),
-        // which skipped every other child when it was iterated directly - they were left alive, hanging off a dead parent
+        // Taken out first: each child removes itself from this list while destroyed, which skipped the others when iterating directly.
         std::vector<Core::ObjectID> ownChildren = std::move(children);
         children.clear();
         for(auto& childID : ownChildren)

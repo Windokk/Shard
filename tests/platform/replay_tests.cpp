@@ -21,10 +21,7 @@ namespace {
     bool SameBits(float a, float b) { return std::memcmp(&a, &b, sizeof(float)) == 0; }
 }
 
-// ---- names ------------------------------------------------------------------------------------------------------------
-
 TEST(Replay, KeyNamesFollowTheEnum) {
-    // Both ends and a few in the middle : the table in the replay module is written by hand, in the order of the enum
     EXPECT_STREQ(KeyName(Key::Space), "Space");
     EXPECT_STREQ(KeyName(Key::K0), "K0");
     EXPECT_STREQ(KeyName(Key::K9), "K9");
@@ -50,9 +47,7 @@ TEST(Replay, KeyNamesFollowTheEnum) {
     EXPECT_FALSE(KeyFromName("NoSuchKey", unused));
 }
 
-// ---- the file ---------------------------------------------------------------------------------------------------------
-
-TEST(Replay, EveryKindOfEventRoundTripsExactly) {
+TEST(Replay, AllEventsRoundTrip) {
     ReplayData data;
     data.seed = 0xfedcba9876543210ull;
     data.fixedStep = 1.0f / 60.0f;
@@ -70,7 +65,7 @@ TEST(Replay, EveryKindOfEventRoundTripsExactly) {
     mouseDown.button = MouseButton::Right;
     OSEvent text;
     text.type = OSEventType::TextInput;
-    text.text = "h\xc3\xa9llo wor ld";            // a space and UTF-8 : none of it may break the line
+    text.text = "h\xc3\xa9llo wor ld";
     OSEvent padAxis;
     padAxis.type = OSEventType::GamepadAxisMotion;
     padAxis.deviceId = 3; padAxis.gamepadAxis = GamepadAxis::RightTrigger; padAxis.axisValue = 0.75f;
@@ -126,7 +121,7 @@ TEST(Replay, EveryKindOfEventRoundTripsExactly) {
     EXPECT_FALSE(back.checks[1].hasParts);
 }
 
-TEST(Replay, AHandWrittenFileReadsWithDecimalsAndComments) {
+TEST(Replay, HandWrittenFileReads) {
     const std::string text =
         "shard-replay 1\r\n"
         "# a comment\r\n"
@@ -149,7 +144,7 @@ TEST(Replay, AHandWrittenFileReadsWithDecimalsAndComments) {
     EXPECT_EQ(data.Length(), 30u) << "no frames line : the last check says how long the run is";
 }
 
-TEST(Replay, BadFilesAreRefusedWithTheLine) {
+TEST(Replay, BadFilesRefusedWithLine) {
     ReplayData data;
     std::string error;
 
@@ -170,9 +165,7 @@ TEST(Replay, BadFilesAreRefusedWithTheLine) {
     EXPECT_FALSE(ReplayData::Parse("shard-replay 1\nwhatever\n", data, error));
 }
 
-// ---- recording and playing --------------------------------------------------------------------------------------------
-
-TEST(Replay, TheRecorderStampsTheFrameAndSkipsWhatIsNotInput) {
+TEST(Replay, RecorderStampsFrame) {
     HeadlessWindow window;
     window.Init("test", 640, 360, false, 0, 0);
 
@@ -205,7 +198,7 @@ TEST(Replay, TheRecorderStampsTheFrameAndSkipsWhatIsNotInput) {
     EXPECT_EQ(recorder.Data().events.size(), 2u);
 }
 
-TEST(Replay, ThePlayerDeliversEachFrameItsEvents) {
+TEST(Replay, PlayerDeliversFrameEvents) {
     ReplayData data;
     data.events = {{0, KeyEvent(OSEventType::KeyDown, Key::W)}, {2, KeyEvent(OSEventType::KeyUp, Key::W)}, {2, KeyEvent(OSEventType::KeyDown, Key::S)}, {7, KeyEvent(OSEventType::KeyUp, Key::S)}};
     ReplayData::Check check;
@@ -228,7 +221,7 @@ TEST(Replay, ThePlayerDeliversEachFrameItsEvents) {
     EXPECT_EQ(player.CheckAfter(6), nullptr);
 }
 
-TEST(Replay, AReplayDrivesTheHeadlessInputLikeAKeyboard) {
+TEST(Replay, ReplayDrivesHeadlessInput) {
     HeadlessPlatform platform;
     platform.CreateWindow("test", 640, 360, false, 0, 0);
     platform.CreateInput();
@@ -241,7 +234,7 @@ TEST(Replay, AReplayDrivesTheHeadlessInputLikeAKeyboard) {
     bool down[5], pressed[5], released[5];
     for (uint64_t frame = 0; frame < 5; ++frame) {
         player.Deliver(frame, [&](const OSEvent& e) { platform.GetHeadlessWindow()->PostEvent(e); });
-        // The order of the engine's input phase : the previous state is kept, then the events of the frame are read
+        // Engine input phase order: keep the previous state, then read the frame's events.
         input->Tick();
         platform.GetWindow()->PollEvents();
         down[frame] = input->IsKeyDown(Key::W);
@@ -256,9 +249,7 @@ TEST(Replay, AReplayDrivesTheHeadlessInputLikeAKeyboard) {
     EXPECT_FALSE(down[4]);  EXPECT_FALSE(released[4]);
 }
 
-// ---- the headless window ----------------------------------------------------------------------------------------------
-
-TEST(HeadlessPlatform, TheWindowHasASizeAndClosesOnQuit) {
+TEST(HeadlessPlatform, WindowSizeAndQuit) {
     HeadlessPlatform platform;
     platform.CreateWindow("server", 1280, 720, false, 0, 0);
     IWindow* window = platform.GetWindow();
@@ -281,7 +272,7 @@ TEST(HeadlessPlatform, TheWindowHasASizeAndClosesOnQuit) {
     EXPECT_EQ(window->GetSystemInfos().windowHost, WindowHost::Headless);
 }
 
-TEST(HeadlessPlatform, MouseAndGamepadStateFollowTheEvents) {
+TEST(HeadlessPlatform, MouseAndGamepadFollowEvents) {
     HeadlessPlatform platform;
     platform.CreateWindow("test", 640, 360, false, 0, 0);
     platform.CreateInput();
@@ -312,7 +303,6 @@ TEST(HeadlessPlatform, MouseAndGamepadStateFollowTheEvents) {
     EXPECT_EQ(input->GetGamepadAxis(0, GamepadAxis::LeftX), 0.5f);
     EXPECT_EQ(input->GetGamepadAxis(0, GamepadAxis::LeftY), 0.0f);
 
-    // Captured : the cursor moves by the relative motion
     input->SetCursorVisibility(CursorVisibility::Disabled);
     window->PostEvent(move);
     window->PollEvents();

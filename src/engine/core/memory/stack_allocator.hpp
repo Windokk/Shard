@@ -11,13 +11,6 @@
 
 namespace Shard::Engine::Core {
 
-    /// @brief Stack allocator : like a linear allocator, but the most recent allocations can be given back, in
-    /// reverse order (LIFO). Two ways to do it :
-    ///  * Free(ptr) gives back the latest allocation (checked : freeing anything else is a bug and returns false) ;
-    ///  * a Marker taken before a group of allocations rewinds all of them at once (ScopedStack does it in a scope).
-    ///
-    /// Each allocation carries a small header (the offset to go back to), which is what makes Free possible.
-    /// Not thread-safe. Like LinearAllocator, it never runs destructors : trivially destructible types only.
     class StackAllocator {
     public:
         using Marker = size_t;
@@ -36,11 +29,9 @@ namespace Shard::Engine::Core {
         StackAllocator(const StackAllocator&) = delete;
         StackAllocator& operator=(const StackAllocator&) = delete;
 
-        /// @brief nullptr when full.
         void* Allocate(size_t size, size_t alignment = kDefaultAlignment) {
             assert(IsPowerOfTwo(alignment));
             const uintptr_t base = reinterpret_cast<uintptr_t>(m_Begin);
-            // header, then the payload aligned : the header sits just before the returned pointer
             const uintptr_t afterHeader = base + m_Top + sizeof(Header);
             const uintptr_t aligned = AlignUp(afterHeader, alignment);
             const size_t newTop = static_cast<size_t>(aligned - base) + size;
@@ -71,7 +62,6 @@ namespace Shard::Engine::Core {
             return array;
         }
 
-        /// @brief Gives back the latest allocation. Returns false (and does nothing) if `ptr` is not it.
         bool Free(void* ptr) {
             if (!ptr || m_Top == 0) return false;
             const size_t offset = static_cast<size_t>(static_cast<unsigned char*>(ptr) - m_Begin);
@@ -83,15 +73,11 @@ namespace Shard::Engine::Core {
             return true;
         }
 
-        /// @brief Where the stack is now. Everything allocated after it is released by RewindTo(marker).
         Marker GetMarker() const { return m_Top; }
 
-        /// @brief Releases every allocation made since `marker`. A marker above the current top (already
-        /// rewound past it) is a bug and is ignored.
         void RewindTo(Marker marker) {
             if (marker > m_Top) { assert(false && "StackAllocator::RewindTo : marker is above the top"); return; }
             m_Top = marker;
-            // the latest surviving allocation is the one whose payload ends at or before the marker
             m_LastPayload = LastPayloadBefore(marker);
         }
 
@@ -105,11 +91,10 @@ namespace Shard::Engine::Core {
         static constexpr size_t kNone = ~size_t(0);
 
         struct Header {
-            size_t previousTop;         ///< value of m_Top before this allocation
-            size_t previousPayload;     ///< payload offset of the allocation before it (kNone for the first)
+            size_t previousTop;
+            size_t previousPayload;
         };
 
-        /// Walks the chain of headers back from the newest allocation to the last one that starts before `marker`.
         size_t LastPayloadBefore(size_t marker) const {
             size_t payload = m_LastPayload;
             while (payload != kNone && payload > marker) {
@@ -127,7 +112,6 @@ namespace Shard::Engine::Core {
         size_t m_Peak = 0;
     };
 
-    /// @brief Rewinds a StackAllocator to where it was when the scope began.
     class ScopedStack {
     public:
         explicit ScopedStack(StackAllocator& stack) : m_Stack(stack), m_Marker(stack.GetMarker()) {}

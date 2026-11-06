@@ -15,8 +15,6 @@
 using namespace Shard::Engine::Core::Platform;
 using Shard::Engine::Input::Key;
 
-// --- time ---
-
 TEST(PlatformTime, ClockIsMonotonic)
 {
     uint64_t previous = NowNanoseconds();
@@ -28,7 +26,7 @@ TEST(PlatformTime, ClockIsMonotonic)
     }
 }
 
-TEST(PlatformTime, PreciseSleepNeverReturnsEarlyAndIsCloseToTheRequest)
+TEST(PlatformTime, PreciseSleepNeverEarly)
 {
     for (const double seconds : { 0.001, 0.005, 0.016 })
     {
@@ -36,13 +34,13 @@ TEST(PlatformTime, PreciseSleepNeverReturnsEarlyAndIsCloseToTheRequest)
         PreciseSleep(seconds);
         const double elapsed = NowSeconds() - start;
 
-        EXPECT_GE(elapsed, seconds - 1e-6) << "returned early for " << seconds << " s";   // 1 us of rounding of the double clock
-        // loose upper bound : a loaded CI machine can deschedule the thread
+        EXPECT_GE(elapsed, seconds - 1e-6) << "returned early for " << seconds << " s";
+        // Loose upper bound: a loaded CI machine can deschedule the thread.
         EXPECT_LT(elapsed, seconds + 0.05) << "overslept for " << seconds << " s";
     }
 }
 
-TEST(PlatformTime, LocalTimeIsACalendarTime)
+TEST(PlatformTime, LocalTimeIsCalendar)
 {
     const LocalTime t = GetLocalTime();
     EXPECT_GE(t.year, 2024);
@@ -55,16 +53,14 @@ TEST(PlatformTime, LocalTimeIsACalendarTime)
     EXPECT_GE(t.millisecond, 0); EXPECT_LE(t.millisecond, 999);
 }
 
-// --- threads / atomics ---
-
-TEST(PlatformThread, HardwareConcurrencyIsAtLeastOneAndWorkersLeaveTheCallingThread)
+TEST(PlatformThread, HardwareConcurrencyAndWorkers)
 {
     EXPECT_GE(HardwareConcurrency(), 1u);
     EXPECT_GE(WorkerThreadCount(), 1u);
     EXPECT_LE(WorkerThreadCount(), HardwareConcurrency());
 }
 
-TEST(PlatformThread, ThreadRunsItsFunctionOnAnotherThreadAndJoinsOnDestruction)
+TEST(PlatformThread, ThreadRunsAndJoins)
 {
     std::atomic<uint64_t> threadId{ 0 };
     std::atomic<bool> ran{ false };
@@ -78,9 +74,9 @@ TEST(PlatformThread, ThreadRunsItsFunctionOnAnotherThreadAndJoinsOnDestruction)
     EXPECT_NE(threadId.load(), CurrentThreadId());
 }
 
-TEST(PlatformThread, AffinityToTheFirstCpuIsAccepted)
+TEST(PlatformThread, AffinityToFirstCpu)
 {
-    // Pins a throw-away thread : the main one must keep running everywhere
+    // Pins a throw-away thread: the main one must keep running everywhere.
     bool accepted = false;
     {
         Thread thread({}, [&] { accepted = SetCurrentThreadAffinity(1); });
@@ -92,7 +88,7 @@ TEST(PlatformThread, AffinityToTheFirstCpuIsAccepted)
 #endif
 }
 
-TEST(PlatformAtomic, SpinLockProtectsASharedCounter)
+TEST(PlatformAtomic, SpinLockProtectsCounter)
 {
     SpinLock lock;
     long long counter = 0;
@@ -111,13 +107,11 @@ TEST(PlatformAtomic, SpinLockProtectsASharedCounter)
     EXPECT_EQ(counter, static_cast<long long>(kThreads) * kIterations);
 }
 
-TEST(PlatformAtomic, CacheLinePaddedValuesDoNotShareACacheLine)
+TEST(PlatformAtomic, PaddedValuesSplitCacheLines)
 {
     EXPECT_GE(sizeof(CacheLinePadded<int>), kCacheLineSize);
     EXPECT_EQ(alignof(CacheLinePadded<int>), kCacheLineSize);
 }
-
-// --- hardware ---
 
 TEST(PlatformHardware, DescribesTheMachine)
 {
@@ -128,7 +122,7 @@ TEST(PlatformHardware, DescribesTheMachine)
     EXPECT_FALSE(info.os.name.empty());
     EXPECT_FALSE(info.os.arch.empty());
 #if defined(__x86_64__) || defined(_M_X64)
-    EXPECT_TRUE(info.cpu.features.sse2);    // part of x86-64
+    EXPECT_TRUE(info.cpu.features.sse2);
     EXPECT_FALSE(info.cpu.brand.empty());
 #endif
 }
@@ -139,12 +133,10 @@ TEST(PlatformHardware, MemoryNumbersAreCoherent)
     EXPECT_GT(memory.availablePhysical, 0u);
     EXPECT_LE(memory.availablePhysical, memory.totalPhysical);
     EXPECT_GT(ProcessMemoryUsage(), 0u);
-    EXPECT_NO_THROW(ProcessGpuMemoryUsage());   // 0 is fine : the process has no GPU memory
+    EXPECT_NO_THROW(ProcessGpuMemoryUsage());
 }
 
-// --- keys / events ---
-
-TEST(PlatformDevices, EveryKeyThatHasAScancodeRoundTrips)
+TEST(PlatformDevices, ScancodeKeysRoundTrip)
 {
     int mapped = 0;
     for (int i = 0; i <= static_cast<int>(Key::Menu); ++i)
@@ -159,7 +151,6 @@ TEST(PlatformDevices, EveryKeyThatHasAScancodeRoundTrips)
         EXPECT_EQ(static_cast<int>(back), i);
         ++mapped;
     }
-    // Everything but F25
     EXPECT_EQ(mapped, static_cast<int>(Key::Menu) + 1 - 1);
 }
 
@@ -167,7 +158,7 @@ TEST(PlatformDevices, LayoutIndependentLetters)
 {
     EXPECT_EQ(KeyToScancode(Key::W), SDL_SCANCODE_W);
     EXPECT_EQ(KeyToScancode(Key::Z), SDL_SCANCODE_Z);
-    EXPECT_EQ(KeyToScancode(Key::N), SDL_SCANCODE_N);   // the old backend only knew some letters
+    EXPECT_EQ(KeyToScancode(Key::N), SDL_SCANCODE_N);
     Key key;
     EXPECT_FALSE(ScancodeToKey(SDL_SCANCODE_UNKNOWN, key));
 }
@@ -178,7 +169,7 @@ namespace {
     };
 }
 
-TEST(PlatformEvents, ListenersSeeEventsInOrderAndCanBeRemoved)
+TEST(PlatformEvents, ListenersSeeEventsInOrder)
 {
     TestSource source;
     std::vector<OSEventType> first, second;
@@ -194,7 +185,7 @@ TEST(PlatformEvents, ListenersSeeEventsInOrderAndCanBeRemoved)
     EXPECT_EQ(second, (std::vector<OSEventType>{ OSEventType::KeyDown, OSEventType::KeyUp, OSEventType::WindowResized }));
 }
 
-TEST(PlatformEvents, AListenerCanRegisterAnotherOneWhileItRuns)
+TEST(PlatformEvents, ListenerRegistersDuringRun)
 {
     TestSource source;
     int late = 0;
@@ -205,19 +196,17 @@ TEST(PlatformEvents, AListenerCanRegisterAnotherOneWhileItRuns)
 
     source.Emit(OSEventType::KeyDown);
     source.Emit(OSEventType::KeyDown);
-    EXPECT_EQ(late, 2);     // the new listener is called from the event that was being dispatched when it was added
+    EXPECT_EQ(late, 2);
 }
 
-// --- gamepads ---
-
-TEST(PlatformDevices, GamepadButtonsAndAxesFollowSDLsLayout)
+TEST(PlatformDevices, GamepadFollowsSdlLayout)
 {
     Shard::Engine::Input::GamepadButton button;
     ASSERT_TRUE(SDLGamepadButtonToButton(SDL_GAMEPAD_BUTTON_SOUTH, button));
     EXPECT_EQ(button, Shard::Engine::Input::GamepadButton::South);
     ASSERT_TRUE(SDLGamepadButtonToButton(SDL_GAMEPAD_BUTTON_DPAD_LEFT, button));
     EXPECT_EQ(button, Shard::Engine::Input::GamepadButton::DpadLeft);
-    EXPECT_FALSE(SDLGamepadButtonToButton(SDL_GAMEPAD_BUTTON_TOUCHPAD, button));   // not exposed
+    EXPECT_FALSE(SDLGamepadButtonToButton(SDL_GAMEPAD_BUTTON_TOUCHPAD, button));
 
     Shard::Engine::Input::GamepadAxis axis;
     ASSERT_TRUE(SDLGamepadAxisToAxis(SDL_GAMEPAD_AXIS_RIGHT_TRIGGER, axis));
@@ -225,9 +214,9 @@ TEST(PlatformDevices, GamepadButtonsAndAxesFollowSDLsLayout)
     EXPECT_FALSE(SDLGamepadAxisToAxis(SDL_GAMEPAD_AXIS_COUNT, axis));
 }
 
-TEST(PlatformDevices, InputWithoutGamepadsReportsNoneAndNeutralValues)
+TEST(PlatformDevices, NoGamepadsGivesNeutral)
 {
-    SDLWindow window;   // not initialised : no video, no device
+    SDLWindow window;
     SDLInput input(&window);
     input.Init();
 

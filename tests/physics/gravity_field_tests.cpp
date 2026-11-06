@@ -92,9 +92,7 @@ namespace {
     }
 }
 
-// ---------------------------------------------------------------- the fields
-
-TEST(GravityFields, UniformPointsWhereItIsToldAndFollowsItsRotation)
+TEST(GravityFields, UniformPointsAndRotates)
 {
     glm::vec3 a;
     float coverage;
@@ -103,18 +101,16 @@ TEST(GravityFields, UniformPointsWhereItIsToldAndFollowsItsRotation)
     ExpectVec3Near(a, glm::vec3(0.0f, -4.0f, 0.0f));
     EXPECT_FLOAT_EQ(coverage, 1.0f);
 
-    // Turned a quarter around Z : down becomes +X
     GravityFieldData turned = Uniform(glm::vec3(0.0f, -1.0f, 0.0f), 3.0f);
     turned.rotation = glm::angleAxis(glm::radians(90.0), glm::dvec3(0.0, 0.0, 1.0));
     ASSERT_TRUE(EvaluateGravityField(turned, glm::dvec3(0.0), a, coverage));
     ExpectVec3Near(a, glm::vec3(3.0f, 0.0f, 0.0f), 1e-5f);
 
-    // A degenerate direction is no gravity, not a NaN
     ASSERT_TRUE(EvaluateGravityField(Uniform(glm::vec3(0.0f), 9.81f), glm::dvec3(0.0), a, coverage));
     ExpectVec3Near(a, glm::vec3(0.0f));
 }
 
-TEST(GravityFields, PointPullsTowardItsPositionAndStopsAtItsRadius)
+TEST(GravityFields, PointPullsToPositionToRadius)
 {
     glm::vec3 a;
     float coverage;
@@ -123,31 +119,27 @@ TEST(GravityFields, PointPullsTowardItsPositionAndStopsAtItsRadius)
     ASSERT_TRUE(EvaluateGravityField(constant, glm::dvec3(0.0), a, coverage));
     ExpectVec3Near(a, glm::vec3(6.0f, 0.0f, 0.0f));
 
-    // Past the radius it does not reach
     EXPECT_FALSE(EvaluateGravityField(constant, glm::dvec3(-10.0, 0.0, 0.0), a, coverage));
 
-    // Linear : half way, half the strength
     GravityFieldData linear = Point(glm::dvec3(0.0), 8.0f, 10.0f, GravityFalloff::Linear);
     ASSERT_TRUE(EvaluateGravityField(linear, glm::dvec3(0.0, 5.0, 0.0), a, coverage));
     ExpectVec3Near(a, glm::vec3(0.0f, -4.0f, 0.0f));
 
-    // Inverse square : twice as far, a quarter of the pull. 0 radius : no limit
     GravityFieldData inverse = Point(glm::dvec3(0.0), 8.0f, 0.0f, GravityFalloff::InverseSquare);
     inverse.referenceDistance = 2.0f;
     ASSERT_TRUE(EvaluateGravityField(inverse, glm::dvec3(2.0, 0.0, 0.0), a, coverage));
     ExpectVec3Near(a, glm::vec3(-8.0f, 0.0f, 0.0f));
     ASSERT_TRUE(EvaluateGravityField(inverse, glm::dvec3(4.0, 0.0, 0.0), a, coverage));
     ExpectVec3Near(a, glm::vec3(-2.0f, 0.0f, 0.0f));
-    ASSERT_TRUE(EvaluateGravityField(inverse, glm::dvec3(1.0e6, 0.0, 0.0), a, coverage));      // far away, still defined
+    ASSERT_TRUE(EvaluateGravityField(inverse, glm::dvec3(1.0e6, 0.0, 0.0), a, coverage));
     EXPECT_LT(std::abs(a.x), 1e-6f);
 
-    // A negative strength pushes away
     GravityFieldData repel = Point(glm::dvec3(0.0), -5.0f, 10.0f, GravityFalloff::Constant);
     ASSERT_TRUE(EvaluateGravityField(repel, glm::dvec3(3.0, 0.0, 0.0), a, coverage));
     ExpectVec3Near(a, glm::vec3(5.0f, 0.0f, 0.0f));
 }
 
-TEST(GravityFields, PointDoesNotBlowUpAtItsCenter)
+TEST(GravityFields, PointFiniteAtCenter)
 {
     glm::vec3 a;
     float coverage;
@@ -155,16 +147,16 @@ TEST(GravityFields, PointDoesNotBlowUpAtItsCenter)
     GravityFieldData f = Point(glm::dvec3(0.0), 9.81f, 10.0f, GravityFalloff::InverseSquare);
     f.minDistance = 0.5f;
 
-    // Right on it : no direction, so no pull. Next to it : capped by minDistance
+    // On the point: no direction, no pull. Next to it: capped by minDistance.
     ASSERT_TRUE(EvaluateGravityField(f, glm::dvec3(0.0), a, coverage));
     ExpectVec3Near(a, glm::vec3(0.0f));
 
     ASSERT_TRUE(EvaluateGravityField(f, glm::dvec3(0.001, 0.0, 0.0), a, coverage));
     EXPECT_TRUE(std::isfinite(a.x));
-    EXPECT_NEAR(a.x, -9.81f * 4.0f, 1e-3f);      // (1 / 0.5)^2
+    EXPECT_NEAR(a.x, -9.81f * 4.0f, 1e-3f);
 }
 
-TEST(GravityFields, PointFadesOutInsideItsRadius)
+TEST(GravityFields, PointFadesInsideRadius)
 {
     glm::vec3 a;
     float coverage;
@@ -181,34 +173,31 @@ TEST(GravityFields, PointFadesOutInsideItsRadius)
     EXPECT_FALSE(EvaluateGravityField(f, glm::dvec3(10.0, 0.0, 0.0), a, coverage));
 }
 
-TEST(GravityFields, RadialIsTheSurfaceGravityOfAPlanet)
+TEST(GravityFields, RadialIsPlanetGravity)
 {
     glm::vec3 a;
     float coverage;
 
     GravityFieldData planet = Radial(glm::dvec3(0.0), 10.0f, 100.0f, 0.0f, GravityFalloff::InverseSquare);
 
-    // On the surface : the strength, toward the center, whatever the side
     ASSERT_TRUE(EvaluateGravityField(planet, glm::dvec3(100.0, 0.0, 0.0), a, coverage));
     ExpectVec3Near(a, glm::vec3(-10.0f, 0.0f, 0.0f), 1e-4f);
     ASSERT_TRUE(EvaluateGravityField(planet, glm::dvec3(0.0, -100.0, 0.0), a, coverage));
     ExpectVec3Near(a, glm::vec3(0.0f, 10.0f, 0.0f), 1e-4f);
 
-    // Twice the radius away : a quarter
     ASSERT_TRUE(EvaluateGravityField(planet, glm::dvec3(0.0, 0.0, 200.0), a, coverage));
     ExpectVec3Near(a, glm::vec3(0.0f, 0.0f, -2.5f), 1e-4f);
 
-    // Inside, as a ball of uniform density : in proportion to the distance to the center
+    // Inside, as a uniform-density ball: proportional to distance from the center.
     ASSERT_TRUE(EvaluateGravityField(planet, glm::dvec3(50.0, 0.0, 0.0), a, coverage));
     ExpectVec3Near(a, glm::vec3(-5.0f, 0.0f, 0.0f), 1e-4f);
 
-    // ... or the surface strength all the way down
     planet.solidInterior = false;
     ASSERT_TRUE(EvaluateGravityField(planet, glm::dvec3(50.0, 0.0, 0.0), a, coverage));
     ExpectVec3Near(a, glm::vec3(-10.0f, 0.0f, 0.0f), 1e-4f);
 }
 
-TEST(GravityFields, RadialStopsAtItsReachAndFadesBeforeIt)
+TEST(GravityFields, RadialStopsAtReach)
 {
     glm::vec3 a;
     float coverage;
@@ -224,14 +213,13 @@ TEST(GravityFields, RadialStopsAtItsReachAndFadesBeforeIt)
 
     EXPECT_FALSE(EvaluateGravityField(planet, glm::dvec3(150.0, 0.0, 0.0), a, coverage));
 
-    // Linear toward the end of the reach
     planet.falloff = GravityFalloff::Linear;
     planet.fadeDistance = 0.0f;
     ASSERT_TRUE(EvaluateGravityField(planet, glm::dvec3(125.0, 0.0, 0.0), a, coverage));
     ExpectVec3Near(a, glm::vec3(-5.0f, 0.0f, 0.0f), 1e-4f);
 }
 
-TEST(GravityFields, RadialAtItsCenterIsFiniteAndZero)
+TEST(GravityFields, RadialCenterIsZero)
 {
     glm::vec3 a;
     float coverage;
@@ -248,45 +236,43 @@ TEST(GravityFields, VolumeCoversItsShape)
     const glm::vec3 down(0.0f, -1.0f, 0.0f);
 
     GravityFieldData box = Volume(glm::dvec3(10.0, 0.0, 0.0), half, GravityVolumeShape::Box, down, 3.0f);
-    EXPECT_TRUE(EvaluateGravityField(box, glm::dvec3(13.5, 1.5, -3.5), a, coverage));     // a corner region
+    EXPECT_TRUE(EvaluateGravityField(box, glm::dvec3(13.5, 1.5, -3.5), a, coverage));
     EXPECT_FALSE(EvaluateGravityField(box, glm::dvec3(14.5, 0.0, 0.0), a, coverage));
     EXPECT_FALSE(EvaluateGravityField(box, glm::dvec3(10.0, 2.5, 0.0), a, coverage));
 
-    // The sphere is inscribed in the box : the corner of the box is outside it
+    // The sphere is inscribed in the box, so the box corner is outside it.
     GravityFieldData sphere = Volume(glm::dvec3(0.0), glm::vec3(4.0f), GravityVolumeShape::Sphere, down, 3.0f);
     EXPECT_TRUE(EvaluateGravityField(sphere, glm::dvec3(3.0, 0.0, 0.0), a, coverage));
     EXPECT_FALSE(EvaluateGravityField(sphere, glm::dvec3(3.0, 3.0, 3.0), a, coverage));
 
-    // The cylinder stands along Y
     GravityFieldData cylinder = Volume(glm::dvec3(0.0), half, GravityVolumeShape::Cylinder, down, 3.0f);
     EXPECT_TRUE(EvaluateGravityField(cylinder, glm::dvec3(3.5, 1.5, 0.0), a, coverage));
     EXPECT_FALSE(EvaluateGravityField(cylinder, glm::dvec3(3.5, 2.5, 0.0), a, coverage));
-    EXPECT_FALSE(EvaluateGravityField(cylinder, glm::dvec3(3.5, 0.0, 3.5), a, coverage));      // inside the box, outside the circle
+    EXPECT_FALSE(EvaluateGravityField(cylinder, glm::dvec3(3.5, 0.0, 3.5), a, coverage));
 }
 
-TEST(GravityFields, VolumeFollowsItsRotationAndScale)
+TEST(GravityFields, VolumeFollowsRotationAndScale)
 {
     glm::vec3 a;
     float coverage;
 
-    // 10 long along its own X, turned a quarter around Y : that length is now along Z
+    // 10 long along its own X, turned a quarter around Y: the length is now along Z.
     GravityFieldData f = Volume(glm::dvec3(0.0), glm::vec3(5.0f, 1.0f, 1.0f), GravityVolumeShape::Box, glm::vec3(0.0f, -1.0f, 0.0f), 2.0f);
     f.rotation = glm::angleAxis(glm::radians(90.0), glm::dvec3(0.0, 1.0, 0.0));
     EXPECT_TRUE(EvaluateGravityField(f, glm::dvec3(0.0, 0.0, 4.0), a, coverage));
     EXPECT_FALSE(EvaluateGravityField(f, glm::dvec3(4.0, 0.0, 0.0), a, coverage));
 
-    // Doubled by the scale of the actor
     f.rotation = glm::dquat(1.0, 0.0, 0.0, 0.0);
     EXPECT_FALSE(EvaluateGravityField(f, glm::dvec3(8.0, 0.0, 0.0), a, coverage));
     f.scale = glm::vec3(2.0f, 1.0f, 1.0f);
     EXPECT_TRUE(EvaluateGravityField(f, glm::dvec3(8.0, 0.0, 0.0), a, coverage));
 
-    // A negative scale (a mirrored actor) covers the same region
+    // A negative scale (mirrored actor) covers the same region.
     f.scale = glm::vec3(-2.0f, 1.0f, 1.0f);
     EXPECT_TRUE(EvaluateGravityField(f, glm::dvec3(8.0, 0.0, 0.0), a, coverage));
 }
 
-TEST(GravityFields, VolumeFadesInFromItsEdge)
+TEST(GravityFields, VolumeFadesFromEdge)
 {
     glm::vec3 a;
     float coverage;
@@ -296,7 +282,7 @@ TEST(GravityFields, VolumeFadesInFromItsEdge)
     ASSERT_TRUE(EvaluateGravityField(f, glm::dvec3(0.0), a, coverage));
     EXPECT_FLOAT_EQ(coverage, 1.0f);
 
-    ASSERT_TRUE(EvaluateGravityField(f, glm::dvec3(8.0, 0.0, 0.0), a, coverage));      // 2 inside the edge, over 4
+    ASSERT_TRUE(EvaluateGravityField(f, glm::dvec3(8.0, 0.0, 0.0), a, coverage));
     EXPECT_NEAR(coverage, 0.5f, 1e-5f);
 
     EXPECT_FALSE(EvaluateGravityField(f, glm::dvec3(10.0, 0.0, 0.0), a, coverage));
@@ -312,7 +298,7 @@ TEST(GravityFields, VolumeDirections)
     ASSERT_TRUE(EvaluateGravityField(toCenter, glm::dvec3(0.0, 5.0, 0.0), a, coverage));
     ExpectVec3Near(a, glm::vec3(0.0f, -4.0f, 0.0f));
 
-    // To the Y axis : the height does not matter, the gravity is horizontal. Negative : away from it (a rotating station)
+    // To the Y axis: height is ignored, gravity is horizontal. Negative pushes away (rotating station).
     GravityFieldData toAxis = toCenter;
     toAxis.volumeDirection = GravityVolumeDirection::ToAxis;
     ASSERT_TRUE(EvaluateGravityField(toAxis, glm::dvec3(5.0, 7.0, 0.0), a, coverage));
@@ -322,25 +308,22 @@ TEST(GravityFields, VolumeDirections)
     ASSERT_TRUE(EvaluateGravityField(toAxis, glm::dvec3(0.0, 7.0, 5.0), a, coverage));
     ExpectVec3Near(a, glm::vec3(0.0f, 0.0f, 4.0f));
 
-    // On the axis itself there is no direction
     ASSERT_TRUE(EvaluateGravityField(toAxis, glm::dvec3(0.0, 3.0, 0.0), a, coverage));
     ExpectVec3Near(a, glm::vec3(0.0f));
 }
 
-// ---------------------------------------------------------------- combining
-
-TEST(GravitySampling, NoFieldIsTheWorldGravity)
+TEST(GravitySampling, NoFieldIsWorldGravity)
 {
     ExpectVec3Near(SampleGravityFields({}, glm::dvec3(1.0, 2.0, 3.0), kEarth), kEarth);
 }
 
-TEST(GravitySampling, AFieldThatDoesNotReachLeavesTheWorldGravity)
+TEST(GravitySampling, OutOfReachKeepsWorldGravity)
 {
     const auto fields = Sorted({ Point(glm::dvec3(100.0), 5.0f, 10.0f, GravityFalloff::Constant) });
     EXPECT_EQ(SampleGravityFields(fields, glm::dvec3(0.0), kEarth), kEarth);
 }
 
-TEST(GravitySampling, AnOverridingFieldReplacesTheWorldGravity)
+TEST(GravitySampling, OverridingFieldReplacesWorld)
 {
     const auto fields = Sorted({ Uniform(glm::vec3(1.0f, 0.0f, 0.0f), 3.0f) });
     ExpectVec3Near(SampleGravityFields(fields, glm::dvec3(0.0), kEarth), glm::vec3(3.0f, 0.0f, 0.0f));
@@ -352,49 +335,45 @@ TEST(GravitySampling, TheHighestPriorityWins)
     ExpectVec3Near(SampleGravityFields(fields, glm::dvec3(0.0), kEarth), glm::vec3(0.0f, 0.0f, 2.0f));
 }
 
-TEST(GravitySampling, ALowerFieldShowsThroughWhereTheHigherOneFades)
+TEST(GravitySampling, LowerFieldShowsThrough)
 {
-    // A world-wide field below, a volume above it fading in over 4 : half way in, an even mix of the two
     GravityFieldData volume = Volume(glm::dvec3(0.0), glm::vec3(10.0f), GravityVolumeShape::Box, glm::vec3(1.0f, 0.0f, 0.0f), 10.0f, 4.0f);
     volume.priority = 1;
     const auto fields = Sorted({ Uniform(glm::vec3(0.0f, -1.0f, 0.0f), 6.0f, 0), volume });
 
-    ExpectVec3Near(SampleGravityFields(fields, glm::dvec3(0.0), kEarth), glm::vec3(10.0f, 0.0f, 0.0f));                          // deep inside
-    ExpectVec3Near(SampleGravityFields(fields, glm::dvec3(8.0, 0.0, 0.0), kEarth), glm::vec3(5.0f, -3.0f, 0.0f));                // half faded
-    ExpectVec3Near(SampleGravityFields(fields, glm::dvec3(50.0, 0.0, 0.0), kEarth), glm::vec3(0.0f, -6.0f, 0.0f));               // outside
+    ExpectVec3Near(SampleGravityFields(fields, glm::dvec3(0.0), kEarth), glm::vec3(10.0f, 0.0f, 0.0f));
+    ExpectVec3Near(SampleGravityFields(fields, glm::dvec3(8.0, 0.0, 0.0), kEarth), glm::vec3(5.0f, -3.0f, 0.0f));
+    ExpectVec3Near(SampleGravityFields(fields, glm::dvec3(50.0, 0.0, 0.0), kEarth), glm::vec3(0.0f, -6.0f, 0.0f));
 
-    // With nothing below, it fades into the world's gravity
     const auto alone = Sorted({ volume });
     ExpectVec3Near(SampleGravityFields(alone, glm::dvec3(8.0, 0.0, 0.0), kEarth), glm::vec3(5.0f, -4.905f, 0.0f));
 }
 
-TEST(GravitySampling, FieldsOfTheSamePriorityBlend)
+TEST(GravitySampling, SamePriorityBlends)
 {
     const auto fields = Sorted({ Uniform(glm::vec3(1.0f, 0.0f, 0.0f), 4.0f), Uniform(glm::vec3(0.0f, 1.0f, 0.0f), 4.0f) });
     ExpectVec3Near(SampleGravityFields(fields, glm::dvec3(0.0), kEarth), glm::vec3(2.0f, 2.0f, 0.0f));
 }
 
-TEST(GravitySampling, AdditiveFieldsAreSummedOnTop)
+TEST(GravitySampling, AdditiveFieldsSum)
 {
     GravityFieldData moon = Uniform(glm::vec3(1.0f, 0.0f, 0.0f), 2.0f, -50);
     moon.blend = GravityBlend::Additive;
 
-    // Whatever its priority, and over any override
     const auto fields = Sorted({ Uniform(glm::vec3(0.0f, -1.0f, 0.0f), 5.0f, 10), moon });
     ExpectVec3Near(SampleGravityFields(fields, glm::dvec3(0.0), kEarth), glm::vec3(2.0f, -5.0f, 0.0f));
 
-    // Alone it adds to the world's gravity
     ExpectVec3Near(SampleGravityFields(Sorted({ moon }), glm::dvec3(0.0), kEarth), glm::vec3(2.0f, -9.81f, 0.0f));
 }
 
-TEST(GravitySampling, TheResultDoesNotDependOnTheOrderTheFieldsWereGivenIn)
+TEST(GravitySampling, ResultIgnoresFieldOrder)
 {
     std::vector<GravityFieldData> a = { Uniform(glm::vec3(1.0f, 0.0f, 0.0f), 4.0f), Point(glm::dvec3(0.0), 3.0f, 100.0f, GravityFalloff::Constant) };
     std::vector<GravityFieldData> b = { a[1], a[0] };
 
     for (auto* list : { &a, &b })
         for (size_t i = 0; i < list->size(); ++i)
-            (*list)[i].order = (uint32_t)((*list)[i].kind == GravityFieldKind::Uniform ? 0 : 1);   // the order is a property of the field, not of the list
+            (*list)[i].order = (uint32_t)((*list)[i].kind == GravityFieldKind::Uniform ? 0 : 1);
     SortGravityFields(a);
     SortGravityFields(b);
 
@@ -402,7 +381,7 @@ TEST(GravitySampling, TheResultDoesNotDependOnTheOrderTheFieldsWereGivenIn)
     EXPECT_EQ(SampleGravityFields(a, p, kEarth), SampleGravityFields(b, p, kEarth));
 }
 
-TEST(GravitySampling, BodiesTakeTheirGravityFromTheirMode)
+TEST(GravitySampling, BodiesUseTheirMode)
 {
     const auto fields = Sorted({ Uniform(glm::vec3(1.0f, 0.0f, 0.0f), 3.0f) });
     const glm::dvec3 p(0.0);
@@ -417,8 +396,6 @@ TEST(GravitySampling, BodiesTakeTheirGravityFromTheirMode)
     body.mode = GravityMode::Custom;
     ExpectVec3Near(ResolveBodyGravity(fields, body, p, kEarth), glm::vec3(0.0f, 7.0f, 0.0f));
 }
-
-// ---------------------------------------------------------------- in the simulation
 
 namespace {
 
@@ -458,29 +435,28 @@ namespace {
     };
 }
 
-TEST_F(GravitySimulation, WithoutFieldsTheWorldGravityIsUntouched)
+TEST_F(GravitySimulation, NoFieldsKeepsWorldGravity)
 {
     const JPH::BodyID ball = AddBall(JPH::RVec3(0, 0, 0));
     Run(60);
 
-    // 1/2 g t^2, plus half a step of velocity for the integrator
+    // 1/2 g t^2 plus half a step of velocity for the integrator.
     EXPECT_NEAR(Where(ball).y, -(0.5 * 9.81 + 0.5 * 9.81 * kStep), 0.02);
     EXPECT_NEAR(Where(ball).x, 0.0, 1e-9);
 }
 
-TEST_F(GravitySimulation, AUniformFieldRedirectsTheFall)
+TEST_F(GravitySimulation, UniformFieldRedirectsFall)
 {
     const JPH::BodyID ball = AddBall(JPH::RVec3(0, 0, 0));
     physics.SetGravityFields({ Uniform(glm::vec3(1.0f, 0.0f, 0.0f), 5.0f) });
     Run(60);
 
-    // The world's pull down is gone, replaced by 5 along X
     EXPECT_NEAR(Where(ball).x, 0.5 * 5.0 + 0.5 * 5.0 * kStep, 0.02);
     EXPECT_NEAR(Where(ball).y, 0.0, 1e-3);
     EXPECT_NEAR(Where(ball).z, 0.0, 1e-9);
 }
 
-TEST_F(GravitySimulation, AFieldMakesTheSameGravityForAnyMassOfBody)
+TEST_F(GravitySimulation, FieldIndependentOfMass)
 {
     const JPH::BodyID light = AddBall(JPH::RVec3(0, 0, 0));
     JPH::BodyCreationSettings settings(new JPH::SphereShape(0.5f), JPH::RVec3(0, 10, 0), JPH::Quat::sIdentity(), JPH::EMotionType::Dynamic, Layers::MOVING);
@@ -496,7 +472,7 @@ TEST_F(GravitySimulation, AFieldMakesTheSameGravityForAnyMassOfBody)
     EXPECT_NEAR(Where(heavy).y, 10.0, 1e-2);
 }
 
-TEST_F(GravitySimulation, TheGravityFactorScalesTheGravityOfTheFields)
+TEST_F(GravitySimulation, FactorScalesFieldGravity)
 {
     const JPH::BodyID normal = AddBall(JPH::RVec3(0, 0, 0), 1.0f);
     const JPH::BodyID twice = AddBall(JPH::RVec3(0, 20, 0), 2.0f);
@@ -514,7 +490,7 @@ TEST_F(GravitySimulation, TheGravityFactorScalesTheGravityOfTheFields)
     EXPECT_NEAR(Where(none).y, 40.0, 1e-3);
 }
 
-TEST_F(GravitySimulation, ARadialFieldPullsToItsCenterFromAnySide)
+TEST_F(GravitySimulation, RadialPullsFromAnySide)
 {
     const JPH::BodyID right = AddBall(JPH::RVec3(30, 0, 0));
     const JPH::BodyID above = AddBall(JPH::RVec3(0, 30, 0));
@@ -531,12 +507,12 @@ TEST_F(GravitySimulation, ARadialFieldPullsToItsCenterFromAnySide)
     EXPECT_NEAR(Where(behind).y, 0.0, 1e-3);
 }
 
-TEST_F(GravitySimulation, ABodyOnTheFarSideOfAPlanetStandsOnIt)
+TEST_F(GravitySimulation, FarSideBodyStandsOnPlanet)
 {
 #ifndef JPH_DOUBLE_PRECISION
     GTEST_SKIP() << "Jolt was built in single precision (SHARD_DOUBLE_PRECISION_PHYSICS=OFF)";
 #endif
-    // A planet of radius 10 centered 1e9 m from the origin, a floor on its +X side, a ball above : the ball lands, pulled along -X
+    // Planet of radius 10 centered 1e9 m from the origin, floor on its +X side, ball above. The ball must land pulled along -X.
     const double far = 1.0e9;
     JPH::BodyCreationSettings floor(new JPH::BoxShape(JPH::Vec3(0.5f, 20.0f, 20.0f)), JPH::RVec3(far + 10.5, 0, 0), JPH::Quat::sIdentity(), JPH::EMotionType::Static, Layers::NON_MOVING);
     physics.CreateBody(floor, nullptr);
@@ -545,24 +521,22 @@ TEST_F(GravitySimulation, ABodyOnTheFarSideOfAPlanetStandsOnIt)
     physics.SetGravityFields({ Radial(glm::dvec3(far, 0.0, 0.0), 9.81f, 10.0f, 0.0f, GravityFalloff::InverseSquare) });
     Run(240);
 
-    // Resting on the floor's face (at far + 11), not drifted sideways
     EXPECT_NEAR(Where(ball).x - far, 11.5, 0.05);
     EXPECT_NEAR(Where(ball).y, 0.0, 0.05);
 }
 
-TEST_F(GravitySimulation, ABodyCanHaveAGravityOfItsOwn)
+TEST_F(GravitySimulation, BodyOwnGravity)
 {
     const JPH::BodyID custom = AddBall(JPH::RVec3(0, 0, 0));
     const JPH::BodyID normal = AddBall(JPH::RVec3(20, 0, 0));
     physics.SetBodyGravity(custom, GravityMode::Custom, glm::vec3(0.0f, 4.0f, 0.0f));
     Run(60);
 
-    // No field and no force on the other : the custom gravity works without any field in the world
     EXPECT_NEAR(Where(custom).y, 0.5 * 4.0 + 0.5 * 4.0 * kStep, 0.02);
     EXPECT_NEAR(Where(normal).y, -(0.5 * 9.81 + 0.5 * 9.81 * kStep), 0.02);
 }
 
-TEST_F(GravitySimulation, TheWorldModeIgnoresTheFields)
+TEST_F(GravitySimulation, WorldModeIgnoresFields)
 {
     const JPH::BodyID world = AddBall(JPH::RVec3(0, 0, 0));
     const JPH::BodyID fields = AddBall(JPH::RVec3(20, 0, 0));
@@ -575,7 +549,7 @@ TEST_F(GravitySimulation, TheWorldModeIgnoresTheFields)
     EXPECT_GT(Where(fields).x - 20.0, 2.0);
 }
 
-TEST_F(GravitySimulation, CustomGravityFollowsTheGravityFactorToo)
+TEST_F(GravitySimulation, CustomGravityFollowsFactor)
 {
     const JPH::BodyID ball = AddBall(JPH::RVec3(0, 0, 0), 0.5f);
     physics.SetBodyGravity(ball, GravityMode::Custom, glm::vec3(0.0f, 0.0f, 8.0f));
@@ -585,7 +559,7 @@ TEST_F(GravitySimulation, CustomGravityFollowsTheGravityFactorToo)
     EXPECT_NEAR(Where(ball).y, 0.0, 1e-3);
 }
 
-TEST_F(GravitySimulation, ReturningToTheFieldsModeGivesTheFieldGravityBack)
+TEST_F(GravitySimulation, FieldsModeRestoresGravity)
 {
     const JPH::BodyID ball = AddBall(JPH::RVec3(0, 0, 0));
     physics.SetBodyGravity(ball, GravityMode::Custom, glm::vec3(0.0f, 4.0f, 0.0f));
@@ -597,7 +571,7 @@ TEST_F(GravitySimulation, ReturningToTheFieldsModeGivesTheFieldGravityBack)
     EXPECT_NEAR(Where(ball).y, 0.0, 1e-3);
 }
 
-TEST_F(GravitySimulation, AQueryAnswersLikeTheSimulation)
+TEST_F(GravitySimulation, QueryMatchesSimulation)
 {
     physics.SetGravityFields(Sorted({ Point(glm::dvec3(0.0), 6.0f, 50.0f, GravityFalloff::Constant) }));
 
@@ -610,7 +584,7 @@ TEST_F(GravitySimulation, AQueryAnswersLikeTheSimulation)
     ExpectVec3Near(physics.GetBodyGravity(ball), glm::vec3(1.0f, 2.0f, 3.0f));
 }
 
-TEST_F(GravitySimulation, SettingTheSameFieldsAgainChangesNothing)
+TEST_F(GravitySimulation, SameFieldsIsNoop)
 {
     const JPH::BodyID ball = AddBall(JPH::RVec3(0, 0, 0));
     const auto fields = Sorted({ Uniform(glm::vec3(1.0f, 0.0f, 0.0f), 5.0f) });
@@ -622,8 +596,8 @@ TEST_F(GravitySimulation, SettingTheSameFieldsAgainChangesNothing)
     EXPECT_NEAR(Where(ball).x, 0.5 * 5.0 + 0.5 * 5.0 * kStep, 0.02);
 }
 
-// Its own managers (one at a time : Jolt keeps its type factory in a global), so not on the fixture
-TEST(GravityDeterminism, TheSameFieldsGiveTheSameSimulation)
+// Own managers, one at a time: Jolt keeps its type factory in a global.
+TEST(GravityDeterminism, SameFieldsSameSimulation)
 {
     auto simulate = []() {
         PhysicsManager physics;
@@ -647,7 +621,7 @@ TEST(GravityDeterminism, TheSameFieldsGiveTheSameSimulation)
     EXPECT_EQ(simulate(), simulate());
 }
 
-TEST_F(GravitySimulation, ASleepingBodyIsWokenWhenTheFieldsChangeItsGravity)
+TEST_F(GravitySimulation, SleepingBodyWakesOnChange)
 {
     JPH::BodyCreationSettings floor(new JPH::BoxShape(JPH::Vec3(50.0f, 0.5f, 50.0f)), JPH::RVec3(0, -0.5, 0), JPH::Quat::sIdentity(), JPH::EMotionType::Static, Layers::NON_MOVING);
     physics.CreateBody(floor, nullptr);
@@ -656,12 +630,10 @@ TEST_F(GravitySimulation, ASleepingBodyIsWokenWhenTheFieldsChangeItsGravity)
     Run(240);
     ASSERT_FALSE(physics.GetBodyInterface().IsActive(ball)) << "the ball should be asleep on the floor";
 
-    // A field that does not reach it leaves it asleep
     physics.SetGravityFields(Sorted({ Point(glm::dvec3(500.0, 0.0, 0.0), 5.0f, 10.0f, GravityFalloff::Constant) }));
     Run(2);
     EXPECT_FALSE(physics.GetBodyInterface().IsActive(ball));
 
-    // One that does wakes it up
     physics.SetGravityFields(Sorted({ Uniform(glm::vec3(1.0f, 0.0f, 0.0f), 10.0f) }));
     Run(2);
     EXPECT_TRUE(physics.GetBodyInterface().IsActive(ball));
@@ -669,7 +641,7 @@ TEST_F(GravitySimulation, ASleepingBodyIsWokenWhenTheFieldsChangeItsGravity)
     EXPECT_GT(Where(ball).x, 0.5);
 }
 
-TEST_F(GravitySimulation, ASleepingBodyIsWokenWhenTheFieldsGoAway)
+TEST_F(GravitySimulation, SleepingBodyWakesOnRemoval)
 {
     JPH::BodyCreationSettings wall(new JPH::BoxShape(JPH::Vec3(0.5f, 50.0f, 50.0f)), JPH::RVec3(-0.5, 0, 0), JPH::Quat::sIdentity(), JPH::EMotionType::Static, Layers::NON_MOVING);
     physics.CreateBody(wall, nullptr);
@@ -677,12 +649,10 @@ TEST_F(GravitySimulation, ASleepingBodyIsWokenWhenTheFieldsGoAway)
     physics.CreateBody(floor, nullptr);
     const JPH::BodyID ball = AddBall(JPH::RVec3(0.6, 0, 0));
 
-    // Pressed against the wall by a sideways gravity, until it sleeps
     physics.SetGravityFields(Sorted({ Uniform(glm::vec3(-1.0f, 0.0f, 0.0f), 9.81f) }));
     Run(240);
     ASSERT_FALSE(physics.GetBodyInterface().IsActive(ball));
 
-    // The field is gone : the world's gravity takes it off the wall
     physics.SetGravityFields({});
     Run(2);
     EXPECT_TRUE(physics.GetBodyInterface().IsActive(ball));
@@ -690,7 +660,7 @@ TEST_F(GravitySimulation, ASleepingBodyIsWokenWhenTheFieldsGoAway)
     EXPECT_LT(Where(ball).y, -0.5);
 }
 
-TEST_F(GravitySimulation, AKinematicBodyIsLeftAlone)
+TEST_F(GravitySimulation, KinematicBodyUnaffected)
 {
     JPH::BodyCreationSettings settings(new JPH::SphereShape(0.5f), JPH::RVec3(0, 0, 0), JPH::Quat::sIdentity(), JPH::EMotionType::Kinematic, Layers::MOVING);
     const JPH::BodyID platform = physics.CreateBody(settings, nullptr);
@@ -700,8 +670,6 @@ TEST_F(GravitySimulation, AKinematicBodyIsLeftAlone)
 
     EXPECT_EQ(Where(platform), glm::dvec3(0.0));
 }
-
-// ---------------------------------------------------------------- the components
 
 namespace {
 
@@ -740,7 +708,7 @@ namespace {
     };
 }
 
-TEST_F(GravityComponents, AFieldReadsTheTransformOfItsActor)
+TEST_F(GravityComponents, FieldReadsActorTransform)
 {
     auto actor = MakeActor("Planet", glm::vec3(100.0f, 50.0f, -20.0f));
     auto field = actor->AddComponent<RadialGravityField>();
@@ -753,7 +721,6 @@ TEST_F(GravityComponents, AFieldReadsTheTransformOfItsActor)
     EXPECT_EQ(data.position, glm::dvec3(100.0, 50.0, -20.0));
     EXPECT_FLOAT_EQ(data.radius, 30.0f);
 
-    // And the actor moves, the field follows
     actor->transform->SetPosition(glm::vec3(0.0f, 0.0f, 0.0f));
     glm::vec3 a;
     float coverage;
@@ -761,7 +728,7 @@ TEST_F(GravityComponents, AFieldReadsTheTransformOfItsActor)
     ExpectVec3Near(a, glm::vec3(-12.0f, 0.0f, 0.0f));
 }
 
-TEST_F(GravityComponents, TurningTheActorTurnsAUniformField)
+TEST_F(GravityComponents, ActorRotationTurnsUniform)
 {
     auto actor = MakeActor("Level");
     auto field = actor->AddComponent<UniformGravityField>();
@@ -774,7 +741,7 @@ TEST_F(GravityComponents, TurningTheActorTurnsAUniformField)
     ExpectVec3Near(a, glm::vec3(10.0f, 0.0f, 0.0f), 1e-4f);
 }
 
-TEST_F(GravityComponents, AVolumeFollowsTheScaleOfItsActor)
+TEST_F(GravityComponents, VolumeFollowsActorScale)
 {
     auto actor = MakeActor("Zone");
     auto volume = actor->AddComponent<GravityVolume>();
@@ -805,7 +772,7 @@ TEST_F(GravityComponents, TheWorldKnowsItsFields)
     EXPECT_EQ(data.bodies.size(), 1u);
 }
 
-TEST_F(GravityComponents, EveryFieldSavesAndLoadsAgain)
+TEST_F(GravityComponents, FieldsSaveAndLoad)
 {
     auto actor = MakeActor("Saved");
     auto other = MakeActor("Loaded");
@@ -867,7 +834,7 @@ TEST_F(GravityComponents, EveryFieldSavesAndLoadsAgain)
     EXPECT_FLOAT_EQ(loadedVolume->strength, -8.0f);
 }
 
-TEST_F(GravityComponents, AFieldFromAFileThatDoesNotSayEverythingKeepsItsDefaults)
+TEST_F(GravityComponents, PartialFileKeepsDefaults)
 {
     auto actor = MakeActor("Sparse");
     auto field = actor->AddComponent<PointGravityField>();
@@ -879,7 +846,7 @@ TEST_F(GravityComponents, AFieldFromAFileThatDoesNotSayEverythingKeepsItsDefault
     EXPECT_TRUE(field->Active());
 }
 
-TEST_F(GravityComponents, CloningCopiesTheFieldAndNothingElse)
+TEST_F(GravityComponents, CloneCopiesFieldOnly)
 {
     auto actor = MakeActor("Original");
     auto volume = actor->AddComponent<GravityVolume>();
@@ -893,20 +860,18 @@ TEST_F(GravityComponents, CloningCopiesTheFieldAndNothingElse)
     EXPECT_EQ(copy->priority, 3);
 }
 
-TEST_F(GravityComponents, ABodyWithItsOwnGravityFallsWithIt)
+TEST_F(GravityComponents, OwnGravityBodyFalls)
 {
     auto actor = MakeActor("Ball");
     auto body = actor->AddComponent<PhysicsBody>();
     body->CreateBody(JPH::EMotionType::Dynamic);
 
-    // The default : the world's gravity
     ExpectVec3Near(body->GetGravity(), kEarth);
 
     body->SetCustomGravity(glm::vec3(0.0f, 0.0f, 3.0f));
     EXPECT_EQ(body->GetGravityMode(), GravityMode::Custom);
     ExpectVec3Near(body->GetGravity(), glm::vec3(0.0f, 0.0f, 3.0f));
 
-    // The gravity factor is part of what the body falls with
     body->SetGravityFactor(2.0f);
     ExpectVec3Near(body->GetGravity(), glm::vec3(0.0f, 0.0f, 6.0f));
 
@@ -915,7 +880,7 @@ TEST_F(GravityComponents, ABodyWithItsOwnGravityFallsWithIt)
     EXPECT_GT(body->GetPositionD().z, 2.0);
 }
 
-TEST_F(GravityComponents, ABodyReportsTheGravityOfTheFieldItIsIn)
+TEST_F(GravityComponents, BodyReportsFieldGravity)
 {
     auto actor = MakeActor("Ball", glm::vec3(10.0f, 0.0f, 0.0f));
     auto body = actor->AddComponent<PhysicsBody>();
@@ -928,7 +893,7 @@ TEST_F(GravityComponents, ABodyReportsTheGravityOfTheFieldItIsIn)
     ExpectVec3Near(body->GetGravity(), kEarth);
 }
 
-TEST_F(GravityComponents, TheGravityOfABodyIsSavedAndLoaded)
+TEST_F(GravityComponents, BodyGravitySavedAndLoaded)
 {
     auto actor = MakeActor("Saved");
     auto body = actor->AddComponent<PhysicsBody>();
@@ -946,7 +911,7 @@ TEST_F(GravityComponents, TheGravityOfABodyIsSavedAndLoaded)
     ExpectVec3Near(loaded->GetGravity(), glm::vec3(1.0f, 2.0f, 3.0f));
 }
 
-TEST_F(GravityComponents, ABodyFromAnOldFileFollowsTheFields)
+TEST_F(GravityComponents, OldFileBodyFollowsFields)
 {
     auto actor = MakeActor("Old");
     auto body = actor->AddComponent<PhysicsBody>();
@@ -956,7 +921,7 @@ TEST_F(GravityComponents, ABodyFromAnOldFileFollowsTheFields)
     EXPECT_EQ(body->GetGravityMode(), GravityMode::Fields);
 }
 
-TEST_F(GravityComponents, ADestroyedBodyForgetsItsGravity)
+TEST_F(GravityComponents, DestroyedBodyForgetsGravity)
 {
     auto actor = MakeActor("Gone");
     auto body = actor->AddComponent<PhysicsBody>();
@@ -964,18 +929,15 @@ TEST_F(GravityComponents, ADestroyedBodyForgetsItsGravity)
     body->SetCustomGravity(glm::vec3(0.0f, 1.0f, 0.0f));
     body->RemoveBody();
 
-    // Stepping with the body gone and a field in the world touches nothing it should not
     physics.SetGravityFields({ Uniform(glm::vec3(1.0f, 0.0f, 0.0f), 5.0f) });
     physics.StepSimulation(kStep, false);
     SUCCEED();
 }
 
-TEST_F(GravityComponents, EveryFieldIsFoundAgainByTheTypeItSaves)
+TEST_F(GravityComponents, FieldsFoundByTypeName)
 {
-    // What loading a world, undoing the removal of a component or cloning an actor goes through : the type a component saved is the one
-    // the registry builds it from
     RegisterPhysicsModule();
-    auto& data = world->Ext<PhysicsWorldData>();      // an extension only hears of the components added after it exists
+    auto& data = world->Ext<PhysicsWorldData>();      // an extension only hears of components added after it exists
 
     auto source = MakeActor("Source");
     auto target = MakeActor("Target");

@@ -8,7 +8,6 @@
 
 namespace Shard::Engine::Core::Platform {
 
-    /// @brief Loads shared libraries (the game's module) and finds their symbols
     class ModuleLoader {
     public:
         static ModuleLoader& GetInstance() {

@@ -10,16 +10,12 @@
 
 namespace Shard::Engine::Rendering {
 
-    /// What a draw asks of a pipeline besides its own specifications : the way the API is told to draw it right now
     struct PipelineVariant
     {
-        bool depthOnly = false;         ///< the depth sweep : nothing is written to the colour attachment
-        bool wireframe = false;         ///< every triangle is drawn as lines (the editor's debug views)
+        bool depthOnly = false;
+        bool wireframe = false;
     };
 
-    /// @brief A pipeline of the rhi : the specifications the renderer gives it (a shader, what the blending does...), made into the Vulkan pipelines
-    /// that draw them for each kind of render target and of vertices they meet. The state that can change per draw (culling, the depth test) is
-    /// dynamic, the rest is part of the pipeline, which is created the first time it is drawn with and kept.
     class VKPipeline final : public Pipeline
     {
         public:
@@ -30,7 +26,6 @@ namespace Shard::Engine::Rendering {
             void Invalidate() override;
             void Bind() override {}
 
-            /// The pipeline to draw with. Null if the shader is not usable.
             VkPipeline Get(const VK::RenderTarget& target, const VertexLayout& vertices, const PipelineVariant& variant);
 
             VKShader* GetShader() const;

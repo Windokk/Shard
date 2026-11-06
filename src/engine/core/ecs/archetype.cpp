@@ -8,9 +8,8 @@
 namespace Shard::Engine::Core::Ecs {
 
     namespace {
-        constexpr size_t kChunkAlignment = 64;      // a cache line : columns start aligned, chunks never share a line
+        constexpr size_t kChunkAlignment = 64;      // cache line
 
-        /// Bytes needed by a chunk of `capacity` rows : the entity column, then each column aligned to its type
         size_t LayoutSize(const ComponentSet& signature, size_t capacity, std::vector<size_t>* offsets) {
             size_t cursor = capacity * sizeof(Entity);
             ComponentRegistry& registry = ComponentRegistry::Global();
@@ -27,11 +26,11 @@ namespace Shard::Engine::Core::Ecs {
     Archetype::Archetype(ComponentSet signature) : m_Signature(std::move(signature)) {
         Normalize(m_Signature);
 
-        // Largest capacity whose columns fit in a chunk. At least one row, even if a single entity is bigger than a chunk.
+        // At least one row, even if a single entity exceeds a chunk
         size_t capacity = 1;
         {
             size_t lo = 1, hi = kChunkBytes / sizeof(Entity);
-            while (lo < hi) {                                               // binary search : LayoutSize grows with capacity
+            while (lo < hi) {
                 const size_t mid = (lo + hi + 1) / 2;
                 if (LayoutSize(m_Signature, mid, nullptr) <= kChunkBytes) lo = mid; else hi = mid - 1;
             }
@@ -97,7 +96,7 @@ namespace Shard::Engine::Core::Ecs {
         Chunk& lastChunk = m_Chunks.back();
         --lastChunk.count;
         --m_Count;
-        if (lastChunk.count == 0) {                                          // the tail chunk emptied : give its memory back
+        if (lastChunk.count == 0) {
             AlignedFree(lastChunk.data, kChunkAlignment);
             m_Chunks.pop_back();
         }

@@ -20,8 +20,7 @@
 #include "engine/world/engine.hpp"
 #include "engine/world/world.hpp"
 
-// shard.actors : the actors of a world seen through handles. A handle is a slot of a table of weak pointers and a generation, so that an
-// actor that was destroyed (or whose id was given to another one) fails with SHARD_E_STALE_HANDLE instead of designating something else.
+// Handles are table slot + generation, so a destroyed actor (or reused id) gives SHARD_E_STALE_HANDLE.
 
 namespace Shard::Engine::Plugins::CAbi {
 
@@ -40,8 +39,7 @@ namespace Shard::Engine::Plugins::CAbi {
 
         ShardActor Pack(const Slot& slot, uint32_t index) { return (ShardActor(slot.generation) << 32) | ShardActor(index + 1); }
 
-        // gMutex held : the slot becomes free (its old handles stale). The address it held may be another actor's by now : its entry in
-        // gByActor is only taken out while it still names this slot
+        // gMutex held. The address may belong to another actor now: erase its gByActor entry only if it still names this slot.
         void Release(uint32_t index)
         {
             Slot& slot = gSlots[index];
@@ -52,7 +50,6 @@ namespace Shard::Engine::Plugins::CAbi {
             gFree.push_back(index);
         }
 
-        // gMutex held : slots whose actor is gone become free
         void Sweep()
         {
             for (uint32_t i = 0; i < gSlots.size(); ++i) {
@@ -62,7 +59,6 @@ namespace Shard::Engine::Plugins::CAbi {
             }
         }
 
-        // The actor still stands in its world: Destroy takes its id out of the object manager
         bool Alive(const std::shared_ptr<Objects::Actor>& actor)
         {
             Core::IEngineContext* engine = actor->GetEngineContext();
@@ -99,7 +95,6 @@ namespace Shard::Engine::Plugins::CAbi {
 
         glm::quat QuatOf(const ShardLocalTransform& p) { return glm::normalize(glm::quat(p.rotation[3], p.rotation[0], p.rotation[1], p.rotation[2])); }
 
-        // The first component of the actor whose serialized "type" is that
         std::shared_ptr<Objects::Components::Component> FindComponent(const std::shared_ptr<Objects::Actor>& actor, const std::string& type)
         {
             for (const auto& component : actor->GetComponents()) {
@@ -116,8 +111,6 @@ namespace Shard::Engine::Plugins::CAbi {
             out = json::parse(s, nullptr, false);
             return !out.is_discarded() && out.is_object();
         }
-
-        // ---- The fields of a component, one at a time ----
 
         std::vector<std::string> SplitPath(const std::string& path)
         {
@@ -137,7 +130,6 @@ namespace Shard::Engine::Plugins::CAbi {
             return true;
         }
 
-        // What fills the gap when an array grows past its end : the zero of the kind of value that is written
         json Filler(const json& value)
         {
             if (value.is_number()) return 0;
@@ -146,7 +138,6 @@ namespace Shard::Engine::Plugins::CAbi {
             return nullptr;
         }
 
-        // Sets (value) or removes (no value) the node that tokens[at..] designates in `node`
         ShardResult EditNode(json& node, const std::vector<std::string>& tokens, size_t at, const json* value)
         {
             const std::string& token = tokens[at];
@@ -204,7 +195,6 @@ namespace Shard::Engine::Plugins::CAbi {
             return false;
         }
 
-        // Sets (value) or removes (no value) what `path` designates in the component
         ShardResult EditField(ShardActor actor, ShardStr type, ShardStr path, const json* value)
         {
             std::shared_ptr<Objects::Actor> a;
@@ -227,7 +217,6 @@ namespace Shard::Engine::Plugins::CAbi {
             if (!saved.is_object() || !saved.contains(head)) return SHARD_E_NOT_FOUND;
 
             if (IsReflectedField(*component, head)) {
-                // The field alone, through the component's change hook : what the inspector does when it edits it
                 json field = saved[head];
                 if (tokens.size() == 1) {
                     if (!value) return SHARD_E_INVALID_ARG;
@@ -239,14 +228,11 @@ namespace Shard::Engine::Plugins::CAbi {
                 return component->ApplyField(head, field) ? SHARD_OK : SHARD_E_INVALID_ARG;
             }
 
-            // What the reflection does not describe (the shapes of a body...) : the component reads it all again
             const ShardResult edited = EditNode(saved, tokens, 0, value);
             if (edited != SHARD_OK) return edited;
             component->Deserialize(saved);
             return SHARD_OK;
         }
-
-        // ---- shard.actors ----
 
         int32_t SHARD_CALL IsValid(ShardActor actor)
         {
@@ -431,7 +417,7 @@ namespace Shard::Engine::Plugins::CAbi {
                 const ShardResult r = Resolve(actor, a);
                 if (r != SHARD_OK) return r;
                 const Core::Tag t = Core::Tag::Request(ToString(tag));
-                if (!t.IsValid()) return SHARD_E_NOT_FOUND;         // nobody declared it
+                if (!t.IsValid()) return SHARD_E_NOT_FOUND;
                 a->GetTags().Add(t);
                 return SHARD_OK;
             } catch (...) { return SHARD_E_INTERNAL; }
@@ -459,7 +445,6 @@ namespace Shard::Engine::Plugins::CAbi {
             } catch (...) { return SHARD_FALSE; }
         }
 
-        // The world the anchor is in
         ShardResult WorldOf(ShardActor anchor, std::shared_ptr<Objects::Actor>& a, Worlds::World*& world)
         {
             const ShardResult r = Resolve(anchor, a);
@@ -514,7 +499,6 @@ namespace Shard::Engine::Plugins::CAbi {
             } catch (...) { return SHARD_E_INTERNAL; }
         }
 
-        // Depth first, the roots and the children in the order of their ids
         std::shared_ptr<Objects::Actor> SearchByName(const std::shared_ptr<Objects::Actor>& actor, const std::string& name, Core::ObjectIDManager* objects)
         {
             if (actor->GetName() == name) return actor;
@@ -627,7 +611,6 @@ namespace Shard::Engine::Plugins::CAbi {
                 if (!ParseObject(fieldsJson, fields)) return SHARD_E_INVALID_ARG;
                 auto component = FindComponent(a, ToString(type));
                 if (!component) return SHARD_E_NOT_FOUND;
-                // The fields given over what the component holds: the others keep their value
                 json merged = json::parse(component->Serialize().dump());
                 for (auto it = fields.begin(); it != fields.end(); ++it) merged[it.key()] = it.value();
                 component->Deserialize(merged);
@@ -677,7 +660,6 @@ namespace Shard::Engine::Plugins::CAbi {
         if (it != gByActor.end()) {
             Slot& slot = gSlots[it->second];
             if (slot.used && slot.actor.lock() == actor) return Pack(slot, it->second);
-            // The address belongs to another actor now : the dead one's slot is freed right away instead of at the next Sweep
             if (slot.used) Release(it->second);
             else gByActor.erase(it);
         }
@@ -732,7 +714,6 @@ namespace Shard::Engine::Plugins::CAbi {
         for (size_t at; (at = path.find('/', from)) != std::string::npos; from = at + 1) parts.push_back(path.substr(from, at - from));
         parts.push_back(path.substr(from));
 
-        // The roots, then the children, each level in the order of the ids
         const auto rootMap = anchor->world->GetRootActors();
         std::vector<std::pair<Core::ObjectID, std::shared_ptr<Objects::Actor>>> level(rootMap.begin(), rootMap.end());
         std::sort(level.begin(), level.end(), [](const auto& x, const auto& y) { return x.first < y.first; });
@@ -753,8 +734,6 @@ namespace Shard::Engine::Plugins::CAbi {
     }
 
     namespace {
-        // ---- 1.2 : identity across machines, bounds, neighbours ----
-
         ShardResult SHARD_CALL GetStableId(ShardActor actor, uint64_t* out)
         {
             try {
@@ -808,7 +787,6 @@ namespace Shard::Engine::Plugins::CAbi {
             } catch (...) { return SHARD_E_INTERNAL; }
         }
 
-        // The active actors of the anchor world that stand where `inside` says, with the tag if one is asked for
         template <typename Inside>
         ShardResult Neighbours(ShardActor anchor, ShardStr tag, ShardActor* out, uint32_t capacity, uint32_t* count, Inside&& inside)
         {
@@ -822,7 +800,7 @@ namespace Shard::Engine::Plugins::CAbi {
             const std::string tagName = ToString(tag);
             if (!tagName.empty()) {
                 wanted = Core::Tag::Request(tagName);
-                if (!wanted.IsValid()) return SHARD_OK;         // nobody has a tag that does not exist
+                if (!wanted.IsValid()) return SHARD_OK;
             }
             Core::ObjectIDManager* objects = Engine()->GetObjectIDManager();
             std::vector<Core::ObjectID> ids = world->GetActorsID(true);
@@ -848,7 +826,7 @@ namespace Shard::Engine::Plugins::CAbi {
                 const glm::vec3 c(center[0], center[1], center[2]);
                 return Neighbours(anchor, tag, out, capacity, count, [&](const glm::vec3& p, float& key) {
                     const glm::vec3 d = p - c;
-                    key = glm::dot(d, d);       // nearest first
+                    key = glm::dot(d, d);
                     return key <= radius * radius;
                 });
             } catch (...) { return SHARD_E_INTERNAL; }
@@ -861,7 +839,7 @@ namespace Shard::Engine::Plugins::CAbi {
                 for (int i = 0; i < 3; ++i) if (!std::isfinite(boxMin[i]) || !std::isfinite(boxMax[i])) return SHARD_E_INVALID_ARG;
                 const glm::vec3 lo(boxMin[0], boxMin[1], boxMin[2]), hi(boxMax[0], boxMax[1], boxMax[2]);
                 return Neighbours(anchor, tag, out, capacity, count, [&](const glm::vec3& p, float& key) {
-                    key = 0.0f;                 // the order of the ids (the sort is stable)
+                    key = 0.0f;
                     return p.x >= lo.x && p.y >= lo.y && p.z >= lo.z && p.x <= hi.x && p.y <= hi.y && p.z <= hi.z;
                 });
             } catch (...) { return SHARD_E_INTERNAL; }

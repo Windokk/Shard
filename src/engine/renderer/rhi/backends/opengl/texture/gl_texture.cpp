@@ -68,7 +68,6 @@ namespace Shard::Engine::Rendering{
     }
 
     namespace {
-        // What the driver really keeps for an uncompressed texture : RGB is padded to four channels, and a mip chain adds a third
         size_t EstimateTextureBytes(const TextureSpecifications& specs)
         {
             size_t bytesPerTexel = 4;
@@ -94,7 +93,6 @@ namespace Shard::Engine::Rendering{
 
     GLTexture2D::GLTexture2D(const TextureSpecifications& specs, const CompressedImage& image, uint32_t firstMip)
     {
-        // Only the levels from `firstMip` on go to the GPU : the image is that many times smaller (never below one level)
         firstMip = std::min<uint32_t>(firstMip, uint32_t(image.mips.size()) - 1);
         const uint32_t baseWidth = std::max(1u, image.width >> firstMip);
         const uint32_t baseHeight = std::max(1u, image.height >> firstMip);
@@ -109,7 +107,6 @@ namespace Shard::Engine::Rendering{
             case BlockFormat::BC4: internalFormat = GL_COMPRESSED_RED_RGTC1; m_Specifications.internalFormat = TextureInternalFormat::RED; break;
             case BlockFormat::BC5: internalFormat = GL_COMPRESSED_RG_RGTC2;  m_Specifications.internalFormat = TextureInternalFormat::RG; break;
             case BlockFormat::BC7:
-                // The same blocks, read through the sRGB curve when the texture holds colours
                 internalFormat = specs.srgb ? GL_COMPRESSED_SRGB_ALPHA_BPTC_UNORM : GL_COMPRESSED_RGBA_BPTC_UNORM;
                 m_Specifications.internalFormat = TextureInternalFormat::RGBA;
                 break;
@@ -128,8 +125,7 @@ namespace Shard::Engine::Rendering{
         glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, glSpecs.magFilter);
         glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAX_LEVEL, levels - 1);
 
-        // Two channels (a normal map keeps only x and y, the shaders rebuild z) : the blue channel reads as 1 rather than 0, so
-        // such a texture shown as an image (the asset browser) looks like the bluish normal map it is, not red and green
+        // Normal x and y only (shaders rebuild z). Blue reads as 1 so previews look like a normal map.
         if (image.format == BlockFormat::BC5)
             glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_SWIZZLE_B, GL_ONE);
 
@@ -172,7 +168,6 @@ namespace Shard::Engine::Rendering{
         GLTextureSpec glSpecs = GLTextureSpec::FromTextureSpecifications(specs);
         m_GLInternalFormat = glSpecs.internalFormat;
 
-        // Set texture parameters
         glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, glSpecs.wrapModeS);
         glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, glSpecs.wrapModeT);
         glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, glSpecs.minFilter);
@@ -184,9 +179,7 @@ namespace Shard::Engine::Rendering{
             glTexParameterfv(GL_TEXTURE_2D, GL_TEXTURE_BORDER_COLOR, borderColor);
         }
 
-        // The pixels are tightly packed (a row is width * channels bytes, whatever the width) : without this GL reads
-        // each row from the next multiple of 4, so a texture whose rows aren't one (an RGB or single-channel image
-        // with a width that isn't a multiple of 4) comes out skewed, row after row.
+        // Rows are tightly packed. With the default alignment of 4, odd-width RGB or single-channel images come out skewed.
         glPixelStorei(GL_UNPACK_ALIGNMENT, 1);
 
         if (specs.immutableStorage)
@@ -305,7 +298,6 @@ namespace Shard::Engine::Rendering{
             return false;
 
         const GLTextureSpec glSpecs = GLTextureSpec::FromTextureSpecifications(m_Specifications);
-        // Rows `rowPitchBytes` apart : GL counts them in pixels
         GLint previousRowLength = 0, previousAlignment = 4;
         glGetIntegerv(GL_UNPACK_ROW_LENGTH, &previousRowLength);
         glGetIntegerv(GL_UNPACK_ALIGNMENT, &previousAlignment);
@@ -350,7 +342,6 @@ namespace Shard::Engine::Rendering{
     {
         GLTextureSpec glSpecs{};
 
-        // Filtering
         glSpecs.magFilter = (spec.magFilter == TextureFilter::Nearest) ? GL_NEAREST : GL_LINEAR;
 
         switch (spec.minFilter)
@@ -364,14 +355,13 @@ namespace Shard::Engine::Rendering{
             default:                                    glSpecs.minFilter = GL_LINEAR; break;
         }
 
-        // Wrapping
         auto WrapToGL = [](TextureWrap wrap)
         {
             switch (wrap)
             {
                 case TextureWrap::ClampEdge:   return GL_CLAMP_TO_EDGE;
                 case TextureWrap::ClampBorder: return GL_CLAMP_TO_BORDER;
-                case TextureWrap::Mirror:      return GL_MIRRORED_REPEAT; // fixed
+                case TextureWrap::Mirror:      return GL_MIRRORED_REPEAT;
                 case TextureWrap::Repeat:      return GL_REPEAT;
             }
             return GL_REPEAT;
@@ -381,10 +371,8 @@ namespace Shard::Engine::Rendering{
         glSpecs.wrapModeT = WrapToGL(spec.wrapT);
         glSpecs.wrapModeR = WrapToGL(spec.wrapR);
 
-        // Internal Format + Format + Type
         switch (spec.internalFormat)
         {
-            // R 
             case TextureInternalFormat::RED:
                 glSpecs.internalFormat = GL_R8;
                 glSpecs.format = GL_RED;
@@ -403,7 +391,6 @@ namespace Shard::Engine::Rendering{
                 glSpecs.type = GL_FLOAT;
                 break;
 
-            // RG
             case TextureInternalFormat::RG:
                 glSpecs.internalFormat = GL_RG8;
                 glSpecs.format = GL_RG;
@@ -416,7 +403,6 @@ namespace Shard::Engine::Rendering{
                 glSpecs.type = spec.halfFloatPixelData ? GL_HALF_FLOAT : GL_FLOAT;
                 break;
 
-            // RGB
             case TextureInternalFormat::RGB:
             case TextureInternalFormat::RGB8:
                 glSpecs.internalFormat = spec.srgb ? GL_SRGB8 : GL_RGB8;
@@ -442,7 +428,6 @@ namespace Shard::Engine::Rendering{
                 glSpecs.type = GL_INT;
                 break;
 
-            // RGBA
             case TextureInternalFormat::RGBA:
             case TextureInternalFormat::RGBA8:
                 glSpecs.internalFormat = spec.srgb ? GL_SRGB8_ALPHA8 : GL_RGBA8;
@@ -468,14 +453,12 @@ namespace Shard::Engine::Rendering{
                 glSpecs.type = GL_INT;
                 break;
 
-            // Shared exponent : the pixel data is one packed 32 bit word per texel
             case TextureInternalFormat::RGB9E5:
                 glSpecs.internalFormat = GL_RGB9_E5;
                 glSpecs.format = GL_RGB;
                 glSpecs.type = GL_UNSIGNED_INT_5_9_9_9_REV;
                 break;
 
-            // Depth
             case TextureInternalFormat::Depth16:
                 glSpecs.internalFormat = GL_DEPTH_COMPONENT16;
                 glSpecs.format = GL_DEPTH_COMPONENT;
@@ -513,7 +496,6 @@ namespace Shard::Engine::Rendering{
                 break;
         }
 
-        // Compare func (for shadow maps)
         switch (spec.compareFunc)
         {
             case TextureCompareFunc::Always:      glSpecs.compareFunc = GL_ALWAYS; break;

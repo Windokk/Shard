@@ -1,25 +1,20 @@
 #version 430 core
 
-// One instanced draw of 6 vertices per billboard : the quad is built here from gl_VertexID, there is no vertex buffer.
-// The instances are filled in by the BillboardRenderer.
-
 struct Instance {
-    vec4 positionSize;      // xyz : position relative to the camera, w : size (pixels or meters, see flags)
+    vec4 positionSize;
     vec4 tint;
-    vec4 uv;                // u0 v0 u1 v1 (v0 is the bottom row)
-    uvec4 params;           // x : facing (0 camera, 1 axis Y, 2 fixed), y : flags (bit 0 : size in pixels)
+    vec4 uv;
+    uvec4 params;
 };
 
 layout(std430, binding = 24) readonly buffer BillboardInstances {
     Instance instances[];
 };
 
-// Camera matrices are filled in by the renderer (DrawCommand::bindCameraState).
 uniform mat4 uProjection;
 uniform mat4 uView;
 
 uniform vec2 viewportSize;
-// Where this pass's billboards start in the buffer (the two layers share it)
 uniform int firstInstance;
 
 out vec2 vUV;
@@ -40,27 +35,24 @@ void main()
     uint facing = inst.params.x;
     bool pixelSize = (inst.params.y & 1u) != 0u;
 
-    // The camera is at the origin of this space, only its orientation matters
     mat3 rotation = mat3(uView);
     vec3 center = rotation * rel;
 
     vec4 centerClip = uProjection * vec4(center, 1.0);
     if (centerClip.w <= 0.0)
     {
-        gl_Position = vec4(2.0, 2.0, 2.0, 1.0);     // behind the camera
+        gl_Position = vec4(2.0, 2.0, 2.0, 1.0);
         vUV = vec2(0.0);
         vTint = vec4(0.0);
         return;
     }
 
-    // Half the side of the quad, in view space units : a size in pixels is what covers that many pixels at this depth
     float half_ = pixelSize ? size * centerClip.w / (viewportSize.y * uProjection[1][1])
                             : size * 0.5;
 
     vec3 viewPos;
     if (facing == 1u)
     {
-        // Turns around the vertical axis only (trees, flames...)
         vec3 up = normalize(rotation * vec3(0.0, 1.0, 0.0));
         vec3 toCamera = normalize(-center);
         vec3 right = cross(up, toCamera);
@@ -69,7 +61,6 @@ void main()
     }
     else if (facing == 2u)
     {
-        // Fixed in the world, in its XY plane
         viewPos = rotation * (rel + vec3(corner * half_, 0.0));
     }
     else

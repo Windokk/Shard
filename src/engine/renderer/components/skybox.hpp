@@ -27,9 +27,6 @@ namespace Shard::Engine::Objects
             std::shared_ptr<Rendering::EnvironmentMap> GetEnvMap() const { return m_EnvMap; }
             std::shared_ptr<Rendering::Material> GetMaterial() const { return m_Material; }
 
-            /// @brief Sets the skybox's material up for its environment map (pipeline, cubemap). The renderer draws
-            /// the sky from the environment proxy, which carries this material : a skybox dropped from its world
-            /// stops being drawn at the next extraction.
             void CreateDrawCommands();
 
         private:

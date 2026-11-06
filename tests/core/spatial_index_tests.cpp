@@ -85,7 +85,6 @@ TEST_P(SpatialIndexTest, MatchesBruteForceUnderChurn) {
     std::uniform_int_distribution<int> op(0, 9);
 
     for (Id id = 0; id < 400; ++id) {
-        // Some items are far bigger than the rest, some are outside the octree's cube
         const double size = (id % 50 == 0) ? 120.0 : 3.0;
         const AABB b = RandomBox(rng, id % 37 == 0 ? 2000.0 : 200.0, size);
         ASSERT_TRUE(idx->Insert(id, b));
@@ -96,13 +95,13 @@ TEST_P(SpatialIndexTest, MatchesBruteForceUnderChurn) {
     for (int step = 0; step < 1500; ++step) {
         const Id id = rng() % 450;
         switch (op(rng)) {
-            case 0: case 1: case 2: {                   // move
+            case 0: case 1: case 2: {
                 const AABB b = RandomBox(rng, 200.0, 4.0);
                 if (ref.count(id)) { EXPECT_TRUE(idx->Update(id, b)); ref[id] = b; }
                 else EXPECT_FALSE(idx->Update(id, b));
                 break;
             }
-            case 3: {                                   // small move (stays in the BVH fat box)
+            case 3: {
                 auto it = ref.find(id);
                 if (it == ref.end()) break;
                 AABB b = it->second;
@@ -153,7 +152,7 @@ TEST_P(SpatialIndexTest, SphereQuery) {
     }
 }
 
-TEST_P(SpatialIndexTest, RayQueryIsSortedAndComplete) {
+TEST_P(SpatialIndexTest, RayQuerySortedAndComplete) {
     auto idx = Make(GetParam());
     std::map<Id, AABB> ref;
     std::mt19937_64 rng(5);
@@ -164,7 +163,7 @@ TEST_P(SpatialIndexTest, RayQueryIsSortedAndComplete) {
         ray.origin = RandomBox(rng, 150.0, 0.0).min;
         ray.direction = glm::normalize(RandomBox(rng, 1.0, 0.0).min + DVec3(0.001));
         if (i % 3 == 0) ray.maxT = 100.0;
-        if (i % 7 == 0) ray.direction.y = 0.0;      // parallel to a slab
+        if (i % 7 == 0) ray.direction.y = 0.0;
 
         std::vector<SpatialRayHit> hits;
         idx->QueryRay(ray, hits);
@@ -199,7 +198,6 @@ TEST_P(SpatialIndexTest, FrustumQueryFindsEverythingInside) {
         EXPECT_FALSE(got.empty());
         EXPECT_LT(got.size(), ref.size());
 
-        // A point straight ahead is inside, one behind the camera is not
         EXPECT_TRUE(f.Intersects(AABB({-0.1, -0.1, -50}, {0.1, 0.1, -49})));
         EXPECT_FALSE(f.Intersects(AABB({-0.1, -0.1, 49}, {0.1, 0.1, 50})));
     }
@@ -213,7 +211,7 @@ TEST_P(SpatialIndexTest, VisitorCanStopEarly) {
     EXPECT_EQ(seen, 3);
 }
 
-TEST_P(SpatialIndexTest, WorksVeryFarFromTheOrigin) {
+TEST_P(SpatialIndexTest, WorksFarFromOrigin) {
     auto idx = Make(GetParam());
     const DVec3 far(1.0e12, -3.0e12, 5.0e11);
     idx->Insert(1, AABB(far, far + DVec3(1.0)));
@@ -227,10 +225,9 @@ TEST_P(SpatialIndexTest, WorksVeryFarFromTheOrigin) {
 
 TEST(BVHIndex, StaysBalancedAndValid) {
     BVHIndex bvh(0.1);
-    // Worst case for a naive tree : items inserted in a line
     for (Id id = 0; id < 2000; ++id) bvh.Insert(id, AABB({double(id), 0, 0}, {id + 0.5, 1, 1}));
     EXPECT_TRUE(bvh.Validate());
-    EXPECT_LE(bvh.Height(), 24);        // log2(2000) ~ 11 ; generous for the heuristic
+    EXPECT_LE(bvh.Height(), 24);
 
     std::mt19937_64 rng(3);
     for (int i = 0; i < 3000; ++i) {
@@ -241,9 +238,9 @@ TEST(BVHIndex, StaysBalancedAndValid) {
     EXPECT_TRUE(bvh.Validate());
 }
 
-TEST(GridIndex, HugeItemsGoToTheOversizedList) {
+TEST(GridIndex, HugeItemsGoOversized) {
     GridIndex grid(1.0);
-    grid.Insert(1, AABB({-1000, 0, -1000}, {1000, 0.1, 1000}));     // a ground plane
+    grid.Insert(1, AABB({-1000, 0, -1000}, {1000, 0.1, 1000}));
     grid.Insert(2, AABB({0, 0, 0}, {0.5, 0.5, 0.5}));
     EXPECT_EQ(grid.OversizedCount(), 1u);
     std::vector<Id> out;
@@ -261,14 +258,14 @@ TEST(GridIndex, EmptyCellsAreFreed) {
     EXPECT_EQ(grid.CellCount(), 0u);
 }
 
-TEST(OctreeIndex, FreesEmptyNodesAndKeepsOutsideItems) {
+TEST(OctreeIndex, FreesEmptyNodes) {
     OctreeIndex tree(DVec3(0.0), 100.0, 5);
     tree.Insert(1, AABB({1, 1, 1}, {1.5, 1.5, 1.5}));
-    tree.Insert(2, AABB({5000, 0, 0}, {5001, 1, 1}));               // centre outside the cube
+    tree.Insert(2, AABB({5000, 0, 0}, {5001, 1, 1}));
     EXPECT_GT(tree.NodeCount(), 1u);
     EXPECT_EQ(tree.OutsideCount(), 1u);
     tree.Remove(1);
     tree.Remove(2);
-    EXPECT_EQ(tree.NodeCount(), 1u);                                // only the root remains
+    EXPECT_EQ(tree.NodeCount(), 1u);
     EXPECT_EQ(tree.OutsideCount(), 0u);
 }

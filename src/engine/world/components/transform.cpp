@@ -58,8 +58,6 @@ namespace Shard::Engine::Objects::Components{
 
         this->position = position;
 
-		// Invalidate (and propagate) the world matrix cache before anything below reads a world-space
-		// value derived from it, otherwise it would read the pre-edit, now-stale cached matrix.
 		MarkWorldMatrixDirty();
 
 		NotifyChanged(TransformPosition);
@@ -167,7 +165,6 @@ namespace Shard::Engine::Objects::Components{
         if(!activated)
             return;
 
-		// The other components of the actor (a light, a model...) follow the transform by themselves
 		const auto& siblings = parent->GetComponents();
 		for(size_t i = 0; i < siblings.size(); i++){
 			if(siblings[i].get() != this)
@@ -243,7 +240,6 @@ namespace Shard::Engine::Objects::Components{
         if (parent->world)
             return &parent->world->GetFrames();
 
-        // An actor that belongs to no world (the editor's camera) lives in the frames of the world that is being shown
         Core::IEngineContext* engine = parent->GetEngineContext();
         Worlds::WorldManager* worlds = engine ? engine->GetWorldManager() : nullptr;
         Worlds::World* shown = worlds ? worlds->GetWorldAt(0) : nullptr;
@@ -313,7 +309,6 @@ namespace Shard::Engine::Objects::Components{
         const Core::ReferenceFrameTree* tree = GetFrameTree();
         const Core::FrameId frameId = GetFrame();
 
-        // The point in the frame : converted from the exact root position, so a far position keeps what the frame can hold
         glm::vec3 inFrame;
         if (!tree || frameId == Core::kRootFrame)
             inFrame = glm::vec3(rootPosition.ToDVec3());
@@ -331,7 +326,7 @@ namespace Shard::Engine::Objects::Components{
     {
         Core::ReferenceFrameTree* tree = const_cast<Core::ReferenceFrameTree*>(GetFrameTree());
         if (tree && !GetParentTransform()) {
-            // A float is exact to a millimetre within ~10 km : an actor farther than this from its frame's origin gets a nearer one
+            // A float is exact to a millimetre within ~10 km. An actor farther than this from its frame origin gets a nearer frame.
             constexpr double kReach = 8192.0;
             const auto near = [&](Core::FrameId id) {
                 const glm::dvec3 d = Core::WorldPosition::Offset(rootPosition, tree->GetOriginInRoot(id));
@@ -398,10 +393,7 @@ namespace Shard::Engine::Objects::Components{
             if (!childActor || !childActor->transform)
                 continue;
 
-            // Recurse first so the whole subtree is marked dirty regardless of any child's previous
-            // state, then eagerly refresh Model/Volume's world->meshes snapshot (see
-            // NotifyChanged) - those are pushed, not pulled each frame, so a descendant
-            // whose own local fields never changed still needs to be told its world matrix moved.
+            // Recurse first, then refresh Model/Volume's world->meshes snapshot. Those are pushed, so a descendant with unchanged local fields still needs telling.
             childActor->transform->MarkWorldMatrixDirty();
             childActor->transform->NotifyChanged(TransformHierarchy);
         }
@@ -424,7 +416,6 @@ namespace Shard::Engine::Objects::Components{
 			glm::epsilonNotEqual(localMatrix[1][3], static_cast<T>(0), glm::epsilon<T>()) ||
 			glm::epsilonNotEqual(localMatrix[2][3], static_cast<T>(0), glm::epsilon<T>()))
 		{
-			// Clear the perspective partition
 			localMatrix[0][3] = localMatrix[1][3] = localMatrix[2][3] = static_cast<T>(0);
 			localMatrix[3][3] = static_cast<T>(1);
 		}
@@ -486,8 +477,7 @@ namespace Shard::Engine::Objects::Components{
     {
         auto cloned = Object::Create<Transform>(*this);
 
-        // Copy-constructed from *this, so it would otherwise inherit the source's cached world matrix -
-        // stale as soon as the clone gets attached under a (potentially different) parent actor.
+        // The copy inherits the source's cached world matrix, stale once attached under another parent.
         cloned->worldMatrixDirty = true;
 
         return cloned;

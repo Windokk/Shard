@@ -16,19 +16,13 @@
 
 namespace Shard::Engine::Core::Platform {
 
-    /// @brief A window that is not on any screen : no window system, no graphics context, no SDL. It has a size (the
-    /// viewport the renderer lays its targets out for) and an event queue, which is how input reaches the engine in a run
-    /// nobody is sitting in front of : whoever drives the run (a replay, a test) posts OS events, the engine's input phase
-    /// reads them with PollEvents() exactly as it would from a real window.
     class HeadlessWindow : public IWindow {
     public:
         void Init(const std::string& title, const int& width, const int& height,
                   const bool& fullscreen, const int& vsync, const uint32_t& api) override;
 
-        /// @brief Queues an event for the next PollEvents()
         void PostEvent(const OSEvent& event);
 
-        /// @brief Asks the run to end, like closing a window would
         void RequestClose() { m_CloseRequested = true; }
 
         void* GetNativeHandle() const override { return nullptr; }
@@ -56,8 +50,6 @@ namespace Shard::Engine::Core::Platform {
         std::deque<OSEvent> m_Pending;
     };
 
-    /// @brief Keyboard, mouse and gamepad state built from the OS events of a window (the same state machine as the SDL
-    /// input, without SDL) : IsKeyDown / WasKeyPressed... answer from the events the window dispatched.
     class HeadlessInput : public IInput {
     public:
         explicit HeadlessInput(OSEventSource* window) : m_Window(window) {}
@@ -120,13 +112,11 @@ namespace Shard::Engine::Core::Platform {
         mutable bool m_Captured = false;
     };
 
-    /// @brief The platform of a run without a screen (see HeadlessWindow, HeadlessInput). Nothing here starts SDL.
     class HeadlessPlatform : public IPlatform {
     public:
         IWindow* GetWindow() override { return m_Window.get(); }
         IInput* GetInput() override { return m_Input.get(); }
 
-        /// The same window, as what it really is : where a replay posts its events
         HeadlessWindow* GetHeadlessWindow() { return m_Window.get(); }
 
         void CreateWindow(const std::string& title, const int& width, const int& height,

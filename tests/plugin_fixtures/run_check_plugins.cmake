@@ -1,4 +1,3 @@
-# ShardHeadless --check-plugins : the simulation, twice, with one job thread and with several : the same state. Variables : HEADLESS GAME PROJECT WORKDIR
 execute_process(
     COMMAND "${HEADLESS}" --check-plugins --game "${GAME}" --project "${PROJECT}" --frames 180
     WORKING_DIRECTORY "${WORKDIR}"

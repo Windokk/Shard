@@ -20,7 +20,6 @@
 namespace Shard::Engine::Rendering {
 
     namespace {
-        // Where the shader reads the instances (see billboard.vert) : above every binding the other shaders use
         constexpr uint32_t kInstancesBinding = 24;
         constexpr uint32_t kMinCapacity = 64;
 
@@ -28,7 +27,7 @@ namespace Shard::Engine::Rendering {
 
         uint64_t CommandIdOf(int layer)
         {
-            constexpr uint64_t kBillboardComponentID = 0x42494C4C;     // "BILL"
+            constexpr uint64_t kBillboardComponentID = 0x42494C4C;
             return MakeCommandID(0, kBillboardComponentID, uint64_t(layer));
         }
 
@@ -63,7 +62,7 @@ namespace Shard::Engine::Rendering {
             if (!IsDrawn(proxy, showEditor))
                 continue;
 
-            // 64-bit positions are brought to the camera before they become floats : far from the origin the difference is exact
+            // Subtract in double before narrowing to float.
             const glm::dvec3 relative = proxy.position - cameraPosition;
 
             Sortable item;
@@ -78,7 +77,7 @@ namespace Shard::Engine::Rendering {
 
         for (int layer = 0; layer < 2; layer++)
         {
-            // Blended, not depth written : the farthest first. Stable, so that equal distances do not flicker.
+            // Blended without depth write, so farthest first. Stable sort so equal distances don't flicker.
             std::stable_sort(layers[layer].begin(), layers[layer].end(), [](const Sortable& a, const Sortable& b) { return a.distanceSquared > b.distanceSquared; });
             for (const Sortable& item : layers[layer])
                 out.push_back(item.instance);
@@ -108,7 +107,6 @@ namespace Shard::Engine::Rendering {
             const float x = (clip.x / clip.w * 0.5f + 0.5f) * viewportWidth;
             const float y = (1.0f - (clip.y / clip.w * 0.5f + 0.5f)) * viewportHeight;
 
-            // Half the quad's side in pixels : given in pixels already, or a size in meters seen from this distance
             float half = proxy.size * 0.5f;
             if (!(proxy.flags & BillboardFlag::ScreenSpaceSize))
                 half = proxy.size * 0.5f * camera.projection[1][1] / clip.w * viewportHeight * 0.5f;
@@ -132,7 +130,6 @@ namespace Shard::Engine::Rendering {
     {
         m_Renderer = renderer;
 
-        // The spritesheet's icons are files read at runtime (a sprite is then BillboardAtlas::Find("name"))
         BillboardAtlas::Get().LoadFolder("editor_resources/billboard_icons");
 
         std::shared_ptr<Shader> shader = Core::GetEngine().GetResourcesManager()->Get<Shader>(Core::Resources::AssetKind::Shader, "shaders/billboard/billboard");
@@ -154,7 +151,6 @@ namespace Shard::Engine::Rendering {
             specs.debugName = layer == 0 ? "BillboardPipeline" : "BillboardOverlayPipeline";
             std::shared_ptr<Pipeline> pipeline = renderer->GetOrAddPipeline(specs);
 
-            // Translucent : the material overwrites the pipeline's blend state from its opacity
             m_Materials[layer] = Material::Create(shader, pipeline, false, Opacity::Translucent);
 
             std::shared_ptr<RenderPass> pass = std::make_shared<RenderPass>();
@@ -164,7 +160,7 @@ namespace Shard::Engine::Rendering {
             pass->overridePipeline = true;
             pass->customPipeline = pipeline;
             pass->allowCulling = false;
-            pass->enabled = false;                          // until there is something to draw
+            pass->enabled = false;
             pass->customUniforms["viewportSize"] = glm::vec2(1.0f);
             pass->customUniforms["firstInstance"] = 0;
             m_Layers[layer].pass = pass;
@@ -175,7 +171,6 @@ namespace Shard::Engine::Rendering {
 
     void BillboardRenderer::EnsureCommand(Layer& layer, const char* passName, uint64_t commandId)
     {
-        // A world reload clears the draw list of every pass : put the command back
         if (!layer.pass->drawList.empty())
             return;
 
@@ -217,7 +212,7 @@ namespace Shard::Engine::Rendering {
                 m_Instances = StorageBuffer::Create(m_Capacity * uint32_t(sizeof(BillboardInstance)));
             }
 
-            // The buffer is uploaded whole : a size that is not the allocation's would reallocate it
+            // Upload the whole buffer, a different size would reallocate it.
             m_Scratch.resize(m_Capacity);
             m_Instances->SetData(m_Scratch.data(), m_Capacity * uint32_t(sizeof(BillboardInstance)));
             m_Instances->Bind(kInstancesBinding);

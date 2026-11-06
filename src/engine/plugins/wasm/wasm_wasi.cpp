@@ -4,9 +4,7 @@
 #include "engine/plugins/wasm/wasm_imports.hpp"
 #include "engine/plugins/wasm/wasm_marshal.hpp"
 
-// The little of WASI a C or C++ library needs to start, and nothing more. A module built with wasi-sdk imports a few functions from
-// "wasi_snapshot_preview1" for its libc ; the sandbox gives it a console that goes to the plugin's log, empty arguments and environment, no
-// files, no clock and no randomness. What a module imports and is not here is refused at load, by name (docs/design-notes/wasm-sandbox.fr.md section 7).
+// Minimal WASI for a wasi-sdk libc: console goes to the plugin log, empty args and env, no files, clock or randomness. Anything else imported is refused at load by name.
 
 namespace Shard::Engine::Plugins::Wasm {
 
@@ -17,7 +15,6 @@ namespace Shard::Engine::Plugins::Wasm {
         constexpr const char* kModule = "wasi_snapshot_preview1";
         constexpr uint32_t kBadFd = 8, kNoSys = 52, kInvalid = 28;
 
-        // What fd 1 and 2 were given, a line at a time
         struct Console {
             std::string pending[3];
             void Write(Sandbox& s, uint32_t fd, const char* bytes, size_t size)
@@ -44,13 +41,11 @@ namespace Shard::Engine::Plugins::Wasm {
         auto console = std::make_shared<Console>();
         auto add = [&](const char* name, FuncType type, HostFunction fn) { imports.AddOther(kModule, name, std::move(type), std::move(fn)); };
 
-        // The program ends : a trap, which stops the plugin
         add("proc_exit", { { I }, {} }, [](Instance& in, const uint64_t* a, uint64_t*) {
             in.HostTrap("the module called exit(" + std::to_string(int32_t(uint32_t(a[0]))) + ")");
             return false;
         });
 
-        // fd_write(fd, iovs, iovs_len, nwritten) : the console of the plugin, its log
         add("fd_write", { { I, I, I, I }, { I } }, [&s, console](Instance& in, const uint64_t* a, uint64_t* r) {
             const uint32_t fd = uint32_t(a[0]);
             if (fd != 1 && fd != 2) { r[0] = kBadFd; return true; }
@@ -75,22 +70,20 @@ namespace Shard::Engine::Plugins::Wasm {
             return true;
         });
 
-        // fd_fdstat_get(fd, stat) : fds 0 to 2 are character devices, with no rights
         add("fd_fdstat_get", { { I, I }, { I } }, [](Instance& in, const uint64_t* a, uint64_t* r) {
             if (uint32_t(a[0]) > 2) { r[0] = kBadFd; return true; }
             uint8_t stat[24] = {};
-            stat[0] = 2;                                    // filetype : character device
+            stat[0] = 2;
             if (!in.Write(uint32_t(a[1]), stat, sizeof(stat))) { in.HostTrap("fdstat out of the memory"); return false; }
             r[0] = 0;
             return true;
         });
         add("fd_close", { { I }, { I } }, [](Instance&, const uint64_t* a, uint64_t* r) { r[0] = uint32_t(a[0]) <= 2 ? 0 : kBadFd; return true; });
-        add("fd_seek", { { I, L, I, I }, { I } }, [](Instance&, const uint64_t*, uint64_t* r) { r[0] = 29; return true; });          // ESPIPE
+        add("fd_seek", { { I, L, I, I }, { I } }, [](Instance&, const uint64_t*, uint64_t* r) { r[0] = 29; return true; });
         add("fd_read", { { I, I, I, I }, { I } }, [](Instance&, const uint64_t*, uint64_t* r) { r[0] = kBadFd; return true; });
-        add("fd_prestat_get", { { I, I }, { I } }, [](Instance&, const uint64_t*, uint64_t* r) { r[0] = kBadFd; return true; });         // no preopened directory
+        add("fd_prestat_get", { { I, I }, { I } }, [](Instance&, const uint64_t*, uint64_t* r) { r[0] = kBadFd; return true; });
         add("fd_prestat_dir_name", { { I, I, I }, { I } }, [](Instance&, const uint64_t*, uint64_t* r) { r[0] = kBadFd; return true; });
 
-        // No arguments, no environment
         auto zeroTwo = [](Instance& in, const uint64_t* a, uint64_t* r) {
             const uint32_t zero = 0;
             if (!in.Write(uint32_t(a[0]), &zero, 4) || !in.Write(uint32_t(a[1]), &zero, 4)) { in.HostTrap("output out of the memory"); return false; }
@@ -102,7 +95,6 @@ namespace Shard::Engine::Plugins::Wasm {
         add("environ_get", { { I, I }, { I } }, [](Instance&, const uint64_t*, uint64_t* r) { r[0] = 0; return true; });
         add("args_get", { { I, I }, { I } }, [](Instance&, const uint64_t*, uint64_t* r) { r[0] = 0; return true; });
 
-        // No clock, no randomness : a run is the same everywhere (and a replay of it too)
         add("clock_time_get", { { I, L, I }, { I } }, [](Instance&, const uint64_t*, uint64_t* r) { r[0] = kNoSys; return true; });
         add("clock_res_get", { { I, I }, { I } }, [](Instance&, const uint64_t*, uint64_t* r) { r[0] = kNoSys; return true; });
         add("random_get", { { I, I }, { I } }, [](Instance&, const uint64_t*, uint64_t* r) { r[0] = kNoSys; return true; });

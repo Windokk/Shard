@@ -18,11 +18,10 @@ namespace Shard::Engine::Rendering {
         constexpr char kMagic[4] = { 'S', 'H', 'L', 'M' };
         constexpr uint32_t kVersion = 1;
 
-        // A corrupt header must not be able to make the decoder allocate gigabytes : 16384 is the usual GL max texture size
+        // Corrupt headers must not make the decoder allocate gigabytes. 16384 is the usual GL max texture size.
         constexpr uint32_t kMaxPageSize = 16384;
         constexpr uint32_t kMaxPages = 4096;
 
-        // Followed on disk by `pageCount` pages, each a PageHeader and width * height 32 bit texels
         struct FileHeader
         {
             char magic[4];
@@ -60,8 +59,7 @@ namespace Shard::Engine::Rendering {
         std::error_code ec;
         std::filesystem::create_directories(std::filesystem::path(path.full).parent_path(), ec);
 
-        // Binary explicitly : Filesystem::Path::WriteFile opens in text mode, which on Windows would rewrite every 0x0A byte
-        // of the payload as CRLF
+        // Binary mode, text mode on Windows would turn every 0x0A into CRLF.
         std::ofstream out(path.full, std::ios::binary | std::ios::trunc);
         if (!out.is_open())
         {
@@ -90,7 +88,7 @@ namespace Shard::Engine::Rendering {
         }
 
         out.close();
-        Assets::NoteOwnWrite(path.full);        // the bake's own file : not an outside edit for the hot reload
+        Assets::NoteOwnWrite(path.full);
         return true;
     }
 
@@ -192,7 +190,7 @@ namespace Shard::Engine::Rendering {
         const size_t texelCount = size_t(width) * height;
         std::vector<float> color(texelCount * 3);
         std::vector<uint8_t> covered(texelCount);
-        std::vector<uint8_t> hole(texelCount);      // on a surface, given up by the baker : filled from the neighbours, whatever the distance
+        std::vector<uint8_t> hole(texelCount);
         size_t holes = 0;
         for (size_t i = 0; i < texelCount; i++)
         {
@@ -206,7 +204,6 @@ namespace Shard::Engine::Rendering {
             }
         }
 
-        // The gutter : each pass gives the texels next to a covered one the average of the covered ones around them
         std::vector<float> nextColor;
         std::vector<uint8_t> nextCovered;
         constexpr int kMaxHolePasses = 64;
@@ -222,7 +219,6 @@ namespace Shard::Engine::Rendering {
                 for (uint32_t x = 0; x < width; x++)
                 {
                     const size_t index = size_t(y) * width + x;
-                    // Past the gutter's rings only the holes go on filling
                     if (covered[index] || (!gutterPass && !hole[index]))
                         continue;
 

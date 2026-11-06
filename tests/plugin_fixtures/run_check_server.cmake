@@ -1,5 +1,3 @@
-# A headless server answers the plugin handshake and a second headless process, with the same plugins, is accepted ; one that left the game out is refused.
-# The two run at the same time (execute_process with two commands starts both). Variables : HEADLESS GAME PROJECT WORKDIR PORT
 function(run_pair clientArgs expectedCode expectedText)
     execute_process(
         COMMAND "${HEADLESS}" --server --port ${PORT} --game "${GAME}" --project "${PROJECT}" --frames 600

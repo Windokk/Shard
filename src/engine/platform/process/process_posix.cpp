@@ -87,7 +87,6 @@ namespace Shard::Engine::Core::Platform {
         bool exited = false;
         int exitCode = 0;
 
-        // Collects the exit status if the child is done. Returns true once it has exited.
         bool Poll(bool block)
         {
             if (exited)
@@ -106,7 +105,7 @@ namespace Shard::Engine::Core::Platform {
     std::unique_ptr<Process> Process::Launch(const std::string& executable, const std::vector<std::string>& arguments,
                                              const std::string& workingDirectory)
     {
-        // Everything the child needs is prepared before the fork (no allocation between fork and exec)
+        // Prepare everything before fork: no allocation between fork and exec.
         std::vector<std::string> storage;
         storage.push_back(executable);
         storage.insert(storage.end(), arguments.begin(), arguments.end());
@@ -115,7 +114,7 @@ namespace Shard::Engine::Core::Platform {
             argv.push_back(s.data());
         argv.push_back(nullptr);
 
-        // exec failure is reported through a close-on-exec pipe
+        // exec failure comes back through a close-on-exec pipe.
         int errorPipe[2];
         if (pipe(errorPipe) != 0)
             return nullptr;
@@ -159,7 +158,7 @@ namespace Shard::Engine::Core::Platform {
 
     Process::~Process()
     {
-        // A child left running becomes a zombie once it exits if nobody waits for it : reap it if it is already done
+        // Reap an already-exited child or it stays a zombie.
         if (m_Impl)
             m_Impl->Poll(false);
     }
@@ -200,7 +199,6 @@ namespace Shard::Engine::Core::Platform {
 
     void RevealInFileManager(const std::string& path, bool select)
     {
-        // No portable "select this file" : open the folder that contains it
         const std::filesystem::path p(path);
         const std::string directory = (select ? p.parent_path() : p).string();
         OpenWithDefaultApplication(directory);
@@ -213,7 +211,6 @@ namespace Shard::Engine::Core::Platform {
     #else
         const char* opener = "xdg-open";
     #endif
-        // Detached : opener runs in the background, its output is not wanted
         const pid_t pid = fork();
         if (pid < 0)
             return false;
@@ -224,7 +221,6 @@ namespace Shard::Engine::Core::Platform {
             execlp(opener, opener, pathOrUrl.c_str(), static_cast<char*>(nullptr));
             _exit(127);
         }
-        // the opener returns right after handing the file over to the desktop
         int status = 0;
         waitpid(pid, &status, 0);
         return WIFEXITED(status) && WEXITSTATUS(status) == 0;

@@ -16,14 +16,9 @@
 #include "engine/world/engine.hpp"
 #include "engine/world/event_system.hpp"
 
-// shard.reflect : what exists (the component types of the engine and of the plugins, the described events), and the functions plugins register to be
-// called by name with typed values.
-
 namespace Shard::Engine::Plugins::CAbi {
 
     namespace {
-        // ---- Types ----
-
         struct EnumRec { std::vector<std::string> names; };
 
         struct FieldRec {
@@ -86,11 +81,10 @@ namespace Shard::Engine::Plugins::CAbi {
         }
 
         std::mutex gTypesMutex;
-        std::map<std::string, TypeRec> gBuiltinTypes;       // the engine's own : their descriptors never change
+        std::map<std::string, TypeRec> gBuiltinTypes;
 
         Core::IEngineContext* Engine() { return Core::gSharedEnginePtr; }
 
-        // The fields of a component type : read from an instance (a builtin one needs an actor to be made on)
         bool DescribeComponent(const std::string& name, TypeRec& rec)
         {
             Core::IEngineContext* engine = Engine();
@@ -107,7 +101,7 @@ namespace Shard::Engine::Plugins::CAbi {
             if (!component) return false;
             if (const ClassDescriptor* descriptor = component->GetDescriptor()) ReadFields(*descriptor, rec);
             else rec.fieldsKnown = true;
-            component.reset();          // never attached to a world : it just goes
+            component.reset();
             if (holder) holder->Destroy();
             return true;
         }
@@ -118,7 +112,6 @@ namespace Shard::Engine::Plugins::CAbi {
             return dot == std::string::npos ? std::string() : name.substr(0, dot);
         }
 
-        // The names of the types of a kind, sorted
         std::vector<std::string> TypeNames(uint32_t kind)
         {
             std::vector<std::string> names;
@@ -135,7 +128,6 @@ namespace Shard::Engine::Plugins::CAbi {
             return names;
         }
 
-        // The record of a type, with its fields if `fields`. false : no such type
         bool FindType(uint32_t kind, const std::string& name, bool fields, TypeRec& rec)
         {
             rec = TypeRec{};
@@ -190,7 +182,7 @@ namespace Shard::Engine::Plugins::CAbi {
             return false;
         }
 
-        // The strings of a returned ShardTypeInfo / ShardFieldInfo must outlive the call : they live in a small ring of the calling thread
+        // Returned strings must outlive the call, so they live in a small per-thread ring
         const std::string& Keep(const std::string& s)
         {
             thread_local std::vector<std::string> ring(64);
@@ -281,8 +273,6 @@ namespace Shard::Engine::Plugins::CAbi {
             } catch (...) { return SHARD_E_INTERNAL; }
         }
 
-        // ---- Functions ----
-
         struct ParamRec { std::string name, tooltip; uint32_t type = SHARD_VALUE_NONE, flags = 0; };
 
         struct FunctionRec {
@@ -296,7 +286,7 @@ namespace Shard::Engine::Plugins::CAbi {
         };
 
         std::mutex gFunctionsMutex;
-        std::map<std::string, std::shared_ptr<FunctionRec>> gFunctions;         // by name, sorted
+        std::map<std::string, std::shared_ptr<FunctionRec>> gFunctions;
         std::map<PluginOwner, bool> gHooked;
 
         std::vector<ParamRec> ReadParams(const ShardParamDesc* params, uint32_t count, bool& ok)
@@ -311,7 +301,7 @@ namespace Shard::Engine::Plugins::CAbi {
                 p.type = params[i].type;
                 p.flags = params[i].flags;
                 if (p.flags & SHARD_PARAM_OPTIONAL) optional = true;
-                else if (optional) { ok = false; return out; }           // a required parameter after an optional one
+                else if (optional) { ok = false; return out; }
                 out.push_back(std::move(p));
             }
             return out;
@@ -384,7 +374,6 @@ namespace Shard::Engine::Plugins::CAbi {
             info.flags = f.flags;
             info.paramCount = uint32_t(f.params.size());
             info.resultCount = uint32_t(f.results.size());
-            // The strings are the record's : valid while the function is registered
             info.name = ToStr(f.name);
             info.category = ToStr(f.category);
             info.tooltip = ToStr(f.tooltip);
@@ -450,7 +439,6 @@ namespace Shard::Engine::Plugins::CAbi {
             }
         }
 
-        // `v` converted to what the parameter takes : false if it cannot be
         bool Convert(const ShardValue& v, uint32_t want, ShardValue& out)
         {
             out = v;
@@ -468,7 +456,7 @@ namespace Shard::Engine::Plugins::CAbi {
                 return true;
             }
             if (IsText(want) && IsText(v.type)) { out.type = want; return true; }
-            if (IsVector(want) && IsVector(v.type) && v.type != SHARD_VALUE_VEC2 && v.type != SHARD_VALUE_VEC3) { out.type = want; return true; }     // quat <-> vec4 <-> colour
+            if (IsVector(want) && IsVector(v.type) && v.type != SHARD_VALUE_VEC2 && v.type != SHARD_VALUE_VEC3) { out.type = want; return true; }
             if (want == SHARD_VALUE_ACTOR && v.type == SHARD_VALUE_I64) { out.type = want; return true; }
             return false;
         }
@@ -503,7 +491,7 @@ namespace Shard::Engine::Plugins::CAbi {
                     ActiveScope scope(ActiveCounter(*owner), f->owner);
                     r = f->call(f->user, ShardPluginCtx(f->owner), converted.data(), argCount, results, uint32_t(f->results.size()));
                 }
-                // Strings handed back stay valid until the function is called again on this thread : copied into a ring
+                // Strings stay valid until the next call on this thread (ring of 32)
                 thread_local std::vector<std::string> ring(32);
                 thread_local size_t next = 0;
                 for (uint32_t i = 0; i < f->results.size() && i < resultCount; ++i) {

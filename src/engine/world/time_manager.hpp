@@ -74,8 +74,6 @@ namespace Shard::Engine::Time{
                 maxAccumulatedTime = maxAccumulated;
             }
 
-            /// @param forcedDelta  when above 0, the frame lasts that long whatever the clock says (a deterministic run :
-            /// every frame of a test or a benchmark then sees the same simulation, see the `time.frame_dt` variable)
             void Tick(float forcedDelta = 0.0f) {
                 frameStartTime = Clock::now();
                 auto delta = std::chrono::duration<float>(frameStartTime - lastTime);
@@ -84,16 +82,10 @@ namespace Shard::Engine::Time{
                 Advance(forcedDelta > 0.0f ? forcedDelta : delta.count());
             }
 
-            /// Feeds a frame of real time by hand instead of reading the clock. Kept separate from
-            /// Tick() so the accumulation can be driven deterministically (tests, replays).
             void Advance(float realDeltaSeconds) {
                 deltaTime = realDeltaSeconds;
 
-                // The simulation clock only ever advances by whole fixed steps, so whatever real time
-                // the frame took is banked here and paid out by ConsumeFixedSteps(). A frame that
-                // stalls (breakpoint, world load, window drag) is clamped instead of banked in full,
-                // otherwise the next frame would owe more simulation than it can run in time and every
-                // following frame would owe even more - the classic spiral of death.
+                // Only whole fixed steps are simulated, so the real time is banked. A stalled frame (breakpoint, world load) is clamped to avoid the spiral of death.
                 float simulated = deltaTime * timeSpeed;
                 if (simulated > maxAccumulatedTime)
                     simulated = maxAccumulatedTime;
@@ -101,9 +93,6 @@ namespace Shard::Engine::Time{
                 accumulator += simulated;
             }
 
-            /// Number of fixed steps owed for this frame, removed from the accumulator as they are
-            /// handed out. The caller is expected to run exactly that many simulation steps, each of
-            /// GetFixedDeltaTime() seconds - that's what makes the simulation independent of framerate.
             int ConsumeFixedSteps() {
                 if (fixedDeltaTime <= 0.0f)
                     return 0;
@@ -116,15 +105,10 @@ namespace Shard::Engine::Time{
                 return steps;
             }
 
-            /// How far the frame sits between the last simulated step and the next one, in [0, 1).
-            /// Useful to interpolate rendered transforms so motion stays smooth when the render rate
-            /// isn't a multiple of the simulation rate.
             float GetFixedStepAlpha() const {
                 return fixedDeltaTime > 0.0f ? accumulator / fixedDeltaTime : 0.0f;
             }
 
-            /// Drops the banked time. Called when the simulation isn't running (editor, pause) so that
-            /// resuming doesn't immediately replay everything that happened while it was stopped.
             void ResetAccumulator() { accumulator = 0.0f; }
 
             void SetFixedDeltaTime(float fixedStep) { fixedDeltaTime = fixedStep; }

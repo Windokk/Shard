@@ -10,14 +10,12 @@
 
 namespace Shard::Engine::Core::Platform {
 
-    /// @brief Size of a cache line, in bytes. Data written by different threads should not share one (false sharing).
 #if defined(__cpp_lib_hardware_interference_size) && !defined(__GNUC__)
     constexpr size_t kCacheLineSize = std::hardware_destructive_interference_size;
 #else
     constexpr size_t kCacheLineSize = 64;
 #endif
 
-    /// @brief Hint to the CPU that the thread is in a spin-wait loop.
     inline void CpuRelax()
     {
     #if defined(_MSC_VER)
@@ -29,13 +27,11 @@ namespace Shard::Engine::Core::Platform {
     #endif
     }
 
-    /// @brief A T alone on its cache line.
     template <class T>
     struct alignas(kCacheLineSize) CacheLinePadded {
         T value{};
     };
 
-    /// @brief Test-and-test-and-set spin lock : for critical sections of a few instructions only.
     class SpinLock {
     public:
         void Lock()
@@ -52,7 +48,6 @@ namespace Shard::Engine::Core::Platform {
         bool TryLock() { return !m_Flag.load(std::memory_order_relaxed) && !m_Flag.exchange(true, std::memory_order_acquire); }
         void Unlock() { m_Flag.store(false, std::memory_order_release); }
 
-        // BasicLockable : usable with std::lock_guard
         void lock() { Lock(); }
         bool try_lock() { return TryLock(); }
         void unlock() { Unlock(); }

@@ -13,7 +13,6 @@ using namespace Shard::Engine;
 using namespace Shard::Engine::Core;
 using namespace Shard::Engine::Objects;
 
-// Tags on worlds, actors and components : what is saved, the world's index, the events
 class TagWorldTest : public ::testing::Test {
     protected:
         void SetUp() override {
@@ -55,9 +54,7 @@ class TagWorldTest : public ::testing::Test {
         std::unique_ptr<Worlds::World> world;
 };
 
-// ---- The index ----
-
-TEST_F(TagWorldTest, FindsTheActorsUnderATag) {
+TEST_F(TagWorldTest, FindsActorsUnderTag) {
     Spawn("Skeleton", { "Enemy.Undead.Skeleton" });
     Spawn("Boss", { "Enemy.Boss" });
     Spawn("Hero", { "Player" });
@@ -69,7 +66,7 @@ TEST_F(TagWorldTest, FindsTheActorsUnderATag) {
     EXPECT_EQ(world->FindFirstActorWithTag(T("Status")), nullptr);
 }
 
-TEST_F(TagWorldTest, ResultsAreInTheOrderOfTheIds) {
+TEST_F(TagWorldTest, ResultsInIdOrder) {
     Spawn("A", { "Enemy.Boss" });
     Spawn("B", { "Enemy.Undead.Skeleton" });
     Spawn("C", { "Enemy.Boss" });
@@ -80,7 +77,7 @@ TEST_F(TagWorldTest, ResultsAreInTheOrderOfTheIds) {
         EXPECT_LT(found[i - 1]->GetID(), found[i]->GetID());
 }
 
-TEST_F(TagWorldTest, ChildActorsAreIndexedButDoNotInherit) {
+TEST_F(TagWorldTest, ChildrenIndexedNotInherited) {
     auto boss = Spawn("Boss", { "Enemy.Boss" });
     Spawn("Head", { "Hitbox.Head" }, boss);
 
@@ -102,13 +99,13 @@ TEST_F(TagWorldTest, TheIndexFollowsTheChanges) {
     EXPECT_EQ(world->FindActorsWithTag(T("Player")).size(), 1u);
 }
 
-TEST_F(TagWorldTest, ADestroyedActorLeavesTheIndex) {
+TEST_F(TagWorldTest, DestroyedActorLeavesIndex) {
     auto actor = Spawn("Skeleton", { "Enemy.Undead.Skeleton" });
     actor->Destroy();
     EXPECT_TRUE(world->FindActorsWithTag(T("Enemy")).empty());
 }
 
-TEST_F(TagWorldTest, DeactivatedActorsAreLeftOutUnlessAsked) {
+TEST_F(TagWorldTest, DeactivatedActorsExcluded) {
     auto actor = Spawn("Skeleton", { "Enemy.Undead.Skeleton" });
     actor->DeActivate();
 
@@ -124,7 +121,6 @@ TEST_F(TagWorldTest, FindsActorsByQuery) {
     Spawn("Rock");
 
     EXPECT_EQ(Names(world->FindActors(TagQuery::Parse("Enemy & !(Enemy.Boss | Status.Dead)"))), (std::vector<std::string>{ "Skeleton" }));
-    // No required tag : every actor is tested
     EXPECT_EQ(Names(world->FindActors(TagQuery::Parse("Player | Enemy.Boss"))), (std::vector<std::string>{ "Boss", "Hero" }));
     EXPECT_EQ(Names(world->FindActors(TagQuery::Parse("!Enemy & !Player"))), (std::vector<std::string>{ "Rock" }));
     EXPECT_EQ(world->FindActors(TagQuery()).size(), 5u);
@@ -158,7 +154,7 @@ TEST_F(TagWorldTest, FindsComponentsByTag) {
     EXPECT_TRUE(world->FindComponentsWithTag(T("Hitbox")).empty());
 }
 
-TEST_F(TagWorldTest, ComponentTagsAreIndexedWhenTheActorJoins) {
+TEST_F(TagWorldTest, ComponentTagsIndexedOnJoin) {
     auto actor = Object::CreateWithContext<Actor>(&context, std::string("Late"), &context);
     actor->transform->GetTags().Add(T("Hitbox.Head"));
     actor->GetTags().Add(T("Player"));
@@ -167,7 +163,7 @@ TEST_F(TagWorldTest, ComponentTagsAreIndexedWhenTheActorJoins) {
     EXPECT_EQ(world->FindActorsWithTag(T("Player")).size(), 1u);
 }
 
-TEST_F(TagWorldTest, AClonedActorHasTheSameTags) {
+TEST_F(TagWorldTest, CloneKeepsTags) {
     auto original = Spawn("Skeleton", { "Enemy.Undead.Skeleton" });
     original->transform->GetTags().Add(T("Hitbox.Head"));
 
@@ -176,15 +172,12 @@ TEST_F(TagWorldTest, AClonedActorHasTheSameTags) {
     EXPECT_EQ(copy->transform->GetTags(), original->transform->GetTags());
     EXPECT_EQ(world->FindActorsWithTag(T("Enemy")).size(), 2u);
 
-    // Each its own : changing the copy does not change the original
     copy->GetTags().Clear();
     EXPECT_FALSE(original->GetTags().IsEmpty());
     EXPECT_EQ(world->FindActorsWithTag(T("Enemy")).size(), 1u);
 }
 
-// ---- Files ----
-
-TEST_F(TagWorldTest, ActorAndComponentTagsAreSaved) {
+TEST_F(TagWorldTest, ActorAndComponentTagsSaved) {
     auto actor = Spawn("Skeleton", { "Status.Dead", "Enemy.Undead.Skeleton" });
     actor->transform->GetTags().Add(T("Hitbox.Head"));
 
@@ -194,14 +187,14 @@ TEST_F(TagWorldTest, ActorAndComponentTagsAreSaved) {
     EXPECT_EQ(data["components"][0]["tags"], ordered_json::array({ "Hitbox.Head" }));
 }
 
-TEST_F(TagWorldTest, NoTagsLeaveTheFileUnchanged) {
+TEST_F(TagWorldTest, NoTagsLeavesFileUnchanged) {
     auto actor = Spawn("Rock");
     const ordered_json data = Worlds::SerializeActorToJson(actor);
     EXPECT_FALSE(data.contains("tags"));
     EXPECT_FALSE(data["components"][0].contains("tags"));
 }
 
-TEST_F(TagWorldTest, TagsComeBackFromTheFile) {
+TEST_F(TagWorldTest, TagsReadFromFile) {
     auto actor = Spawn("Skeleton", { "Enemy.Undead.Skeleton" });
     actor->transform->GetTags().Add(T("Hitbox.Head"));
     const ordered_json data = Worlds::SerializeActorToJson(actor);
@@ -215,7 +208,7 @@ TEST_F(TagWorldTest, TagsComeBackFromTheFile) {
     EXPECT_EQ(world->FindComponentsWithTag(T("Hitbox")).size(), 1u);
 }
 
-TEST_F(TagWorldTest, RenamedAndUnknownTagsAreReadBack) {
+TEST_F(TagWorldTest, RenamedAndUnknownTagsRead) {
     TagRegistry::Get().SetRedirects({ { "Enemy.Undead.Skelly", "Enemy.Undead.Skeleton" } });
     const json data = json::parse(R"({ "name": "Old", "tags": ["Enemy.Undead.Skelly", "Weather.Rain"], "components": [] })");
 
@@ -223,14 +216,12 @@ TEST_F(TagWorldTest, RenamedAndUnknownTagsAreReadBack) {
     ASSERT_NE(loaded, nullptr);
     EXPECT_TRUE(loaded->GetTags().HasTagExact(T("Enemy.Undead.Skeleton")));
 
-    // The plugin that declares it is not loaded : the tag is written back as it was read
+    // The plugin declaring the tag is not loaded, so the tag is written back as it was read.
     const ordered_json saved = Worlds::SerializeActorToJson(loaded);
     EXPECT_EQ(saved["tags"], ordered_json::array({ "Enemy.Undead.Skeleton", "Weather.Rain" }));
 }
 
-// ---- Events ----
-
-TEST_F(TagWorldTest, ChangingTagsInALoadedWorldSendsAnEvent) {
+TEST_F(TagWorldTest, ChangeSendsEvent) {
     auto actor = Spawn("Grunt");
     world->SetLoaded(true);
 
@@ -245,13 +236,13 @@ TEST_F(TagWorldTest, ChangingTagsInALoadedWorldSendsAnEvent) {
     EXPECT_EQ(calls, 1);
     EXPECT_EQ(added, (TagContainer{ T("Status.Dead") }));
 
-    // Loading is quiet
+    // Loading is quiet, no event.
     actor->GetTags().Assign(TagContainer{ T("Player") }, true);
     EXPECT_EQ(calls, 1);
     world->SetLoaded(false);
 }
 
-TEST_F(TagWorldTest, ComponentEventsGoToTheComponent) {
+TEST_F(TagWorldTest, ComponentEventsGoToComponent) {
     auto actor = Spawn("Grunt");
     world->SetLoaded(true);
 
@@ -263,8 +254,6 @@ TEST_F(TagWorldTest, ComponentEventsGoToTheComponent) {
     EXPECT_EQ(calls, 1);
     world->SetLoaded(false);
 }
-
-// ---- Reflected fields ----
 
 namespace {
     struct Tagged {
@@ -280,7 +269,7 @@ namespace {
     }
 }
 
-TEST_F(TagWorldTest, ReflectedTagFieldsAreSavedByName) {
+TEST_F(TagWorldTest, ReflectedTagFieldsSavedByName) {
     FieldInfo damage = MakeField<Tag>("damageType", TypeID::Tag, offsetof(Tagged, damageType));
     FieldInfo immune = MakeField<TagContainer>("immune", TypeID::TagContainer, offsetof(Tagged, immune));
     FieldInfo affects = MakeField<TagQuery>("affects", TypeID::TagQuery, offsetof(Tagged, affects));
@@ -305,7 +294,7 @@ TEST_F(TagWorldTest, ReflectedTagFieldsAreSavedByName) {
     EXPECT_EQ(back.affects, in.affects);
 }
 
-TEST_F(TagWorldTest, AnInvalidQueryInAFileKeepsTheDefault) {
+TEST_F(TagWorldTest, InvalidFileQueryKeepsDefault) {
     FieldInfo affects = MakeField<TagQuery>("affects", TypeID::TagQuery, offsetof(Tagged, affects));
     const std::vector<FieldInfo*> fields = { &affects };
 
@@ -315,9 +304,7 @@ TEST_F(TagWorldTest, AnInvalidQueryInAFileKeepsTheDefault) {
     EXPECT_EQ(value.affects.ToString(), "Player");
 }
 
-// ---- Renames and references ----
-
-TEST_F(TagWorldTest, RemapRenamesEveryUseInTheWorld) {
+TEST_F(TagWorldTest, RemapRenamesAllUses) {
     world->GetTags().Add(T("Enemy.Boss"));
     auto actor = Spawn("Skeleton", { "Enemy.Undead.Skeleton", "Player" });
     actor->transform->GetTags().Add(T("Enemy.Boss"));
@@ -347,10 +334,10 @@ TEST_F(TagWorldTest, ReferencesAreListed) {
 
     found.clear();
     Worlds::CollectTagReferences(*world, T("Hitbox"), found);
-    EXPECT_EQ(found, (std::vector<std::string>{ "Boss > Transform" }));      // the class name
+    EXPECT_EQ(found, (std::vector<std::string>{ "Boss > Transform" }));
 }
 
-TEST_F(TagWorldTest, ReferencesAreFoundInAFile) {
+TEST_F(TagWorldTest, ReferencesFoundInFile) {
     const json data = json::parse(R"({
         "name": "w", "tags": ["Enemy.Boss"],
         "actors": [

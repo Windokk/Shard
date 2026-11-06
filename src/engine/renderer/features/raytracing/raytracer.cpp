@@ -61,7 +61,6 @@ namespace Shard::Engine::Rendering::Raytracing {
         pendingScene = RenderSnapshot();
         hasPending = false;
 
-        // The world's own sky and flat ambient, so a ray that leaves the scene sees what the viewport draws
         skyCube = sceneSnapshot.environment.skybox ? sceneSnapshot.environment.skybox->GetCubemap() : nullptr;
         ambientColor = sceneSnapshot.environment.ambientColor;
         display = sceneSnapshot.environment.display;
@@ -89,8 +88,6 @@ namespace Shard::Engine::Rendering::Raytracing {
         if (!scene.materials.empty())
             matBuffer->SetData(scene.materials.data(), (uint32_t)(scene.materials.size() * sizeof(GPUMaterial)));
 
-        // Lights : snapshot LightManager's current light list into our own SSBO rather than reusing its
-        // live buffer directly - keeps the raytracer decoupled from the real-time renderer's lifecycle.
         const auto& sceneLights = renderer->GetLightManager()->GetLights();
         flatLights.clear();
         flatLights.reserve(sceneLights.size());
@@ -102,7 +99,6 @@ namespace Shard::Engine::Rendering::Raytracing {
         if (!flatLights.empty())
             lightBuffer->SetData(flatLights.data(), (uint32_t)(flatLights.size() * sizeof(LightData)));
 
-        // ---- Output accumulation image ----
         TextureSpecifications outSpec;
         outSpec.width = settings.width;
         outSpec.height = settings.height;
@@ -114,7 +110,6 @@ namespace Shard::Engine::Rendering::Raytracing {
             for (auto& image : termImages)
                 image = Texture2D::Create(outSpec, nullptr);
 
-        // ---- Compute shader / pipeline ----
         Filesystem::Path shaderPath = Core::GetEngine().GetFileManager()->GetEngineResRoot() / "shaders/compute/path_trace.comp";
         shader = ComputeShader::Create(shaderPath);
         if (!shader || !shaderPath.Exists())
@@ -130,7 +125,6 @@ namespace Shard::Engine::Rendering::Raytracing {
         pipelineSpecs.debugName = "OfflineRaytracer";
         pipeline = renderer->GetOrAddComputePipeline(pipelineSpecs);
 
-        // ---- Camera basis (world-space, pre-scaled so primary rays only need forward + right*x + up*y) ----
         camPos = camera.position;
         camForward = camera.forward;
         camRight = camera.right;
@@ -144,9 +138,6 @@ namespace Shard::Engine::Rendering::Raytracing {
         groupsX = (settings.width + 7) / 8;
         groupsY = (settings.height + 7) / 8;
 
-        // Cap each dispatch to roughly kMaxGroupsPerDispatch workgroups (a full-width strip of rows) so
-        // a single Update() call stays cheap regardless of image resolution - see the member comment on
-        // rowsPerDispatch / tileGroupY.
         constexpr uint32_t kMaxGroupsPerDispatch = 512;
         rowsPerDispatch = std::max(1u, kMaxGroupsPerDispatch / std::max(groupsX, 1u));
         tileGroupY = 0;
@@ -157,15 +148,11 @@ namespace Shard::Engine::Rendering::Raytracing {
 
     void Raytracer::Update()
     {
-        // The scene build and the dispatches use the graphics API : they belong to the graphics thread, which the caller
-        // (the editor's UI, on the main thread) parks on meanwhile
         OnGraphicsThread([this] { UpdateOnGraphicsThread(); });
     }
 
     void Raytracer::UpdateOnGraphicsThread()
     {
-        // Deferred from Start() so a "Preparing..." frame gets presented before this blocking call - see
-        // BuildScene()'s comment on the header. Runs exactly once, on the first Update() after Start().
         if (status == RaytraceStatus::Preparing)
         {
             BuildScene();
@@ -175,10 +162,6 @@ namespace Shard::Engine::Rendering::Raytracing {
         if (status != RaytraceStatus::Rendering)
             return;
 
-        // Wall-clock, not a pure GPU timer : glDispatchCompute submits asynchronously, so this only
-        // reflects real GPU cost once the driver's submission queue backs up enough to make the CPU wait
-        // - but that's exactly the number that explains an observed editor stall, so it's more useful
-        // here than a GPU-side query would be for diagnosing "why does this feel frozen".
         auto updateStart = std::chrono::steady_clock::now();
 
         IRenderContext* renderer = Core::GetEngine().GetRenderContext();
@@ -197,7 +180,6 @@ namespace Shard::Engine::Rendering::Raytracing {
             for (uint32_t t = 0; t < 4; t++)
                 termImages[t]->BindImage(1 + t, TextureAccess::ReadWrite);
 
-        // The sky : a raw bind on a unit the forward pass never uses (see path_tracing.glsl's uSkyCube)
         const bool useSky = settings.useLevelSky && skyCube != nullptr;
         if (useSky)
             skyCube->Bind(45);
@@ -216,14 +198,11 @@ namespace Shard::Engine::Rendering::Raytracing {
         shader->SetInt("uMaxBounces", (int)settings.maxBounces);
         shader->SetVec3("uSkyColor", settings.skyColor);
 
-        // Only dispatch a strip of rowsPerDispatch workgroup-rows, not the whole image, so this call
-        // can't turn into a multi-second CPU stall (see rowsPerDispatch's declaration in raytracer.hpp).
+        // Dispatch only a strip of rows so one call cannot stall the CPU for seconds.
         uint32_t rowsThisDispatch = std::min(rowsPerDispatch, groupsY - tileGroupY);
         shader->SetVec2("uTileOffset", glm::vec2(0.0f, (float)(tileGroupY * 8)));
 
-        // ImageAccess : the next dispatch's imageLoad must see this dispatch's imageStore into the same
-        // accumulation image (successive dispatches, not a single one - GL doesn't order these for us
-        // without an explicit barrier).
+        // Next dispatch's imageLoad must see this dispatch's imageStore, GL does not order them.
         renderer->DispatchCompute(pipeline, groupsX, rowsThisDispatch, 1, MemoryBarrierBit::ImageAccess);
 
         tileGroupY += rowsThisDispatch;
@@ -243,17 +222,13 @@ namespace Shard::Engine::Rendering::Raytracing {
         if (currentSample < settings.samplesPerPixel)
             return;
 
-        // ---- Last sample : readback, normalize, export ----
-
-        // TextureUpdate : makes this dispatch's image writes visible to the host-side ReadPixels below
-        // (distinct from ImageAccess, which only orders GPU-side shader access).
+        // TextureUpdate makes the image writes visible to the host ReadPixels.
         renderer->GetRendererAPI()->MemoryBarrier(MemoryBarrierBit::TextureUpdate);
 
         std::vector<float> raw(outputImage->GetPixelDataSize() / sizeof(float));
         outputImage->ReadPixels(raw.data(), raw.size() * sizeof(float));
 
-        // uAccum stores (sum, sampleCount) per pixel, not an average (see path_trace.comp) - normalize
-        // to a mean and drop the alpha/count channel before writing out a plain RGB .hdr file.
+        // uAccum holds (sum, count) per pixel, normalize to a mean before writing the RGB .hdr.
         std::vector<float> rgb((size_t)settings.width * settings.height * 3);
         for (size_t i = 0; i < (size_t)settings.width * settings.height; i++)
         {
@@ -265,7 +240,6 @@ namespace Shard::Engine::Rendering::Raytracing {
 
         bool success = ImageExport::WriteHDR(outputPath, settings.width, settings.height, 3, rgb.data());
 
-        // The terms, normalized by the sample count of the picture (each of their pixels holds the sum of what the same paths found)
         if (success && settings.writeTerms)
         {
             std::vector<float> term(raw.size());

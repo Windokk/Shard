@@ -32,25 +32,23 @@ extern "C" {
 #define SHARD_PRIORITY_LATE     100
 #define SHARD_PRIORITY_LATEST   200
 
-typedef uint64_t ShardHookToken;    /* 0 is never valid */
+typedef uint64_t ShardHookToken;
 
 typedef struct ShardHookArgs {
     uint32_t structSize;
-    uint8_t  cancelled;             /* in : an earlier handler cancelled ; out : set it to 1 to cancel (a later handler may see it and set it back) */
+    uint8_t  cancelled;             // in: an earlier handler cancelled. out: set to 1 to cancel (a later handler may see it and reset it)
     uint8_t  reserved[3];
-    ShardStr name;                  /* the hook's name */
-    ShardStr subject;               /* see the table ; valid for the call */
+    ShardStr name;
+    ShardStr subject;
     ShardStr detail;
     uint64_t frame;
-    ShardStr reason;                /* out : why it was cancelled, copied when the handler returns */
+    ShardStr reason;
 } ShardHookArgs;
 
-/* thread : main */
 typedef void (SHARD_CALL *ShardHookFn)(void* user, ShardPluginCtx ctx, ShardHookArgs* hook);
 
 typedef struct ShardHooksApi {
     uint32_t structSize;
-    /* `name` from the table above (SHARD_E_NOT_FOUND otherwise). thread : main */
     ShardResult (SHARD_CALL *on)(ShardPluginCtx ctx, ShardStr name, int32_t priority, ShardHookFn fn, void* user, ShardHookToken* out);
     ShardResult (SHARD_CALL *off)(ShardPluginCtx ctx, ShardHookToken token);
 } ShardHooksApi;
@@ -59,4 +57,4 @@ typedef struct ShardHooksApi {
 }
 #endif
 
-#endif /* SHARD_HOOKS_H */
+#endif

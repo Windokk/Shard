@@ -83,7 +83,6 @@ namespace Shard::Engine::Rendering::VK {
             vkCmdCopyBuffer(cmd, staging.buffer, out.buffer, 1, &region);
         });
 
-        // The copy is done (ImmediateSubmit waits) : the staging buffer can go straight away
         VmaAllocator allocator = Context::Get().GetAllocator();
         vmaDestroyBuffer(allocator, staging.buffer, staging.allocation);
         return true;
@@ -107,7 +106,7 @@ namespace Shard::Engine::Rendering::VK {
 
         VkCommandBuffer cmd = context.Cmd();
 
-        // Only this buffer is concerned : a global barrier would also stall everything else in flight on the copy
+        // Barrier on this buffer only, a global one would stall everything in flight on the copy.
         auto barrier = [&](VkPipelineStageFlags2 srcStage, VkAccessFlags2 srcAccess, VkPipelineStageFlags2 dstStage, VkAccessFlags2 dstAccess)
         {
             VkBufferMemoryBarrier2 b{VK_STRUCTURE_TYPE_BUFFER_MEMORY_BARRIER_2};
@@ -127,7 +126,6 @@ namespace Shard::Engine::Rendering::VK {
             vkCmdPipelineBarrier2(cmd, &dependency);
         };
 
-        // What read the buffer before has to be done with it, then the copy has to be done before what reads it next
         barrier(VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT, VK_ACCESS_2_MEMORY_READ_BIT | VK_ACCESS_2_MEMORY_WRITE_BIT,
                 VK_PIPELINE_STAGE_2_ALL_TRANSFER_BIT, VK_ACCESS_2_TRANSFER_WRITE_BIT);
 
@@ -144,7 +142,6 @@ namespace Shard::Engine::Rendering::VK {
         Context& context = Context::Get();
         context.EnsureOutsideRendering();
 
-        // Host visible memory the GPU writes : a buffer of its own, mapped
         VkBufferCreateInfo info{VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO};
         info.size = size;
         info.usage = VK_BUFFER_USAGE_TRANSFER_DST_BIT;

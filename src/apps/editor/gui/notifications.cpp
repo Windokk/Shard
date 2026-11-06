@@ -12,15 +12,12 @@ namespace Shard::Editor::GUI::Notifications
 {
     namespace
     {
-        // ImGuiNotify auto-dismisses after NOTIFY_DEFAULT_DISMISS ms. A progress toast is inserted
-        // with this much longer window AND has its creation clock refreshed on every UpdateProgress(),
-        // so in practice it only ever disappears when EndProgress() shortens it. This value is just the
-        // safety net for a caller that starts a progress toast and then goes silent forever.
+        // Safety net for a caller that starts a progress toast and goes silent. Progress toasts get a long window and a refreshed clock on every UpdateProgress, EndProgress shortens it.
         constexpr int kStickyDismissMs = 60 * 1000;
 
         struct ProgressEntry
         {
-            int         toastId  = -1;   // id inside ImGuiNotify, or -1 once the toast has expired
+            int         toastId  = -1;
             std::string title;
             std::string message;
             float       progress = 0.0f;
@@ -34,9 +31,7 @@ namespace Shard::Editor::GUI::Notifications
             char buffer[1024];
             vsnprintf(buffer, sizeof(buffer), fmt, args);
 
-            // Pass a const char* so overload resolution can't pick ImGuiToast's private
-            // setContent(const char*, va_list) - on the MS x64 ABI va_list is char*, which a plain
-            // char[] argument would bind to.
+            // Pass a const char* so overload resolution can't pick ImGuiToast's private setContent(const char*, va_list). On MS x64 va_list is char*, which a plain char[] would bind to.
             const char* message = buffer;
 
             ImGuiToast toast(type, NOTIFY_DEFAULT_DISMISS);
@@ -44,8 +39,6 @@ namespace Shard::Editor::GUI::Notifications
             ImGui::InsertNotification(toast);
         }
 
-        // Returns the live toast backing `entry`, recreating it if it expired while the caller was
-        // between updates (e.g. a long stall with no UpdateProgress() calls). Never returns nullptr.
         ImGuiToast* ResolveToast(ProgressEntry& entry)
         {
             if (ImGuiToast* toast = ImGui::FindNotification(entry.toastId))

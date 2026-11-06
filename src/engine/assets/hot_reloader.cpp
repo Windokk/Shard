@@ -25,7 +25,6 @@ namespace Shard::Engine::Assets {
 
     namespace {
 
-        // Engine resources have IDs below kFirstProjectAssetID : only project assets are added, renamed, removed.
         using Filesystem::kFirstProjectAssetID;
 
         std::string LowerExtension(const std::string& path)
@@ -54,7 +53,6 @@ namespace Shard::Engine::Assets {
             return slash == std::string::npos ? path : path.substr(slash + 1);
         }
 
-        /// Files an editor or the OS leaves around while it works : never assets.
         bool IsTransient(const std::string& path)
         {
             const std::string name = FileName(path);
@@ -75,7 +73,6 @@ namespace Shard::Engine::Assets {
             return fs::is_directory(fs::u8path(path), ec);
         }
 
-        // What this process wrote : path -> (last write time, size) as they were right after the write
         struct WriteStamp {
             fs::file_time_type time;
             uintmax_t size = 0;
@@ -112,7 +109,6 @@ namespace Shard::Engine::Assets {
             return it != g_OwnWrites.end() && it->second.time == now.time && it->second.size == now.size;
         }
 
-        /// The file can be opened and has content : whoever writes it is done (or at least not holding it exclusively).
         bool IsReadable(const std::string& path, bool& empty)
         {
             std::ifstream in(fs::u8path(path), std::ios::binary | std::ios::ate);
@@ -150,7 +146,6 @@ namespace Shard::Engine::Assets {
 
         std::vector<std::string> names{ nameInProject };
 
-        // What depends on it, in the asset database (a material lists its textures and shader)
         const AssetID id = m_Config.ids->GetIDFromNameInProject(nameInProject);
         auto info = m_Config.ids->GetAssetFromID(id);
         if(info && info->baseInfos.nameInProject == nameInProject){
@@ -160,7 +155,6 @@ namespace Shard::Engine::Assets {
             }
         }
 
-        // A listener may add or remove listeners
         const auto listeners = m_Listeners;
         for(const std::string& name : names){
             for(const auto& [listenerID, listener] : listeners)
@@ -217,10 +211,6 @@ namespace Shard::Engine::Assets {
         m_Running = false;
     }
 
-    // ---------------------------------------------------------------------------------------------
-    // Gathering
-    // ---------------------------------------------------------------------------------------------
-
     void HotReloader::Ingest(const FileChange& change, bool engine)
     {
         const auto now = std::chrono::steady_clock::now();
@@ -239,7 +229,7 @@ namespace Shard::Engine::Assets {
             case FileChangeKind::Created:
             {
                 if(Entry* e = find(change.path); e && e->kind == FileChangeKind::Deleted){
-                    // Deleted then written again : a safe-save, the asset was only modified
+                    // Deleted then written again is a safe-save, so the asset was only modified
                     e->kind = FileChangeKind::Modified;
                     e->last = now;
                     return;
@@ -259,11 +249,11 @@ namespace Shard::Engine::Assets {
             case FileChangeKind::Deleted:
             {
                 if(Entry* e = find(change.path)){
-                    if(e->kind == FileChangeKind::Created){      // never applied : it came and went
+                    if(e->kind == FileChangeKind::Created){
                         erase(e);
                         return;
                     }
-                    if(e->kind == FileChangeKind::Renamed){      // renamed then deleted : the original is gone
+                    if(e->kind == FileChangeKind::Renamed){
                         e->path = e->oldPath;
                         e->oldPath.clear();
                     }
@@ -276,7 +266,6 @@ namespace Shard::Engine::Assets {
             }
             case FileChangeKind::Renamed:
             {
-                // A file written under a temporary name, then renamed onto the real one
                 if(Entry* e = find(change.oldPath); e && (e->kind == FileChangeKind::Created || e->kind == FileChangeKind::Modified))
                     erase(e);
                 m_Entries.push_back({ FileChangeKind::Renamed, change.path, change.oldPath, engine, now, 0 });
@@ -314,10 +303,10 @@ namespace Shard::Engine::Assets {
         for(Entry& entry : ready){
             if(!Apply(entry)){
                 entry.last = std::chrono::steady_clock::now();
-                m_Entries.push_back(std::move(entry));      // not ready yet (still being written) : again later
+                m_Entries.push_back(std::move(entry));
             }
             else if(!entry.engine && entry.kind != FileChangeKind::Modified)
-                m_Revision++;                               // a listing of the folders (the asset browser) is out of date
+                m_Revision++;
         }
 
         if(m_DatabaseDirty){
@@ -344,7 +333,7 @@ namespace Shard::Engine::Assets {
 
                 std::error_code ec;
                 if(!fs::exists(fs::u8path(entry.path), ec))
-                    return true;                        // gone again before we got to it
+                    return true;
 
                 bool empty = false;
                 if(!IsReadable(entry.path, empty) || (empty && entry.attempts < 5)){
@@ -377,13 +366,9 @@ namespace Shard::Engine::Assets {
         return true;
     }
 
-    // ---------------------------------------------------------------------------------------------
-    // Applying
-    // ---------------------------------------------------------------------------------------------
-
     std::string HotReloader::NameOf(const std::string& path) const
     {
-        // The path under the watched root it came from. Not GetFileInfos : it looks at the file, which a deleted one no longer is.
+        // Not GetFileInfos: it looks at the file, which a deleted one no longer is.
         for(const Root& root : m_Roots){
             if(path.size() > root.path.size() && path.compare(0, root.path.size(), root.path) == 0 && path[root.path.size()] == '/')
                 return path.substr(root.path.size() + 1);
@@ -440,7 +425,6 @@ namespace Shard::Engine::Assets {
         if(name.empty())
             return;
 
-        // Already known (written again after a delete, or created by the editor itself) : its content may have changed
         const AssetID id = m_Config.ids->GetIDFromNameInProject(name);
         auto info = m_Config.ids->GetAssetFromID(id);
         if(info && info->baseInfos.nameInProject == name){
@@ -461,7 +445,6 @@ namespace Shard::Engine::Assets {
             return;
 
         if(!engine){
-            // Written by something that never told us it exists
             const AssetID id = m_Config.ids->GetIDFromNameInProject(name);
             auto info = m_Config.ids->GetAssetFromID(id);
             if(!info || info->baseInfos.nameInProject != name){
@@ -499,7 +482,6 @@ namespace Shard::Engine::Assets {
         else if(ext == ".comp")
             reload(AssetKind::ComputeShader, WithoutExtension(name), true);
         else if(ext == ".glsl"){
-            // Included by an unknown number of shaders
             for(const std::string& key : resources->ResidentPaths(AssetKind::Shader))
                 reload(AssetKind::Shader, key, true);
             for(const std::string& key : resources->ResidentPaths(AssetKind::ComputeShader))
@@ -530,7 +512,6 @@ namespace Shard::Engine::Assets {
             return;
         }
         else if(ext == ".probes" || ext == ".lightmap"){
-            // Only read when a world comes up : what is cached is dropped, and the worlds that use it start over
             const AssetKind kind = ext == ".probes" ? AssetKind::ProbeBake : AssetKind::Lightmap;
             const ResourceKey key{ kind, name };
             const std::vector<ResourceKey> owners = resources->ResidentOwnersOf(key);
@@ -543,13 +524,13 @@ namespace Shard::Engine::Assets {
             return;
         }
         else if(ext == ".wav" || ext == ".mp3" || ext == ".ogg"){
-            NotifyChanged(name);       // nothing is loaded for it here, but its thumbnail is out of date
+            NotifyChanged(name);
             return;
         }
         else
             return;
 
-        // A material stores the GL handle of its textures and was built against its shader's uniforms : read it again
+        // A material stores GL handles of its textures and was built against its shader's uniforms, so read it again.
         std::set<std::string> materials;
         for(const ResourceKey& key : reloaded){
             if(key.kind != AssetKind::Texture && key.kind != AssetKind::ColorTexture && key.kind != AssetKind::Shader)
@@ -581,7 +562,7 @@ namespace Shard::Engine::Assets {
                 affected.emplace_back(id, assetName);
         }
         if(affected.empty())
-            return;     // nothing registered : the editor already dealt with it
+            return;
 
         int removed = 0;
         for(auto& [id, assetName] : affected){
@@ -609,7 +590,6 @@ namespace Shard::Engine::Assets {
         const std::string newName = NameOf(newPath);
 
         if(newName.empty()){
-            // Moved out of the resources
             if(!oldName.empty())
                 ApplyDeleted(oldPath);
             return;
@@ -631,13 +611,11 @@ namespace Shard::Engine::Assets {
         }
 
         if(affected.empty()){
-            // Not an asset we knew : a file that appeared under its final name (written to a temporary one first), or moved in
             if(isDirectory){
                 RegisterPath(newPath);
                 return;
             }
 
-            // Already registered under the new name and renamed without changing its type : the editor moved it itself
             const AssetID known = m_Config.ids->GetIDFromNameInProject(newName);
             auto knownInfo = m_Config.ids->GetAssetFromID(known);
             const bool registered = knownInfo && knownInfo->baseInfos.nameInProject == newName;
@@ -653,7 +631,6 @@ namespace Shard::Engine::Assets {
             if(m_Config.resources->IsInUse(assetOldName))
                 inUse = true;
 
-            // The asset keeps its ID : dependency lists and everything else that stored it stay valid
             const std::string assetNewName = newName + assetOldName.substr(oldName.size());
             info->baseInfos = m_Config.files->GetFileInfos(Path(projectRoot + "/" + assetNewName, true));
             info->baseInfos.ID = id;

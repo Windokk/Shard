@@ -8,8 +8,6 @@
 
 namespace Shard::Engine::Plugins {
 
-    // ---- PluginContext ----
-
     PluginContext::PluginContext(const PluginManifest& manifest, PluginOwner owner, Host host, HostBindings bindings)
         : m_Manifest(&manifest), m_Owner(owner), m_Host(host), m_B(std::move(bindings)),
           m_Memory(m_B, uint64_t(manifest.budgetMemoryMB * 1024.0 * 1024.0), manifest.enforceBudgets)
@@ -18,10 +16,7 @@ namespace Shard::Engine::Plugins {
 
     PluginContext::~PluginContext() { ReleaseAll(); }
 
-    // ---- PluginMemory ----
-
     namespace {
-        // The size goes in front of the block, in a header as big as the alignment asks (16 at least)
         size_t HeaderSize(size_t align) { return align < 16 ? 16 : align; }
     }
 
@@ -54,7 +49,6 @@ namespace Shard::Engine::Plugins {
     {
         if (!pointer) return;
         unsigned char* block = static_cast<unsigned char*>(pointer);
-        // Allocate left the size and the alignment in the 16 bytes before the block
         const uint64_t size = reinterpret_cast<const uint64_t*>(block - 16)[0];
         const size_t header = HeaderSize(size_t(reinterpret_cast<const uint64_t*>(block - 16)[1]));
         unsigned char* raw = block - header;
@@ -79,7 +73,7 @@ namespace Shard::Engine::Plugins {
     {
         if (m_Released) return;
         m_Released = true;
-        // Last registered, first removed : what was built on something goes before it
+        // Last registered, first removed
         for (auto it = m_Records.rbegin(); it != m_Records.rend(); ++it) {
             try {
                 if (it->release) it->release();
@@ -99,7 +93,7 @@ namespace Shard::Engine::Plugins {
     {
         std::vector<std::pair<std::string, size_t>> out;
         for (const Record& r : m_Records) {
-            if (r.kind == "release") continue;      // OnRelease : bookkeeping, not something the plugin added
+            if (r.kind == "release") continue;
             auto it = std::find_if(out.begin(), out.end(), [&](const auto& p) { return p.first == r.kind; });
             if (it == out.end()) out.push_back({ r.kind, 1 });
             else ++it->second;
@@ -174,8 +168,6 @@ namespace Shard::Engine::Plugins {
         }
     }
 
-    // ---- ComponentRegistrar ----
-
     bool ComponentRegistrar::Register(const std::string& name, Objects::Components::ComponentFactory factory)
     {
         auto* registry = m_Ctx.m_B.components;
@@ -221,8 +213,6 @@ namespace Shard::Engine::Plugins {
         return AdoptNewSince(before);
     }
 
-    // ---- SystemRegistrar ----
-
     std::string SystemRegistrar::NameOf(const std::string& name) const { return m_Ctx.Id() + "/" + name; }
 
     std::string SystemRegistrar::Add(Core::Ecs::SystemDesc desc, Core::Ecs::SystemFn fn)
@@ -246,7 +236,6 @@ namespace Shard::Engine::Plugins {
             m_Ctx.Warn("system '" + local + "' has no function");
             return {};
         }
-        // Every call into the plugin's system names the plugin (for a crash report) and keeps an exception from reaching the scheduler
         {
             Core::Ecs::SystemFn inner = std::move(desc.run);
             std::atomic<uint32_t>* active = m_Ctx.m_B.activePlugin;
@@ -306,11 +295,8 @@ namespace Shard::Engine::Plugins {
         auto it = std::find(names.begin(), names.end(), full);
         if (it == names.end() || !m_Ctx.m_B.scheduler) return false;
         names.erase(it);
-        // The record stays : removing a system that is gone already is harmless
         return m_Ctx.m_B.scheduler->Remove(full);
     }
-
-    // ---- EventRegistrar ----
 
     Events::EventDispatcher* EventRegistrar::Dispatcher() const { return m_Ctx.m_B.events; }
 
@@ -368,7 +354,6 @@ namespace Shard::Engine::Plugins {
     bool EventRegistrar::DescribeNamed(const std::string& name, Events::NamedEventLayout layout)
     {
         if (Dispatcher()) {
-            // Defer runs it at once when there is a dispatcher, and makes sure the plugin's events go with it
             bool described = false;
             Defer("describe:" + name, [&](Events::EventDispatcher& d, Events::EventDispatcher::Owner owner) { described = d.describeNamed(name, layout, owner); });
             return described;
@@ -396,8 +381,6 @@ namespace Shard::Engine::Plugins {
         return true;
     }
 
-    // ---- HookRegistrarApi ----
-
     bool HookRegistrarApi::Off(HookRegistry::Token token)
     {
         auto it = std::find(m_Tokens.begin(), m_Tokens.end(), token);
@@ -405,8 +388,6 @@ namespace Shard::Engine::Plugins {
         m_Tokens.erase(it);
         return m_Ctx.m_B.hooks->Remove(token);
     }
-
-    // ---- CommandRegistrar / CVarRegistrar ----
 
     bool CommandRegistrar::Add(const std::string& name, const std::string& help, Core::CVarRegistry::CommandFn fn)
     {
@@ -438,8 +419,6 @@ namespace Shard::Engine::Plugins {
     {
         return Make<std::string>(name, value, help, flags);
     }
-
-    // ---- WorldRegistrar / AssetRegistrar ----
 
     bool WorldRegistrar::AddExtension(std::type_index type, Worlds::WorldExtensionFactory factory)
     {

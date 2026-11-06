@@ -36,7 +36,6 @@ namespace Shard::Engine::Core::Platform {
         bool IsConnectionClosed(int e) { return e == WSAECONNRESET || e == WSAECONNABORTED || e == WSAESHUTDOWN || e == WSAENOTCONN; }
         void CloseHandle_(Handle h) { closesocket(h); }
 
-        // Winsock has to be started once, and stopped when the last socket is gone.
         std::mutex g_WinsockMutex;
         int g_WinsockUsers = 0;
         bool AcquireNetwork()
@@ -102,7 +101,6 @@ namespace Shard::Engine::Core::Platform {
             return { host, ntohs(in.sin_port) };
         }
 
-        // Waits for the socket to become readable (events = POLLIN) or writable (POLLOUT)
         bool WaitFor(Handle h, short events, int timeoutMs)
         {
         #if defined(_WIN32)
@@ -205,7 +203,6 @@ namespace Shard::Engine::Core::Platform {
             return nullptr;
         }
 
-        // The accepted socket is one more user of the network layer
         AcquireNetwork();
         std::unique_ptr<Socket> socket(new Socket());
         socket->m_Type = SocketType::TCP;
@@ -231,7 +228,6 @@ namespace Shard::Engine::Core::Platform {
             return true;
         }
 
-        // With a timeout : connect in non blocking mode and wait for the socket to become writable
         SetBlocking(false);
         bool connected = ::connect(ToHandle(m_Handle), reinterpret_cast<sockaddr*>(&addr), sizeof(addr)) == 0;
         if (!connected && IsInProgress(LastNetworkError()))
@@ -293,7 +289,7 @@ namespace Shard::Engine::Core::Platform {
             return IsConnectionClosed(m_LastError) ? SocketStatus::Closed : SocketStatus::Error;
         }
         if (result == 0 && m_Type == SocketType::TCP && size > 0)
-            return SocketStatus::Closed;    // orderly shutdown by the peer
+            return SocketStatus::Closed;
         if (received) *received = static_cast<size_t>(result);
         return SocketStatus::Ok;
     }
@@ -334,7 +330,7 @@ namespace Shard::Engine::Core::Platform {
         {
             m_LastError = LastNetworkError();
         #if defined(_WIN32)
-            // a previous send to a closed port is reported on the next receive of a UDP socket : not an error of this one
+            // UDP reports an earlier send to a closed port on the next receive. Not an error of this socket.
             if (m_LastError == WSAECONNRESET)
                 return SocketStatus::WouldBlock;
         #endif

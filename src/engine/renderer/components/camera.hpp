@@ -10,8 +10,8 @@ namespace Shard::Engine::Objects::Components {
     
     struct Plane
     {
-        glm::vec3 normal = { 0.f, 1.f, 0.f }; // unit vector
-        float     d = 0.f;        // Distance with origin
+        glm::vec3 normal = { 0.f, 1.f, 0.f };
+        float     d = 0.f;
 
         Plane() = default;
 
@@ -107,7 +107,6 @@ namespace Shard::Engine::Objects::Components {
                 return glm::vec2(width, height);
             }
 
-            // Smallest near plane a perspective camera may use (matches the viewport's slider minimum)
             static constexpr float MIN_NEAR_PLANE = 0.01f;
 
             FIELD(Editable, tooltip=Farthest distance that is rendered)
@@ -130,16 +129,13 @@ namespace Shard::Engine::Objects::Components {
 
         private:
 
-            // A perspective projection needs 0 < near < far : with near == 0 every depth collapses onto the
-            // far plane and the scene disappears, and the shadow cascade splits turn into NaN.
+            // Perspective needs 0 < near < far. With near == 0 all depth collapses onto the far plane and the cascade splits turn into NaN.
             void SanitizePlanes();
 
-            // Matrices
             glm::mat4 view;
             glm::mat4 projection;
             glm::mat4 cameraMatrix = glm::mat4(1.0f);
 
-            // Store the width and height of the cam
             int width = 0;
             int height = 0;
 

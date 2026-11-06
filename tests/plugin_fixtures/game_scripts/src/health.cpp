@@ -18,7 +18,7 @@ void Health::OnTick(float deltaTime)
 {
     ++GetStats().ticks;
     GetStats().lastDt = deltaTime;
-    // Dead : the actor goes, and this script with it, in the middle of the world's tick
+    // Dead: the actor goes, and this script with it, in the middle of the world's tick.
     if (current <= 0.f) Owner().Destroy();
 }
 

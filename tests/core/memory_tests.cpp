@@ -38,10 +38,10 @@ TEST(LinearAllocator, AllocatesAlignedAndInOrder) {
     EXPECT_TRUE(arena.Owns(a));
 }
 
-TEST(LinearAllocator, ReturnsNullWhenFullAndResetFreesEverything) {
+TEST(LinearAllocator, ReturnsNullWhenFull) {
     LinearAllocator arena(256);
     EXPECT_NE(arena.Allocate(200, 1), nullptr);
-    EXPECT_EQ(arena.Allocate(100, 1), nullptr);          // does not fit : no growth
+    EXPECT_EQ(arena.Allocate(100, 1), nullptr);
     EXPECT_EQ(arena.PeakUsed(), 200u);
     arena.Reset();
     EXPECT_EQ(arena.Used(), 0u);
@@ -54,7 +54,7 @@ TEST(LinearAllocator, NewAndNewArray) {
     Point* p = arena.New<Point>();
     EXPECT_EQ(p->x, 1);
     int* values = arena.NewArray<int>(10);
-    for (int i = 0; i < 10; ++i) EXPECT_EQ(values[i], 0);   // value-initialised
+    for (int i = 0; i < 10; ++i) EXPECT_EQ(values[i], 0);
 }
 
 TEST(LinearAllocator, WrapsAnExternalBuffer) {
@@ -65,18 +65,18 @@ TEST(LinearAllocator, WrapsAnExternalBuffer) {
     EXPECT_LT(p, static_cast<void*>(buffer + sizeof(buffer)));
 }
 
-TEST(StackAllocator, FreeGivesBackOnlyTheLatestAllocation) {
+TEST(StackAllocator, FreeGivesBackLatest) {
     StackAllocator stack(1024);
     void* a = stack.Allocate(32);
     void* b = stack.Allocate(32);
     const size_t usedWithBoth = stack.Used();
-    EXPECT_FALSE(stack.Free(a));                     // not the latest
+    EXPECT_FALSE(stack.Free(a));
     EXPECT_EQ(stack.Used(), usedWithBoth);
     EXPECT_TRUE(stack.Free(b));
     EXPECT_LT(stack.Used(), usedWithBoth);
     EXPECT_TRUE(stack.Free(a));
     EXPECT_EQ(stack.Used(), 0u);
-    EXPECT_FALSE(stack.Free(a));                     // already gone
+    EXPECT_FALSE(stack.Free(a));
 }
 
 TEST(StackAllocator, MarkerRewindsEverythingSince) {
@@ -87,7 +87,7 @@ TEST(StackAllocator, MarkerRewindsEverythingSince) {
     stack.Allocate(100);
     stack.RewindTo(marker);
     EXPECT_EQ(stack.GetMarker(), marker);
-    EXPECT_TRUE(stack.Free(keep));                   // the surviving allocation is the latest again
+    EXPECT_TRUE(stack.Free(keep));
 }
 
 TEST(StackAllocator, ScopedStackRewindsOnExit) {
@@ -131,20 +131,20 @@ TEST(PoolAllocator, FreedBlocksAreReused) {
     void* a = pool.Allocate();
     pool.Allocate();
     EXPECT_TRUE(pool.Free(a));
-    EXPECT_EQ(pool.Allocate(), a);                   // LIFO free list
+    EXPECT_EQ(pool.Allocate(), a);
     EXPECT_EQ(pool.InUse(), 2u);
     EXPECT_EQ(pool.PeakInUse(), 2u);
 }
 
-TEST(PoolAllocator, RejectsDoubleFreeAndForeignPointers) {
+TEST(PoolAllocator, RejectsDoubleFree) {
     PoolAllocator pool(16, 4);
     void* a = pool.Allocate();
     EXPECT_TRUE(pool.Free(a));
-    EXPECT_FALSE(pool.Free(a));                      // double free
+    EXPECT_FALSE(pool.Free(a));
     int local;
-    EXPECT_FALSE(pool.Free(&local));                 // not ours
+    EXPECT_FALSE(pool.Free(&local));
     char* inside = static_cast<char*>(pool.Allocate()) + 1;
-    EXPECT_FALSE(pool.Free(inside));                 // inside a block, not at its start
+    EXPECT_FALSE(pool.Free(inside));
     EXPECT_FALSE(pool.Free(nullptr));
 }
 
@@ -173,7 +173,7 @@ TEST(ObjectPool, ConstructsAndDestroysObjects) {
     EXPECT_EQ(pool.Size(), 2u);
     EXPECT_TRUE(pool.Destroy(a));
     EXPECT_EQ(alive, 1);
-    EXPECT_FALSE(pool.Destroy(a));                   // already destroyed
+    EXPECT_FALSE(pool.Destroy(a));
     (void)b;
 }
 
@@ -213,34 +213,34 @@ TEST(FrameAllocator, AllocationsAreDisjointAcrossThreads) {
     std::set<uint32_t*> unique;
     for (int t = 0; t < kThreads; ++t)
         for (int i = 0; i < kPerThread; ++i) {
-            EXPECT_EQ(*results[t][i], uint32_t(t * kPerThread + i));   // nobody overwrote anybody
+            EXPECT_EQ(*results[t][i], uint32_t(t * kPerThread + i));
             unique.insert(results[t][i]);
         }
     EXPECT_EQ(unique.size(), size_t(kThreads * kPerThread));
     EXPECT_EQ(frame.OverflowCount(), 0u);
 }
 
-TEST(FrameAllocator, DataLivesForTheConfiguredNumberOfFrames) {
+TEST(FrameAllocator, DataLivesConfiguredFrames) {
     FrameAllocator frame(1024, 2);
     int* mine = frame.New<int>(42);
     frame.NextFrame();
-    EXPECT_EQ(*mine, 42);                            // still valid one frame later (2 buffers)
+    EXPECT_EQ(*mine, 42);
     int* next = frame.New<int>(7);
     EXPECT_NE(next, mine);
-    EXPECT_EQ(*mine, 42);                            // the new frame allocates elsewhere
-    frame.NextFrame();                               // back to the first buffer : cleared
+    EXPECT_EQ(*mine, 42);
+    frame.NextFrame();
     EXPECT_EQ(frame.UsedThisFrame(), 0u);
     EXPECT_EQ(frame.FrameNumber(), 2u);
 }
 
-TEST(FrameAllocator, OverflowFallsBackToTheHeap) {
+TEST(FrameAllocator, OverflowFallsBackToHeap) {
     FrameAllocator frame(128, 1);
     EXPECT_NE(frame.Allocate(100, 1), nullptr);
-    void* big = frame.Allocate(1000, 8);             // does not fit
+    void* big = frame.Allocate(1000, 8);
     ASSERT_NE(big, nullptr);
-    std::memset(big, 0xAB, 1000);                    // really usable memory
+    std::memset(big, 0xAB, 1000);
     EXPECT_EQ(frame.OverflowCount(), 1u);
-    frame.NextFrame();                               // frees the overflow
+    frame.NextFrame();
     EXPECT_EQ(frame.UsedThisFrame(), 0u);
 }
 
@@ -253,7 +253,7 @@ TEST(FrameAllocator, TracksThePeakBudget) {
     EXPECT_GE(frame.PeakPerFrame(), 300u);
 }
 
-TEST(MemoryTracker, RecordsLeaksAndStatsByTag) {
+TEST(MemoryTracker, RecordsLeaksAndStats) {
     MemoryTracker& tracker = MemoryTracker::Get();
     const bool wasEnabled = tracker.IsEnabled();
     tracker.Reset();
@@ -298,7 +298,7 @@ TEST(MemoryTracker, AllocatorsRegisterTheirBuffers) {
         EXPECT_EQ(tracker.GetStats()[0].tag, "TestArena");
         EXPECT_EQ(tracker.LiveBytes(), 4096u);
     }
-    EXPECT_EQ(tracker.LiveCount(), 0u);              // the destructor freed it : no leak
+    EXPECT_EQ(tracker.LiveCount(), 0u);
     tracker.Reset();
     tracker.SetEnabled(wasEnabled);
 }

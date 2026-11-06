@@ -25,7 +25,6 @@ namespace Shard::Engine::Debugging{
         Logger(const Logger&) = delete;
         Logger& operator=(const Logger&) = delete;
 
-        // Provide access to the singleton instance (only used for initilization)
         static Logger& GetInstance() {
             static Logger instance;
             return instance;
@@ -49,9 +48,7 @@ namespace Shard::Engine::Debugging{
 
             std::string output = ss.str();
 
-            // Log() is reachable from background asset-decode worker threads (e.g. ReadFile/stbi/ufbx
-            // failure paths during async level loading) as well as the main thread, so the whole body
-            // (sinks, std::cout, logFile) needs to be serialized.
+            // Log() is reached from asset-decode worker threads too, so the whole body is serialized
             {
                 std::lock_guard<std::mutex> lock(logMutex);
 
@@ -63,7 +60,7 @@ namespace Shard::Engine::Debugging{
                     logFile << output << std::endl;
             }
 
-            // Outside the lock : waiting for Enter while holding it blocked every other thread that logs
+            // Outside the lock: waiting for Enter while holding it blocked every thread that logs
             if (level == Level::Fatal) {
                 std::cout << "Fatal error! Press Enter to exit..." << std::endl;
                 std::cin.get();
@@ -92,7 +89,6 @@ namespace Shard::Engine::Debugging{
 
     #if defined(BUILD_ENGINE)
 
-        // Used by the EXE/engine
         inline Logger* gSharedLoggerPtr = nullptr;
 
         inline void SetLogger(Logger* ptr) {
@@ -105,7 +101,6 @@ namespace Shard::Engine::Debugging{
 
     #elif defined(BUILD_GAME)
 
-        // Used by the Game Module DLL
         inline Logger* gSharedLoggerPtr = nullptr;
 
         inline void SetLogger(Logger* ptr) {

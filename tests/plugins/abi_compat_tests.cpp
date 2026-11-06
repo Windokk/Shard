@@ -12,10 +12,7 @@
 #include "engine/plugins/manager.hpp"
 #include "plugins/plugin_test_utils.hpp"
 
-// Compatibility of the C ABI across its revisions, and what the host does with garbage :
-//   - a plugin built against the frozen 1.0 headers (tests/plugin_fixtures/abi_1_0) loads and works in this engine (1.x, x >= 0) ;
-//   - a plugin built against these headers (1.1) is refused by an engine of 1.0 ;
-//   - the loader and every function of every table survive inconsistent structs, null pointers and handles that mean nothing.
+// Cross-revision C ABI compat: frozen 1.0 plugins load here, a 1.1 plugin is refused by a 1.0 engine, and the loader survives garbage structs, nulls and meaningless handles.
 
 using namespace Shard::Engine;
 using namespace Shard::Engine::Plugins;
@@ -38,7 +35,6 @@ namespace {
         Fn Export(const char* id, const char* name) { return pm().Find(id)->library.Symbol<Fn>(name); }
 
         PluginManagerConfig config;
-        // Members : the plugins' systems are removed from them in TearDown
         Core::Ecs::Scheduler scheduler;
         Events::EventDispatcher events;
     };
@@ -46,7 +42,7 @@ namespace {
     ShardStr S(const char* text) { return ShardStr{ text, std::strlen(text) }; }
 }
 
-TEST_F(AbiCompatTest, APluginOfTheAbi10LoadsAndWorksInThisEngine)
+TEST_F(AbiCompatTest, Abi10PluginLoads)
 {
     const char* id = "shard.test.abi10";
     config.pluginPaths.push_back(FixtureDir(id));
@@ -59,12 +55,11 @@ TEST_F(AbiCompatTest, APluginOfTheAbi10LoadsAndWorksInThisEngine)
     EXPECT_EQ(Export<int (*)()>(id, "abi10_setup")(), 0);
     EXPECT_STREQ(Export<const char* (*)()>(id, "abi10_id")(), id);
 
-    // The tables grew since : the plugin was handed the bigger one, and reads only the part it knows
+    // The tables grew since: the plugin got the bigger one and reads only the part it knows.
     EXPECT_LT(Export<unsigned (*)()>(id, "abi10_own_plugin_api_size")(), Export<unsigned (*)()>(id, "abi10_host_plugin_api_size")());
     EXPECT_EQ(Export<unsigned (*)()>(id, "abi10_host_plugin_api_size")(), sizeof(ShardPluginApi));
-    EXPECT_EQ(Export<unsigned (*)()>(id, "abi10_own_callbacks_size")(), sizeof(ShardPluginCallbacks));     // unchanged in 1.1
+    EXPECT_EQ(Export<unsigned (*)()>(id, "abi10_own_callbacks_size")(), sizeof(ShardPluginCallbacks));
 
-    // Its system runs over its component
     pm().OnEngineSystemsReady(nullptr, &scheduler, &events);
     pm().OnEngineInitialized();
     ASSERT_EQ(r->state, PluginState::Enabled) << r->error;
@@ -79,9 +74,8 @@ TEST_F(AbiCompatTest, APluginOfTheAbi10LoadsAndWorksInThisEngine)
     EXPECT_FLOAT_EQ(static_cast<const float*>(registry.GetRaw(e, type))[0], 2.0f);
 }
 
-TEST_F(AbiCompatTest, APluginOfTheCurrentAbiIsRefusedByAnEngineOf10)
+TEST_F(AbiCompatTest, NewAbiRefusedByOldEngine)
 {
-    // What the 1.1 plugin's entry point fills, checked the way a 1.0 engine would
     config.pluginPaths.push_back(FixtureDir("shard.test.cplugin"));
     ASSERT_TRUE(pm().Startup(config));
     PluginRecord* r = pm().Find("shard.test.cplugin");
@@ -92,30 +86,28 @@ TEST_F(AbiCompatTest, APluginOfTheCurrentAbiIsRefusedByAnEngineOf10)
     std::memset(&info, 0, sizeof(info));
     ASSERT_EQ(entry(GetCHostApi(), &info), SHARD_OK);
     EXPECT_EQ(info.abiMinor, uint32_t(SHARD_ABI_MINOR));
-    EXPECT_EQ(ValidateCPluginInfo(info), "");                       // this engine : fine
+    EXPECT_EQ(ValidateCPluginInfo(info), "");
     EXPECT_EQ(ValidateCPluginInfo(info, 0), "built for the C ABI 1." + std::to_string(SHARD_ABI_MINOR) + ", this engine has 1.0");
 }
 
-TEST_F(AbiCompatTest, AnInterfaceIsOfferedUpToItsRevision)
+TEST_F(AbiCompatTest, InterfaceOfferedUpToRevision)
 {
     const ShardHostApi* host = GetCHostApi();
     EXPECT_EQ(host->abiMajor, 1u);
     EXPECT_EQ(host->abiMinor, uint32_t(SHARD_ABI_MINOR));
     const void* table = nullptr;
-    EXPECT_EQ(host->query_interface(S(SHARD_IFACE_PLUGIN), 1, 0, &table), SHARD_OK);     // a 1.0 plugin
-    EXPECT_EQ(host->query_interface(S(SHARD_IFACE_PLUGIN), 1, 1, &table), SHARD_OK);     // a 1.1 plugin
+    EXPECT_EQ(host->query_interface(S(SHARD_IFACE_PLUGIN), 1, 0, &table), SHARD_OK);
+    EXPECT_EQ(host->query_interface(S(SHARD_IFACE_PLUGIN), 1, 1, &table), SHARD_OK);
     EXPECT_EQ(static_cast<const ShardPluginApi*>(table)->structSize, sizeof(ShardPluginApi));
-    EXPECT_EQ(host->query_interface(S(SHARD_IFACE_PLUGIN), 1, 2, &table), SHARD_OK);     // 1.5 : random streams
+    EXPECT_EQ(host->query_interface(S(SHARD_IFACE_PLUGIN), 1, 2, &table), SHARD_OK);
     EXPECT_EQ(host->query_interface(S(SHARD_IFACE_PLUGIN), 1, 3, &table), SHARD_E_NOT_FOUND);
     EXPECT_EQ(table, nullptr);
-    EXPECT_EQ(host->query_interface(S(SHARD_IFACE_SYSTEMS), 1, 1, &table), SHARD_E_NOT_FOUND);  // still 1.0
+    EXPECT_EQ(host->query_interface(S(SHARD_IFACE_SYSTEMS), 1, 1, &table), SHARD_E_NOT_FOUND);
     EXPECT_EQ(host->query_interface(S("shard.nothing"), 1, 0, &table), SHARD_E_NOT_FOUND);
     EXPECT_EQ(host->query_interface(S(SHARD_IFACE_PLUGIN), 1, 0, nullptr), SHARD_E_INVALID_ARG);
 }
 
-// ---- Fuzz ----
-
-TEST_F(AbiCompatTest, TheLoaderRefusesInconsistentInfoWithoutCrashing)
+TEST_F(AbiCompatTest, LoaderRefusesInconsistentInfo)
 {
     std::mt19937 rng(1234);
     ShardPluginCallbacks callbacks{};
@@ -138,16 +130,16 @@ TEST_F(AbiCompatTest, TheLoaderRefusesInconsistentInfoWithoutCrashing)
         EXPECT_EQ(problem.empty(), fine) << "size " << info.structSize << " abi " << info.abiMajor << "." << info.abiMinor << " : " << problem;
         if (fine) {
             ++accepted;
-            // The adapter copies no more of the callbacks than their structSize says
+            // The adapter copies no more of the callbacks than their structSize says.
             delete CreateCPlugin(1, info);
         }
     }
     EXPECT_GT(accepted, 0);
 }
 
-TEST_F(AbiCompatTest, EveryFunctionSurvivesHandlesThatMeanNothing)
+TEST_F(AbiCompatTest, FunctionsSurviveBadHandles)
 {
-    // No plugin is bound : every ShardPluginCtx, ShardEcs, ShardState... is stale. Nothing may crash ; every result is an error.
+    // No plugin bound: every ShardPluginCtx, ShardEcs, ShardState is stale. Nothing may crash, every result is an error.
     const ShardHostApi* host = GetCHostApi();
     auto get = [&](const char* id) { const void* t = nullptr; host->query_interface(S(id), 1, 0, &t); return t; };
     const auto* plugin = static_cast<const ShardPluginApi*>(get(SHARD_IFACE_PLUGIN));
@@ -179,7 +171,6 @@ TEST_F(AbiCompatTest, EveryFunctionSurvivesHandlesThatMeanNothing)
         char buffer[8];
         uint64_t size = 0;
         void* p = nullptr;
-        // base
         host->log(h, uint32_t(rng()), name);
         EXPECT_EQ(host->alloc(h, 64, 16), nullptr);
         host->free(h, &size);
@@ -189,13 +180,11 @@ TEST_F(AbiCompatTest, EveryFunctionSurvivesHandlesThatMeanNothing)
         ShardRandomState randomState{};
         EXPECT_LT(plugin->random_stream(h, name, &randomState), 0);
         EXPECT_LT(plugin->random_stream(h, name, nullptr), 0);
-        // cvars and commands
         ShardCVar cv = 0;
         EXPECT_LT(cvars->create_int(h, name, 0, empty, 0, 0, 1, &cv), 0);
         EXPECT_LT(cvars->get_string(h, rng(), buffer, sizeof(buffer), &size), 0);
         EXPECT_LT(cvars->set_float(h, rng(), 1.f), 0);
         EXPECT_LT(commands->add(h, name, empty, nullptr, nullptr), 0);
-        // components, ecs, systems
         ShardComponentType type = 0;
         EXPECT_LT(components->register_type(h, nullptr, &type), 0);
         EXPECT_LT(components->find_type(h, name, &type), 0);
@@ -222,7 +211,6 @@ TEST_F(AbiCompatTest, EveryFunctionSurvivesHandlesThatMeanNothing)
         EXPECT_LT(components->string_get(h, 0, nullptr), 0);
         EXPECT_LT(systems->add(h, nullptr), 0);
         EXPECT_LT(systems->set_enabled(h, name, 1), 0);
-        // actors, scripts, input : handles of actors that never existed
         ShardActor found = 0;
         uint32_t counted = 0;
         EXPECT_EQ(actors->is_valid(rng()), SHARD_FALSE);
@@ -252,7 +240,6 @@ TEST_F(AbiCompatTest, EveryFunctionSurvivesHandlesThatMeanNothing)
         EXPECT_LT(scripts->register_script(h, nullptr), 0);
         EXPECT_LT(scripts->get_object(h, rng(), name, &p), 0);
         EXPECT_LT(scripts->add_to_actor(h, rng(), name, &p), 0);
-        // physics, audio, worlds : the same
         const float vec[3] = { 1.f, 2.f, 3.f };
         float out3[3] = {};
         ShardRayHit rayHit{};
@@ -276,7 +263,6 @@ TEST_F(AbiCompatTest, EveryFunctionSurvivesHandlesThatMeanNothing)
         EXPECT_LT(input->get_cursor(nullptr, nullptr), 0);
         EXPECT_LT(input->set_cursor_mode(int32_t(rng())), 0);
         EXPECT_EQ(input->gamepad_button_down(int32_t(rng()), int32_t(rng())), SHARD_FALSE);
-        // events, hooks, services
         ShardSubscription sub = 0;
         EXPECT_LT(events->subscribe(h, name, nullptr, nullptr, &sub), 0);
         EXPECT_LT(events->emit(h, name, nullptr, 0), 0);
@@ -291,7 +277,6 @@ TEST_F(AbiCompatTest, EveryFunctionSurvivesHandlesThatMeanNothing)
         service.structSize = sizeof(service);
         EXPECT_LT(services->resolve(h, rng(), &service), 0);
         EXPECT_LT(services->release(h, rng()), 0);
-        // extensions, content, state
         EXPECT_LT(extensions->add_validator(h, nullptr), 0);
         EXPECT_LT(extensions->remove(h, name, name), 0);
         EXPECT_LT(extensions->get_asset(h, name, name, &p), 0);

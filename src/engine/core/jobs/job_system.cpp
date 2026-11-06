@@ -10,12 +10,9 @@ namespace Shard::Engine::Core {
     using Detail::Worker;
 
     namespace {
-        // How many times an idle worker looks for work again (yielding in between) before it goes to sleep : more spins
-        // react faster to new work, fewer spare the CPU. Tunable from the console / config files without recompiling.
         CVar<int> cvIdleSpins("jobs.idle_spins", 64, "Times an idle job-system worker retries before sleeping",
                               CVarFlags::Archive, 0, 100000);
 
-        // Which JobSystem / Worker the calling thread belongs to (null for threads that never joined one).
         thread_local JobSystem* tl_system = nullptr;
         thread_local Worker* tl_worker = nullptr;
     }
@@ -31,10 +28,10 @@ namespace Shard::Engine::Core {
         for (unsigned i = 0; i <= background; ++i) {
             m_Workers.push_back(std::make_unique<Worker>(desc.queueCapacity));
             m_Workers.back()->index = i;
-            m_Workers.back()->rng ^= (i + 1) * 2654435761u;       // distinct non-zero seeds
+            m_Workers.back()->rng ^= (i + 1) * 2654435761u;
         }
 
-        tl_system = this;                                          // the constructing thread is worker 0
+        tl_system = this;
         tl_worker = m_Workers[0].get();
 
         m_Threads.reserve(background);
@@ -50,8 +47,6 @@ namespace Shard::Engine::Core {
         m_SleepCv.notify_all();
         for (std::thread& t : m_Threads) t.join();
 
-        // Jobs still queued are run here rather than dropped : their groups get released, and the objects their
-        // closures own are destroyed.
         Worker* self = (tl_system == this) ? tl_worker : nullptr;
         while (TryRunOne(self)) {}
 
@@ -66,21 +61,21 @@ namespace Shard::Engine::Core {
         if (tl_system == this) {
             Worker& w = *tl_worker;
             Job& slot = w.ring[w.next & (w.deque.Capacity() - 1)];
-            if (slot.busy.load(std::memory_order_acquire)) return nullptr;   // still queued or running
+            if (slot.busy.load(std::memory_order_acquire)) return nullptr;
             ++w.next;
             slot.busy.store(true, std::memory_order_relaxed);
             slot.heap = false;
             return &slot;
         }
-        Job* job = new Job();                                      // foreign thread: no ring, heap job
+        Job* job = new Job();
         job->heap = true;
         return job;
     }
 
     void JobSystem::Enqueue(Job* job) {
-        m_Queued.fetch_add(1, std::memory_order_seq_cst);          // BEFORE the push: see the sleep protocol
+        m_Queued.fetch_add(1, std::memory_order_seq_cst);          // BEFORE the push, see the sleep protocol
         if (tl_system == this) {
-            if (!tl_worker->deque.Push(job)) {                     // cannot happen (ring == deque size); stay safe
+            if (!tl_worker->deque.Push(job)) {
                 m_Queued.fetch_sub(1, std::memory_order_relaxed);
                 Execute(job);
                 return;
@@ -94,9 +89,8 @@ namespace Shard::Engine::Core {
     }
 
     void JobSystem::Wake() {
-        // Dekker pairing with WorkerMain: we published m_Queued (seq_cst) then read m_Sleepers; a worker publishes
-        // m_Sleepers then reads m_Queued. At least one sees the other. Taking the mutex before notifying closes the
-        // gap between the worker's predicate check and its actual wait.
+        // Dekker pairing with WorkerMain: we publish m_Queued then read m_Sleepers, a worker publishes m_Sleepers then reads m_Queued. At least one sees the other.
+        // Taking the mutex before notifying closes the gap between the worker's predicate check and its wait.
         if (m_Sleepers.load(std::memory_order_seq_cst) > 0) {
             std::lock_guard<std::mutex> lock(m_SleepMutex);
             m_SleepCv.notify_one();
@@ -106,7 +100,6 @@ namespace Shard::Engine::Core {
     Job* JobSystem::Steal(Worker* self) {
         const size_t n = m_Workers.size();
         if (n <= 1) return nullptr;
-        // Random start so that idle thieves do not all hammer the same victim.
         uint32_t x = self ? self->rng : static_cast<uint32_t>(reinterpret_cast<uintptr_t>(&n) >> 4) | 1u;
         x ^= x << 13; x ^= x >> 17; x ^= x << 5;
         if (self) self->rng = x;
@@ -120,8 +113,8 @@ namespace Shard::Engine::Core {
     }
 
     Job* JobSystem::FindJob(Worker* self) {
-        Job* job = self ? self->deque.Pop() : nullptr;             // 1. my own newest job
-        if (!job && m_InjectSize.load(std::memory_order_relaxed) > 0) {   // 2. work from foreign threads
+        Job* job = self ? self->deque.Pop() : nullptr;
+        if (!job && m_InjectSize.load(std::memory_order_relaxed) > 0) {
             std::lock_guard<std::mutex> lock(m_InjectMutex);
             if (!m_Inject.empty()) {
                 job = m_Inject.front();
@@ -129,7 +122,7 @@ namespace Shard::Engine::Core {
                 m_InjectSize.store(m_Inject.size(), std::memory_order_relaxed);
             }
         }
-        if (!job) job = Steal(self);                               // 3. someone else's oldest job
+        if (!job) job = Steal(self);
         if (job) m_Queued.fetch_sub(1, std::memory_order_relaxed);
         return job;
     }
@@ -139,8 +132,8 @@ namespace Shard::Engine::Core {
         job->destroy(job->storage);
         JobGroup* group = job->group;
         if (job->heap) delete job;
-        else job->busy.store(false, std::memory_order_release);   // after this the owner may reuse the slot
-        // Last: once the count hits zero the waiter may return and destroy the group, so nothing may touch it after.
+        else job->busy.store(false, std::memory_order_release);
+        // Last: once the count hits zero the waiter may return and destroy the group
         group->m_Pending.fetch_sub(1, std::memory_order_acq_rel);
     }
 
@@ -154,7 +147,7 @@ namespace Shard::Engine::Core {
     void JobSystem::Wait(JobGroup& group) {
         Worker* self = (tl_system == this) ? tl_worker : nullptr;
         while (group.m_Pending.load(std::memory_order_acquire) != 0) {
-            if (!TryRunOne(self)) std::this_thread::yield();      // others are running our jobs: let them
+            if (!TryRunOne(self)) std::this_thread::yield();
         }
     }
 
@@ -167,7 +160,7 @@ namespace Shard::Engine::Core {
         unsigned idleSpins = 0;
         while (!m_Stop.load(std::memory_order_acquire)) {
             if (TryRunOne(self)) { idleSpins = 0; continue; }
-            if (++idleSpins < static_cast<unsigned>(cvIdleSpins.Get())) { std::this_thread::yield(); continue; }   // short spin: work often arrives within µs
+            if (++idleSpins < static_cast<unsigned>(cvIdleSpins.Get())) { std::this_thread::yield(); continue; }
 
             std::unique_lock<std::mutex> lock(m_SleepMutex);
             m_Sleepers.fetch_add(1, std::memory_order_seq_cst);

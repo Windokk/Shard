@@ -6,8 +6,6 @@
 
 namespace Shard::Engine::Core::Ecs {
 
-    // ---------------------------------------------------------------------------------- ComponentRegistry
-
     ComponentRegistry& ComponentRegistry::Global() {
         static ComponentRegistry instance;
         return instance;
@@ -19,7 +17,7 @@ namespace Shard::Engine::Core::Ecs {
         if (it != m_ByName.end()) return it->second;
         const ComponentId id = static_cast<ComponentId>(m_Infos.size());
         ComponentInfo* info = new ComponentInfo{id, size, align, uniqueName};
-        m_Infos.push_back(info);                                    // lives for the whole process
+        m_Infos.push_back(info);
         m_ByName.emplace(uniqueName, id);
         return id;
     }
@@ -33,8 +31,6 @@ namespace Shard::Engine::Core::Ecs {
         std::lock_guard<std::mutex> lock(m_Mutex);
         return m_Infos.size();
     }
-
-    // ---------------------------------------------------------------------------------- Registry
 
     Registry::Registry() {
         m_EmptyArchetype = FindOrCreateArchetype(ComponentSet{});
@@ -113,8 +109,7 @@ namespace Shard::Engine::Core::Ecs {
     void Registry::ReleaseEntity(Entity e) {
         Record& record = m_Records[e.Index()];
         record = Record{record.generation, false};
-        // The next user of this slot gets a different generation, so `e` is dead from now on. The all-ones generation is reserved
-        // for command buffer placeholders, and 0 for the null entity.
+        // The all-ones generation is reserved for command buffer placeholders, 0 for the null entity
         record.generation = (record.generation + 1 >= CommandBuffer::kPlaceholderGeneration) ? 1 : record.generation + 1;
         m_FreeIndices.push_back(e.Index());
         --m_AliveCount;
@@ -151,7 +146,7 @@ namespace Shard::Engine::Core::Ecs {
 
         std::vector<Entity> doomed{e};
         ForEachDescendant(e, [&doomed](Entity d) { doomed.push_back(d); });
-        Unlink(e);                                                  // only the root is attached to something that survives
+        Unlink(e);
 
         for (Entity d : doomed) {
             Record& record = m_Records[d.Index()];
@@ -188,12 +183,11 @@ namespace Shard::Engine::Core::Ecs {
         Record* record = RecordOf(e);
         if (!record) return false;
 
-        // The size comes from the archetype's column : no trip through the (locked) global component registry per Add
         if (!record->archetype->Has(id)) {
             if (!CanChangeStructure()) return false;
             MoveTo(e, ArchetypeWith(record->archetype, id));
             record = RecordOf(e);
-        }                                                           // else not structural : just a new value
+        }
         void* slot = record->archetype->ComponentPtr(record->row, id);
         const size_t size = record->archetype->ComponentSize(id);
         if (data) std::memcpy(slot, data, size); else std::memset(slot, 0, size);
@@ -206,8 +200,6 @@ namespace Shard::Engine::Core::Ecs {
         MoveTo(e, ArchetypeWithout(record->archetype, id));
         return true;
     }
-
-    // ---------------------------------------------------------------------------------- hierarchy
 
     bool Registry::IsAncestor(Entity ancestor, Entity e) const {
         const Record* record = RecordOf(e);
@@ -222,7 +214,7 @@ namespace Shard::Engine::Core::Ecs {
         Record* childRecord = RecordOf(child);
         if (!childRecord) return false;
         if (!parent.IsNull()) {
-            if (!IsAlive(parent) || parent == child || IsAncestor(child, parent)) return false;     // a cycle would never end
+            if (!IsAlive(parent) || parent == child || IsAncestor(child, parent)) return false;
         }
         if (childRecord->parent == parent) return true;
 
@@ -248,14 +240,11 @@ namespace Shard::Engine::Core::Ecs {
     void Registry::PushChildrenReversed(Entity parent, std::vector<Entity>& stack) const {
         const size_t first = stack.size();
         for (Entity c = FirstChild(parent); c; c = NextSibling(c)) stack.push_back(c);
-        std::reverse(stack.begin() + static_cast<std::ptrdiff_t>(first), stack.end());           // so the first child is popped first
+        std::reverse(stack.begin() + static_cast<std::ptrdiff_t>(first), stack.end());
     }
 
-    // ---------------------------------------------------------------------------------- deferred destruction, stats
-
     void Registry::DestroyDeferred(Entity e) {
-        // Alone with the registry : now. Otherwise another thread may be iterating or changing it (two systems of a parallel
-        // phase destroying actors at the same time) : queued, applied by the next FlushDeferred.
+        // Alone with the registry: now. Otherwise another thread may be iterating (parallel phase), so queue it for FlushDeferred.
         if (CanChangeStructure()) {
             Destroy(e);
             return;
@@ -272,7 +261,7 @@ namespace Shard::Engine::Core::Ecs {
             pending.swap(m_Deferred);
         }
         size_t destroyed = 0;
-        for (Entity e : pending) if (Destroy(e)) ++destroyed;       // already gone (a parent went first) : skipped
+        for (Entity e : pending) if (Destroy(e)) ++destroyed;
         return destroyed;
     }
 
@@ -303,8 +292,6 @@ namespace Shard::Engine::Core::Ecs {
         return out.str();
     }
 
-    // ---------------------------------------------------------------------------------- command buffers
-
     Registry::PlaybackResult Registry::Playback(CommandBuffer& buffer) {
         PlaybackResult result;
         if (!CanChangeStructure()) {
@@ -312,7 +299,7 @@ namespace Shard::Engine::Core::Ecs {
             return result;
         }
 
-        std::vector<Entity> created;                                // placeholder ordinal -> real entity
+        std::vector<Entity> created;
         auto resolve = [&created](Entity e) -> Entity {
             if (!CommandBuffer::IsPlaceholder(e)) return e;
             return e.Index() < created.size() ? created[e.Index()] : kNullEntity;

@@ -6,5 +6,4 @@ void Spinner::OnTick(float deltaTime)
     Owner().SetRotation(Shard::AxisAngle(axis, angle) * Owner().Rotation());
 }
 
-// Registers the class: this is all that connects it to the plugin
 SHARD_REGISTER_SCRIPT(Spinner)

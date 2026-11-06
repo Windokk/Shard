@@ -14,8 +14,7 @@ namespace Shard::Engine::Core::Platform {
     using namespace Shard::Engine::Input;
 
     namespace {
-        // In the order of the Key enum : the names in the files stay the same if the enum is reordered, this table is what
-        // has to follow (the test of the replay checks a few entries at both ends and in the middle)
+        // Same order as the Key enum. File names stay valid if the enum is reordered, this table must follow.
         const char* const kKeyNames[] = {
             "Space", "Apostrophe", "Comma", "Minus", "Period", "Slash",
             "K0", "K1", "K2", "K3", "K4", "K5", "K6", "K7", "K8", "K9",
@@ -143,8 +142,6 @@ namespace Shard::Engine::Core::Platform {
         }
         return false;
     }
-
-    // ---- ReplayData -----------------------------------------------------------------------------------------------
 
     uint64_t ReplayData::Length() const
     {
@@ -396,8 +393,6 @@ namespace Shard::Engine::Core::Platform {
         }
         return true;
     }
-
-    // ---- recorder, player -------------------------------------------------------------------------------------------
 
     bool ReplayRecorder::IsRecorded(const OSEvent& event)
     {

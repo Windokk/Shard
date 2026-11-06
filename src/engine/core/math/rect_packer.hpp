@@ -7,23 +7,16 @@
 
 namespace Shard::Engine::Core {
 
-    /// A rectangle to place in one of several equal bins (an atlas page) : `w` and `h` are the input, `x`, `y` and `bin` what
-    /// PackRectsShelf() fills in (`x`, `y` is the corner with the smallest coordinates).
     struct PackRect
     {
         float w = 0.0f;
         float h = 0.0f;
         float x = 0.0f;
         float y = 0.0f;
-        int bin = -1;       // -1 : not placed
+        int bin = -1;
     };
 
-    /// @brief Packs rectangles into at most `maxBins` bins of `binWidth` x `binHeight` with the "shelf" heuristic : the
-    /// rectangles, tallest first, go left to right along horizontal shelves (the first one that fits is used), a new shelf is
-    /// opened when none does, a new bin when the bins are full. Simple, deterministic (the same input always gives the same
-    /// layout) and good enough for atlas building : the waste is mostly the space above the shorter rectangles of a shelf.
-    /// @return how many bins were used, or -1 when a rectangle is bigger than a bin, or does not fit in `maxBins`. The rects
-    /// that were placed have their `bin` set even then.
+    // Shelf packing, tallest first. Deterministic. Returns bins used, or -1 if a rect does not fit (placed ones keep their `bin`).
     inline int PackRectsShelf(std::vector<PackRect>& rects, float binWidth, float binHeight, int maxBins = 1 << 20)
     {
         struct Shelf { float y; float height; float cursor; };
@@ -57,8 +50,7 @@ namespace Shard::Engine::Core {
             {
                 Bin& bin = bins[b];
 
-                // Only the latest shelves are looked at : the rectangles come tallest first, so an old shelf is full (or too
-                // short for what is left), and a layout of ten thousands of rectangles stays linear instead of quadratic
+                // Only the latest shelves can still fit: keeps the layout linear instead of quadratic.
                 const size_t shelfCount = bin.shelves.size();
                 const size_t firstShelf = shelfCount > kShelvesLookedAt ? shelfCount - kShelvesLookedAt : 0;
                 for (size_t s = shelfCount; s > firstShelf; s--)

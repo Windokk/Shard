@@ -1,4 +1,3 @@
-// Worlds, prefabs and sounds from a script
 #include <shard/game.hpp>
 
 #include "stats.hpp"
@@ -7,15 +6,14 @@ class Misc : public Shard::Script {
 public:
     void OnPlay() override
     {
-        GetStats().worldLoad = Shard::Worlds::Load("worlds/none.world") ? 1 : 0;       // the project has no such world
-        GetStats().playAudio = Owner().PlayAudio() ? 1 : 0;                              // the actor has no audio component
+        GetStats().worldLoad = Shard::Worlds::Load("worlds/none.world") ? 1 : 0;
+        GetStats().playAudio = Owner().PlayAudio() ? 1 : 0;
         try {
             Shard::Audio::PlayOneShot("sounds/none.wav", Owner().WorldPosition());
             GetStats().oneShot = 1;
         } catch (const Shard::Error& e) {
-            GetStats().oneShot = e.Result();                                             // the project has no such clip
+            GetStats().oneShot = e.Result();
         }
-        // Streams : the same name gives the same numbers, another name does not ; the engine's own generator gives the same ones
         Shard::Random a = Shard::Random::Stream("dice"), b = Shard::Random::Stream("dice"), c = Shard::Random::Stream("other");
         const uint32_t first = a.Next();
         GetStats().randomFirst = int(first);

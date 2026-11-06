@@ -9,11 +9,7 @@
 
 namespace Shard::Editor::Commands{
 
-    /// @brief A handle on an object (actor, component) that the undo history keeps instead of its ObjectID.
-    /// An id is released when its object is destroyed and handed to the next object created, so a command
-    /// holding one could end up editing something else. A ref resolves to nothing once its object is gone,
-    /// and the commands that destroy and rebuild objects (see ActorSnapshotCommand) point the refs of the old
-    /// ones to the new ones : the other commands of the history keep working on the rebuilt objects.
+    // An ObjectID is reused after its object is destroyed, so commands hold a ref that resolves to nothing once the object is gone.
     struct ObjectRef {
         Engine::Core::ObjectID id = Engine::Core::ObjectID(-1);
         std::weak_ptr<Engine::Core::Object> object;
@@ -23,7 +19,7 @@ namespace Shard::Editor::Commands{
             if (!live)
                 return nullptr;
 
-            // A destroyed object leaves the id manager, even while something still holds it
+            // A destroyed object leaves the id manager even while something still holds it.
             if (Engine::Core::GetEngine().GetObjectIDManager()->GetObjectFromID(id) != live)
                 return nullptr;
 
@@ -38,7 +34,6 @@ namespace Shard::Editor::Commands{
 
     class ObjectRefs {
         public:
-            /// The ref of a live object : the same one for everyone asking, so a rebind reaches all of them
             static std::shared_ptr<ObjectRef> Get(const std::shared_ptr<Engine::Core::Object>& object) {
                 if (!object)
                     return nullptr;
@@ -58,7 +53,6 @@ namespace Shard::Editor::Commands{
                 return ref;
             }
 
-            /// Points a ref to the object that replaces the one it was on
             static void Rebind(const std::shared_ptr<ObjectRef>& ref, const std::shared_ptr<Engine::Core::Object>& object) {
                 if (!ref || !object)
                     return;

@@ -27,7 +27,7 @@ namespace Shard::Engine::Core::Platform {
         std::string root;
         bool recursive = true;
 
-        std::unordered_map<int, std::string> watches;   // watch descriptor -> directory (only touched by Run and Start)
+        std::unordered_map<int, std::string> watches;
 
         std::mutex mutex;
         std::vector<FileChange> queue;
@@ -101,7 +101,7 @@ namespace Shard::Engine::Core::Platform {
                     {
                         movedFrom = full;
                         movedCookie = event->cookie;
-                        // if the matching MOVED_TO doesn't follow right away, it left the watched tree : a deletion
+                        // No matching MOVED_TO soon after means it left the watched tree: a deletion.
                         Push({ FileChangeKind::Deleted, full, {} });
                     }
                     else if (event->mask & IN_MOVED_TO)
@@ -110,7 +110,6 @@ namespace Shard::Engine::Core::Platform {
                             AddWatch(full);
                         if (event->cookie == movedCookie && !movedFrom.empty())
                         {
-                            // replace the deletion pushed for MOVED_FROM by the rename
                             std::lock_guard<std::mutex> lock(mutex);
                             if (!queue.empty() && queue.back().kind == FileChangeKind::Deleted && queue.back().path == movedFrom)
                                 queue.pop_back();
@@ -178,7 +177,7 @@ namespace Shard::Engine::Core::Platform {
         close(m_Impl->wakePipe[1]);
     }
 
-#else   // no inotify (macOS, BSD) : nothing is watched
+#else
 
     struct FileWatcher::Impl {};
 

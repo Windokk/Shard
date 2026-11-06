@@ -14,7 +14,6 @@ namespace Shard::Engine::Assets
 
     namespace {
 
-        // Engine resources have IDs below kFirstProjectAssetID : never touched here.
         using Filesystem::kFirstProjectAssetID;
 
         bool ReadFileBinary(const fs::path& p, std::string& out)
@@ -27,7 +26,8 @@ namespace Shard::Engine::Assets
             return true;
         }
 
-        // Path::WriteFile() opens in text mode, which would turn the \r\n of a file read in binary into \r\r\n
+        // Path::WriteFile() opens in text mode, which would turn the \r
+        // of a binary-read file into \r\r
         bool WriteFileBinary(const fs::path& p, const std::string& content)
         {
             std::ofstream out(p, std::ios::binary | std::ios::trunc);
@@ -48,7 +48,6 @@ namespace Shard::Engine::Assets
             return changed;
         }
 
-        /// `p` as a path in the project resources ("worlds/a.world"). False if outside them.
         bool NameInProject(const fs::path& p, const fs::path& root, std::string& out)
         {
             std::error_code ec;

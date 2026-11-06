@@ -65,7 +65,7 @@ namespace {
     }
 }
 
-TEST(PluginContext, SystemsGetThePluginPrefixAndLeaveWithIt)
+TEST(PluginContext, SystemsGetPluginPrefix)
 {
     World w;
     const PluginManifest m = Manifest();
@@ -105,7 +105,7 @@ TEST(PluginContext, TheDestructorReleasesToo)
     EXPECT_FALSE(w.cvars.Execute("ctx.hello").ok);
 }
 
-TEST(PluginContext, SystemsAndSubscriptionsWaitForTheEngine)
+TEST(PluginContext, SystemsWaitForEngine)
 {
     World w;
     const PluginManifest m = Manifest();
@@ -127,7 +127,7 @@ TEST(PluginContext, SystemsAndSubscriptionsWaitForTheEngine)
     EXPECT_EQ(heard, 1);
 }
 
-TEST(PluginContext, ReleasedBeforeTheEngineExistedIsSilent)
+TEST(PluginContext, ReleaseBeforeEngineIsSilent)
 {
     World w;
     const PluginManifest m = Manifest();
@@ -139,7 +139,7 @@ TEST(PluginContext, ReleasedBeforeTheEngineExistedIsSilent)
     EXPECT_FALSE(w.scheduler.Has("com.test.ctx/tick"));
 }
 
-TEST(PluginContext, SystemOrderReferencesCanNameThePluginsOwnSystems)
+TEST(PluginContext, OrderRefsNameOwnSystems)
 {
     World w;
     const PluginManifest m = Manifest();
@@ -155,7 +155,7 @@ TEST(PluginContext, SystemOrderReferencesCanNameThePluginsOwnSystems)
     EXPECT_EQ(order[1], "com.test.ctx/second");
 }
 
-TEST(PluginContext, ASystemThatThrowsIsReportedNotPropagated)
+TEST(PluginContext, ThrowingSystemReported)
 {
     World w;
     const PluginManifest m = Manifest();
@@ -174,10 +174,10 @@ TEST(PluginContext, ASystemThatThrowsIsReportedNotPropagated)
     ASSERT_EQ(reports.size(), 1u);
     EXPECT_EQ(reports[0].first, 7u);
     EXPECT_EQ(reports[0].second, "kaboom");
-    EXPECT_EQ(active.load(), 7u);          // the suspect stays named, for a crash report
+    EXPECT_EQ(active.load(), 7u);
 }
 
-TEST(PluginContext, CVarsAreNamedByThePluginAndLiveInTheHostRegistry)
+TEST(PluginContext, CVarsNamedByPlugin)
 {
     World w;
     const PluginManifest m = Manifest();
@@ -187,8 +187,7 @@ TEST(PluginContext, CVarsAreNamedByThePluginAndLiveInTheHostRegistry)
     EXPECT_FLOAT_EQ(rate->Get(), 0.5f);
     EXPECT_TRUE(w.cvars.Execute("com.test.ctx.rain_rate 0.9").ok);
     EXPECT_FLOAT_EQ(rate->Get(), 0.9f);
-    EXPECT_EQ(ctx.CVars().Float("rain_rate", 1.0f), nullptr);          // already there
-    // a value from a config layer set before the variable existed
+    EXPECT_EQ(ctx.CVars().Float("rain_rate", 1.0f), nullptr);
     w.cvars.SetLayerValue(Core::ConfigLayer::Project, "com.test.ctx.later", "12");
     auto* later = ctx.CVars().Int("later", 1);
     ASSERT_NE(later, nullptr);
@@ -205,12 +204,12 @@ TEST(PluginContext, ComponentsRefuseADuplicateName)
     EXPECT_TRUE(one.Components().Register("Thing", &MakeNothing));
     EXPECT_FALSE(two.Components().Register("Thing", &MakeNothing));
     two.ReleaseAll();
-    EXPECT_TRUE(w.components.IsRegistered("Thing"));          // the second did not own it
+    EXPECT_TRUE(w.components.IsRegistered("Thing"));
     one.ReleaseAll();
     EXPECT_FALSE(w.components.IsRegistered("Thing"));
 }
 
-TEST(PluginContext, ServicesHooksAndExtensionsAreTaggedWithTheOwner)
+TEST(PluginContext, RegistrationsTaggedWithOwner)
 {
     World w;
     const PluginManifest m = Manifest();
@@ -236,7 +235,7 @@ TEST(PluginContext, ServicesHooksAndExtensionsAreTaggedWithTheOwner)
     EXPECT_FALSE(ref);
 }
 
-TEST(PluginContext, ReleaseIsRepeatableAndOrdersLastInFirstOut)
+TEST(PluginContext, ReleaseIsRepeatable)
 {
     World w;
     const PluginManifest m = Manifest();
@@ -263,7 +262,7 @@ TEST(PluginContext, PermissionsComeFromTheManifest)
     EXPECT_FALSE(ctx.Has(Permissions::kProcess));
 }
 
-TEST(PluginContext, RandomStreamsAreNamedByPluginAndStream)
+TEST(PluginContext, RandomStreamsNamed)
 {
     World w;
     const PluginManifest m = Manifest("com.test.rng");
@@ -280,14 +279,14 @@ TEST(PluginContext, RandomStreamsAreNamedByPluginAndStream)
     EXPECT_NE(v1, v4);
 }
 
-TEST(PluginContext, EditorPanelsAreExtensionItemsThatLeaveWithThePlugin)
+TEST(PluginContext, EditorPanelsAreExtensions)
 {
     World w;
     const PluginManifest m = Manifest("com.test.panel");
     PluginContext ctx(m, 1, Host::Editor, w.Bindings());
     int drawn = 0;
     EXPECT_TRUE(AddEditorPanel(ctx, "My Panel", [&](bool*) { ++drawn; }));
-    EXPECT_FALSE(AddEditorPanel(ctx, "My Panel", [&](bool*) {}));          // a title is used once
+    EXPECT_FALSE(AddEditorPanel(ctx, "My Panel", [&](bool*) {}));
     auto panels = w.extensions.Get<EditorPanelItem>("editor.panel");
     ASSERT_EQ(panels.size(), 1u);
     EXPECT_EQ(panels[0]->title, "My Panel");

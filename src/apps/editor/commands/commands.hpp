@@ -24,7 +24,6 @@ namespace Shard::Editor::Commands{
         public:
             virtual ~Command() = default;
 
-            // Called after creation but before push
             virtual void Finalize() {}
 
             virtual void Undo() = 0;
@@ -77,7 +76,6 @@ namespace Shard::Editor::Commands{
             std::vector<std::unique_ptr<Command>> commands;
     };
 
-    /// Bytes a value of this field takes, 0 for what a ValueBuffer can't hold (containers, structs, C strings)
     inline size_t GetFieldValueSize(const FieldInfo* f) {
         if (!f || !f->CopyConstruct || !f->Assign || !f->Destroy || !f->Equals)
             return 0;
@@ -88,7 +86,6 @@ namespace Shard::Editor::Commands{
         return GetTypeSize(f->type);
     }
 
-    /// Whether the undo history can record the edits of this field (see ModifyFieldCommand)
     inline bool CanRecordField(const FieldInfo* f) {
         return GetFieldValueSize(f) > 0;
     }
@@ -128,7 +125,6 @@ namespace Shard::Editor::Commands{
             return constructed && other.constructed && field->Equals(storage.get(), other.storage.get());
         }
 
-        /// Whether the value held is the one at `value`
         bool EqualsValue(const void* value) const {
             return constructed && field->Equals(storage.get(), value);
         }
@@ -145,10 +141,8 @@ namespace Shard::Editor::Commands{
         }
     };
 
-    /// Where a field is in its component : in the component itself (null), or somewhere inside it (the fields of an InstancedStruct)
     using FieldOwnerLocator = std::function<void*(Component& component)>;
 
-    /// One reflected field of a component, from the value it had to the one it has at Finalize
     class ModifyFieldCommand final : public Command {
         public:
             ModifyFieldCommand(const std::shared_ptr<Component>& comp, const FieldInfo* f, FieldOwnerLocator locator = nullptr)
@@ -163,7 +157,6 @@ namespace Shard::Editor::Commands{
                     before.Capture(value);
             }
 
-            /// For an edit noticed once the widget had already written the field : the caller kept the old value
             ModifyFieldCommand(const std::shared_ptr<Component>& comp, const FieldInfo* f, ValueBuffer&& oldValue, FieldOwnerLocator locator = nullptr)
                 : component(ObjectRefs::Get(comp)),
                 locate(std::move(locator)),

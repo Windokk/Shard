@@ -4,7 +4,6 @@
 
 #include <shard/game.hpp>
 
-/// @brief Fires a physical bullet where the actor looks when the left mouse button is pressed
 class Gun : public Shard::Script {
 public:
     void OnTick(float deltaTime) override;
@@ -17,7 +16,6 @@ public:
     SHARD_FIELD(float, capsuleYOffset) = 0.3f;
 
 private:
-    /// @brief Fires a bullet that is destroyed `time` seconds later
     void Shoot(float time);
 
     struct SBullet {

@@ -15,7 +15,6 @@ using nlohmann::json;
 using PluginTest::TempDir;
 
 namespace {
-    // What a test plugin does, by plugin id : one class serves them all
     struct Script {
         std::function<void(PluginContext&)> onLoad, onInitialize, onContentMounted, onEnable, onDisable, onUnload;
         std::function<void(Worlds::World&)> onWorldLoaded, onPlayStart, onPlayStop, onWorldUnloaded;
@@ -163,7 +162,6 @@ TEST_F(PluginManagerTest, RunsTheLifecycleInOrder)
     ASSERT_TRUE(Start());
     EXPECT_EQ(State("a.first"), PluginState::Initialized);
 
-    // Every plugin loads, then every plugin initializes ; enabling waits for the engine
     EXPECT_EQ(Log(), (std::vector<std::string>{ "load a.first", "load b.second", "init a.first", "init b.second" }));
 
     BringUpEngine();
@@ -172,7 +170,7 @@ TEST_F(PluginManagerTest, RunsTheLifecycleInOrder)
     EXPECT_LT(IndexOf("enable a.first"), IndexOf("enable b.second"));
 
     pm().OnEngineDestroying();
-    EXPECT_LT(IndexOf("disable b.second"), IndexOf("disable a.first"));      // the reverse
+    EXPECT_LT(IndexOf("disable b.second"), IndexOf("disable a.first"));
     EXPECT_EQ(State("a.first"), PluginState::Disabled);
 
     pm().Shutdown();
@@ -181,7 +179,7 @@ TEST_F(PluginManagerTest, RunsTheLifecycleInOrder)
     EXPECT_FALSE(pm().IsStarted());
 }
 
-TEST_F(PluginManagerTest, TheEnginesOwnPartsAreModulesToo)
+TEST_F(PluginManagerTest, EnginePartsAreModules)
 {
     ASSERT_TRUE(Start());
     for (const char* id : { "shard.core", "shard.physics", "shard.audio", "shard.renderer", "shard.assets", "shard.world" }) {
@@ -189,14 +187,13 @@ TEST_F(PluginManagerTest, TheEnginesOwnPartsAreModulesToo)
         EXPECT_TRUE(Rec(id)->isStatic);
         EXPECT_EQ(Rec(id)->manifest.moduleKind, ModuleKind::Engine);
     }
-    // and a plugin can depend on them
     pm().ResetForTests();
     AddScripted(PluginManifestText("needs.physics", [](json& j) { j["dependencies"] = json::array({ "shard.physics" }); }));
     ASSERT_TRUE(Start());
     EXPECT_EQ(State("needs.physics"), PluginState::Initialized);
 }
 
-TEST_F(PluginManagerTest, AFailingPluginTakesItsDependentsAndNobodyElse)
+TEST_F(PluginManagerTest, FailingPluginTakesDependents)
 {
     Scripts()["bad"].onLoad = [](PluginContext&) { throw std::runtime_error("cannot start"); };
     AddScripted(ModuleManifest("bad"));
@@ -210,7 +207,7 @@ TEST_F(PluginManagerTest, AFailingPluginTakesItsDependentsAndNobodyElse)
     EXPECT_EQ(State("fine"), PluginState::Initialized);
 }
 
-TEST_F(PluginManagerTest, AFailingPluginGivesBackWhatItRegisteredBeforeFailing)
+TEST_F(PluginManagerTest, FailingPluginReleasesAll)
 {
     Scripts()["half"].onLoad = [](PluginContext& ctx) {
         ctx.Commands().Add("half.cmd", "", [](const std::vector<std::string>&) { return Core::CommandResult{}; });
@@ -222,7 +219,7 @@ TEST_F(PluginManagerTest, AFailingPluginGivesBackWhatItRegisteredBeforeFailing)
     EXPECT_FALSE(Core::CVarRegistry::Global().Execute("half.cmd").ok);
 }
 
-TEST_F(PluginManagerTest, ARequiredPluginThatFailsStopsTheStart)
+TEST_F(PluginManagerTest, RequiredFailureStopsStart)
 {
     TempDir project;
     project.Write("p/project.json", R"({ "plugins": [ { "id": "must", "required": true } ] })");
@@ -235,7 +232,7 @@ TEST_F(PluginManagerTest, ARequiredPluginThatFailsStopsTheStart)
     EXPECT_NE(error.find("must"), std::string::npos) << error;
 }
 
-TEST_F(PluginManagerTest, AMissingRequiredPluginStopsTheStart)
+TEST_F(PluginManagerTest, MissingRequiredStopsStart)
 {
     TempDir project;
     project.Write("p/project.json", R"({ "plugins": [ { "id": "absent.plugin", "required": true } ] })");
@@ -247,7 +244,7 @@ TEST_F(PluginManagerTest, AMissingRequiredPluginStopsTheStart)
     EXPECT_NE(error.find("absent.plugin"), std::string::npos) << error;
 }
 
-TEST_F(PluginManagerTest, ComponentsCommandsAndSystemsComeAndGoWithTheirPlugin)
+TEST_F(PluginManagerTest, RegistrationsFollowPlugin)
 {
     static int ran = 0;
     ran = 0;
@@ -287,10 +284,10 @@ TEST_F(PluginManagerTest, ComponentsCommandsAndSystemsComeAndGoWithTheirPlugin)
     RunFrame(3);
     EXPECT_EQ(ran, 2);
     EXPECT_EQ(Log().front(), "load owner");
-    EXPECT_EQ(std::count(Log().begin(), Log().end(), "load owner"), 2);          // OnLoad ran again for the second enable
+    EXPECT_EQ(std::count(Log().begin(), Log().end(), "load owner"), 2);
 }
 
-TEST_F(PluginManagerTest, DisableStopsTheDependentsFirstOrRefuses)
+TEST_F(PluginManagerTest, DisableStopsDependents)
 {
     AddScripted(ModuleManifest("base"));
     AddScripted(ModuleManifest("on.base", [](json& j) { j["dependencies"] = json::array({ "base" }); }));
@@ -307,13 +304,12 @@ TEST_F(PluginManagerTest, DisableStopsTheDependentsFirstOrRefuses)
     EXPECT_EQ(State("base"), PluginState::Disabled);
     EXPECT_LT(IndexOf("disable on.base"), IndexOf("disable base"));
 
-    // Enabling the dependent brings what it needs back first
     ASSERT_TRUE(pm().Enable("on.base", &error)) << error;
     EXPECT_EQ(State("base"), PluginState::Enabled);
     EXPECT_EQ(State("on.base"), PluginState::Enabled);
 }
 
-TEST_F(PluginManagerTest, AModuleWithoutComponentsCanBeDisabledWhileAWorldIsLoaded)
+TEST_F(PluginManagerTest, ModuleDisableableInWorld)
 {
     AddScripted(ModuleManifest("plain"));
     ASSERT_TRUE(Start());
@@ -333,7 +329,7 @@ TEST_F(PluginManagerTest, EnginePartsCannotBeDisabled)
     EXPECT_FALSE(error.empty());
 }
 
-TEST_F(PluginManagerTest, ServicesLinkPluginsAndVanishWithTheProvider)
+TEST_F(PluginManagerTest, ServicesVanishWithProvider)
 {
     static int value = 99;
     struct Api { int* v; };
@@ -356,7 +352,7 @@ TEST_F(PluginManagerTest, ServicesLinkPluginsAndVanishWithTheProvider)
     EXPECT_EQ(State("consumer"), PluginState::Disabled);
 }
 
-TEST_F(PluginManagerTest, HooksCanCancelPlayWorldLoadAndSave)
+TEST_F(PluginManagerTest, HooksCancelPlayLoadSave)
 {
     Scripts()["guard"].onLoad = [](PluginContext& ctx) {
         ctx.Hooks().On<Hooks::PrePlay>([](Hooks::PrePlay& h) { h.Cancel("not now"); });
@@ -371,7 +367,6 @@ TEST_F(PluginManagerTest, HooksCanCancelPlayWorldLoadAndSave)
     EXPECT_FALSE(pm().BeforeWorldLoad("secret.world"));
     EXPECT_TRUE(pm().BeforeSave("free.world"));
     EXPECT_FALSE(pm().BeforeSave("locked.world"));
-    // the world layer asks the same question before writing
     EXPECT_FALSE(Worlds::AllowWorldSave("locked.world"));
     EXPECT_TRUE(Worlds::AllowWorldSave("free.world"));
 
@@ -379,7 +374,7 @@ TEST_F(PluginManagerTest, HooksCanCancelPlayWorldLoadAndSave)
     EXPECT_TRUE(pm().BeforePlay());
 }
 
-TEST_F(PluginManagerTest, FrameHooksAndEnginePluginCallbacksRun)
+TEST_F(PluginManagerTest, FrameHooksRun)
 {
     int pre = 0, post = 0;
     pm().AddStaticPlugin(PluginManifestText("framer"), &MakeEnginePlugin);
@@ -397,7 +392,7 @@ TEST_F(PluginManagerTest, FrameHooksAndEnginePluginCallbacksRun)
     EXPECT_EQ(ScriptedEnginePlugin::end, 7u);
 }
 
-TEST_F(PluginManagerTest, ASystemThatKeepsThrowingSwitchesItsPluginOff)
+TEST_F(PluginManagerTest, ThrowingSystemDisablesPlugin)
 {
     Scripts()["flaky"].onLoad = [](PluginContext& ctx) {
         Core::Ecs::SystemDesc d;
@@ -417,7 +412,7 @@ TEST_F(PluginManagerTest, ASystemThatKeepsThrowingSwitchesItsPluginOff)
     EXPECT_GE(Rec("flaky")->errorCount, 10u);
 }
 
-TEST_F(PluginManagerTest, ASystemOverItsBudgetIsFlagged)
+TEST_F(PluginManagerTest, OverBudgetSystemFlagged)
 {
     Scripts()["slow"].onLoad = [](PluginContext& ctx) {
         Core::Ecs::SystemDesc d;
@@ -435,7 +430,7 @@ TEST_F(PluginManagerTest, ASystemOverItsBudgetIsFlagged)
     EXPECT_GT(Rec("slow")->systemsMsAverage, 0.1);
 }
 
-TEST_F(PluginManagerTest, ProjectSettingsAndManifestDefaultsFeedTheCVars)
+TEST_F(PluginManagerTest, SettingsFeedCVars)
 {
     TempDir project;
     project.Write("p/project.json", R"({ "plugins": [ { "id": "tuned", "settings": { "rate": 0.75, "com.test.tuned.name": "from project" } } ] })");
@@ -449,18 +444,17 @@ TEST_F(PluginManagerTest, ProjectSettingsAndManifestDefaultsFeedTheCVars)
         gain = ctx.CVars().Float("gain", 0.1f);
         name = ctx.CVars().String("name", "default");
     };
-    // the plugin's id is "tuned" so its variables are "tuned.rate" ; "com.test.tuned.name" is not one of them
     AddScripted(ModuleManifest("tuned", [](json& j) { j["settings"] = { { "gain", 2.5 } }; }));
     ASSERT_TRUE(Start());
     ASSERT_NE(rate, nullptr);
-    EXPECT_FLOAT_EQ(rate->Get(), 0.75f);            // the project's value
-    EXPECT_FLOAT_EQ(gain->Get(), 2.5f);             // the manifest's default
+    EXPECT_FLOAT_EQ(rate->Get(), 0.75f);
+    EXPECT_FLOAT_EQ(gain->Get(), 2.5f);
     EXPECT_EQ(name->Get(), "default");
     EXPECT_EQ(Core::CVarRegistry::Global().WinningLayer("tuned.rate"), Core::ConfigLayer::Project);
     EXPECT_EQ(Core::CVarRegistry::Global().WinningLayer("tuned.gain"), Core::ConfigLayer::Engine);
 }
 
-TEST_F(PluginManagerTest, TheConsoleListsAndControlsPlugins)
+TEST_F(PluginManagerTest, ConsoleControlsPlugins)
 {
     config.registerConsoleCommands = true;
     AddScripted(ModuleManifest("listed"));
@@ -473,15 +467,15 @@ TEST_F(PluginManagerTest, TheConsoleListsAndControlsPlugins)
     EXPECT_EQ(State("listed"), PluginState::Disabled);
     EXPECT_TRUE(console.Execute("plugin.enable listed").ok);
     EXPECT_FALSE(console.Execute("plugin.enable ghost").ok);
-    EXPECT_FALSE(console.Execute("plugin.reload listed").ok);          // hot reload is off
+    EXPECT_FALSE(console.Execute("plugin.reload listed").ok);
     EXPECT_FALSE(console.Execute("plugin.info").ok);
     EXPECT_TRUE(console.Execute("plugin.hash").ok);
     pm().OnEngineDestroying();
     pm().Shutdown();
-    EXPECT_FALSE(console.Execute("plugin.list").ok);          // the commands left with the manager
+    EXPECT_FALSE(console.Execute("plugin.list").ok);
 }
 
-TEST_F(PluginManagerTest, StaticPluginsDeclaredBeforeStartupAreFound)
+TEST_F(PluginManagerTest, StaticPluginsFound)
 {
     RegisterStaticPlugin(PluginManifestText("declared.early").c_str(), &MakeScripted);
     ASSERT_TRUE(Start());
@@ -490,9 +484,7 @@ TEST_F(PluginManagerTest, StaticPluginsDeclaredBeforeStartupAreFound)
     EXPECT_EQ(Rec("declared.early")->state, PluginState::Initialized);
 }
 
-// ---- Discovery ----
-
-TEST_F(PluginManagerTest, FindsPluginsInFoldersAndReportsTheBrokenOnes)
+TEST_F(PluginManagerTest, FindsPluginsInFolders)
 {
     TempDir dir;
     dir.Write("plugins/good/shard-plugin.json", PluginTest::DatapackManifest("pack.good"));
@@ -515,7 +507,7 @@ TEST_F(PluginManagerTest, FindsPluginsInFoldersAndReportsTheBrokenOnes)
     EXPECT_TRUE(wrongHost);
 }
 
-TEST_F(PluginManagerTest, DiscoveryOrderDoesNotDependOnTheFileSystem)
+TEST_F(PluginManagerTest, DiscoveryOrderStable)
 {
     TempDir dir;
     for (const char* name : { "zeta", "alpha", "mid" })
@@ -527,7 +519,7 @@ TEST_F(PluginManagerTest, DiscoveryOrderDoesNotDependOnTheFileSystem)
     EXPECT_EQ(order, (std::vector<std::string>{ "pack.alpha", "pack.mid", "pack.zeta" }));
 }
 
-TEST_F(PluginManagerTest, ProjectListTurnsPluginsOffAndPicksVersions)
+TEST_F(PluginManagerTest, ProjectListSelectsPlugins)
 {
     TempDir dir;
     dir.Write("pl/a1/shard-plugin.json", PluginTest::DatapackManifest("pack.v", "1.0.0"));
@@ -542,9 +534,7 @@ TEST_F(PluginManagerTest, ProjectListTurnsPluginsOffAndPicksVersions)
     EXPECT_EQ(Rec("pack.off"), nullptr);
 }
 
-// ---- Datapacks ----
-
-TEST_F(PluginManagerTest, ADatapackMountsItsContentAndPatchesWorlds)
+TEST_F(PluginManagerTest, DatapackMountsAndPatches)
 {
     TempDir dir;
     dir.Write("plugins/pack/shard-plugin.json", PluginTest::DatapackManifest("pack.arena"));
@@ -565,7 +555,6 @@ TEST_F(PluginManagerTest, ADatapackMountsItsContentAndPatchesWorlds)
     ASSERT_EQ(pm().DeclaredComponents().size(), 1u);
     EXPECT_EQ(pm().DeclaredComponents()[0].component.name, "Health");
 
-    // the patch reaches a world through the filter the world layer runs on every load
     json world = json::parse(R"({ "name": "room", "actors": [ { "name": "Table" } ] })");
     Worlds::ApplyWorldJsonFilters("room.world", world);
     ASSERT_EQ(world["actors"].size(), 2u);
@@ -574,7 +563,6 @@ TEST_F(PluginManagerTest, ADatapackMountsItsContentAndPatchesWorlds)
     Worlds::ApplyWorldJsonFilters("other.world", other);
     EXPECT_TRUE(other["actors"].empty());
 
-    // and goes away with the pack
     ASSERT_TRUE(pm().Disable("pack.arena"));
     EXPECT_TRUE(pm().DeclaredComponents().empty());
     json again = json::parse(R"({ "name": "room", "actors": [ { "name": "Table" } ] })");
@@ -582,7 +570,7 @@ TEST_F(PluginManagerTest, ADatapackMountsItsContentAndPatchesWorlds)
     EXPECT_EQ(again["actors"].size(), 1u);
 }
 
-TEST_F(PluginManagerTest, AnInvalidDatapackDoesNotLoad)
+TEST_F(PluginManagerTest, InvalidDatapackNotLoaded)
 {
     TempDir dir;
     dir.Write("plugins/bad/shard-plugin.json", PluginTest::DatapackManifest("pack.bad"));
@@ -594,7 +582,7 @@ TEST_F(PluginManagerTest, AnInvalidDatapackDoesNotLoad)
     EXPECT_FALSE(pm().Content().Exists("mod://pack.bad/tables/broken.json"));
 }
 
-TEST_F(PluginManagerTest, TwoModulesProvidingTheSameFileAreReportedAndTheFirstIsKept)
+TEST_F(PluginManagerTest, DuplicateFileReportedFirstKept)
 {
     TempDir dir;
     dir.Write("plugins/a/shard-plugin.json", PluginTest::DatapackManifest("pack.a"));
@@ -607,9 +595,7 @@ TEST_F(PluginManagerTest, TwoModulesProvidingTheSameFileAreReportedAndTheFirstIs
     EXPECT_EQ(pm().Content().ResolveLogical("materials/x.mat")->pluginId, "pack.a");
 }
 
-// ---- Plugin sets, lockfile, safe mode ----
-
-TEST_F(PluginManagerTest, TheSimulationSetHoldsOnlyWhatChangesTheSimulation)
+TEST_F(PluginManagerTest, SimulationSetOnlySimulation)
 {
     AddScripted(ModuleManifest("changes.it"));
     AddScripted(PluginManifestText("cosmetic"));
@@ -643,7 +629,7 @@ TEST_F(PluginManagerTest, ContentChangesTheSetHash)
     EXPECT_EQ(pm().SimulationPluginHash(), first);
 }
 
-TEST(PluginSets, CompareJsonAndLinesRoundTrip)
+TEST(PluginSets, CompareJsonLinesRoundTrip)
 {
     std::vector<PluginSetEntry> local = { { "a", "1.0.0", 11 }, { "b", "2.0.0", 22 }, { "c", "1.0.0", 33 } };
     std::vector<PluginSetEntry> remote = { { "a", "1.0.0", 11 }, { "b", "2.1.0", 22 }, { "c", "1.0.0", 99 }, { "d", "1.0.0", 1 } };
@@ -659,11 +645,11 @@ TEST(PluginSets, CompareJsonAndLinesRoundTrip)
     EXPECT_TRUE(ComparePluginSets(local, viaJson).Same());
     const auto viaLines = PluginSetFromLines(PluginSetToLines(local));
     EXPECT_TRUE(ComparePluginSets(local, viaLines).Same());
-    EXPECT_EQ(HashPluginSet(local), HashPluginSet({ local[2], local[0], local[1] }));          // the order of the list does not matter
+    EXPECT_EQ(HashPluginSet(local), HashPluginSet({ local[2], local[0], local[1] }));
     EXPECT_NE(HashPluginSet(local), HashPluginSet(remote));
 }
 
-TEST_F(PluginManagerTest, TheLockfileIsWrittenThenVerified)
+TEST_F(PluginManagerTest, LockfileWrittenThenVerified)
 {
     TempDir dir;
     dir.Write("plugins/pack/shard-plugin.json", PluginTest::DatapackManifest("pack.l", "1.2.0"));
@@ -678,12 +664,10 @@ TEST_F(PluginManagerTest, TheLockfileIsWrittenThenVerified)
     EXPECT_EQ(lock["plugins"][0]["version"], "1.2.0");
     EXPECT_TRUE(pm().LockfileProblems().empty());
 
-    // the same plugins : fine
     pm().ResetForTests();
     ASSERT_TRUE(Start());
     EXPECT_TRUE(pm().LockfileProblems().empty());
 
-    // other content : reported, and an error when the lock is strict
     pm().ResetForTests();
     dir.Write("plugins/pack/content/tables/t.json", R"({ "changed": true })");
     ASSERT_TRUE(Start());
@@ -696,7 +680,6 @@ TEST_F(PluginManagerTest, TheLockfileIsWrittenThenVerified)
     EXPECT_FALSE(Start(&error));
     EXPECT_NE(error.find("plugins.lock"), std::string::npos);
 
-    // a new version
     pm().ResetForTests();
     config.strictLock = false;
     dir.Write("plugins/pack/shard-plugin.json", PluginTest::DatapackManifest("pack.l", "1.3.0"));
@@ -705,7 +688,7 @@ TEST_F(PluginManagerTest, TheLockfileIsWrittenThenVerified)
     EXPECT_NE(pm().LockfileProblems()[0].find("1.2.0"), std::string::npos);
 }
 
-TEST_F(PluginManagerTest, AReadOnlyRunLeavesNoLockfile)
+TEST_F(PluginManagerTest, ReadOnlyNoLockfile)
 {
     TempDir dir;
     dir.Write("plugins/pack/shard-plugin.json", PluginTest::DatapackManifest("pack.ro"));
@@ -716,7 +699,7 @@ TEST_F(PluginManagerTest, AReadOnlyRunLeavesNoLockfile)
     EXPECT_TRUE(dir.Read("proj/plugins.lock").empty());
 }
 
-TEST_F(PluginManagerTest, APluginTheLastRunCrashedInSitsThisOneOut)
+TEST_F(PluginManagerTest, CrashedPluginSitsOut)
 {
     TempDir dir;
     dir.Write("proj/project.json", "{}");
@@ -729,11 +712,10 @@ TEST_F(PluginManagerTest, APluginTheLastRunCrashedInSitsThisOneOut)
     EXPECT_EQ(Rec("crashy"), nullptr);
     EXPECT_NE(Rec("innocent"), nullptr);
     EXPECT_FALSE(Logged("load crashy"));
-    // the marker is consumed : the next run tries it again
     EXPECT_TRUE(PluginManager::ReadSafeModeSuspect(dir.Sub("proj/.cache")).empty());
 }
 
-TEST_F(PluginManagerTest, IgnoreSafeModeLoadsItAnyway)
+TEST_F(PluginManagerTest, IgnoreSafeModeLoads)
 {
     TempDir dir;
     dir.Write("proj/project.json", "{}");
@@ -745,9 +727,7 @@ TEST_F(PluginManagerTest, IgnoreSafeModeLoadsItAnyway)
     EXPECT_NE(Rec("crashy"), nullptr);
 }
 
-// ---- Hosts: server, tool, editor ----
-
-TEST_F(PluginManagerTest, ServerPluginsAnswerConnectionsAndTicks)
+TEST_F(PluginManagerTest, ServerAnswersConnectionsTicks)
 {
     pm().AddStaticPlugin(PluginManifestText("srv"), &MakeServer);
     ASSERT_TRUE(Start());
@@ -770,7 +750,7 @@ TEST_F(PluginManagerTest, ServerPluginsAnswerConnectionsAndTicks)
     EXPECT_TRUE(Logged("tick 5"));
 }
 
-TEST_F(PluginManagerTest, AHookCanRefuseAConnection)
+TEST_F(PluginManagerTest, HookRefusesConnection)
 {
     Scripts()["door"].onLoad = [](PluginContext& ctx) {
         ctx.Hooks().On<Hooks::PlayerConnecting>([](Hooks::PlayerConnecting& h) { if (h.address == "6.6.6.6") h.Cancel("blacklisted"); });
@@ -785,7 +765,7 @@ TEST_F(PluginManagerTest, AHookCanRefuseAConnection)
     EXPECT_EQ(d.reason, "blacklisted");
 }
 
-TEST_F(PluginManagerTest, AClientWithOtherPluginsIsRefused)
+TEST_F(PluginManagerTest, ClientWithOtherPluginsRefused)
 {
     AddScripted(ModuleManifest("shared.mod"));
     ASSERT_TRUE(Start());
@@ -807,7 +787,7 @@ TEST_F(PluginManagerTest, AClientWithOtherPluginsIsRefused)
     EXPECT_FALSE(different.allowed);
 }
 
-TEST_F(PluginManagerTest, EditorPluginsAddPanelsAndHearTheSelection)
+TEST_F(PluginManagerTest, EditorPluginsAddPanels)
 {
     config.host = Host::Editor;
     pm().AddStaticPlugin(PluginManifestText("ed"), &MakeEditor);
@@ -824,7 +804,7 @@ TEST_F(PluginManagerTest, EditorPluginsAddPanelsAndHearTheSelection)
     EXPECT_TRUE(pm().Extensions().Get<EditorPanelItem>("editor.panel").empty());
 }
 
-TEST_F(PluginManagerTest, EditorPluginsAreLeftOutOfThePlayer)
+TEST_F(PluginManagerTest, EditorPluginsLeftOutOfPlayer)
 {
     config.host = Host::Player;
     pm().AddStaticPlugin(PluginManifestText("ed", [](json& j) { j["hosts"] = json::array({ "editor" }); }), &MakeEditor);
@@ -832,7 +812,7 @@ TEST_F(PluginManagerTest, EditorPluginsAreLeftOutOfThePlayer)
     EXPECT_EQ(Rec("ed"), nullptr);
 }
 
-TEST_F(PluginManagerTest, ToolPluginsCanRefuseATask)
+TEST_F(PluginManagerTest, ToolPluginsRefuseTask)
 {
     config.host = Host::Tool;
     pm().AddStaticPlugin(PluginManifestText("tooly"), &MakeTool);
@@ -844,9 +824,7 @@ TEST_F(PluginManagerTest, ToolPluginsCanRefuseATask)
     EXPECT_EQ(message, "no cooking today");
 }
 
-// ---- Modules follow the worlds ----
-
-TEST_F(PluginManagerTest, ModulesHearTheLifeOfAWorld)
+TEST_F(PluginManagerTest, ModulesHearWorldLife)
 {
     AddScripted(ModuleManifest("watcher"));
     ASSERT_TRUE(Start());
@@ -862,7 +840,7 @@ TEST_F(PluginManagerTest, ModulesHearTheLifeOfAWorld)
     }
 }
 
-TEST_F(PluginManagerTest, ADisabledModuleHearsNothingMore)
+TEST_F(PluginManagerTest, DisabledModuleHearsNothing)
 {
     AddScripted(ModuleManifest("watcher"));
     ASSERT_TRUE(Start());
@@ -874,9 +852,7 @@ TEST_F(PluginManagerTest, ADisabledModuleHearsNothingMore)
     EXPECT_FALSE(Logged("world-loaded watcher"));
 }
 
-// ---- Tags ----
-
-TEST_F(PluginManagerTest, APluginsTagsLiveAsLongAsItRuns)
+TEST_F(PluginManagerTest, PluginTagsLiveWhileRunning)
 {
     Core::TagRegistry::Get().Clear();
     AddScripted(ModuleManifest("weather", [](json& j) { j["tags"] = json::parse(R"({ "Weather.Rain": {} })"); }));

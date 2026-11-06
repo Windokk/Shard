@@ -1,13 +1,6 @@
 #!/bin/bash
-# Stress test : runs the player on example_project through a script of console commands (see scripts/stress_script.txt :
-# framebuffer resizes, play mode in and out, world loads, multisampling toggles, thumbnails), once with the render
-# thread and once without, and fails when a run crashes, hangs, logs an [ERROR] / [FATAL], or makes a graphics call from the
-# wrong thread. The render thread is the point : it must behave like drawing on the main thread, only faster.
-#
-# Usage : bash scripts/stress_test.sh      (after a build : it uses build/ShardGame and build/plugins/game/bin/*/libGameModule)
-#
-#   SHARD_STRESS_FRAMES   frames per run (default 1200 : the script runs until frame 900)
-#   SHARD_STRESS_TIMEOUT  seconds before a run is given up as hung (default 300)
+# Runs the player through scripts/stress_script.txt (resizes, play mode, world loads, MSAA toggles), with and without the render thread.
+# Fails on crash, hang, [ERROR]/[FATAL], or a graphics call from the wrong thread.
 set -uo pipefail
 
 root="$(cd "$(dirname "$0")/.." && pwd)"
@@ -15,7 +8,6 @@ frames="${SHARD_STRESS_FRAMES:-1200}"
 timeout_seconds="${SHARD_STRESS_TIMEOUT:-300}"
 script="$root/scripts/stress_script.txt"
 
-# Errors that say something about the machine, not about the engine : the CI has no sound card.
 ignored_errors='ma_engine_init failed'
 
 cd "$root/build" || { echo "[ERROR] no build/ folder : build the project first." >&2; exit 1; }

@@ -81,8 +81,7 @@ namespace Shard::Engine::Rendering{
             default:
             {
                 m_Pipeline->GetSpecifications().blending = false;
-                // `masked` is a uniform of the program, which other materials sharing it set to true : an opaque one says so
-                // itself, or it would keep (and discard by) whatever the last masked material left there.
+                // masked is a program uniform shared by materials, so opaque ones must reset it themselves.
                 if (m_Shader->GetActiveUniformsMap().find("masked") != m_Shader->GetActiveUniformsMap().end())
                     m_ScalarParameters["masked"] = false;
                 break;
@@ -151,9 +150,7 @@ namespace Shard::Engine::Rendering{
     }
 
     namespace {
-        // The two textures a material falls back on for a slot it has nothing bound to. Held here, loaded once by
-        // PreloadDefaultTextures() : binding a material happens on the render thread, which has no business with the
-        // resources manager (the simulation uses it at the same time).
+        // Loaded once by PreloadDefaultTextures(): binding runs on the render thread, which must not use the resources manager.
         std::shared_ptr<Texture2D> g_WhiteTexture;
         std::shared_ptr<Texture2D> g_DefaultNormalTexture;
     }

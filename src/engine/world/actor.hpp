@@ -28,8 +28,7 @@ namespace Shard::Engine::Objects{
         std::string name;
         std::string folder;
         Core::TagContainer tags;
-        /// Components of a type nobody registered (the plugin that brings it is not loaded) : kept as they were read, and written back
-        /// as they are, so that opening a world without the plugin and saving it does not lose them
+        // Components of an unregistered type (plugin not loaded) are kept and written back, so saving without the plugin loses nothing.
         std::vector<nlohmann::json> unknownComponents;
         Core::IEngineContext* engine = nullptr;
         Core::Ecs::Entity entity;
@@ -38,7 +37,6 @@ namespace Shard::Engine::Objects{
 
             Core::IEngineContext* GetEngineContext() const { return engine; }
 
-            /// The entity that mirrors this actor in the engine's Ecs::Registry (null before Init, or without a registry)
             Core::Ecs::Entity GetEntity() const { return entity; }
 
             void Init();
@@ -66,9 +64,6 @@ namespace Shard::Engine::Objects{
             template <typename T>
             std::shared_ptr<T> AddComponent();
 
-            /// @brief Adds a component from the name of its type : an engine component ("model", "light"...,
-            /// the names their serialized form carries) or a custom one registered in the component registry.
-            /// @return The component, null (logged) if the type is unknown
             std::shared_ptr<Component> AddComponentByName(const std::string& typeName);
 
             void Destroy() override;
@@ -84,13 +79,9 @@ namespace Shard::Engine::Objects{
             std::string GetName() { return name; }
             void SetName(std::string name) { this->name = name; }
 
-            /// @brief The outliner folder of a root actor ("Lights/Indoor"), empty : at the top. It only organizes the editor's
-            /// outliner (saved with the world), the actor's place in the hierarchy and in the world is not affected.
             const std::string& GetFolder() const { return folder; }
             void SetFolder(std::string path) { folder = std::move(path); }
 
-            /// @brief The tags of this actor (see docs/concepts/tags.md). Saved with the world ; changing them keeps the world's index
-            /// up to date (World::FindActorsWithTag) and sends TagsChangedEvent to the actor. The children do not inherit them.
             Core::TagContainer& GetTags() { return tags; }
             const Core::TagContainer& GetTags() const { return tags; }
 
@@ -113,21 +104,14 @@ namespace Shard::Engine::Objects{
 
             std::shared_ptr<Actor> Clone();
 
-            /// @brief Attaches this actor to newParent (or detaches to the world root if nullptr).
-            /// @param keepWorldTransform If true (default), the actor's local Transform is recomputed
-            /// so its world-space position/rotation/scale stay the same after reparenting - like
-            /// "attach in place" in Unity/Unreal. If false, the local Transform is left untouched, so
-            /// the actor jumps to be positioned relative to its new parent instead.
             void SetParent(std::shared_ptr<Actor> newParent, bool keepWorldTransform = true);
 
         protected:
             bool activated = true;
 
         private:
-            /// Adds an already built component to the actor, and to its world
             void AttachComponent(const std::shared_ptr<Component>& component);
 
-            /// Makes the world (and, through it, the modules) aware of a component of this actor
             void RegisterInWorld(const std::shared_ptr<Component>& component, bool cloned);
     };
 

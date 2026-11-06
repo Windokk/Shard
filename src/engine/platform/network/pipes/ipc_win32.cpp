@@ -21,8 +21,6 @@ namespace Shard::Engine::Core::Platform {
             return "\\\\.\\pipe\\" + name;
         }
 
-        // Completes an overlapped operation in at most timeoutMs. Returns the bytes transferred, or -1 on timeout / error.
-        // `error` receives the Win32 error code, ERROR_TIMEOUT on timeout.
         long long Finish(HANDLE handle, OVERLAPPED& overlapped, int timeoutMs, DWORD& error)
         {
             const DWORD wait = WaitForSingleObject(overlapped.hEvent, timeoutMs < 0 ? INFINITE : static_cast<DWORD>(timeoutMs));
@@ -53,11 +51,11 @@ namespace Shard::Engine::Core::Platform {
 
     struct NamedPipe::Impl {
         HANDLE handle = INVALID_HANDLE_VALUE;
-        HANDLE event = nullptr;     // shared by the operations : the pipe is used by one thread at a time
+        HANDLE event = nullptr;
         bool server = false;
         bool connected = false;
 
-        // A server has to DisconnectNamedPipe once its client is gone, or the next ConnectNamedPipe fails with ERROR_NO_DATA
+        // Server must DisconnectNamedPipe after its client leaves or the next ConnectNamedPipe fails with ERROR_NO_DATA.
         void Drop()
         {
             if (server)
@@ -140,7 +138,7 @@ namespace Shard::Engine::Core::Platform {
         }
 
         DWORD error = GetLastError();
-        if (error == ERROR_NO_DATA)             // the previous client closed its end but the pipe was never disconnected
+        if (error == ERROR_NO_DATA)
         {
             DisconnectNamedPipe(m_Impl->handle);
             ResetEvent(m_Impl->event);
@@ -151,7 +149,7 @@ namespace Shard::Engine::Core::Platform {
             }
             error = GetLastError();
         }
-        if (error == ERROR_PIPE_CONNECTED)      // the client connected before we asked
+        if (error == ERROR_PIPE_CONNECTED)
         {
             m_Impl->connected = true;
             return true;
@@ -244,10 +242,8 @@ namespace Shard::Engine::Core::Platform {
         return IpcStatus::Ok;
     }
 
-    // --- Shared memory ---
-
     namespace {
-        // The size is stored in front of the data : the mapping itself is rounded up to the pages
+        // Size is stored before the data: the mapping is rounded up to pages.
         struct SharedHeader {
             uint64_t size;
             uint64_t reserved;

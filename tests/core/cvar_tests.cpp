@@ -10,13 +10,9 @@
 using namespace Shard::Engine::Core;
 
 namespace {
-    // Each test works on its own registry : the global one holds the engine's real variables.
-    // CVar registers with Global(), so the tests that need isolation use unique names instead.
     CVarRegistry& Registry() { return CVarRegistry::Global(); }
 
-    // A value set on a layer waits in the registry for a variable of that name (that is how a config file can be read before
-    // the variable exists), and outlives the variable. A test that runs again (--gtest_repeat) would then find the previous
-    // run's values : every test starts from empty layers.
+    // A layer value waits in the registry for its variable and outlives it, so a repeated test would see the previous run's values. Every test starts from empty layers.
     class CleanLayers : public ::testing::EmptyTestEventListener {
         void OnTestStart(const ::testing::TestInfo&) override {
             for (ConfigLayer layer : {ConfigLayer::Engine, ConfigLayer::Project, ConfigLayer::User, ConfigLayer::CommandLine, ConfigLayer::Runtime})
@@ -40,7 +36,7 @@ TEST(CVar, DefaultAndSet) {
     EXPECT_EQ(v.DefaultString(), "5");
 }
 
-TEST(CVar, NumericValuesAreClampedToTheirRange) {
+TEST(CVar, ValuesClampToRange) {
     CVar<int> i("test.clamp.int", 5, "", CVarFlags::None, 0, 10);
     i.Set(100);
     EXPECT_EQ(i.Get(), 10);
@@ -70,13 +66,13 @@ TEST(CVar, AllTypes) {
     EXPECT_EQ(s.Get(), "two words");
 }
 
-TEST(CVar, InvalidTextIsRejectedAndKeepsTheValue) {
+TEST(CVar, InvalidTextKeepsValue) {
     CVar<int> v("test.invalid.int", 3);
     auto r = Registry().Execute("test.invalid.int banana");
     EXPECT_FALSE(r.ok);
     EXPECT_NE(r.output.find("banana"), std::string::npos);
     EXPECT_EQ(v.Get(), 3);
-    EXPECT_EQ(Registry().GetLayerValue(ConfigLayer::Runtime, "test.invalid.int"), std::nullopt);   // the bad value was not kept
+    EXPECT_EQ(Registry().GetLayerValue(ConfigLayer::Runtime, "test.invalid.int"), std::nullopt);
 
     CVar<bool> b("test.invalid.bool", true);
     EXPECT_FALSE(Registry().Execute("test.invalid.bool maybe").ok);
@@ -90,7 +86,7 @@ TEST(CVar, FloatsRejectNanAndInfinity) {
     EXPECT_FLOAT_EQ(f.Get(), 0.5f);
 }
 
-TEST(CVar, FloatTextReadsBackAsTheSameValue) {
+TEST(CVar, FloatTextRoundTrips) {
     CVar<float> f("test.format.float", 1.0f);
     for (float v : {1e-7f, 0.1f, 1234567.0f, 3.14159274f, -2.5f}) {
         f.Set(v);
@@ -108,39 +104,39 @@ TEST(CVar, NamesAreCaseInsensitive) {
     EXPECT_EQ(v.Get(), 9);
 }
 
-TEST(CVar, ReadOnlyRefusesRuntimeChangesButNotConfigOrOwner) {
+TEST(CVar, ReadOnlyRefusesRuntimeChanges) {
     CVar<int> v("test.readonly", 1, "", CVarFlags::ReadOnly);
     EXPECT_FALSE(v.Set(2));
     EXPECT_EQ(v.Get(), 1);
     EXPECT_FALSE(Registry().Execute("test.readonly 2").ok);
 
-    EXPECT_TRUE(Registry().SetLayerValue(ConfigLayer::Engine, "test.readonly", "3"));   // a config file may set it
+    EXPECT_TRUE(Registry().SetLayerValue(ConfigLayer::Engine, "test.readonly", "3"));
     EXPECT_EQ(v.Get(), 3);
-    v.ForceSet(4);                                                                       // so may the owner
+    v.ForceSet(4);
     EXPECT_EQ(v.Get(), 4);
 }
 
-TEST(CVar, ChangeCallbackFiresOnRealChangesOnly) {
+TEST(CVar, CallbackFiresOnChange) {
     CVar<int> v("test.callback", 0);
     int calls = 0, last = -1;
     v.AddOnChange([&](const CVarBase& base) { ++calls; last = std::stoi(base.ToString()); });
     v.Set(5);
-    v.Set(5);                                                                            // same value : no call
+    v.Set(5);
     v.Set(8);
     EXPECT_EQ(calls, 2);
     EXPECT_EQ(last, 8);
 }
 
-TEST(CVar, ResetGoesBackToTheLowerLayers) {
+TEST(CVar, ResetFallsBackToLowerLayers) {
     CVar<int> v("test.reset", 1);
     Registry().SetLayerValue(ConfigLayer::Project, "test.reset", "20");
     EXPECT_EQ(v.Get(), 20);
     v.Set(99);
     EXPECT_EQ(v.Get(), 99);
     EXPECT_TRUE(Registry().Reset("test.reset"));
-    EXPECT_EQ(v.Get(), 20);                                                              // the project value again
+    EXPECT_EQ(v.Get(), 20);
     Registry().ClearLayerValue(ConfigLayer::Project, "test.reset");
-    EXPECT_EQ(v.Get(), 1);                                                               // the default
+    EXPECT_EQ(v.Get(), 1);
 }
 
 TEST(Layers, HigherLayersWin) {
@@ -157,7 +153,6 @@ TEST(Layers, HigherLayersWin) {
     EXPECT_EQ(v.Get(), 5);
     EXPECT_EQ(Registry().WinningLayer("test.layers"), ConfigLayer::Runtime);
 
-    // taking the top layers away reveals the ones below
     Registry().ClearLayerValue(ConfigLayer::Runtime, "test.layers");
     EXPECT_EQ(v.Get(), 4);
     Registry().ClearLayer(ConfigLayer::CommandLine);
@@ -170,14 +165,14 @@ TEST(Layers, HigherLayersWin) {
     EXPECT_EQ(Registry().WinningLayer("test.layers"), ConfigLayer::Default);
 }
 
-TEST(Layers, ValueSetBeforeTheVariableExistsIsAppliedOnRegistration) {
+TEST(Layers, SetBeforeRegisterApplies) {
     EXPECT_TRUE(Registry().SetLayerValue(ConfigLayer::Engine, "test.late.registration", "42"));
     EXPECT_EQ(Registry().Find("test.late.registration"), nullptr);
     CVar<int> v("test.late.registration", 1);
     EXPECT_EQ(v.Get(), 42);
 }
 
-TEST(ConfigText, ParsesKeysSectionsCommentsAndQuotes) {
+TEST(ConfigText, ParsesKeysAndSections) {
     CVar<int> a("test.cfg.a", 0);
     CVar<std::string> b("test.cfg.b", "");
     CVar<bool> c("test.cfg.c", false);
@@ -193,7 +188,7 @@ TEST(ConfigText, ParsesKeysSectionsCommentsAndQuotes) {
         "this line is wrong\n"
         "a = notanumber\n", &warnings);
     EXPECT_EQ(applied, 3u);
-    EXPECT_EQ(a.Get(), 12);                           // the bad 'a = notanumber' did not replace it
+    EXPECT_EQ(a.Get(), 12);
     EXPECT_EQ(b.Get(), "quoted value");
     EXPECT_TRUE(c.Get());
     EXPECT_EQ(warnings.size(), 2u);
@@ -214,8 +209,8 @@ TEST(ConfigFiles, SaveArchiveAndReload) {
     std::ifstream in(path);
     std::string content((std::istreambuf_iterator<char>(in)), std::istreambuf_iterator<char>());
     EXPECT_NE(content.find("test.save.archived = 77"), std::string::npos);
-    EXPECT_EQ(content.find("test.save.untouched"), std::string::npos);     // still the default : not saved
-    EXPECT_EQ(content.find("test.save.plain"), std::string::npos);         // not an Archive variable
+    EXPECT_EQ(content.find("test.save.untouched"), std::string::npos);
+    EXPECT_EQ(content.find("test.save.plain"), std::string::npos);
 
     Registry().Reset("test.save.archived");
     EXPECT_EQ(archived.Get(), 5);
@@ -226,13 +221,13 @@ TEST(ConfigFiles, SaveArchiveAndReload) {
     std::remove(path.c_str());
 }
 
-TEST(Console, ExecOfAFileThatExecsItselfStops) {
+TEST(Console, SelfExecStops) {
     const std::string path = std::string(::testing::TempDir()) + "shard_cvar_exec_self.cfg";
     {
         std::ofstream out(path);
         out << "exec \"" << path << "\"\n";
     }
-    auto r = Registry().Execute("exec \"" + path + "\"");     // used to overflow the stack
+    auto r = Registry().Execute("exec \"" + path + "\"");
     EXPECT_FALSE(r.ok);
     EXPECT_NE(r.output.find("nested too deep"), std::string::npos);
     std::remove(path.c_str());
@@ -261,7 +256,7 @@ TEST(Console, TokenizerHonoursQuotes) {
     ASSERT_EQ(t.size(), 4u);
     EXPECT_EQ(t[2], "a b  c");
     EXPECT_TRUE(CVarRegistry::Tokenize("   ").empty());
-    EXPECT_EQ(CVarRegistry::Tokenize("\"\"").size(), 1u);                   // an empty quoted string is a token
+    EXPECT_EQ(CVarRegistry::Tokenize("\"\"").size(), 1u);
 }
 
 TEST(Console, BuiltinCommands) {
@@ -281,7 +276,7 @@ TEST(Console, BuiltinCommands) {
     CVar<bool> flag("test.console.flag", false);
     EXPECT_TRUE(Registry().Execute("toggle test.console.flag").ok);
     EXPECT_TRUE(flag.Get());
-    EXPECT_FALSE(Registry().Execute("toggle test.console.value").ok);        // not a bool
+    EXPECT_FALSE(Registry().Execute("toggle test.console.value").ok);
 
     EXPECT_EQ(Registry().Execute("echo hello world").output, "hello world");
     EXPECT_NE(Registry().Execute("list test.console").output.find("test.console.value"), std::string::npos);
@@ -314,8 +309,8 @@ TEST(Console, CompletionListsVariablesAndCommands) {
     CVar<int> b("test.complete.beta", 0);
     CVar<int> hidden("test.complete.hidden", 0, "", CVarFlags::Hidden);
     auto names = Registry().Complete("test.complete.");
-    EXPECT_EQ(names.size(), 2u);                                             // hidden ones are not suggested
-    EXPECT_NE(Registry().Find("test.complete.hidden"), nullptr);             // but they work
+    EXPECT_EQ(names.size(), 2u);
+    EXPECT_NE(Registry().Find("test.complete.hidden"), nullptr);
     auto commands = Registry().Complete("hel");
     EXPECT_NE(std::find(commands.begin(), commands.end(), "help"), commands.end());
 }
@@ -340,7 +335,7 @@ TEST(Registry, VariableUnregistersOnDestruction) {
     EXPECT_EQ(Registry().Find("test.scoped"), nullptr);
 }
 
-TEST(ConfigFiles, OnlyTheUsersChoicesAreSaved) {
+TEST(ConfigFiles, OnlyUserChoicesSaved) {
     CVar<int> fromCommandLine("test.archive.cmd", 1, "", CVarFlags::Archive);
     CVar<int> fromProject("test.archive.project", 1, "", CVarFlags::Archive);
     CVar<int> fromConsole("test.archive.console", 1, "", CVarFlags::Archive);
@@ -361,22 +356,20 @@ TEST(ConfigFiles, OnlyTheUsersChoicesAreSaved) {
     Registry().ClearLayer(ConfigLayer::User);
 }
 
-TEST(CVarSuggest, PrefixMatchesComeBeforeInnerMatches) {
+TEST(CVarSuggest, PrefixMatchesFirst) {
     CVarRegistry registry;
     CVar<int> a("suggest.alpha", 1);
     CVar<int> b("suggest.occlusionalpha", 2);
     CVar<int> c("zeta.alpha", 3);
-    // Variables register with the global registry, so ask that one
     auto found = CVarRegistry::Global().Suggest("alpha", 16, false, true);
 
     ASSERT_GE(found.size(), 3u);
-    // "alpha" starts no name : a word after a '.' ranks before one in the middle of a word
     EXPECT_EQ(found[0].name, "suggest.alpha");
     EXPECT_EQ(found[1].name, "zeta.alpha");
     EXPECT_EQ(found[2].name, "suggest.occlusionalpha");
 }
 
-TEST(CVarSuggest, CommandsAndVariablesCanBeToldApart) {
+TEST(CVarSuggest, CommandsAndVariablesDistinct) {
     CVar<bool> flag("suggest2.flag", true, "a flag");
 
     auto onlyCommands = CVarRegistry::Global().Suggest("help", 16, true, false);
@@ -392,7 +385,7 @@ TEST(CVarSuggest, CommandsAndVariablesCanBeToldApart) {
     EXPECT_EQ(onlyVariables[0].help, "a flag");
 }
 
-TEST(CVarSuggest, DescribeIsExactAndCaseInsensitive) {
+TEST(CVarSuggest, DescribeIsExact) {
     CVar<int> value("suggest3.value", 7, "seven");
 
     auto info = CVarRegistry::Global().Describe("SUGGEST3.Value");
@@ -400,11 +393,11 @@ TEST(CVarSuggest, DescribeIsExactAndCaseInsensitive) {
     EXPECT_EQ(info->name, "suggest3.value");
     EXPECT_EQ(info->defaultValue, "7");
 
-    EXPECT_FALSE(CVarRegistry::Global().Describe("suggest3").has_value());     // a prefix is not a name
+    EXPECT_FALSE(CVarRegistry::Global().Describe("suggest3").has_value());
     EXPECT_TRUE(CVarRegistry::Global().Describe("help").has_value());
 }
 
-TEST(CVarSuggest, RespectsTheLimitAndHidesHiddenVariables) {
+TEST(CVarSuggest, LimitAndHiddenVariables) {
     CVar<int> hidden("suggest4.secret", 0, "", CVarFlags::Hidden);
     CVar<int> shown("suggest4.shown", 0);
 

@@ -20,22 +20,10 @@
 
 namespace Shard::Engine::Core::Ecs {
 
-    /// Marker for the components a query must NOT have : registry.EachExcluding<Exclude<Dead>, Position>(...)
     template <typename... Ts> struct Exclude {};
 
-    /// @brief The world of entities : creates and destroys them, attaches POD components, links them in a hierarchy, and runs
-    /// queries over them.
-    ///
-    /// Storage : entities with the same set of components share an Archetype, which keeps each component in its own contiguous
-    /// array. Adding or removing a component MOVES the entity to the archetype of its new set (a "structural change").
-    ///
-    /// Rules :
-    ///  * Components are plain data : trivially copyable (memcpy-able, no destructor to run). Behaviour lives in systems.
-    ///  * Structural changes (Create, Destroy, Add, Remove) are refused while a query is running, or while the scheduler runs the
-    ///    systems of a phase in parallel (they return false / a null entity) : use a CommandBuffer and Playback it afterwards, or
-    ///    DestroyDeferred. Changing a component VALUE, or the parent, is always allowed.
-    ///  * Several threads may run read-only queries and edit the values of distinct entities at the same time ; any structural
-    ///    change needs exclusive access.
+    // Components are trivially copyable. Structural changes are refused during a query or parallel phase (use CommandBuffer or DestroyDeferred).
+    // Changing a value or the parent is always allowed.
     class Registry {
     public:
         Registry();
@@ -43,12 +31,8 @@ namespace Shard::Engine::Core::Ecs {
         Registry(const Registry&) = delete;
         Registry& operator=(const Registry&) = delete;
 
-        // ------------------------------------------------------------------------------------------ entities
-
-        /// A new entity with no component. Null entity if !CanChangeStructure().
         Entity Create();
 
-        /// A new entity with these components (one archetype lookup, no intermediate move)
         template <typename... Cs>
         Entity Create(const Cs&... values) {
             static_assert((std::is_trivially_copyable<Cs>::value && ...), "components must be trivially copyable (POD-like)");
@@ -64,16 +48,12 @@ namespace Shard::Engine::Core::Ecs {
             return e;
         }
 
-        /// Destroys the entity AND all its descendants. False if it is not alive or !CanChangeStructure().
         bool Destroy(Entity e);
 
         bool IsAlive(Entity e) const;
         size_t Count() const { return m_AliveCount; }
 
-        /// Bumped by every structural change : lets a cache know that what it holds may be stale
         uint64_t StructuralVersion() const { return m_StructuralVersion; }
-
-        // ------------------------------------------------------------------------------------------ components
 
         template <typename T>
         bool Has(Entity e) const { return HasRaw(e, ComponentIdOf<T>()); }
@@ -83,14 +63,11 @@ namespace Shard::Engine::Core::Ecs {
         template <typename T>
         const T* TryGet(Entity e) const { return static_cast<const T*>(GetRaw(e, ComponentIdOf<T>())); }
 
-        /// The component, which the entity must have (checked in debug builds)
         template <typename T>
         T& Get(Entity e) { T* p = TryGet<T>(e); assert(p && "entity has no such component"); return *p; }
         template <typename T>
         const T& Get(Entity e) const { const T* p = TryGet<T>(e); assert(p && "entity has no such component"); return *p; }
 
-        /// Adds T to the entity (or overwrites its value if it already has one). False if dead / !CanChangeStructure()
-        /// (overwriting an existing value is allowed during a query).
         template <typename T>
         bool Add(Entity e, const T& value) {
             static_assert(std::is_trivially_copyable<T>::value, "components must be trivially copyable (POD-like)");
@@ -105,10 +82,6 @@ namespace Shard::Engine::Core::Ecs {
         bool AddRaw(Entity e, ComponentId id, const void* data);
         bool RemoveRaw(Entity e, ComponentId id);
 
-        // ------------------------------------------------------------------------------------------ hierarchy
-
-        /// Makes `parent` the parent of `child` (null parent : detach, the child becomes a root). Children keep the order in
-        /// which they were attached. False if either is dead, or if it would make an entity its own ancestor.
         bool SetParent(Entity child, Entity parent);
         Entity GetParent(Entity e) const;
         Entity FirstChild(Entity e) const;
@@ -121,7 +94,6 @@ namespace Shard::Engine::Core::Ecs {
             for (Entity c = FirstChild(parent); c; c = NextSibling(c)) fn(c);
         }
 
-        /// Visits every descendant, parents before their children (so a child can read its parent's already updated value)
         template <typename F>
         void ForEachDescendant(Entity root, F&& fn) const {
             std::vector<Entity> stack;
@@ -134,10 +106,6 @@ namespace Shard::Engine::Core::Ecs {
             }
         }
 
-        // ------------------------------------------------------------------------------------------ queries
-
-        /// @brief Calls fn(Entity, Ts&...) (or fn(Ts&...)) for every entity that has all of Ts. Make a type const
-        /// (`const Velocity`) to say you only read it : the same declaration is what the scheduler uses to order systems.
         template <typename... Ts, typename F>
         void Each(F&& fn) { EachExcluding<Exclude<>, Ts...>(std::forward<F>(fn)); }
 
@@ -149,7 +117,6 @@ namespace Shard::Engine::Core::Ecs {
             });
         }
 
-        /// @brief Chunk-level access : fn(count, const Entity* entities, Ts*... columns). The tightest loop, vectorisable.
         template <typename... Ts, typename F>
         void EachChunk(F&& fn) {
             IterationScope scope(*this);
@@ -158,8 +125,6 @@ namespace Shard::Engine::Core::Ecs {
             });
         }
 
-        /// @brief Like Each, with the chunks spread over the job system. fn runs on several threads : it may write the
-        /// components it was handed (they belong to its entity alone) but nothing shared.
         template <typename... Ts, typename F>
         void ParallelEach(JobSystem* js, F&& fn) {
             IterationScope scope(*this);
@@ -181,8 +146,6 @@ namespace Shard::Engine::Core::Ecs {
             ParallelFor(*js, 0, chunks.size(), 1, [&](size_t i) { runChunk(chunks[i].first, chunks[i].second); });
         }
 
-        /// @brief EachChunk for code that only knows component ids (the C ABI) : fn(count, const Entity* entities, void* const* columns),
-        /// columns[i] being the column of with[i] (any order, no duplicates). fn returns false to stop.
         template <typename F>
         void EachChunkRaw(const std::vector<ComponentId>& with, const ComponentSet& without, F&& fn) {
             IterationScope scope(*this);
@@ -200,7 +163,6 @@ namespace Shard::Engine::Core::Ecs {
             }
         }
 
-        /// Number of entities that have all of `with` and none of `without`
         size_t CountRaw(const std::vector<ComponentId>& with, const ComponentSet& without) const {
             ComponentSet required = with;
             Normalize(required);
@@ -211,7 +173,6 @@ namespace Shard::Engine::Core::Ecs {
             return total;
         }
 
-        /// Number of entities that have all of Ts
         template <typename... Ts>
         size_t CountOf() const {
             ComponentSet required{ComponentIdOf<std::remove_cv_t<Ts>>()...};
@@ -223,43 +184,32 @@ namespace Shard::Engine::Core::Ecs {
 
         size_t ArchetypeCount() const { return m_ArchetypeList.size(); }
 
-        // ------------------------------------------------------------------------------------------ deferred changes
-
         struct PlaybackResult {
             size_t applied = 0;
-            size_t skipped = 0;         // commands on an entity that was already dead
+            size_t skipped = 0;
         };
 
-        /// Applies the recorded changes, in order, and empties the buffer. Not allowed while a query runs (returns all skipped).
         PlaybackResult Playback(CommandBuffer& buffer);
 
         bool IsIterating() const { return m_Iterating.load(std::memory_order_acquire) > 0; }
 
-        /// @brief Several threads may be using the registry at once : the scheduler brackets the parallel run of a phase's systems
-        /// with these (and lifts it around an exclusive system, which runs alone). Structural changes are refused meanwhile.
         void BeginConcurrent() { m_Concurrent.fetch_add(1, std::memory_order_acq_rel); }
         void EndConcurrent() { m_Concurrent.fetch_sub(1, std::memory_order_acq_rel); }
         bool IsConcurrent() const { return m_Concurrent.load(std::memory_order_acquire) > 0; }
 
-        /// True when a structural change made now is applied : no query is running and no other thread may be using the registry
         bool CanChangeStructure() const { return !IsIterating() && !IsConcurrent(); }
 
-        /// @brief Destroys the entity (and its descendants) now if CanChangeStructure, otherwise as soon as it is safe : the
-        /// scheduler calls FlushDeferred at the end of every phase. Callable from any thread while a query or a parallel phase
-        /// runs (the request is queued under a lock) ; outside of those, from the thread that owns the registry.
         void DestroyDeferred(Entity e);
-        /// Applies the pending DestroyDeferred. Returns how many entities were destroyed. Not while a query runs.
         size_t FlushDeferred();
 
         struct Stats {
             size_t entities = 0;
-            size_t archetypes = 0;          // including the empty ones
+            size_t archetypes = 0;
             size_t chunks = 0;
-            size_t chunkBytes = 0;          // memory held by the chunks
+            size_t chunkBytes = 0;
             size_t pendingDestroys = 0;
         };
         Stats GetStats() const;
-        /// One line per archetype : its components, entity count and chunks (for the console / debugging)
         std::string Describe() const;
 
     private:
@@ -330,7 +280,7 @@ namespace Shard::Engine::Core::Ecs {
         std::vector<Record> m_Records;
         std::vector<uint32_t> m_FreeIndices;
         std::map<ComponentSet, std::unique_ptr<Archetype>> m_Archetypes;
-        std::vector<Archetype*> m_ArchetypeList;                // creation order : iteration order is deterministic
+        std::vector<Archetype*> m_ArchetypeList;
         Archetype* m_EmptyArchetype = nullptr;
         size_t m_AliveCount = 0;
         uint64_t m_StructuralVersion = 0;

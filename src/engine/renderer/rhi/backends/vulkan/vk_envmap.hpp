@@ -19,9 +19,6 @@ namespace Shard::Engine::Rendering {
                              std::shared_ptr<Cubemap> prefilterMap, std::shared_ptr<Texture2D> brdfLUT);
     };
 
-    /// Builds what the image based lighting reads (the sky as a cube map, its diffuse convolution, its specular prefilter, the BRDF table) by
-    /// drawing into the faces of cube maps with the shaders of shaders/ibl : the same work the OpenGL generator does, on the render target override of the
-    /// Vulkan API (a face and a level of an image).
     class VKEnvironmentMapGenerator final : public EnvironmentMapGenerator
     {
         public:
@@ -33,7 +30,6 @@ namespace Shard::Engine::Rendering {
 
             void EnsureGeometry();
 
-            /// Draws the unit cube into `face` of level `mip` of `target` with `shader` (which reads `source`, a cube map or a 2D texture, as `samplerName`)
             void DrawCubeFace(const std::shared_ptr<Shader>& shader, const std::string& samplerName, uint32_t sourceHandle, const std::shared_ptr<Cubemap>& target,
                               uint32_t mip, uint32_t face, bool stripView, float roughness);
 

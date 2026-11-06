@@ -7,9 +7,7 @@
 #include "engine/renderer/rhi/render_thread.hpp"
 #include "engine/renderer/rhi/resources/texture/texture.hpp"
 
-// The 2D overlay of shard.render, in OpenGL : the geometry a plugin recorded (a UI's rectangles and glyphs) drawn over the picture with premultiplied
-// alpha, in pixels from the top left of the target. One small program of its own, no pipeline or material of the renderer : it reprograms the API
-// state, so the renderer invalidates its cache afterwards.
+// Own small program that reprograms API state, so the renderer invalidates its cache afterwards.
 
 namespace Shard::Engine::Rendering {
 
@@ -49,7 +47,7 @@ void main()
         struct Program {
             GLuint id = 0;
             GLint projection = -1, transform = -1, translation = -1, texture = -1, useTexture = -1;
-            GLuint vao = 0, vbo = 0, ebo = 0;       // for the triangles drawn once (Kind::Triangles)
+            GLuint vao = 0, vbo = 0, ebo = 0;
         };
 
         GLuint Compile(GLenum type, const char* source)
@@ -69,7 +67,6 @@ void main()
             return shader;
         }
 
-        // Created on first use, on the graphics thread (the only one that draws overlays)
         Program& GetProgram()
         {
             static Program program;
@@ -114,7 +111,6 @@ void main()
             glVertexAttribPointer(2, 2, GL_FLOAT, GL_FALSE, sizeof(OverlayVertex), reinterpret_cast<void*>(offsetof(OverlayVertex, u)));
         }
 
-        // The buffers of a geometry, uploaded the first time it is drawn
         void Upload(OverlayGeometry& g)
         {
             if (g.gpu[0])
@@ -178,8 +174,8 @@ void main()
 
         glm::mat4 transform(1.0f);
         const Rect full{ 0, 0, int(width), int(height) };
-        Rect user = full;                           // set_scissor
-        Rect clip = full;                           // set_clip_mask, as the bounding rectangle of the mask (no stencil on the viewport)
+        Rect user = full;
+        Rect clip = full;
         auto applyScissor = [&] {
             const Rect r = user.Intersect(clip);
             glScissor(r.x, int(height) - (r.y + r.h), r.w, r.h);
@@ -205,7 +201,7 @@ void main()
                 case OverlayCommand::Kind::ClipMask: {
                     // SHARD_CLIP_DISABLE 0, SET 1, SET_INVERSE 2, INTERSECT 3
                     if (c.operation == 0 || c.operation == 2 || !c.geometry || c.geometry->vertices.empty()) {
-                        clip = full;                // no mask, or everything but a shape : not representable by a rectangle
+                        clip = full;
                     } else {
                         float lo[2] = { 1e30f, 1e30f }, hi[2] = { -1e30f, -1e30f };
                         for (const OverlayVertex& v : c.geometry->vertices) {

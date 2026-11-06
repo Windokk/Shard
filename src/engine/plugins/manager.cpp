@@ -115,19 +115,16 @@ namespace Shard::Engine::Plugins {
             return v.dump();
         }
 
-        // Stands in for the plugins the engine itself is made of
         class BuiltinModule final : public IModule {
         public:
             ModuleKind Kind() const override { return ModuleKind::Engine; }
         };
 
-        // Datapacks have no code : this is what the manager loads for them
         class DatapackModule final : public IModule {
         public:
             ModuleKind Kind() const override { return ModuleKind::Datapack; }
         };
 
-        // A library of the old kind : InitializeSingletons(engine, components, logger) then RegisterGameComponents()
         class LegacyModule final : public IModule {
         public:
             using InitFn = void (*)(Core::IEngineContext*, Objects::Components::ComponentRegistry*, Debugging::Logger*);
@@ -146,7 +143,6 @@ namespace Shard::Engine::Plugins {
             RegisterFn m_Register;
         };
 
-        // What a world tells its extensions, forwarded to the modules
         class PluginWorldBridge final : public Worlds::IWorldExtension {
         public:
             void OnLoad(Worlds::World& world) override { Forward(world, [&](IModule* m) { m->OnWorldLoaded(world); }, "OnWorldLoaded"); }
@@ -221,8 +217,6 @@ namespace Shard::Engine::Plugins {
         return b;
     }
 
-    // ---- Discovery ----
-
     bool PluginManager::DiscoverPluginDir(const std::string& dir, std::vector<PluginManifest>& out, std::vector<std::string>& problems)
     {
         const std::string manifestPath = dir + "/shard-plugin.json";
@@ -265,10 +259,10 @@ namespace Shard::Engine::Plugins {
             if (!unpacked.empty()) {
                 const size_t before = out.size();
                 DiscoverPluginDir(unpacked, out, problems);
-                for (size_t i = before; i < out.size(); ++i) out[i].manifestPath = Slash(archive);      // where it came from, for the log
+                for (size_t i = before; i < out.size(); ++i) out[i].manifestPath = Slash(archive);
             }
         }
-        std::sort(subs.begin(), subs.end());        // the order the file system lists them in must not matter
+        std::sort(subs.begin(), subs.end());
         for (const std::string& sub : subs) DiscoverFolder(sub, out, problems, depth + 1);
     }
 
@@ -284,7 +278,7 @@ namespace Shard::Engine::Plugins {
         out.moduleKind = ModuleKind::Code;
         out.linkage = Linkage::Dynamic;
         out.tier = TrustTier::FirstParty;
-        out.hosts = kAllSimulationHosts | HostBit(Host::Tool);   // a library handed to a tool (--game) is meant to be loaded by it
+        out.hosts = kAllSimulationHosts | HostBit(Host::Tool);
         out.affectsSimulation = true;
         out.contentMount.clear();
         const fs::path abs = fs::absolute(library, ec).lexically_normal();
@@ -366,7 +360,7 @@ namespace Shard::Engine::Plugins {
     {
         std::vector<PluginManifest> kept;
         for (PluginManifest& m : candidates) {
-            if (m.manifestPath.empty() || m.rootDir.empty()) { kept.push_back(std::move(m)); continue; }       // static, or a library given on its own
+            if (m.manifestPath.empty() || m.rootDir.empty()) { kept.push_back(std::move(m)); continue; }
 
             std::error_code ec;
             InstallMarker marker;
@@ -419,7 +413,7 @@ namespace Shard::Engine::Plugins {
         Crypto::PublicKey key;
         std::copy(bytes.begin(), bytes.end(), key.begin());
         m_Trust.Trust(publisher, key);
-        if (m_Config.trustFiles.empty()) return Core::Ok(true);          // trusted for this run only
+        if (m_Config.trustFiles.empty()) return Core::Ok(true);
         return m_Trust.SaveFile(m_Config.trustFiles.front());
     }
 
@@ -441,11 +435,8 @@ namespace Shard::Engine::Plugins {
         return installer.Install(id, *range, options);
     }
 
-    // ---- Startup ----
-
     void PluginManager::RegisterBuiltinPlugins()
     {
-        // The parts of the engine, as modules : a plugin can depend on them, and `plugin.list` shows what the engine is made of
         struct Builtin { const char* id; const char* name; };
         static const Builtin kBuiltins[] = {
             { "shard.core", "Core and platform" }, { "shard.assets", "Assets" }, { "shard.world", "World and ECS" },
@@ -511,16 +502,13 @@ namespace Shard::Engine::Plugins {
         m_ProjectAllowUnsigned.clear();
         m_ProjectRegistries.clear();
 
-        // Static plugins: the engine's modules, then the ones the application compiled in
         RegisterBuiltinPlugins();
         for (auto& p : PendingStatic()) m_Static.push_back({ p.manifest, p.factory });
         PendingStatic().clear();
 
-        // Safe mode: a plugin the last run crashed in sits this one out
         std::set<std::string> disabled = m_Config.disabled;
         RunSafeModeCheck(m_Config, disabled);
 
-        // What to look at
         std::vector<PluginManifest> candidates;
         std::vector<std::string> problems;
         std::vector<std::string> projectFolders, projectPlugins;
@@ -557,7 +545,6 @@ namespace Shard::Engine::Plugins {
             if (fs::path(path).extension() == kArchiveExtension) { discoverArchive(Abs(path)); continue; }
             if (fs::is_directory(path, ec)) { DiscoverFolder(Abs(path), candidates, problems, 0); continue; }
             if (fs::path(path).filename() == "shard-plugin.json") { DiscoverPluginDir(Abs(fs::path(path).parent_path().string()), candidates, problems); continue; }
-            // A library on its own : "game" is what the old --game option called the game's library
             PluginManifest implicit;
             std::string id = fs::path(path).stem().string();
             for (char& c : id) c = char(std::tolower(static_cast<unsigned char>(c)));
@@ -573,10 +560,8 @@ namespace Shard::Engine::Plugins {
         }
         for (const std::string& p : problems) DEBUG_WARNING("Plugins : " + p);
 
-        // Who made what : a bad signature, or a plugin that needs a good one and has none, is left out here
         ApplyTrustPolicy(candidates, m_ProjectAllowUnsigned);
 
-        // Resolve
         ResolveResult resolved = ResolvePlugins(candidates, options);
         for (const Rejection& r : resolved.rejected) {
             m_Rejections.push_back(r);
@@ -588,7 +573,6 @@ namespace Shard::Engine::Plugins {
         std::string startupError;
         for (const std::string& e : resolved.errors) startupError += (startupError.empty() ? "" : "\n") + e;
 
-        // The records, in load order
         PluginOwner nextOwner = 0;
         for (size_t index : resolved.order) {
             auto record = std::make_unique<PluginRecord>();
@@ -608,7 +592,6 @@ namespace Shard::Engine::Plugins {
             m_Records.push_back(std::move(record));
         }
 
-        // A plugin the project requires has to be there at all
         for (const std::string& id : options.required) {
             if (!Find(id)) {
                 bool explained = false;
@@ -628,10 +611,8 @@ namespace Shard::Engine::Plugins {
             });
         }
 
-        // Settings first (the variables a plugin creates in OnLoad then start with the right value)
         for (auto& r : m_Records) ApplySettings(*r, m_ProjectSettings);
 
-        // Load, register
         for (auto& r : m_Records) {
             if (r->state == PluginState::Failed) continue;
             ComputeHashes(*r);
@@ -644,12 +625,10 @@ namespace Shard::Engine::Plugins {
         for (const ContentConflict& c : m_Content.FindConflicts())
             DEBUG_WARNING("Plugins : '" + c.logicalPath + "' is provided by " + c.keptFrom + " and " + c.rejectedFrom + ", which does not list it in content.overrides : " + c.keptFrom + "'s is used");
 
-        // A required plugin that did not make it stops the start
         for (auto& r : m_Records)
             if (r->required && r->state == PluginState::Failed)
                 startupError += (startupError.empty() ? "" : "\n") + std::string("required plugin '") + r->manifest.id + "' failed : " + r->error;
 
-        // plugins.lock
         if (!m_Config.lockfilePath.empty()) {
             std::string lockText;
             if (ReadWholeFile(m_Config.lockfilePath, lockText)) {
@@ -716,11 +695,9 @@ namespace Shard::Engine::Plugins {
         }
         uint64_t h = Core::Fnv1a64(r.manifest.id);
         h = Core::Fnv1a64(r.manifest.version.ToString(), h);
-        // The code is identified by the version : the same source gives other machine code on each platform, and a replay or a server
-        // has to match across platforms. The content (data files) is byte for byte the same everywhere.
+        // Code is identified by version, since the same source gives different machine code per platform. Content is byte-identical everywhere.
         h = Core::HashCombine(h, r.contentHash);
-        // ... except a sandboxed plugin, whose module is the same bytes on every platform : the code itself is part of its identity, so a
-        // module rebuilt under the same version is not taken for the one a replay or a server was recorded with
+        // Sandboxed modules are the same bytes everywhere, so the binary hash joins the identity (a rebuild under the same version must not match a recorded replay or server)
         if (r.manifest.tier == TrustTier::Sandboxed) h = Core::HashCombine(h, r.binaryHash);
         r.identityHash = h;
     }
@@ -734,7 +711,7 @@ namespace Shard::Engine::Plugins {
 
         std::string path = source;
         if (m_Config.allowHotReload && !m_Config.deterministic) {
-            // Windows keeps a loaded DLL locked : the copy is what gets loaded, the original stays free to be rebuilt
+            // Windows keeps a loaded DLL locked, so load a copy and leave the original free to rebuild
             static const fs::path tempRoot = fs::temp_directory_path() / ("shard_plugins_" + std::to_string(std::chrono::steady_clock::now().time_since_epoch().count()));
             fs::create_directories(tempRoot, ec);
             const fs::path copy = tempRoot / (r.manifest.id + "-" + std::to_string(++m_TempCounter) + Core::Platform::DynLib::Extension());
@@ -755,8 +732,7 @@ namespace Shard::Engine::Plugins {
         links.logger = &Debugging::GetLogger();
         links.tags = &Core::TagRegistry::Get();
 
-        // A library handed over on its own (--game, a bare path) has no manifest to say which interface it speaks : one built with the SDK
-        // exports the C entry point and not the C++ descriptor
+        // A bare library has no manifest to name its interface. One built with the SDK exports the C entry point, not the C++ descriptor.
         if (r.manifest.abi == "cpp" && r.manifest.manifestPath.empty() && !r.library.Symbol<DescribeFn>(r.manifest.entry) &&
             r.library.Symbol<ShardPluginEntryFn>("shard_plugin_entry")) {
             r.manifest.abi = "c1";
@@ -764,7 +740,7 @@ namespace Shard::Engine::Plugins {
         }
 
         if (r.manifest.abi == "c1") {
-            // The C ABI : no engine types cross, so the build fingerprint does not apply (the ABI version is the contract)
+            // C ABI passes no engine types, so the build fingerprint does not apply, the ABI version is the contract
             auto entry = r.library.Symbol<ShardPluginEntryFn>(r.manifest.entry);
             if (!entry) { Fail(r, "'" + path + "' does not export the C ABI entry point '" + r.manifest.entry + "'"); return false; }
             ShardPluginInfo info;
@@ -780,7 +756,6 @@ namespace Shard::Engine::Plugins {
 
         auto describe = r.library.Symbol<DescribeFn>(r.manifest.entry);
         if (!describe) {
-            // The old kind of game library
             auto init = r.library.Symbol<LegacyModule::InitFn>("InitializeSingletons");
             auto reg = r.library.Symbol<LegacyModule::RegisterFn>("RegisterGameComponents");
             if (!init || !reg) { Fail(r, "'" + path + "' exports neither " + r.manifest.entry + " nor the legacy InitializeSingletons / RegisterGameComponents"); return false; }
@@ -825,7 +800,7 @@ namespace Shard::Engine::Plugins {
         const std::string source = fs::path(bin).is_absolute() ? bin : r.manifest.rootDir + "/" + bin;
         std::error_code ec;
         if (!fs::is_regular_file(source, ec)) { Fail(r, "binary '" + source + "' does not exist"); return false; }
-        // Nothing is mapped into the process : no temporary copy, no build fingerprint, no safe mode marker (a trap cannot crash the host)
+        // Nothing is mapped into the process, so no temp copy, fingerprint or safe-mode marker (a trap cannot crash the host)
         m_ActivePlugin = r.owner;
         auto plugin = CreateWasmPlugin(r.owner, r.manifest, source, m_Config.cacheDirectory);
         m_ActivePlugin = 0;
@@ -858,7 +833,6 @@ namespace Shard::Engine::Plugins {
         r.toolPlugin = dynamic_cast<ToolPlugin*>(r.instance);
         if (!r.module) r.module = dynamic_cast<IModule*>(r.instance);
         if (r.manifest.abi == "c1" || r.manifest.abi == "wasm1") {
-            // A C plugin (a sandboxed one is a C plugin to the host) is one object whatever callbacks it fills : the kinds it also is are objects of their own
             const CPluginFacets facets = GetCPluginFacets(r.instance);
             r.enginePlugin = facets.engine;
             r.toolPlugin = facets.tool;
@@ -939,7 +913,6 @@ namespace Shard::Engine::Plugins {
 
     void PluginManager::MountContent(PluginRecord& r)
     {
-        // The tags of the manifest join the tree with the plugin's content (and leave it with it, see UnmountContent's callers)
         if (!r.manifest.tags.empty()) {
             std::vector<std::pair<std::string, std::string>> tags(r.manifest.tags.begin(), r.manifest.tags.end());
             Core::TagRegistry::Get().SetDeclarations(Core::TagSource::Plugin, r.manifest.id, tags);
@@ -952,7 +925,7 @@ namespace Shard::Engine::Plugins {
             else DEBUG_WARNING("Plugins : " + r.manifest.id + " : " + err);
             return;
         }
-        if (!m_Content.Find(r.manifest.id)) return;       // nothing to mount
+        if (!m_Content.Find(r.manifest.id)) return;
 
         const std::string root = r.manifest.rootDir + "/" + r.manifest.contentMount;
         const std::vector<std::string> problems = ValidateContentFolder(root);
@@ -964,7 +937,6 @@ namespace Shard::Engine::Plugins {
             DEBUG_WARNING("Plugins : " + r.manifest.id + " content problems :" + all);
         }
 
-        // Components declared by the pack
         for (const std::string& file : m_Content.List(r.manifest.id, "components")) {
             if (file.size() < 5 || file.compare(file.size() - 5, 5, ".json") != 0) continue;
             auto text = m_Content.ReadText(ContentMounts::MakeModUri(r.manifest.id, file));
@@ -973,7 +945,6 @@ namespace Shard::Engine::Plugins {
             if (j.is_discarded()) continue;
             auto declared = ParseDeclaredComponent(j);
             if (!declared) continue;
-            // Registered as a real component type : it can be added to an actor, saved, loaded, copied and edited like one written in C++
             auto type = DeclaredComponentType::Build(declared.Value());
             if (!type) {
                 r.warnings.push_back(type.GetError().message);
@@ -987,8 +958,6 @@ namespace Shard::Engine::Plugins {
         if (r.module) Guard(r, "OnContentMounted", [&] { r.module->OnContentMounted(*r.context); });
     }
 
-    // ---- Engine lifecycle ----
-
     template <typename F>
     void PluginWorldBridge::Forward(Worlds::World&, F&& call, const char* what)
     {
@@ -996,7 +965,6 @@ namespace Shard::Engine::Plugins {
         for (auto& r : pm.Plugins()) {
             if (!r->IsRunning() || !r->module) continue;
             PluginRecord* rec = r.get();
-            // A module that throws is counted, the others still hear about the world
             try { call(rec->module); } catch (const std::exception& e) {
                 DEBUG_ERROR("Plugins : " + rec->manifest.id + " " + std::string(what) + " threw : " + e.what());
                 ++rec->errorCount;
@@ -1028,7 +996,7 @@ namespace Shard::Engine::Plugins {
         m_Engine = engine;
         m_Scheduler = scheduler;
         m_Events = events;
-        // What C systems asked of the actors (shard.ecs set_local_transform) is done once the phase is over, on this thread
+        // Actor changes requested by C systems (set_local_transform) are applied once the phase ends, on this thread
         if (scheduler) scheduler->SetPhaseEndHook([this](Core::Ecs::Phase) {
             try { FlushCPoses(m_Engine); } catch (const std::exception& e) { DEBUG_ERROR(std::string("Plugins : applying the poses of C systems threw : ") + e.what()); }
         });
@@ -1042,7 +1010,7 @@ namespace Shard::Engine::Plugins {
             m_PatchFilterId = Worlds::AddWorldJsonFilter([this](const std::string& name, json& world) { PatchWorld(name, world); });
         }
         for (auto& r : m_Records) {
-            if (r->context) r->context->BindEngine(scheduler, events, engine);       // the contexts made before the engine existed learn it too
+            if (r->context) r->context->BindEngine(scheduler, events, engine);
         }
     }
 
@@ -1074,7 +1042,7 @@ namespace Shard::Engine::Plugins {
             if (r.state != PluginState::Failed) r.state = PluginState::Disabled;
         }
         RemoveWorldBridge();
-        m_EventWatches.clear();         // the dispatcher goes with the engine
+        m_EventWatches.clear();
         Worlds::SetWorldSaveGuard(nullptr);
         if (m_PatchFilterId != 0) { Worlds::RemoveWorldJsonFilter(m_PatchFilterId); m_PatchFilterId = 0; }
         if (m_Scheduler) m_Scheduler->SetPhaseEndHook(nullptr);
@@ -1089,7 +1057,7 @@ namespace Shard::Engine::Plugins {
             Guard(r, "OnDisable", [&] { r.instance->OnDisable(*r.context); });
         }
         if (r.instance && r.state != PluginState::Unloaded && r.state != PluginState::Discovered && r.state != PluginState::Resolved && r.context) {
-            // OnUnload even for a plugin that failed : it may hold things only it can release. Its own exceptions are not escalated any more.
+            // OnUnload runs even for a failed plugin, it may hold things only it can release. Its exceptions are not escalated.
             try { m_ActivePlugin = r.owner; r.instance->OnUnload(*r.context); } catch (...) {}
             m_ActivePlugin = 0;
         }
@@ -1165,15 +1133,12 @@ namespace Shard::Engine::Plugins {
         PendingStatic().clear();
     }
 
-    // ---- Frames ----
-
     void PluginManager::BeginFrame(uint64_t frame)
     {
         if (!m_Started || !m_EngineReady) return;
         m_FrameCounter = frame;
         BeginWasmFrame();
 
-        // What the systems reported since last frame. A plugin that keeps throwing is switched off here, outside the scheduler.
         std::vector<std::pair<PluginOwner, std::string>> errors;
         {
             std::lock_guard<std::mutex> lock(m_ErrorMutex);
@@ -1215,11 +1180,10 @@ namespace Shard::Engine::Plugins {
             r->frameMsAverage = r->frameMsAverage * 0.9 + ms * 0.1;
         }
         try { EndCFrame(frame); } catch (const std::exception& e) { DEBUG_ERROR(std::string("Plugins : the end of the frame threw : ") + e.what()); }
-        // What the C plugins' systems emitted during the frame
         try { FlushCEvents(m_Events); } catch (const std::exception& e) { DEBUG_ERROR(std::string("Plugins : a named event handler threw : ") + e.what()); }
         Hooks::PostFrame hook(frame);
         try { m_Hooks.Emit(hook); } catch (const std::exception& e) { DEBUG_ERROR(std::string("Plugins : PostFrame handler threw : ") + e.what()); }
-        EndWasmFrame();         // what a sandboxed plugin runs from here on has a budget of its own
+        EndWasmFrame();
         if (frame % 120 == 0) UpdateBudgets();
     }
 
@@ -1297,8 +1261,6 @@ namespace Shard::Engine::Plugins {
             }
         }
     }
-
-    // ---- Safe mode ----
 
     std::string PluginManager::ReadSafeModeSuspect(const std::string& stateDir)
     {

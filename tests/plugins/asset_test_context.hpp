@@ -7,8 +7,6 @@
 
 namespace PluginTest {
 
-    /// A test engine whose asset database and file manager exist (and are empty): the fields that hold an asset are written by name through the
-    /// first, and a world that is told about plugins asks the second for its asset id
     class AssetContext : public Shard::Tests::TestEngineContext {
     public:
         AssetContext()

@@ -1,17 +1,7 @@
-# Building a plugin for the sandbox (tier 2, WebAssembly) : shard_sdk_add_plugin(... TARGET wasm) uses this.
-#
-# What it needs, found in this order :
-#   SHARD_WASM_TOOLCHAIN  (CMake variable or environment variable) : a wasi-sdk (bin/clang++, share/wasi-sysroot) or a wasi sysroot alone
-#                         (include/wasm32-wasip1, lib/wasm32-wasip1 : the "noeh" variant, without exception handling, is what is linked)
-#   WASI_SDK_PATH         the variable wasi-sdk's own toolchain files use
-#   clang / clang++ and wasm-ld on the PATH when the toolchain is only a sysroot
-# wasi-sdk 34 or later (docs/design-notes/wasm-sandbox.fr.md section 7). The C++ is compiled without exceptions (SHARD_SDK_NO_EXCEPTIONS : a
-# refusal of the host that the SDK would throw stops the plugin instead), as a "reactor" : the module exports _initialize, which the host runs
-# before the entry point (the static constructors of a game's files register their pieces).
+# Wasm plugin build (tier 2). Compiled without exceptions, as a reactor: the host runs the exported _initialize before the entry point.
 
 include_guard(GLOBAL)
 
-# Sets SHARD_WASM_CLANG, SHARD_WASM_CLANGXX, SHARD_WASM_LD and SHARD_WASM_SYSROOT, or stops with the reason
 function(shard_sdk_wasm_toolchain)
     get_property(_done GLOBAL PROPERTY SHARD_WASM_TOOLCHAIN_FOUND)
     if(_done)
@@ -47,7 +37,6 @@ function(shard_sdk_wasm_toolchain)
     if(NOT _clang OR NOT _clangxx OR NOT _ld)
         message(FATAL_ERROR "TARGET wasm needs clang, clang++ and wasm-ld (in ${_root}/bin or on the PATH)")
     endif()
-    # compiler-rt's builtins for wasm32 (__multi3...) : SHARD_WASM_BUILTINS, else what a wasi-sdk's clang says, else a libclang_rt.builtins.a under the toolchain
     set(_builtins "${SHARD_WASM_BUILTINS}")
     if(NOT _builtins)
         set(_builtins "$ENV{SHARD_WASM_BUILTINS}")
@@ -78,8 +67,6 @@ function(shard_sdk_wasm_toolchain)
     set_property(GLOBAL PROPERTY SHARD_WASM_TOOLCHAIN_FOUND TRUE)
 endfunction()
 
-# shard_sdk_add_wasm_module(<target> OUTPUT <file.wasm> SOURCES ... [INCLUDE_DIRS ...])
-# A custom target that compiles each source with clang for wasm32-wasip1 and links them with the sysroot's libc and libc++ into OUTPUT.
 function(shard_sdk_add_wasm_module target)
     cmake_parse_arguments(W "" "OUTPUT" "SOURCES;INCLUDE_DIRS;DEFINITIONS" ${ARGN})
     shard_sdk_wasm_toolchain()

@@ -15,9 +15,7 @@
 #include "plugins/asset_test_context.hpp"
 #include "plugins/editor_fakes.hpp"
 
-// The game of tests/plugin_fixtures/game_scripts (the one GameScriptsTest loads as a native plugin), compiled to WebAssembly by the SDK's own
-// `shard_sdk_add_plugin(... TARGET wasm)` (a wasi-sdk : SHARD_TEST_WASM_TOOLCHAIN) and run in the sandbox against the same expectations : the same
-// source, the same behaviour. Only built when a toolchain is given.
+// Same game as game_scripts, compiled to WebAssembly by shard_sdk_add_plugin(... TARGET wasm) (SHARD_TEST_WASM_TOOLCHAIN) and run in the sandbox against the same expectations. Only built when a toolchain is given.
 
 using namespace Shard::Engine;
 using namespace Shard::Engine::Plugins;
@@ -90,7 +88,7 @@ namespace {
             EXPECT_TRUE(CallWasmExport(Rec()->owner, name, args, results, &error)) << error;
             return results.empty() ? 0 : results[0];
         }
-        // game_stat("name") and the like take a pointer : the name is written in the module's scratch buffer
+        // game_stat("name") and the like take a pointer, so the name goes in the module's scratch buffer.
         uint64_t WithName(const char* function, const char* name)
         {
             const uint32_t scratch = uint32_t(Call("game_scratch"));
@@ -138,7 +136,7 @@ namespace {
     };
 }
 
-TEST_F(WasmGameTest, EachFileRegistersItsOwnPiecesInAFixedOrder)
+TEST_F(WasmGameTest, EachFileRegistersInOrder)
 {
     Start();
     auto& registry = Objects::Components::GetComponentRegistry();
@@ -150,7 +148,7 @@ TEST_F(WasmGameTest, EachFileRegistersItsOwnPiecesInAFixedOrder)
     EXPECT_EQ(Rec()->errorCount, 0u);
 }
 
-TEST_F(WasmGameTest, AScriptRunsLikeTheEnginesOwnAndTheOtherFilesTalkToIt)
+TEST_F(WasmGameTest, ScriptRunsLikeEngineOwn)
 {
     Start();
     auto hero = NewActor("Hero");
@@ -189,13 +187,13 @@ TEST_F(WasmGameTest, AScriptRunsLikeTheEnginesOwnAndTheOtherFilesTalkToIt)
     world->Tick();
     EXPECT_TRUE(Alive(hero));
     world->Tick();
-    EXPECT_FALSE(Alive(hero));                                      // Health destroyed its own actor from inside the module's tick
+    EXPECT_FALSE(Alive(hero));
     EXPECT_EQ(Stat("destroyed"), 1);
     world->Tick();
     EXPECT_EQ(Rec()->errorCount, 0u);
 }
 
-TEST_F(WasmGameTest, AScriptCreatesFindsAndSpawnsActors)
+TEST_F(WasmGameTest, ScriptCreatesFindsSpawns)
 {
     Start();
     auto hero = NewActor("Hero");
@@ -214,7 +212,7 @@ TEST_F(WasmGameTest, AScriptCreatesFindsAndSpawnsActors)
     (void)hero;
 }
 
-TEST_F(WasmGameTest, AScriptIsSavedAndCopiedWithItsFields)
+TEST_F(WasmGameTest, ScriptSavedAndCopied)
 {
     Start();
     auto boss = NewActor("Boss");
@@ -235,7 +233,7 @@ TEST_F(WasmGameTest, AScriptIsSavedAndCopiedWithItsFields)
     EXPECT_EQ(copied->Serialize()["label"].get<std::string>(), "the boss");
 }
 
-TEST_F(WasmGameTest, AnEcsComponentAndItsSystemLiveInTheirOwnFile)
+TEST_F(WasmGameTest, EcsComponentAndSystemInFile)
 {
     Start();
     Core::Ecs::Registry& ecs = *context.GetEcs();
@@ -252,7 +250,7 @@ TEST_F(WasmGameTest, AnEcsComponentAndItsSystemLiveInTheirOwnFile)
     EXPECT_EQ(Stat("driftSteps"), 2);
 }
 
-TEST_F(WasmGameTest, ThePlayerOfTheTutorialMovesAndHurtsTheBoss)
+TEST_F(WasmGameTest, TutorialPlayerMovesAndHurts)
 {
     Start();
     auto boss = NewActor("Boss");
@@ -272,9 +270,7 @@ TEST_F(WasmGameTest, ThePlayerOfTheTutorialMovesAndHurtsTheBoss)
 }
 
 
-// ---- the same, from a module in the sandbox : shard.editor 1.1 : menus, toolbar, inspectors, gizmos, selection, notifications, richer widgets ----
-
-TEST_F(WasmGameTest, AnEditorPluginContributesMenusToolbarInspectorsGizmosAndFollowsTheSelection)
+TEST_F(WasmGameTest, EditorPluginContributions)
 {
     EditorFakes::Log().clear();
     EditorFakes::Notified().clear();
@@ -282,7 +278,6 @@ TEST_F(WasmGameTest, AnEditorPluginContributesMenusToolbarInspectorsGizmosAndFol
     Start();
     auto& manager = pm();
 
-    // A menu item and a toolbar button
     const auto menus = manager.Extensions().Get<EditorMenuItem>("editor.menu");
     ASSERT_EQ(menus.size(), 1u);
     EXPECT_EQ(menus[0]->path, "Tools/Demo/Bake all");
@@ -296,7 +291,6 @@ TEST_F(WasmGameTest, AnEditorPluginContributesMenusToolbarInspectorsGizmosAndFol
     EXPECT_EQ(EditorFakes::Notified()[0].first, uint32_t(SHARD_EDITOR_NOTIFY_WARNING));
     EXPECT_EQ(EditorFakes::Notified()[0].second, "pinged");
 
-    // An inspector and a gizmo are called with the handle of the actor
     auto hero = NewActor("Hero");
     const uint64_t handle = EditorActorHandle(hero);
     const auto inspectors = manager.Extensions().Get<EditorInspectorItem>("editor.inspector");
@@ -316,14 +310,12 @@ TEST_F(WasmGameTest, AnEditorPluginContributesMenusToolbarInspectorsGizmosAndFol
     EXPECT_EQ(EditorFakes::Count("gizmo.sphere"), 1);
     EXPECT_EQ(EditorFakes::Count("gizmo.text"), 1);
 
-    // The selection: told to the plugin, and asked by it
     NotifyEditorSelection({ hero });
     EXPECT_EQ(Stat("selectionEvents"), 1);
     EXPECT_EQ(Stat("selectionSize"), 1);
     NotifyEditorSelection({});
     EXPECT_EQ(Stat("selectionSize"), 0);
 
-    // A window that uses the richer widgets
     const auto panels = manager.Extensions().Get<EditorPanelItem>("editor.panel");
     std::shared_ptr<EditorPanelItem> widgets;
     for (const auto& panel : panels) if (panel->title == "Demo widgets") widgets = panel;
@@ -333,25 +325,24 @@ TEST_F(WasmGameTest, AnEditorPluginContributesMenusToolbarInspectorsGizmosAndFol
     EXPECT_EQ(Stat("widgetDraws"), 1);
     EXPECT_EQ(Stat("tabItems"), 1);
     EXPECT_EQ(Stat("tableCells"), 2);
-    EXPECT_EQ(Stat("pickedIndex"), 2);                              // the combo's answer went back into the plugin's variable
-    EXPECT_EQ(Stat("menuRuns"), 2);                                 // the menu item of its context popup
+    EXPECT_EQ(Stat("pickedIndex"), 2);
+    EXPECT_EQ(Stat("menuRuns"), 2);
     EXPECT_FLOAT_EQ(Real("contentWidth"), 123.0f);
     EXPECT_EQ(EditorFakes::Count("begin_tab_bar"), 1);
     EXPECT_EQ(EditorFakes::Count("end_table"), 1);
 
-    // All of it goes with the plugin
     std::string error;
     ASSERT_TRUE(pm().Disable(kId, true, &error)) << error;
     EXPECT_TRUE(manager.Extensions().Get<EditorMenuItem>("editor.menu").empty());
     EXPECT_TRUE(manager.Extensions().Get<EditorToolbarItem>("editor.toolbar").empty());
     EXPECT_TRUE(manager.Extensions().Get<EditorInspectorItem>("editor.inspector").empty());
     EXPECT_TRUE(manager.Extensions().Get<EditorGizmoItem>("editor.gizmo").empty());
-    NotifyEditorSelection({});                                      // nobody is called any more
+    NotifyEditorSelection({});
     SetEditorUiBackend(nullptr);
     EXPECT_EQ(Rec()->errorCount, 0u);
 }
 
-TEST_F(WasmGameTest, AReferenceToAnotherActorIsSavedByPathAndFoundAgain)
+TEST_F(WasmGameTest, ActorReferenceSavedByPath)
 {
     Start();
     auto level = NewActor("Level");
@@ -371,7 +362,6 @@ TEST_F(WasmGameTest, AReferenceToAnotherActorIsSavedByPathAndFoundAgain)
     EXPECT_EQ(Stat("aimed"), 1);
     EXPECT_NEAR(Real("targetDistance"), 4.0f, 1e-4f);
 
-    // The plugin's own std::string, inside the module, through text_get and text_set
     const ordered_json saved = script->Serialize();
     EXPECT_EQ(saved["note"].get<std::string>(), "aim");
     EXPECT_EQ(saved["target"].get<std::string>(), "Level/Enemy");
