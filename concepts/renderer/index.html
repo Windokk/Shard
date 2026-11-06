@@ -1,0 +1,2270 @@
+
+<!doctype html>
+<html lang="en" class="no-js">
+  <head>
+    
+      <meta charset="utf-8">
+      <meta name="viewport" content="width=device-width,initial-scale=1">
+      
+      
+      
+        <link rel="canonical" href="https://windokk.github.io/Shard/concepts/renderer/">
+      
+      
+        <link rel="prev" href="../tags/">
+      
+      
+        <link rel="next" href="../display/">
+      
+      
+        
+      
+      
+      <link rel="icon" href="../../images/favicon.svg">
+      <meta name="generator" content="mkdocs-1.6.1, mkdocs-material-9.8.0">
+    
+    
+      
+        <title>Renderer - Shard Engine Docs</title>
+      
+    
+    
+      <link rel="stylesheet" href="../../assets/stylesheets/main.57a0d79d.min.css">
+      
+        
+        <link rel="stylesheet" href="../../assets/stylesheets/palette.fb2fffe2.min.css">
+      
+      
+
+
+    
+    
+      
+    
+    
+      
+        
+        
+        <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+        <link rel="stylesheet" href="https://fonts.googleapis.com/css?family=Roboto:300,300i,400,400i,700,700i%7CRoboto+Mono:400,400i,700,700i&display=fallback">
+        <style>:root{--md-text-font:"Roboto";--md-code-font:"Roboto Mono"}</style>
+      
+    
+    
+      <link rel="stylesheet" href="../../stylesheets/extra.css">
+    
+    <script>__md_scope=new URL("../..",location),__md_hash=e=>[...e].reduce(((e,_)=>(e<<5)-e+_.charCodeAt(0)),0),__md_get=(e,_=localStorage,t=__md_scope)=>JSON.parse(_.getItem(t.pathname+"."+e)),__md_set=(e,_,t=localStorage,a=__md_scope)=>{try{t.setItem(a.pathname+"."+e,JSON.stringify(_))}catch(e){}}</script>
+    
+      
+
+    
+    
+  </head>
+  
+  
+    
+    
+      
+    
+    
+    
+    
+    <body dir="ltr" data-md-color-scheme="default" data-md-color-primary="indigo" data-md-color-accent="indigo">
+  
+    
+    <input class="md-toggle" data-md-toggle="drawer" type="checkbox" id="__drawer" autocomplete="off">
+    <input class="md-toggle" data-md-toggle="search" type="checkbox" id="__search" autocomplete="off">
+    <label class="md-overlay" for="__drawer"></label>
+    <div data-md-component="skip">
+      
+        
+        <a href="#renderer" class="md-skip">
+          Skip to content
+        </a>
+      
+    </div>
+    <div data-md-component="announce">
+      
+    </div>
+    
+    
+      
+
+<header class="md-header" data-md-component="header">
+  <nav class="md-header__inner md-grid" aria-label="Header">
+    <a href="../.." title="Shard Engine Docs" class="md-header__button md-logo" aria-label="Shard Engine Docs" data-md-component="logo">
+      
+  <img src="../../images/logo-white.svg" alt="logo">
+
+    </a>
+    <label class="md-header__button md-icon" for="__drawer">
+      
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M3 6h18v2H3zm0 5h18v2H3zm0 5h18v2H3z"/></svg>
+    </label>
+    <div class="md-header__title" data-md-component="header-title">
+      <div class="md-header__ellipsis">
+        <div class="md-header__topic">
+          <span class="md-ellipsis">
+            Shard Engine Docs
+          </span>
+        </div>
+        <div class="md-header__topic" data-md-component="header-topic">
+          <span class="md-ellipsis">
+            
+              Renderer
+            
+          </span>
+        </div>
+      </div>
+    </div>
+    
+      
+        <form class="md-header__option" data-md-component="palette">
+  
+    
+    
+    
+    <input class="md-option" data-md-color-media="(prefers-color-scheme)" data-md-color-scheme="default" data-md-color-primary="indigo" data-md-color-accent="indigo"  aria-label="Switch to light mode"  type="radio" name="__palette" id="__palette_0">
+    
+      <label class="md-header__button md-icon" title="Switch to light mode" for="__palette_1" hidden>
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="m14.3 16-.7-2h-3.2l-.7 2H7.8L11 7h2l3.2 9zM20 8.69V4h-4.69L12 .69 8.69 4H4v4.69L.69 12 4 15.31V20h4.69L12 23.31 15.31 20H20v-4.69L23.31 12zm-9.15 3.96h2.3L12 9z"/></svg>
+      </label>
+    
+  
+    
+    
+    
+    <input class="md-option" data-md-color-media="(prefers-color-scheme: light)" data-md-color-scheme="default" data-md-color-primary="custom" data-md-color-accent="custom"  aria-label="Switch to dark mode"  type="radio" name="__palette" id="__palette_1">
+    
+      <label class="md-header__button md-icon" title="Switch to dark mode" for="__palette_2" hidden>
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="m17.75 4.09-2.53 1.94.91 3.06-2.63-1.81-2.63 1.81.91-3.06-2.53-1.94L12.44 4l1.06-3 1.06 3zm3.5 6.91-1.64 1.25.59 1.98-1.7-1.17-1.7 1.17.59-1.98L15.75 11l2.06-.05L18.5 9l.69 1.95zm-2.28 4.95c.83-.08 1.72 1.1 1.19 1.85-.32.45-.66.87-1.08 1.27C15.17 23 8.84 23 4.94 19.07c-3.91-3.9-3.91-10.24 0-14.14.4-.4.82-.76 1.27-1.08.75-.53 1.93.36 1.85 1.19-.27 2.86.69 5.83 2.89 8.02a9.96 9.96 0 0 0 8.02 2.89m-1.64 2.02a12.08 12.08 0 0 1-7.8-3.47c-2.17-2.19-3.33-5-3.49-7.82-2.81 3.14-2.7 7.96.31 10.98 3.02 3.01 7.84 3.12 10.98.31"/></svg>
+      </label>
+    
+  
+    
+    
+    
+    <input class="md-option" data-md-color-media="(prefers-color-scheme: dark)" data-md-color-scheme="slate" data-md-color-primary="custom" data-md-color-accent="custom"  aria-label="Switch to system preference"  type="radio" name="__palette" id="__palette_2">
+    
+      <label class="md-header__button md-icon" title="Switch to system preference" for="__palette_0" hidden>
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 7a5 5 0 0 1 5 5 5 5 0 0 1-5 5 5 5 0 0 1-5-5 5 5 0 0 1 5-5m0 2a3 3 0 0 0-3 3 3 3 0 0 0 3 3 3 3 0 0 0 3-3 3 3 0 0 0-3-3m0-7 2.39 3.42C13.65 5.15 12.84 5 12 5s-1.65.15-2.39.42zM3.34 7l4.16-.35A7.2 7.2 0 0 0 5.94 8.5c-.44.74-.69 1.5-.83 2.29zm.02 10 1.76-3.77a7.131 7.131 0 0 0 2.38 4.14zM20.65 7l-1.77 3.79a7.02 7.02 0 0 0-2.38-4.15zm-.01 10-4.14.36c.59-.51 1.12-1.14 1.54-1.86.42-.73.69-1.5.83-2.29zM12 22l-2.41-3.44c.74.27 1.55.44 2.41.44.82 0 1.63-.17 2.37-.44z"/></svg>
+      </label>
+    
+  
+</form>
+      
+    
+    
+      <script>var palette=__md_get("__palette");if(palette&&palette.color){if("(prefers-color-scheme)"===palette.color.media){var media=matchMedia("(prefers-color-scheme: light)"),input=document.querySelector(media.matches?"[data-md-color-media='(prefers-color-scheme: light)']":"[data-md-color-media='(prefers-color-scheme: dark)']");palette.color.media=input.getAttribute("data-md-color-media"),palette.color.scheme=input.getAttribute("data-md-color-scheme"),palette.color.primary=input.getAttribute("data-md-color-primary"),palette.color.accent=input.getAttribute("data-md-color-accent")}for(var[key,value]of Object.entries(palette.color))document.body.setAttribute("data-md-color-"+key,value)}</script>
+    
+    
+    
+      
+      
+        <label class="md-header__button md-icon" for="__search">
+          
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M9.5 3A6.5 6.5 0 0 1 16 9.5c0 1.61-.59 3.09-1.56 4.23l.27.27h.79l5 5-1.5 1.5-5-5v-.79l-.27-.27A6.52 6.52 0 0 1 9.5 16 6.5 6.5 0 0 1 3 9.5 6.5 6.5 0 0 1 9.5 3m0 2C7 5 5 7 5 9.5S7 14 9.5 14 14 12 14 9.5 12 5 9.5 5"/></svg>
+        </label>
+        <div class="md-search" data-md-component="search" role="dialog">
+  <label class="md-search__overlay" for="__search"></label>
+  <div class="md-search__inner" role="search">
+    <form class="md-search__form" name="search">
+      <input type="text" class="md-search__input" name="query" aria-label="Search" placeholder="Search" autocapitalize="off" autocorrect="off" autocomplete="off" spellcheck="false" data-md-component="search-query" required>
+      <label class="md-search__icon md-icon" for="__search">
+        
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M9.5 3A6.5 6.5 0 0 1 16 9.5c0 1.61-.59 3.09-1.56 4.23l.27.27h.79l5 5-1.5 1.5-5-5v-.79l-.27-.27A6.52 6.52 0 0 1 9.5 16 6.5 6.5 0 0 1 3 9.5 6.5 6.5 0 0 1 9.5 3m0 2C7 5 5 7 5 9.5S7 14 9.5 14 14 12 14 9.5 12 5 9.5 5"/></svg>
+        
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M20 11v2H8l5.5 5.5-1.42 1.42L4.16 12l7.92-7.92L13.5 5.5 8 11z"/></svg>
+      </label>
+      <nav class="md-search__options" aria-label="Search">
+        
+        <button type="reset" class="md-search__icon md-icon" title="Clear" aria-label="Clear" tabindex="-1">
+          
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M19 6.41 17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"/></svg>
+        </button>
+      </nav>
+      
+        <div class="md-search__suggest" data-md-component="search-suggest"></div>
+      
+    </form>
+    <div class="md-search__output">
+      <div class="md-search__scrollwrap" tabindex="0" data-md-scrollfix>
+        <div class="md-search-result" data-md-component="search-result">
+          <div class="md-search-result__meta">
+            Initializing search
+          </div>
+          <ol class="md-search-result__list" role="presentation"></ol>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+      
+    
+    
+      <div class="md-header__source">
+        <a href="https://github.com/Windokk/Shard" title="Go to repository" class="md-source" data-md-component="source">
+  <div class="md-source__icon md-icon">
+    
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><!--! Font Awesome Free 7.1.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2025 Fonticons, Inc.--><path d="M173.9 397.4c0 2-2.3 3.6-5.2 3.6-3.3.3-5.6-1.3-5.6-3.6 0-2 2.3-3.6 5.2-3.6 3-.3 5.6 1.3 5.6 3.6m-31.1-4.5c-.7 2 1.3 4.3 4.3 4.9 2.6 1 5.6 0 6.2-2s-1.3-4.3-4.3-5.2c-2.6-.7-5.5.3-6.2 2.3m44.2-1.7c-2.9.7-4.9 2.6-4.6 4.9.3 2 2.9 3.3 5.9 2.6 2.9-.7 4.9-2.6 4.6-4.6-.3-1.9-3-3.2-5.9-2.9M252.8 8C114.1 8 8 113.3 8 252c0 110.9 69.8 205.8 169.5 239.2 12.8 2.3 17.3-5.6 17.3-12.1 0-6.2-.3-40.4-.3-61.4 0 0-70 15-84.7-29.8 0 0-11.4-29.1-27.8-36.6 0 0-22.9-15.7 1.6-15.4 0 0 24.9 2 38.6 25.8 21.9 38.6 58.6 27.5 72.9 20.9 2.3-16 8.8-27.1 16-33.7-55.9-6.2-112.3-14.3-112.3-110.5 0-27.5 7.6-41.3 23.6-58.9-2.6-6.5-11.1-33.3 2.6-67.9 20.9-6.5 69 27 69 27 20-5.6 41.5-8.5 62.8-8.5s42.8 2.9 62.8 8.5c0 0 48.1-33.6 69-27 13.7 34.7 5.2 61.4 2.6 67.9 16 17.7 25.8 31.5 25.8 58.9 0 96.5-58.9 104.2-114.8 110.5 9.2 7.9 17 22.9 17 46.4 0 33.7-.3 75.4-.3 83.6 0 6.5 4.6 14.4 17.3 12.1C436.2 457.8 504 362.9 504 252 504 113.3 391.5 8 252.8 8M105.2 352.9c-1.3 1-1 3.3.7 5.2 1.6 1.6 3.9 2.3 5.2 1 1.3-1 1-3.3-.7-5.2-1.6-1.6-3.9-2.3-5.2-1m-10.8-8.1c-.7 1.3.3 2.9 2.3 3.9 1.6 1 3.6.7 4.3-.7.7-1.3-.3-2.9-2.3-3.9-2-.6-3.6-.3-4.3.7m32.4 35.6c-1.6 1.3-1 4.3 1.3 6.2 2.3 2.3 5.2 2.6 6.5 1 1.3-1.3.7-4.3-1.3-6.2-2.2-2.3-5.2-2.6-6.5-1m-11.4-14.7c-1.6 1-1.6 3.6 0 5.9s4.3 3.3 5.6 2.3c1.6-1.3 1.6-3.9 0-6.2-1.4-2.3-4-3.3-5.6-2"/></svg>
+  </div>
+  <div class="md-source__repository">
+    Windokk/Shard
+  </div>
+</a>
+      </div>
+    
+  </nav>
+  
+</header>
+    
+    <div class="md-container" data-md-component="container">
+      
+      
+        
+          
+            
+<nav class="md-tabs" aria-label="Tabs" data-md-component="tabs">
+  <div class="md-grid">
+    <ul class="md-tabs__list">
+      
+        
+  
+  
+  
+  
+    <li class="md-tabs__item">
+      <a href="../.." class="md-tabs__link">
+        
+  
+  
+    
+  
+  Home
+
+      </a>
+    </li>
+  
+
+      
+        
+  
+  
+  
+  
+    <li class="md-tabs__item">
+      <a href="../../getting-started/" class="md-tabs__link">
+        
+  
+  
+    
+  
+  Getting started
+
+      </a>
+    </li>
+  
+
+      
+        
+  
+  
+  
+    
+  
+  
+    
+    
+      <li class="md-tabs__item md-tabs__item--active">
+        <a href="../" class="md-tabs__link">
+          
+  
+  
+    
+  
+  Concepts
+
+        </a>
+      </li>
+    
+  
+
+      
+        
+  
+  
+  
+  
+    
+    
+      <li class="md-tabs__item">
+        <a href="../../tutorials/" class="md-tabs__link">
+          
+  
+  
+    
+  
+  Tutorials
+
+        </a>
+      </li>
+    
+  
+
+      
+        
+  
+  
+  
+  
+    <li class="md-tabs__item">
+      <a href="../../api_reference/" class="md-tabs__link">
+        
+  
+  
+    
+  
+  API reference
+
+      </a>
+    </li>
+  
+
+      
+        
+  
+  
+  
+  
+    <li class="md-tabs__item">
+      <a href="../../contributing/" class="md-tabs__link">
+        
+  
+  
+    
+  
+  Contributing
+
+      </a>
+    </li>
+  
+
+      
+    </ul>
+  </div>
+</nav>
+          
+        
+      
+      <main class="md-main" data-md-component="main">
+        <div class="md-main__inner md-grid">
+          
+            
+              
+              <div class="md-sidebar md-sidebar--primary" data-md-component="sidebar" data-md-type="navigation" >
+                <div class="md-sidebar__scrollwrap">
+                  <div class="md-sidebar__inner">
+                    
+
+
+  
+
+
+<nav class="md-nav md-nav--primary md-nav--lifted" aria-label="Navigation" data-md-level="0">
+  <label class="md-nav__title" for="__drawer">
+    <a href="../.." title="Shard Engine Docs" class="md-nav__button md-logo" aria-label="Shard Engine Docs" data-md-component="logo">
+      
+  <img src="../../images/logo-white.svg" alt="logo">
+
+    </a>
+    Shard Engine Docs
+  </label>
+  
+    <div class="md-nav__source">
+      <a href="https://github.com/Windokk/Shard" title="Go to repository" class="md-source" data-md-component="source">
+  <div class="md-source__icon md-icon">
+    
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><!--! Font Awesome Free 7.1.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2025 Fonticons, Inc.--><path d="M173.9 397.4c0 2-2.3 3.6-5.2 3.6-3.3.3-5.6-1.3-5.6-3.6 0-2 2.3-3.6 5.2-3.6 3-.3 5.6 1.3 5.6 3.6m-31.1-4.5c-.7 2 1.3 4.3 4.3 4.9 2.6 1 5.6 0 6.2-2s-1.3-4.3-4.3-5.2c-2.6-.7-5.5.3-6.2 2.3m44.2-1.7c-2.9.7-4.9 2.6-4.6 4.9.3 2 2.9 3.3 5.9 2.6 2.9-.7 4.9-2.6 4.6-4.6-.3-1.9-3-3.2-5.9-2.9M252.8 8C114.1 8 8 113.3 8 252c0 110.9 69.8 205.8 169.5 239.2 12.8 2.3 17.3-5.6 17.3-12.1 0-6.2-.3-40.4-.3-61.4 0 0-70 15-84.7-29.8 0 0-11.4-29.1-27.8-36.6 0 0-22.9-15.7 1.6-15.4 0 0 24.9 2 38.6 25.8 21.9 38.6 58.6 27.5 72.9 20.9 2.3-16 8.8-27.1 16-33.7-55.9-6.2-112.3-14.3-112.3-110.5 0-27.5 7.6-41.3 23.6-58.9-2.6-6.5-11.1-33.3 2.6-67.9 20.9-6.5 69 27 69 27 20-5.6 41.5-8.5 62.8-8.5s42.8 2.9 62.8 8.5c0 0 48.1-33.6 69-27 13.7 34.7 5.2 61.4 2.6 67.9 16 17.7 25.8 31.5 25.8 58.9 0 96.5-58.9 104.2-114.8 110.5 9.2 7.9 17 22.9 17 46.4 0 33.7-.3 75.4-.3 83.6 0 6.5 4.6 14.4 17.3 12.1C436.2 457.8 504 362.9 504 252 504 113.3 391.5 8 252.8 8M105.2 352.9c-1.3 1-1 3.3.7 5.2 1.6 1.6 3.9 2.3 5.2 1 1.3-1 1-3.3-.7-5.2-1.6-1.6-3.9-2.3-5.2-1m-10.8-8.1c-.7 1.3.3 2.9 2.3 3.9 1.6 1 3.6.7 4.3-.7.7-1.3-.3-2.9-2.3-3.9-2-.6-3.6-.3-4.3.7m32.4 35.6c-1.6 1.3-1 4.3 1.3 6.2 2.3 2.3 5.2 2.6 6.5 1 1.3-1.3.7-4.3-1.3-6.2-2.2-2.3-5.2-2.6-6.5-1m-11.4-14.7c-1.6 1-1.6 3.6 0 5.9s4.3 3.3 5.6 2.3c1.6-1.3 1.6-3.9 0-6.2-1.4-2.3-4-3.3-5.6-2"/></svg>
+  </div>
+  <div class="md-source__repository">
+    Windokk/Shard
+  </div>
+</a>
+    </div>
+  
+  <ul class="md-nav__list" data-md-scrollfix>
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../.." class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Home
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../getting-started/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Getting started
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+    
+  
+  
+  
+    
+    
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+    
+    
+    
+      
+        
+        
+      
+      
+    
+    
+    <li class="md-nav__item md-nav__item--active md-nav__item--section md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_3" checked>
+        
+          
+          <label class="md-nav__link" for="__nav_3" id="__nav_3_label" tabindex="">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Concepts
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_3_label" aria-expanded="true">
+          <label class="md-nav__title" for="__nav_3">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Concepts
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Concepts
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    
+    
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+    
+    
+    
+      
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_3_2" >
+        
+          
+          <label class="md-nav__link" for="__nav_3_2" id="__nav_3_2_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Engine
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="2" aria-labelledby="__nav_3_2_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_3_2">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Engine
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../modules/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Modules
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../plugins/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Plugins and modules
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../platform/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Platform Abstraction Layer
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../events/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Event system
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../time/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Time
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../tags/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Tags
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+    
+  
+  
+  
+    
+    
+      
+        
+      
+        
+      
+        
+      
+    
+    
+    
+      
+      
+    
+    
+    <li class="md-nav__item md-nav__item--active md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_3_3" checked>
+        
+          
+          <label class="md-nav__link" for="__nav_3_3" id="__nav_3_3_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Rendering
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="2" aria-labelledby="__nav_3_3_label" aria-expanded="true">
+          <label class="md-nav__title" for="__nav_3_3">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Rendering
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+    
+  
+  
+  
+    <li class="md-nav__item md-nav__item--active">
+      
+      <input class="md-nav__toggle md-toggle" type="checkbox" id="__toc">
+      
+      
+        
+      
+      
+        <label class="md-nav__link md-nav__link--active" for="__toc">
+          
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Renderer
+  
+
+    
+  </span>
+  
+  
+
+          <span class="md-nav__icon md-icon"></span>
+        </label>
+      
+      <a href="./" class="md-nav__link md-nav__link--active">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Renderer
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+      
+        
+
+<nav class="md-nav md-nav--secondary" aria-label="Table of contents">
+  
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      Table of contents
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#requirements" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Requirements
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#render-graph" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Render graph
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#shaders" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Shaders
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Shaders">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#slang" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Slang
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#render-pipelines" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Render pipelines
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#shadows" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Shadows
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#ambient" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Ambient
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#reflection-probes" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Reflection probes
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#screen-space-reflections" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Screen-space reflections
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#texture-filtering" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Texture filtering
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#debugging" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Debugging
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#comparing-against-the-path-tracer" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Comparing against the path tracer
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#editor-on-vulkan" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Editor on Vulkan
+      
+    </span>
+  </a>
+  
+</li>
+      
+    </ul>
+  
+</nav>
+      
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../display/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Display and tonemapping
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../lightmaps/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Baked lighting
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    
+    
+      
+        
+      
+        
+      
+        
+      
+    
+    
+    
+      
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_3_4" >
+        
+          
+          <label class="md-nav__link" for="__nav_3_4" id="__nav_3_4_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    World and simulation
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="2" aria-labelledby="__nav_3_4_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_3_4">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    World and simulation
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../large-world/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Large world
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../gravity/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Gravity fields
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../headless/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Headless mode and determinism
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    
+    
+      
+        
+      
+        
+      
+    
+    
+    
+      
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_3_5" >
+        
+          
+          <label class="md-nav__link" for="__nav_3_5" id="__nav_3_5_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Executables
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="2" aria-labelledby="__nav_3_5_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_3_5">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Executables
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../executables/editor/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Editor
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../executables/player/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Player
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+      
+        
+      
+        
+      
+    
+    
+    
+      
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_4" >
+        
+          
+          <label class="md-nav__link" for="__nav_4" id="__nav_4_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Tutorials
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_4_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_4">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Tutorials
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../tutorials/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Tutorials
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../tutorials/write-a-game-with-the-sdk/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Write a game with the SDK
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../api_reference/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    API reference
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../contributing/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Contributing
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+  </ul>
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+            
+              
+              <div class="md-sidebar md-sidebar--secondary" data-md-component="sidebar" data-md-type="toc" >
+                <div class="md-sidebar__scrollwrap">
+                  <div class="md-sidebar__inner">
+                    
+
+<nav class="md-nav md-nav--secondary" aria-label="Table of contents">
+  
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      Table of contents
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#requirements" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Requirements
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#render-graph" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Render graph
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#shaders" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Shaders
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Shaders">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#slang" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Slang
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#render-pipelines" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Render pipelines
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#shadows" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Shadows
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#ambient" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Ambient
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#reflection-probes" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Reflection probes
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#screen-space-reflections" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Screen-space reflections
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#texture-filtering" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Texture filtering
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#debugging" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Debugging
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#comparing-against-the-path-tracer" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Comparing against the path tracer
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#editor-on-vulkan" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Editor on Vulkan
+      
+    </span>
+  </a>
+  
+</li>
+      
+    </ul>
+  
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+          
+          
+            <div class="md-content" data-md-component="content">
+              
+              <article class="md-content__inner md-typeset">
+                
+                  
+
+
+  
+  
+
+
+<h1 id="renderer">Renderer<a class="headerlink" href="#renderer" title="Permanent link">&para;</a></h1>
+<p>Shard renders with OpenGL 4.6 (default) or Vulkan 1.3. Both backends use the same shaders and produce the same image. Select one with <code>--api opengl|vulkan</code> (player, editor, headless) or the <code>"api"</code> field of the project.</p>
+<h2 id="requirements">Requirements<a class="headerlink" href="#requirements" title="Permanent link">&para;</a></h2>
+<p>Nothing to install. The Vulkan headers, volk, vk-bootstrap, VMA, glslang and SPIRV-Reflect are submodules, and the Vulkan runtime comes with your GPU driver.</p>
+<p>You only need the Vulkan SDK for:</p>
+<ul>
+<li>the validation layers (<code>SHARD_VULKAN_VALIDATION=1</code>)</li>
+<li><code>slangc</code>, to compile Slang shaders</li>
+<li><code>vulkaninfo</code> and the other SDK tools</li>
+</ul>
+<h2 id="render-graph">Render graph<a class="headerlink" href="#render-graph" title="Permanent link">&para;</a></h2>
+<p>Each pass declares what it reads and writes (<code>RenderPass::graphAccesses</code> and its target). <code>RenderGraph</code> (in <code>renderer/rhi/graph</code>) uses that to work out:</p>
+<ul>
+<li>the order of the passes</li>
+<li>which passes can be skipped because nobody uses their output</li>
+<li>the barriers needed between two uses of a resource</li>
+<li>which transient targets can share memory</li>
+</ul>
+<p>The graph is independent of the graphics API and has its own unit tests.</p>
+<ul>
+<li><code>render.graph [file.dot]</code> prints the current frame's graph, and can write it as a Graphviz file.</li>
+<li>A pass that names the passes it runs after reads what they wrote. This is how ping-pong targets work.</li>
+</ul>
+<h2 id="shaders">Shaders<a class="headerlink" href="#shaders" title="Permanent link">&para;</a></h2>
+<p>Shaders are written in GLSL 4.3. For Vulkan, <code>ShardShaderCompiler</code> compiles them with glslang using the relaxed Vulkan rules:</p>
+<ul>
+<li>loose uniforms are collected into one uniform block</li>
+<li>resources are assigned a descriptor set by kind: 0 textures, 1 storage buffers, 2 storage images, 3 uniforms, 4 bindless textures</li>
+<li><code>sampler2D(handle)</code> reads from the bindless array</li>
+</ul>
+<p>Some drivers allow only 32 samplers in a fragment shader. <code>lit.frag</code> uses 11 : the material's textures (or the G-buffer), the sky, the reflection probe, one array per kind of shadow map, and the emission map. The engine's other textures (AO, reflections, lightmap pages, GI probe atlases) are read through bindless handles. The layout is listed at the top of <code>lit.frag</code>.</p>
+<p>SPIRV-Reflect runs on the output. A compiled program is saved as a <code>.spvpack</code> (SPIR-V plus reflection data), keyed on a hash of the sources, defines and compiler version, so a stale file is never loaded.</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a>ShardShaderc &lt;shader root&gt; &lt;output dir&gt; [--define NAME[=VALUE]] [--only name] [--reflect] [--force] [-j n]
+</code></pre></div>
+<p><code>--define</code> builds a permutation. At runtime <code>Shader::GetVariant</code> does the same, for example for the G-buffer and deferred variants of <code>lit.frag</code>.</p>
+<h3 id="slang">Slang<a class="headerlink" href="#slang" title="Permanent link">&para;</a></h3>
+<p><code>.slang</code> files work on Vulkan only. They are compiled with <code>slangc</code> (from the Vulkan SDK, or the path in <code>SHARD_SLANGC</code>), with <code>vertexMain</code>, <code>fragmentMain</code> and <code>computeMain</code> as entry points.</p>
+<p>Uniforms that the engine sets by name go in the constant buffer at <code>[[vk::binding(0, 3)]]</code>. Textures are <code>Sampler2D</code>. See <code>shaders/examples/slang_tint.slang</code>.</p>
+<p>On Vulkan, <code>Shader::Create(file, file)</code> loads a Slang shader directly, and shaderc precompiles them (skipped when <code>slangc</code> isn't found). Materials can't use Slang shaders yet, and there is no Slang compute asset.</p>
+<h2 id="render-pipelines">Render pipelines<a class="headerlink" href="#render-pipelines" title="Permanent link">&para;</a></h2>
+<p>A render pipeline asset defines how a frame is built. They live in <code>resources/engine_resources/pipelines/*.renderpipeline</code>. Pick one with <code>"renderPipeline"</code> in the project, or switch at runtime with <code>render.pipeline &lt;name&gt;</code>.</p>
+<table>
+<thead>
+<tr>
+<th>Pipeline</th>
+<th>Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>forward+</code></td>
+<td>Default. Meshes are lit while drawn, using clustered lights, a depth prepass and MSAA.</td>
+</tr>
+<tr>
+<td><code>deferred</code></td>
+<td>Opaque and masked geometry is written to a G-buffer and lit in one fullscreen pass. Translucent geometry and the sky are still drawn forward.</td>
+</tr>
+</tbody>
+</table>
+<p>To add one, implement <code>RenderPipeline</code> and register it with <code>RenderPipelineRegistry</code>.</p>
+<p>The editor's view modes work with both pipelines. In <code>deferred</code>, the lighting pass draws the Normals, Depth, Unlit, GI, SSAO and Shadow Cascades views from the G-buffer. The G-buffer pass writes the UVs, Lightmap UVs and Wireframe colours in place of the albedo. The Shaded Wireframe lines come from one more sweep over the G-buffer's draws. To support the view modes in your own pipeline, set <code>RenderPass::debugViewRole</code> on its passes. A pipeline whose <code>SupportsView</code> returns false for a view falls back to <code>forward+</code> while that view is on.</p>
+<h2 id="shadows">Shadows<a class="headerlink" href="#shadows" title="Permanent link">&para;</a></h2>
+<p>The shadow settings are in <em>Project Settings &gt; Rendering</em>, in the <em>Shadows</em>, <em>Directional Shadows</em>, <em>Spot Shadows</em> and <em>Point Shadows</em> groups. They are saved in <code>rendering.shadows</code> in the project file and applied at once (the shadow maps are rebuilt when a resolution, the number of cascades, <em>Double-sided Casters</em> or <em>Conservative Rasterization</em> changes; everything else takes effect on the next frame).</p>
+<p>The suns share 9 cascade map slots, and each takes one per cascade : with 3 cascades 3 suns cast shadows, with 4 or 5 only 2, with 6 only 1. The suns beyond that are unshadowed.</p>
+<p>Resolutions are the side of a square map in texels. A sun has one map per cascade (three by default), so its memory is the number of cascades times the square of its resolution.</p>
+<p>The maps of each kind of light are the layers of one texture array : one for the suns' cascades, one for the spot lights, one cube map array for the point lights. <code>lit.frag</code> reads each array through a single sampler, so the number of shadowed lights does not use up sampler units. The arrays are sized to the lights that have a shadow slot, and are rebuilt when one is added beyond their size.</p>
+<table>
+<thead>
+<tr>
+<th>Setting</th>
+<th>Key</th>
+<th>Default</th>
+<th></th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Enable Shadows</td>
+<td><code>enabled</code></td>
+<td>on</td>
+<td>Off, every light is unshadowed.</td>
+</tr>
+<tr>
+<td><strong>Directional</strong></td>
+<td></td>
+<td></td>
+<td></td>
+</tr>
+<tr>
+<td>Resolution</td>
+<td><code>directionalResolution</code></td>
+<td>2048</td>
+<td>Side of each cascade's map.</td>
+</tr>
+<tr>
+<td>Distance</td>
+<td><code>directionalDistance</code></td>
+<td>0</td>
+<td>How far from the camera the sun's shadows reach, in world units. 0 follows the camera's far plane.</td>
+</tr>
+<tr>
+<td>Cascades</td>
+<td><code>cascadeSplits</code>, <code>cascadeColors</code></td>
+<td>3 cascades (splits 0.27, 0.54; red, green, blue)</td>
+<td>Edited as a bar : drag a handle to move the split between two cascades, right-click it to merge them, <em>Split</em> / <em>Remove</em> add or drop one. <code>cascadeSplits</code> holds where each cascade but the last ends, as a fraction (0 to 1, ascending) of the range from the camera's near plane to <em>Distance</em> ; <code>cascadeColors</code> holds one <code>[r, g, b]</code> per cascade, shown in the Shadow Cascades debug view. 1 to 6 cascades.</td>
+</tr>
+<tr>
+<td>Stabilize Cascades</td>
+<td><code>stabilizeCascades</code></td>
+<td>on</td>
+<td>Snaps each cascade to its texels so shadows don't shimmer when the camera moves.</td>
+</tr>
+<tr>
+<td>Caster Range</td>
+<td><code>casterRange</code></td>
+<td>500</td>
+<td>How far from a cascade, towards the sun, casters are still drawn. A caster further than this casts no shadow on it.</td>
+</tr>
+<tr>
+<td>Double-sided Casters</td>
+<td><code>directionalDoubleSided</code></td>
+<td>on</td>
+<td>Draws both faces into the sun's maps. With it off, only the faces turned away from the sun are drawn, which lets light through the edges of single-surface roofs and walls.</td>
+</tr>
+<tr>
+<td>Conservative Rasterization</td>
+<td><code>directionalConservativeRaster</code></td>
+<td>on</td>
+<td>Draws every texel a caster touches, so a gap thinner than a texel (the joints of a model) doesn't let a line of light through. OpenGL with <code>GL_NV_conservative_raster</code> only.</td>
+</tr>
+<tr>
+<td>Normal Bias</td>
+<td><code>directionalNormalBias</code></td>
+<td>2</td>
+<td>Texels the lit point is moved along the normal before the lookup, more on a surface that grazes the light.</td>
+</tr>
+<tr>
+<td>Depth Bias</td>
+<td><code>directionalDepthBias</code></td>
+<td>0.75</td>
+<td>Constant depth offset, in texels.</td>
+</tr>
+<tr>
+<td>Slope Bias</td>
+<td><code>directionalSlopeBias</code></td>
+<td>1</td>
+<td>Scale of the receiver plane bias that follows the surface's slope across the filter.</td>
+</tr>
+<tr>
+<td>Filter Radius</td>
+<td><code>directionalFilterRadius</code></td>
+<td>2</td>
+<td>The filter takes (2 × radius + 1)² taps. 0 is a single hardware filtered tap.</td>
+</tr>
+<tr>
+<td>Filter Spread</td>
+<td><code>directionalFilterSpread</code></td>
+<td>1</td>
+<td>Distance between two taps, in texels.</td>
+</tr>
+<tr>
+<td><strong>Spot</strong></td>
+<td></td>
+<td></td>
+<td></td>
+</tr>
+<tr>
+<td>Resolution</td>
+<td><code>spotResolution</code></td>
+<td>1024</td>
+<td>Side of a spot light's map.</td>
+</tr>
+<tr>
+<td>Depth Bias / Minimum Depth Bias</td>
+<td><code>spotDepthBias</code> / <code>spotMinDepthBias</code></td>
+<td>0.0005 / 0.00005</td>
+<td>Slope scaled bias and its floor, in depth units of the map.</td>
+</tr>
+<tr>
+<td>Filter Radius / Spread</td>
+<td><code>spotFilterRadius</code> / <code>spotFilterSpread</code></td>
+<td>2 / 1</td>
+<td>Same as the sun's filter.</td>
+</tr>
+<tr>
+<td><strong>Point</strong></td>
+<td></td>
+<td></td>
+<td></td>
+</tr>
+<tr>
+<td>Resolution</td>
+<td><code>pointResolution</code></td>
+<td>1024</td>
+<td>Side of each of the six faces of a point light's cube map.</td>
+</tr>
+<tr>
+<td>Depth Bias</td>
+<td><code>pointDepthBias</code></td>
+<td>0.15</td>
+<td>In world units.</td>
+</tr>
+<tr>
+<td>Filter Samples / Radius</td>
+<td><code>pointFilterSamples</code> / <code>pointFilterRadius</code></td>
+<td>20 / 0.05</td>
+<td>Taps (1 to 20) spread on a disc of that radius, in world units at the surface. 1 is a hard edge.</td>
+</tr>
+</tbody>
+</table>
+<h2 id="ambient">Ambient<a class="headerlink" href="#ambient" title="Permanent link">&para;</a></h2>
+<p><em>World Settings &gt; Ambient</em> sets <code>ambient_color</code> in the world file : an HDR <code>[r, g, b]</code> (a component can exceed 1) added to every surface, scaled by its albedo, on top of the lighting. Worlds saved with the older single number <code>ambient_intensity</code> load it as a grey. A material can override it with an <code>ambientColor</code> uniform (<code>[r, g, b]</code>).</p>
+<h2 id="reflection-probes">Reflection probes<a class="headerlink" href="#reflection-probes" title="Permanent link">&para;</a></h2>
+<p>A <strong>Reflection Probe</strong> (<em>Add Component &gt; Reflection Probe</em>) is a box of the world whose surfaces reflect a picture of what surrounds its actor, instead of the sky : indoors, a glossy surface reflects the walls of the room, not a sky it cannot see. Without a probe the reflection is the world's skybox, filtered by roughness.</p>
+<p><em>Bake</em> path traces the whole sphere around the actor with the offline raytracer (so the picture holds the lights, the bounces and the sky as the world has them) and saves it as an equirectangular <code>.hdr</code> in the project's <code>reflection_probes</code> folder, referenced by the world file like the baked GI probes. The picture is then loaded as a skybox would be : a cubemap, and a prefiltered cubemap with one level per roughness. <code>reflection.bake</code> and <code>reflection.status</code> do the same from the console.</p>
+<table>
+<thead>
+<tr>
+<th>Field</th>
+<th>Default</th>
+<th>Meaning</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Half Extent</td>
+<td>5, 3, 5</td>
+<td>The box the probe covers, centered on the actor (it does not follow the actor's rotation or scale).</td>
+</tr>
+<tr>
+<td>Bake Resolution / Samples / Bounces</td>
+<td>1024 / 256 / 4</td>
+<td>Width in pixels of the picture (the height is half), samples per pixel, light bounces.</td>
+</tr>
+<tr>
+<td>Intensity</td>
+<td>1</td>
+<td>Multiplier on the light of the reflection.</td>
+</tr>
+<tr>
+<td>Blend Distance</td>
+<td>1</td>
+<td>Distance inside the edge of the box over which the reflection fades into the sky's.</td>
+</tr>
+<tr>
+<td>Box Projection</td>
+<td>on</td>
+<td>Corrects the lookup for the size of the box, so the reflection of a wall lands where the wall is. Turn it off for an open area.</td>
+</tr>
+</tbody>
+</table>
+<p>Only a material with <em>useEnvReflections</em> reflects a probe. <strong>One probe is used at a time</strong>, the one nearest to the camera (the smaller box when the camera is inside several).</p>
+<h2 id="screen-space-reflections">Screen-space reflections<a class="headerlink" href="#screen-space-reflections" title="Permanent link">&para;</a></h2>
+<p><em>World Settings &gt; Screen-Space Reflections</em> (<code>ssr</code> in the world file, off by default) makes a shiny surface reflect what the screen shows where its mirror ray lands, in place of the reflection probe's or the sky's. What the screen does not show falls back to them : a ray that leaves the screen, goes behind an object or finds nothing weighs 0. Only a material with <em>useEnvReflections</em> takes it, like the probe and the sky. Same shaders on OpenGL and Vulkan.</p>
+<p>It is a chain of compute passes, the <code>SSRPass</code> of the render graph (after the SSAO depth + normal prepass, which it reads, and before the lighting) :</p>
+<ol>
+<li><strong>Hi-Z</strong> : a pyramid of the closest depth of the prepass.</li>
+<li><strong>Colour</strong> : the previous frame's HDR picture and its mips (the blur of a rough reflection). The scene is lit after the chain, so the colour a reflection shows is the last frame's, looked up where the camera had it.</li>
+<li><strong>Trace</strong> : the hierarchical march of every pixel's mirror ray through the Hi-Z, at 1, 1/2 or 1/4 of the screen, blended with the frame before's hit (reprojected, world space) when <em>Temporal</em> is on.</li>
+<li><strong>Resolve</strong> : one entry per pixel (edge-aware upsample) : where the hit is in the previous picture, how wide the specular lobe is there, and a confidence.</li>
+</ol>
+<p>The prepass has no materials, so the trace does not know the roughness : it is the mirror ray. <code>lit.frag</code> applies the roughness where it is known, by the level of the colour pyramid it reads (<code>roughness^2</code> wide) and by fading the reflection out of the surfaces rougher than <em>Max Roughness</em>. This means a GGX importance sampled trace (and the noise, and the denoiser it needs) is not what this is, and that the cost does not depend on the roughness of the pixels.</p>
+<table>
+<thead>
+<tr>
+<th>Field</th>
+<th>Default</th>
+<th>Meaning</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Quality</td>
+<td>Medium</td>
+<td>A preset of Max Steps, Resolution and Temporal (Low 32 / 1/4, Medium 48 / 1/2, High 64 / 1/2, Ultra 96 / 1). Touching one of them makes it Custom.</td>
+</tr>
+<tr>
+<td>Max Steps / Resolution / Temporal</td>
+<td>48 / Half / on</td>
+<td><code>maxSteps</code>, <code>resolutionDivisor</code> (1, 2, 4), <code>temporal</code>.</td>
+</tr>
+<tr>
+<td>Temporal Blend</td>
+<td>0.85</td>
+<td>How much of the previous frame stays. Lowered by itself while the camera moves.</td>
+</tr>
+<tr>
+<td>Intensity</td>
+<td>1</td>
+<td>How much of the reflection replaces the probe / sky one where a ray hit.</td>
+</tr>
+<tr>
+<td>Max Distance</td>
+<td>50</td>
+<td>How far a ray travels, in world units.</td>
+</tr>
+<tr>
+<td>Thickness</td>
+<td>0.3</td>
+<td>How far behind a surface of the depth buffer a ray may pass and still hit it.</td>
+</tr>
+<tr>
+<td>Max Roughness</td>
+<td>0.6</td>
+<td>Beyond it the surface is left to the probes and the sky (the fade starts at 60% of it).</td>
+</tr>
+<tr>
+<td>Roughness Blur</td>
+<td>1</td>
+<td>Scales the blur of a rough reflection.</td>
+</tr>
+<tr>
+<td>Edge Fade</td>
+<td>0.1</td>
+<td>Fraction of the screen from its edges over which a reflection fades out.</td>
+</tr>
+</tbody>
+</table>
+<p>Orthographic cameras and the studio views (material previews) have no SSR. The textures are the size of the viewport (Hi-Z, colour pyramid, result and the two histories : about 260 MB at 4K on Half, 65 MB at 1080p), and the <code>SSR Hi-Z</code>, <code>SSR Colour</code>, <code>SSR Trace</code> and <code>SSR Resolve</code> GPU scopes show in the profiler.</p>
+<h2 id="texture-filtering">Texture filtering<a class="headerlink" href="#texture-filtering" title="Permanent link">&para;</a></h2>
+<p>Textures that have mips are sampled with anisotropic filtering, 16x by default (<code>render.anisotropy</code>, 1 to 16, capped by the GPU). It is read when a texture is loaded, so a texture already in memory keeps its level until it is loaded again.</p>
+<h2 id="debugging">Debugging<a class="headerlink" href="#debugging" title="Permanent link">&para;</a></h2>
+<ul>
+<li>Passes are labelled for RenderDoc with <code>DebugScope</code>. When RenderDoc is attached, the engine uses its in-app API (<code>render.renderdoc</code>, <code>render.capture</code>).</li>
+<li><code>render.dump &lt;dir&gt;</code> saves every pass target as a PNG, along with the graph.</li>
+<li><code>render.screenshot &lt;file&gt;</code> saves the last frame: a <code>.hdr</code> holds the scene in linear light, before exposure and tonemapping; a <code>.png</code> holds the picture as shown.</li>
+<li><code>SHARD_VULKAN_VALIDATION=1</code> turns on the validation layers.</li>
+</ul>
+<h2 id="comparing-against-the-path-tracer">Comparing against the path tracer<a class="headerlink" href="#comparing-against-the-path-tracer" title="Permanent link">&para;</a></h2>
+<p>The offline path tracer (<code>raytrace.render</code>) is the reference the real-time lighting aims for. To find out which approximation is wrong, both renderers split the light leaving a surface into four terms (<code>rhi/lighting_terms.hpp</code>, <code>LIGHTING_TERM_*</code> in <code>light.glsl</code>):</p>
+<table>
+<thead>
+<tr>
+<th>Term</th>
+<th>What it is</th>
+<th>Real time</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>direct</code></td>
+<td>the lights, straight onto the surface, shadowed</td>
+<td>clustered lights, shadow maps</td>
+</tr>
+<tr>
+<td><code>indirect_diffuse</code></td>
+<td>everything else arriving through the diffuse lobe: sky, bounces, emissive surfaces, ambient floor</td>
+<td>GI probes, lightmaps, sky irradiance, SSAO</td>
+</tr>
+<tr>
+<td><code>indirect_specular</code></td>
+<td>everything else arriving through the specular lobe</td>
+<td>environment map, reflection probes, SSR</td>
+</tr>
+<tr>
+<td><code>emission</code></td>
+<td>the surface's own light, and the sky where no surface is seen</td>
+<td>emission, skybox</td>
+</tr>
+</tbody>
+</table>
+<ul>
+<li><code>render.lighting_terms &lt;terms&gt;</code> makes the main view draw only some terms (<code>all</code>, <code>none</code>, or names joined by <code>+</code>). While it is not <code>all</code>, SSR keeps the reflections of the last full frame, and the sky is drawn only with <code>emission</code>.</li>
+<li><code>raytrace.render &lt;file.hdr&gt; &lt;w&gt; &lt;h&gt; &lt;spp&gt; &lt;bounces&gt; terms</code> also writes <code>&lt;file&gt;.&lt;term&gt;.hdr</code>. Every contribution of a path is tagged by the first surface it leaves (its own emission, the lights sampled from it, or the lobe the path continues by), so the term images add up exactly to the picture.</li>
+<li><code>render.camera &lt;px&gt; &lt;py&gt; &lt;pz&gt; &lt;tx&gt; &lt;ty&gt; &lt;tz&gt; [fov]</code> draws the frames (and what <code>raytrace.render</code> traces) from another view: a position, the point it looks at, the vertical field of view. It leaves the simulation alone. <code>render.camera off</code> goes back to the active camera, and <code>render.camera</code> alone prints the view and the extent of the meshes.</li>
+<li><code>python scripts/compare_reference.py --world sponza.world</code> runs both from the world's views in <code>scripts/reference_views.json</code> (or its camera) and writes <code>build/reference_compare/&lt;world&gt;/report.html</code>. For each term, over all views and for each view, it gives the term's share of the light, the overall bias in stops, the error per area (too bright / too dark), and an error map. With <code>--keep-reference</code>, only the real-time side is rendered again.</li>
+</ul>
+<p>A lightmapped surface takes the direct light of <code>Static</code> lights from its lightmap, so in real time that light counts as <code>indirect_diffuse</code>. Compare with Dynamic or Stationary lights to keep the terms apart.</p>
+<h2 id="editor-on-vulkan">Editor on Vulkan<a class="headerlink" href="#editor-on-vulkan" title="Permanent link">&para;</a></h2>
+<p><code>ShardEditor --api vulkan</code> draws Dear ImGui to the swapchain with <code>imgui_impl_vulkan</code> (see <code>RendererAPI::PresentUI</code>). Textures reach ImGui as descriptor sets created on the render thread.</p>
+
+
+
+
+
+
+
+
+
+
+
+
+                
+              </article>
+            </div>
+          
+          
+  <script>var tabs=__md_get("__tabs");if(Array.isArray(tabs))e:for(var set of document.querySelectorAll(".tabbed-set")){var labels=set.querySelector(".tabbed-labels");for(var tab of tabs)for(var label of labels.getElementsByTagName("label"))if(label.innerText.trim()===tab){var input=document.getElementById(label.htmlFor);input.checked=!0;continue e}}</script>
+
+<script>var target=document.getElementById(location.hash.slice(1));target&&target.name&&(target.checked=target.name.startsWith("__tabbed_"))</script>
+        </div>
+        
+          <button type="button" class="md-top md-icon" data-md-component="top" hidden>
+  
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M13 20h-2V8l-5.5 5.5-1.42-1.42L12 4.16l7.92 7.92-1.42 1.42L13 8z"/></svg>
+  Back to top
+</button>
+        
+      </main>
+      
+        <footer class="md-footer">
+  
+    
+      
+      <nav class="md-footer__inner md-grid" aria-label="Footer" >
+        
+          
+          <a href="../tags/" class="md-footer__link md-footer__link--prev" aria-label="Previous: Tags">
+            <div class="md-footer__button md-icon">
+              
+              <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M20 11v2H8l5.5 5.5-1.42 1.42L4.16 12l7.92-7.92L13.5 5.5 8 11z"/></svg>
+            </div>
+            <div class="md-footer__title">
+              <span class="md-footer__direction">
+                Previous
+              </span>
+              <div class="md-ellipsis">
+                Tags
+              </div>
+            </div>
+          </a>
+        
+        
+          
+          <a href="../display/" class="md-footer__link md-footer__link--next" aria-label="Next: Display and tonemapping">
+            <div class="md-footer__title">
+              <span class="md-footer__direction">
+                Next
+              </span>
+              <div class="md-ellipsis">
+                Display and tonemapping
+              </div>
+            </div>
+            <div class="md-footer__button md-icon">
+              
+              <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M4 11v2h12l-5.5 5.5 1.42 1.42L19.84 12l-7.92-7.92L10.5 5.5 16 11z"/></svg>
+            </div>
+          </a>
+        
+      </nav>
+    
+  
+  <div class="md-footer-meta md-typeset">
+    <div class="md-footer-meta__inner md-grid">
+      <div class="md-copyright">
+  
+    <div class="md-copyright__highlight">
+      Copyright &copy; 2026 - Windokk
+    </div>
+  
+  
+    Made with
+    <a href="https://squidfunk.github.io/mkdocs-material/" target="_blank" rel="noopener">
+      Material for MkDocs
+    </a>
+  
+</div>
+      
+        
+<div class="md-social">
+  
+    
+    
+    
+    
+    <a href="https://github.com/Windokk/Shard" target="_blank" rel="noopener" title="Shard on GitHub" class="md-social__link">
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><!--! Font Awesome Free 7.1.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2025 Fonticons, Inc.--><path d="M173.9 397.4c0 2-2.3 3.6-5.2 3.6-3.3.3-5.6-1.3-5.6-3.6 0-2 2.3-3.6 5.2-3.6 3-.3 5.6 1.3 5.6 3.6m-31.1-4.5c-.7 2 1.3 4.3 4.3 4.9 2.6 1 5.6 0 6.2-2s-1.3-4.3-4.3-5.2c-2.6-.7-5.5.3-6.2 2.3m44.2-1.7c-2.9.7-4.9 2.6-4.6 4.9.3 2 2.9 3.3 5.9 2.6 2.9-.7 4.9-2.6 4.6-4.6-.3-1.9-3-3.2-5.9-2.9M252.8 8C114.1 8 8 113.3 8 252c0 110.9 69.8 205.8 169.5 239.2 12.8 2.3 17.3-5.6 17.3-12.1 0-6.2-.3-40.4-.3-61.4 0 0-70 15-84.7-29.8 0 0-11.4-29.1-27.8-36.6 0 0-22.9-15.7 1.6-15.4 0 0 24.9 2 38.6 25.8 21.9 38.6 58.6 27.5 72.9 20.9 2.3-16 8.8-27.1 16-33.7-55.9-6.2-112.3-14.3-112.3-110.5 0-27.5 7.6-41.3 23.6-58.9-2.6-6.5-11.1-33.3 2.6-67.9 20.9-6.5 69 27 69 27 20-5.6 41.5-8.5 62.8-8.5s42.8 2.9 62.8 8.5c0 0 48.1-33.6 69-27 13.7 34.7 5.2 61.4 2.6 67.9 16 17.7 25.8 31.5 25.8 58.9 0 96.5-58.9 104.2-114.8 110.5 9.2 7.9 17 22.9 17 46.4 0 33.7-.3 75.4-.3 83.6 0 6.5 4.6 14.4 17.3 12.1C436.2 457.8 504 362.9 504 252 504 113.3 391.5 8 252.8 8M105.2 352.9c-1.3 1-1 3.3.7 5.2 1.6 1.6 3.9 2.3 5.2 1 1.3-1 1-3.3-.7-5.2-1.6-1.6-3.9-2.3-5.2-1m-10.8-8.1c-.7 1.3.3 2.9 2.3 3.9 1.6 1 3.6.7 4.3-.7.7-1.3-.3-2.9-2.3-3.9-2-.6-3.6-.3-4.3.7m32.4 35.6c-1.6 1.3-1 4.3 1.3 6.2 2.3 2.3 5.2 2.6 6.5 1 1.3-1.3.7-4.3-1.3-6.2-2.2-2.3-5.2-2.6-6.5-1m-11.4-14.7c-1.6 1-1.6 3.6 0 5.9s4.3 3.3 5.6 2.3c1.6-1.3 1.6-3.9 0-6.2-1.4-2.3-4-3.3-5.6-2"/></svg>
+    </a>
+  
+</div>
+      
+    </div>
+  </div>
+</footer>
+      
+    </div>
+    <div class="md-dialog" data-md-component="dialog">
+      <div class="md-dialog__inner md-typeset"></div>
+    </div>
+    
+    
+    
+      
+      
+      <script id="__config" type="application/json">{"annotate": null, "base": "../..", "features": ["navigation.tabs", "navigation.indexes", "navigation.top", "navigation.footer", "search.suggest", "search.highlight", "content.code.copy", "content.tabs.link"], "search": "../../assets/javascripts/workers/search.a7633da7.min.js", "tags": null, "translations": {"clipboard.copied": "Copied to clipboard", "clipboard.copy": "Copy to clipboard", "search.result.more.one": "1 more on this page", "search.result.more.other": "# more on this page", "search.result.none": "No matching documents", "search.result.one": "1 matching document", "search.result.other": "# matching documents", "search.result.placeholder": "Type to start searching", "search.result.term.missing": "Missing", "select.version": "Select version"}, "version": null}</script>
+    
+    
+      <script src="../../assets/javascripts/bundle.c21346df.min.js"></script>
+      
+    
+  </body>
+</html>
