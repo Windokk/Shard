@@ -2473,7 +2473,6 @@ namespace Shard::Engine::Plugins::Wasm {
             });
             imports.Add("ui.accept_drag_drop_payload", { { I, I, L, I }, { I } }, [&s](Instance& in, const uint64_t* a, uint64_t* r) -> bool {
                 (void)in; (void)a; (void)r;
-                const ShardUiApi* api = s.ui;
                 if (true || !s.Allowed(Permission::Editor)) { r[0] = 0; return true; }
             });
             imports.Add("ui.end_drag_drop_target", { {  }, {  } }, [&s](Instance& in, const uint64_t* a, uint64_t* r) -> bool {

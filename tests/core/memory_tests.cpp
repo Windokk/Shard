@@ -141,8 +141,8 @@ TEST(PoolAllocator, RejectsDoubleFree) {
     void* a = pool.Allocate();
     EXPECT_TRUE(pool.Free(a));
     EXPECT_FALSE(pool.Free(a));
-    int local;
-    EXPECT_FALSE(pool.Free(&local));
+    void* foreign[1];
+    EXPECT_FALSE(pool.Free(foreign));
     char* inside = static_cast<char*>(pool.Allocate()) + 1;
     EXPECT_FALSE(pool.Free(inside));
     EXPECT_FALSE(pool.Free(nullptr));

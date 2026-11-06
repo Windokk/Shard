@@ -41,7 +41,10 @@ namespace {
     std::string Publish(const TempDir& dir, const std::string& folder, const std::string& registryFolder, const std::string& id, const std::string& version,
                         const Publisher* signer, json& index, json dependencies = json::array())
     {
-        if (signer) EXPECT_TRUE(SignPackage(dir.Sub(folder), "acme", signer->sk));
+        if (signer)
+        {
+            EXPECT_TRUE(SignPackage(dir.Sub(folder), "acme", signer->sk));
+        }
         ZipWriter zip;
         EXPECT_TRUE(zip.AddDirectory(dir.Sub(folder)));
         const std::string file = id + "-" + version + std::string(kArchiveExtension);

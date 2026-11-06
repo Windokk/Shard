@@ -836,7 +836,7 @@ namespace Shard::Engine::Plugins::CAbi {
                 if (!m || !m->skinned) return SHARD_E_INVALID_ARG;
                 std::lock_guard<std::mutex> lock(r->mutex);
                 r->pose.resize(count);
-                std::memcpy(r->pose.data(), matrices, size_t(count) * 16 * sizeof(float));
+                std::memcpy(static_cast<void*>(r->pose.data()), matrices, size_t(count) * 16 * sizeof(float));
                 ++r->poseVersion;
                 return SHARD_OK;
             } catch (...) { return SHARD_E_INTERNAL; }

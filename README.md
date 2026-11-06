@@ -22,9 +22,12 @@
 <div align="center">
   <img src=".github/ScreenShot0.jpg"/>
   <p><i>Path traced render</i></p>
-  <img src=".github/ScreenShot1.png"/>
+  <img src=".github/Screenshot5.png">
   <p><i>View in engine</i></p>
   <img src=".github/Screenshot2.png"/>
+  <p><i>Cornell box</i></p>
+  <img src=".github/demo_revolver.gif">
+  <p><i>Demo : mini game code</i></p>
 </div>
 
 ## How to use (Linux)
@@ -46,16 +49,6 @@ Clone with the submodules (`git clone --recurse-submodules`, or `git submodule u
 Place the fonts (.ttf) inside their folder (resources/editor_resources/fonts/), like on Windows (see below).
 
 Run `./build.sh` (add `Release` for an optimized build). It makes imgui use our vulkan.h, configures, builds everything and starts the editor ; `SHARD_NO_RUN=1 ./build.sh` only builds.
-
-The tests are built with the project : `ctest --test-dir build --output-on-failure`
-
-The smoke test (`bash scripts/smoke_test.sh`, after a build) starts the player on example_project, loads its Cornell box world, renders a few frames and shuts down : it fails on a crash, a hang or an error in the log. The CI runs it on Linux, on a virtual display with Mesa's software OpenGL (`sudo apt install xvfb` to do the same without a desktop). It uses the player's `--world <world in the project>` and `--frames <count>` options : with `--frames` the player renders that many frames, writes nothing to the project, then exits with a code that says whether it went well.
-
-Headless and deterministic runs : `ShardHeadless` (`src/apps/headless`) runs the simulation with no window, GPU or sound card (the renderer boots on its null backend : the frame is built, nothing is drawn), every frame being exactly one fixed step and every random stream derived from `--seed`. `ShardHeadless --game <module> --project <project.json> --replay <file>` plays a recorded replay back and checks that the state of the simulation hashes to what the file says ; `ShardGame --record <file>` records one from a real session. CTest runs such a replay (`Determinism.Replay`, `tests/determinism`) and so does the CI, on Windows and on Linux, without a GPU. `--server` paces the same loop to real time : a dedicated server. How it works, and what a game has to do to stay replayable : [docs/docs/headless.md](docs/docs/headless.md).
-
-The stress test (`bash scripts/stress_test.sh`) runs the player through a script of console commands (resizes, play mode in and out, world loads, multisampling toggles : `scripts/stress_script.txt`, run with `--script <file>`, one `<frame> <command>` per line), once with the render thread and once without, and fails on a crash, a hang, an error, or a graphics call made from the wrong thread. The benchmark (`bash scripts/bench.sh`, `SHARD_BENCH_MIN_FPS` / `SHARD_BENCH_MAX_VRAM_MB` make it a regression guard) prints the frame time, the GPU time of every pass, and the RAM / video memory (`--bench`, `--screenshot <png>` and `+time.frame_dt=0.016` for a reproducible run are the player options behind it). The `build/` folder is a Debug build unless it was configured for Release : only the GPU figures of a Debug build are comparable.
-
-Rendering settings (console variables, also `+name=value` on the command line) : `render.thread` (draw on a dedicated thread, default on), `render.frames_in_flight` (how far the simulation may run ahead of the drawn frames, 2), `render.depth_prepass`, `render.gpu_timers`, `texture.compress` (BC7 / BC5 / BC4 textures, cached in `<project>/.cache/textures`), `texture.max_size` (biggest side a texture keeps in video memory, 0 = no limit), `mesh.keep_cpu_data`, `mesh.lightmap_uvs` (the second set of texture coordinates every mesh gets for baked lighting, cached in `<project>/.cache/lightmap_uv`). Console commands : `render.thread`, `render.memory`, `render.resize`, `probes.bake`, `lightmaps.bake`, `lightmaps.status`, `lightmaps.clear`, `raytrace.render`. Baked lighting (lightmaps) : see [docs/docs/lightmaps.md](docs/docs/lightmaps.md). The scene is lit in linear HDR and mapped to the screen by a tonemapper (exposure and tonemapper in World Settings -> Display) : see [docs/docs/display.md](docs/docs/display.md).
 
 ## How to use (Windows)
 
@@ -84,10 +77,8 @@ On Linux, SDL3 is built from source and needs the development packages of your w
 
 Copy the resources/engine_resources and resources/editor_resources folders inside the build directory
 
-ShardReflect (the reflection generator, in src/apps/tools/reflect) is built with the project into build/tools/ when LLVM, Clang and zlib are found (otherwise it is skipped : the generated source *.reflection.hpp files are in the repo). After changing a reflected class, run `scripts/regen_reflection.sh` : the CI (reflection.yml) regenerates them and fails when the committed ones are stale. See src/apps/tools/reflect/README.md
-
 This runs the editor, loads the game module, opens the example project and uses open gl core as the rendering api
-```bash
+```powershell
 ./ShardEditor.exe --game plugins/game/bin/windows-x86_64/libGameModule.dll --project ..\\example_project\\example_project.json --api opengl
 ```
 
@@ -155,7 +146,9 @@ This runs the editor, loads the game module, opens the example project and uses 
 
 The engine is a small, strict core meant to be extended. The engine, modules and apps all plug in through the **same public API**. Keep the pieces independent so any of them can be replaced without touching the rest.
 
-> This is the target architecture. The renderer currently uses OpenGL ; Vulkan is the planned primary backend.
+> [!NOTE]
+> This is the target architecture.
+<div align="center"><img src=".github/architecture.png" width="40%"/></div>
 
 ## Guidelines
 
@@ -166,6 +159,5 @@ The engine is a small, strict core meant to be extended. The engine, modules and
 5. **Data-oriented + jobs** : archetype ECS, systems with declared read/write access, no ad-hoc threads.
 6. **Reflection everywhere** : ShardReflect drives serialization, inspector, replication, undo.
 7. **Backends behind interfaces** : RHI, Jolt, miniaudio and SDL3 are replaceable.
-8. **Large world by default** : 64-bit coordinates, reference frames, gravity as world data.
-9. **Optional determinism** : fixed timestep, seeded RNG, stable system order.
-10. **Headless & multi-view** : runs without window/GPU/audio ; N views per frame.
+8. **Optional determinism** : fixed timestep, seeded RNG, stable system order.
+9. **Headless & multi-view** : runs without window/GPU/audio ; N views per frame.

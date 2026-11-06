@@ -130,11 +130,14 @@ TEST(Ed25519, AMalleatedSignatureIsRefused)
     static const uint8_t L[32] = { 0xed, 0xd3, 0xf5, 0x5c, 0x1a, 0x63, 0x12, 0x58, 0xd6, 0x9c, 0xf7, 0xa2, 0xde, 0xf9, 0xde, 0x14,
                                    0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0x10 };
     int carry = 0;
-    for (int i = 0; i < 32; ++i) {
+    for (int i = 0; i < 32; ++i)
+    {
         const int v = sig[32 + size_t(i)] + L[i] + carry;
         sig[32 + size_t(i)] = uint8_t(v & 255);
         carry = v >> 8;
     }
     if (carry == 0)
+    {
         EXPECT_FALSE(Verify("m", 1, sig, pk));
+    }
 }

@@ -9,7 +9,6 @@
 // setters do nothing). Use it from the callbacks of a script (Shard::Script) : not from a system, which runs beside others.
 #pragma once
 
-#include <cstring>
 #include <string>
 #include <string_view>
 #include <typeindex>

@@ -139,7 +139,7 @@ namespace Shard::Engine::Plugins::Wasm {
                 for (size_t c = 0; c < columns; ++c) {
                     at[c] = s.heap.Temp(uint64_t(n) * call->sizes[c], 16);
                     if (!at[c]) { s.heap.TempRelease(mark); return SHARD_E_OUT_OF_MEMORY; }
-                    if (n * uint64_t(call->sizes[c]))
+                    if (n && uint64_t(call->sizes[c]))
                         in.Write(at[c], static_cast<const uint8_t*>(chunk->columns[c]) + uint64_t(start) * call->sizes[c], uint32_t(uint64_t(n) * call->sizes[c]));
                 }
                 const size_t windowsBefore = s.windows.size();
