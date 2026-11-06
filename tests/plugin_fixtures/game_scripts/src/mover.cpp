@@ -1,0 +1,18 @@
+#include "mover.hpp"
+
+#include "health.hpp"
+#include "stats.hpp"
+
+void Mover::OnTick(float deltaTime)
+{
+    const float steer = Shard::Input::Axis(Shard::Key::A, Shard::Key::D);
+    Owner().Translate(direction * (speed * deltaTime * (1.f + steer)));
+    if (Shard::Input::WasPressed(Shard::Key::Space)) {
+        if (Health* health = Owner().GetScript<Health>()) {
+            health->Damage(60.f);
+            ++GetStats().crossScript;
+        }
+    }
+}
+
+SHARD_REGISTER_SCRIPT(Mover, (speed)(direction))

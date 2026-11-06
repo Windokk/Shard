@@ -1,0 +1,8 @@
+{
+  "sponza.world": [
+    { "name": "camera" },
+    { "name": "atrium", "view": "-12 1.7 0 12 4 0 70" },
+    { "name": "sky", "view": "0 1.7 -3 2 12 4 75" },
+    { "name": "gallery", "view": "-8 7 -4 6 3 4 70" }
+  ]
+}

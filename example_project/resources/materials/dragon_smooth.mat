@@ -1,0 +1,23 @@
+{
+    "doubleSided": false,
+    "recievesShadows": true,
+    "renderMode": "opaque",
+    "shader": "shaders/mesh/lit",
+    "uniforms": [
+        {
+            "normalMap": "textures/dragon_normal.png"
+        },
+        {
+            "metallic": 0.10000000149011612
+        },
+        {
+            "roughness": 0.10000000149011612
+        },
+        {
+            "useEnvReflections": true
+        },
+        {
+            "albedo": "textures/generic/green.png"
+        }
+    ]
+}

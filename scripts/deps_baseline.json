@@ -1,0 +1,8 @@
+{
+  "edges": {},
+  "patterns": {
+    "gl-call-outside-backend": [],
+    "os-header-in-engine": [],
+    "sdl-in-engine": []
+  }
+}

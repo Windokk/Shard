@@ -1,0 +1,500 @@
+#include "raytrace_scene.hpp"
+
+#include "engine/renderer/features/raytracing/bvh.hpp"
+#include "engine/core/jobs/parallel_for.hpp"
+#include "engine/world/engine.hpp"
+#include "engine/platform/thread/thread.hpp"
+
+
+#include "engine/renderer/rhi/resources/mesh/mesh.hpp"
+#include "engine/renderer/rhi/material/material.hpp"
+#include "engine/renderer/rhi/pipelines/pipeline.hpp"
+
+#include <algorithm>
+#include <atomic>
+#include <cstring>
+#include <future>
+#include <system_error>
+#include <thread>
+#include <unordered_map>
+
+namespace Shard::Engine::Rendering::Raytracing {
+
+    namespace {
+
+        template <typename F>
+        void ParallelForRange(size_t count, size_t grainSize, F&& fn)
+        {
+            if (count == 0)
+                return;
+
+            Core::JobSystem* jobs = Core::GetEngine().GetJobSystem();
+            if (!jobs)
+            {
+                for (size_t begin = 0; begin < count; begin += grainSize)
+                    fn(begin, std::min(count, begin + grainSize));
+                return;
+            }
+            Core::ParallelForRange(*jobs, 0, count, grainSize, fn);
+        }
+
+        bool FindElementOffset(const VertexLayout& layout, const std::string& name, uint32_t& outOffset)
+        {
+            for (const auto& element : layout.GetElements())
+            {
+                if (element.name == name)
+                {
+                    outOffset = element.offset;
+                    return true;
+                }
+            }
+            return false;
+        }
+
+        glm::vec3 ReadVec3(const uint8_t* base, size_t vertexOffset, uint32_t elementOffset)
+        {
+            glm::vec3 v;
+            std::memcpy(&v, base + vertexOffset + elementOffset, sizeof(glm::vec3));
+            return v;
+        }
+
+        glm::vec2 ReadVec2(const uint8_t* base, size_t vertexOffset, uint32_t elementOffset)
+        {
+            glm::vec2 v;
+            std::memcpy(&v, base + vertexOffset + elementOffset, sizeof(glm::vec2));
+            return v;
+        }
+
+        glm::uvec2 PackBindlessHandle(uint64_t handle)
+        {
+            return glm::uvec2((uint32_t)(handle & 0xFFFFFFFFu), (uint32_t)(handle >> 32));
+        }
+
+        bool IsMasked(const std::shared_ptr<Material>& mat)
+        {
+            if (!mat)
+                return false;
+
+            if (auto v = mat->GetScalarParameter("masked"))
+                if (auto* b = std::get_if<bool>(&*v))
+                    return *b;
+
+            return false;
+        }
+
+    }
+
+    GPUMaterial ExtractMaterial(const std::shared_ptr<Material>& mat)
+    {
+        GPUMaterial gm;
+
+        if (!mat)
+            return gm;
+
+        if (mat->IsDoubleSided())
+            gm.flags |= GPUMaterialDoubleSided;
+
+        if (auto v = mat->GetScalarParameter("albedo"))
+        {
+            if (auto* vec3v = std::get_if<glm::vec3>(&*v))
+                gm.albedo = glm::vec4(*vec3v, 1.0f);
+            else if (auto* vec4v = std::get_if<glm::vec4>(&*v))
+                gm.albedo = *vec4v;
+        }
+
+        if (auto v = mat->GetScalarParameter("roughness"))
+            if (auto* f = std::get_if<float>(&*v))
+                gm.roughness = *f;
+
+        if (auto v = mat->GetScalarParameter("metallic"))
+            if (auto* f = std::get_if<float>(&*v))
+                gm.metallic = *f;
+
+        if (auto v = mat->GetScalarParameter("emissive"))
+        {
+            if (auto* vec3v = std::get_if<glm::vec3>(&*v))
+                gm.emissive = glm::vec4(*vec3v, 1.0f);
+            else if (auto* f = std::get_if<float>(&*v))
+                gm.emissive = glm::vec4(*f);
+        }
+
+        if (uint64_t h = mat->GetTextureParameter("albedo"))
+        {
+            gm.albedoTex = PackBindlessHandle(h);
+            gm.textureFlags |= GPUMaterialTexAlbedo;
+        }
+
+        if (uint64_t h = mat->GetTextureParameter("metallicMap"))
+        {
+            gm.metallicTex = PackBindlessHandle(h);
+            gm.textureFlags |= GPUMaterialTexMetallic;
+        }
+
+        if (uint64_t h = mat->GetTextureParameter("roughnessMap"))
+        {
+            gm.roughnessTex = PackBindlessHandle(h);
+            gm.textureFlags |= GPUMaterialTexRoughness;
+        }
+
+        if (uint64_t h = mat->GetTextureParameter("normalMap"))
+        {
+            gm.normalTex = PackBindlessHandle(h);
+            gm.textureFlags |= GPUMaterialTexNormal;
+        }
+
+        if (uint64_t h = mat->GetTextureParameter("emissiveMap"))
+        {
+            gm.emissiveTex = PackBindlessHandle(h);
+            gm.textureFlags |= GPUMaterialTexEmissive;
+        }
+
+        return gm;
+    }
+
+    RaytraceScene SceneBuilder::Build(const RenderSnapshot& scene)
+    {
+        return BuildFromSnapshot(CaptureSnapshot(scene));
+    }
+
+    RaytraceSceneSnapshot SceneBuilder::CaptureSnapshot(const RenderSnapshot& scene, bool excludeMasked)
+    {
+        RaytraceSceneSnapshot snapshot;
+
+        std::unordered_map<Rendering::Material*, uint32_t> materialIndices;
+
+        for (const MeshProxy& proxy : scene.meshes)
+        {
+            const std::shared_ptr<Mesh>& mesh = proxy.mesh;
+            if (!mesh)
+                continue;
+
+            const std::vector<std::shared_ptr<Material>>& mats = proxy.materials;
+            if (mats.empty())
+                continue;
+
+            const std::vector<SubMesh>& submeshes = mesh->GetSubMeshes();
+
+            ModelSnapshot modelSnap;
+            modelSnap.mesh = mesh;
+            modelSnap.cpu = mesh->AcquireCPUData();
+            if (!modelSnap.cpu)
+                continue;
+            modelSnap.worldMatrix = proxy.worldMatrix;
+            modelSnap.key = proxy.key;
+            modelSnap.lightmapResolution = proxy.lightmapResolution;
+            modelSnap.materialIndicesPerSubmesh.resize(submeshes.size());
+
+            for (size_t submeshIdx = 0; submeshIdx < submeshes.size(); submeshIdx++)
+            {
+                size_t slot = std::min<size_t>(submeshes[submeshIdx].materialIndex, mats.size() - 1);
+                std::shared_ptr<Material> mat = mats[slot];
+
+                if (excludeMasked && IsMasked(mat))
+                {
+                    modelSnap.materialIndicesPerSubmesh[submeshIdx] = kSkippedSubmesh;
+                    continue;
+                }
+
+                uint32_t materialIndex;
+                auto it = materialIndices.find(mat.get());
+                if (it != materialIndices.end())
+                {
+                    materialIndex = it->second;
+                }
+                else
+                {
+                    materialIndex = (uint32_t)snapshot.materials.size();
+                    snapshot.materials.push_back(ExtractMaterial(mat));
+                    materialIndices.emplace(mat.get(), materialIndex);
+                }
+
+                modelSnap.materialIndicesPerSubmesh[submeshIdx] = materialIndex;
+            }
+
+            snapshot.models.push_back(std::move(modelSnap));
+        }
+
+        return snapshot;
+    }
+
+    namespace {
+
+        struct FlattenModelInfo
+        {
+            const Mesh* mesh = nullptr;
+            const MeshCPUCopy* cpu = nullptr;
+            uint32_t stride = 0;
+            uint32_t posOffset = 0, normalOffset = 0, uvOffset = 0, tangentOffset = 0;
+            bool hasNormal = false, hasUV = false, hasTangent = false;
+            glm::mat4 worldMatrix{ 1.0f };
+            glm::mat3 normalMatrix{ 1.0f };
+            glm::mat3 tangentMatrix{ 1.0f };
+        };
+
+        struct FlattenChunk
+        {
+            uint32_t modelInfoIdx;
+            size_t indexOffset;
+            uint32_t materialIndex;
+            size_t triangleCount;
+            size_t destOffset;
+        };
+
+        void FlattenChunkInto(const FlattenChunk& chunk, const FlattenModelInfo& info,
+            std::vector<GPUTrianglePos>& positions, std::vector<GPUTriangleAttrib>& attribs)
+        {
+            const std::vector<uint8_t>& vertexData = info.cpu->vertices;
+            const std::vector<uint32_t>& indices = info.cpu->indices;
+
+            for (size_t t = 0; t < chunk.triangleCount; t++)
+            {
+                GPUTrianglePos triPos{};
+                GPUTriangleAttrib triAttrib{};
+                triAttrib.uvMatID.w = (float)chunk.materialIndex;
+
+                for (int k = 0; k < 3; k++)
+                {
+                    uint32_t vertexIdx = indices[chunk.indexOffset + t * 3 + k];
+                    size_t vertexByteOffset = (size_t)vertexIdx * info.stride;
+
+                    glm::vec3 localPos = ReadVec3(vertexData.data(), vertexByteOffset, info.posOffset);
+                    glm::vec3 worldPos = glm::vec3(info.worldMatrix * glm::vec4(localPos, 1.0f));
+
+                    glm::vec3 worldNormal(0.0f, 1.0f, 0.0f);
+                    if (info.hasNormal)
+                        worldNormal = glm::normalize(info.normalMatrix * ReadVec3(vertexData.data(), vertexByteOffset, info.normalOffset));
+
+                    glm::vec2 uv(0.0f);
+                    if (info.hasUV)
+                        uv = ReadVec2(vertexData.data(), vertexByteOffset, info.uvOffset);
+
+                    glm::vec3 worldTangent(1.0f, 0.0f, 0.0f);
+                    if (info.hasTangent)
+                        worldTangent = glm::normalize(info.tangentMatrix * ReadVec3(vertexData.data(), vertexByteOffset, info.tangentOffset));
+
+                    if (k == 0)
+                    {
+                        triPos.v0 = glm::vec4(worldPos, 0.0f);
+                        triAttrib.n0 = glm::vec4(worldNormal, uv.x);
+                        triAttrib.uvMatID.x = uv.y;
+                        triAttrib.t0 = glm::vec4(worldTangent, 0.0f);
+                    }
+                    else if (k == 1)
+                    {
+                        triPos.v1 = glm::vec4(worldPos, 0.0f);
+                        triAttrib.n1 = glm::vec4(worldNormal, uv.x);
+                        triAttrib.uvMatID.y = uv.y;
+                        triAttrib.t1 = glm::vec4(worldTangent, 0.0f);
+                    }
+                    else
+                    {
+                        triPos.v2 = glm::vec4(worldPos, 0.0f);
+                        triAttrib.n2 = glm::vec4(worldNormal, uv.x);
+                        triAttrib.uvMatID.z = uv.y;
+                        triAttrib.t2 = glm::vec4(worldTangent, 0.0f);
+                    }
+                }
+
+                positions[chunk.destOffset + t] = triPos;
+                attribs[chunk.destOffset + t] = triAttrib;
+            }
+        }
+
+        void ReportMonotonic(std::atomic<float>& reported, float fraction, const char* phase,
+            const SceneBuilder::ProgressCallback& onProgress)
+        {
+            if (!onProgress)
+                return;
+
+            float prev = reported.load(std::memory_order_relaxed);
+            while (fraction > prev)
+            {
+                if (reported.compare_exchange_weak(prev, fraction, std::memory_order_relaxed))
+                {
+                    onProgress(fraction, phase);
+                    break;
+                }
+            }
+        }
+
+    }
+
+    RaytraceScene SceneBuilder::BuildFromSnapshot(const RaytraceSceneSnapshot &snapshot, const ProgressCallback& onProgress)
+    {
+        constexpr float kFlattenEnd = 0.45f;
+        constexpr float kBvhEnd = 0.95f;
+        constexpr float kChunkLayoutEnd = kFlattenEnd * 0.1f;
+
+        std::atomic<float> reportedFraction{ 0.0f };
+        auto report = [&](float fraction, const char* phase)
+        {
+            ReportMonotonic(reportedFraction, fraction, phase, onProgress);
+        };
+
+        report(0.0f, "Baking scene info");
+
+        RaytraceScene scene;
+        scene.materials = snapshot.materials;
+
+        constexpr size_t kChunkTriangles = 2048;
+
+        std::vector<FlattenModelInfo> modelInfos;
+        modelInfos.reserve(snapshot.models.size());
+        std::vector<FlattenChunk> chunks;
+
+        size_t totalTriangles = 0;
+
+        const size_t modelCount = snapshot.models.size();
+        size_t modelIdx = 0;
+        for (auto& modelSnap : snapshot.models)
+        {
+            ++modelIdx;
+            if (modelCount > 0)
+                report(kChunkLayoutEnd * (float)modelIdx / (float)modelCount, "Baking scene info");
+
+            const Mesh* mesh = modelSnap.mesh.get();
+            if (!mesh)
+                continue;
+
+            const VertexLayout& layout = mesh->GetVertexLayout();
+
+            FlattenModelInfo info;
+            info.mesh = mesh;
+            info.cpu = modelSnap.cpu.get();
+            info.stride = layout.GetStride();
+            info.hasNormal = FindElementOffset(layout, "aNormal", info.normalOffset);
+            info.hasUV = FindElementOffset(layout, "aTexCoord", info.uvOffset);
+            info.hasTangent = FindElementOffset(layout, "aTangent", info.tangentOffset);
+            bool hasPos = FindElementOffset(layout, "aPos", info.posOffset);
+
+            if (!hasPos)
+                continue;
+
+            info.worldMatrix = modelSnap.worldMatrix;
+            info.normalMatrix = glm::transpose(glm::inverse(glm::mat3(info.worldMatrix)));
+            // Tangents use the plain model 3x3 (like lit.vert), not the inverse-transpose normal matrix.
+            info.tangentMatrix = glm::mat3(info.worldMatrix);
+
+            uint32_t modelInfoIdx = (uint32_t)modelInfos.size();
+            modelInfos.push_back(info);
+
+            const std::vector<SubMesh>& submeshes = mesh->GetSubMeshes();
+            for (size_t submeshIdx = 0; submeshIdx < submeshes.size(); submeshIdx++)
+            {
+                const SubMesh& submesh = submeshes[submeshIdx];
+                uint32_t materialIndex = modelSnap.materialIndicesPerSubmesh[submeshIdx];
+
+                if (materialIndex == kSkippedSubmesh)
+                    continue;
+
+                size_t triangleCount = submesh.indexCount / 3;
+                for (size_t start = 0; start < triangleCount; start += kChunkTriangles)
+                {
+                    size_t count = std::min(kChunkTriangles, triangleCount - start);
+                    chunks.push_back(FlattenChunk{ modelInfoIdx, submesh.indexOffset + start * 3, materialIndex, count, totalTriangles });
+                    totalTriangles += count;
+                }
+            }
+        }
+
+        if (totalTriangles == 0)
+        {
+            scene.bvhNodes = { BVHNode{ glm::vec3(0.0f), 0, glm::vec3(0.0f), 0 } };
+            report(1.0f, "Building BVH");
+            return scene;
+        }
+
+        report(kChunkLayoutEnd, "Baking scene info");
+
+        std::vector<GPUTrianglePos> positions(totalTriangles);
+        std::vector<GPUTriangleAttrib> attribs(totalTriangles);
+
+        std::atomic<size_t> chunksDone{ 0 };
+
+        ParallelForRange(chunks.size(), 1, [&](size_t begin, size_t end)
+        {
+            for (size_t idx = begin; idx < end; idx++)
+            {
+                const FlattenChunk& chunk = chunks[idx];
+                FlattenChunkInto(chunk, modelInfos[chunk.modelInfoIdx], positions, attribs);
+
+                size_t done = chunksDone.fetch_add(1, std::memory_order_relaxed) + 1;
+                float frac = kChunkLayoutEnd + (kFlattenEnd - kChunkLayoutEnd) * (float)done / (float)chunks.size();
+                report(frac, "Baking scene info");
+            }
+        });
+
+        report(kFlattenEnd, "Building BVH");
+
+        std::vector<BVHPrimitive> primitives(positions.size());
+        ParallelForRange(positions.size(), 4096, [&](size_t begin, size_t end)
+        {
+            for (size_t i = begin; i < end; i++)
+            {
+                glm::vec3 v0 = glm::vec3(positions[i].v0);
+                glm::vec3 v1 = glm::vec3(positions[i].v1);
+                glm::vec3 v2 = glm::vec3(positions[i].v2);
+
+                primitives[i].boundsMin = glm::min(v0, glm::min(v1, v2));
+                primitives[i].boundsMax = glm::max(v0, glm::max(v1, v2));
+                primitives[i].centroid = (v0 + v1 + v2) / 3.0f;
+            }
+        });
+
+        std::vector<uint32_t> order;
+        scene.bvhNodes = BVHBuilder::Build(primitives, order,
+            [&](float p) { report(kFlattenEnd + (kBvhEnd - kFlattenEnd) * p, "Building BVH"); });
+
+        scene.trianglePositions.resize(order.size());
+        scene.triangleAttribs.resize(order.size());
+        ParallelForRange(order.size(), 4096, [&](size_t begin, size_t end)
+        {
+            for (size_t i = begin; i < end; i++)
+            {
+                scene.trianglePositions[i] = positions[order[i]];
+                scene.triangleAttribs[i] = attribs[order[i]];
+            }
+        });
+
+        // Must agree with EmissiveIsSampled in path_tracing.glsl on which triangles are listed.
+        {
+            std::vector<double> cumulative;
+            double total = 0.0;
+            for (size_t i = 0; i < scene.triangleAttribs.size(); i++)
+            {
+                const uint32_t materialIndex = uint32_t(scene.triangleAttribs[i].uvMatID.w);
+                if (materialIndex >= scene.materials.size())
+                    continue;
+
+                const GPUMaterial& material = scene.materials[materialIndex];
+                if (material.textureFlags & GPUMaterialTexEmissive)
+                    continue;
+
+                const float luminance = glm::dot(glm::vec3(material.emissive), glm::vec3(0.2126f, 0.7152f, 0.0722f));
+                if (luminance <= 0.0f)
+                    continue;
+
+                const GPUTrianglePos& tri = scene.trianglePositions[i];
+                const float area = 0.5f * glm::length(glm::cross(glm::vec3(tri.v1) - glm::vec3(tri.v0), glm::vec3(tri.v2) - glm::vec3(tri.v0)));
+                if (area <= 1e-10f)
+                    continue;
+
+                total += double(luminance) * double(area);
+                cumulative.push_back(total);
+                GPUEmissiveTriangle emissive;
+                emissive.triangle = uint32_t(i);
+                scene.emissiveTriangles.push_back(emissive);
+            }
+
+            for (size_t i = 0; i < scene.emissiveTriangles.size(); i++)
+                scene.emissiveTriangles[i].cdf = float(cumulative[i] / total);
+            if (!scene.emissiveTriangles.empty())
+                scene.emissiveTriangles.back().cdf = 1.0f;
+            scene.emissivePower = float(total);
+        }
+
+        report(1.0f, "Building BVH");
+        return scene;
+    }
+
+}

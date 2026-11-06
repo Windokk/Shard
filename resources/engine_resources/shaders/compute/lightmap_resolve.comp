@@ -1,0 +1,59 @@
+#version 430 core
+
+layout(local_size_x = 8, local_size_y = 8, local_size_z = 1) in;
+
+layout(rgba32f, binding = 0) readonly uniform image2D uAccum;
+layout(rgba32f, binding = 1) writeonly uniform image2D uOut;
+layout(rgba32f, binding = 2) readonly uniform image2D uGPos;
+
+uniform int uSize;
+uniform float uSampleCount;
+
+void main()
+{
+    ivec2 texel = ivec2(gl_GlobalInvocationID.xy);
+    if (texel.x >= uSize || texel.y >= uSize)
+        return;
+
+    if (imageLoad(uGPos, texel).w <= 0.0)
+        return;
+
+    vec4 acc = imageLoad(uAccum, texel);
+    if (acc.a < 0.0)
+    {
+        imageStore(uOut, texel, vec4(0.0, 0.0, 0.0, -1.0));
+        return;
+    }
+    vec3 mean = acc.rgb / uSampleCount;
+
+    float neighbourMax = -1.0;
+    for (int dy = -1; dy <= 1; dy++)
+    {
+        for (int dx = -1; dx <= 1; dx++)
+        {
+            ivec2 tap = texel + ivec2(dx, dy);
+            if ((dx == 0 && dy == 0) || tap.x < 0 || tap.y < 0 || tap.x >= uSize || tap.y >= uSize)
+                continue;
+            if (imageLoad(uGPos, tap).w <= 0.0)
+                continue;
+            vec4 tapAcc = imageLoad(uAccum, tap);
+            if (tapAcc.a < 0.0)
+                continue;
+            neighbourMax = max(neighbourMax, dot(tapAcc.rgb, vec3(0.2126, 0.7152, 0.0722)) / uSampleCount);
+        }
+    }
+    if (neighbourMax >= 0.0)
+    {
+        const float kSpikeRatio = 2.5;
+        float spikeLimit = neighbourMax * kSpikeRatio + 0.005;
+        float meanLuminance = dot(mean, vec3(0.2126, 0.7152, 0.0722));
+        if (meanLuminance > spikeLimit)
+            mean *= spikeLimit / meanLuminance;
+    }
+
+    float lumMean = dot(mean, vec3(0.2126, 0.7152, 0.0722));
+    float lumSquares = acc.a / uSampleCount;
+    float variance = max(lumSquares - lumMean * lumMean, 0.0) / uSampleCount;
+
+    imageStore(uOut, texel, vec4(mean, variance));
+}

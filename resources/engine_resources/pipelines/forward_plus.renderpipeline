@@ -1,0 +1,5 @@
+{
+    "type": "forward+",
+    "description": "Forward+ : every mesh is lit where it is drawn, the lights are clustered, and a depth sweep makes each pixel shaded once. Translucent geometry is blended. MSAA.",
+    "settings": {}
+}

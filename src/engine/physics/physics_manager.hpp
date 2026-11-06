@@ -6,6 +6,7 @@
 #include <Jolt/Core/Factory.h>
 #include <Jolt/Core/TempAllocator.h>
 #include <Jolt/Core/JobSystemThreadPool.h>
+#include <Jolt/Core/JobSystemSingleThreaded.h>
 #include <Jolt/Physics/PhysicsSettings.h>
 #include <Jolt/Physics/PhysicsSystem.h>
 #include <Jolt/Physics/Collision/Shape/BoxShape.h>
@@ -20,12 +21,16 @@
 #include <unordered_map>
 #include <queue>
 #include <mutex>
+#include <memory>
+#include <vector>
 #include <functional>
 
-#include "engine/rendering/utils.hpp"
+#include "engine/core/color.hpp"
 #include <glm/gtc/quaternion.hpp>
 
-#include "engine/debugging/logger.hpp"
+#include "engine/core/diagnostics/logger.hpp"
+
+#include "engine/physics/gravity.hpp"
 
 
 
@@ -35,22 +40,28 @@ using namespace JPH::literals;
 
 using namespace std;
 
-namespace Shard::Engine::Objects::Components{
-    class PhysicsBody;
+namespace Shard::Engine::Objects{
+    class Actor;
 }
 
-static JPH::Quat ToJolt(const glm::quat& q)
+namespace Shard::Engine::Objects::Components{
+    class PhysicsBody;
+    class Script;
+}
+
+inline JPH::Quat ToJolt(const glm::quat& q)
 {
     glm::quat n = glm::normalize(q);
     return JPH::Quat(n.x, n.y, n.z, n.w);
 }
 
-static JPH::RVec3 ToJolt(const glm::vec3& v)
+// Jolt vectors are float regardless of position precision.
+inline JPH::Vec3 ToJolt(const glm::vec3& v)
 {
-    return JPH::RVec3(v.x, v.y, v.z);
+    return JPH::Vec3(v.x, v.y, v.z);
 }
 
-static glm::quat ToGLM(const JPH::Quat& q)
+inline glm::quat ToGLM(const JPH::Quat& q)
 {
     return glm::quat(
         q.GetW(),
@@ -60,7 +71,30 @@ static glm::quat ToGLM(const JPH::Quat& q)
     );
 }
 
-static glm::vec3 ToGLM(const JPH::RVec3& v)
+// Jolt positions are double (JPH_DOUBLE_PRECISION).
+inline JPH::RVec3 ToJolt(const glm::dvec3& v)
+{
+    return JPH::RVec3(v.x, v.y, v.z);
+}
+
+inline JPH::Quat ToJolt(const glm::dquat& q)
+{
+    const glm::dquat n = glm::normalize(q);
+    return JPH::Quat(float(n.x), float(n.y), float(n.z), float(n.w));
+}
+
+inline glm::dvec3 ToGLMD(const JPH::RVec3& v)
+{
+    return glm::dvec3(double(v.GetX()), double(v.GetY()), double(v.GetZ()));
+}
+
+inline glm::vec3 ToGLM(const JPH::Vec3& v)
+{
+    return glm::vec3(v.GetX(), v.GetY(), v.GetZ());
+}
+
+#ifdef JPH_DOUBLE_PRECISION
+inline glm::vec3 ToGLM(const JPH::RVec3& v)
 {
     return glm::vec3(
         static_cast<float>(v.GetX()),
@@ -68,6 +102,7 @@ static glm::vec3 ToGLM(const JPH::RVec3& v)
         static_cast<float>(v.GetZ())
     );
 }
+#endif
 
 namespace Shard::Engine::Physics
 {
@@ -79,32 +114,27 @@ namespace Shard::Engine::Physics
         CYLINDER
     };
 
-    static void TraceImpl(const char *inFMT, ...)
+    inline void TraceImpl(const char *inFMT, ...)
     {
-        // Format the message
         va_list list;
         va_start(list, inFMT);
         char buffer[1024];
         vsnprintf(buffer, sizeof(buffer), inFMT, list);
         va_end(list);
 
-        // Print to the TTY
         cout << buffer << endl;
     }
 
     #ifdef JPH_ENABLE_ASSERTS
 
-    // Callback for asserts, connect this to your own assert handler if you have one
-    static bool AssertFailedImpl(const char *inExpression, const char *inMessage, const char *inFile, uint inLine)
+    inline bool AssertFailedImpl(const char *inExpression, const char *inMessage, const char *inFile, uint inLine)
     {
-        // Print to the TTY
         cout << inFile << ":" << inLine << ": (" << inExpression << ") " << (inMessage != nullptr? inMessage : "") << endl;
 
-        // Breakpoint
         return true;
     };
 
-    #endif // JPH_ENABLE_ASSERTS
+    #endif
 
 
     namespace Layers
@@ -114,7 +144,6 @@ namespace Shard::Engine::Physics
         static constexpr ObjectLayer NUM_LAYERS = 2;
     };
 
-    /// Class that determines if two object layers can collide
     class ObjectLayerPairFilterImpl : public ObjectLayerPairFilter
     {
     public:
@@ -123,9 +152,9 @@ namespace Shard::Engine::Physics
             switch (inObject1)
             {
             case Layers::NON_MOVING:
-                return inObject2 == Layers::MOVING; // Non moving only collides with moving
+                return inObject2 == Layers::MOVING;
             case Layers::MOVING:
-                return true; // Moving collides with everything
+                return true;
             default:
                 JPH_ASSERT(false);
                 return false;
@@ -133,11 +162,6 @@ namespace Shard::Engine::Physics
         }
     };
 
-    // Each broadphase layer results in a separate bounding volume tree in the broad phase. You at least want to have
-    // a layer for non-moving and moving objects to avoid having to update a tree full of static objects every frame.
-    // You can have a 1-on-1 mapping between object layers and broadphase layers (like in this case) but if you have
-    // many object layers you'll be creating many broad phase trees, which is not efficient. If you want to fine tune
-    // your broadphase layers define JPH_TRACK_BROADPHASE_STATS and look at the stats reported on the TTY.
     namespace BroadPhaseLayers
     {
         static constexpr uint NON_MOVING_IDX = 0;
@@ -149,14 +173,11 @@ namespace Shard::Engine::Physics
         static constexpr uint NUM_LAYERS = 2;
     }
     
-    // BroadPhaseLayerInterface implementation
-    // This defines a mapping between object and broadphase layers.
     class BPLayerInterfaceImpl final : public BroadPhaseLayerInterface
     {
     public:
         BPLayerInterfaceImpl()
         {
-            // Create a mapping table from object to broad phase layer
             mObjectToBroadPhase[Layers::NON_MOVING] = BroadPhaseLayers::NON_MOVING;
             mObjectToBroadPhase[Layers::MOVING] = BroadPhaseLayers::MOVING;
         }
@@ -182,13 +203,12 @@ namespace Shard::Engine::Physics
             default:													JPH_ASSERT(false); return "INVALID";
             }
         }
-    #endif // JPH_EXTERNAL_PROFILE || JPH_PROFILE_ENABLED
+    #endif
 
     private:
         BroadPhaseLayer	mObjectToBroadPhase[Layers::NUM_LAYERS];
     };
 
-    /// Class that determines if an object layer can collide with a broadphase layer
     class ObjectVsBroadPhaseLayerFilterImpl : public ObjectVsBroadPhaseLayerFilter
     {
     public:
@@ -219,9 +239,13 @@ namespace Shard::Engine::Physics
         }
     };
 
+    class PhysicsManager;
+
     class PhysicsContactListener : public ContactListener
     {
     public:
+        PhysicsManager* owner = nullptr;
+
         virtual ValidateResult OnContactValidate(const Body &inBody1, const Body &inBody2, RVec3Arg inBaseOffset, const CollideShapeResult &inCollisionResult) override;
 
         virtual void OnContactAdded(const Body &inBody1, const Body &inBody2, const ContactManifold &inManifold, ContactSettings &ioSettings) override;
@@ -291,22 +315,49 @@ namespace Shard::Engine::Physics
         bool hit = false;
         Objects::Components::PhysicsBody* hitBody = nullptr;
         float hitDistance = -1.0f;
+        glm::vec3 point = glm::vec3(0.0f);
+        glm::vec3 normal = glm::vec3(0.0f, 1.0f, 0.0f);
     };
 
     class PhysicsManager {
     public:
 
-        void Init(glm::vec3 gravity);
+        // `deterministic`: simulate on the calling thread. Results match on any thread count but contact callback order does not.
+        void Init(glm::vec3 gravity, bool deterministic = false);
         void Shutdown();
 
         RaycastResult RayCast(RaycastRequest request);
 
+        Objects::Components::PhysicsBody* ComponentOf(JPH::BodyID id) const { return FindComponent(id); }
+
+        // World units per second squared. Scale it if a unit is not a metre.
+        void SetGravity(glm::vec3 gravity);
+        glm::vec3 GetGravity();
+
+        // Jolt has one gravity. Fields and per-body gravity are applied on top as a force (difference from Jolt's), so no fields means no cost.
+
+        void SetGravityFields(std::vector<GravityFieldData> fields);
+
+        void CollectGravityFields();
+
+        const std::vector<GravityFieldData>& GetGravityFields() const { return m_GravityFields; }
+
+        glm::vec3 GetGravityAt(const glm::dvec3& position);
+
+        void SetBodyGravity(JPH::BodyID id, GravityMode mode, glm::vec3 custom);
+
+        glm::vec3 GetBodyGravity(JPH::BodyID id);
+
         void StepSimulation(float deltaTime, bool activateAll);
+
+        uint64_t GetStepCount() const { return m_StepCount; }
 
         void TickBodies(float deltaTime);
 
         JPH::BodyID CreateBody(const JPH::BodyCreationSettings& settings, Objects::Components::PhysicsBody* component, JPH::EActivation activation = JPH::EActivation::Activate);
         void RemoveBody(JPH::BodyID id);
+
+        bool IsInitialized() const { return initialized; }
 
         JPH::BodyInterface& GetBodyInterface() {
             if(!initialized)
@@ -322,16 +373,48 @@ namespace Shard::Engine::Physics
         
     private:
 
-        void OnContactAdded(const Body &body1, const Body &body2, const ContactManifold &contactManifold, ContactSettings &contactSettings);
-        void OnContactPersisted(const Body &body1, const Body &body2, const ContactManifold &contactManifold, ContactSettings &contactSettings);
-        void OnContactRemoved(const SubShapeIDPair &pair);
+        struct PendingContact {
+            enum class Kind : uint8_t { Added, Persisted, Removed };
+            Kind kind = Kind::Added;
+            JPH::BodyID body1, body2;
+            JPH::SubShapeID subShape1, subShape2;
+            ContactManifold manifold;
+            ContactSettings settings;
+        };
+
+        void ApplyGravityFields();
+
+        void WakeBodiesOfChangedGravity();
+
+        glm::vec3 BodyGravityAt(JPH::BodyID id, const glm::dvec3& position, const glm::vec3& world) const;
+
+        void QueueContact(PendingContact::Kind kind, const Body &body1, const Body &body2, const ContactManifold &contactManifold, const ContactSettings &contactSettings);
+        void QueueContactRemoved(const SubShapeIDPair &pair);
+
+        void DispatchContacts();
+        void DispatchContact(const PendingContact& contact, JPH::BodyID selfID, JPH::BodyID otherID);
+        Objects::Components::PhysicsBody* FindComponent(JPH::BodyID id) const;
+        const std::vector<std::shared_ptr<Objects::Components::Script>>& ScriptsOf(Objects::Actor& actor);
 
         std::unordered_map<JPH::BodyID, Objects::Components::PhysicsBody*> bodyIDToComponentMap;
+
+        std::vector<GravityFieldData> m_GravityFields;
+        bool m_GravityFieldsChanged = false;
+        std::unordered_map<JPH::BodyID, BodyGravity> m_BodyGravity;
+        std::unordered_map<JPH::BodyID, glm::vec3> m_AppliedGravity;
+        JPH::BodyIDVector m_ActiveBodies;
+
+        std::mutex m_ContactMutex;
+        std::vector<PendingContact> m_PendingContacts;
+        std::vector<PendingContact> m_DispatchedContacts;
+        std::vector<uint32_t> m_DispatchOrder;
+        std::unordered_map<Objects::Actor*, std::vector<std::shared_ptr<Objects::Components::Script>>> m_ScriptCache;
 
         JPH::TempAllocatorImpl* m_tempAllocator;
         JPH::JobSystem* m_jobSystem;
 
         JPH::PhysicsSystem m_physicsSystem;
+        uint m_bodiesAddedSinceOptimize = 0;
 
         ObjectLayerPairFilterImpl m_objectLayerFilter;
         ObjectVsBroadPhaseLayerFilterImpl m_objectVsBroadphase;
@@ -343,7 +426,9 @@ namespace Shard::Engine::Physics
         std::queue<std::function<void()>> mBodyUpdateQueue;
         std::mutex mQueueMutex;
 
-        bool initialized;
+        bool initialized = false;
+
+        uint64_t m_StepCount = 0;
 
         friend class PhysicsContactListener;
     };

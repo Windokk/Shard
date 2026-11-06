@@ -1,0 +1,5 @@
+{
+    "type": "deferred",
+    "description": "Deferred : the materials of the opaque geometry go to a G-buffer and one full screen pass lights it. Translucent geometry and the sky are forward. No anti-aliasing of the geometry edges.",
+    "settings": {}
+}

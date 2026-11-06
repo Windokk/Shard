@@ -1,0 +1,440 @@
+#include "render_world_data.hpp"
+
+#include <algorithm>
+#include <cctype>
+#include <filesystem>
+#include <unordered_map>
+
+#include "engine/world/actor.hpp"
+#include "engine/world/engine.hpp"
+#include "engine/world/components/registry/component_registry.hpp"
+#include "engine/assets/resources_manager.hpp"
+#include "engine/core/diagnostics/logger.hpp"
+
+#include "engine/renderer/components/billboard_component.hpp"
+#include "engine/renderer/components/camera.hpp"
+#include "engine/renderer/components/light_component.hpp"
+#include "engine/renderer/components/model_component.hpp"
+#include "engine/renderer/components/probe_volume.hpp"
+#include "engine/renderer/components/reflection_probe.hpp"
+#include "engine/renderer/components/camera_manager.hpp"
+#include "engine/renderer/rhi/render_context.hpp"
+#include "engine/renderer/components/render_extractor.hpp"
+#include "engine/renderer/features/lighting/lightmap_manager.hpp"
+#include "engine/assets/asset_database_serializer.hpp"
+#include "engine/assets/project/project.hpp"
+#include "engine/world/world_manager.hpp"
+#include "engine/renderer/rhi/resources/texture/cubemap/envmap.hpp"
+#include "engine/renderer/rhi/material/material.hpp"
+#include "engine/renderer/rhi/shader/shader.hpp"
+#include "engine/renderer/rhi/pipelines/pipeline.hpp"
+
+namespace Shard::Engine::Rendering{
+
+    using namespace Objects::Components;
+
+    void RenderWorldData::OnComponentAdded(Worlds::World&, int idInWorld, const std::shared_ptr<Component>& component, bool)
+    {
+        if(auto light = std::dynamic_pointer_cast<Light>(component)){
+            lightComps.emplace(idInWorld, light);
+        }
+        else if(auto model = std::dynamic_pointer_cast<Model>(component)){
+            models.emplace(idInWorld, model);
+        }
+        else if(auto volume = std::dynamic_pointer_cast<ProbeVolume>(component)){
+            probeVolumes.emplace(idInWorld, volume);
+        }
+        else if(auto reflectionProbe = std::dynamic_pointer_cast<ReflectionProbe>(component)){
+            reflectionProbes.emplace(idInWorld, reflectionProbe);
+        }
+        else if(auto camera = std::dynamic_pointer_cast<Camera>(component)){
+            cameras.emplace(idInWorld, camera);
+            camera->AddToCameraManager();
+        }
+        else if(auto billboard = std::dynamic_pointer_cast<Billboard>(component)){
+            billboards.emplace(idInWorld, billboard);
+        }
+    }
+
+    void RenderWorldData::OnComponentRemoved(Worlds::World&, int idInWorld, const std::shared_ptr<Component>& component)
+    {
+        if(component->IsInstanceOf<Camera>()){
+            cameras.erase(idInWorld);
+        }
+        else if(component->IsInstanceOf<Light>()){
+            lightComps.erase(idInWorld);
+        }
+        else if(component->IsInstanceOf<Model>()){
+            models.erase(idInWorld);
+            meshes.erase(idInWorld);
+        }
+        else if(component->IsInstanceOf<ProbeVolume>()){
+            probeVolumes.erase(idInWorld);
+        }
+        else if(component->IsInstanceOf<ReflectionProbe>()){
+            reflectionProbes.erase(idInWorld);
+        }
+        else if(component->IsInstanceOf<Billboard>()){
+            billboards.erase(idInWorld);
+        }
+    }
+
+    void RenderWorldData::OnLoad(Worlds::World&)
+    {
+        if(skybox)
+            skybox->CreateDrawCommands();
+
+        for(auto& [id,cam] : cameras){
+            Core::GetEngine().GetCameraManager()->AddCamera(cam->parent->GetID(), cam);
+        }
+
+    }
+
+    void RenderWorldData::DeserializeSettings(Worlds::World&, const nlohmann::json& settings)
+    {
+        lightmapData.clear();
+        lightmapSettings = LightmapSettings{};
+        display = DisplaySettings{};
+        ssr = SSRSettings{};
+
+        if(settings.contains("display") && settings["display"].is_object()){
+            const auto& displayJson = settings["display"];
+
+            if(displayJson.contains("tonemapper") && displayJson["tonemapper"].is_string()){
+                Tonemapper parsed;
+                if(ParseTonemapper(displayJson["tonemapper"].get<std::string>(), parsed))
+                    display.tonemapper = parsed;
+                else
+                    DEBUG_WARNING("Unknown tonemapper \"" + displayJson["tonemapper"].get<std::string>() + "\" : using " + TonemapperName(display.tonemapper));
+            }
+
+            if(displayJson.contains("exposure") && displayJson["exposure"].is_number())
+                display.exposure = displayJson["exposure"].get<float>();
+        }
+
+        if(settings.contains("ssr") && settings["ssr"].is_object()){
+            const auto& ssrJson = settings["ssr"];
+
+            auto readFloat = [&](const char* key, float& out){ if(ssrJson.contains(key) && ssrJson[key].is_number()) out = ssrJson[key].get<float>(); };
+            auto readInt = [&](const char* key, int& out){ if(ssrJson.contains(key) && ssrJson[key].is_number_integer()) out = ssrJson[key].get<int>(); };
+            auto readBool = [&](const char* key, bool& out){ if(ssrJson.contains(key) && ssrJson[key].is_boolean()) out = ssrJson[key].get<bool>(); };
+
+            if(ssrJson.contains("quality") && ssrJson["quality"].is_string()){
+                SSRQuality parsed;
+                if(ParseSSRQuality(ssrJson["quality"].get<std::string>(), parsed))
+                    ssr.ApplyQuality(parsed);
+                else
+                    DEBUG_WARNING("Unknown SSR quality \"" + ssrJson["quality"].get<std::string>() + "\" : using " + SSRQualityName(ssr.quality));
+            }
+
+            readBool("enabled", ssr.enabled);
+            readFloat("intensity", ssr.intensity);
+            readFloat("maxDistance", ssr.maxDistance);
+            readFloat("thickness", ssr.thickness);
+            readFloat("maxRoughness", ssr.maxRoughness);
+            readFloat("roughnessBlur", ssr.roughnessBlur);
+            readFloat("edgeFade", ssr.edgeFade);
+            readInt("maxSteps", ssr.maxSteps);
+            readInt("resolutionDivisor", ssr.resolutionDivisor);
+            readBool("temporal", ssr.temporal);
+            readFloat("temporalBlend", ssr.temporalBlend);
+        }
+
+        if(settings.contains("lightmaps") && settings["lightmaps"].is_object()){
+            const auto& lightmaps = settings["lightmaps"];
+
+            auto readFloat = [&](const char* key, float& out){ if(lightmaps.contains(key) && lightmaps[key].is_number()) out = lightmaps[key].get<float>(); };
+            auto readUInt = [&](const char* key, uint32_t& out){ if(lightmaps.contains(key) && lightmaps[key].is_number_integer()) out = lightmaps[key].get<uint32_t>(); };
+
+            readFloat("texelsPerMeter", lightmapSettings.texelsPerMeter);
+            readUInt("minResolution", lightmapSettings.minResolution);
+            readUInt("maxResolution", lightmapSettings.maxResolution);
+            readUInt("maxPageSize", lightmapSettings.maxPageSize);
+            readUInt("samples", lightmapSettings.samples);
+            readUInt("maxBounces", lightmapSettings.maxBounces);
+            readFloat("fireflyClamp", lightmapSettings.fireflyClamp);
+            readFloat("indirectIntensity", lightmapSettings.indirectIntensity);
+            readUInt("denoiseIterations", lightmapSettings.denoiseIterations);
+            readFloat("denoiseLuminanceSigma", lightmapSettings.denoiseLuminanceSigma);
+            readFloat("denoiseNormalPower", lightmapSettings.denoiseNormalPower);
+            readFloat("denoisePlaneSigma", lightmapSettings.denoisePlaneSigma);
+            if(lightmaps.contains("denoise") && lightmaps["denoise"].is_boolean())
+                lightmapSettings.denoise = lightmaps["denoise"].get<bool>();
+
+            if(lightmaps.contains("data") && lightmaps["data"].is_string())
+                lightmapData = lightmaps["data"].get<std::string>();
+        }
+
+        if(settings.contains("skybox")){
+            auto& skyboxFile = settings["skybox"];
+            if(skyboxFile.is_string()){
+                if(!SetSkybox(skyboxFile.get<std::string>()))
+                    DEBUG_ERROR("Couldn't deserialize skybox : shader or cubemap missing");
+            }
+        }
+    }
+
+    void RenderWorldData::SerializeSettings(const Worlds::World&, nlohmann::ordered_json& settings)
+    {
+        const std::string skyboxFile = GetSkyboxPath();
+        if(!skyboxFile.empty()){
+            settings["skybox"] = skyboxFile;
+        }
+
+        if(display != DisplaySettings{}){
+            settings["display"]["tonemapper"] = TonemapperName(display.tonemapper);
+            settings["display"]["exposure"] = display.exposure;
+        }
+
+        if(ssr != SSRSettings{}){
+            auto& ssrJson = settings["ssr"];
+            ssrJson["enabled"] = ssr.enabled;
+            ssrJson["quality"] = SSRQualityName(ssr.quality);
+            ssrJson["intensity"] = ssr.intensity;
+            ssrJson["maxDistance"] = ssr.maxDistance;
+            ssrJson["thickness"] = ssr.thickness;
+            ssrJson["maxRoughness"] = ssr.maxRoughness;
+            ssrJson["roughnessBlur"] = ssr.roughnessBlur;
+            ssrJson["edgeFade"] = ssr.edgeFade;
+            ssrJson["maxSteps"] = ssr.maxSteps;
+            ssrJson["resolutionDivisor"] = ssr.resolutionDivisor;
+            ssrJson["temporal"] = ssr.temporal;
+            ssrJson["temporalBlend"] = ssr.temporalBlend;
+        }
+
+        if(!lightmapData.empty() || !(lightmapSettings == LightmapSettings{})){
+            auto& lightmaps = settings["lightmaps"];
+            lightmaps["texelsPerMeter"] = lightmapSettings.texelsPerMeter;
+            lightmaps["minResolution"] = lightmapSettings.minResolution;
+            lightmaps["maxResolution"] = lightmapSettings.maxResolution;
+            lightmaps["maxPageSize"] = lightmapSettings.maxPageSize;
+            lightmaps["samples"] = lightmapSettings.samples;
+            lightmaps["maxBounces"] = lightmapSettings.maxBounces;
+            lightmaps["denoise"] = lightmapSettings.denoise;
+            lightmaps["fireflyClamp"] = lightmapSettings.fireflyClamp;
+            lightmaps["indirectIntensity"] = lightmapSettings.indirectIntensity;
+            lightmaps["denoiseIterations"] = lightmapSettings.denoiseIterations;
+            lightmaps["denoiseLuminanceSigma"] = lightmapSettings.denoiseLuminanceSigma;
+            lightmaps["denoiseNormalPower"] = lightmapSettings.denoiseNormalPower;
+            lightmaps["denoisePlaneSigma"] = lightmapSettings.denoisePlaneSigma;
+            if(!lightmapData.empty())
+                lightmaps["data"] = lightmapData;
+        }
+    }
+
+    namespace {
+        std::string SanitizeForFileName(const std::string& name)
+        {
+            std::string out;
+            out.reserve(name.size());
+            for (unsigned char c : name)
+                out.push_back((std::isalnum(c) || c == '-' || c == '_') ? (char)c : '_');
+            return out.empty() ? std::string("unnamed") : out;
+        }
+    }
+
+    bool RenderWorldData::BakeLightmaps(Worlds::World& world)
+    {
+        if(!world.IsLoaded()){
+            DEBUG_WARNING("Lightmaps : only a loaded world can be baked.");
+            return false;
+        }
+
+        Core::IEngineContext* engine = &Core::GetEngine();
+        const Filesystem::Path resRoot = engine->GetFileManager()->GetProjectResRoot();
+
+        std::string relative = lightmapData;
+        if(relative.empty())
+            relative = "lightmaps/" + SanitizeForFileName(world.GetName()) + kLightmapExtension;
+
+        IRenderContext* renderer = engine->GetRenderContext();
+        return renderer->GetLightmapManager()->BeginBake(renderer->GetSnapshot(), lightmapSettings, resRoot / relative);
+    }
+
+    void RenderWorldData::OnLightmapsBaked(Worlds::World& world, const LightmapBakeResult& result)
+    {
+        if(!result.success)
+            return;
+
+        Core::IEngineContext* engine = &Core::GetEngine();
+        Filesystem::FileManager* fileManager = engine->GetFileManager();
+
+        const std::string nameInProject = fileManager->GetFileInfos(result.file).nameInProject;
+        if(nameInProject.empty()){
+            DEBUG_ERROR("Lightmaps : baked to '" + result.file.full + "', which is outside the project's resources - the world cannot reference it.");
+            return;
+        }
+
+        fileManager->RegisterAsset(result.file);
+
+        std::unordered_map<uint64_t, const LightmapPlacement*> placements;
+        for(const LightmapPlacement& placement : result.placements)
+            placements[placement.key] = &placement;
+
+        Worlds::WorldManager* worlds = engine->GetWorldManager();
+        for(auto& [id, model] : models){
+            if(!model)
+                continue;
+
+            auto it = placements.find(RenderKeyOf(*worlds, &world, id));
+            if(it != placements.end() && model->staticLighting){
+                model->lightmapPage = int(it->second->page);
+                model->lightmapScaleOffset = it->second->ScaleOffset(result.pageSize);
+            }
+            else{
+                model->ClearLightmap();
+            }
+        }
+
+        engine->GetResourcesManager()->Unload(Core::Resources::AssetKind::Lightmap, nameInProject);
+
+        lightmapData = nameInProject;
+        lightmapSettings = result.settings;
+
+        engine->GetRenderContext()->GetLightmapManager()->ProvideData(nameInProject, result.data);
+
+        if(auto project = engine->GetCurrentProject())
+            Serialization::SerializeAssetDataBase(project->GetAssetDatabasePath(), *engine->GetAssetIDManager());
+
+        world.SetDirty(true);
+        DEBUG_INFO("Lightmaps : baked to " + nameInProject + " - save the world to keep them.");
+    }
+
+    void RenderWorldData::ClearLightmaps(Worlds::World& world)
+    {
+        Core::IEngineContext* engine = &Core::GetEngine();
+
+        if(!lightmapData.empty()){
+            Filesystem::AssetIDManager* assetManager = engine->GetAssetIDManager();
+
+            std::error_code ec;
+            std::filesystem::remove((engine->GetFileManager()->GetProjectResRoot() / lightmapData).full, ec);
+
+            Filesystem::AssetID id = assetManager->GetIDFromNameInProject(lightmapData);
+            std::shared_ptr<Filesystem::AssetInfos> info = assetManager->GetAssetFromID(id);
+            if(info && info->baseInfos.nameInProject == lightmapData){
+                assetManager->DestroyID(id);
+
+                if(auto project = engine->GetCurrentProject())
+                    Serialization::SerializeAssetDataBase(project->GetAssetDatabasePath(), *engine->GetAssetIDManager());
+            }
+
+            engine->GetResourcesManager()->Unload(Core::Resources::AssetKind::Lightmap, lightmapData);
+            lightmapData.clear();
+        }
+
+        for(auto& [id, model] : models)
+            if(model)
+                model->ClearLightmap();
+
+        world.SetDirty(true);
+    }
+
+    bool RenderWorldData::SetSkybox(const std::string &pathInProject)
+    {
+        Core::Resources::ResourcesManager* resources = Core::GetEngine().GetResourcesManager();
+
+        // Load first, it is the part that can fail. A failed attempt must leave the current skybox untouched.
+        std::shared_ptr<EnvironmentMap> envMap = resources->Get<EnvironmentMap>(Core::Resources::AssetKind::EnvMap, pathInProject);
+        if(!envMap)
+            return false;
+
+        if(skybox){
+            skybox->SetEnvironmentMap(envMap);
+            return true;
+        }
+
+        std::shared_ptr<Shader> shader = resources->Get<Shader>(Core::Resources::AssetKind::Shader, "shaders/skybox/skybox");
+        if(!shader)
+            return false;
+
+        PipelineSpecifications specs;
+        specs.depthCompare = DepthCompareOp::LessOrEqual;
+        specs.depthWrite = false;
+        specs.shader = shader;
+        specs.topology = PrimitiveTopology::Triangles;
+        specs.debugName = "SkyboxPipeline";
+
+        std::shared_ptr<Pipeline> skyboxPipeline = Core::GetEngine().GetRenderContext()->GetOrAddPipeline(specs);
+
+        std::shared_ptr<Material> skyboxMat = Material::Create(shader, skyboxPipeline, false, Opacity::Opaque);
+
+        this->skybox = Core::Object::Create<Objects::Skybox>(envMap, skyboxMat);
+        return true;
+    }
+
+    void RenderWorldData::ClearSkybox()
+    {
+        if(!skybox)
+            return;
+
+        skybox = nullptr;
+    }
+
+    std::string RenderWorldData::GetSkyboxPath() const
+    {
+        if(!skybox || !skybox->GetEnvMap())
+            return "";
+
+        std::shared_ptr<Filesystem::AssetInfos> infos = Core::GetEngine().GetAssetIDManager()->GetAssetFromID(skybox->GetEnvMap()->GetAssetID());
+        return infos ? infos->baseInfos.nameInProject : "";
+    }
+
+    void RegisterRenderingModule()
+    {
+        using Core::Resources::AssetKind;
+        using Core::Resources::ResourceKey;
+
+        auto& registry = GetComponentRegistry();
+
+        registry.RegisterBuiltinComponent<Model>("model",
+            [](const nlohmann::json& component, std::vector<ResourceKey>& out){
+                for (const char* key : { "mesh", "meshID" }) {
+                    if (component.contains(key) && component[key].is_string() && !component[key].get<std::string>().empty()) {
+                        out.push_back({AssetKind::Mesh, component[key].get<std::string>()});
+                        break;
+                    }
+                }
+
+                const char* materialsKey = component.contains("materials") ? "materials" : "materialsID";
+                if (component.contains(materialsKey) && component[materialsKey].is_array()) {
+                    for (const auto& material : component[materialsKey]) {
+                        if (material.is_string() && !material.get<std::string>().empty())
+                            out.push_back({AssetKind::Material, material.get<std::string>()});
+                    }
+                }
+                else if (component.contains("materials") && component["materials"].is_object()) {
+                    for (auto it = component["materials"].begin(); it != component["materials"].end(); ++it) {
+                        if (it.value().is_string())
+                            out.push_back({AssetKind::Material, it.value().get<std::string>()});
+                    }
+                }
+            });
+        registry.RegisterBuiltinComponent<Light>("light");
+        registry.RegisterBuiltinComponent<Billboard>("billboard");
+        registry.RegisterBuiltinComponent<Camera>("camera");
+        registry.RegisterBuiltinComponent<ProbeVolume>("probeVolume",
+            [](const nlohmann::json& component, std::vector<ResourceKey>& out){
+                if (component.contains("bakedData") && component["bakedData"].is_string() && !component["bakedData"].get<std::string>().empty())
+                    out.push_back({AssetKind::ProbeBake, component["bakedData"].get<std::string>()});
+            });
+
+        registry.RegisterBuiltinComponent<ReflectionProbe>("reflectionProbe",
+            [](const nlohmann::json& component, std::vector<ResourceKey>& out){
+                if (component.contains("bakedData") && component["bakedData"].is_string() && !component["bakedData"].get<std::string>().empty())
+                    out.push_back({AssetKind::EnvMap, component["bakedData"].get<std::string>()});
+            });
+
+        Worlds::RegisterWorldExtension<RenderWorldData>();
+
+        Worlds::RegisterWorldSettingsAssetRefs([](const nlohmann::json& settings, std::vector<ResourceKey>& out){
+            if (settings.contains("skybox") && settings["skybox"].is_string())
+                out.push_back({AssetKind::EnvMap, settings["skybox"].get<std::string>()});
+
+            if (settings.contains("lightmaps") && settings["lightmaps"].is_object() &&
+                settings["lightmaps"].contains("data") && settings["lightmaps"]["data"].is_string() &&
+                !settings["lightmaps"]["data"].get<std::string>().empty())
+                out.push_back({AssetKind::Lightmap, settings["lightmaps"]["data"].get<std::string>()});
+        });
+    }
+}

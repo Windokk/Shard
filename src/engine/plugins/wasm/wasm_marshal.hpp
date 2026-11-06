@@ -1,0 +1,192 @@
+#pragma once
+
+#include <algorithm>
+#include <cstddef>
+#include <cstdint>
+#include <cstring>
+#include <string>
+#include <type_traits>
+#include <vector>
+
+#include <shard/shard_abi.h>
+
+#include "engine/plugins/wasm/wasm_runtime.hpp"
+
+// How an import reads its arguments from the memory of a sandboxed plugin and writes its results back (docs/design-notes/wasm-sandbox.fr.md,
+// principle 1). Every address is a uint32_t offset in the module's memory, checked against it before it is used ; a bad one traps the module
+// (Instance::HostTrap) and never reaches the host. Used by the generated imports (wasm_imports_gen.cpp) and the hand written ones.
+
+#define SHARD_HAS(api, member) ((api)->structSize >= offsetof(std::remove_pointer_t<decltype(api)>, member) + sizeof((api)->member) && (api)->member)
+
+namespace Shard::Engine::Plugins::Wasm::Marshal {
+
+    inline float F32(uint64_t bits) { const uint32_t b = uint32_t(bits); float f; std::memcpy(&f, &b, 4); return f; }
+    inline double F64(uint64_t bits) { double d; std::memcpy(&d, &bits, 8); return d; }
+    inline uint64_t Bits(float f) { uint32_t b; std::memcpy(&b, &f, 4); return b; }
+    inline uint64_t Bits(double d) { uint64_t b; std::memcpy(&b, &d, 8); return b; }
+
+    inline ShardStr ToStr(const std::string& s) { return ShardStr{ s.data(), s.size() }; }
+
+    inline constexpr uint64_t kMaxString = 16ull << 20;
+    inline constexpr uint64_t kMaxBytes = 64ull << 20;
+
+    inline uint8_t* Span(Instance& in, uint64_t at, uint64_t size, const char* what)
+    {
+        uint8_t* p = (at > 0xFFFFFFFFull || size > 0xFFFFFFFFull) ? nullptr : in.MemoryAt(uint32_t(at), uint32_t(size));
+        if (!p) in.HostTrap(std::string(what) + " out of the memory");
+        return p;
+    }
+
+    // wasm32 ShardStr { u32 data, u32 pad, u64 size }. Bytes are copied out because module memory may move while the host works.
+    inline bool ReadStr(Instance& in, uint64_t at, std::string& out, uint64_t limit = kMaxString)
+    {
+        const uint8_t* p = Span(in, at, 16, "string");
+        if (!p) return false;
+        uint32_t data;
+        uint64_t size;
+        std::memcpy(&data, p, 4);
+        std::memcpy(&size, p + 8, 8);
+        if (size > limit) { in.HostTrap("string longer than " + std::to_string(limit) + " bytes"); return false; }
+        if (size == 0) { out.clear(); return true; }
+        const uint8_t* bytes = Span(in, data, size, "string");
+        if (!bytes) return false;
+        out.assign(reinterpret_cast<const char*>(bytes), size_t(size));
+        return true;
+    }
+
+    inline bool ReadBytes(Instance& in, uint64_t at, uint64_t size, std::vector<uint8_t>& out, uint64_t limit = kMaxBytes)
+    {
+        if (size > limit) { in.HostTrap("buffer longer than " + std::to_string(limit) + " bytes"); return false; }
+        out.clear();
+        if (size == 0) return true;
+        const uint8_t* p = Span(in, at, size, "buffer");
+        if (!p) return false;
+        out.assign(p, p + size);
+        return true;
+    }
+
+    template <typename T>
+    struct OutArg {
+        static_assert(std::is_trivially_copyable_v<T>);
+        Instance& in;
+        uint32_t at;
+        T value{};
+        bool ok;
+        OutArg(Instance& i, uint64_t ptr) : in(i), at(uint32_t(ptr)), ok(false)
+        {
+            const uint8_t* p = Span(in, ptr, sizeof(T), "output");
+            if (p) { std::memcpy(&value, p, sizeof(T)); ok = true; }
+        }
+        bool Commit() { return in.Write(at, &value, sizeof(T)) || (in.HostTrap("output out of the memory"), false); }
+    };
+
+    template <typename T>
+    struct InArg {
+        static_assert(std::is_trivially_copyable_v<T>);
+        T value{};
+        bool ok;
+        InArg(Instance& in, uint64_t ptr) : ok(false)
+        {
+            const uint8_t* p = Span(in, ptr, sizeof(T), "argument");
+            if (p) { std::memcpy(&value, p, sizeof(T)); ok = true; }
+        }
+    };
+
+    template <int N>
+    struct FloatArray {
+        Instance& in;
+        uint32_t at;
+        float v[N] = {};
+        bool ok;
+        FloatArray(Instance& i, uint64_t ptr) : in(i), at(uint32_t(ptr)), ok(false)
+        {
+            const uint8_t* p = Span(in, ptr, 4u * N, "vector");
+            if (p) { std::memcpy(v, p, 4u * N); ok = true; }
+        }
+        bool Commit() { return in.Write(at, v, 4u * N) || (in.HostTrap("vector out of the memory"), false); }
+    };
+    using Float3 = FloatArray<3>;
+
+    inline bool ReadFloats(Instance& in, uint64_t at, uint64_t count, std::vector<float>& out)
+    {
+        if (count > (16u << 20)) { in.HostTrap("more than 16 million values"); return false; }
+        out.clear();
+        if (count == 0) return true;
+        const uint8_t* p = Span(in, at, count * 4, "values");
+        if (!p) return false;
+        out.resize(size_t(count));
+        std::memcpy(out.data(), p, size_t(count) * 4);
+        return true;
+    }
+
+    struct InOutText {
+        Instance& in;
+        uint32_t at;
+        std::vector<char> text;
+        bool ok;
+        InOutText(Instance& i, uint64_t ptr, uint64_t capacity) : in(i), at(uint32_t(ptr)), ok(false)
+        {
+            if (capacity == 0 || capacity > (1u << 20)) { in.HostTrap("a text buffer of 0 bytes or more than 1 MiB"); return; }
+            const uint8_t* p = Span(in, ptr, capacity, "text buffer");
+            if (!p) return;
+            text.assign(p, p + capacity);
+            text.back() = ' ';
+            ok = true;
+        }
+        char* Data() { return text.data(); }
+        uint64_t Capacity() const { return text.size(); }
+        bool Commit() { text.back() = ' '; return in.Write(at, text.data(), uint32_t(text.size())) || (in.HostTrap("text buffer out of the memory"), false); }
+    };
+
+    // "Text out" (buffer, capacity, *size): host writes to its own buffer, then it is copied into module memory. Too small a buffer gets the start of the text, *size is the full length.
+    template <typename Call>
+    bool TextOut(Instance& in, uint64_t buffer, uint64_t capacity, uint64_t sizeAt, ShardResult& result, Call&& call)
+    {
+        if (!Span(in, sizeAt, 8, "size")) return false;
+        if (capacity > 0 && !Span(in, buffer, capacity, "buffer")) return false;
+        char small[1024];
+        const uint64_t first = std::min<uint64_t>(capacity, sizeof(small));
+        uint64_t size = 0;
+        result = call(buffer == 0 ? nullptr : small, first, &size);
+        const char* from = small;
+        uint64_t copied = std::min(size, first);
+        std::vector<char> big;
+        if (result == SHARD_OK && size > first && capacity > first) {
+            big.resize(size_t(std::min(size, capacity)));
+            result = call(big.data(), big.size(), &size);
+            from = big.data();
+            copied = std::min<uint64_t>(size, big.size());
+        }
+        if (result != SHARD_OK) return true;
+        if (buffer != 0 && copied) in.Write(uint32_t(buffer), from, uint32_t(copied));
+        in.Write(uint32_t(sizeAt), &size, 8);
+        return true;
+    }
+
+    template <typename T, typename Call>
+    bool ArrayOut(Instance& in, uint64_t out, uint64_t capacity, uint64_t countAt, ShardResult& result, Call&& call)
+    {
+        static_assert(sizeof(T) == 8);
+        const uint32_t cap = uint32_t(capacity);
+        if (!Span(in, countAt, 4, "count")) return false;
+        if (cap > 0 && !Span(in, out, uint64_t(cap) * 8, "array")) return false;
+        std::vector<T> items(std::min<uint32_t>(cap, 1u << 20));
+        uint32_t count = 0;
+        result = call(items.empty() ? nullptr : items.data(), uint32_t(items.size()), &count);
+        if (result != SHARD_OK) return true;
+        const uint32_t written = std::min<uint32_t>(count, uint32_t(items.size()));
+        if (written) in.Write(uint32_t(out), items.data(), written * 8);
+        in.Write(uint32_t(countAt), &count, 4);
+        return true;
+    }
+
+    template <typename T>
+    T Load(const uint8_t* base, uint32_t offset)
+    {
+        T v;
+        std::memcpy(&v, base + offset, sizeof(T));
+        return v;
+    }
+    template <typename T>
+    void Store(uint8_t* base, uint32_t offset, T v) { std::memcpy(base + offset, &v, sizeof(T)); }
+}

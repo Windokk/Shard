@@ -1,0 +1,169 @@
+#include "world_asset_prefetcher.hpp"
+
+#include "engine/platform/thread/thread.hpp"
+
+#include <unordered_set>
+#include <chrono>
+#include <thread>
+#include <algorithm>
+
+#include "engine/world/engine.hpp"
+#include "engine/assets/resources_manager.hpp"
+#include "engine/core/diagnostics/logger.hpp"
+
+namespace Shard::Engine::Worlds{
+
+    AssetPrefetcher::~AssetPrefetcher()
+    {
+        WaitForDecodes();
+    }
+
+    void AssetPrefetcher::WaitForDecodes()
+    {
+        if(Core::JobSystem* jobSystem = Core::GetEngine().GetJobSystem())
+            jobSystem->Wait(decodeGroup);
+    }
+
+    void AssetPrefetcher::BeginLoad(const std::string &pathInProject)
+    {
+        if(IsInProgress()){
+            DEBUG_WARNING("World load already in progress, ignoring request to load : " + pathInProject);
+            return;
+        }
+
+        WaitForDecodes();
+        jobs.clear();
+        Core::JobSystem* jobSystem = Core::GetEngine().GetJobSystem();
+        maxInFlight = std::max(2, jobSystem ? (int)jobSystem->WorkerCount() : 2);
+        completedCount = 0;
+        totalCount = 0;
+
+        auto* resources = Core::GetEngine().GetResourcesManager();
+        auto* assetManager = Core::GetEngine().GetAssetIDManager();
+
+        auto worldAssetInfos = assetManager->GetAssetFromID(assetManager->GetIDFromNameInProject(pathInProject));
+        if(!worldAssetInfos){
+            DEBUG_ERROR("Cannot prefetch world, unknown asset : " + pathInProject);
+            return;
+        }
+
+        for(auto& task : resources->PlanPrefetch(pathInProject)){
+            DecodeJob job;
+            job.task = std::move(task);
+            jobs.push_back(std::move(job));
+        }
+
+        totalCount = (int)jobs.size();
+        state = State::Decoding;
+        loadStart = std::chrono::steady_clock::now();
+        for(int i = 0; i < (int)jobs.size() && i < maxInFlight; i++)
+            StartDecode(jobs[i]);
+    }
+
+    bool AssetPrefetcher::IsDecoded(DecodeJob& job)
+    {
+        return job.result->done.load(std::memory_order_acquire);
+    }
+
+    void AssetPrefetcher::StartDecode(DecodeJob& job)
+    {
+        job.started = true;
+        DecodeJob::Result* result = job.result.get();
+        auto decode = [result, fn = job.task.decode]
+        {
+            try { result->finish = fn(); }
+            catch(...) { result->error = std::current_exception(); }
+            result->done.store(true, std::memory_order_release);
+        };
+
+        Core::JobSystem* jobSystem = Core::GetEngine().GetJobSystem();
+        if(jobSystem)
+            jobSystem->Submit(decodeGroup, std::move(decode));
+        else
+            decode();
+    }
+
+    bool AssetPrefetcher::Pump(float uploadBudgetMs)
+    {
+        if(state != State::Decoding)
+            return true;
+
+        using Clock = std::chrono::steady_clock;
+        const auto begin = Clock::now();
+        const bool unlimited = uploadBudgetMs < 0.0f;
+
+        int applied = 0;
+        int inFlight = 0;
+        bool uploadedAny = false;
+
+        for(auto& job : jobs){
+            if(job.applied){
+                applied++;
+                continue;
+            }
+
+            if(!job.started)
+                continue;
+
+            if(!IsDecoded(job)){
+                inFlight++;
+                continue;
+            }
+
+            // Upload unless this frame's budget is spent (then it waits decoded). The first upload of a call is always allowed.
+            if(!unlimited && uploadedAny && std::chrono::duration<float, std::milli>(Clock::now() - begin).count() >= uploadBudgetMs){
+                continue;
+            }
+
+            Apply(job);
+            job.applied = true;
+            uploadedAny = true;
+            applied++;
+        }
+
+        for(auto& job : jobs){
+            if(inFlight >= maxInFlight)
+                break;
+            if(job.started)
+                continue;
+            StartDecode(job);
+            inFlight++;
+        }
+
+        completedCount = applied;
+
+        if(applied < (int)jobs.size())
+            return false;
+
+        DEBUG_INFO("World assets : " + std::to_string(jobs.size()) + " decoded and uploaded in " +
+                   std::to_string(std::chrono::duration<float>(Clock::now() - loadStart).count()) + " s");
+        jobs.clear();
+        state = State::Idle;
+        return true;
+    }
+
+    // Never throws: an exception out of here would leave the load pending forever and block every other world.
+    void AssetPrefetcher::Apply(DecodeJob& job)
+    {
+        try {
+            if(job.result->error)
+                std::rethrow_exception(job.result->error);
+            std::function<void()> finish = std::move(job.result->finish);
+            if(finish)
+                finish();
+        }
+        catch(const std::exception& e) {
+            DEBUG_ERROR("Couldn't load an asset of the world : " + std::string(e.what()));
+        }
+        catch(...) {
+            DEBUG_ERROR("Couldn't load an asset of the world (unknown error)");
+        }
+    }
+
+    float AssetPrefetcher::GetProgress() const
+    {
+        if(totalCount <= 0)
+            return 1.0f;
+        return (float)completedCount.load() / (float)totalCount;
+    }
+}

@@ -1,0 +1,291 @@
+#version 430 core
+#extension GL_ARB_bindless_texture : enable
+
+// DDGI-like probe tracer. One trace per frame, bounces accumulate across frames by reading back last frame's published atlas (RTXGI scheme), so depth is unbounded.
+
+layout(local_size_x = 64, local_size_y = 1, local_size_z = 1) in;
+
+layout(rgba16f, binding = 0) uniform image2D uAtlas;
+layout(rg16f, binding = 1) uniform image2D uDistAtlas;
+// Sampler bindings start at 40, clear of lit.frag's. ProbeManager binds with a raw Texture2D::Bind() that bypasses GLStateCache, which would leave units 1-3 stale and make the forward pass sample probe data as a normal map.
+layout(binding = 40) uniform sampler2D uPrevIrradianceAtlas;
+layout(binding = 41) uniform sampler2D uPrevDistanceAtlas;
+
+layout(binding = 46) uniform samplerCube uSkyIrradiance;
+// No skybox means zero sky radiance. The forward pass has no IBL there either, and a made-up sky floods openings with white light.
+uniform bool uHasSky;
+
+#include "../../common/light.glsl"
+#include "../../common/raytracing_types.glsl"
+#include "../../common/normal_map.glsl"
+
+layout(std430, binding = 8)  readonly buffer BVHNodes          { BVHNode bvhNodes[]; };
+layout(std430, binding = 9)  readonly buffer TrianglePositions { TrianglePos triPos[]; };
+layout(std430, binding = 10) readonly buffer TriangleAttribs   { TriangleAttrib triAttrib[]; };
+layout(std430, binding = 11) readonly buffer Materials         { GPUMaterial materials[]; };
+layout(std430, binding = 12) readonly buffer Lights            { Light lights[]; };
+
+#include "../../common/raytracing_trace.glsl"
+
+struct Probe
+{
+    vec4 position;
+};
+
+layout(std430, binding = 13) readonly buffer Probes            { Probe probes[]; };
+layout(std430, binding = 14) readonly buffer ProbeState        { vec4 probeState[]; };
+
+uniform int uProbeCount;
+uniform int uTileSize;
+uniform int uAtlasProbesPerRow;
+uniform int uAtlasSize;
+uniform int uLightCount;
+
+uniform int uUpdateStride;
+uniform int uUpdatePhase;
+uniform int uUpdateCount;
+
+// Fresh random rotation of the ray fan each frame. Without it a lucky ray that grazes a small bright feature is retraced identically and the temporal blend locks onto that bias.
+uniform mat3 uRayRotation;
+
+uniform bool uUseIndirect;
+
+uniform float uIndirectIntensity;
+
+uniform vec3 uGridOrigin;
+uniform vec3 uGridSpacing;
+uniform vec3 uProbeCounts;
+
+const float PI = 3.14159265359;
+
+#include "../../common/octahedral.glsl"
+#include "../../common/ddgi_atlas.glsl"
+#include "../../common/ddgi_visibility.glsl"
+#include "../../common/pbr_direct.glsl"
+
+vec3 SkyRadiance(vec3 rd)
+{
+    return uHasSky ? texture(uSkyIrradiance, rd).rgb : vec3(0.0);
+}
+
+vec3 SamplePrevProbe(int probeIndex, vec3 N)
+{
+    vec2 atlasUV = DDGI_AtlasUV(probeIndex, N, uTileSize, uAtlasProbesPerRow, uAtlasSize);
+    return texture(uPrevIrradianceAtlas, atlasUV).rgb;
+}
+
+vec2 SamplePrevDistance(int probeIndex, vec3 dir)
+{
+    vec2 atlasUV = DDGI_AtlasUV(probeIndex, dir, uTileSize, uAtlasProbesPerRow, uAtlasSize);
+    return texture(uPrevDistanceAtlas, atlasUV).rg;
+}
+
+vec3 SampleIndirect(vec3 worldPos, vec3 N)
+{
+    vec3 biasedPos = worldPos + N * (0.25 * min(min(uGridSpacing.x, uGridSpacing.y), uGridSpacing.z));
+
+    vec3 gridPos = (biasedPos - uGridOrigin) / max(uGridSpacing, vec3(1e-4));
+    vec3 base = floor(gridPos);
+    vec3 frac = clamp(gridPos - base, 0.0, 1.0);
+
+    vec3 irradiance = vec3(0.0);
+    float totalWeight = 0.0;
+
+    for (int i = 0; i < 8; i++)
+    {
+        vec3 offset = vec3(float(i & 1), float((i >> 1) & 1), float((i >> 2) & 1));
+        vec3 probeCoord = clamp(base + offset, vec3(0.0), max(uProbeCounts - 1.0, 0.0));
+
+        vec3 w = mix(1.0 - frac, frac, offset);
+        float trilinearWeight = w.x * w.y * w.z;
+        if (trilinearWeight <= 0.0)
+            continue;
+
+        int probeIndex = int(probeCoord.x)
+            + int(probeCoord.y) * int(uProbeCounts.x)
+            + int(probeCoord.z) * int(uProbeCounts.x) * int(uProbeCounts.y);
+
+        vec3 probeWorldPos = uGridOrigin + probeCoord * uGridSpacing + probeState[probeIndex].xyz;
+        vec3 toPoint = biasedPos - probeWorldPos;
+        float distToPoint = length(toPoint);
+        vec3 dirToPoint = toPoint / max(distToPoint, 1e-5);
+
+        float visWeight = DDGI_VisibilityWeight(SamplePrevDistance(probeIndex, dirToPoint), distToPoint);
+        float weight = trilinearWeight * visWeight * probeState[probeIndex].w;
+        if (weight <= 0.0)
+            continue;
+
+        irradiance += SamplePrevProbe(probeIndex, N) * weight;
+        totalWeight += weight;
+    }
+
+    if (totalWeight > 0.0)
+        irradiance /= totalWeight;
+
+    return irradiance;
+}
+
+vec3 TraceAndShadeDirect(vec3 ro, vec3 rd, out float outHitDist, out float outValidity)
+{
+    HitInfo hit;
+    if (!TraceRay(ro, rd, 1e30, hit))
+    {
+        outHitDist = 1e4;
+        outValidity = 1.0;
+        return SkyRadiance(rd);
+    }
+
+    TriangleAttrib attrib = triAttrib[hit.triIndex];
+    float w0 = 1.0 - hit.bary.x - hit.bary.y;
+    vec3 n = normalize(attrib.n0.xyz * w0 + attrib.n1.xyz * hit.bary.x + attrib.n2.xyz * hit.bary.y);
+    uint matID = uint(attrib.uvMatID.w);
+    GPUMaterial mat = materials[matID];
+
+    vec3 hitPos = ro + rd * hit.t;
+
+    bool backface = dot(n, rd) > 0.0;
+    outValidity = backface ? 0.0 : 1.0;
+
+    if (backface)
+        n = -n;
+
+    vec3 albedo = mat.albedo.rgb;
+    float roughness = mat.roughness;
+    float metallic = mat.metallic;
+    vec3 radiance = mat.emissive.rgb;
+
+    if (mat.textureFlags != 0u)
+    {
+        vec2 uv = vec2(attrib.n0.w, attrib.uvMatID.x) * w0
+                + vec2(attrib.n1.w, attrib.uvMatID.y) * hit.bary.x
+                + vec2(attrib.n2.w, attrib.uvMatID.z) * hit.bary.y;
+
+        if ((mat.textureFlags & TEX_ALBEDO_BIT) != 0u)
+            albedo = texture(sampler2D(mat.albedoTex), uv).rgb;
+
+        if ((mat.textureFlags & TEX_METALLIC_BIT) != 0u)
+            metallic *= texture(sampler2D(mat.metallicTex), uv).r;
+
+        if ((mat.textureFlags & TEX_ROUGHNESS_BIT) != 0u)
+            roughness *= texture(sampler2D(mat.roughnessTex), uv).r;
+
+        if ((mat.textureFlags & TEX_EMISSIVE_BIT) != 0u)
+            radiance *= texture(sampler2D(mat.emissiveTex), uv).rgb;
+
+        if ((mat.textureFlags & TEX_NORMAL_BIT) != 0u)
+        {
+            vec3 tangent = normalize(attrib.t0.xyz * w0 + attrib.t1.xyz * hit.bary.x + attrib.t2.xyz * hit.bary.y);
+            tangent = normalize(tangent - n * dot(tangent, n));
+            vec3 bitangent = cross(n, tangent);
+            mat3 TBN = mat3(tangent, bitangent, n);
+
+            vec3 sampledNormal = DecodeTangentNormal(texture(sampler2D(mat.normalTex), uv));
+            n = normalize(TBN * sampledNormal);
+        }
+    }
+
+    vec3 viewDir = normalize(-rd);
+    vec3 F0 = mix(vec3(0.04), albedo, metallic);
+
+    for (int li = 0; li < uLightCount; li++)
+    {
+        Light light = lights[li];
+
+        vec3 toLight;
+        float dist;
+        vec3 incomingRadiance;
+
+        if (light.type == 0)
+        {
+            toLight = normalize(-light.direction.xyz);
+            dist = 1e30;
+            incomingRadiance = light.color.rgb * light.intensity;
+        }
+        else
+        {
+            vec3 d = light.position.xyz - hitPos;
+            float dist2 = dot(d, d);
+            if (light.radius > 0.0 && dist2 > light.radius * light.radius)
+                continue;
+
+            dist = sqrt(dist2);
+            toLight = d / max(dist, 1e-6);
+            float atten = LightRangeFalloff(light.radius, dist) / max(dist2, 1e-4);
+            incomingRadiance = light.color.rgb * light.intensity * atten;
+
+            if (light.type == 2)
+            {
+                float cosAngle = dot(-toLight, normalize(light.direction.xyz));
+                float t = clamp((cosAngle - light.outerCutoff) / max(light.innerCutoff - light.outerCutoff, 1e-4), 0.0, 1.0);
+                if (t <= 0.0)
+                    continue;
+                incomingRadiance *= t;
+            }
+        }
+
+        float NdotL = dot(n, toLight);
+        if (NdotL > 0.0)
+        {
+            // A light with castShadow off is unshadowed in the forward pass, so it must be unshadowed here too. Otherwise a light inside a ceiling gives no bounce.
+            bool occluded = (light.castShadow != 0) && TraceRayAny(hitPos + n * 1e-3, toLight, dist - 2e-3);
+            if (!occluded)
+            {
+                vec3 h = normalize(viewDir + toLight);
+                vec3 F = FresnelSchlick(max(dot(h, viewDir), 0.0), F0);
+                float D = DistributionGGX(n, h, roughness);
+                float G = GeometrySmith(n, viewDir, toLight, roughness);
+                vec3 specular = (D * G * F) / max(4.0 * max(dot(n, viewDir), 0.0) * NdotL, 1e-4);
+                vec3 kd = (vec3(1.0) - F) * (1.0 - metallic);
+                vec3 diffuse = kd * albedo / PI;
+
+                radiance += (diffuse + specular) * incomingRadiance * NdotL;
+            }
+        }
+    }
+
+    if (uUseIndirect)
+    {
+        vec3 kD = (vec3(1.0) - F0) * (1.0 - metallic);
+
+        // Capped below 1: the feedback is recursive across frames, a geometric series that only converges for gain < 1.
+        vec3 bounceGain = min(albedo * kD * uIndirectIntensity, vec3(0.95));
+
+        radiance += SampleIndirect(hitPos, n) * bounceGain;
+    }
+
+    outHitDist = hit.t;
+    return radiance;
+}
+
+void main()
+{
+    uint gid = gl_GlobalInvocationID.x;
+    uint tileSize = uint(uTileSize);
+    uint raysPerProbe = tileSize * tileSize;
+    uint totalRays = uint(uUpdateCount) * raysPerProbe;
+    if (gid >= totalRays)
+        return;
+
+    int probeIndex = uUpdatePhase + int(gid / raysPerProbe) * uUpdateStride;
+    if (probeIndex >= uProbeCount)
+        return;
+
+    uint rayIndex = gid % raysPerProbe;
+
+    vec3 probePos = probes[probeIndex].position.xyz + probeState[probeIndex].xyz;
+
+    uint tx = rayIndex % tileSize;
+    uint ty = rayIndex / tileSize;
+    vec2 texelUV = (vec2(float(tx), float(ty)) + 0.5) / float(tileSize);
+    vec2 oct = texelUV * 2.0 - 1.0;
+    vec3 dir = uRayRotation * OctDecode(oct);
+
+    float hitDist;
+    float validity;
+    vec3 radiance = TraceAndShadeDirect(probePos, dir, hitDist, validity);
+
+    ivec2 texel = DDGI_TileCorner(probeIndex, int(tileSize), uAtlasProbesPerRow) + ivec2(1, 1) + ivec2(int(tx), int(ty));
+
+    imageStore(uAtlas, texel, vec4(radiance, validity));
+    imageStore(uDistAtlas, texel, vec4(hitDist, hitDist * hitDist, 0.0, 0.0));
+}

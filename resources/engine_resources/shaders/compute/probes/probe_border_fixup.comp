@@ -1,0 +1,77 @@
+#version 430 core
+
+layout(local_size_x = 64, local_size_y = 1, local_size_z = 1) in;
+
+layout(rgba16f, binding = 0) uniform image2D uAtlas;
+layout(rg16f, binding = 1) uniform image2D uDistAtlas;
+
+uniform int uProbeCount;
+uniform int uTileSize;
+uniform int uAtlasProbesPerRow;
+
+uniform int uUpdateStride;
+uniform int uUpdatePhase;
+uniform int uUpdateCount;
+
+#include "../../common/ddgi_atlas.glsl"
+
+void main()
+{
+    uint gid = gl_GlobalInvocationID.x;
+    uint n = uint(uTileSize);
+    uint perTile = n * 4u + 4u;
+    uint totalTexels = uint(uUpdateCount) * perTile;
+    if (gid >= totalTexels)
+        return;
+
+    int probeIndex = uUpdatePhase + int(gid / perTile) * uUpdateStride;
+    if (probeIndex >= uProbeCount)
+        return;
+
+    uint localIdx = gid % perTile;
+    int N = uTileSize;
+
+    ivec2 tileOrigin = DDGI_TileCorner(probeIndex, uTileSize, uAtlasProbesPerRow);
+
+    ivec2 borderTexel;
+    ivec2 srcTexel;
+
+    if (localIdx < n)
+    {
+        int x = int(localIdx);
+        borderTexel = ivec2(x, -1);
+        srcTexel = ivec2(N - 1 - x, 0);
+    }
+    else if (localIdx < 2u * n)
+    {
+        int y = int(localIdx - n);
+        borderTexel = ivec2(N, y);
+        srcTexel = ivec2(N - 1, N - 1 - y);
+    }
+    else if (localIdx < 3u * n)
+    {
+        int x = int(localIdx - 2u * n);
+        borderTexel = ivec2(x, N);
+        srcTexel = ivec2(N - 1 - x, N - 1);
+    }
+    else if (localIdx < 4u * n)
+    {
+        int y = int(localIdx - 3u * n);
+        borderTexel = ivec2(-1, y);
+        srcTexel = ivec2(0, N - 1 - y);
+    }
+    else
+    {
+        uint c = localIdx - 4u * n;
+        if (c == 0u)      { borderTexel = ivec2(-1, -1); srcTexel = ivec2(N - 1, N - 1); }
+        else if (c == 1u) { borderTexel = ivec2(N, -1);  srcTexel = ivec2(0, N - 1); }
+        else if (c == 2u) { borderTexel = ivec2(N, N);   srcTexel = ivec2(0, 0); }
+        else              { borderTexel = ivec2(-1, N);  srcTexel = ivec2(N - 1, 0); }
+    }
+
+    vec4 value = imageLoad(uAtlas, tileOrigin + ivec2(1, 1) + srcTexel);
+    imageStore(uAtlas, tileOrigin + ivec2(1, 1) + borderTexel, value);
+
+    vec4 distValue = imageLoad(uDistAtlas, tileOrigin + ivec2(1, 1) + srcTexel);
+    imageStore(uDistAtlas, tileOrigin + ivec2(1, 1) + borderTexel, distValue);
+}

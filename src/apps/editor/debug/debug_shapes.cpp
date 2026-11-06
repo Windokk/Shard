@@ -1,0 +1,435 @@
+#include "apps/editor/debug/debug_shapes.hpp"
+
+#include <glm/gtc/constants.hpp>
+
+#include "engine/renderer/rhi/resources/mesh/mesh.hpp"
+#include "engine/renderer/rhi/shader/shader.hpp"
+
+namespace Shard::Editor::Debug {
+
+    using Engine::Rendering::Mesh;
+    using Engine::Rendering::ShaderDataType;
+
+    struct Vertex {
+        glm::vec3 position;
+        glm::vec2 texCoord;
+        glm::vec3 normal;
+        glm::vec4 color;
+    };
+
+    void DebugBox::GenerateBox(glm::vec3 halfExtent, COL_RGBA color)
+    {
+        std::vector<glm::vec3> localCorners = {
+            {-halfExtent.x, -halfExtent.y, -halfExtent.z},
+            { halfExtent.x, -halfExtent.y, -halfExtent.z},
+            { halfExtent.x,  halfExtent.y, -halfExtent.z},
+            {-halfExtent.x,  halfExtent.y, -halfExtent.z},
+            {-halfExtent.x, -halfExtent.y,  halfExtent.z},
+            { halfExtent.x, -halfExtent.y,  halfExtent.z},
+            { halfExtent.x,  halfExtent.y,  halfExtent.z},
+            {-halfExtent.x,  halfExtent.y,  halfExtent.z}
+        };
+
+        std::vector<Vertex> vertices;
+        std::vector<uint32_t> indices;
+
+        vertices.resize(8);
+        for (int i = 0; i < 8; ++i) {
+            glm::vec3 pos = localCorners[i];
+            vertices[i].position = pos;
+            vertices[i].normal = glm::normalize(pos);
+            vertices[i].color = color;
+            vertices[i].texCoord = glm::vec2(0,0);
+        }
+
+        indices = {
+            0,1, 1,2, 2,3, 3,0,
+            4,5, 5,6, 6,7, 7,4,
+            0,4, 1,5, 2,6, 3,7
+        };
+
+        std::vector<uint8_t> vertexBuffer;
+        vertexBuffer.resize(vertices.size() * sizeof(Vertex));
+        memcpy(vertexBuffer.data(), vertices.data(), vertexBuffer.size());
+
+        m_Mesh = Mesh::Create();
+        m_Mesh->Create(vertexBuffer, indices, {{
+            {"aPos",     ShaderDataType::Vec3, 0, offsetof(Vertex, position)},
+            {"aTexCoord",ShaderDataType::Vec2, 1, offsetof(Vertex, texCoord)},
+            {"aNormal",  ShaderDataType::Vec3, 2, offsetof(Vertex, normal)},
+            {"aColor",   ShaderDataType::Vec4, 3, offsetof(Vertex, color)},
+        }, sizeof(Vertex)});
+    }
+
+    void DebugSphere::GenerateSphere(float radius, COL_RGBA color)
+    {
+        int segments = 32;
+
+        std::vector<Vertex> vertices;
+        std::vector<uint32_t> indices;
+
+        for (int i = 0; i < segments; i++)
+        {
+            float angle = glm::two_pi<float>() * i / segments;
+            float c = cos(angle);
+            float s = sin(angle);
+
+            vertices.push_back({ glm::vec3(radius * c, radius * s, 0), glm::vec2(0), glm::vec3(0), color });
+
+            vertices.push_back({ glm::vec3(radius * c, 0, radius * s), glm::vec2(0), glm::vec3(0), color });
+
+            vertices.push_back({ glm::vec3(0, radius * c, radius * s), glm::vec2(0), glm::vec3(0), color });
+        }
+
+        for (int i = 0; i < segments; i++)
+        {
+            int next = (i + 1) % segments;
+
+            int xy0 = i * 3;
+            int xy1 = next * 3;
+
+            int xz0 = i * 3 + 1;
+            int xz1 = next * 3 + 1;
+
+            int yz0 = i * 3 + 2;
+            int yz1 = next * 3 + 2;
+
+            indices.push_back(xy0);
+            indices.push_back(xy1);
+
+            indices.push_back(xz0);
+            indices.push_back(xz1);
+
+            indices.push_back(yz0);
+            indices.push_back(yz1);
+        }
+
+        std::vector<uint8_t> vertexBuffer;
+        vertexBuffer.resize(vertices.size() * sizeof(Vertex));
+        memcpy(vertexBuffer.data(), vertices.data(), vertexBuffer.size());
+
+        m_Mesh = Mesh::Create();
+        m_Mesh->Create(vertexBuffer, indices, {{
+            {"aPos",     ShaderDataType::Vec3, 0, offsetof(Vertex, position)},
+            {"aTexCoord",ShaderDataType::Vec2, 1, offsetof(Vertex, texCoord)},
+            {"aNormal",  ShaderDataType::Vec3, 2, offsetof(Vertex, normal)},
+            {"aColor",   ShaderDataType::Vec4, 3, offsetof(Vertex, color)},
+        }, sizeof(Vertex)});
+    }
+
+    void DebugCapsule::GenerateCapsule(float radius, float halfHeight, COL_RGBA color)
+    {
+        int segments = 24;
+
+        std::vector<Vertex> vertices;
+        std::vector<uint32_t> indices;
+
+        for (int i = 0; i < segments; i++)
+        {
+            float angle = glm::two_pi<float>() * i / segments;
+            float c = cos(angle);
+            float s = sin(angle);
+
+            glm::vec3 dir(c * radius, 0, s * radius);
+
+            vertices.push_back({ dir + glm::vec3(0,-halfHeight,0), glm::vec2(0), glm::vec3(0), color });
+
+            vertices.push_back({ dir + glm::vec3(0, halfHeight,0), glm::vec2(0), glm::vec3(0), color });
+        }
+
+        for (int i = 0; i < segments; i++)
+        {
+            int next = (i + 1) % segments;
+
+            indices.push_back(i*2);
+            indices.push_back(next*2);
+
+            indices.push_back(i*2+1);
+            indices.push_back(next*2+1);
+        }
+
+        vertices.push_back({ glm::vec3(radius,-halfHeight,0), glm::vec2(0), glm::vec3(0), color });
+        vertices.push_back({ glm::vec3(radius, halfHeight,0), glm::vec2(0), glm::vec3(0), color });
+
+        vertices.push_back({ glm::vec3(-radius,-halfHeight,0), glm::vec2(0), glm::vec3(0), color });
+        vertices.push_back({ glm::vec3(-radius, halfHeight,0), glm::vec2(0), glm::vec3(0), color });
+
+        vertices.push_back({ glm::vec3(0,-halfHeight,radius), glm::vec2(0), glm::vec3(0), color });
+        vertices.push_back({ glm::vec3(0, halfHeight,radius), glm::vec2(0), glm::vec3(0), color });
+
+        vertices.push_back({ glm::vec3(0,-halfHeight,-radius), glm::vec2(0), glm::vec3(0), color });
+        vertices.push_back({ glm::vec3(0, halfHeight,-radius), glm::vec2(0), glm::vec3(0), color });
+
+        int base = vertices.size() - 8;
+
+        for(int i = 0; i < 8; i += 2)
+        {
+            indices.push_back(base + i);
+            indices.push_back(base + i + 1);
+        }
+
+        int arc_segments = segments / 2;
+
+        auto addHalfCircle = [&](glm::vec3 center, bool topCap, bool xAxis)
+        {
+            int start = vertices.size();
+
+            for(int i = 0; i <= arc_segments; i++)
+            {
+                float angle = glm::pi<float>() * i / arc_segments;
+
+                float x = cos(angle) * radius;
+                float y = sin(angle) * radius;
+
+                if(!topCap) y = -y;
+
+                glm::vec3 p;
+
+                if(xAxis)
+                    p = center + glm::vec3(x, y, 0);
+                else
+                    p = center + glm::vec3(0, y, x);
+
+                vertices.push_back({ p, glm::vec2(0), glm::vec3(0), color });
+
+                if(i > 0)
+                {
+                    indices.push_back(start + i - 1);
+                    indices.push_back(start + i);
+                }
+            }
+        };
+
+        addHalfCircle(glm::vec3(0, halfHeight, 0), true, true);
+        addHalfCircle(glm::vec3(0, halfHeight, 0), true, false);
+
+        addHalfCircle(glm::vec3(0,-halfHeight, 0), false, true);
+        addHalfCircle(glm::vec3(0,-halfHeight, 0), false, false);
+
+        std::vector<uint8_t> vertexBuffer;
+        vertexBuffer.resize(vertices.size() * sizeof(Vertex));
+        memcpy(vertexBuffer.data(), vertices.data(), vertexBuffer.size());
+
+        m_Mesh = Mesh::Create();
+        m_Mesh->Create(vertexBuffer, indices, {{
+            {"aPos",     ShaderDataType::Vec3, 0, offsetof(Vertex, position)},
+            {"aTexCoord",ShaderDataType::Vec2, 1, offsetof(Vertex, texCoord)},
+            {"aNormal",  ShaderDataType::Vec3, 2, offsetof(Vertex, normal)},
+            {"aColor",   ShaderDataType::Vec4, 3, offsetof(Vertex, color)},
+        }, sizeof(Vertex)});
+    }
+
+    void DebugCylinder::GenerateCylinder(float radius, float halfHeight, COL_RGBA color)
+    {
+        int segments = 18;
+
+        std::vector<Vertex> vertices;
+        std::vector<uint32_t> indices;
+
+        for (int i = 0; i < segments; ++i) {
+            float angle = glm::two_pi<float>() * i / segments;
+            float x = cos(angle), z = sin(angle);
+            glm::vec3 dir = glm::vec3(x, 0, z);
+
+            vertices.push_back({ dir * radius + glm::vec3(0, -halfHeight, 0), glm::vec2(0,0), dir, color });
+            vertices.push_back({ dir * radius + glm::vec3(0, +halfHeight, 0), glm::vec2(0,0), dir, color });
+        }
+
+        for (int i = 0; i < segments; ++i) {
+            int next = (i + 1) % segments;
+
+            int b0 = i * 2;
+            int t0 = b0 + 1;
+            int b1 = next * 2;
+            int t1 = b1 + 1;
+
+            indices.push_back(b0);
+            indices.push_back(b1);
+
+            indices.push_back(t0);
+            indices.push_back(t1);
+
+            indices.push_back(b0);
+            indices.push_back(t0);
+        }
+    
+        std::vector<uint8_t> vertexBuffer;
+        vertexBuffer.resize(vertices.size() * sizeof(Vertex));
+        memcpy(vertexBuffer.data(), vertices.data(), vertexBuffer.size());
+
+        m_Mesh = Mesh::Create();
+        m_Mesh->Create(vertexBuffer, indices, {{
+            {"aPos",     ShaderDataType::Vec3, 0, offsetof(Vertex, position)},
+            {"aTexCoord",ShaderDataType::Vec2, 1, offsetof(Vertex, texCoord)},
+            {"aNormal",  ShaderDataType::Vec3, 2, offsetof(Vertex, normal)},
+            {"aColor",   ShaderDataType::Vec4, 3, offsetof(Vertex, color)},
+        }, sizeof(Vertex)});
+    }
+
+    void DebugVolumeShape::Generate(Kind kind, glm::vec3 h, COL_RGBA color)
+    {
+        constexpr int segments = 32;
+
+        std::vector<Vertex> vertices;
+        std::vector<uint32_t> indices;
+
+        auto addPoint = [&](const glm::vec3& p) -> uint32_t {
+            Vertex v;
+            v.position = p;
+            v.normal = glm::vec3(0.0f, 1.0f, 0.0f);
+            v.color = color;
+            v.texCoord = glm::vec2(0.0f);
+            vertices.push_back(v);
+            return (uint32_t)vertices.size() - 1;
+        };
+
+        auto addLoop = [&](const std::vector<glm::vec3>& points) {
+            const uint32_t first = (uint32_t)vertices.size();
+            for (const glm::vec3& p : points)
+                addPoint(p);
+            for (uint32_t i = 0; i < points.size(); i++)
+            {
+                indices.push_back(first + i);
+                indices.push_back(first + (i + 1) % (uint32_t)points.size());
+            }
+        };
+
+        auto addLine = [&](const glm::vec3& a, const glm::vec3& b) {
+            indices.push_back(addPoint(a));
+            indices.push_back(addPoint(b));
+        };
+
+        auto ring = [&](float rx, float rz, float y) {
+            std::vector<glm::vec3> points;
+            for (int i = 0; i < segments; i++)
+            {
+                const float a = glm::two_pi<float>() * (float)i / (float)segments;
+                points.push_back({ std::cos(a) * rx, y, std::sin(a) * rz });
+            }
+            return points;
+        };
+
+        switch (kind)
+        {
+            case Kind::Sphere:
+                for (int axis = 0; axis < 3; axis++)
+                {
+                    std::vector<glm::vec3> points;
+                    for (int i = 0; i < segments; i++)
+                    {
+                        const float a = glm::two_pi<float>() * (float)i / (float)segments;
+                        const float c = std::cos(a), s = std::sin(a);
+                        points.push_back(axis == 0 ? glm::vec3(0.0f, c * h.y, s * h.z)
+                                       : axis == 1 ? glm::vec3(c * h.x, 0.0f, s * h.z)
+                                                   : glm::vec3(c * h.x, s * h.y, 0.0f));
+                    }
+                    addLoop(points);
+                }
+                break;
+
+            case Kind::Cylinder:
+                addLoop(ring(h.x, h.z, -h.y));
+                addLoop(ring(h.x, h.z, h.y));
+                for (int i = 0; i < 4; i++)
+                {
+                    const float a = glm::half_pi<float>() * (float)i;
+                    addLine({ std::cos(a) * h.x, -h.y, std::sin(a) * h.z }, { std::cos(a) * h.x, h.y, std::sin(a) * h.z });
+                }
+                break;
+
+            case Kind::Cone:
+                addLoop(ring(h.x, h.z, -h.y));
+                for (int i = 0; i < 4; i++)
+                {
+                    const float a = glm::half_pi<float>() * (float)i;
+                    addLine({ std::cos(a) * h.x, -h.y, std::sin(a) * h.z }, { 0.0f, h.y, 0.0f });
+                }
+                break;
+
+            case Kind::Pyramid:
+            {
+                const glm::vec3 corners[4] = { {-h.x, -h.y, -h.z}, {h.x, -h.y, -h.z}, {h.x, -h.y, h.z}, {-h.x, -h.y, h.z} };
+                addLoop({ corners[0], corners[1], corners[2], corners[3] });
+                for (const glm::vec3& c : corners)
+                    addLine(c, { 0.0f, h.y, 0.0f });
+                break;
+            }
+        }
+
+        std::vector<uint8_t> vertexBuffer;
+        vertexBuffer.resize(vertices.size() * sizeof(Vertex));
+        memcpy(vertexBuffer.data(), vertices.data(), vertexBuffer.size());
+
+        m_Mesh = Mesh::Create();
+        m_Mesh->Create(vertexBuffer, indices, {{
+            {"aPos",     ShaderDataType::Vec3, 0, offsetof(Vertex, position)},
+            {"aTexCoord",ShaderDataType::Vec2, 1, offsetof(Vertex, texCoord)},
+            {"aNormal",  ShaderDataType::Vec3, 2, offsetof(Vertex, normal)},
+            {"aColor",   ShaderDataType::Vec4, 3, offsetof(Vertex, color)},
+        }, sizeof(Vertex)});
+    }
+
+    void DebugMultiSphere::GenerateMultiSphere(const std::vector<glm::vec3>& centers, float radius, COL_RGBA color)
+    {
+        // Fewer segments than DebugSphere: hundreds of these end up in one merged mesh (one per GI probe).
+        int segments = 8;
+
+        std::vector<Vertex> vertices;
+        std::vector<uint32_t> indices;
+        vertices.reserve(centers.size() * segments * 3);
+        indices.reserve(centers.size() * segments * 6);
+
+        for (const glm::vec3& center : centers)
+        {
+            uint32_t base = (uint32_t)vertices.size();
+
+            for (int i = 0; i < segments; i++)
+            {
+                float angle = glm::two_pi<float>() * i / segments;
+                float c = cos(angle);
+                float s = sin(angle);
+
+                vertices.push_back({ center + glm::vec3(radius * c, radius * s, 0), glm::vec2(0), glm::vec3(0), color });
+                vertices.push_back({ center + glm::vec3(radius * c, 0, radius * s), glm::vec2(0), glm::vec3(0), color });
+                vertices.push_back({ center + glm::vec3(0, radius * c, radius * s), glm::vec2(0), glm::vec3(0), color });
+            }
+
+            for (int i = 0; i < segments; i++)
+            {
+                int next = (i + 1) % segments;
+
+                uint32_t xy0 = base + i * 3, xy1 = base + next * 3;
+                uint32_t xz0 = base + i * 3 + 1, xz1 = base + next * 3 + 1;
+                uint32_t yz0 = base + i * 3 + 2, yz1 = base + next * 3 + 2;
+
+                indices.push_back(xy0);
+                indices.push_back(xy1);
+
+                indices.push_back(xz0);
+                indices.push_back(xz1);
+
+                indices.push_back(yz0);
+                indices.push_back(yz1);
+            }
+        }
+
+        std::vector<uint8_t> vertexBuffer;
+        vertexBuffer.resize(vertices.size() * sizeof(Vertex));
+        if (!vertices.empty())
+            memcpy(vertexBuffer.data(), vertices.data(), vertexBuffer.size());
+
+        m_Mesh = Mesh::Create();
+        m_Mesh->Create(vertexBuffer, indices, {{
+            {"aPos",     ShaderDataType::Vec3, 0, offsetof(Vertex, position)},
+            {"aTexCoord",ShaderDataType::Vec2, 1, offsetof(Vertex, texCoord)},
+            {"aNormal",  ShaderDataType::Vec3, 2, offsetof(Vertex, normal)},
+            {"aColor",   ShaderDataType::Vec4, 3, offsetof(Vertex, color)},
+        }, sizeof(Vertex)});
+    }
+
+    DebugShape::~DebugShape()
+    {
+
+    }
+
+}

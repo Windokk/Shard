@@ -1,0 +1,100 @@
+#pragma once
+
+#include "engine/renderer/rhi/renderer_api.hpp"
+
+#include <glm/glm.hpp>
+#include <memory>
+#include <vector>
+
+#include "engine/renderer/rhi/backends/opengl/profiling/gl_gpu_profiler.hpp"
+
+namespace Shard::Engine::Rendering{
+
+    class Shader;
+
+    class GLRendererAPI : public RendererAPI{
+        
+        public :
+            void ExecuteDrawCommand(const DrawCommand& command, const std::shared_ptr<RenderPass> pass) override;
+
+            void ExecuteComputeDispatch(const std::shared_ptr<ComputePipeline> pipeline, uint32_t groupsX, uint32_t groupsY, uint32_t groupsZ) override;
+
+            void MemoryBarrier(MemoryBarrierBit barriers) override;
+
+            void DrawOverlay(const OverlayProxy& overlay, uint32_t width, uint32_t height) override;
+            void ReleaseOverlayGeometry(const uint32_t gpu[3]) override;
+
+            void PushDebugGroup(const char* name) override;
+            void PopDebugGroup() override;
+
+            const ComputeLimits& GetComputeLimits() override;
+
+            void ToggleMultisampling(const bool on) override;
+
+            void BindTextureUnit(uint32_t binding, uint32_t handle) override;
+
+            void SetViewport(uint32_t x, uint32_t y,
+                                        uint32_t width, uint32_t height) override;
+
+            void SetClearColor(float r, float g, float b, float a) override;
+
+            glm::vec4 GetClearColor() override;
+
+            void Clear(ClearBit clearBits) override;
+
+            void SetIndirectDrawBuffer(uint32_t bufferHandle) override;
+
+            GpuProfiler* GetGpuProfiler() override;
+            bool SupportsBlockCompression() override;
+            void SetDepthSweep(DepthSweep sweep) override;
+            bool IsDepthPrepassCandidate(const DrawCommand& command, const RenderPass& pass) override;
+            void InvalidateStateCache() override;
+            void SetDebugView(const DebugViewState& state) override;
+
+            std::string GetDeviceVendor() override;
+            std::string GetRendererName() override;
+            std::string GetDriverVersion() override;
+
+        private:
+
+            std::unique_ptr<GLGpuProfiler> m_GpuProfiler;
+            ComputeLimits m_ComputeLimits;
+            bool m_ComputeLimitsQueried = false;
+
+            // State of the previous draw. Chunked meshes issue many draws with the same pass, pipeline and material, so the slow string-keyed uniform uploads are skipped. Forgotten with the GL state cache.
+            struct LastDraw {
+                const RenderPass* pass = nullptr;
+                const Pipeline* pipeline = nullptr;
+                const Material* material = nullptr;
+                glm::mat4 modelMatrix = glm::mat4(1.0f);
+                uint32_t objectID = 0;
+                uint64_t lightmapHandle = 0;
+                glm::vec4 lightmapScaleOffset = glm::vec4(1.0f, 1.0f, 0.0f, 0.0f);
+            } m_LastDraw;
+
+            void BindLightmap(const DrawCommand& command, const std::shared_ptr<Shader>& shader);
+
+            void BindMesh(std::shared_ptr<Mesh> mesh);
+
+            void BindPipeline(std::shared_ptr<Pipeline> pipeline);
+
+            void BindMaterial(std::shared_ptr<Material> mat, std::shared_ptr<Shader> shader);
+
+            void BindPassData(const std::shared_ptr<RenderPass> pass, std::shared_ptr<Pipeline> pipeline);
+
+            void BindPassData(const std::shared_ptr<RenderPass> pass, std::shared_ptr<Material> material);
+
+            void DrawIndexed(const std::shared_ptr<Pipeline> pipeline, uint32_t indexCount, uint32_t indexOffset);
+
+            void DrawIndexedIndirect(const std::shared_ptr<Pipeline> pipeline, uint32_t slot);
+
+            uint32_t m_IndirectBuffer = 0;
+                
+            void DrawFullScreenTriangle();
+
+            void ExecuteDepthOnlyDraw(const DrawCommand& command);
+
+            DepthSweep m_Sweep = DepthSweep::None;
+            std::vector<std::shared_ptr<Shader>> m_PrepassShaders;
+    };
+}

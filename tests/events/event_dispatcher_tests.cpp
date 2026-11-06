@@ -1,6 +1,8 @@
 #include <gtest/gtest.h>
 
-#include "engine/events/event_system.hpp"
+#include <cstring>
+
+#include "engine/world/event_system.hpp"
 
 using namespace Shard::Engine::Events;
 using Shard::Engine::Core::ObjectID;
@@ -18,7 +20,7 @@ TEST(EventDispatcher, GlobalSubscriberReceivesEmittedEvent) {
     EXPECT_EQ(receivedKey, 42);
 }
 
-TEST(EventDispatcher, GlobalSubscriberIgnoresUnrelatedEventType) {
+TEST(EventDispatcher, GlobalIgnoresUnrelatedType) {
     EventDispatcher dispatcher;
     bool called = false;
 
@@ -26,12 +28,12 @@ TEST(EventDispatcher, GlobalSubscriberIgnoresUnrelatedEventType) {
         called = true;
     });
 
-    dispatcher.emitGlobal(LevelStructureChangedEvent(1, LevelChangeType::CREATED, "Actor", ObjectID(1)));
+    dispatcher.emitGlobal(WorldStructureChangedEvent(1, WorldChangeType::CREATED, "Actor", ObjectID(1)));
 
     EXPECT_FALSE(called);
 }
 
-TEST(EventDispatcher, MultipleGlobalSubscribersAllReceiveEvent) {
+TEST(EventDispatcher, AllGlobalSubscribersReceive) {
     EventDispatcher dispatcher;
     int callCount = 0;
 
@@ -43,27 +45,27 @@ TEST(EventDispatcher, MultipleGlobalSubscribersAllReceiveEvent) {
     EXPECT_EQ(callCount, 2);
 }
 
-TEST(EventDispatcher, LevelScopedEventOnlyReachesMatchingLevel) {
+TEST(EventDispatcher, WorldScopedMatchesOnly) {
     EventDispatcher dispatcher;
-    bool level1Called = false;
-    bool level2Called = false;
+    bool world1Called = false;
+    bool world2Called = false;
 
-    dispatcher.subscribeToLevel<KeyPressedEvent>(1, [&](const KeyPressedEvent&) { level1Called = true; });
-    dispatcher.subscribeToLevel<KeyPressedEvent>(2, [&](const KeyPressedEvent&) { level2Called = true; });
+    dispatcher.subscribeToWorld<KeyPressedEvent>(1, [&](const KeyPressedEvent&) { world1Called = true; });
+    dispatcher.subscribeToWorld<KeyPressedEvent>(2, [&](const KeyPressedEvent&) { world2Called = true; });
 
-    dispatcher.emitToLevel(1, KeyPressedEvent(1, false, ObjectID(1)));
+    dispatcher.emitToWorld(1, KeyPressedEvent(1, false, ObjectID(1)));
 
-    EXPECT_TRUE(level1Called);
-    EXPECT_FALSE(level2Called);
+    EXPECT_TRUE(world1Called);
+    EXPECT_FALSE(world2Called);
 }
 
-TEST(EventDispatcher, EmitToLevelWithNoSubscribersDoesNotThrow) {
+TEST(EventDispatcher, EmitToEmptyWorldNoThrow) {
     EventDispatcher dispatcher;
 
-    EXPECT_NO_THROW(dispatcher.emitToLevel(99, KeyPressedEvent(1, false, ObjectID(1))));
+    EXPECT_NO_THROW(dispatcher.emitToWorld(99, KeyPressedEvent(1, false, ObjectID(1))));
 }
 
-TEST(EventDispatcher, ActorScopedEventOnlyReachesMatchingActor) {
+TEST(EventDispatcher, ActorScopedMatchesOnly) {
     EventDispatcher dispatcher;
     ObjectID actorA(1);
     ObjectID actorB(2);
@@ -79,7 +81,7 @@ TEST(EventDispatcher, ActorScopedEventOnlyReachesMatchingActor) {
     EXPECT_FALSE(bCalled);
 }
 
-TEST(EventDispatcher, ComponentScopedEventOnlyReachesMatchingComponent) {
+TEST(EventDispatcher, ComponentScopedMatchesOnly) {
     EventDispatcher dispatcher;
     bool called = false;
 
@@ -90,4 +92,33 @@ TEST(EventDispatcher, ComponentScopedEventOnlyReachesMatchingComponent) {
 
     dispatcher.emitToComponent(7, KeyPressedEvent(1, false, ObjectID(1)));
     EXPECT_TRUE(called);
+}
+
+TEST(EventDispatcher, EventLayoutOwnedByDescriber) {
+    EventDispatcher dispatcher;
+    NamedEventLayout layout;
+    layout.size = 8;
+    layout.fields = { { "hits", NamedEventLayout::FieldType::I32, 0 }, { "alive", NamedEventLayout::FieldType::Bool, 4 } };
+    EXPECT_TRUE(dispatcher.describeNamed("game.Hit", layout, 7));
+    EXPECT_TRUE(dispatcher.describeNamed("game.Hit", layout, 7));
+    EXPECT_FALSE(dispatcher.describeNamed("game.Hit", layout, 8));
+    ASSERT_NE(dispatcher.namedLayout("game.Hit"), nullptr);
+    EXPECT_EQ(dispatcher.describedNames(), std::vector<std::string>{ "game.Hit" });
+
+    dispatcher.UnsubscribeOwner(7);
+    EXPECT_EQ(dispatcher.namedLayout("game.Hit"), nullptr);
+}
+
+TEST(EventDispatcher, NamedEventFormattedFromLayout) {
+    NamedEventLayout layout;
+    layout.size = 20;
+    layout.fields = { { "hits", NamedEventLayout::FieldType::I32, 0 }, { "where", NamedEventLayout::FieldType::Vec3, 4 }, { "alive", NamedEventLayout::FieldType::Bool, 16 } };
+    unsigned char payload[20] = {};
+    const int32_t hits = 3;
+    const float where[3] = { 1.f, 2.5f, -1.f };
+    std::memcpy(payload, &hits, 4);
+    std::memcpy(payload + 4, where, 12);
+    payload[16] = 1;
+    EXPECT_EQ(FormatNamedEvent(layout, payload, sizeof(payload)), "{ hits: 3, where: (1, 2.5, -1), alive: true }");
+    EXPECT_EQ(FormatNamedEvent(layout, payload, 6), "(6 bytes)");
 }

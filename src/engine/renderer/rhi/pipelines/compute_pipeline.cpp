@@ -1,0 +1,56 @@
+#include "compute_pipeline.hpp"
+
+#include "engine/world/engine.hpp"
+
+#include "engine/renderer/rhi/backends/opengl/pipeline/gl_compute_pipeline.hpp"
+#include "engine/renderer/rhi/backends/null/null_rhi.hpp"
+#include "engine/renderer/rhi/backends/vulkan/vk_pipeline.hpp"
+
+#include "engine/renderer/rhi/renderer_api.hpp"
+#include "engine/renderer/rhi/pipelines/pipeline.hpp"
+
+#include "engine/renderer/rhi/shader/compute_shader.hpp"
+
+namespace Shard::Engine::Rendering
+{
+    std::shared_ptr<ComputePipeline> ComputePipeline::Create(const ComputePipelineSpecifications &specs)
+    {
+        switch(RendererAPI::Current()->GetAPI())
+        {
+            case RendererAPI::API::OpenGL:
+                return std::make_shared<GLComputePipeline>(specs);
+
+            case RendererAPI::API::Vulkan:
+                return std::make_shared<VKComputePipeline>(specs);
+
+            case RendererAPI::API::Null:
+                return std::make_shared<Null::NullComputePipeline>(specs);
+
+            /*case RendererAPI::API::Vulkan:
+                return std::make_shared<VKFramebuffer>(spec);
+
+            case RendererAPI::API::DX11:
+                return std::make_shared<DX11Framebuffer>(spec);
+
+            case RendererAPI::API::DX12:
+                return std::make_shared<DX12Framebuffer>(spec);*/
+
+            default:
+                return nullptr;
+        }
+    }
+
+    std::size_t ComputePipelineSpecsHash::operator()(const ComputePipelineSpecifications &s) const
+    {
+        std::size_t hash = 0;
+
+        HashCombine(hash, std::hash<const ComputeShader*>()(s.shader.get()));
+
+        return hash;
+    }
+    
+    bool ComputePipelineSpecifications::operator==(const ComputePipelineSpecifications &other) const
+    {
+        return shader == other.shader;
+    }
+}

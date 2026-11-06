@@ -1,0 +1,41 @@
+#pragma once
+
+#include "engine/world/actor.hpp"
+#include "apps/editor/commands/actor_commands.hpp"
+
+namespace Shard::Editor::Core{
+
+    class EditorMainWindow;
+}
+
+namespace Shard::Editor::GUI{
+
+    class MenuBar
+    {
+        public:
+            void Draw();
+
+            void SetParentWindow(Core::EditorMainWindow* parent);
+
+        private:
+            void DrawFileMenu();
+            void DrawEditMenu();
+            void DrawSelectMenu();
+            void DrawToolsMenu();
+            void DrawWindowMenu();
+            void DrawHelpMenu();
+
+            void DrawSaveAsPopup();
+            void DrawAboutPopup();
+
+            void CreateNewWorld();
+            void SaveCurrentWorld();
+
+            Core::EditorMainWindow* parent = nullptr;
+
+            bool openSaveAsPopup = false;
+            char saveAsNameBuffer[256] = "NewWorld";
+
+            bool openAboutPopup = false;
+    };
+}

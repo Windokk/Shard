@@ -1,0 +1,142 @@
+#include "glsl_preprocessor.hpp"
+
+#include "engine/core/diagnostics/logger.hpp"
+
+#include <sstream>
+#include <unordered_set>
+#include <vector>
+
+namespace Shard::Engine::Rendering {
+
+    namespace {
+
+        struct IncludeContext
+        {
+            std::unordered_set<std::string> included;
+            std::vector<std::string> stack;
+        };
+
+        std::string StripCarriageReturn(std::string line)
+        {
+            if (!line.empty() && line.back() == '\r')
+                line.pop_back();
+            return line;
+        }
+
+        bool ParseIncludeDirective(const std::string& line, std::string& outPath)
+        {
+            size_t i = 0;
+            while (i < line.size() && (line[i] == ' ' || line[i] == '\t'))
+                i++;
+
+            static const std::string kDirective = "#include";
+            if (line.compare(i, kDirective.size(), kDirective) != 0)
+                return false;
+
+            i += kDirective.size();
+            while (i < line.size() && (line[i] == ' ' || line[i] == '\t'))
+                i++;
+
+            if (i >= line.size() || line[i] != '"')
+                return false;
+            i++;
+
+            size_t start = i;
+            while (i < line.size() && line[i] != '"')
+                i++;
+
+            if (i >= line.size())
+                return false;
+
+            outPath = line.substr(start, i - start);
+            return true;
+        }
+
+        std::string ResolveRecursive(const Filesystem::Path& path, IncludeContext& ctx, bool emitMarkers)
+        {
+            std::string normalized = path.GetAbsolutePath();
+
+            for (const std::string& active : ctx.stack)
+            {
+                if (active == normalized)
+                {
+                    DEBUG_ERROR("GLSL include cycle detected at : " + path.full);
+                    return "";
+                }
+            }
+
+            if (ctx.included.count(normalized) != 0)
+                return "";
+
+            ctx.included.insert(normalized);
+            ctx.stack.push_back(normalized);
+
+            std::string source = path.ReadFile();
+            Filesystem::Path dir = path.GetParentPath();
+
+            std::ostringstream out;
+            if (emitMarkers)
+                out << "// ---- begin include: " << path.full << " ----\n";
+
+            std::istringstream in(source);
+            std::string line;
+            int lineNumber = 0;
+
+            while (std::getline(in, line))
+            {
+                lineNumber++;
+                line = StripCarriageReturn(line);
+
+                std::string includePath;
+                if (ParseIncludeDirective(line, includePath))
+                {
+                    Filesystem::Path resolved = dir / includePath;
+                    out << ResolveRecursive(resolved, ctx, true);
+                    // Core GLSL #line takes only a number, no filename. Keeps driver error line numbers roughly right.
+                    out << "#line " << (lineNumber + 1) << "\n";
+                }
+                else
+                {
+                    out << line << "\n";
+                }
+            }
+
+            if (emitMarkers)
+                out << "// ---- end include: " << path.full << " ----\n";
+
+            ctx.stack.pop_back();
+            return out.str();
+        }
+
+    }
+
+    std::string InjectGLSLDefines(const std::string& source, const std::vector<std::string>& defines)
+    {
+        if (defines.empty())
+            return source;
+
+        std::string block;
+        for (const std::string& define : defines)
+        {
+            const size_t equals = define.find('=');
+            block += "#define " + (equals == std::string::npos ? define : define.substr(0, equals) + " " + define.substr(equals + 1)) + "\n";
+        }
+
+        size_t at = source.find("#version");
+        if (at == std::string::npos)
+            return block + source;
+
+        size_t lineEnd = source.find('\n', at);
+        if (lineEnd == std::string::npos)
+            return source + "\n" + block;
+
+        return source.substr(0, lineEnd + 1) + block + source.substr(lineEnd + 1);
+    }
+
+    std::string ResolveGLSLIncludes(const Filesystem::Path& path)
+    {
+        IncludeContext ctx;
+        return ResolveRecursive(path, ctx, false);
+    }
+
+}

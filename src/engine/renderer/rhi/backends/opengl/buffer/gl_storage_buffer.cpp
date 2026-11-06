@@ -1,0 +1,60 @@
+#include "gl_storage_buffer.hpp"
+#include "engine/renderer/rhi/render_thread.hpp"
+#include "engine/renderer/rhi/gpu_memory.hpp"
+
+#include "engine/renderer/rhi/backends/opengl/gl_utils.hpp"
+
+namespace Shard::Engine::Rendering{
+
+    GLStorageBuffer::GLStorageBuffer(uint32_t size) : m_Size(size)
+    {
+        glGenBuffers(1, &m_Buffer);
+        glBindBuffer(GL_SHADER_STORAGE_BUFFER, m_Buffer);
+        glBufferData(GL_SHADER_STORAGE_BUFFER, size, nullptr, GL_DYNAMIC_DRAW);
+        GpuMemory::Add(GpuMemory::Kind::Buffer, int64_t(size));
+    }
+
+    GLStorageBuffer::~GLStorageBuffer()
+    {
+        GpuMemory::Add(GpuMemory::Kind::Buffer, -int64_t(m_Size));
+        const GLuint buffer = m_Buffer;
+        RenderThread::Get().Post([buffer] { glDeleteBuffers(1, &buffer); });
+    }
+
+    void GLStorageBuffer::SetData(const void *data, uint32_t size)
+    {
+        SHARD_ASSERT_GRAPHICS_THREAD();
+        glBindBuffer(GL_SHADER_STORAGE_BUFFER, m_Buffer);
+
+        if (size == m_Size)
+        {
+            glBufferSubData(GL_SHADER_STORAGE_BUFFER, 0, size, data);
+        }
+        else
+        {
+            glBufferData(GL_SHADER_STORAGE_BUFFER, size, data, GL_DYNAMIC_DRAW);
+            GpuMemory::Add(GpuMemory::Kind::Buffer, int64_t(size) - int64_t(m_Size));
+            m_Size = size;
+        }
+    }
+
+    void GLStorageBuffer::GetData(void* outData, uint32_t size, uint32_t offset) const
+    {
+        SHARD_ASSERT_GRAPHICS_THREAD();
+        if ((uint64_t)offset + (uint64_t)size > (uint64_t)m_Size)
+        {
+            DEBUG_ERROR("GetData range [" + std::to_string(offset) + ", " + std::to_string(offset + size) + ") exceeds storage buffer size (" + std::to_string(m_Size) + ") - buffer was not read back.");
+            return;
+        }
+
+        glBindBuffer(GL_SHADER_STORAGE_BUFFER, m_Buffer);
+        glGetBufferSubData(GL_SHADER_STORAGE_BUFFER, offset, size, outData);
+    }
+
+    void GLStorageBuffer::Bind(uint32_t binding)
+    {
+        SHARD_ASSERT_GRAPHICS_THREAD();
+        glBindBufferBase(GL_SHADER_STORAGE_BUFFER, binding, m_Buffer);
+    }
+
+}

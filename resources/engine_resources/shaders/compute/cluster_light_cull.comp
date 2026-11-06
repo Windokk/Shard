@@ -1,0 +1,64 @@
+#version 430 core
+
+layout(local_size_x = 64) in;
+
+#include "../common/light.glsl"
+#include "../common/cluster.glsl"
+
+struct ClusterAABB { vec4 minPoint; vec4 maxPoint; };
+
+layout(std430, binding = 0) readonly buffer LightBuffer { Light lights[]; };
+layout(std430, binding = 1) readonly buffer ClusterAABBs { ClusterAABB clusters[]; };
+layout(std430, binding = 2) writeonly buffer LightGrid { uvec2 lightGrid[]; };
+layout(std430, binding = 3) writeonly buffer LightIndexList { uint lightIndices[]; };
+layout(std430, binding = 5) buffer GlobalIndexCounter { uint globalIndexCount; };
+
+uniform mat4 view;
+uniform int lightCount;
+uniform int gridSizeX;
+uniform int gridSizeY;
+
+bool SphereIntersectsAABB(vec3 center, float radius, vec3 aabbMin, vec3 aabbMax)
+{
+    vec3 closest = clamp(center, aabbMin, aabbMax);
+    vec3 d = center - closest;
+    return dot(d, d) <= radius * radius;
+}
+
+void main()
+{
+    uint index = gl_GlobalInvocationID.x;
+    uint totalClusters = uint(gridSizeX) * uint(gridSizeY) * uint(CLUSTER_Z_SLICES);
+    if (index >= totalClusters)
+        return;
+
+    vec3 aabbMin = clusters[index].minPoint.xyz;
+    vec3 aabbMax = clusters[index].maxPoint.xyz;
+
+    uint matched[MAX_LIGHTS_PER_CLUSTER];
+    uint matchCount = 0u;
+
+    for (int i = 0; i < lightCount && matchCount < uint(MAX_LIGHTS_PER_CLUSTER); ++i)
+    {
+        Light l = lights[i];
+        if (l.type == 0)
+            continue;
+
+        vec3 viewSpacePos = (view * vec4(l.position.xyz, 1.0)).xyz;
+
+        if (SphereIntersectsAABB(viewSpacePos, l.radius, aabbMin, aabbMax))
+        {
+            matched[matchCount] = uint(i);
+            ++matchCount;
+        }
+    }
+
+    uint offset = 0u;
+    if (matchCount > 0u)
+        offset = atomicAdd(globalIndexCount, matchCount);
+
+    lightGrid[index] = uvec2(offset, matchCount);
+
+    for (uint k = 0u; k < matchCount; ++k)
+        lightIndices[offset + k] = matched[k];
+}

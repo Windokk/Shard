@@ -1,0 +1,699 @@
+#include "gl_framebuffer.hpp"
+#include "engine/renderer/rhi/render_thread.hpp"
+#include "engine/renderer/rhi/gpu_memory.hpp"
+
+#include "engine/renderer/rhi/shader/shader.hpp"
+#include "engine/renderer/rhi/backends/opengl/gl_utils.hpp"
+
+#include "engine/core/diagnostics/logger.hpp"
+
+#include "engine/renderer/rhi/backends/opengl/texture/gl_texture.hpp"
+
+namespace Shard::Engine::Rendering{
+    
+    void GLFramebuffer::CheckFBStatus(){
+
+        GLenum status = glCheckFramebufferStatus(GL_FRAMEBUFFER);
+        if (status != GL_FRAMEBUFFER_COMPLETE && (m_Specifications.hasColor || m_Specifications.hasDepth)) {
+            std::string errorString;
+
+            switch (status) {
+                case GL_FRAMEBUFFER_UNDEFINED:
+                    errorString = "GL_FRAMEBUFFER_UNDEFINED";
+                    break;
+                case GL_FRAMEBUFFER_INCOMPLETE_ATTACHMENT:
+                    errorString = "GL_FRAMEBUFFER_INCOMPLETE_ATTACHMENT";
+                    break;
+                case GL_FRAMEBUFFER_INCOMPLETE_MISSING_ATTACHMENT:
+                    errorString = "GL_FRAMEBUFFER_INCOMPLETE_MISSING_ATTACHMENT";
+                    break;
+                case GL_FRAMEBUFFER_INCOMPLETE_DRAW_BUFFER:
+                    errorString = "GL_FRAMEBUFFER_INCOMPLETE_DRAW_BUFFER";
+                    break;
+                case GL_FRAMEBUFFER_INCOMPLETE_READ_BUFFER:
+                    errorString = "GL_FRAMEBUFFER_INCOMPLETE_READ_BUFFER";
+                    break;
+                case GL_FRAMEBUFFER_UNSUPPORTED:
+                    errorString = "GL_FRAMEBUFFER_UNSUPPORTED";
+                    break;
+                case GL_FRAMEBUFFER_INCOMPLETE_MULTISAMPLE:
+                    errorString = "GL_FRAMEBUFFER_INCOMPLETE_MULTISAMPLE";
+                    break;
+                case GL_FRAMEBUFFER_INCOMPLETE_LAYER_TARGETS:
+                    errorString = "GL_FRAMEBUFFER_INCOMPLETE_LAYER_TARGETS";
+                    break;
+                default:
+                    errorString = "Unknown error (code: " + std::to_string(status) + ")";
+                    break;
+            }
+
+            DEBUG_ERROR("Framebuffer error (", m_FBO,") : " ,errorString);
+        }
+    }
+
+    void GLFramebuffer::CreateColorAttachment(uint32_t width, uint32_t height)
+    {
+        GLTextureSpec colorSpecs = GLTextureSpec::FromTextureSpecifications(m_Specifications.colorSpecs);
+
+        glGenTextures(1, &m_ColorAttachment);
+        glBindTexture(GL_TEXTURE_2D, m_ColorAttachment);
+        glTexImage2D(GL_TEXTURE_2D, 0, colorSpecs.internalFormat, width, height, 0, colorSpecs.format, colorSpecs.type, nullptr);
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, colorSpecs.minFilter);
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, colorSpecs.magFilter);
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, colorSpecs.wrapModeS);
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, colorSpecs.wrapModeT);
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_COMPARE_MODE, m_Specifications.colorSpecs.compareMode == TextureCompareMode::CompareRefToTexture ? GL_COMPARE_REF_TO_TEXTURE : GL_NONE);
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_COMPARE_FUNC, colorSpecs.compareFunc);
+        if(m_Specifications.colorSpecs.borderColor != COL_RGBA(-1.0f)){
+            float borderColor[] = {m_Specifications.colorSpecs.borderColor.r(), m_Specifications.colorSpecs.borderColor.g(), m_Specifications.colorSpecs.borderColor.b(), m_Specifications.colorSpecs.borderColor.a()};
+            glTexParameterfv(GL_TEXTURE_2D, GL_TEXTURE_BORDER_COLOR, borderColor);
+        }
+        glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D, m_ColorAttachment, 0);
+    }
+
+    void GLFramebuffer::CreateExtraColorAttachments(uint32_t width, uint32_t height)
+    {
+        const auto& extras = m_Specifications.extraColorSpecs;
+
+        if (m_ExtraColorAttachments.size() != extras.size())
+        {
+            for (uint32_t texture : m_ExtraColorAttachments)
+                glDeleteTextures(1, &texture);
+            m_ExtraColorAttachments.assign(extras.size(), 0);
+        }
+
+        for (size_t i = 0; i < extras.size(); i++)
+        {
+            GLTextureSpec specs = GLTextureSpec::FromTextureSpecifications(extras[i]);
+
+            if (m_ExtraColorAttachments[i] == 0)
+                glGenTextures(1, &m_ExtraColorAttachments[i]);
+
+            if (m_Specifications.multisampled)
+            {
+                glBindTexture(GL_TEXTURE_2D_MULTISAMPLE, m_ExtraColorAttachments[i]);
+                glTexImage2DMultisample(GL_TEXTURE_2D_MULTISAMPLE, m_Specifications.samplesCount, specs.internalFormat, width, height, GL_TRUE);
+                glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT1 + static_cast<GLenum>(i), GL_TEXTURE_2D_MULTISAMPLE, m_ExtraColorAttachments[i], 0);
+                continue;
+            }
+
+            glBindTexture(GL_TEXTURE_2D, m_ExtraColorAttachments[i]);
+            glTexImage2D(GL_TEXTURE_2D, 0, specs.internalFormat, width, height, 0, specs.format, specs.type, nullptr);
+            glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, specs.minFilter);
+            glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, specs.magFilter);
+            glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, specs.wrapModeS);
+            glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, specs.wrapModeT);
+            glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT1 + static_cast<GLenum>(i), GL_TEXTURE_2D, m_ExtraColorAttachments[i], 0);
+        }
+    }
+
+    void GLFramebuffer::ApplyDrawBuffers(bool withExtras)
+    {
+        if (m_Specifications.hasColor)
+        {
+            std::vector<GLenum> drawBuffers = { GL_COLOR_ATTACHMENT0 };
+            if (withExtras)
+            {
+                for (size_t i = 0; i < m_ExtraColorAttachments.size(); i++)
+                    drawBuffers.push_back(GL_COLOR_ATTACHMENT1 + static_cast<GLenum>(i));
+            }
+            glDrawBuffers(static_cast<GLsizei>(drawBuffers.size()), drawBuffers.data());
+        }
+        else
+        {
+            glDrawBuffer(GL_NONE);
+            glReadBuffer(GL_NONE);
+        }
+    }
+
+    GLFramebuffer::GLFramebuffer(const FramebufferSpecifications &spec)
+    {
+        m_Specifications = spec;
+        
+        glGenFramebuffers(1, &m_FBO);
+        glBindFramebuffer(GL_FRAMEBUFFER, m_FBO);
+
+        if (spec.multisampled) {
+            
+            if(spec.hasColor)
+            {
+                glGenTextures(1, &m_ColorAttachment);
+                glBindTexture(GL_TEXTURE_2D_MULTISAMPLE, m_ColorAttachment);
+                glTexImage2DMultisample(GL_TEXTURE_2D_MULTISAMPLE, spec.samplesCount, GLTextureSpec::FromTextureSpecifications(spec.colorSpecs).internalFormat, spec.width, spec.height, GL_TRUE);
+                glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D_MULTISAMPLE, m_ColorAttachment, 0);
+            }
+            if(spec.hasDepth)
+            {
+                glGenTextures(1, &m_DepthAttachment);
+                glBindTexture(GL_TEXTURE_2D_MULTISAMPLE, m_DepthAttachment);
+                glTexImage2DMultisample(GL_TEXTURE_2D_MULTISAMPLE, spec.samplesCount, GL_DEPTH_COMPONENT24, spec.width, spec.height, GL_TRUE);
+                glFramebufferTexture2D(GL_FRAMEBUFFER, GL_DEPTH_ATTACHMENT, GL_TEXTURE_2D_MULTISAMPLE, m_DepthAttachment, 0);
+            }
+
+            if (spec.hasColor && !spec.extraColorSpecs.empty())
+            {
+                CreateExtraColorAttachments(spec.width, spec.height);
+                ApplyDrawBuffers();
+                CheckFBStatus();
+            }
+
+            glBindFramebuffer(GL_FRAMEBUFFER, 0);
+
+            glGenFramebuffers(1, &m_ResolveFBO);
+            glBindFramebuffer(GL_FRAMEBUFFER, m_ResolveFBO);
+
+            if(spec.hasColor)
+            {
+                glGenTextures(1, &m_ResolveColorAttachment);
+                glBindTexture(GL_TEXTURE_2D, m_ResolveColorAttachment);
+                GLTextureSpec colorSpecs = GLTextureSpec::FromTextureSpecifications(m_Specifications.colorSpecs);
+                glTexImage2D(GL_TEXTURE_2D, 0, colorSpecs.internalFormat, spec.width, spec.height, 0, colorSpecs.format, colorSpecs.type, nullptr);
+                glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, colorSpecs.minFilter);
+                glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, colorSpecs.magFilter);
+                glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, colorSpecs.wrapModeS);
+                glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, colorSpecs.wrapModeT);
+                glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_COMPARE_MODE, spec.colorSpecs.compareMode == TextureCompareMode::CompareRefToTexture ? GL_COMPARE_REF_TO_TEXTURE : GL_NONE);
+                glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_COMPARE_FUNC, colorSpecs.compareFunc);
+                if(m_Specifications.colorSpecs.borderColor != COL_RGBA(-1.0f)){
+                    float borderColor[] = {m_Specifications.colorSpecs.borderColor.r(), m_Specifications.colorSpecs.borderColor.g(), m_Specifications.colorSpecs.borderColor.b(), m_Specifications.colorSpecs.borderColor.a()};
+                    glTexParameterfv(GL_TEXTURE_2D, GL_TEXTURE_BORDER_COLOR, borderColor);
+                }
+                glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D, m_ResolveColorAttachment, 0);
+            }
+            if(spec.hasDepth)
+            {
+                glGenTextures(1, &m_ResolveDepthAttachment);
+                glBindTexture(GL_TEXTURE_2D, m_ResolveDepthAttachment);
+                GLTextureSpec depthSpecs = GLTextureSpec::FromTextureSpecifications(m_Specifications.depthSpecs);
+                glTexImage2D(GL_TEXTURE_2D, 0, depthSpecs.internalFormat, spec.width, spec.height, 0, depthSpecs.format, depthSpecs.type, nullptr);
+                glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, depthSpecs.minFilter);
+                glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, depthSpecs.magFilter);
+                glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, depthSpecs.wrapModeS);
+                glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, depthSpecs.wrapModeT);
+                glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_COMPARE_MODE, spec.depthSpecs.compareMode == TextureCompareMode::CompareRefToTexture ? GL_COMPARE_REF_TO_TEXTURE : GL_NONE);
+                glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_COMPARE_FUNC, depthSpecs.compareFunc);
+                if(m_Specifications.depthSpecs.borderColor != COL_RGBA(-1.0f)){
+                    float borderColor[] = {m_Specifications.depthSpecs.borderColor.r(), m_Specifications.depthSpecs.borderColor.g(), m_Specifications.depthSpecs.borderColor.b(), m_Specifications.depthSpecs.borderColor.a()};
+                    glTexParameterfv(GL_TEXTURE_2D, GL_TEXTURE_BORDER_COLOR, borderColor);
+                }
+                glFramebufferTexture2D(GL_FRAMEBUFFER, GL_DEPTH_ATTACHMENT, GL_TEXTURE_2D, m_ResolveDepthAttachment, 0);
+            }
+        }
+        else {
+            if (spec.hasColor)
+            {
+                CreateColorAttachment(spec.width, spec.height);
+            }
+            if(spec.hasDepth)
+            {
+                glGenTextures(1, &m_DepthAttachment);
+                glBindTexture(GL_TEXTURE_2D, m_DepthAttachment);
+                GLTextureSpec depthSpecs = GLTextureSpec::FromTextureSpecifications(m_Specifications.depthSpecs);
+                glTexImage2D(GL_TEXTURE_2D, 0, depthSpecs.internalFormat, spec.width, spec.height, 0, depthSpecs.format, depthSpecs.type, nullptr);
+                glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, depthSpecs.minFilter);
+                glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, depthSpecs.magFilter);
+                glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, depthSpecs.wrapModeS);
+                glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, depthSpecs.wrapModeT);
+                glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_COMPARE_MODE, spec.depthSpecs.compareMode == TextureCompareMode::CompareRefToTexture ? GL_COMPARE_REF_TO_TEXTURE : GL_NONE);
+                glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_COMPARE_FUNC, depthSpecs.compareFunc);
+                if(m_Specifications.depthSpecs.borderColor != COL_RGBA(-1.0f)){
+                    float borderColor[] = {m_Specifications.depthSpecs.borderColor.r(), m_Specifications.depthSpecs.borderColor.g(), m_Specifications.depthSpecs.borderColor.b(), m_Specifications.depthSpecs.borderColor.a()};
+                    glTexParameterfv(GL_TEXTURE_2D, GL_TEXTURE_BORDER_COLOR, borderColor);
+                }
+                glFramebufferTexture2D(GL_FRAMEBUFFER, GL_DEPTH_ATTACHMENT, GL_TEXTURE_2D, m_DepthAttachment, 0);
+            }
+        }
+
+        if (!spec.multisampled && spec.hasColor)
+            CreateExtraColorAttachments(spec.width, spec.height);
+
+        ApplyDrawBuffers(!spec.multisampled);
+
+        CheckFBStatus();
+
+        glBindFramebuffer(GL_FRAMEBUFFER, 0);
+        if (spec.multisampled)
+            glBindTexture(GL_TEXTURE_2D_MULTISAMPLE, 0);
+        
+        glBindTexture(GL_TEXTURE_2D, 0);
+
+        UpdateGpuAccounting();
+    }
+
+    void GLFramebuffer::UpdateGpuAccounting(bool destroyed)
+    {
+        auto bytesPerTexel = [](TextureInternalFormat format) -> int64_t {
+            switch (format)
+            {
+                case TextureInternalFormat::RED: return 1;
+                case TextureInternalFormat::RG:
+                case TextureInternalFormat::R16F: return 2;
+                case TextureInternalFormat::RGB16F:
+                case TextureInternalFormat::RGBA16F:
+                case TextureInternalFormat::RG16F: return 8;
+                case TextureInternalFormat::RGB32F:
+                case TextureInternalFormat::RGBA32F:
+                case TextureInternalFormat::RGB32I:
+                case TextureInternalFormat::RGBA32I: return 16;
+                default: return 4;
+            }
+        };
+
+        int64_t bytes = 0;
+        if (!destroyed)
+        {
+            const int64_t pixels = int64_t(m_Specifications.width) * int64_t(m_Specifications.height);
+            const int64_t samples = m_Specifications.multisampled ? m_Specifications.samplesCount : 1;
+            const int64_t colorBytes = bytesPerTexel(m_Specifications.colorSpecs.internalFormat);
+            if (m_Specifications.hasColor)
+                bytes += pixels * (m_Specifications.multisampled ? colorBytes * samples + colorBytes : colorBytes);
+            if (m_Specifications.hasDepth)
+                bytes += pixels * 4 * (m_Specifications.multisampled ? samples + 1 : 1);
+        }
+        GpuMemory::Add(GpuMemory::Kind::RenderTarget, bytes - m_GpuBytes);
+        m_GpuBytes = bytes;
+    }
+
+    void GLFramebuffer::Destroy()
+    {
+        SHARD_ASSERT_GRAPHICS_THREAD();
+        UpdateGpuAccounting(true);
+        m_Destroyed = true;
+        if (m_FBO)
+            glDeleteFramebuffers(1, &m_FBO);
+        if(m_Specifications.hasColor)
+        {
+            // GL recycles texture IDs, so drop the cached bindless handle of the deleted one.
+            GLTexture2D::ReleaseBindlessHandle(m_ColorAttachment);
+            glDeleteTextures(1, &m_ColorAttachment);
+        }
+        if(m_Specifications.hasDepth)
+            glDeleteTextures(1, &m_DepthAttachment);
+        for (uint32_t texture : m_ExtraColorAttachments)
+            glDeleteTextures(1, &texture);
+        m_ExtraColorAttachments.clear();
+        if (m_ResolveFBO) 
+            glDeleteFramebuffers(1, &m_ResolveFBO);
+        if (m_ResolveDepthAttachment) 
+            glDeleteTextures(1, &m_ResolveDepthAttachment);
+        if (m_ResolveColorAttachment) 
+            glDeleteTextures(1, &m_ResolveColorAttachment);
+    }
+
+    void GLFramebuffer::Bind()
+    {
+        SHARD_ASSERT_GRAPHICS_THREAD();
+        glBindFramebuffer(GL_FRAMEBUFFER, m_FBO);
+    }
+
+    void GLFramebuffer::Unbind()
+    {
+        SHARD_ASSERT_GRAPHICS_THREAD();
+        glBindFramebuffer(GL_FRAMEBUFFER, 0);
+    }
+
+    void GLFramebuffer::CopyFrom(std::shared_ptr<Framebuffer> src)
+    {
+        SHARD_ASSERT_GRAPHICS_THREAD();
+        auto srcSpecs = src->GetSpecifications();
+
+        glBindFramebuffer(GL_READ_FRAMEBUFFER, src->GetHandle());
+        glBindFramebuffer(GL_DRAW_FRAMEBUFFER, m_FBO);
+
+        GLbitfield bitMask = 0;
+
+        if(srcSpecs.hasColor && m_Specifications.hasColor){
+            bitMask |= GL_COLOR_BUFFER_BIT;
+        }
+        if(srcSpecs.hasDepth && m_Specifications.hasDepth){
+            bitMask |= GL_DEPTH_BUFFER_BIT;
+        }
+
+        if(bitMask == 0){
+            return;
+        }
+
+        GLenum filter = GL_NEAREST;
+
+        if(bitMask == GL_COLOR_BUFFER_BIT)
+            filter = GL_LINEAR;
+
+        glBlitFramebuffer(
+            0, 0, srcSpecs.width, srcSpecs.height,
+            0, 0, m_Specifications.width, m_Specifications.height,
+            bitMask,
+            filter
+        );
+    }
+
+    void GLFramebuffer::CopyDepthFrom(std::shared_ptr<Framebuffer> src)
+    {
+        SHARD_ASSERT_GRAPHICS_THREAD();
+        const FramebufferSpecifications& srcSpecs = src->GetSpecifications();
+        if (!srcSpecs.hasDepth || !m_Specifications.hasDepth)
+            return;
+
+        glBindFramebuffer(GL_READ_FRAMEBUFFER, src->GetHandle());
+        glBindFramebuffer(GL_DRAW_FRAMEBUFFER, m_FBO);
+
+        glBlitFramebuffer(
+            0, 0, srcSpecs.width, srcSpecs.height,
+            0, 0, m_Specifications.width, m_Specifications.height,
+            GL_DEPTH_BUFFER_BIT,
+            GL_NEAREST
+        );
+
+        glBindFramebuffer(GL_FRAMEBUFFER, 0);
+    }
+
+    void GLFramebuffer::BlitToScreen(uint32_t screenWidth, uint32_t screenHeight)
+    {
+        SHARD_ASSERT_GRAPHICS_THREAD();
+        uint32_t readFBO = m_Specifications.multisampled ? m_ResolveFBO : m_FBO;
+
+        glBindFramebuffer(GL_READ_FRAMEBUFFER, readFBO);
+        glBindFramebuffer(GL_DRAW_FRAMEBUFFER, 0);
+
+        glBlitFramebuffer(
+            0, 0, m_Specifications.width, m_Specifications.height,
+            0, 0, screenWidth, screenHeight,
+            GL_COLOR_BUFFER_BIT,
+            GL_LINEAR
+        );
+
+        glBindFramebuffer(GL_FRAMEBUFFER, 0);
+    }
+
+    bool GLFramebuffer::ReadPixelsRGBA8(std::vector<uint8_t>& outPixels)
+    {
+        SHARD_ASSERT_GRAPHICS_THREAD();
+        if (!m_Specifications.hasColor)
+            return false;
+
+        const uint32_t width = m_Specifications.width;
+        const uint32_t height = m_Specifications.height;
+        const size_t rowBytes = size_t(width) * 4;
+
+        uint32_t readFBO = m_Specifications.multisampled ? m_ResolveFBO : m_FBO;
+
+        std::vector<uint8_t> bottomUp(rowBytes * height);
+
+        glBindFramebuffer(GL_READ_FRAMEBUFFER, readFBO);
+        glReadBuffer(GL_COLOR_ATTACHMENT0);
+        glPixelStorei(GL_PACK_ALIGNMENT, 1);
+        glReadPixels(0, 0, width, height, GL_RGBA, GL_UNSIGNED_BYTE, bottomUp.data());
+        glBindFramebuffer(GL_FRAMEBUFFER, 0);
+
+        // GL rows start at the bottom, flip for top-first consumers.
+        outPixels.resize(bottomUp.size());
+        for (uint32_t y = 0; y < height; ++y)
+            memcpy(outPixels.data() + y * rowBytes, bottomUp.data() + (height - 1 - y) * rowBytes, rowBytes);
+
+        return true;
+    }
+
+    bool GLFramebuffer::ReadPixelsRGBAFloat(std::vector<float>& outPixels)
+    {
+        SHARD_ASSERT_GRAPHICS_THREAD();
+        if (!m_Specifications.hasColor)
+            return false;
+
+        const uint32_t width = m_Specifications.width;
+        const uint32_t height = m_Specifications.height;
+        const size_t rowFloats = size_t(width) * 4;
+
+        std::vector<float> bottomUp(rowFloats * height);
+
+        glBindFramebuffer(GL_READ_FRAMEBUFFER, m_Specifications.multisampled ? m_ResolveFBO : m_FBO);
+        glReadBuffer(GL_COLOR_ATTACHMENT0);
+        glPixelStorei(GL_PACK_ALIGNMENT, 1);
+        glReadPixels(0, 0, width, height, GL_RGBA, GL_FLOAT, bottomUp.data());
+        glBindFramebuffer(GL_FRAMEBUFFER, 0);
+
+        outPixels.resize(bottomUp.size());
+        for (uint32_t y = 0; y < height; ++y)
+            memcpy(outPixels.data() + y * rowFloats, bottomUp.data() + (height - 1 - y) * rowFloats, rowFloats * sizeof(float));
+
+        return true;
+    }
+
+    bool GLFramebuffer::ReadDepthFloat(std::vector<float>& outDepth)
+    {
+        SHARD_ASSERT_GRAPHICS_THREAD();
+        if (!HasDepthTarget() || m_Specifications.multisampled)
+            return false;
+
+        const uint32_t width = m_Specifications.width;
+        const uint32_t height = m_Specifications.height;
+
+        std::vector<float> bottomUp(size_t(width) * height);
+
+        glBindFramebuffer(GL_READ_FRAMEBUFFER, m_FBO);
+        glPixelStorei(GL_PACK_ALIGNMENT, 1);
+        glReadPixels(0, 0, width, height, GL_DEPTH_COMPONENT, GL_FLOAT, bottomUp.data());
+        glBindFramebuffer(GL_FRAMEBUFFER, 0);
+
+        outDepth.resize(bottomUp.size());
+        for (uint32_t y = 0; y < height; ++y)
+            memcpy(outDepth.data() + size_t(y) * width, bottomUp.data() + size_t(height - 1 - y) * width, size_t(width) * sizeof(float));
+
+        return true;
+    }
+
+    void GLFramebuffer::UploadColorRegion(uint32_t x, uint32_t y, uint32_t width, uint32_t height, const uint8_t* rgba)
+    {
+        SHARD_ASSERT_GRAPHICS_THREAD();
+        if (!m_Specifications.hasColor || m_Specifications.multisampled)
+            return;
+
+        const size_t rowBytes = size_t(width) * 4;
+        std::vector<uint8_t> bottomUp(rowBytes * height);
+        for (uint32_t row = 0; row < height; ++row)
+            memcpy(bottomUp.data() + row * rowBytes, rgba + (height - 1 - row) * rowBytes, rowBytes);
+
+        glPixelStorei(GL_UNPACK_ALIGNMENT, 1);
+        glTextureSubImage2D(m_ColorAttachment, 0, x, y, width, height, GL_RGBA, GL_UNSIGNED_BYTE, bottomUp.data());
+    }
+
+    void GLFramebuffer::BlitColorTo(Framebuffer& dst, uint32_t dstX, uint32_t dstY, uint32_t dstWidth, uint32_t dstHeight)
+    {
+        SHARD_ASSERT_GRAPHICS_THREAD();
+        uint32_t readFBO = m_Specifications.multisampled ? m_ResolveFBO : m_FBO;
+
+        glBindFramebuffer(GL_READ_FRAMEBUFFER, readFBO);
+        glBindFramebuffer(GL_DRAW_FRAMEBUFFER, dst.GetHandle());
+
+        glBlitFramebuffer(
+            0, 0, m_Specifications.width, m_Specifications.height,
+            dstX, dstY, dstX + dstWidth, dstY + dstHeight,
+            GL_COLOR_BUFFER_BIT,
+            GL_LINEAR
+        );
+
+        glBindFramebuffer(GL_FRAMEBUFFER, 0);
+    }
+
+    void GLFramebuffer::ResolveMultisampled()
+    {
+        SHARD_ASSERT_GRAPHICS_THREAD();
+        if (!m_Specifications.multisampled) return;
+
+        glBindFramebuffer(GL_FRAMEBUFFER, m_FBO);   
+        glBindFramebuffer(GL_READ_FRAMEBUFFER, m_FBO);
+        glBindFramebuffer(GL_DRAW_FRAMEBUFFER, m_ResolveFBO);
+        glBlitFramebuffer(
+            0, 0, m_Specifications.width, m_Specifications.height,
+            0, 0, m_Specifications.width, m_Specifications.height,
+            GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT, GL_NEAREST
+        );
+        glBindFramebuffer(GL_FRAMEBUFFER, 0);    
+    }
+
+    void GLFramebuffer::AttachCubemapArray(uint32_t texture)
+    {
+        SHARD_ASSERT_GRAPHICS_THREAD();
+        glBindFramebuffer(GL_FRAMEBUFFER, m_FBO);
+
+        glFramebufferTexture(
+            GL_FRAMEBUFFER,
+            GL_DEPTH_ATTACHMENT,
+            texture,
+            0
+        );
+
+        glDrawBuffer(GL_NONE);
+        glReadBuffer(GL_NONE);
+
+        if (texture != 0) {
+            GLenum status = glCheckFramebufferStatus(GL_FRAMEBUFFER);
+            if (status != GL_FRAMEBUFFER_COMPLETE)
+                DEBUG_ERROR("Framebuffer error (", m_FBO, ") after AttachCubemapArray : status 0x", std::hex, status, std::dec);
+        }
+
+        glBindFramebuffer(GL_FRAMEBUFFER, 0);
+    }
+
+    void GLFramebuffer::DetachCubemapArray()
+    {
+        SHARD_ASSERT_GRAPHICS_THREAD();
+        glBindFramebuffer(GL_FRAMEBUFFER, m_FBO);
+
+        glFramebufferTexture(GL_FRAMEBUFFER, GL_DEPTH_ATTACHMENT, 0, 0);
+
+        glDrawBuffer(GL_NONE);
+        glReadBuffer(GL_NONE);
+
+        glBindFramebuffer(GL_FRAMEBUFFER, 0);
+    }
+
+    void GLFramebuffer::AttachDepthLayer(uint32_t texture, uint32_t layer)
+    {
+        SHARD_ASSERT_GRAPHICS_THREAD();
+        glBindFramebuffer(GL_FRAMEBUFFER, m_FBO);
+
+        if (texture != 0)
+            glFramebufferTextureLayer(GL_FRAMEBUFFER, GL_DEPTH_ATTACHMENT, texture, 0, static_cast<GLint>(layer));
+        else
+            glFramebufferTexture(GL_FRAMEBUFFER, GL_DEPTH_ATTACHMENT, 0, 0);
+        m_DepthLayerTexture = texture;
+
+        glDrawBuffer(GL_NONE);
+        glReadBuffer(GL_NONE);
+
+        if (texture != 0) {
+            GLenum status = glCheckFramebufferStatus(GL_FRAMEBUFFER);
+            if (status != GL_FRAMEBUFFER_COMPLETE)
+                DEBUG_ERROR("Framebuffer error (", m_FBO, ") after AttachDepthLayer : status 0x", std::hex, status, std::dec);
+        }
+
+        glBindFramebuffer(GL_FRAMEBUFFER, 0);
+    }
+
+    uint32_t GLFramebuffer::GetHandle() const
+    {
+        return m_FBO;
+    }
+
+    void GLFramebuffer::Resize(uint32_t width, uint32_t height)
+    {
+        SHARD_ASSERT_GRAPHICS_THREAD();
+        m_Specifications.width = width;
+        m_Specifications.height = height;
+
+        glBindFramebuffer(GL_FRAMEBUFFER, m_FBO);
+
+        GLTextureSpec colorSpecs = GLTextureSpec::FromTextureSpecifications(m_Specifications.colorSpecs);
+        GLTextureSpec depthSpecs = GLTextureSpec::FromTextureSpecifications(m_Specifications.depthSpecs);
+
+        if (m_Specifications.multisampled) {
+            
+            if(m_Specifications.hasColor){
+                glBindTexture(GL_TEXTURE_2D_MULTISAMPLE, m_ColorAttachment);
+                glTexImage2DMultisample(GL_TEXTURE_2D_MULTISAMPLE, m_Specifications.samplesCount, colorSpecs.internalFormat, width, height, GL_TRUE);
+
+                glBindTexture(GL_TEXTURE_2D, m_ResolveColorAttachment);
+                glTexImage2D(GL_TEXTURE_2D, 0, colorSpecs.internalFormat, width, height, 0, colorSpecs.format, colorSpecs.type, nullptr);
+            }
+            if(m_Specifications.hasDepth){
+                glBindTexture(GL_TEXTURE_2D_MULTISAMPLE, m_DepthAttachment);
+                glTexImage2DMultisample(GL_TEXTURE_2D_MULTISAMPLE, m_Specifications.samplesCount, depthSpecs.internalFormat, width, height, GL_TRUE);
+
+                glBindTexture(GL_TEXTURE_2D, m_ResolveDepthAttachment);
+                glTexImage2D(GL_TEXTURE_2D, 0, depthSpecs.internalFormat, width, height, 0, depthSpecs.format, depthSpecs.type, nullptr);
+            }
+        }
+        else {
+            if (m_Specifications.hasColor)
+            {
+                // A bindless handle freezes the texture, so glTexImage2D would fail with INVALID_OPERATION. Recreate the object instead.
+                if (GLTexture2D::HasBindlessHandle(m_ColorAttachment))
+                {
+                    GLTexture2D::ReleaseBindlessHandle(m_ColorAttachment);
+                    glDeleteTextures(1, &m_ColorAttachment);
+                    CreateColorAttachment(width, height);
+                }
+                else
+                {
+                    glBindTexture(GL_TEXTURE_2D, m_ColorAttachment);
+                    glTexImage2D(GL_TEXTURE_2D, 0, colorSpecs.internalFormat, width, height, 0, colorSpecs.format, colorSpecs.type, nullptr);
+                }
+            }
+            if(m_Specifications.hasDepth)
+            {
+                glBindTexture(GL_TEXTURE_2D, m_DepthAttachment);
+                glTexImage2D(GL_TEXTURE_2D, 0, depthSpecs.internalFormat, width, height, 0, depthSpecs.format, depthSpecs.type, nullptr);
+            }
+        }
+
+        if (m_Specifications.hasColor)
+            CreateExtraColorAttachments(width, height);
+
+        ApplyDrawBuffers();
+
+        CheckFBStatus();
+
+        glBindFramebuffer(GL_FRAMEBUFFER, 0);
+        if (m_Specifications.multisampled)
+            glBindTexture(GL_TEXTURE_2D_MULTISAMPLE, 0);
+        else
+            glBindTexture(GL_TEXTURE_2D, 0);
+
+        UpdateGpuAccounting();
+    }
+
+    void GLFramebuffer::SetSamplesCount(uint32_t samples)
+    {
+        SHARD_ASSERT_GRAPHICS_THREAD();
+        if (!m_Specifications.multisampled || samples == m_Specifications.samplesCount)
+            return;
+
+        GLint maxSamples = 0;
+        glGetIntegerv(GL_MAX_SAMPLES, &maxSamples);
+        m_Specifications.samplesCount = std::clamp<uint32_t>(samples, 1u, std::max<GLint>(maxSamples, 1));
+
+        Resize(m_Specifications.width, m_Specifications.height);
+    }
+
+    bool GLFramebuffer::IsValid() const
+    {
+        return m_FBO != 0 && !m_Destroyed;
+    }
+
+    uint32_t GLFramebuffer::GetColorAttachment() const
+    {
+        return m_ColorAttachment;
+    }
+
+    uint32_t GLFramebuffer::GetColorAttachmentAt(uint32_t index) const
+    {
+        if (index == 0)
+            return m_ColorAttachment;
+        return index - 1 < m_ExtraColorAttachments.size() ? m_ExtraColorAttachments[index - 1] : 0;
+    }
+
+    uint64_t GLFramebuffer::GetColorAttachmentBindlessHandle() const
+    {
+        return GLTexture2D::GetBindlessHandle(m_ColorAttachment);
+    }
+
+    uint32_t GLFramebuffer::GetDepthAttachment() const
+    {
+        return m_DepthAttachment;
+    }
+    
+    uint32_t GLFramebuffer::GetResolveColorAttachment() const
+    {
+        if (m_ResolveColorAttachment != 0)
+            return m_ResolveColorAttachment;
+
+        return m_ColorAttachment;
+    }
+
+    uint32_t GLFramebuffer::GetResolveDepthAttachment() const
+    {
+        if (m_ResolveDepthAttachment != 0)
+            return m_ResolveDepthAttachment;
+
+        return m_DepthAttachment;
+    }
+}

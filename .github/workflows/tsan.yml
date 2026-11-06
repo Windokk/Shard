@@ -1,0 +1,80 @@
+name: tsan
+
+# Runs the job system, thread pool, memory, cvar, ecs and render thread tests under ThreadSanitizer, which detects data races and memory-ordering
+# mistakes that a plain test run can miss for months. TSan does not exist on Windows / MinGW, hence a Linux-only job.
+# Only the job system and googletest are compiled (the job system depends on nothing but the standard library), so this
+# takes about a minute instead of a full engine build.
+
+on:
+  push:
+    paths:
+      - 'src/engine/core/jobs/**'
+      - 'src/engine/core/config/**'
+      - 'src/engine/core/memory/**'
+      - 'src/engine/core/ecs/**'
+      - 'tests/core/job_system_tests.cpp'
+      - 'tests/core/thread_pool_tests.cpp'
+      - 'tests/core/memory_tests.cpp'
+      - 'tests/core/cvar_tests.cpp'
+      - 'tests/core/ecs_tests.cpp'
+      - 'src/engine/renderer/rhi/render_thread.*'
+      - 'tests/rendering/render_thread_tests.cpp'
+      - '.github/workflows/tsan.yml'
+  pull_request:
+    paths:
+      - 'src/engine/core/jobs/**'
+      - 'src/engine/core/config/**'
+      - 'src/engine/core/memory/**'
+      - 'src/engine/core/ecs/**'
+      - 'tests/core/job_system_tests.cpp'
+      - 'tests/core/thread_pool_tests.cpp'
+      - 'tests/core/memory_tests.cpp'
+      - 'tests/core/cvar_tests.cpp'
+      - 'tests/core/ecs_tests.cpp'
+      - 'src/engine/renderer/rhi/render_thread.*'
+      - 'tests/rendering/render_thread_tests.cpp'
+      - '.github/workflows/tsan.yml'
+  workflow_dispatch:
+
+concurrency:
+  group: tsan-${{ github.head_ref || github.ref_name }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  tsan:
+    name: ThreadSanitizer (job system)
+    runs-on: ubuntu-24.04 # pinned, like build.yml
+    timeout-minutes: 20
+
+    steps:
+      - uses: actions/checkout@v4
+
+      # Only googletest is needed, not the 2 GB of other submodules
+      - name: Fetch googletest
+        run: git submodule update --init --depth 1 submodules/googletest
+
+      # -O1 : keeps TSan reports readable (higher levels inline and reorder too much). -g : file / line in the reports.
+      - name: Build the job system tests with -fsanitize=thread
+        run: |
+          GT=submodules/googletest/googletest
+          g++ -std=c++17 -O1 -g -fsanitize=thread -Wno-tsan -fno-omit-frame-pointer -I src \
+            src/engine/core/jobs/job_system.cpp \
+            src/engine/core/jobs/task_graph.cpp \
+            src/engine/core/jobs/thread_pool.cpp \
+            src/engine/core/config/cvar.cpp \
+            src/engine/core/memory/memory_tracker.cpp src/engine/core/memory/frame_allocator.cpp \
+            src/engine/core/ecs/archetype.cpp src/engine/core/ecs/registry.cpp src/engine/core/ecs/scheduler.cpp \
+            tests/core/job_system_tests.cpp tests/core/thread_pool_tests.cpp \
+            tests/core/memory_tests.cpp tests/core/cvar_tests.cpp tests/core/ecs_tests.cpp \
+            src/engine/renderer/rhi/render_thread.cpp tests/rendering/render_thread_tests.cpp \
+            -I $GT/include -I $GT $GT/src/gtest-all.cc $GT/src/gtest_main.cc \
+            -lpthread -o jobs_tsan
+
+      # halt_on_error : the first race fails the run. Repeated, because a race only shows on some interleavings.
+      - name: Run
+        env:
+          TSAN_OPTIONS: halt_on_error=1 second_deadlock_stack=1
+        run: ./jobs_tsan --gtest_repeat=30 --gtest_brief=1

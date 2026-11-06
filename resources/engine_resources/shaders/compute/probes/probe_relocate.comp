@@ -1,0 +1,101 @@
+#version 430 core
+
+// Probe relocation (Majercik et al.): nudge a probe out of geometry instead of just switching it off. The new offset takes effect next frame.
+
+layout(local_size_x = 64, local_size_y = 1, local_size_z = 1) in;
+
+layout(rgba16f, binding = 0) uniform readonly image2D uRayAtlas;
+layout(rg16f,   binding = 1) uniform readonly image2D uRayDistAtlas;
+
+layout(std430, binding = 14) buffer ProbeState { vec4 probeState[]; };
+
+uniform int uProbeCount;
+uniform int uTileSize;
+uniform int uAtlasProbesPerRow;
+
+uniform int uUpdateStride;
+uniform int uUpdatePhase;
+
+uniform mat3 uRayRotation;
+uniform vec3 uGridSpacing;
+
+#include "../../common/octahedral.glsl"
+#include "../../common/ddgi_atlas.glsl"
+
+const float SKY_MISS_DIST = 9.0e3;
+
+const float BACKFACE_RATIO = 0.25;
+
+void main()
+{
+    int probeIndex = uUpdatePhase + int(gl_GlobalInvocationID.x) * uUpdateStride;
+    if (probeIndex >= uProbeCount)
+        return;
+
+    int tileSize = uTileSize;
+    ivec2 tileOrigin = DDGI_TileCorner(probeIndex, tileSize, uAtlasProbesPerRow) + ivec2(1, 1);
+
+    int numRays = tileSize * tileSize;
+    int backfaceCount = 0;
+
+    float closestFrontDist = 1.0e30;
+    vec3  closestFrontDir  = vec3(0.0);
+    float farthestFrontDist = -1.0;
+    vec3  farthestFrontDir  = vec3(0.0);
+
+    for (int ty = 0; ty < tileSize; ty++)
+    {
+        for (int tx = 0; tx < tileSize; tx++)
+        {
+            ivec2 texel = tileOrigin + ivec2(tx, ty);
+
+            float validity = imageLoad(uRayAtlas, texel).a;
+            float dist = imageLoad(uRayDistAtlas, texel).r;
+
+            vec2 texelUV = (vec2(float(tx), float(ty)) + 0.5) / float(tileSize);
+            vec3 dir = uRayRotation * OctDecode(texelUV * 2.0 - 1.0);
+
+            if (validity < 0.5)
+            {
+                backfaceCount++;
+                continue;
+            }
+
+            if (dist < SKY_MISS_DIST && dist < closestFrontDist)
+            {
+                closestFrontDist = dist;
+                closestFrontDir  = dir;
+            }
+            if (dist > farthestFrontDist)
+            {
+                farthestFrontDist = dist;
+                farthestFrontDir  = dir;
+            }
+        }
+    }
+
+    float minSpacing = min(min(uGridSpacing.x, uGridSpacing.y), uGridSpacing.z);
+    float maxOffset = 0.45 * minSpacing;
+    float minFrontDist = 0.2 * minSpacing;
+
+    vec3 offset = probeState[probeIndex].xyz;
+
+    if (float(backfaceCount) / float(numRays) > BACKFACE_RATIO && farthestFrontDist > 0.0)
+    {
+        offset += farthestFrontDir * min(farthestFrontDist, maxOffset);
+    }
+    else if (closestFrontDist < minFrontDist)
+    {
+        offset += closestFrontDir * (closestFrontDist - minFrontDist);
+    }
+    else if (dot(offset, offset) > 1.0e-6)
+    {
+        offset -= normalize(offset) * min(length(offset), 0.05 * minSpacing);
+    }
+
+    float len = length(offset);
+    if (len > maxOffset)
+        offset *= maxOffset / len;
+
+    probeState[probeIndex].xyz = offset;
+}

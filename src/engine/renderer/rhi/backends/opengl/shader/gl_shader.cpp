@@ -1,0 +1,399 @@
+#include "gl_shader.hpp"
+#include "engine/renderer/rhi/render_thread.hpp"
+
+#include "engine/renderer/rhi/backends/opengl/gl_utils.hpp"
+#include "engine/renderer/rhi/shader/glsl_preprocessor.hpp"
+
+#include "engine/core/diagnostics/logger.hpp"
+
+#include <cstring>
+
+namespace Shard::Engine::Rendering{
+
+    void GLShader::CompileErrors(unsigned int shader, const char* type)
+    {
+        GLint hasCompiled;
+        char infoLog[1024];
+        if (std::strcmp(type, "PROGRAM") != 0)
+        {
+            glGetShaderiv(shader, GL_COMPILE_STATUS, &hasCompiled);
+            if (hasCompiled == GL_FALSE)
+            {
+                glGetShaderInfoLog(shader, 1024, NULL, infoLog);
+                m_CompileFailed = true;
+                DEBUG_ERROR("Couldn't compile shader : " + std::string(type) + "\n" + infoLog);
+                return;
+            }
+        }
+        else
+        {
+            glGetProgramiv(shader, GL_LINK_STATUS, &hasCompiled);
+            if (hasCompiled == GL_FALSE)
+            {
+                glGetProgramInfoLog(shader, 1024, NULL, infoLog);
+                m_CompileFailed = true;
+                DEBUG_ERROR("Couldn't link shader : " + std::string(type) + "\n" + infoLog);
+                return;
+            } 
+        }
+    }
+
+    GLShader::GLShader(const Filesystem::Path &vertexPath, const Filesystem::Path &fragmentPath, const Filesystem::Path &geometryPath, const std::vector<std::string>& defines)
+    {
+        m_Defines = defines;
+
+        if (vertexPath.Exists() && !vertexPath.IsDirectory() && fragmentPath.Exists() && !fragmentPath.IsDirectory()) {
+		
+            m_VertexFilePath = vertexPath.full;
+            m_FragmentFilePath = fragmentPath.full;
+
+            std::string vertexCode = InjectGLSLDefines(ResolveGLSLIncludes(vertexPath), defines);
+            std::string fragmentCode = InjectGLSLDefines(ResolveGLSLIncludes(fragmentPath), defines);
+    
+            const char* vertexSource = vertexCode.c_str();
+            const char* fragmentSource = fragmentCode.c_str();
+    
+            GLuint vertexShader = glCreateShader(GL_VERTEX_SHADER);
+            glShaderSource(vertexShader, 1, &vertexSource, NULL);
+            glCompileShader(vertexShader);
+            CompileErrors(vertexShader, "VERTEX");
+    
+            GLuint fragmentShader = glCreateShader(GL_FRAGMENT_SHADER);
+            glShaderSource(fragmentShader, 1, &fragmentSource, NULL);
+            glCompileShader(fragmentShader);
+            CompileErrors(fragmentShader, "FRAGMENT");
+    
+            GLuint geometryShader = 0;
+            bool hasGeometry = geometryPath.Exists() && !geometryPath.IsDirectory();
+
+            if (hasGeometry) {
+                m_GeometryFilePath = geometryPath.full;
+                std::string geometryCode = InjectGLSLDefines(ResolveGLSLIncludes(geometryPath), defines);
+                const char* geometrySource = geometryCode.c_str();
+
+                geometryShader = glCreateShader(GL_GEOMETRY_SHADER);
+                glShaderSource(geometryShader, 1, &geometrySource, NULL);
+                glCompileShader(geometryShader);
+                CompileErrors(geometryShader, "GEOMETRY");
+            }
+
+            m_Program = glCreateProgram();
+            glAttachShader(m_Program, vertexShader);
+            glAttachShader(m_Program, fragmentShader);
+            if (hasGeometry)
+                glAttachShader(m_Program, geometryShader);
+
+            glLinkProgram(m_Program);
+            CompileErrors(m_Program, "PROGRAM");
+
+            glDeleteShader(vertexShader);
+            glDeleteShader(fragmentShader);
+            if (hasGeometry)
+                glDeleteShader(geometryShader);
+
+            GLint uniformCount;
+            glGetProgramiv(m_Program, GL_ACTIVE_UNIFORMS, &uniformCount);
+
+            GLint maxNameLength;
+            glGetProgramiv(m_Program, GL_ACTIVE_UNIFORM_MAX_LENGTH, &maxNameLength);
+
+            std::vector<char> nameData(maxNameLength);
+
+            for (GLint i = 0; i < uniformCount; ++i)
+            {
+                GLsizei length;
+                GLint size;
+                GLenum type;
+
+                glGetActiveUniform(m_Program, i, maxNameLength, &length, &size, &type, nameData.data());
+
+                std::string name(nameData.data(), length);
+
+                if (name.rfind("gl_", 0) == 0)
+                    continue;
+
+                if (auto pos = name.find("[0]"); pos != std::string::npos)
+                    name.resize(pos);
+
+                GLint location = glGetUniformLocation(m_Program, name.c_str());
+
+                ShaderDataType dataType = ShaderDataType::None;
+
+                switch (type)
+                {
+                    case GL_BOOL:        dataType = ShaderDataType::Bool; break;
+                    case GL_INT:         dataType = ShaderDataType::Int; break;
+                    case GL_FLOAT:       dataType = ShaderDataType::Float; break;
+                    case GL_FLOAT_VEC2:  dataType = ShaderDataType::Vec2; break;
+                    case GL_FLOAT_VEC3:  dataType = ShaderDataType::Vec3; break;
+                    case GL_FLOAT_VEC4:  dataType = ShaderDataType::Vec4; break;
+                    case GL_FLOAT_MAT2:  dataType = ShaderDataType::Mat2; break;
+                    case GL_FLOAT_MAT3:  dataType = ShaderDataType::Mat3; break;
+                    case GL_FLOAT_MAT4:  dataType = ShaderDataType::Mat4; break;
+
+                    case GL_UNSIGNED_INT:      dataType = ShaderDataType::UInt; break;
+                    case GL_UNSIGNED_INT_VEC2: dataType = ShaderDataType::UVec2; break;
+                }
+
+                if (dataType != ShaderDataType::None)
+                {
+                    if (size > 1)
+                    {
+                        for (int j = 0; j < size; j++)
+                        {
+                            std::string elementName = name + "[" + std::to_string(j) + "]";
+                            GLint elementLocation = glGetUniformLocation(m_Program, elementName.c_str());
+
+                            if (elementLocation == -1)
+                                continue;
+
+                            UniformInfo info{
+                                elementName,
+                                dataType,
+                                elementLocation
+                            };
+
+                            m_ActiveUniforms.push_back(info);
+                            m_ActiveUniformsMap.emplace(elementName, info);
+                        }
+                    }
+                    else
+                    {
+                        UniformInfo info{
+                            name,
+                            dataType,
+                            location
+                        };
+
+                        m_ActiveUniforms.push_back(info);
+                        m_ActiveUniformsMap.emplace(name, info);
+                    }
+                }
+
+                ShaderSamplerType samplerType = ShaderSamplerType::None;
+
+                switch (type)
+                {
+                    case GL_SAMPLER_1D:
+                    case GL_SAMPLER_1D_SHADOW:
+                        samplerType = ShaderSamplerType::Texture1D; break;
+
+                    case GL_SAMPLER_2D:
+                    case GL_SAMPLER_2D_SHADOW:
+                        samplerType = ShaderSamplerType::Texture2D; break;
+
+                    case GL_SAMPLER_3D:
+                        samplerType = ShaderSamplerType::Texture3D; break;
+
+                    case GL_SAMPLER_CUBE:
+                    case GL_SAMPLER_CUBE_SHADOW:
+                        samplerType = ShaderSamplerType::TextureCube; break;
+
+                    case GL_SAMPLER_1D_ARRAY:
+                    case GL_SAMPLER_1D_ARRAY_SHADOW:
+                        samplerType = ShaderSamplerType::Texture1DArray; break;
+
+                    case GL_SAMPLER_2D_ARRAY:
+                    case GL_SAMPLER_2D_ARRAY_SHADOW:
+                        samplerType = ShaderSamplerType::Texture2DArray; break;
+
+                    case GL_SAMPLER_CUBE_MAP_ARRAY:
+                    case GL_SAMPLER_CUBE_MAP_ARRAY_SHADOW:
+                        samplerType = ShaderSamplerType::TextureCubeArray; break;
+
+                    case GL_SAMPLER_2D_MULTISAMPLE:
+                        samplerType = ShaderSamplerType::Texture2DMultisample; break;
+
+                    case GL_SAMPLER_2D_MULTISAMPLE_ARRAY:
+                        samplerType = ShaderSamplerType::Texture2DMultisampleArray; break;
+                }
+
+                if (samplerType != ShaderSamplerType::None)
+                {
+                    if (size > 1)
+                    {
+                        for (int j = 0; j < size; j++)
+                        {
+                            std::string elementName = name + "[" + std::to_string(j) + "]";
+                            GLint elementLocation = glGetUniformLocation(m_Program, elementName.c_str());
+
+                            if (elementLocation == -1)
+                                continue;
+
+                            GLint binding = -1;
+                            glGetUniformiv(m_Program, elementLocation, &binding);
+
+                            SamplerInfo info{
+                                elementName,
+                                samplerType,
+                                binding
+                            };
+
+                            m_ActiveSamplers.push_back(info);
+                            m_ActiveSamplersMap.emplace(elementName, info);
+                        }
+                    }
+                    else
+                    {
+                        GLint binding = -1;
+                        glGetUniformiv(m_Program, location, &binding);
+
+                        SamplerInfo info{
+                            name,
+                            samplerType,
+                            binding
+                        };
+
+                        m_ActiveSamplers.push_back(info);
+                        m_ActiveSamplersMap.emplace(name, info);
+                    }
+                }
+            }
+
+        }
+    }
+
+    bool GLShader::Reload()
+    {
+        SHARD_ASSERT_GRAPHICS_THREAD();
+        if (m_VertexFilePath.empty() || m_FragmentFilePath.empty())
+            return false;
+
+        GLShader fresh{ Filesystem::Path(m_VertexFilePath), Filesystem::Path(m_FragmentFilePath), Filesystem::Path(m_GeometryFilePath), m_Defines };
+        if (fresh.m_CompileFailed || fresh.m_Program == 0)
+            return false;
+
+        // The state cache must not keep the id of a program about to be deleted.
+        GLStateCache::BindProgram(0);
+
+        std::swap(m_Program, fresh.m_Program);
+        std::swap(m_ActiveUniforms, fresh.m_ActiveUniforms);
+        std::swap(m_ActiveUniformsMap, fresh.m_ActiveUniformsMap);
+        std::swap(m_ActiveSamplers, fresh.m_ActiveSamplers);
+        std::swap(m_ActiveSamplersMap, fresh.m_ActiveSamplersMap);
+        std::swap(m_UnmappedLocations, fresh.m_UnmappedLocations);
+        m_DepthPrepassSupport = -1;
+        return true;
+    }
+
+    void GLShader::Bind()
+    {
+        SHARD_ASSERT_GRAPHICS_THREAD();
+        GLStateCache::BindProgram(m_Program);
+    }
+
+    void GLShader::Unbind()
+    {
+        SHARD_ASSERT_GRAPHICS_THREAD();
+        GLStateCache::BindProgram(0);
+    }
+
+    std::vector<UniformInfo> GLShader::GetActiveUniforms()
+    {
+        return m_ActiveUniforms;
+    }
+
+    std::vector<SamplerInfo> GLShader::GetActiveSamplers()
+    {
+        return m_ActiveSamplers;
+    }
+
+    const std::unordered_map<std::string, UniformInfo>& GLShader::GetActiveUniformsMap()
+    {
+        return m_ActiveUniformsMap;
+    }
+
+    const std::unordered_map<std::string, SamplerInfo>& GLShader::GetActiveSamplersMap()
+    {
+        return m_ActiveSamplersMap;
+    }
+
+    int32_t GLShader::GetUniformLocationCached(const std::string &name)
+    {
+        auto it = m_ActiveUniformsMap.find(name);
+        if (it != m_ActiveUniformsMap.end())
+            return it->second.location;
+
+        // Array uniforms are cached as "name[0]", fall back to that on a miss.
+        if (name.empty() || name.back() != ']')
+        {
+            auto arrayIt = m_ActiveUniformsMap.find(name + "[0]");
+            if (arrayIt != m_ActiveUniformsMap.end())
+                return arrayIt->second.location;
+        }
+
+        // Ask the driver once and remember the answer, -1 included. Uniforms of unclassified GL types would stay at -1, and glUniform*(-1) silently does nothing (lit.frag's uvec2 uniforms sat at zero).
+        auto [fallbackIt, inserted] = m_UnmappedLocations.try_emplace(name, -1);
+        if (inserted)
+            fallbackIt->second = glGetUniformLocation(m_Program, name.c_str());
+
+        return fallbackIt->second;
+    }
+
+    void GLShader::SetBool(const std::string &name, bool value)
+    {
+        SHARD_ASSERT_GRAPHICS_THREAD();
+        glUniform1i(GetUniformLocationCached(name), (int)value);
+    }
+
+    void GLShader::SetInt(const std::string &name, int value)
+    {
+        SHARD_ASSERT_GRAPHICS_THREAD();
+        glUniform1i(GetUniformLocationCached(name), value);
+    }
+
+    void GLShader::SetFloat(const std::string &name, float value)
+    {
+        SHARD_ASSERT_GRAPHICS_THREAD();
+        glUniform1f(GetUniformLocationCached(name), value);
+    }
+
+    void GLShader::SetVec2(const std::string &name, const glm::vec2 &value)
+    {
+        SHARD_ASSERT_GRAPHICS_THREAD();
+        glUniform2fv(GetUniformLocationCached(name), 1, &value[0]);
+    }
+
+    void GLShader::SetVec3(const std::string &name, const glm::vec3 &value)
+    {
+        SHARD_ASSERT_GRAPHICS_THREAD();
+        glUniform3fv(GetUniformLocationCached(name), 1, &value[0]);
+    }
+
+    void GLShader::SetVec4(const std::string &name, const glm::vec4 &value)
+    {
+        SHARD_ASSERT_GRAPHICS_THREAD();
+        glUniform4fv(GetUniformLocationCached(name), 1, &value[0]);
+    }
+
+    void GLShader::SetMat2(const std::string &name, const glm::mat2 &mat)
+    {
+        SHARD_ASSERT_GRAPHICS_THREAD();
+        glUniformMatrix2fv(GetUniformLocationCached(name), 1, GL_FALSE, &mat[0][0]);
+    }
+
+    void GLShader::SetMat3(const std::string &name, const glm::mat3 &mat)
+    {
+        SHARD_ASSERT_GRAPHICS_THREAD();
+        glUniformMatrix3fv(GetUniformLocationCached(name), 1, GL_FALSE, &mat[0][0]);
+    }
+
+    void GLShader::SetMat4(const std::string &name, const glm::mat4 &mat)
+    {
+        SHARD_ASSERT_GRAPHICS_THREAD();
+        glUniformMatrix4fv(GetUniformLocationCached(name), 1, GL_FALSE, &mat[0][0]);
+    }
+
+    void GLShader::SetUVec2(const std::string &name, uint32_t x, uint32_t y)
+    {
+        SHARD_ASSERT_GRAPHICS_THREAD();
+        glUniform2ui(GetUniformLocationCached(name), x, y);
+    }
+
+    GLShader::~GLShader()
+    {
+        const uint32_t program = m_Program;
+        RenderThread::Get().Post([program] { glDeleteProgram(program); });
+    }
+
+}

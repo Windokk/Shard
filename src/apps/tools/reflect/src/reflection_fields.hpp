@@ -1,0 +1,475 @@
+#pragma once
+
+#include "reflection_types.hpp"
+
+#include <iostream>
+#include <fstream>
+#include <filesystem>
+#include <map>
+#include <set>
+
+#include "clang/Tooling/Tooling.h"
+#include "clang/Tooling/CommonOptionsParser.h"
+#include "clang/ASTMatchers/ASTMatchers.h"
+#include "clang/ASTMatchers/ASTMatchFinder.h"
+
+using namespace clang;
+using namespace clang::ast_matchers;
+using namespace clang::tooling;
+
+enum FieldFlags : uint32_t {
+    Editable     = 1 << 0,
+    ReadOnly     = 1 << 1
+};
+
+struct Container{
+    TypeID elementType;
+    size_t elementSize;
+
+    size_t (*size)(void* container);
+    bool   (*isAssociative)();
+};
+
+struct FieldInfo {
+    const char* name;
+    TypeID type;
+
+    uint32_t offset;
+
+    uint32_t flags;
+    float min;
+    float max;
+    const char* tooltip;
+
+    const Container* container = nullptr;
+    const EnumDescriptor* enumDesc = nullptr;
+};
+
+struct ClassDescriptor{
+    std::string name;
+    std::vector<FieldInfo*> fields;
+};
+
+template<typename T>
+Container MakeVectorContainer() {
+    Container c{};
+
+    c.elementType = GetTypeIDFromString(typeid(T).name());
+    c.elementSize = sizeof(T);
+
+    c.size = [](void* c) -> size_t {
+        return static_cast<std::vector<T>*>(c)->size();
+    };
+
+    c.isAssociative = []() { return false; };
+
+    return c;
+}
+
+template<typename K, typename V>
+Container MakeMapContainer() {
+    Container c{};
+
+    c.elementType = GetTypeIDFromString(typeid(V).name());
+    c.elementSize = sizeof(V);
+
+    c.size = [](void* c) -> size_t {
+        return static_cast<std::map<K, V>*>(c)->size();
+    };
+
+    c.isAssociative = []() { return true; };
+
+    return c;
+}
+
+QualType getInnerTypeFromStdVector(QualType type, ASTContext& Context) {
+    type = type.getCanonicalType().getUnqualifiedType();
+
+    if (const auto* recordType = type->getAs<RecordType>()) {
+        const auto* decl = recordType->getDecl();
+        if (const auto* tmplSpec = dyn_cast<ClassTemplateSpecializationDecl>(decl)) {
+            const TemplateArgument& arg = tmplSpec->getTemplateArgs()[0];
+            QualType innerType = arg.getAsType();
+
+            return innerType;
+        }
+    }
+
+    return QualType();
+}
+
+std::pair<QualType, QualType> getKeyValueTypeFromStdMap(QualType type, ASTContext& Context) {
+    type = type.getCanonicalType().getUnqualifiedType();
+
+    if (const auto* recordType = type->getAs<RecordType>()) {
+        const auto* decl = recordType->getDecl();
+        if (const auto* tmplSpec = dyn_cast<ClassTemplateSpecializationDecl>(decl)) {
+            const TemplateArgumentList& argsList = tmplSpec->getTemplateArgs();
+
+            if (argsList.size() < 2)
+                return {QualType(), QualType()};
+
+            QualType keyType   = argsList[0].getAsType();
+            QualType valueType = argsList[1].getAsType();
+
+            return {keyType, valueType};
+        }
+    }
+
+    return {QualType(), QualType()};
+}
+
+struct StructDescriptor{
+    std::string name;
+    std::vector<FieldInfo*> fields;
+};
+
+class FieldHandler : public MatchFinder::MatchCallback {
+public:
+    void run(const MatchFinder::MatchResult &Result) override {
+        if (!Result.SourceManager) return;
+
+        const auto* Decl = Result.Nodes.getNodeAs<CXXRecordDecl>("record");
+        if (!Decl) return;
+
+        const auto &SM = *Result.SourceManager;
+        const CXXRecordDecl* Definition = Decl->getDefinition();
+        if (!Definition) {
+            return;
+        }
+
+        // Only what the header being processed defines. Annotated classes of included headers get their own reflection file when that header is processed.
+        if (!SM.isWrittenInMainFile(Definition->getLocation()))
+            return;
+
+        std::string filename = SM.getFilename(Definition->getLocation()).str();
+
+        for (auto* Attr : Decl->specific_attrs<AnnotateAttr>()) {
+            std::string annotation = Attr->getAnnotation().str();
+
+            if (annotation == "class") {
+                std::string code = handleClass(Decl, SM);
+                if (!code.empty())
+                    perFileGenerated[filename].push_back(code);
+            }
+            else if (annotation == "struct") {
+                std::string code = handleStruct(Decl, SM);
+                if (!code.empty())
+                    perFileGenerated[filename].push_back(code);
+            }
+        }
+    }
+
+    void writeAllFiles() {
+        for (auto& [file, codeList] : perFileGenerated) {
+            std::filesystem::path p(file);
+            std::string outFile = (p.parent_path() / (p.stem().string() + ".reflection.hpp")).string();
+            std::ofstream out(outFile, std::ios::trunc);
+            if (!out.is_open()) {
+                llvm::errs() << "Failed to open file: " << outFile << "\n";
+                continue;
+            }
+
+            out << "#pragma once\n\n";
+            out << "#include \"" << p.filename().string() << "\"\n";
+            out << "#include \"engine/assets/reflection/reflection_fields.hpp\"\n\n";
+
+            for (auto& code : codeList)
+                out << code << "\n";
+                
+            out.close();
+        }
+
+        llvm::outs() << "Successfully wrote all reflection files" << "\n";
+    }
+
+private:
+    std::map<std::string, std::vector<std::string>> perFileGenerated;
+    std::set<std::string> emittedEnums;
+
+    // Annotated classes without the static `descriptor` (e.g. abstract Volume) have nothing to define. Derived classes reflect their fields.
+    static bool declaresDescriptor(const CXXRecordDecl* C) {
+        for (const Decl* D : C->decls()) {
+            if (const auto* V = dyn_cast<VarDecl>(D)) {
+                if (V->isStaticDataMember() && V->getName() == "descriptor")
+                    return true;
+            }
+        }
+        return false;
+    }
+
+    static void collectAnnotatedBases(const CXXRecordDecl* C, std::vector<const CXXRecordDecl*>& out) {
+        for (const CXXBaseSpecifier& base : C->bases()) {
+            const CXXRecordDecl* B = base.getType()->getAsCXXRecordDecl();
+            if (!B || !B->hasDefinition())
+                continue;
+            B = B->getDefinition();
+
+            if (!B->hasAttr<AnnotateAttr>())
+                continue;
+
+            collectAnnotatedBases(B, out);
+            out.push_back(B);
+        }
+    }
+
+    std::string handleClass(const CXXRecordDecl* C,const SourceManager& SM) {
+        if (!C || !C->isThisDeclarationADefinition())
+            return {};
+
+        if (!declaresDescriptor(C))
+            return {};
+
+        std::ostringstream out;
+
+        out << "// Reflection for class " << C->getNameAsString() << "\n\n";
+
+        std::vector<std::string> fieldInfos;
+
+        std::vector<const CXXRecordDecl*> owners;
+        collectAnnotatedBases(C, owners);
+        owners.push_back(C);
+
+        for (const CXXRecordDecl* Owner : owners) {
+            for (const FieldDecl* F : Owner->fields()) {
+                for (auto *attr : F->attrs()) {
+                    if (const auto *aa = dyn_cast<AnnotateAttr>(attr)) {
+                        std::string annotation = aa->getAnnotation().str();
+                        if (annotation.find("field") == 0) {
+                            std::string fieldCode = handleField(F, C, SM);
+                            if (!fieldCode.empty()) {
+                                fieldInfos.push_back(C->getNameAsString() + "_" + F->getNameAsString() + "_info");
+                                out << fieldCode;
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        out << "inline ClassDescriptor "
+            << C->getQualifiedNameAsString() << "::descriptor = {\n"
+            << "    \"" << C->getNameAsString() << "\",\n    {\n";
+
+        for (auto& f : fieldInfos)
+            out << "        &" << f << ",\n";
+
+        out << "    }\n};\n";
+
+        return out.str();
+    }
+
+    std::string handleStruct(const CXXRecordDecl* S, const clang::SourceManager &SM){
+        if (!S || !S->isThisDeclarationADefinition())
+            return {};
+
+        std::ostringstream out;
+
+        out << "// Reflection for struct " << S->getNameAsString() << "\n\n";
+
+        std::vector<std::string> fieldInfos;
+
+        for (const FieldDecl* F : S->fields()) {
+            for (auto *attr : F->attrs()) {
+                if (const auto *aa = dyn_cast<AnnotateAttr>(attr)) {
+                    std::string annotation = aa->getAnnotation().str();
+                    if (annotation.find("field") == 0) {
+                        std::string fieldCode = handleField(F, S, SM);
+                        if (!fieldCode.empty()) {
+                            fieldInfos.push_back(S->getNameAsString() + "_" + F->getNameAsString() + "_info");
+                            out << fieldCode;
+                        }
+                    }
+                }
+            }
+        }
+
+        std::string structName = S->getNameAsString();
+        std::string structQualifiedName = S->getQualifiedNameAsString();
+
+        out << "inline StructDescriptor "
+            << structName << "_descriptor = {\n"
+            << "    \"" << structName << "\",\n"
+            << "    {\n";
+
+        for (auto& f : fieldInfos)
+            out << "        &" << f << ",\n";
+
+        out << "    },\n"
+            << "    sizeof(" << structQualifiedName << "),\n"
+            << "    [](void* p) { new (p) " << structQualifiedName << "(); },\n"
+            << "    [](void* p) { static_cast<" << structQualifiedName << "*>(p)->~"
+            << structName << "(); },\n"
+            << "    [](void* d, const void* s) {\n"
+            << "        *static_cast<" << structQualifiedName << "*>(d) =\n"
+            << "        *static_cast<const " << structQualifiedName << "*>(s);\n"
+            << "    },\n"
+            << "    [](const void* a, const void* b) {\n"
+            << "        return *static_cast<const " << structQualifiedName << "*>(a)\n"
+            << "            == *static_cast<const " <<structQualifiedName<<"*>(b);\n"
+            << "    }\n"
+            << "};\n";
+
+        return out.str();
+    }
+
+    std::string handleField(const FieldDecl* F, const CXXRecordDecl* Parent, const clang::SourceManager &SM){
+
+        if (!F || !Parent)
+            return {};
+
+        std::ostringstream out;
+
+        bool isEditable = false;
+        bool isReadOnly = false;
+
+        std::string readFunc, writeFunc, copyFunc, equalsFunc;
+        std::string range;
+        std::string tooltip;
+
+        for (const Attr* attr : F->attrs()) {
+            if (const auto* aa = dyn_cast<AnnotateAttr>(attr)) {
+                if (aa->getAnnotation() == "field")
+                    continue;
+
+                std::istringstream ss(aa->getAnnotation().str());
+                std::string token;
+                while (std::getline(ss, token, ',')) {
+                    token.erase(0, token.find_first_not_of(" \t"));
+                    token.erase(token.find_last_not_of(" \t") + 1);
+
+                    if (token.find("tooltip=") == 0) {
+                        // The annotation text may contain commas, so it runs to the end and is parsed last.
+                        std::string rest;
+                        std::getline(ss, rest, '\0');
+                        tooltip = token.substr(8) + (rest.empty() ? "" : "," + rest);
+                        tooltip.erase(tooltip.find_last_not_of(" \t") + 1);
+                        break;
+                    }
+
+                    if (token == "Editable") isEditable = true;
+                    else if (token == "ReadOnly") isReadOnly = true;
+                    else if (token.find("read=") == 0)   readFunc   = token.substr(5);
+                    else if (token.find("write=") == 0)  writeFunc  = token.substr(6);
+                    else if (token.find("copy=") == 0)   copyFunc   = token.substr(5);
+                    else if (token.find("equals=") == 0) equalsFunc = token.substr(7);
+                    else if (token.find("range=") == 0) {
+                        std::string r = token.substr(6);
+                        auto pos = r.find('|');
+                        if (pos != std::string::npos) {
+                            std::string min = r.substr(0, pos);
+                            std::string max = r.substr(pos + 1);
+                            range = min + ", " + max;
+                        }
+                    }
+                }
+            }
+        }
+
+        if (isEditable == isReadOnly)
+            return {};
+
+        ASTContext& Ctx = F->getASTContext();
+        PrintingPolicy policy(Ctx.getLangOpts());
+        policy.SuppressTagKeyword = true;
+
+        QualType fieldType = F->getType();
+        std::string typeName = fieldType.getAsString(policy);
+
+        bool isVector = typeName.find("std::vector") != std::string::npos;
+        bool isMap    = typeName.find("std::map")    != std::string::npos;
+        bool isEnum   = fieldType->isEnumeralType();
+        bool isStruct = false;
+        if (const RecordType* RT = fieldType->getAs<RecordType>()) {
+            const CXXRecordDecl* RD = dyn_cast<CXXRecordDecl>(RT->getDecl());
+            if (RD && RD->getNameAsString() == "InstancedStruct") {
+                isStruct = true;
+            }
+        }
+        const std::string structDescVar = fieldType.getAsString() + "_descriptor";
+
+        std::string fieldName = F->getNameAsString();
+        std::string containerVar = Parent->getNameAsString() + "_" + fieldName + "_container";
+        std::string enumDescVar;
+
+        if (isVector) {
+            std::string inner =
+                getInnerTypeFromStdVector(fieldType, Ctx).getAsString(policy);
+
+            out << "static Container " << containerVar
+                << " = MakeVectorContainer<"
+                << inner << ">();\n\n";
+            
+            typeName = "std::vector<";
+        }
+        else if (isMap) {
+            auto [K, V] = getKeyValueTypeFromStdMap(fieldType, Ctx);
+
+            out << "static Container " << containerVar
+                << " = MakeMapContainer<"
+                << K.getAsString(policy) << "," << V.getAsString(policy)<< ");\n\n";
+            
+            typeName = "std::map<";
+        }
+        else if (isEnum) {
+
+            const EnumDecl* E = fieldType->getAs<EnumType>()->getDecl();
+            enumDescVar = E->getNameAsString() + "_descriptor";
+
+            // Once per generated file : the classes of a header that share an enum (or inherit a field of that type from the same
+            // base) all reference the one descriptor, defining it again would not compile
+            const std::string enumKey = SM.getFilename(Parent->getLocation()).str() + "|" + E->getQualifiedNameAsString();
+            if (emittedEnums.insert(enumKey).second) {
+                out << "static EnumDescriptor " << enumDescVar << " = {\n";
+                out << "    \"" << E->getNameAsString() << "\",\n    {\n";
+                for (const auto* it : E->enumerators()) {
+                    out << "        { " << it->getInitVal().getSExtValue()
+                        << ", ""\"" << it->getNameAsString() << "\" },\n";
+                }
+                out << "    },\n";
+                out << "    sizeof(" << fieldType.getAsString(policy) << ")\n";
+                out << "};\n\n";
+            }
+
+            typeName = "enum";
+        }
+        else if(isStruct){
+            
+            typeName = "struct";
+        }
+
+        std::string quotedTooltip = "nullptr";
+        if (!tooltip.empty()) {
+            quotedTooltip = "\"";
+            for (char c : tooltip) {
+                if (c == '"' || c == '\\') quotedTooltip += '\\';
+                quotedTooltip += c;
+            }
+            quotedTooltip += "\"";
+        }
+
+        out << "inline FieldInfo "
+            << Parent->getNameAsString() << "_" << fieldName << "_info = {\n"
+            << "    \"" << fieldName << "\",\n"
+            << "    TypeID::"
+            << GetStringFromTypeID(GetTypeIDFromString(typeName))
+            << ",\n"
+            << "    offsetof(" 
+            << Parent->getQualifiedNameAsString() 
+            << ", " 
+            << fieldName 
+            << "),\n"
+            << "    " << (isEditable ? "Editable" : "ReadOnly") << ",\n"
+            << "    " << (range.empty() ? "0, 0" : range) << ",\n"
+            << "    " << quotedTooltip << ",\n"
+            << "    " << ((isVector || isMap) ? "&" + containerVar : "nullptr") << ",\n"
+            << "    " << (isEnum ? "&" + enumDescVar : "nullptr") << ",\n"
+            << "    " << "&CopyConstruct<" << fieldType.getAsString(policy) << ">,\n"
+            << "    " << "&Assign<" << fieldType.getAsString(policy) << ">,\n"
+            << "    " << "&Destroy<" << fieldType.getAsString(policy) << ">,\n"
+            << "    " << "&Equals<" << fieldType.getAsString(policy) << ">\n"
+            << "};\n\n";
+
+        return out.str();
+    }
+};

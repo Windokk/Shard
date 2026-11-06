@@ -1,0 +1,41 @@
+#version 430 core
+
+layout(local_size_x = 64, local_size_y = 1, local_size_z = 1) in;
+
+layout(binding = 44) uniform sampler2D uFresh;
+layout(rgba16f, binding = 0) uniform image2D uPublished;
+
+uniform int uProbeCount;
+uniform int uTileSize;
+uniform int uAtlasProbesPerRow;
+
+uniform int uUpdateStride;
+uniform int uUpdatePhase;
+uniform int uUpdateCount;
+
+uniform float uHysteresis;
+
+#include "../../common/ddgi_atlas.glsl"
+
+void main()
+{
+    uint gid = gl_GlobalInvocationID.x;
+    uint stride = uint(uTileSize) + 2u;
+    uint perTile = stride * stride;
+    if (gid >= uint(uUpdateCount) * perTile)
+        return;
+
+    int probeIndex = uUpdatePhase + int(gid / perTile) * uUpdateStride;
+    if (probeIndex >= uProbeCount)
+        return;
+
+    uint localIdx = gid % perTile;
+    ivec2 coord = DDGI_TileCorner(probeIndex, uTileSize, uAtlasProbesPerRow)
+                + ivec2(int(localIdx % stride), int(localIdx / stride));
+
+    vec3 fresh = texelFetch(uFresh, coord, 0).rgb;
+    vec3 prev = imageLoad(uPublished, coord).rgb;
+    vec3 blended = mix(fresh, prev, uHysteresis);
+
+    imageStore(uPublished, coord, vec4(blended, 1.0));
+}

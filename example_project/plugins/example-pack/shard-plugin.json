@@ -1,0 +1,15 @@
+{
+  "schema": 1,
+  "id": "shard.example.pack",
+  "name": "Example datapack",
+  "description": "A datapack with no code : a data table, translations and a prefab.",
+  "version": "1.0.0",
+  "kind": "module",
+  "moduleKind": "datapack",
+  "linkage": "dynamic",
+  "tier": 3,
+  "hosts": ["engine", "tool"],
+  "engine": { "api": "1.0" },
+  "simulation": { "affects": false },
+  "content": { "mount": "content" }
+}

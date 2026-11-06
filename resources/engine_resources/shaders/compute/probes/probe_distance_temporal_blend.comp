@@ -1,0 +1,43 @@
+#version 430 core
+
+// Separate shader from probe_temporal_blend.comp: the image format qualifier must match the bound texture (rg16f here, rgba16f there).
+
+layout(local_size_x = 64, local_size_y = 1, local_size_z = 1) in;
+
+layout(binding = 45) uniform sampler2D uFresh;
+layout(rg16f, binding = 0) uniform image2D uPublished;
+
+uniform int uProbeCount;
+uniform int uTileSize;
+uniform int uAtlasProbesPerRow;
+
+uniform int uUpdateStride;
+uniform int uUpdatePhase;
+uniform int uUpdateCount;
+
+uniform float uHysteresis;
+
+#include "../../common/ddgi_atlas.glsl"
+
+void main()
+{
+    uint gid = gl_GlobalInvocationID.x;
+    uint stride = uint(uTileSize) + 2u;
+    uint perTile = stride * stride;
+    if (gid >= uint(uUpdateCount) * perTile)
+        return;
+
+    int probeIndex = uUpdatePhase + int(gid / perTile) * uUpdateStride;
+    if (probeIndex >= uProbeCount)
+        return;
+
+    uint localIdx = gid % perTile;
+    ivec2 coord = DDGI_TileCorner(probeIndex, uTileSize, uAtlasProbesPerRow)
+                + ivec2(int(localIdx % stride), int(localIdx / stride));
+
+    vec2 fresh = texelFetch(uFresh, coord, 0).rg;
+    vec2 prev = imageLoad(uPublished, coord).rg;
+    vec2 blended = mix(fresh, prev, uHysteresis);
+
+    imageStore(uPublished, coord, vec4(blended, 0.0, 0.0));
+}

@@ -1,0 +1,50 @@
+# ShardReflect : the reflection generator (clang tooling). It reads the CLASS()/STRUCT()/FIELD() annotated headers
+# and writes the *.reflection.hpp files next to them. Needs LLVM + Clang + zlib : when they are missing the tool is
+# skipped (the generated files are committed, only a change of a reflected class needs the tool).
+
+option(SHARD_BUILD_REFLECT "Build ShardReflect (needs a complete LLVM + Clang install)" ON)
+if(NOT SHARD_BUILD_REFLECT)
+    message(STATUS "ShardReflect skipped : SHARD_BUILD_REFLECT is OFF")
+    return()
+endif()
+
+find_package(ZLIB QUIET)
+find_package(LLVM QUIET CONFIG)
+find_package(Clang QUIET CONFIG)
+
+if(NOT (ZLIB_FOUND AND LLVM_FOUND AND Clang_FOUND))
+    message(STATUS "ShardReflect skipped : LLVM / Clang / zlib not found")
+    return()
+endif()
+
+message(STATUS "ShardReflect : LLVM ${LLVM_PACKAGE_VERSION} (${LLVM_DIR})")
+
+if(LLVM_LINK_LLVM_DYLIB)
+    set(SHARD_REFLECT_LLVM_LIBS LLVM)
+else()
+    llvm_map_components_to_libnames(SHARD_REFLECT_LLVM_LIBS support core irreader)
+endif()
+
+add_executable(ShardReflect src/main.cpp)
+
+target_include_directories(ShardReflect SYSTEM PRIVATE ${LLVM_INCLUDE_DIRS})
+# LLVM_DEFINITIONS is one string of "-D..." flags, not a CMake list. Split it or it becomes one broken definition.
+separate_arguments(SHARD_REFLECT_LLVM_DEFINITIONS NATIVE_COMMAND "${LLVM_DEFINITIONS}")
+target_compile_options(ShardReflect PRIVATE ${SHARD_REFLECT_LLVM_DEFINITIONS})
+
+# Some distros (Arch, Fedora) only ship the monolithic libclang-cpp.so, not per-component static libs.
+if(CLANG_LINK_CLANG_DYLIB)
+    set(SHARD_REFLECT_CLANG_LIBS clang-cpp)
+else()
+    set(SHARD_REFLECT_CLANG_LIBS clangTooling clangASTMatchers clangAST clangBasic clangFrontend)
+endif()
+
+target_link_libraries(ShardReflect PRIVATE
+    ${SHARD_REFLECT_CLANG_LIBS}
+    ${SHARD_REFLECT_LLVM_LIBS}
+)
+
+set_target_properties(ShardReflect PROPERTIES RUNTIME_OUTPUT_DIRECTORY "${OUTPUT_DIR}/tools")
+foreach(OUTPUTCONFIG Debug Release RelWithDebInfo MinSizeRel)
+    set_target_properties(ShardReflect PROPERTIES RUNTIME_OUTPUT_DIRECTORY_${OUTPUTCONFIG} "${OUTPUT_DIR}/tools")
+endforeach()

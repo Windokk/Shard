@@ -1,0 +1,4 @@
+{
+  "wooden": { "health": 20, "mass": 8.0 },
+  "metal": { "health": 120, "mass": 35.0 }
+}

@@ -1,0 +1,24 @@
+#version 430 core
+
+layout(local_size_x = 8, local_size_y = 8) in;
+
+layout(binding = 49) uniform sampler2D uScene;
+layout(rgba16f, binding = 0) writeonly uniform image2D uPyramid0;
+
+uniform int uSizeX;
+uniform int uSizeY;
+#define uSize ivec2(uSizeX, uSizeY)
+
+void main()
+{
+    ivec2 p = ivec2(gl_GlobalInvocationID.xy);
+    if (p.x >= uSize.x || p.y >= uSize.y)
+        return;
+
+    vec3 c = texelFetch(uScene, p, 0).rgb;
+    if (any(isnan(c)) || any(isinf(c)))
+        c = vec3(0.0);
+    c = clamp(c, vec3(0.0), vec3(60000.0));
+
+    imageStore(uPyramid0, p, vec4(c, 1.0));
+}

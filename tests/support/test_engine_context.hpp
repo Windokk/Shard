@@ -2,16 +2,12 @@
 
 #include <gtest/gtest.h>
 
-#include "engine/core/engine.hpp"
-#include "engine/core/objectID.hpp"
-#include "engine/events/event_system.hpp"
+#include "engine/core/ecs/registry.hpp"
+#include "engine/world/engine.hpp"
+#include "engine/world/objectID.hpp"
+#include "engine/world/event_system.hpp"
 
-// Minimal IEngineContext usable from tests without a real window/GL/audio/physics
-// bootstrap. Only ObjectIDManager and EventDispatcher are backed by real instances,
-// since those are the only subsystems Objects object/component construction depends on
-// when no Level is attached. Every other accessor aborts the test loudly instead of
-// silently returning nullptr, so a test that reaches into an unsupported subsystem
-// fails fast with a clear message rather than crashing on a null deref.
+// Minimal IEngineContext for tests. Only ObjectIDManager and EventDispatcher are real, every other accessor aborts the test.
 namespace Shard::Tests {
 
     class TestEngineContext : public Shard::Engine::Core::IEngineContext {
@@ -40,21 +36,35 @@ namespace Shard::Tests {
             Shard::Engine::Core::Platform::IInput* GetInputManager() const override { Unsupported("GetInputManager"); return nullptr; }
 
             Shard::Engine::Rendering::Renderer* GetRenderer() const override { Unsupported("GetRenderer"); return nullptr; }
+            Shard::Engine::Rendering::IRenderContext* GetRenderContext() const override { Unsupported("GetRenderContext"); return nullptr; }
             Shard::Engine::Rendering::CameraManager* GetCameraManager() const override { Unsupported("GetCameraManager"); return nullptr; }
             Shard::Engine::Core::Resources::ResourcesManager* GetResourcesManager() const override { Unsupported("GetResourcesManager"); return nullptr; }
             Shard::Engine::Filesystem::FileManager* GetFileManager() const override { Unsupported("GetFileManager"); return nullptr; }
             Shard::Engine::Filesystem::AssetIDManager* GetAssetIDManager() const override { Unsupported("GetAssetIDManager"); return nullptr; }
-            Shard::Engine::Physics::PhysicsManager* GetPhysicsManager() const override { Unsupported("GetPhysicsManager"); return nullptr; }
-            Shard::Engine::Levels::LevelManager* GetLevelManager() const override { Unsupported("GetLevelManager"); return nullptr; }
+            Shard::Engine::Physics::PhysicsManager* GetPhysicsManager() const override {
+                if (!physicsManager) Unsupported("GetPhysicsManager");
+                return physicsManager;
+            }
+            // No world is loaded in tests, so actors look for the frames of the shown one (Transform::GetFrameTree).
+            Shard::Engine::Worlds::WorldManager* GetWorldManager() const override { return nullptr; }
             Shard::Engine::Audio::AudioManager* GetAudioManager() const override { Unsupported("GetAudioManager"); return nullptr; }
             Shard::Engine::Audio::AudioIDManager* GetAudioIDManager() const override { Unsupported("GetAudioIDManager"); return nullptr; }
             Shard::Engine::Time::TimeManager* GetTimeManager() const override { Unsupported("GetTimeManager"); return nullptr; }
             Shard::Engine::Projects::BuildSettings* GetBuildSettings() const override { Unsupported("GetBuildSettings"); return nullptr; }
             std::shared_ptr<Shard::Engine::Projects::Project> GetCurrentProject() const override { Unsupported("GetCurrentProject"); return nullptr; }
             Shard::Engine::Debugging::Profiler* GetProfiler() const override { Unsupported("GetProfiler"); return nullptr; }
+            Shard::Engine::Core::JobSystem* GetJobSystem() const override { return jobSystem; }
+            Shard::Engine::Core::ThreadPool* GetThreadPool(Shard::Engine::Core::PoolKind) const override { return nullptr; }
+            Shard::Engine::Core::FrameAllocator* GetFrameAllocator() const override { return nullptr; }
+            Shard::Engine::Core::Ecs::Registry* GetEcs() const override { return const_cast<Shard::Engine::Core::Ecs::Registry*>(&ecs); }
+            Shard::Engine::Core::Ecs::Scheduler* GetScheduler() const override { return nullptr; }
 
             bool IsInPlayMode() const override { return false; }
             void SetPlayMode(bool) override { Unsupported("SetPlayMode"); }
+
+        public:
+            Shard::Engine::Core::JobSystem* jobSystem = nullptr;
+            Shard::Engine::Physics::PhysicsManager* physicsManager = nullptr;
 
         private:
             static void Unsupported(const char* method) {
@@ -66,6 +76,7 @@ namespace Shard::Tests {
 
             mutable Shard::Engine::Core::ObjectIDManager objectIDManager;
             mutable Shard::Engine::Events::EventDispatcher eventDispatcher;
+            mutable Shard::Engine::Core::Ecs::Registry ecs;
     };
 
 }

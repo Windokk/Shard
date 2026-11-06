@@ -1,0 +1,105 @@
+#version 430 core
+
+// Cosine-weighted gather over the probe's rays. Octahedral texels are not equal-area, so each is also weighted by its solid angle. One workgroup per probe, tile staged in shared memory.
+
+layout(local_size_x = 64, local_size_y = 1, local_size_z = 1) in;
+
+layout(binding = 42) uniform sampler2D uRayAtlas;
+layout(rgba16f, binding = 0) uniform image2D uIrradianceAtlas;
+
+layout(binding = 43) uniform sampler2D uRayDistAtlas;
+layout(rg16f, binding = 2) uniform image2D uDistanceAtlas;
+
+uniform int uProbeCount;
+uniform int uTileSize;
+uniform int uAtlasProbesPerRow;
+
+uniform int uUpdateStride;
+uniform int uUpdatePhase;
+
+uniform mat3 uRayRotation;
+
+#include "../../common/octahedral.glsl"
+#include "../../common/ddgi_atlas.glsl"
+
+// Distance needs a tighter kernel than irradiance or thin walls fail the Chebyshev test. cos^8 by repeated squaring, pow() is too costly at tileSize^4 per probe.
+
+const int MAX_TILE_TEXELS = 256;
+
+shared vec3 sRadiance[MAX_TILE_TEXELS];
+shared vec2 sDistance[MAX_TILE_TEXELS];
+shared vec3 sDirection[MAX_TILE_TEXELS];
+shared float sSolidAngle[MAX_TILE_TEXELS];
+
+vec3 TexelDirection(int tx, int ty, int tileSize)
+{
+    vec2 texelUV = (vec2(float(tx), float(ty)) + 0.5) / float(tileSize);
+    return OctDecode(texelUV * 2.0 - 1.0);
+}
+
+float SolidAngleWeight(vec3 dir)
+{
+    float l1 = abs(dir.x) + abs(dir.y) + abs(dir.z);
+    return l1 * l1 * l1;
+}
+
+void main()
+{
+    // Uniform across the workgroup, so the early-out cannot diverge around the barrier() below.
+    int probeIndex = uUpdatePhase + int(gl_WorkGroupID.x) * uUpdateStride;
+    if (probeIndex >= uProbeCount)
+        return;
+
+    int tileSize = uTileSize;
+    int texelsPerProbe = tileSize * tileSize;
+
+    ivec2 tileOrigin = DDGI_TileCorner(probeIndex, tileSize, uAtlasProbesPerRow) + ivec2(1, 1);
+
+    for (int i = int(gl_LocalInvocationID.x); i < texelsPerProbe; i += int(gl_WorkGroupSize.x))
+    {
+        ivec2 rayTexel = tileOrigin + ivec2(i % tileSize, i / tileSize);
+        sRadiance[i]  = texelFetch(uRayAtlas, rayTexel, 0).rgb;
+        sDistance[i]  = texelFetch(uRayDistAtlas, rayTexel, 0).rg;
+        vec3 texelDir = TexelDirection(i % tileSize, i / tileSize, tileSize);
+        sDirection[i] = uRayRotation * texelDir;
+        sSolidAngle[i] = SolidAngleWeight(texelDir);
+    }
+
+    barrier();
+
+    for (int o = int(gl_LocalInvocationID.x); o < texelsPerProbe; o += int(gl_WorkGroupSize.x))
+    {
+        int outX = o % tileSize;
+        int outY = o / tileSize;
+        vec3 outDir = TexelDirection(outX, outY, tileSize);
+
+        vec3 sum = vec3(0.0);
+        float weightSum = 0.0;
+
+        vec2 distSum = vec2(0.0);
+        float distWeightSum = 0.0;
+
+        for (int r = 0; r < texelsPerProbe; r++)
+        {
+            float c = max(0.0, dot(sDirection[r], outDir));
+            if (c <= 0.0)
+                continue;
+
+            float w = c * sSolidAngle[r];
+            sum += sRadiance[r] * w;
+            weightSum += w;
+
+            float c2 = c * c;
+            float c4 = c2 * c2;
+            float distW = c4 * c4 * sSolidAngle[r];
+            distSum += sDistance[r] * distW;
+            distWeightSum += distW;
+        }
+
+        vec3 irradiance = weightSum > 0.0 ? sum / weightSum : vec3(0.0);
+        imageStore(uIrradianceAtlas, tileOrigin + ivec2(outX, outY), vec4(irradiance, 1.0));
+
+        vec2 dist = distWeightSum > 0.0 ? distSum / distWeightSum : vec2(0.0);
+        imageStore(uDistanceAtlas, tileOrigin + ivec2(outX, outY), vec4(dist, 0.0, 0.0));
+    }
+}

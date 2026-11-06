@@ -1,0 +1,21 @@
+#version 430 core
+
+// MIN depth (closest), unlike the occlusion Hi-Z. A ray still in front of a cell's closest surface cannot hit inside it, so the march skips the cell.
+
+layout(local_size_x = 8, local_size_y = 8) in;
+
+layout(binding = 49) uniform sampler2D uDepth;
+layout(r32f, binding = 0) writeonly uniform image2D uHiZ0;
+
+uniform int uSizeX;
+uniform int uSizeY;
+#define uSize ivec2(uSizeX, uSizeY)
+
+void main()
+{
+    ivec2 p = ivec2(gl_GlobalInvocationID.xy);
+    if (p.x >= uSize.x || p.y >= uSize.y)
+        return;
+
+    imageStore(uHiZ0, p, vec4(texelFetch(uDepth, p, 0).r));
+}

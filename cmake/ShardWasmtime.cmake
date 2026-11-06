@@ -1,0 +1,36 @@
+include(FetchContent)
+
+set(SHARD_WASMTIME_VERSION "50.0.0")
+if(WIN32 AND MINGW)
+    set(_shard_wasmtime_asset "x86_64-mingw-c-api.zip")
+    set(_shard_wasmtime_sha256 "1b4dcf6d8a7b933136a1eaff708fc34ac6954efb3b105d39474aac99dee09635")
+elseif(WIN32)
+    set(_shard_wasmtime_asset "x86_64-windows-c-api.zip")
+    set(_shard_wasmtime_sha256 "3c3d04bc910d18fac9f85ad11293aab63ea023fff5021d39be858d4e3b9d058f")
+elseif(CMAKE_SYSTEM_NAME STREQUAL "Linux" AND CMAKE_SYSTEM_PROCESSOR MATCHES "x86_64|AMD64")
+    set(_shard_wasmtime_asset "x86_64-linux-c-api.tar.xz")
+    set(_shard_wasmtime_sha256 "631643d8be5dac2a1abe026528f0ca18a515bce275bcfa7eb9731c9468a592f1")
+else()
+    message(FATAL_ERROR "Wasmtime : no prebuilt C API is pinned for ${CMAKE_SYSTEM_NAME} ${CMAKE_SYSTEM_PROCESSOR} (cmake/ShardWasmtime.cmake)")
+endif()
+
+FetchContent_Declare(wasmtime
+    URL "https://github.com/bytecodealliance/wasmtime/releases/download/v${SHARD_WASMTIME_VERSION}/wasmtime-v${SHARD_WASMTIME_VERSION}-${_shard_wasmtime_asset}"
+    URL_HASH SHA256=${_shard_wasmtime_sha256}
+    DOWNLOAD_EXTRACT_TIMESTAMP TRUE)
+FetchContent_MakeAvailable(wasmtime)
+
+add_library(ShardWasmtime SHARED IMPORTED GLOBAL)
+set_target_properties(ShardWasmtime PROPERTIES INTERFACE_INCLUDE_DIRECTORIES "${wasmtime_SOURCE_DIR}/include")
+if(WIN32)
+    file(GLOB _shard_wasmtime_implib "${wasmtime_SOURCE_DIR}/lib/libwasmtime.dll.a" "${wasmtime_SOURCE_DIR}/lib/wasmtime.dll.lib")
+    set_target_properties(ShardWasmtime PROPERTIES
+        IMPORTED_LOCATION "${wasmtime_SOURCE_DIR}/lib/wasmtime.dll"
+        IMPORTED_IMPLIB "${_shard_wasmtime_implib}")
+    file(COPY "${wasmtime_SOURCE_DIR}/lib/wasmtime.dll" DESTINATION "${CMAKE_BINARY_DIR}")
+else()
+    # The prebuilt .so has no SONAME, so NO_SONAME makes CMake link with -L/-l. Otherwise the NEEDED entry is a build-relative path that breaks from other working dirs (ctest).
+    set_target_properties(ShardWasmtime PROPERTIES
+        IMPORTED_LOCATION "${wasmtime_SOURCE_DIR}/lib/libwasmtime.so"
+        IMPORTED_NO_SONAME TRUE)
+endif()
