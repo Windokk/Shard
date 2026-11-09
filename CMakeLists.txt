@@ -91,6 +91,7 @@ add_subdirectory(src/engine)
 add_subdirectory(src/apps/tools/shaderc)
 add_subdirectory(src/apps/tools/shardpkg)
 add_subdirectory(src/apps/tools/asset_validator)
+add_subdirectory(src/apps/tools/cooker)
 add_subdirectory(src/apps/game)
 add_subdirectory(src/apps/editor)
 add_subdirectory(src/apps/player)
@@ -116,5 +117,5 @@ add_subdirectory(tests)
 
 shard_enable_warnings(
     ShardCore ShardPlatform ShardAssets ShardWorld ShardPhysics ShardAudio ShardShaderCompiler ShardRHI ShardRenderer ShardEngine
-    ShardEditor ShardGame ShardHeadless ShardShaderc ShardPkg ShardAssetValidator ShardTests
+    ShardEditor ShardGame ShardHeadless ShardShaderc ShardPkg ShardAssetValidator ShardCooker ShardTests
 )

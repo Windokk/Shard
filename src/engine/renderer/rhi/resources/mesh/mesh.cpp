@@ -1,4 +1,5 @@
 #include "mesh.hpp"
+#include "engine/renderer/rhi/resources/mesh/mesh_cooked.hpp"
 
 #include "engine/renderer/rhi/resources/mesh/lightmap_uv.hpp"
 #include "engine/renderer/rhi/backends/opengl/mesh/gl_mesh.hpp"
@@ -522,7 +523,16 @@ namespace Shard::Engine::Rendering{
             }
         }
 
-        result.layout = {
+        result.layout = StandardMeshLayout();
+
+        result.success = true;
+
+        return result;
+    }
+
+    VertexLayout StandardMeshLayout()
+    {
+        return {
             {{"aPos",     ShaderDataType::Vec3, 0, offsetof(Vertex, position)},
             {"aTexCoord",ShaderDataType::Vec2, 1, offsetof(Vertex, texCoord)},
             {"aNormal",  ShaderDataType::Vec3, 2, offsetof(Vertex, normal)},
@@ -530,15 +540,15 @@ namespace Shard::Engine::Rendering{
             {"aTangent", ShaderDataType::Vec3, 4, offsetof(Vertex, tangent)},
             {"aLightmapUV", ShaderDataType::Vec2, 5, offsetof(Vertex, lightmapUV)}}, sizeof(Vertex)
         };
-
-        result.success = true;
-
-        return result;
     }
 
     MeshCPUData DecodeMeshFile(const Filesystem::Path &path)
     {
         MeshCPUData result;
+
+        if (LoadCookedMesh(path.GetNativePath(), result))
+            return result;
+        result = MeshCPUData();
 
         ufbx_load_opts opts = { 0 };
         ufbx_error error;

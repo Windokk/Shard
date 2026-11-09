@@ -1,12 +1,14 @@
 #pragma once
 
 #include <map>
+#include <memory>
 #include <optional>
 #include <string>
 #include <vector>
 
 #include <nlohmann/json.hpp>
 
+#include "engine/assets/pak/pak.hpp"
 #include "engine/core/containers/result.hpp"
 #include "engine/core/math/guid.hpp"
 #include "engine/plugins/hooks.hpp"
@@ -30,10 +32,20 @@ namespace Shard::Engine::Plugins {
             PluginOwner owner = 0;
             ModuleKind kind = ModuleKind::None;
             std::vector<std::string> overrides;
+            // Set when the content comes from a cooked .shardpak instead of a folder (root is then the pak file)
+            std::shared_ptr<Pak::PakReader> pak;
         };
 
+        // A folder <rootDir>/<content> is mounted when it exists, else a cooked <rootDir>/<content>.shardpak
         bool Mount(const PluginManifest& manifest, PluginOwner owner, std::string* error = nullptr);
         bool MountFolder(const std::string& id, const std::string& folder, PluginOwner owner, std::vector<std::string> overrides = {});
+        bool MountPak(const std::string& id, const std::string& pakFile, PluginOwner owner, std::vector<std::string> overrides = {}, std::string* error = nullptr);
+
+        // Where files of pak mounts are unpacked when a caller needs a real path (Resolve). Default : <temp>/shard-pak-cache
+        void SetCacheRoot(const std::string& folder) { m_CacheRoot = folder; }
+
+        // Bytes of a mod:// file, from a folder or a pak
+        std::optional<std::string> ReadBytes(const std::string& uri) const;
         size_t Unmount(PluginOwner owner);
         void Clear();
 
@@ -70,8 +82,13 @@ namespace Shard::Engine::Plugins {
     private:
         static std::string Normalize(const std::string& path);
         bool Overrides(const MountPoint& mount, const std::string& logicalPath) const;
+        bool HasFile(const MountPoint& mount, const std::string& relative) const;
+        std::optional<std::string> ReadFrom(const MountPoint& mount, const std::string& relative) const;
+        void ListFrom(const MountPoint& mount, const std::string& subdir, std::vector<std::string>& out) const;
+        std::optional<std::string> Extract(const MountPoint& mount, const std::string& relative) const;
 
         std::vector<MountPoint> m_Mounts;
+        std::string m_CacheRoot;
     };
 
     std::vector<std::string> ValidateContentFolder(const std::string& contentRoot);

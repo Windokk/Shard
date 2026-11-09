@@ -11,6 +11,7 @@
 #include "engine/renderer/features/lighting/probe_bake.hpp"
 #include "engine/renderer/features/lighting/lightmap_data.hpp"
 #include "engine/renderer/rhi/resources/mesh/mesh.hpp"
+#include "engine/renderer/rhi/resources/mesh/mesh_cooked.hpp"
 #include "engine/renderer/rhi/pipelines/pipeline.hpp"
 #include "engine/renderer/rhi/shader/shader.hpp"
 #include "engine/renderer/rhi/shader/compute_shader.hpp"
@@ -28,6 +29,16 @@ namespace Shard::Engine::Rendering{
 
         std::shared_ptr<Mesh> LoadModel(const Filesystem::Path &path)
         {
+            // Cooked next to the file : the finished data, no FBX parsing
+            {
+                MeshCPUData cooked;
+                if (LoadCookedMesh(path.GetNativePath(), cooked)) {
+                    std::shared_ptr<Mesh> mesh = Mesh::Create();
+                    mesh->CreateFromData(cooked);
+                    return mesh;
+                }
+            }
+
             ufbx_load_opts opts = { 0 };
             ufbx_error error;
             const std::string filePath = path.GetNativePath();

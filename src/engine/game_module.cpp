@@ -23,6 +23,7 @@ namespace Shard::Engine {
         config.strictLock = options.strictLock;
         config.allowHotReload = options.hotReload && !options.deterministic;
         config.ignoreSafeMode = options.ignoreSafeMode;
+        config.registerModuleAssets = true;
         config.registries = options.registries;
         config.trustFiles = options.trustFiles;
         config.allowUnsigned = options.allowUnsigned;

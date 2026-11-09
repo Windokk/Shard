@@ -86,7 +86,7 @@ namespace Shard::Engine::Assets
 
         int rewritten = 0;
         for(auto& [id, info] : ids.AssetIDMap){
-            if(id.GetAsInt() < kFirstProjectAssetID)
+            if(id.GetAsInt() < kFirstProjectAssetID || IsModuleAssetID(id))
                 continue;
             if(info->baseInfos.type != Filesystem::Type::T_WORLD && info->baseInfos.type != Filesystem::Type::T_MATERIAL)
                 continue;

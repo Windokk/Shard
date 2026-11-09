@@ -620,6 +620,11 @@ namespace Shard::Engine::Rendering {
             return (std::filesystem::path(directory) / name).generic_string();
         }
 
+        std::string CookedPath(const std::string& sourcePath, bool srgb)
+        {
+            return sourcePath + (srgb ? ".srgb.stx" : ".lin.stx");
+        }
+
         std::vector<uint8_t> Serialize(const CompressedImage& image)
         {
             std::vector<uint8_t> bytes;

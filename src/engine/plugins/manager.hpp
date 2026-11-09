@@ -112,6 +112,8 @@ namespace Shard::Engine::Plugins {
         std::string lockfilePath;
         std::string stateDirectory;
         bool registerConsoleCommands = true;
+        // Puts the files of mounted modules in the engine's asset database. Off for hosts without an engine (tests, tools).
+        bool registerModuleAssets = false;
 
         std::vector<std::string> trustFiles;
         std::string cacheDirectory;

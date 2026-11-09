@@ -167,6 +167,25 @@ namespace Shard::Engine::Rendering{
         if (!cvTextureCompress.Get())
             return DecodeTextureFile(filepath);
 
+        auto fromCompressed = [](std::shared_ptr<CompressedImage> cached) {
+            TextureDecodeResult result;
+            result.success = true;
+            result.width = int(cached->width);
+            result.height = int(cached->height);
+            result.format = cached->format == BlockFormat::BC4 ? TextureInternalFormat::RED
+                          : cached->format == BlockFormat::BC5 ? TextureInternalFormat::RG : TextureInternalFormat::RGBA;
+            result.compressed = std::move(cached);
+            return result;
+        };
+
+        // Cooked next to the file : no decode, no compression. The other variant is better than nothing (a texture used both as colour and as data).
+        for (const bool wantSrgb : { srgb, !srgb })
+        {
+            auto cooked = std::make_shared<CompressedImage>();
+            if (TextureCache::Load(TextureCache::CookedPath(filepath.GetNativePath(), wantSrgb), *cooked))
+                return fromCompressed(std::move(cooked));
+        }
+
         const std::string key = TextureCache::MakeKey(filepath.full, srgb);
         if (!key.empty())
         {
@@ -202,6 +221,24 @@ namespace Shard::Engine::Rendering{
         result.compressed = std::move(compressed);
         std::vector<unsigned char>().swap(result.pixels);
         return result;
+    }
+
+    bool CookTexture(const Filesystem::Path& filepath, bool srgb, unsigned threads, std::vector<uint8_t>& out)
+    {
+        TextureDecodeResult result = DecodeTextureFile(filepath);
+        if (!result.success || !ShouldCompress(uint32_t(result.width), uint32_t(result.height)))
+            return false;
+
+        const uint32_t channels = BytesPerPixel(result.format);
+        if (channels < 1 || channels > 4 || result.pixels.size() != size_t(result.width) * result.height * channels)
+            return false;
+
+        const bool normalMap = LooksLikeNormalMap(result.pixels.data(), uint32_t(result.width), uint32_t(result.height), channels);
+        CompressedImage compressed;
+        if (!CompressImage(result.pixels.data(), uint32_t(result.width), uint32_t(result.height), channels, compressed, normalMap, threads, srgb))
+            return false;
+        out = TextureCache::Serialize(compressed);
+        return true;
     }
 
     uint32_t MipsToSkip(uint32_t width, uint32_t height)

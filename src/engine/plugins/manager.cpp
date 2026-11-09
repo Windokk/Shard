@@ -1,4 +1,5 @@
 #include "engine/plugins/manager.hpp"
+#include "engine/plugins/module_assets.hpp"
 
 #include <algorithm>
 #include <chrono>
@@ -878,6 +879,7 @@ namespace Shard::Engine::Plugins {
         if (r.context) {
             try { r.context->ReleaseAll(); } catch (...) {}
         }
+        if (m_Config.registerModuleAssets) UnregisterModuleAssets(r.manifest.id);
         m_Content.Unmount(r.owner);
         Core::TagRegistry::Get().RemoveDeclarations(Core::TagSource::Plugin, r.manifest.id);
         FailDependents(r.manifest.id, r.manifest.id);
@@ -927,8 +929,10 @@ namespace Shard::Engine::Plugins {
         }
         if (!m_Content.Find(r.manifest.id)) return;
 
+        // A cooked pak was validated when it was made, only folders are checked here
         const std::string root = r.manifest.rootDir + "/" + r.manifest.contentMount;
-        const std::vector<std::string> problems = ValidateContentFolder(root);
+        const ContentMounts::MountPoint* mounted = m_Content.Find(r.manifest.id);
+        const std::vector<std::string> problems = mounted && mounted->pak ? std::vector<std::string>{} : ValidateContentFolder(root);
         if (!problems.empty()) {
             std::string all;
             for (const std::string& p : problems) all += "\n  " + p;
@@ -953,6 +957,11 @@ namespace Shard::Engine::Plugins {
                 r.context->Components().Register(declared.Value().name, MakeDeclaredFactory(type.Value()));
             }
             m_Declared.push_back({ r.manifest.id, std::move(declared.Value()) });
+        }
+
+        if (m_Config.registerModuleAssets) {
+            const size_t assets = RegisterModuleAssets(m_Content, r.manifest.id);
+            if (assets) DEBUG_INFO("Plugins : " + r.manifest.id + " : " + std::to_string(assets) + " files in the asset database");
         }
 
         if (r.module) Guard(r, "OnContentMounted", [&] { r.module->OnContentMounted(*r.context); });
@@ -1067,6 +1076,7 @@ namespace Shard::Engine::Plugins {
                 DEBUG_WARNING("Plugins : " + r.manifest.id + " still holds " + std::to_string(r.context->Memory().Used()) + " bytes of counted memory after OnUnload (a leak)");
             r.context.reset();
         }
+        if (m_Config.registerModuleAssets) UnregisterModuleAssets(r.manifest.id);
         m_Content.Unmount(r.owner);
         Core::TagRegistry::Get().RemoveDeclarations(Core::TagSource::Plugin, r.manifest.id);
         m_Declared.erase(std::remove_if(m_Declared.begin(), m_Declared.end(), [&](const DeclaredComponentEntry& d) { return d.pluginId == r.manifest.id; }), m_Declared.end());

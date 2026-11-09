@@ -1,6 +1,7 @@
 #include "engine/plugins/content.hpp"
 
 #include <algorithm>
+#include <cstdio>
 #include <filesystem>
 #include <fstream>
 #include <set>
@@ -84,6 +85,18 @@ namespace Shard::Engine::Plugins {
         const fs::path root = fs::path(manifest.rootDir) / manifest.contentMount;
         std::error_code ec;
         if (!fs::is_directory(root, ec)) {
+            // A cooked plugin ships its content as one pak next to the manifest
+            const fs::path pak = fs::path(manifest.rootDir) / (manifest.contentMount + Pak::kExtension);
+            if (fs::is_regular_file(pak, ec)) {
+                std::string pakError;
+                if (!MountPak(manifest.id, pak.string(), owner, manifest.overrides, &pakError)) {
+                    if (error) *error = "content pak is not valid : " + pakError;
+                    return false;
+                }
+                for (MountPoint& m : m_Mounts)
+                    if (m.pluginId == manifest.id) { m.ns = manifest.Namespace(); m.kind = manifest.moduleKind; }
+                return true;
+            }
             // Code modules never promised content, so a missing content folder is only an error for datapacks and mods
             if (manifest.moduleKind == ModuleKind::Datapack || manifest.moduleKind == ModuleKind::Mod) {
                 if (error) *error = "content folder '" + manifest.contentMount + "' is missing";
@@ -160,24 +173,21 @@ namespace Shard::Engine::Plugins {
         if (!ParseModUri(uri, id, path) || !IsSafeRelative(path)) return std::nullopt;
         const MountPoint* m = Find(id);
         if (!m) return std::nullopt;
+        if (m->pak) return Extract(*m, path);
         const std::string full = m->root + "/" + path;
         std::error_code ec;
         if (!fs::is_regular_file(full, ec)) return std::nullopt;
         return full;
     }
 
-    std::optional<std::string> ContentMounts::ReadText(const std::string& uri) const
-    {
-        auto file = Resolve(uri);
-        return file ? ReadFile(*file) : std::nullopt;
-    }
+    std::optional<std::string> ContentMounts::ReadText(const std::string& uri) const { return ReadBytes(uri); }
 
     std::vector<std::string> ContentMounts::List(const std::string& pluginId, const std::string& subdir) const
     {
         std::vector<std::string> out;
         const MountPoint* m = Find(pluginId);
         if (!m || (!subdir.empty() && !IsSafeRelative(Normalize(subdir)))) return out;
-        ListFiles(m->root, Normalize(subdir), out);
+        ListFrom(*m, Normalize(subdir), out);
         std::sort(out.begin(), out.end());
         return out;
     }
@@ -197,12 +207,17 @@ namespace Shard::Engine::Plugins {
         if (!IsSafeRelative(path)) return std::nullopt;
         const MountPoint* winner = nullptr;
         for (const MountPoint& m : m_Mounts) {
-            std::error_code ec;
-            if (!fs::is_regular_file(m.root + "/" + path, ec)) continue;
+            if (!HasFile(m, path)) continue;
             if (!winner || Overrides(m, path)) winner = &m;
         }
         if (!winner) return std::nullopt;
-        return Resolved{ winner->pluginId, winner->root + "/" + path, MakeModUri(winner->pluginId, path) };
+        std::string file = winner->root + "/" + path;
+        if (winner->pak) {
+            auto extracted = Extract(*winner, path);
+            if (!extracted) return std::nullopt;
+            file = *extracted;
+        }
+        return Resolved{ winner->pluginId, std::move(file), MakeModUri(winner->pluginId, path) };
     }
 
     std::vector<std::string> ContentMounts::ListLogical(const std::string& subdir) const
@@ -210,7 +225,7 @@ namespace Shard::Engine::Plugins {
         std::set<std::string> all;
         for (const MountPoint& m : m_Mounts) {
             std::vector<std::string> files;
-            ListFiles(m.root, Normalize(subdir), files);
+            ListFrom(m, Normalize(subdir), files);
             for (auto& f : files) all.insert(f);
         }
         return { all.begin(), all.end() };
@@ -222,7 +237,7 @@ namespace Shard::Engine::Plugins {
         std::map<std::string, const MountPoint*> kept;
         for (const MountPoint& m : m_Mounts) {
             std::vector<std::string> files;
-            ListFiles(m.root, {}, files);
+            ListFrom(m, {}, files);
             std::sort(files.begin(), files.end());
             for (const std::string& f : files) {
                 if (f.compare(0, 7, "tables/") == 0 || f.compare(0, 5, "lang/") == 0 || f.compare(0, 8, "patches/") == 0) continue;
@@ -251,11 +266,81 @@ namespace Shard::Engine::Plugins {
         return m ? AssetGuid(m->ns, path) : Core::Guid();
     }
 
+    bool ContentMounts::HasFile(const MountPoint& mount, const std::string& relative) const
+    {
+        if (mount.pak) return mount.pak->Has(relative);
+        std::error_code ec;
+        return fs::is_regular_file(mount.root + "/" + relative, ec);
+    }
+
+    std::optional<std::string> ContentMounts::ReadFrom(const MountPoint& mount, const std::string& relative) const
+    {
+        if (mount.pak) return mount.pak->Read(relative);
+        return ReadFile(mount.root + "/" + relative);
+    }
+
+    void ContentMounts::ListFrom(const MountPoint& mount, const std::string& subdir, std::vector<std::string>& out) const
+    {
+        if (!mount.pak) { ListFiles(mount.root, subdir, out); return; }
+        for (std::string& f : mount.pak->List(subdir)) out.push_back(std::move(f));
+    }
+
+    // Unpacks one file of a pak under the cache and returns its path, so callers that want a real file keep working
+    std::optional<std::string> ContentMounts::Extract(const MountPoint& mount, const std::string& relative) const
+    {
+        const Pak::Entry* entry = mount.pak ? mount.pak->Find(relative) : nullptr;
+        if (!entry) return std::nullopt;
+        const fs::path base = m_CacheRoot.empty() ? fs::temp_directory_path() / "shard-pak-cache" : fs::path(m_CacheRoot);
+        // One folder per pak file and content, so two versions of a pak never mix
+        char key[32];
+        std::snprintf(key, sizeof(key), "%08x-%llx", Pak::Crc32(mount.root.data(), mount.root.size()), static_cast<unsigned long long>(entry->crc));
+        const fs::path file = base / mount.pluginId / key / relative;
+        std::error_code ec;
+        if (fs::is_regular_file(file, ec) && fs::file_size(file, ec) == entry->size) return Slash(file.generic_string());
+        auto bytes = mount.pak->Read(relative);
+        if (!bytes) return std::nullopt;
+        fs::create_directories(file.parent_path(), ec);
+        std::ofstream out(file, std::ios::binary | std::ios::trunc);
+        if (!out) return std::nullopt;
+        out.write(bytes->data(), std::streamsize(bytes->size()));
+        out.close();
+        if (!out) return std::nullopt;
+        return Slash(file.generic_string());
+    }
+
+    bool ContentMounts::MountPak(const std::string& id, const std::string& pakFile, PluginOwner owner, std::vector<std::string> overrides, std::string* error)
+    {
+        if (Find(id)) {
+            if (error) *error = "content of '" + id + "' is already mounted";
+            return false;
+        }
+        auto reader = std::make_shared<Pak::PakReader>();
+        if (!reader->Open(pakFile, error)) return false;
+        std::error_code ec;
+        MountPoint m;
+        m.pluginId = id;
+        m.ns = id;
+        m.root = Slash(fs::absolute(pakFile, ec).lexically_normal().generic_string());
+        m.owner = owner;
+        m.overrides = std::move(overrides);
+        m.pak = std::move(reader);
+        m_Mounts.push_back(std::move(m));
+        return true;
+    }
+
+    std::optional<std::string> ContentMounts::ReadBytes(const std::string& uri) const
+    {
+        std::string id, path;
+        if (!ParseModUri(uri, id, path) || !IsSafeRelative(path)) return std::nullopt;
+        const MountPoint* m = Find(id);
+        return m ? ReadFrom(*m, path) : std::nullopt;
+    }
+
     json ContentMounts::LoadTable(const std::string& name) const
     {
         json merged = json::object();
         for (const MountPoint& m : m_Mounts) {
-            auto text = ReadFile(m.root + "/tables/" + name + ".json");
+            auto text = ReadFrom(m, "tables/" + name + ".json");
             if (!text) continue;
             json part = json::parse(*text, nullptr, false);
             if (part.is_discarded()) continue;
@@ -269,7 +354,7 @@ namespace Shard::Engine::Plugins {
         std::set<std::string> names;
         for (const MountPoint& m : m_Mounts) {
             std::vector<std::string> files;
-            ListFiles(m.root, "tables", files);
+            ListFrom(m, "tables", files);
             for (const std::string& f : files)
                 if (f.size() > 12 && f.compare(f.size() - 5, 5, ".json") == 0) names.insert(f.substr(7, f.size() - 12));
         }
@@ -280,7 +365,7 @@ namespace Shard::Engine::Plugins {
     {
         json merged = json::object();
         for (const MountPoint& m : m_Mounts) {
-            auto text = ReadFile(m.root + "/lang/" + language + ".json");
+            auto text = ReadFrom(m, "lang/" + language + ".json");
             if (!text) continue;
             json part = json::parse(*text, nullptr, false);
             if (part.is_discarded() || !part.is_object()) continue;

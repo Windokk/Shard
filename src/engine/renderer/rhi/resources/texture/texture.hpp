@@ -129,6 +129,9 @@ namespace Shard::Engine::Rendering {
 
     TextureDecodeResult DecodeTextureFileForUpload(const Filesystem::Path& filepath, unsigned threads = 1, bool srgb = false);
 
+    // The same decode + block compression as the loader does, as the bytes of a .stx file (what ShardCooker stores). False when the image is not worth compressing or cannot be decoded.
+    bool CookTexture(const Filesystem::Path& filepath, bool srgb, unsigned threads, std::vector<uint8_t>& out);
+
     uint32_t MipsToSkip(uint32_t width, uint32_t height);
 
     class Texture2D

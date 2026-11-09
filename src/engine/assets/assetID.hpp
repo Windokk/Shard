@@ -45,6 +45,9 @@ namespace Shard::Engine::Filesystem
 
     // Engine resources use IDs up to 500, project IDs start here
     constexpr int kFirstProjectAssetID = 501;
+    // Assets of loaded modules (mod://...) get a stable id from their name, in this range. Never saved in the project database.
+    constexpr int kFirstModuleAssetID = 0x40000000;
+    inline bool IsModuleAssetID(const AssetID& id) { return id.GetAsInt() >= kFirstModuleAssetID; }
 
     class AssetIDManager {
         public:
@@ -80,6 +83,11 @@ namespace Shard::Engine::Filesystem
             AssetID GenerateNewIDWithValue(int val) {
                 return AssetID(val);
             }
+
+            // Gives a module file (name = its mod:// uri) its id. Same name, same id, on every run. Returns an invalid id (-1) if the range is full.
+            AssetID RegisterModuleAsset(const std::string& name, std::shared_ptr<AssetInfos> info);
+            // Forgets every module asset whose name starts with the prefix ("mod://<id>/"). Returns how many.
+            size_t UnregisterModuleAssets(const std::string& namePrefix);
 
             void DestroyID(const AssetID& id);
             void AssignID(AssetID id, std::shared_ptr<AssetInfos> info);

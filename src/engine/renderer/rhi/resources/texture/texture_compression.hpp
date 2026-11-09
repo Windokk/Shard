@@ -55,6 +55,9 @@ namespace Shard::Engine::Rendering {
 
         std::string MakeKey(const std::string& sourcePath, bool srgb = false);
 
+        // A texture cooked by ShardCooker sits next to its source : <source>.lin.stx (data) or <source>.srgb.stx (colour)
+        std::string CookedPath(const std::string& sourcePath, bool srgb);
+
         bool Load(const std::string& key, CompressedImage& out);
         void Store(const std::string& key, const CompressedImage& image);
 

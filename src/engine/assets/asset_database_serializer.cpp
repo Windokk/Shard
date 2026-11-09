@@ -96,7 +96,7 @@ namespace Shard::Engine::Serialization{
 
         for(auto& pair : ids.AssetIDMap){
 
-            if(pair.first.GetAsInt() >= Filesystem::kFirstProjectAssetID)
+            if(pair.first.GetAsInt() >= Filesystem::kFirstProjectAssetID && !Filesystem::IsModuleAssetID(pair.first))
             {
                 ordered_json assetData;
                 assetData["id"] = pair.first.GetAsInt();

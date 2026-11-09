@@ -717,6 +717,42 @@ Asset ids of module files come from `AssetRegistrar::GuidOf` : derived from `<as
 
 If a world holds a component of a type that is not registered (its plugin is not loaded), the component is kept as it was read and written back unchanged when the world is saved. Opening a world without the plugin loses nothing.
 
+### Module assets in the asset database
+
+Once a module's content is mounted, each of its files is also an entry of the asset database, named by its address (`mod://com.acme.weather/textures/rain.png`). `Assets().Resolve`, `Info`, `PathOf` and `List` see them like project assets. Their ids come from the name (same name, same id, on every run), live in a range of their own (`kFirstModuleAssetID` and above), are never written to `asset_database.json`, and are removed when the module is unloaded.
+
+### Cooked content : `.shardpak`
+
+A plugin can ship its content as one file instead of a folder. `ShardCooker` does it :
+
+```
+ShardCooker plugin <plugin folder> --out <folder>   # content/ becomes content.shardpak, the rest is copied
+ShardCooker pack   <folder> <out.shardpak>          # any folder in one pak
+ShardCooker project <project.json> --out <folder>   # a whole project (see below)
+ShardCooker list | verify | unpack <pak> ...
+```
+
+Files are compressed (an LZ4-style codec built in, no dependency) unless `--store` is given. Data that does not shrink (PNG, JPEG, OGG...) is detected and kept raw, so it costs no time. Files are streamed from the disk one by one, so the size of the project does not matter for memory.
+
+When the folder `<content.mount>` is missing and `<content.mount>.shardpak` is next to the manifest, the pak is mounted in its place. It behaves like the folder : `mod://` reads, logical layers, tables, translations, patches, and the asset database entries. A folder wins over a pak when both exist (handy while developing). A pak whose header or table of contents is invalid fails the mount, and every read checks the CRC of the file.
+
+#### Cooking a project
+
+`ShardCooker project example_project/example_project.json --out cooked` makes a folder holding : the project file, `resources.shardpak` (the whole resources folder), the asset database and the other project files as they are, and each plugin of the project cooked on its own (`content/` becomes `content.shardpak`). Opening `cooked/example_project.json` with the player works like the original : when the resources folder is missing and `resources.shardpak` is next to it, the pak is unpacked once into `<temp>/shard-project-cache/` (reused while the pak is unchanged) and read from there. The cooked project is meant to be read only.
+
+#### Cooking the assets
+
+`ShardCooker project` also cooks the assets, unless `--no-assets` is given :
+
+- **Textures** (png, jpg, tga, bmp) that materials use become what the loader would build : BC7 / BC5 / BC4 compressed mips, made by the same code (`CookTexture`). They are stored next to the image as `<file>.lin.stx` (data slots) and/or `<file>.srgb.stx` (colour slots : albedo, diffuse, emission), according to the slots that use them. The player loads them without decoding or compressing anything. Textures that no material uses, and textures under 128 px, are left as they are.
+- **Models** (fbx) become `<file>.smesh` : the finished vertices (tangents, lightmap UVs), indices and submeshes. The player skips the FBX parsing and the lightmap UV generation.
+- The original file keeps its name as an **empty placeholder**, so every name in the project (asset database, materials, worlds) stays valid and a file that could not be cooked is simply kept whole.
+- Hidden folders (`.cache`, `.git`...) are not copied.
+
+The loaders look for the cooked file first, so a project folder that holds `.stx` / `.smesh` files next to its sources behaves the same. Cooked files are for the platform and the version of the engine that made them : a different version is refused and the source is read instead (when there is one).
+
+The format is a 32-byte header (`SHPK`, version 2, table offset and size, count), the file bytes (stored or compressed), then the table (path, offset, stored size, size, CRC-32 of the original bytes, flags). Entries are sorted, so the same content always gives the same bytes. Functions that need a real path (`Content().Resolve`) get the file unpacked once in `<temp>/shard-pak-cache`.
+
 ### Datapacks
 
 A datapack has no code. It is a folder :

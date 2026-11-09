@@ -1,4 +1,5 @@
 #include "engine/plugins/manager.hpp"
+#include "engine/plugins/module_assets.hpp"
 
 #include <algorithm>
 #include <filesystem>
@@ -194,6 +195,7 @@ namespace Shard::Engine::Plugins {
         if (r->state == PluginState::Enabled) Guard(*r, "OnDisable", [&] { r->instance->OnDisable(*r->context); });
         if (r->context) r->context->ReleaseAll();
         r->context.reset();
+        if (m_Config.registerModuleAssets) UnregisterModuleAssets(r->manifest.id);
         m_Content.Unmount(r->owner);
         Core::TagRegistry::Get().RemoveDeclarations(Core::TagSource::Plugin, r->manifest.id);
         m_Declared.erase(std::remove_if(m_Declared.begin(), m_Declared.end(), [&](const DeclaredComponentEntry& d) { return d.pluginId == id; }), m_Declared.end());

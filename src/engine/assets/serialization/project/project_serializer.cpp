@@ -1,7 +1,10 @@
 #include "project_serializer.hpp"
 
+#include <filesystem>
+
 #include "config.h"
 
+#include "engine/assets/pak/pak.hpp"
 #include "engine/core/diagnostics/logger.hpp"
 
 using namespace nlohmann;
@@ -55,6 +58,20 @@ namespace Shard::Engine::Serialization{
 
             if(data.contains("projectResources") && data["projectResources"].is_string()){
                 projectResPath = Filesystem::Path::Normalize(Filesystem::Path(projectRoot / data["projectResources"]).full);
+
+                // A cooked project (ShardCooker project) ships its resources as one pak : unpacked once, then read like a folder
+                const std::string pakFile = projectResPath.GetNativePath() + Pak::kExtension;
+                if(!std::filesystem::is_directory(projectResPath.GetNativePath()) && std::filesystem::is_regular_file(pakFile)){
+                    std::string pakError;
+                    const std::string cache = (std::filesystem::temp_directory_path() / "shard-project-cache").string();
+                    const std::string folder = Pak::UnpackCached(pakFile, cache, &pakError);
+                    if(folder.empty()){
+                        DEBUG_ERROR("Cannot open the cooked resources \"" + pakFile + "\" : " + pakError);
+                        return nullptr;
+                    }
+                    DEBUG_INFO("Cooked project : resources unpacked to " + folder);
+                    projectResPath = Filesystem::Path::Normalize(folder);
+                }
             }
             else{
                 DEBUG_FATAL("No project resources specified for project: "+path.full);
