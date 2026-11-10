@@ -210,7 +210,7 @@ namespace Shard::Engine::Core {
                 return CommandResult{true, "wrote " + args[0]};
             });
 
-        registry.RegisterCommand("render.lighting_terms", "render.lighting_terms [all | direct+indirect_diffuse+indirect_specular+emission] : the terms of the lighting the scene is drawn with, to compare them one at a time against raytrace.render's (see scripts/compare_reference.py)",
+        registry.RegisterCommand("render.lighting_terms", "render.lighting_terms [all | direct+indirect_diffuse+indirect_specular+emission] : the terms of the lighting the scene is drawn with, to compare them one at a time against raytrace.render's (see scripts/compare_frames.py)",
             [this](const std::vector<std::string>& args) {
                 if (!m_Context.renderer)
                     return CommandResult{false, "no renderer"};

@@ -23,6 +23,7 @@
 #include "apps/editor/gui/notifications.hpp"
 #include "apps/editor/gui/panels/asset_browser/asset_operations.hpp"
 #include "apps/editor/gui/panels/asset_browser/sound_thumbnail.hpp"
+#include "apps/editor/gui/panels/asset_browser/asset_icon.hpp"
 
 #include <cstdio>
 #include <functional>
@@ -998,7 +999,7 @@ namespace Shard::Editor::GUI{
                                     draw_list->AddRect(box_min, box_max, IM_COL32(255, 255, 255, 90), 4.0f, 0, 1.0f);
 
                                 ImVec2 icon_offset = ImVec2(
-                                    (LayoutItemSize.x - ThumbnailSize.x) * 0.5f,
+                                    (box_max.x - box_min.x - ThumbnailSize.x) * 0.5f,
                                     IconTopPadding
                                 );
 
@@ -1047,13 +1048,8 @@ namespace Shard::Editor::GUI{
                             }
                             else
                             {
-                                draw_list->AddImage(
-                                    (void*)(intptr_t)EditorResources::Instance().GetIconAtlas()->GetTexture()->GetHandle(),
-                                    icon_min,
-                                    icon_max,
-                                    item_data->icon->uv0,
-                                    item_data->icon->uv1
-                                );
+                                const std::string extension = item_data->isDirectory ? std::string() : item_data->path.GetExtensionString();
+                                DrawAssetIcon(draw_list, icon_min, icon_max, item_data->type, item_data->isDirectory, accent, extension.c_str());
                             }
 
                             if (listView)

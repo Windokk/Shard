@@ -1,5 +1,14 @@
 #!/usr/bin/env python3
-"""Compares the real-time renderer against the path tracer, one term of the lighting at a time.
+"""Compares pictures. Three commands :
+
+  compare_frames.py diff A B        how two pictures (.png, or linear .hdr) differ : mean / RMSE / PSNR, percentiles, the pixels off
+                                    by more than N levels, the areas that differ most, and a map of the difference
+  compare_frames.py apis            renders a world with OpenGL, then with Vulkan, from the same views, and runs diff on each pair
+  compare_frames.py reference       the real-time renderer against the path tracer, one term of the lighting at a time (below)
+
+diff and apis exit with 1 when the pictures break --max-mean / --max-p99 / --max-over, so they can gate a CI step.
+
+reference : compares the real-time renderer against the path tracer, one term of the lighting at a time.
 
 The player renders a world from one or several views (render.camera), and for each view :
   - the path tracer renders it (raytrace.render ... terms), which writes the picture and its light split by term ;
@@ -14,7 +23,7 @@ is too bright or too dark overall (in stops), and how far it is from the referen
 (report.html, report.json, and per view one PNG per term : reference | real time | where it is too bright (red) or too dark (blue)).
 The views of a world are in scripts/reference_views.json (the world's camera when it is not listed), or given with --view.
 
-Standard library only. Run from anywhere : python scripts/compare_reference.py --world sponza.world
+Standard library only. Run from anywhere : python scripts/compare_frames.py reference --world sponza.world
 """
 
 import argparse
@@ -422,8 +431,8 @@ def print_table(metrics):
               f"{fmt_stops(m['p90_stops']):>7} {fmt_pct(m['pixel_error']):>7} {fmt_pct(m['image_error']):>9}")
 
 
-def main():
-    parser = argparse.ArgumentParser(description="Compares the real-time renderer against the path tracer, term by term.")
+def reference_main(argv):
+    parser = argparse.ArgumentParser(prog="compare_frames.py reference", description="Compares the real-time renderer against the path tracer, term by term.")
     parser.add_argument("--world", default="sponza.world", help="world of the project to render")
     parser.add_argument("--view", action="append", default=[],
                         help="a view, 'name=px py pz tx ty tz [fov]' (position, point looked at, vertical fov) or 'camera' (the world's) ; "
@@ -447,7 +456,7 @@ def main():
     parser.add_argument("--command", action="append", default=[],
                         help="console command run at the start, before the captures (repeatable), e.g. --command \"render.msaa off\"")
     parser.add_argument("--verbose", action="store_true", help="print every console command the player runs")
-    args = parser.parse_args()
+    args = parser.parse_args(argv)
 
     world_name = os.path.splitext(os.path.basename(args.world))[0]
     out = os.path.abspath(args.out or os.path.join(args.build, "reference_compare", world_name)).replace("\\", "/")
@@ -582,6 +591,406 @@ log2(real time / reference) : red too bright, blue too dark, saturated at &plusm
 """
     with open(path, "w", encoding="utf-8", newline="\n") as f:
         f.write(html)
+
+
+def paeth(a, b, c):
+    p = a + b - c
+    pa, pb, pc = abs(p - a), abs(p - b), abs(p - c)
+    return a if pa <= pb and pa <= pc else (b if pb <= pc else c)
+
+
+def read_png(path):
+    """(width, height, rgb bytearray of width * height * 3, top row first). 8 bits per channel, not interlaced (what the engine writes)"""
+    with open(path, "rb") as f:
+        data = f.read()
+    if data[:8] != b"\x89PNG\r\n\x1a\n":
+        sys.exit(f"[ERROR] not a PNG : {path}")
+
+    pos, header, palette, idat = 8, None, b"", bytearray()
+    while pos + 8 <= len(data):
+        size, kind = struct.unpack(">I4s", data[pos:pos + 8])
+        payload = data[pos + 8:pos + 8 + size]
+        pos += 12 + size
+        if kind == b"IHDR":
+            header = struct.unpack(">IIBBBBB", payload)
+        elif kind == b"PLTE":
+            palette = payload
+        elif kind == b"IDAT":
+            idat += payload
+        elif kind == b"IEND":
+            break
+    if header is None:
+        sys.exit(f"[ERROR] PNG without header : {path}")
+    width, height, depth, colour, _, _, interlace = header
+    if depth != 8 or interlace != 0 or colour not in (0, 2, 3, 4, 6):
+        sys.exit(f"[ERROR] only 8-bit, non-interlaced PNGs are read ({depth} bits, colour type {colour}, interlace {interlace}) : {path}")
+
+    channels = {0: 1, 2: 3, 3: 1, 4: 2, 6: 4}[colour]
+    stride = width * channels
+    raw = zlib.decompress(bytes(idat))
+    rows, previous = [], bytearray(stride)
+    pos = 0
+    for _ in range(height):
+        kind = raw[pos]
+        row = bytearray(raw[pos + 1:pos + 1 + stride])
+        pos += 1 + stride
+        if kind == 1:
+            for i in range(channels, stride):
+                row[i] = (row[i] + row[i - channels]) & 255
+        elif kind == 2:
+            for i in range(stride):
+                row[i] = (row[i] + previous[i]) & 255
+        elif kind == 3:
+            for i in range(stride):
+                left = row[i - channels] if i >= channels else 0
+                row[i] = (row[i] + (left + previous[i]) // 2) & 255
+        elif kind == 4:
+            for i in range(stride):
+                left = row[i - channels] if i >= channels else 0
+                corner = previous[i - channels] if i >= channels else 0
+                row[i] = (row[i] + paeth(left, previous[i], corner)) & 255
+        rows.append(row)
+        previous = row
+
+    rgb = bytearray(width * height * 3)
+    for y, row in enumerate(rows):
+        out = y * width * 3
+        if colour == 2:
+            rgb[out:out + width * 3] = row
+        elif colour == 6:
+            rgb[out:out + width * 3:3] = row[0::4]
+            rgb[out + 1:out + width * 3:3] = row[1::4]
+            rgb[out + 2:out + width * 3:3] = row[2::4]
+        elif colour in (0, 4):
+            grey = row[0::channels]
+            for c in range(3):
+                rgb[out + c:out + width * 3:3] = grey
+        else:
+            for x in range(width):
+                index = row[x] * 3
+                rgb[out + x * 3:out + x * 3 + 3] = palette[index:index + 3]
+    return width, height, rgb
+
+
+def read_picture(path):
+    """(width, height, rgb bytes) of a .png, or of a linear .hdr as it would be shown (sRGB, no exposure)"""
+    if path.lower().endswith(".hdr"):
+        width, height, (r, g, b) = read_hdr(path)
+        rgb = bytearray(width * height * 3)
+        rgb[0::3] = bytes(srgb_byte(v) for v in r)
+        rgb[1::3] = bytes(srgb_byte(v) for v in g)
+        rgb[2::3] = bytes(srgb_byte(v) for v in b)
+        return width, height, rgb
+    return read_png(path)
+
+
+def heat(t):
+    """0 : black, 1 : white, through blue, red and yellow"""
+    t = min(max(t, 0.0), 1.0)
+    stops_ = ((0.0, (0, 0, 0)), (0.25, (40, 40, 200)), (0.55, (220, 30, 30)), (0.8, (255, 210, 40)), (1.0, (255, 255, 255)))
+    for (t0, c0), (t1, c1) in zip(stops_, stops_[1:]):
+        if t <= t1:
+            k = (t - t0) / (t1 - t0)
+            return bytes(int(c0[i] + (c1[i] - c0[i]) * k) for i in range(3))
+    return bytes(stops_[-1][1])
+
+
+LEVELS = (1, 2, 4, 8, 16, 32)
+
+
+def diff_pictures(a, b, width, height, block, gain_levels):
+    """Everything the report says about two pictures of the same size, and the picture of where they differ.
+    The error of a pixel is its largest channel difference, in levels of 0..255."""
+    count = width * height
+    error = bytearray(count)
+    sum_abs = [0, 0, 0]
+    sum_sq = [0, 0, 0]
+    sum_signed = [0, 0, 0]
+    for c in range(3):
+        ac, bc = a[c::3], b[c::3]
+        total_abs = total_sq = total_signed = 0
+        for i, (p, q) in enumerate(zip(ac, bc)):
+            d = q - p
+            total_signed += d
+            if d < 0:
+                d = -d
+            total_abs += d
+            total_sq += d * d
+            if d > error[i]:
+                error[i] = d
+        sum_abs[c], sum_sq[c], sum_signed[c] = total_abs, total_sq, total_signed
+
+    histogram = [0] * 256
+    for e in error:
+        histogram[e] += 1
+
+    def percentile_of(fraction):
+        target = fraction * count
+        seen = 0
+        for level, n in enumerate(histogram):
+            seen += n
+            if seen >= target:
+                return level
+        return 255
+
+    mse = sum(sum_sq) / (3.0 * count)
+    metrics = {
+        "width": width, "height": height,
+        "identical": max(error) == 0,
+        "mean_abs": sum(sum_abs) / (3.0 * count),
+        "mean_abs_rgb": [s / count for s in sum_abs],
+        "bias_rgb": [s / count for s in sum_signed],
+        "rmse": math.sqrt(mse),
+        "psnr": float("inf") if mse == 0 else 10.0 * math.log10(255.0 * 255.0 / mse),
+        "max": max(error),
+        "median": percentile_of(0.5), "p90": percentile_of(0.9), "p99": percentile_of(0.99), "p999": percentile_of(0.999),
+        "over": {str(level): sum(histogram[level + 1:]) / count for level in LEVELS},
+    }
+
+    # Where : the block x block areas, by mean error
+    bw, bh = width // block, height // block
+    areas = []
+    for by in range(bh):
+        for bx in range(bw):
+            total = 0
+            for y in range(by * block, (by + 1) * block):
+                start = y * width + bx * block
+                total += sum(error[start:start + block])
+            areas.append((total / float(block * block), bx * block, by * block))
+    areas.sort(reverse=True)
+    metrics["worst_areas"] = [{"x": x, "y": y, "size": block, "mean_abs": round(m, 3)} for m, x, y in areas[:5] if m > 0]
+
+    # The picture : A | B | where they differ
+    gap = 4
+    total_w = width * 3 + gap * 2
+    pixels = bytearray(bytes((24, 24, 24)) * (total_w * height))
+    palette = [heat(level / gain_levels) for level in range(256)]
+    for y in range(height):
+        out = y * total_w * 3
+        src = y * width * 3
+        pixels[out:out + width * 3] = a[src:src + width * 3]
+        pixels[out + (width + gap) * 3:out + (width + gap) * 3 + width * 3] = b[src:src + width * 3]
+        row = bytearray()
+        for e in error[y * width:(y + 1) * width]:
+            row += palette[e]
+        pixels[out + 2 * (width + gap) * 3:out + 2 * (width + gap) * 3 + width * 3] = row
+    return metrics, total_w, pixels
+
+
+def print_diff(metrics, name_a, name_b, gain_levels):
+    m = metrics
+    print(f"{name_a}  vs  {name_b}   ({m['width']}x{m['height']})")
+    if m["identical"]:
+        print("  identical, pixel for pixel")
+        return
+    psnr = "inf" if m["psnr"] == float("inf") else f"{m['psnr']:.1f} dB"
+    print(f"  mean error {m['mean_abs']:.3f} / 255   (R {m['mean_abs_rgb'][0]:.3f}  G {m['mean_abs_rgb'][1]:.3f}  B {m['mean_abs_rgb'][2]:.3f})")
+    print(f"  bias       R {m['bias_rgb'][0]:+.3f}  G {m['bias_rgb'][1]:+.3f}  B {m['bias_rgb'][2]:+.3f}   ({name_b} minus {name_a}, + : {name_b} is brighter)")
+    print(f"  RMSE {m['rmse']:.3f}   PSNR {psnr}   worst pixel {m['max']}")
+    print(f"  pixel error  median {m['median']}   p90 {m['p90']}   p99 {m['p99']}   p99.9 {m['p999']}")
+    print("  pixels off by more than " + "   ".join(f"{level}: {m['over'][str(level)] * 100:.2f}%" for level in LEVELS))
+    if m["worst_areas"]:
+        print("  worst areas (x, y, mean error) : " + "   ".join(f"{w['x']},{w['y']} {w['mean_abs']:.1f}" for w in m["worst_areas"]))
+    print(f"  (map : black = same, white = {gain_levels}+ levels off)")
+
+
+def verdict(metrics, args):
+    """The reasons the comparison fails the limits given (--max-mean, --max-p99, --max-over), empty when it passes"""
+    reasons = []
+    if args.max_mean is not None and metrics["mean_abs"] > args.max_mean:
+        reasons.append(f"mean error {metrics['mean_abs']:.3f} > {args.max_mean}")
+    if args.max_p99 is not None and metrics["p99"] > args.max_p99:
+        reasons.append(f"p99 pixel error {metrics['p99']} > {args.max_p99}")
+    if args.max_over is not None and metrics["over"]["8"] * 100.0 > args.max_over:
+        reasons.append(f"{metrics['over']['8'] * 100:.2f}% of the pixels are off by more than 8 > {args.max_over}%")
+    return reasons
+
+
+def add_diff_options(parser):
+    parser.add_argument("--block", type=int, default=16, help="size in pixels of the areas that rank where the pictures differ most")
+    parser.add_argument("--gain", type=int, default=32, help="levels (of 255) at which the difference map is white")
+    parser.add_argument("--max-mean", type=float, default=None, help="fail (exit 1) when the mean error, in levels of 255, is above this")
+    parser.add_argument("--max-p99", type=int, default=None, help="fail when the 99th percentile of the pixel error is above this")
+    parser.add_argument("--max-over", type=float, default=None, help="fail when more than this percentage of the pixels are off by more than 8 levels")
+
+
+def compare_two(path_a, path_b, name_a, name_b, out, args, stem="diff"):
+    """Compares two picture files, prints the report, writes <out>/<stem>.png and <stem>.json. Returns (metrics, failures)."""
+    wa, ha, a = read_picture(path_a)
+    wb, hb, b = read_picture(path_b)
+    if (wa, ha) != (wb, hb):
+        sys.exit(f"[ERROR] {name_a} is {wa}x{ha} but {name_b} is {wb}x{hb} : the pictures must be the same size")
+    metrics, total_w, pixels = diff_pictures(a, b, wa, ha, max(args.block, 1), max(args.gain, 1))
+    metrics.update({"a": path_a, "b": path_b})
+    failures = verdict(metrics, args)
+    metrics["failures"] = failures
+
+    os.makedirs(out, exist_ok=True)
+    write_png(os.path.join(out, stem + ".png"), total_w, ha, pixels)
+    with open(os.path.join(out, stem + ".json"), "w", encoding="utf-8", newline="\n") as f:
+        json.dump(metrics, f, indent=2)
+    print_diff(metrics, name_a, name_b, max(args.gain, 1))
+    return metrics, failures
+
+
+def diff_main(argv):
+    parser = argparse.ArgumentParser(prog="compare_frames.py diff", description="Reports how two pictures of the same size differ (.png, or linear .hdr).")
+    parser.add_argument("a", help="first picture (the reference)")
+    parser.add_argument("b", help="second picture")
+    parser.add_argument("--out", default=None, help="output folder (default : next to the second picture)")
+    add_diff_options(parser)
+    args = parser.parse_args(argv)
+
+    out = os.path.abspath(args.out or os.path.dirname(os.path.abspath(args.b)))
+    stem = f"diff.{os.path.splitext(os.path.basename(args.a))[0]}.{os.path.splitext(os.path.basename(args.b))[0]}"
+    _, failures = compare_two(args.a, args.b, os.path.basename(args.a), os.path.basename(args.b), out, args, stem)
+    print(f"\n[INFO] {os.path.join(out, stem)}.png (A | B | difference) and .json")
+    if failures:
+        sys.exit("[FAIL] " + " ; ".join(failures))
+
+
+def write_api_commands(path, folder, args, views):
+    """The console script of one API's run : one PNG per view"""
+    settle = 8          # the render thread lags the simulation
+    lines = ["0 timescale 0"]
+    if args.pipeline:
+        lines.append(f"0 render.pipeline {args.pipeline}")
+    for command in args.command:
+        lines.append(f"0 {command}")
+    frame = args.warmup
+    for view in views:
+        lines.append(f"{frame} render.camera {view['view'] or 'off'}")
+        frame += settle
+        lines.append(f'{frame} render.screenshot "{folder}/{view["name"]}.png"')
+        frame += 1
+    lines.append(f"{frame} render.camera off")
+    with open(path, "w", encoding="utf-8", newline="\n") as f:
+        f.write("\n".join(lines) + "\n")
+    return frame + 3
+
+
+def run_api(args, out, api, views):
+    """Runs the player on one API, with the same script for every API : <out>/<api>/<view>.png"""
+    build = os.path.abspath(args.build)
+    player = find_player(build)
+    if not player:
+        sys.exit(f"[ERROR] no ShardGame in {build} : build the project first (cmake --build build --target ShardGame)")
+    folder = f"{out}/{api}"
+    os.makedirs(folder, exist_ok=True)
+    for view in views:
+        stale = os.path.join(folder, view["name"] + ".png")
+        if os.path.isfile(stale):
+            os.remove(stale)
+
+    commands = os.path.join(folder, "commands.txt")
+    frames = write_api_commands(commands, folder, args, views)
+    env = dict(os.environ)
+    mingw = r"C:\msys64\mingw64\bin"
+    if os.name == "nt" and os.path.isdir(mingw):
+        env["PATH"] = mingw + os.pathsep + env.get("PATH", "")
+    if api == "vulkan":
+        env.setdefault("SHARD_VULKAN_VALIDATION", "0")
+
+    cmd = [player, "--project", os.path.abspath(args.project), "--api", api, "--world", args.world,
+           "--frames", str(frames), "--width", str(args.width), "--height", str(args.height), "--vsync", "0",
+           "--script", commands, "--seed", str(args.seed)]
+    print(f"[INFO] {api} : {args.world}, {len(views)} view(s), {args.warmup} warm-up frames")
+
+    log_path = os.path.join(folder, "player.log")
+    failures = []
+    start = time.time()
+    with open(log_path, "w", encoding="utf-8", errors="replace") as log:
+        process = subprocess.Popen(cmd, cwd=build, env=env, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
+                                   stdin=subprocess.DEVNULL, text=True, encoding="utf-8", errors="replace")
+        for line in process.stdout:
+            log.write(line)
+            if "Script @" in line:
+                if args.verbose or " FAILED" in line:
+                    print("  " + line.strip()[:220])
+                if " FAILED" in line:
+                    failures.append(line.strip())
+            elif "[ERROR]" in line or "[FATAL]" in line:
+                print("  " + line.strip()[:220])
+            if time.time() - start > args.timeout:
+                process.kill()
+                sys.exit(f"[ERROR] no result after {args.timeout} s (--timeout) : see {log_path}")
+        status = process.wait()
+    if status != 0:
+        sys.exit(f"[ERROR] the {api} player exited with {status} : see {log_path}")
+    if failures:
+        sys.exit(f"[ERROR] {len(failures)} command(s) failed on {api} : see {log_path}")
+    for view in views:
+        if not os.path.isfile(os.path.join(folder, view["name"] + ".png")):
+            sys.exit(f"[ERROR] {api} wrote no picture for the view {view['name']} : see {log_path}")
+
+
+def apis_main(argv):
+    parser = argparse.ArgumentParser(prog="compare_frames.py apis",
+                                     description="Renders a world with OpenGL and with Vulkan, from the same views, and reports how the pictures differ.")
+    parser.add_argument("--world", default="sponza.world", help="world of the project to render")
+    parser.add_argument("--view", action="append", default=[],
+                        help="a view, 'name=px py pz tx ty tz [fov]' or 'camera' (the world's) ; repeatable ; "
+                             "default : the world's views in scripts/reference_views.json, else its camera")
+    parser.add_argument("--project", default=os.path.join(ROOT, "example_project", "example_project.json"))
+    parser.add_argument("--build", default=os.path.join(ROOT, "build"), help="build folder holding ShardGame")
+    parser.add_argument("--pipeline", default=None, help="render pipeline (render.pipeline : deferred, forward_plus...) ; the project's by default")
+    parser.add_argument("--width", type=int, default=640)
+    parser.add_argument("--height", type=int, default=360)
+    parser.add_argument("--warmup", type=int, default=60, help="frames before the captures (the live GI probes need ~800 in a Debug build)")
+    parser.add_argument("--seed", type=int, default=7, help="simulation seed, the same on both APIs")
+    parser.add_argument("--timeout", type=int, default=1800, help="seconds each player may take")
+    parser.add_argument("--out", default=None, help="output folder (default : build/api_compare/<world>)")
+    parser.add_argument("--reuse", action="store_true", help="do not run the players : compare the pictures already in --out")
+    parser.add_argument("--command", action="append", default=[], help="console command run at the start on both APIs (repeatable)")
+    parser.add_argument("--verbose", action="store_true", help="print every console command the players run")
+    add_diff_options(parser)
+    args = parser.parse_args(argv)
+
+    world_name = os.path.splitext(os.path.basename(args.world))[0]
+    out = os.path.abspath(args.out or os.path.join(args.build, "api_compare", world_name)).replace("\\", "/")
+    if " " in out:
+        sys.exit(f"[ERROR] the output folder cannot contain spaces (console paths) : {out}")
+    views = views_of(args)
+
+    if not args.reuse:
+        for api in ("opengl", "vulkan"):
+            run_api(args, out, api, views)
+
+    results = []
+    failed = []
+    for view in views:
+        print()
+        metrics, failures = compare_two(f"{out}/opengl/{view['name']}.png", f"{out}/vulkan/{view['name']}.png",
+                                        f"opengl/{view['name']}", f"vulkan/{view['name']}", out, args, f"diff.{view['name']}")
+        results.append({"name": view["name"], "view": view["view"], **metrics})
+        failed += [f"{view['name']} : {reason}" for reason in failures]
+
+    report = {"world": args.world, "pipeline": args.pipeline or "project default", "width": args.width, "height": args.height,
+              "warmup": args.warmup, "views": results, "failures": failed}
+    with open(os.path.join(out, "report.json"), "w", encoding="utf-8", newline="\n") as f:
+        json.dump(report, f, indent=2)
+
+    if len(results) > 1:
+        print()
+        print(f"{'view':<14} {'mean':>8} {'rmse':>8} {'p99':>5} {'max':>5} {'>8 levels':>10}")
+        for r in results:
+            print(f"{r['name']:<14} {r['mean_abs']:>8.3f} {r['rmse']:>8.3f} {r['p99']:>5} {r['max']:>5} {r['over']['8'] * 100:>9.2f}%")
+    print(f"\n[INFO] pictures, difference maps (diff.<view>.png : opengl | vulkan | difference) and report.json : {out}")
+    if failed:
+        sys.exit("[FAIL] " + " ; ".join(failed))
+
+
+COMMANDS = {"diff": diff_main, "apis": apis_main, "reference": reference_main}
+
+
+def main():
+    if len(sys.argv) < 2 or sys.argv[1] not in COMMANDS:
+        print("usage: compare_frames.py {diff A B | apis | reference} [options]   (--help after a command for its options)\n"
+              "  diff       how two pictures differ\n"
+              "  apis       the same world rendered with OpenGL and with Vulkan, compared\n"
+              "  reference  the real-time renderer against the path tracer, term by term")
+        sys.exit(0 if len(sys.argv) > 1 and sys.argv[1] in ("-h", "--help") else 2)
+    COMMANDS[sys.argv[1]](sys.argv[2:])
 
 
 if __name__ == "__main__":

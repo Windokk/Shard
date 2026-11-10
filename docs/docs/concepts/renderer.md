@@ -172,10 +172,14 @@ The offline path tracer (`raytrace.render`) is the reference the real-time light
 - `render.lighting_terms <terms>` makes the main view draw only some terms (`all`, `none`, or names joined by `+`). While it is not `all`, SSR keeps the reflections of the last full frame, and the sky is drawn only with `emission`.
 - `raytrace.render <file.hdr> <w> <h> <spp> <bounces> terms` also writes `<file>.<term>.hdr`. Every contribution of a path is tagged by the first surface it leaves (its own emission, the lights sampled from it, or the lobe the path continues by), so the term images add up exactly to the picture.
 - `render.camera <px> <py> <pz> <tx> <ty> <tz> [fov]` draws the frames (and what `raytrace.render` traces) from another view: a position, the point it looks at, the vertical field of view. It leaves the simulation alone. `render.camera off` goes back to the active camera, and `render.camera` alone prints the view and the extent of the meshes.
-- `python scripts/compare_reference.py --world sponza.world` runs both from the world's views in `scripts/reference_views.json` (or its camera) and writes `build/reference_compare/<world>/report.html`. For each term, over all views and for each view, it gives the term's share of the light, the overall bias in stops, the error per area (too bright / too dark), and an error map. With `--keep-reference`, only the real-time side is rendered again.
+- `python scripts/compare_frames.py reference --world sponza.world` runs both from the world's views in `scripts/reference_views.json` (or its camera) and writes `build/reference_compare/<world>/report.html`. For each term, over all views and for each view, it gives the term's share of the light, the overall bias in stops, the error per area (too bright / too dark), and an error map. With `--keep-reference`, only the real-time side is rendered again.
 
 A lightmapped surface takes the direct light of `Static` lights from its lightmap, so in real time that light counts as `indirect_diffuse`. Compare with Dynamic or Stationary lights to keep the terms apart.
 
 ## Editor on Vulkan
 
 `ShardEditor --api vulkan` draws Dear ImGui to the swapchain with `imgui_impl_vulkan` (see `RendererAPI::PresentUI`). Textures reach ImGui as descriptor sets created on the render thread.
+
+## Comparing OpenGL and Vulkan
+
+`python scripts/compare_frames.py apis --world sponza.world` renders the world with `--api opengl`, then with `--api vulkan`, from the same views and the same seed, and reports how the pictures differ: mean error in levels of 255, RMSE, PSNR, percentiles of the pixel error, the share of pixels off by more than 1 to 32 levels, and the areas that differ most. `build/api_compare/<world>/diff.<view>.png` shows opengl | vulkan | difference map. `--max-mean`, `--max-p99` and `--max-over` make it exit with 1, and `compare_frames.py diff a.png b.png` compares any two pictures. See `scripts/README.md`.

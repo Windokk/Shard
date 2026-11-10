@@ -617,7 +617,7 @@ vec3 ComputeLightDisney(Light light, vec3 L, vec3 V, vec3 N, vec3 baseColor, flo
     return Lo;
 }
 
-// Narrow on purpose. At 0..0.3 it darkened every grazed surface, about a third of Sponza's direct light against the path tracer (scripts/compare_reference.py).
+// Narrow on purpose. At 0..0.3 it darkened every grazed surface, about a third of Sponza's direct light against the path tracer (scripts/compare_frames.py).
 float TerminatorSoften(vec3 geoNormal, vec3 L){
     return smoothstep(0.0, 0.05, dot(normalize(geoNormal), L));
 }
