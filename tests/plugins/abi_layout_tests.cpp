@@ -621,6 +621,21 @@ static_assert(offsetof(ShardNetApi, local_port) == 56, "ShardNetApi.local_port")
 static_assert(offsetof(ShardNetApi, queued_bytes) == 64, "ShardNetApi.queued_bytes");
 static_assert(offsetof(ShardNetApi, set_option) == 72, "ShardNetApi.set_option");
 static_assert(offsetof(ShardNetApi, poll) == 80, "ShardNetApi.poll");
+static_assert(sizeof(ShardWait) == 24, "ShardWait");
+static_assert(offsetof(ShardWait, kind) == 0, "ShardWait.kind");
+static_assert(offsetof(ShardWait, seconds) == 8, "ShardWait.seconds");
+static_assert(offsetof(ShardWait, latch) == 16, "ShardWait.latch");
+static_assert(sizeof(ShardTimersApi) == 80, "ShardTimersApi");
+static_assert(offsetof(ShardTimersApi, after) == 8, "ShardTimersApi.after");
+static_assert(offsetof(ShardTimersApi, every) == 16, "ShardTimersApi.every");
+static_assert(offsetof(ShardTimersApi, start) == 24, "ShardTimersApi.start");
+static_assert(offsetof(ShardTimersApi, cancel) == 32, "ShardTimersApi.cancel");
+static_assert(offsetof(ShardTimersApi, cancel_all) == 40, "ShardTimersApi.cancel_all");
+static_assert(offsetof(ShardTimersApi, is_active) == 48, "ShardTimersApi.is_active");
+static_assert(offsetof(ShardTimersApi, event_latch) == 56, "ShardTimersApi.event_latch");
+static_assert(offsetof(ShardTimersApi, latch_fired) == 64, "ShardTimersApi.latch_fired");
+static_assert(offsetof(ShardTimersApi, latch_release) == 72, "ShardTimersApi.latch_release");
+static_assert(SHARD_WAIT_DONE == 0 && SHARD_WAIT_SECONDS == 1 && SHARD_WAIT_LATCH == 2, "timers (1.8)");
 static_assert(SHARD_VERTEX_POSITION == 1 && SHARD_VERTEX_NORMAL == 2 && SHARD_VERTEX_TANGENT == 4 && SHARD_VERTEX_UV0 == 8 && SHARD_VERTEX_UV1 == 16, "vertex attributes");
 static_assert(SHARD_VERTEX_COLOR == 32 && SHARD_VERTEX_JOINTS == 64 && SHARD_VERTEX_WEIGHTS == 128 && SHARD_MESH_INDEX16 == 1, "vertex attributes");
 static_assert(SHARD_TEXTURE_R8 == 1 && SHARD_TEXTURE_RGBA8 == 3 && SHARD_TEXTURE_R32F == 6 && SHARD_TEXTURE_RENDER_TARGET == 16, "texture formats and flags");
@@ -642,7 +657,7 @@ static_assert(SHARD_PHASE_UPDATE == 4 && SHARD_PHASE_LATE == 5 && SHARD_PHASE_EX
 static_assert(SHARD_SYSTEM_EXCLUSIVE == 1 && SHARD_SYSTEM_MAIN_THREAD == 2, "system flags");
 static_assert(SHARD_PRIORITY_EARLIEST == -200 && SHARD_PRIORITY_EARLY == -100 && SHARD_PRIORITY_NORMAL == 0 && SHARD_PRIORITY_LATE == 100 && SHARD_PRIORITY_LATEST == 200, "priorities");
 static_assert(SHARD_LOG_INFO == 0 && SHARD_LOG_WARNING == 1 && SHARD_LOG_ERROR == 2, "log levels");
-static_assert(SHARD_ABI_MAJOR == 1 && SHARD_ABI_MINOR == 7, "the ABI revision of these headers");
+static_assert(SHARD_ABI_MAJOR == 1 && SHARD_ABI_MINOR == 8, "the ABI revision of these headers");
 
 TEST(AbiLayout, HeadersPinLayout)
 {

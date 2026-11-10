@@ -19,6 +19,7 @@ struct Stats {
     int menuRuns = 0, toolbarRuns = 0, inspectorDraws = 0, gizmoDraws = 0, selectionEvents = 0, selectionSize = -1, widgetDraws = 0, tabItems = 0, tableCells = 0, pickedIndex = -1;
     float contentWidth = -1.f;
     std::string inspected, gizmoActor;
+    int timerOnce = 0, timerEvery = 0, coroSteps = 0, coroDone = 0, untilFlag = 0, eventResumed = 0, eventFired = 0, stoppedEvery = 0;
 };
 
 inline Stats& GetStats()

@@ -26,6 +26,7 @@
 #include "shard_experimental.h"
 #include "shard_jobs.h"
 #include "shard_time.h"
+#include "shard_timers.h"
 #include "shard_assets.h"
 #include "shard_render.h"
 #include "shard_debug.h"

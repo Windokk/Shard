@@ -24,6 +24,7 @@
 #include <shard/shard_physics.h>
 #include <shard/shard_audio.h>
 #include <shard/shard_worlds.h>
+#include <shard/shard_timers.h>
 #include <shard/shard_editor.h>
 
 namespace Shard::Engine::Plugins::Wasm {
@@ -51,6 +52,7 @@ namespace Shard::Engine::Plugins::Wasm {
         { "shard.physics", "physics", 1, Permission::Physics },
         { "shard.audio", "audio", 0, Permission::Audio },
         { "shard.worlds", "worlds", 1, Permission::None },
+        { "shard.timers", "timers", 0, Permission::None },
         { "shard.editor", "editor", 2, Permission::Editor },
     };
 
@@ -71,6 +73,7 @@ namespace Shard::Engine::Plugins::Wasm {
         const ShardPhysicsApi* physics = nullptr;
         const ShardAudioApi* audio = nullptr;
         const ShardWorldsApi* worlds = nullptr;
+        const ShardTimersApi* timers = nullptr;
         const ShardEditorApi* editor = nullptr;
     };
     template <typename Query>
@@ -92,6 +95,7 @@ namespace Shard::Engine::Plugins::Wasm {
         apis.physics = static_cast<const ShardPhysicsApi*>(query("shard.physics", 1));
         apis.audio = static_cast<const ShardAudioApi*>(query("shard.audio", 0));
         apis.worlds = static_cast<const ShardWorldsApi*>(query("shard.worlds", 1));
+        apis.timers = static_cast<const ShardTimersApi*>(query("shard.timers", 0));
         apis.editor = static_cast<const ShardEditorApi*>(query("shard.editor", 2));
         return apis;
     }
@@ -495,6 +499,26 @@ namespace Shard::Engine::Plugins::Wasm {
             inline constexpr uint32_t o_loaded_count = 12;
             inline constexpr uint32_t o_spawn_prefab = 16;
             inline constexpr uint32_t o_world_at = 20;
+        }
+        namespace ShardWait {
+            inline constexpr uint32_t kSize = 24, kAlign = 8;
+            inline constexpr uint32_t o_kind = 0;
+            inline constexpr uint32_t o_reserved = 4;
+            inline constexpr uint32_t o_seconds = 8;
+            inline constexpr uint32_t o_latch = 16;
+        }
+        namespace ShardTimersApi {
+            inline constexpr uint32_t kSize = 40, kAlign = 4;
+            inline constexpr uint32_t o_structSize = 0;
+            inline constexpr uint32_t o_after = 4;
+            inline constexpr uint32_t o_every = 8;
+            inline constexpr uint32_t o_start = 12;
+            inline constexpr uint32_t o_cancel = 16;
+            inline constexpr uint32_t o_cancel_all = 20;
+            inline constexpr uint32_t o_is_active = 24;
+            inline constexpr uint32_t o_event_latch = 28;
+            inline constexpr uint32_t o_latch_fired = 32;
+            inline constexpr uint32_t o_latch_release = 36;
         }
         namespace ShardUiApi {
             inline constexpr uint32_t kSize = 468, kAlign = 4;

@@ -10,6 +10,7 @@
 #include "engine/assets/serialization/tags/tag_json.hpp"
 #include "engine/core/tags/tag_registry.hpp"
 #include "engine/world/event_system.hpp"
+#include "engine/world/time_manager.hpp"
 
 namespace Shard::Engine::Worlds{
 
@@ -527,6 +528,8 @@ namespace Shard::Engine::Worlds{
 
     void World::Unload()
     {
+        scheduler->CancelAll();
+
         for(auto& [type, extension] : extensions)
             extension->OnUnload(*this);
 
@@ -544,11 +547,15 @@ namespace Shard::Engine::Worlds{
 
     void World::EditTick()
     {
+        Scheduler::RefuseScope refuse;
         ForEachScript(scripts, [](auto& script){ if(script->Active() && script->RunsInEditMode()) script->OnEditTick(); });
     }
 
     void World::FixedTick()
     {
+        if(Time::TimeManager* time = Core::GetEngine().GetTimeManager())
+            scheduler->Advance(time->GetFixedDeltaTime());
+
         ForEachScript(scripts, [](auto& script){ if(script->Active()) script->OnFixedTick(); });
     }
 
@@ -568,6 +575,8 @@ namespace Shard::Engine::Worlds{
     void World::Stop()
     {
         ForEachScript(scripts, [](auto& script){ if(script->Active()) script->OnStop(); });
+
+        scheduler->CancelAll();
 
         for(auto& [type, extension] : extensions)
             extension->OnStop(*this);

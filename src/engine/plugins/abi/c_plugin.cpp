@@ -26,6 +26,7 @@
 #include <shard/shard_input.h>
 #include <shard/shard_jobs.h>
 #include <shard/shard_time.h>
+#include <shard/shard_timers.h>
 #include <shard/shard_assets.h>
 #include <shard/shard_reflect.h>
 #include <shard/shard_net.h>
@@ -443,6 +444,7 @@ namespace Shard::Engine::Plugins {
                 { SHARD_IFACE_WORLDS, 1, 1, WorldsApi() },
                 { SHARD_IFACE_JOBS, 1, 0, JobsApi() },
                 { SHARD_IFACE_TIME, 1, 0, TimeApi() },
+                { SHARD_IFACE_TIMERS, 1, 0, TimersApi() },
                 { SHARD_IFACE_ASSETS, 1, 0, AssetsApi() },
                 { SHARD_IFACE_REFLECT, 1, 0, ReflectApi() },
                 { SHARD_IFACE_NET, 1, 0, NetApi() },

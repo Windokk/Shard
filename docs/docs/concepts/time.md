@@ -56,6 +56,65 @@ void Character::OnTick(float deltaTime)      // the SDK passes the step ; engine
 }
 ```
 
+## Delays, timers and coroutines
+
+Each world owns a `Worlds::Scheduler` (`world.GetScheduler()`, `engine/world/scheduler.hpp`). It is advanced in the `Fixed` phase, in simulated time : time scale 0 pauses it, and replays and headless runs reproduce it. Everything is cancelled when the world stops or unloads.
+
+A script has shortcuts that are also cancelled when the script is destroyed :
+
+```cpp
+After(2.0, [this]{ Explode(); });                  // once, after 2 s
+TimerHandle h = Every(0.5, [this]{ Spawn(); });    // every 0.5 s, first run after 0.5 s
+StopTimer(h);                                      // StopTimers() cancels all of them
+
+StartCoroutine(Sequence().Do([]{ Open(); }).Delay(1.0).Do([]{ Close(); }).Build());
+
+StartCoroutine([this, state = 0]() mutable -> Wait {
+    switch(state++) {
+        case 0: Warn();  return Wait::Seconds(1.0);
+        case 1: Fire();  return Wait::NextStep();
+        default:         return Wait::Done();
+    }
+});
+```
+
+### Waiting on a condition or an event
+
+`Wait::Until(pred, timeout)` (or `Sequence::Until`) resumes a coroutine on the first fixed step where `pred()` is true, or after `timeout` seconds. The default timeout is infinite. The predicate is polled once per step, so an already true one still waits a step.
+
+`EventWait<T>` (`engine/world/scheduler_events.hpp`) turns an event into such a predicate. It latches the first matching `T` from the moment it is built, so an event that arrives before the coroutine reaches the wait is not lost :
+
+```cpp
+auto hit = EventWait<Events::ContactAddedEvent>::ForActor(dispatcher, GetID());   // or ::Global(dispatcher, filter)
+StartCoroutine(Sequence().Until(hit.Predicate(), 5.0).Do([this]{ Explode(); }).Build());
+// in a hand written step : return hit.Until(5.0);   then check hit.Fired() to tell the event from the timeout
+```
+
+The subscription is dropped when the event arrives or when the last copy of the `EventWait` dies, which includes the coroutine being cancelled. The handler only sets a flag : the coroutine runs on the next fixed step, so it never executes inside the emitter.
+
+### From a plugin (C ABI, C++ SDK, sandbox)
+
+The same scheduler is the interface `shard.timers` (ABI 1.8, `shard_timers.h`), so a plugin gets the same behaviour whatever it is written in : native C or C++ against the SDK, or a sandboxed WebAssembly module. The timers of a plugin live in the active world and stop with it, and with the plugin : a timer never calls into a plugin that was disabled, and a handle is only good for the plugin that made it.
+
+* C : `after`, `every`, `start` (a step function that fills a `ShardWait`), `cancel`, `cancel_all`, and event latches (`event_latch`, `latch_fired`).
+* C++ SDK (`shard/cpp/timers.hpp`) : `Shard::Timers::After / Every / Start / Cancel`, `Shard::Wait`, `Shard::Sequence` and `Shard::EventLatch`, and `After`, `Every`, `StartCoroutine` on `Shard::Script`, tied to the script. `Wait::Until(pred, timeout)` is polled by the SDK each step, a latch is waited on by the host.
+* Sandbox : the callbacks are entries of the module's function table, called through trampolines. The interface is offered like the others, without a permission.
+
+```cpp
+class Door : public Shard::Script {
+    Shard::EventLatch opened{ "door.opened" };         // the event may come before the coroutine reaches its wait
+    void OnPlay() override {
+        StartCoroutine(Shard::Sequence().UntilEvent(opened, 5.0).Do([this]{ Close(); }).Build());
+    }
+};
+```
+
+* Resolution is one fixed step : a timer runs on the first step at or after its due time, and a repeating timer runs at most once per step.
+* A timer added from a callback first runs on the next step. Cancelling from a callback, even the running one, is safe.
+* A callback that throws is logged and cancelled, the others keep running.
+* Timers are not paused while a script is inactive : test `Active()` in the callback or call `StopTimers()` in `OnDeactivated()`.
+* Capture `this` only for timers owned by the script. A timer put straight on the world scheduler without an owner outlives whatever it captures.
+
 ## Time scale
 
 `SetTimeSpeed(x)` scales how fast game time is banked : `0.5` is slow motion (half as many fixed steps per second), `0` freezes the simulation, `2` doubles it. In the console :

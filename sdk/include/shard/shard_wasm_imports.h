@@ -26,6 +26,7 @@
 #include "shard_physics.h"
 #include "shard_audio.h"
 #include "shard_worlds.h"
+#include "shard_timers.h"
 #include "shard_editor.h"
 
 #if defined(__wasm__)
@@ -226,6 +227,17 @@ SHARD_WASM_IMPORT("worlds.is_loading") int32_t shard_wasm_worlds_is_loading(void
 SHARD_WASM_IMPORT("worlds.loaded_count") int32_t shard_wasm_worlds_loaded_count(void);
 SHARD_WASM_IMPORT("worlds.spawn_prefab") ShardResult shard_wasm_worlds_spawn_prefab(ShardActor anchor, ShardStr prefab, ShardActor parent, ShardActor* out);
 SHARD_WASM_IMPORT("worlds.world_at") ShardResult shard_wasm_worlds_world_at(int32_t index, int32_t* asset_id, char* name, uint64_t capacity, uint64_t* size, ShardActor* anchor);
+
+/* ---- shard.timers ---- */
+SHARD_WASM_IMPORT("timers.after") ShardResult shard_wasm_timers_after(ShardPluginCtx ctx, double seconds, ShardTimerFn fn, void* user, ShardTimer* out);
+SHARD_WASM_IMPORT("timers.every") ShardResult shard_wasm_timers_every(ShardPluginCtx ctx, double interval, ShardTimerFn fn, void* user, ShardTimer* out);
+SHARD_WASM_IMPORT("timers.start") ShardResult shard_wasm_timers_start(ShardPluginCtx ctx, ShardStepFn step, void* user, ShardTimer* out);
+SHARD_WASM_IMPORT("timers.cancel") ShardResult shard_wasm_timers_cancel(ShardPluginCtx ctx, ShardTimer timer);
+SHARD_WASM_IMPORT("timers.cancel_all") ShardResult shard_wasm_timers_cancel_all(ShardPluginCtx ctx);
+SHARD_WASM_IMPORT("timers.is_active") int32_t shard_wasm_timers_is_active(ShardPluginCtx ctx, ShardTimer timer);
+SHARD_WASM_IMPORT("timers.event_latch") ShardResult shard_wasm_timers_event_latch(ShardPluginCtx ctx, ShardStr name, ShardLatch* out);
+SHARD_WASM_IMPORT("timers.latch_fired") int32_t shard_wasm_timers_latch_fired(ShardPluginCtx ctx, ShardLatch latch);
+SHARD_WASM_IMPORT("timers.latch_release") ShardResult shard_wasm_timers_latch_release(ShardPluginCtx ctx, ShardLatch latch);
 
 /* ---- shard.editor ---- */
 SHARD_WASM_IMPORT("editor.add_panel") ShardResult shard_wasm_editor_add_panel(ShardPluginCtx ctx, ShardStr title, ShardPanelFn draw, void* user);
@@ -571,6 +583,18 @@ static const ShardWorldsApi shard_wasm_api_worlds = {
     shard_wasm_worlds_spawn_prefab,
     shard_wasm_worlds_world_at,
 };
+static const ShardTimersApi shard_wasm_api_timers = {
+    sizeof(ShardTimersApi),
+    shard_wasm_timers_after,
+    shard_wasm_timers_every,
+    shard_wasm_timers_start,
+    shard_wasm_timers_cancel,
+    shard_wasm_timers_cancel_all,
+    shard_wasm_timers_is_active,
+    shard_wasm_timers_event_latch,
+    shard_wasm_timers_latch_fired,
+    shard_wasm_timers_latch_release,
+};
 static const ShardEditorApi shard_wasm_api_editor = {
     sizeof(ShardEditorApi),
     shard_wasm_editor_add_panel,
@@ -609,6 +633,7 @@ static const ShardWasmInterface shard_wasm_interfaces[] = {
     { "shard.physics", 13, &shard_wasm_api_physics },
     { "shard.audio", 11, &shard_wasm_api_audio },
     { "shard.worlds", 12, &shard_wasm_api_worlds },
+    { "shard.timers", 12, &shard_wasm_api_timers },
     { "shard.editor", 12, &shard_wasm_api_editor },
 };
 
@@ -1127,6 +1152,22 @@ SHARD_WASM_ASSERT(offsetof(ShardWorldsApi, is_loading) == 8, "ShardWorldsApi.is_
 SHARD_WASM_ASSERT(offsetof(ShardWorldsApi, loaded_count) == 12, "ShardWorldsApi.loaded_count");
 SHARD_WASM_ASSERT(offsetof(ShardWorldsApi, spawn_prefab) == 16, "ShardWorldsApi.spawn_prefab");
 SHARD_WASM_ASSERT(offsetof(ShardWorldsApi, world_at) == 20, "ShardWorldsApi.world_at");
+SHARD_WASM_ASSERT(sizeof(ShardWait) == 24 && _Alignof(ShardWait) == 8, "ShardWait");
+SHARD_WASM_ASSERT(offsetof(ShardWait, kind) == 0, "ShardWait.kind");
+SHARD_WASM_ASSERT(offsetof(ShardWait, reserved) == 4, "ShardWait.reserved");
+SHARD_WASM_ASSERT(offsetof(ShardWait, seconds) == 8, "ShardWait.seconds");
+SHARD_WASM_ASSERT(offsetof(ShardWait, latch) == 16, "ShardWait.latch");
+SHARD_WASM_ASSERT(sizeof(ShardTimersApi) == 40 && _Alignof(ShardTimersApi) == 4, "ShardTimersApi");
+SHARD_WASM_ASSERT(offsetof(ShardTimersApi, structSize) == 0, "ShardTimersApi.structSize");
+SHARD_WASM_ASSERT(offsetof(ShardTimersApi, after) == 4, "ShardTimersApi.after");
+SHARD_WASM_ASSERT(offsetof(ShardTimersApi, every) == 8, "ShardTimersApi.every");
+SHARD_WASM_ASSERT(offsetof(ShardTimersApi, start) == 12, "ShardTimersApi.start");
+SHARD_WASM_ASSERT(offsetof(ShardTimersApi, cancel) == 16, "ShardTimersApi.cancel");
+SHARD_WASM_ASSERT(offsetof(ShardTimersApi, cancel_all) == 20, "ShardTimersApi.cancel_all");
+SHARD_WASM_ASSERT(offsetof(ShardTimersApi, is_active) == 24, "ShardTimersApi.is_active");
+SHARD_WASM_ASSERT(offsetof(ShardTimersApi, event_latch) == 28, "ShardTimersApi.event_latch");
+SHARD_WASM_ASSERT(offsetof(ShardTimersApi, latch_fired) == 32, "ShardTimersApi.latch_fired");
+SHARD_WASM_ASSERT(offsetof(ShardTimersApi, latch_release) == 36, "ShardTimersApi.latch_release");
 SHARD_WASM_ASSERT(sizeof(ShardUiApi) == 468 && _Alignof(ShardUiApi) == 4, "ShardUiApi");
 SHARD_WASM_ASSERT(offsetof(ShardUiApi, structSize) == 0, "ShardUiApi.structSize");
 SHARD_WASM_ASSERT(offsetof(ShardUiApi, text) == 4, "ShardUiApi.text");

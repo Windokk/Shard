@@ -174,6 +174,15 @@ namespace Shard::Engine::Plugins::Wasm {
             { "worlds.loaded_count", { {  }, { I } }, false },
             { "worlds.spawn_prefab", { { L, I, L, I }, { I } }, false },
             { "worlds.world_at", { { I, I, I, L, I, I }, { I } }, false },
+            { "timers.after", { { L, D, I, I, I }, { I } }, true },
+            { "timers.every", { { L, D, I, I, I }, { I } }, true },
+            { "timers.start", { { L, I, I, I }, { I } }, true },
+            { "timers.cancel", { { L, L }, { I } }, true },
+            { "timers.cancel_all", { { L }, { I } }, true },
+            { "timers.is_active", { { L, L }, { I } }, false },
+            { "timers.event_latch", { { L, I, I }, { I } }, false },
+            { "timers.latch_fired", { { L, L }, { I } }, false },
+            { "timers.latch_release", { { L, L }, { I } }, false },
             { "editor.add_panel", { { L, I, I, I }, { I } }, true },
             { "editor.add_menu_item", { { L, I, I, I, I }, { I } }, true },
             { "editor.add_toolbar_button", { { L, I, I, I, I }, { I } }, true },
@@ -1459,6 +1468,42 @@ namespace Shard::Engine::Plugins::Wasm {
                 if (!p2.Commit()) return false;
                 if (!p4.Commit()) return false;
                 if (!p5.Commit()) return false;
+                r[0] = uint32_t(rv);
+                return true;
+            });
+        }
+
+        // ---- shard.timers ----
+        {
+            const ShardTimersApi* api = apis.timers;
+            imports.Add("timers.is_active", { { L, L }, { I } }, [&s, api](Instance& in, const uint64_t* a, uint64_t* r) -> bool {
+                (void)in; (void)a; (void)r;
+                if (!api || !SHARD_HAS(api, is_active)) { r[0] = 0; return true; }
+                const auto rv = api->is_active(s.ctx, static_cast<ShardTimer>(a[1]));
+                r[0] = uint32_t(rv);
+                return true;
+            });
+            imports.Add("timers.event_latch", { { L, I, I }, { I } }, [&s, api](Instance& in, const uint64_t* a, uint64_t* r) -> bool {
+                (void)in; (void)a; (void)r;
+                if (!api || !SHARD_HAS(api, event_latch)) { r[0] = uint32_t(SHARD_E_UNSUPPORTED); return true; }
+                std::string p1; if (!ReadStr(in, a[1], p1)) return false;
+                OutArg<ShardLatch> p2(in, a[2]); if (!p2.ok) return false;
+                const auto rv = api->event_latch(s.ctx, ToStr(p1), &p2.value);
+                if (!p2.Commit()) return false;
+                r[0] = uint32_t(rv);
+                return true;
+            });
+            imports.Add("timers.latch_fired", { { L, L }, { I } }, [&s, api](Instance& in, const uint64_t* a, uint64_t* r) -> bool {
+                (void)in; (void)a; (void)r;
+                if (!api || !SHARD_HAS(api, latch_fired)) { r[0] = 0; return true; }
+                const auto rv = api->latch_fired(s.ctx, static_cast<ShardLatch>(a[1]));
+                r[0] = uint32_t(rv);
+                return true;
+            });
+            imports.Add("timers.latch_release", { { L, L }, { I } }, [&s, api](Instance& in, const uint64_t* a, uint64_t* r) -> bool {
+                (void)in; (void)a; (void)r;
+                if (!api || !SHARD_HAS(api, latch_release)) { r[0] = uint32_t(SHARD_E_UNSUPPORTED); return true; }
+                const auto rv = api->latch_release(s.ctx, static_cast<ShardLatch>(a[1]));
                 r[0] = uint32_t(rv);
                 return true;
             });

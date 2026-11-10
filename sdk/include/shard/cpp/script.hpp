@@ -39,6 +39,7 @@
 #include <shard/cpp/detail.hpp>
 #include <shard/cpp/field.hpp>
 #include <shard/cpp/registry.hpp>
+#include <shard/cpp/timers.hpp>
 
 namespace Shard {
 
@@ -91,9 +92,19 @@ namespace Shard {
         /// The world it is in
         Scene GetScene() const { return m_Owner.GetScene(); }
 
+        /// Delays, repeating timers and coroutines of the simulation (shard/cpp/timers.hpp), cancelled when the script is destroyed. They keep running
+        /// while the script is inactive : test it in the callback, or StopTimers() from OnDeactivated().
+        ShardTimer After(double seconds, std::function<void()> fn) { return Track(Timers::After(seconds, std::move(fn))); }
+        ShardTimer Every(double interval, std::function<void()> fn) { return Track(Timers::Every(interval, std::move(fn))); }
+        ShardTimer StartCoroutine(Coroutine step) { return Track(Timers::Start(std::move(step))); }
+        bool StopTimer(ShardTimer timer) { return m_Timers.Cancel(timer); }
+        void StopTimers() { m_Timers.CancelAll(); }
+
     private:
         template <typename T> friend struct ScriptThunks;
+        ShardTimer Track(ShardTimer timer) { m_Timers.Add(timer); return timer; }
         Actor m_Owner;
+        TimerSet m_Timers;
     };
 
     namespace detail {
@@ -148,6 +159,15 @@ namespace Shard {
         {
             return detail::Guard(detail::PluginHandle(), "a script", [&] { (static_cast<Script*>(static_cast<T*>(object))->*Fn)(); });
         }
+        // The host calls this inside a script callback, where cancelling a timer is allowed on whatever thread the script runs on : the destructor is not
+        static ShardResult Destroyed(void*, void* object)
+        {
+            return detail::Guard(detail::PluginHandle(), "a script", [&] {
+                Script* script = static_cast<Script*>(static_cast<T*>(object));
+                script->OnDestroyed();
+                script->StopTimers();
+            });
+        }
         template <void (Script::*Fn)(const Contact&)>
         static ShardResult ContactEvent(void*, void* object, const ShardContact* c)
         {
@@ -198,7 +218,7 @@ namespace Shard {
                 c.on_fixed_tick = &Tick<&Script::OnFixedTick>;
                 c.on_late_tick = &Tick<&Script::OnLateTick>;
                 c.on_stop = &Event<&Script::OnStop>;
-                c.on_destroyed = &Event<&Script::OnDestroyed>;
+                c.on_destroyed = &Destroyed;
                 c.on_activated = &Event<&Script::OnActivated>;
                 c.on_deactivated = &Event<&Script::OnDeactivated>;
                 c.on_contact_added = &ContactEvent<&Script::OnContactAdded>;

@@ -3,6 +3,7 @@
 #include "engine/world/components/component.hpp"
 
 #include "engine/world/event_system.hpp"
+#include "engine/world/scheduler.hpp"
 
 #include "engine/assets/reflection/attributes.hpp"
 
@@ -72,9 +73,23 @@ namespace Shard::Engine::Objects::Components
 
             std::shared_ptr<Component> Clone() const override;
 
+            // Timers and coroutines of this script, run in the fixed step by the world's Scheduler. They die with the script, on Stop and on world unload.
+            // Not paused while the script is inactive : check Active() in the callback, or call StopTimers() from OnDeactivated().
+            // Return 0 when the script is not in a world, or from OnEditTick (the world does not simulate there).
+            Worlds::TimerHandle After(double seconds, Worlds::Scheduler::Callback fn);
+            Worlds::TimerHandle Every(double interval, Worlds::Scheduler::Callback fn);
+            Worlds::TimerHandle StartCoroutine(Worlds::Scheduler::Coroutine step);
+            bool StopTimer(Worlds::TimerHandle handle);
+            void StopTimers();
+
             DECLARE_DESCRIPTOR(Script)
 
         private:
+
+            Worlds::Scheduler* GetScheduler();
+
+            // Kept apart from the world pointer, which outlives the world : the timers are stopped through it, and a world that is gone has none left to stop
+            std::weak_ptr<Worlds::Scheduler> timers;
 
 
     };

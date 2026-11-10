@@ -159,6 +159,7 @@ namespace Shard::Engine::Plugins::CAbi {
     const void* WorldsApi();
     const void* JobsApi();
     const void* TimeApi();
+    const void* TimersApi();
     const void* AssetsApi();
     const void* ReflectApi();
     const void* NetApi();

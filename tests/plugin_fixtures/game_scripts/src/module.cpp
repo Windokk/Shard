@@ -10,10 +10,20 @@ SHARD_GAME_MODULE()
 #   define TEST_EXPORT extern "C" __attribute__((visibility("default")))
 #endif
 
+TEST_EXPORT void game_raise_until(void) { GetStats().untilFlag = 1; }
+
 TEST_EXPORT int game_stat(const char* name)
 {
     const Stats& s = GetStats();
     const std::string n = name;
+    if (n == "timerOnce") return s.timerOnce;
+    if (n == "timerEvery") return s.timerEvery;
+    if (n == "coroSteps") return s.coroSteps;
+    if (n == "coroDone") return s.coroDone;
+    if (n == "untilFlag") return s.untilFlag;
+    if (n == "eventResumed") return s.eventResumed;
+    if (n == "eventFired") return s.eventFired;
+    if (n == "stoppedEvery") return s.stoppedEvery;
     if (n == "created") return s.created;
     if (n == "played") return s.played;
     if (n == "ticks") return s.ticks;

@@ -34,4 +34,5 @@
 #include <shard/cpp/script.hpp>
 #include <shard/cpp/system.hpp>
 #include <shard/cpp/time.hpp>
+#include <shard/cpp/timers.hpp>
 #include <shard/cpp/worlds.hpp>

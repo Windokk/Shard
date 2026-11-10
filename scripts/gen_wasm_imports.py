@@ -44,6 +44,7 @@ INTERFACES = [
     ('shard_physics.h', 'ShardPhysicsApi', 'physics', 'physics'),
     ('shard_audio.h', 'ShardAudioApi', 'audio', 'audio'),
     ('shard_worlds.h', 'ShardWorldsApi', 'worlds', None),
+    ('shard_timers.h', 'ShardTimersApi', 'timers', None),
     ('shard_editor.h', 'ShardEditorApi', 'editor', 'editor'),
 ]
 TABLES = [
@@ -65,6 +66,11 @@ MANUAL = {
     'ecs.count': 'a query with pointers',
     'ecs.get': 'a pointer into host memory : the module gets a copy that is written back',
     'systems.add': 'a descriptor with pointers and a callback',
+    'timers.after': 'a callback : a table index of the module',
+    'timers.every': 'a callback : a table index of the module',
+    'timers.start': 'a callback that fills a struct of the module',
+    'timers.cancel': 'frees the record of the module callback',
+    'timers.cancel_all': 'frees the records of the module callbacks',
     'events.subscribe': 'a callback',
     'events.subscribe_world': 'a callback',
     'events.describe': 'an array of descriptors with strings',

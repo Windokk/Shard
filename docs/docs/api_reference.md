@@ -38,6 +38,7 @@ Every function says which thread may call it : `any`, `system` (from inside a sy
 | [`shard_render.h`](#shard_renderh) | `shard.render` 1.0 | what a plugin puts on the screen that the engine's components do not : meshes it builds, textures it fills, sprites, instances and a 2D overlay |
 | [`shard_scripts.h`](#shard_scriptsh) | `shard.scripts` 1.2 | scripts, the components that carry a plugin's gameplay code |
 | [`shard_time.h`](#shard_timeh) | `shard.time` 1.0 | the simulation's clock, and a fingerprint of its state |
+| [`shard_timers.h`](#shard_timersh) | `shard.timers` 1.0 | delays, repeating timers and coroutines, run by the simulation |
 | [`shard_wasm.h`](#shard_wasmh) | | Sandboxed plugins (tier 2, `"abi"`: `"wasm1"`) |
 | [`shard_worlds.h`](#shard_worldsh) | `shard.worlds` 1.1 | loading worlds, and prefabs ; and which worlds are loaded |
 
@@ -57,7 +58,7 @@ Changing a struct without bumping `SHARD_ABI_MINOR` is a bug : `tests/plugins/ab
 | | Value | |
 |---|---|---|
 | `SHARD_ABI_MAJOR` | `1` |  |
-| `SHARD_ABI_MINOR` | `7` |  |
+| `SHARD_ABI_MINOR` | `8` |  |
 
 Calling convention of every function pointer in the tables. Empty on `x86_64` and arm64.
 
@@ -3691,6 +3692,87 @@ Hashes the simulation now (between frames : from `on_frame_begin` / `on_frame_en
 ShardResult state_hash(ShardStateHash* out);
 ```
 
+### shard_timers.h
+
+Interface `"shard.timers"` 1.0 : delays, repeating timers and coroutines, run by the simulation.
+
+A timer runs a callback later : once after a delay, or every so often. A coroutine is a callback that decides, each time it runs, how long to sleep before running again (or that it is finished), which is how a sequence of `"do this, wait 2 seconds, do that"` is written without a state machine in the game.
+
+Time is the simulation's : timers advance in the fixed step, only while the world plays, so the time scale (0 pauses them) acts on them and a replay of the run reproduces them. The resolution is one fixed step : a timer runs on the first step at or after its due time, and a repeating one at most once per step (a late timer does not replay what it missed). The callbacks run on the fixed step like a script's (thread : script). A timer added from a callback first runs on the next step.
+
+Timers belong to the active world and die with it (when it stops or unloads), and with the plugin that made them : a timer never calls into a plugin that was disabled. A handle is only good for its plugin. A plugin may have 16384 timers and 1024 latches at once, then the calls that add one return `SHARD_E_OUT_OF_MEMORY`. Nothing can be added from a script's edit tick (`SHARD_E_UNSUPPORTED`) : the world does not simulate there, so a timer would never run.
+
+thread : main, or a script's (`is_active` and `latch_fired` : any thread).
+
+| | Value | |
+|---|---|---|
+| `SHARD_IFACE_TIMERS` | `"shard.timers"` |  |
+
+```c
+typedef uint64_t ShardTimer;    // 0 is never a timer
+typedef uint64_t ShardLatch;    // 0 is never a latch
+enum { SHARD_WAIT_DONE = 0, SHARD_WAIT_SECONDS = 1, SHARD_WAIT_LATCH = 2 };
+```
+
+#### ShardWait
+
+```c
+int32_t kind;    // SHARD_WAIT_*
+int32_t reserved;
+double seconds;
+ShardLatch latch;
+```
+
+```c
+typedef void (*ShardTimerFn)(void* user);
+```
+
+One step of a coroutine. `wait` is preset to `SHARD_WAIT_DONE` : set it to ask to be run again. The first step runs on the step after start.
+
+```c
+typedef void (*ShardStepFn)(void* user, ShardWait* wait);
+```
+
+#### ShardTimersApi
+
+```c
+uint32_t structSize;
+```
+
+Runs fn once after `seconds` (negative counts as 0). A seconds that is not finite is `SHARD_E_INVALID_ARG`. `SHARD_E_UNSUPPORTED` : no world is loaded.
+
+```c
+ShardResult after(ShardPluginCtx ctx, double seconds, ShardTimerFn fn, void* user, ShardTimer* out);
+```
+
+Runs fn every `interval` seconds, the first time after one interval.
+
+```c
+ShardResult every(ShardPluginCtx ctx, double interval, ShardTimerFn fn, void* user, ShardTimer* out);
+ShardResult start(ShardPluginCtx ctx, ShardStepFn step, void* user, ShardTimer* out);
+```
+
+Safe from inside a callback, the running one included. `SHARD_E_NOT_FOUND` : finished, cancelled, or not this plugin's.
+
+```c
+ShardResult cancel(ShardPluginCtx ctx, ShardTimer timer);
+```
+
+Cancels every timer of this plugin.
+
+```c
+ShardResult cancel_all(ShardPluginCtx ctx);
+int32_t is_active(ShardPluginCtx ctx, ShardTimer timer);
+```
+
+A latch remembers that the named event (`shard.events`) was emitted at least once since the latch was made, so an event that comes before the coroutine reaches its wait is not lost. Wait on it with `SHARD_WAIT_LATCH`, then ask `latch_fired` to tell the event from the time-out. Released with the plugin, or with `latch_release`.
+
+```c
+ShardResult event_latch(ShardPluginCtx ctx, ShardStr name, ShardLatch* out);
+int32_t latch_fired(ShardPluginCtx ctx, ShardLatch latch);
+ShardResult latch_release(ShardPluginCtx ctx, ShardLatch latch);
+```
+
 ### shard_wasm.h
 
 Sandboxed plugins (tier 2, `"abi"`: `"wasm1"`) : the C ABI, for a module built for wasm32 (`docs/design-notes/wasm-sandbox.fr.md`). Experimental : it is not covered by the ABI's compatibility promise yet.
@@ -6154,6 +6236,13 @@ virtual void OnFieldChanged(uint32_t /*fieldIndex*/);
 const Actor& Owner() const;
 /// The world it is in
 Scene GetScene() const;
+/// Delays, repeating timers and coroutines of the simulation (shard/cpp/timers.hpp), cancelled when the script is destroyed. They keep running
+/// while the script is inactive : test it in the callback, or StopTimers() from OnDeactivated().
+ShardTimer After(double seconds, std::function<void()> fn);
+ShardTimer Every(double interval, std::function<void()> fn);
+ShardTimer StartCoroutine(Coroutine step);
+bool StopTimer(ShardTimer timer);
+void StopTimers();
 ```
 
 ```cpp
@@ -6178,6 +6267,7 @@ static ShardResult Construct(void*, void* storage);
 static void SHARD_CALL Destruct(void*, void* storage);
 static ShardResult Attach(void*, void* object, ShardActor owner);
 template <void (Script::*Fn)()> static ShardResult Event(void*, void* object);
+static ShardResult Destroyed(void*, void* object);
 template <void (Script::*Fn)(const Contact&)> static ShardResult ContactEvent(void*, void* object, const ShardContact* c);
 static void SHARD_CALL TextGet(void*, void* object, uint32_t offset, ShardStr* out);
 static ShardResult TextSet(void*, void* object, uint32_t offset, ShardStr text);
@@ -6260,6 +6350,104 @@ static bool SetTimeScale(float scale);
 static bool SetFixedDeltaTime(float seconds);
 /// Hashes the simulation now (between frames : on_frame_begin, a system of the Input or Extract phase). thread : main
 static StateHash Hash();
+```
+
+### shard/cpp/timers.hpp
+
+Shard C++ SDK : delays, repeating timers and coroutines (`shard_timers.h`).
+
+```cpp
+Shard::Timers::After(2.0, [] { Explode(); });                                  // once, after 2 s of simulation
+auto spawn = Shard::Timers::Every(0.5, [] { Spawn(); });                       // every 0.5 s ; Shard::Timers::Cancel(spawn) stops it
+
+Shard::Timers::Start(Shard::Sequence().Do(Open).Delay(1.0).Do(Close).Build()); // a sequence of actions and waits
+
+Shard::Timers::Start([state = 0]() mutable -> Shard::Wait {                    // C++17 has no co_await : a coroutine is a step function
+    switch (state++) {
+        case 0: Warn();  return Shard::Wait::Seconds(1.0);
+        case 1: Fire();  return Shard::Wait::Until([] { return Reloaded(); }, 5.0);    // a condition, polled each step, with a time-out
+        default:         return Shard::Wait::Done();
+    }
+});
+
+Shard::EventLatch hit("player.hit");                                           // remembers the event from now on
+Shard::Timers::Start(Shard::Sequence().UntilEvent(hit, 3.0).Do(Retaliate).Build());
+```
+
+Time is the simulation's, in the fixed step : the time scale acts on it and a replay reproduces it. The callbacks run like a script's. A script has the same functions (After, Every, StartCoroutine) with the timers tied to its life. thread : main or script.
+
+#### `EventLatch`
+
+Tells the host, once the event named `name` was emitted (`shard_events.h`) at least once since this was made, so an event that comes before the coroutine reaches its wait is not lost. Copies share the latch, released with the last one.
+
+```cpp
+/// A latch that never fires (what a Wait that is not an Event holds)
+EventLatch() = default;
+bool Fired() const;
+ShardLatch Handle() const;
+```
+
+#### `Wait`
+
+What a coroutine step asks for next
+
+```cpp
+enum class Kind { Done, Seconds, Until, Event };
+Kind kind = Kind::Done;
+/// the delay, or the time-out of an Until / Event (negative or infinite : none)
+double seconds = 0.0;
+std::function<bool()> until;
+EventLatch latch;
+static Wait Done();
+static Wait Seconds(double s);
+static Wait NextStep();
+/// Resumes on the first step where pred() is true, or after `timeout` seconds. Polled each fixed step, first on the step after the return.
+static Wait Until(std::function<bool()> pred, double timeout = std::numeric_limits<double>::infinity());
+/// Resumes once the latch fired, or after `timeout` seconds. latch.Fired() tells which on resume.
+static Wait Event(const EventLatch& latch, double timeout = std::numeric_limits<double>::infinity());
+```
+
+```cpp
+using Coroutine = std::function<Wait()>;
+```
+
+#### `Sequence`
+
+Builds a coroutine from a list of actions and waits : `Sequence()`.Do(a).Delay(2).Do(b).`Build()`
+
+```cpp
+Sequence& Do(std::function<void()> fn);
+Sequence& Delay(double seconds);
+Sequence& Until(std::function<bool()> pred, double timeout = std::numeric_limits<double>::infinity());
+Sequence& UntilEvent(const EventLatch& latch, double timeout = std::numeric_limits<double>::infinity());
+Coroutine Build() const;
+```
+
+#### `Timers`
+
+```cpp
+/// Runs fn once after `seconds`. Throws Shard::Error if no world is loaded or the delay is not finite.
+static ShardTimer After(double seconds, std::function<void()> fn);
+/// Runs fn every `interval` seconds, the first time after one interval
+static ShardTimer Every(double interval, std::function<void()> fn);
+/// Starts a coroutine : its first step runs on the next fixed step, and it runs again when its Wait is over, until it returns Wait::Done()
+static ShardTimer Start(Coroutine step);
+/// Safe from inside a callback, the running one included. False if it finished or was cancelled already.
+static bool Cancel(ShardTimer timer);
+static bool IsActive(ShardTimer timer);
+/// Every timer of this plugin
+static void CancelAll();
+```
+
+#### `TimerSet`
+
+The timers a script owns, cancelled with it. A copy starts empty (a cloned script has not made the timers of the original).
+
+```cpp
+TimerSet& operator=(const TimerSet&);
+void Add(ShardTimer timer);
+bool Cancel(ShardTimer timer);
+void CancelAll();
 ```
 
 ### shard/cpp/worlds.hpp

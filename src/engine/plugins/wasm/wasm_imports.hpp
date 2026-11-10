@@ -45,6 +45,7 @@ namespace Shard::Engine::Plugins::Wasm {
     void AddEcsImports(Sandbox& sandbox, ImportList& imports, const HostApis& apis);
     void AddScriptImports(Sandbox& sandbox, ImportList& imports, const HostApis& apis);
     void AddEditorImports(Sandbox& sandbox, ImportList& imports, const HostApis& apis);
+    void AddTimersImports(Sandbox& sandbox, ImportList& imports, const HostApis& apis);
     void AddWasiImports(Sandbox& sandbox, ImportList& imports, const Module& module);
 
     bool ReadFieldDescs(Instance& in, uint64_t at, uint32_t count, std::vector<ShardFieldDesc>& out, std::deque<std::string>& strings);

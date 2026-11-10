@@ -171,6 +171,7 @@ namespace Shard::Engine::Plugins {
         AddEcsImports(*s, imports, s->apis);
         AddScriptImports(*s, imports, s->apis);
         AddEditorImports(*s, imports, s->apis);
+        AddTimersImports(*s, imports, s->apis);
         AddWasiImports(*s, imports, *module.Value());
         auto instance = Instance::Create(module.Value(), imports.Take(), s->fuel);
         if (!instance) return Err(instance.GetError().message);

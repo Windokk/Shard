@@ -516,6 +516,42 @@ static ShardResult on_world_loaded(void* user, ShardPluginCtx ctx, const ShardWo
     return SHARD_OK;
 }
 
+// shard.timers : callbacks the host reaches through the module's function table
+static const ShardTimersApi* g_timers;
+static ShardTimer g_every;
+static ShardLatch g_latch;
+static int g_coroState;
+
+static void on_once(void* user) { CHECK(user == (void*)&g_coroState); ++g_stats[S_TIMER_ONCE]; }
+static void on_every(void* user) { (void)user; ++g_stats[S_TIMER_EVERY]; }
+static void on_step(void* user, ShardWait* wait)
+{
+    (void)user;
+    CHECK(wait->kind == SHARD_WAIT_DONE);
+    switch (g_coroState++) {
+        case 0: ++g_stats[S_CORO_STEPS]; wait->kind = SHARD_WAIT_SECONDS; wait->seconds = 1.0; break;
+        case 1: ++g_stats[S_CORO_STEPS]; wait->kind = SHARD_WAIT_LATCH; wait->latch = g_latch; wait->seconds = 3.0; break;
+        default: ++g_stats[S_CORO_DONE]; g_stats[S_LATCH_FIRED] = g_timers->latch_fired(g_ctx, g_latch); break;
+    }
+}
+
+EXPORT("wasm_timers_start") int wasm_timers_start(void)
+{
+    ShardTimer once = 0, coroutine = 0;
+    g_timers = (const ShardTimersApi*)iface(SHARD_IFACE_TIMERS, 0);
+    if (!g_timers) return -100;
+    g_coroState = 0;
+    if (g_timers->event_latch(g_ctx, S("wasm.go"), &g_latch) != SHARD_OK) return -101;
+    if (g_timers->after(g_ctx, 0.5, on_once, (void*)&g_coroState, &once) != SHARD_OK || !once) return -102;
+    if (g_timers->every(g_ctx, 0.25, on_every, 0, &g_every) != SHARD_OK || !g_every) return -103;
+    if (g_timers->start(g_ctx, on_step, 0, &coroutine) != SHARD_OK || !coroutine) return -104;
+    CHECK(g_timers->is_active(g_ctx, once) == SHARD_TRUE);
+    return SHARD_OK;
+}
+EXPORT("wasm_timers_cancel_every") int wasm_timers_cancel_every(void) { return g_timers->cancel(g_ctx, g_every); }
+EXPORT("wasm_timers_cancel_all") int wasm_timers_cancel_all(void) { return g_timers->cancel_all(g_ctx); }
+EXPORT("wasm_timers_active") int wasm_timers_active(void) { return g_timers->is_active(g_ctx, g_every); }
+
 EXPORT("wasm_make_blob") uint64_t wasm_make_blob(void)
 {
     void* data = 0;

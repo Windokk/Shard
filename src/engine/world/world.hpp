@@ -11,6 +11,7 @@
 #include "engine/core/tags/tag_query.hpp"
 #include "engine/world/components/script.hpp"
 #include "engine/world/components/transform.hpp"
+#include "engine/world/scheduler.hpp"
 #include "engine/world/world_extension.hpp"
 #include "engine/assets/vfs/filesystem.hpp"
 
@@ -95,6 +96,10 @@ namespace Shard::Engine::Worlds{
             // Found from the world's file, not the build list, which Project Settings reorders while the world is open. -1 if not in the asset database.
             int ResolveAssetID();
 
+            Scheduler& GetScheduler() { return *scheduler; }
+            // For what must outlive the world without keeping it : a script stopping its timers after its world is gone.
+            std::weak_ptr<Scheduler> GetSchedulerRef() { return scheduler; }
+
             Core::ReferenceFrameTree& GetFrames() { return frames; }
             const Core::ReferenceFrameTree& GetFrames() const { return frames; }
 
@@ -164,6 +169,7 @@ namespace Shard::Engine::Worlds{
         private:
 
             Core::ReferenceFrameTree frames;
+            std::shared_ptr<Scheduler> scheduler = std::make_shared<Scheduler>();
             std::vector<std::pair<std::type_index, std::unique_ptr<IWorldExtension>>> extensions;
 
             Core::TagContainer tags;
