@@ -12,6 +12,7 @@
 #include "apps/editor/gui/panels/properties/properties_panel.hpp"
 #include "apps/editor/gui/panels/asset_browser/asset_browser.hpp"
 #include "apps/editor/gui/panels/material_editor/material_editor_panel.hpp"
+#include "apps/editor/gui/panels/texture_editor/texture_editor_panel.hpp"
 #include "apps/editor/gui/panels/asset_editor_registry.hpp"
 #include "apps/editor/gui/panels/world_tree/world_tree.hpp"
 #include "apps/editor/gui/panels/world_settings/world_settings_panel.hpp"
@@ -142,6 +143,7 @@ namespace Shard::Editor::Core {
 
         GUI::AssetBrowser* assetBrowser = nullptr;
         GUI::MaterialEditorPanel* materialEditorPanel = nullptr;
+        GUI::TextureEditorPanel* textureEditorPanel = nullptr;
         GUI::PropertiesPanel* propertiesPanel = nullptr;
         GUI::WorldTree* worldTree = nullptr;
         GUI::WorldSettingsPanel* worldSettingsPanel = nullptr;

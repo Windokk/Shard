@@ -14,6 +14,7 @@
 #include "engine/platform/windowing/iwindow.hpp"
 #include "engine/renderer/frontend/renderer.hpp"
 #include "engine/renderer/rhi/resources/texture/texture.hpp"
+#include "engine/renderer/rhi/resources/texture/texture_settings.hpp"
 #include "engine/renderer/features/immediate/thumbnail_service.hpp"
 
 #include "apps/editor/gui/panels/asset_editor_registry.hpp"
@@ -214,6 +215,9 @@ namespace Shard::Editor::GUI{
         for (const auto& file : files)
         {
             if (file.isDirectory ? !showFolders : typeHidden[(int)file.type])
+                continue;
+
+            if (!file.isDirectory && Engine::Rendering::IsTextureSettingsFile(file.path.full))
                 continue;
 
             Asset asset(

@@ -1,4 +1,5 @@
 #include "texture.hpp"
+#include "texture_settings.hpp"
 #include "engine/renderer/rhi/render_thread.hpp"
 
 #include "engine/world/engine.hpp"
@@ -146,7 +147,43 @@ namespace Shard::Engine::Rendering{
         return result;
     }
 
+    namespace {
+        uint64_t SettingsVariant(const TextureImportSettings& settings)
+        {
+            const uint64_t hash = settings.PixelHash();
+            return hash == TextureImportSettings().PixelHash() ? 0 : hash;
+        }
+    }
+
+    TextureDecodeResult DecodeTextureFile(const Filesystem::Path& filepath, const TextureImportSettings& settings)
+    {
+        TextureDecodeResult result = DecodeTextureFile(filepath);
+        if (!result.success)
+            return result;
+
+        uint32_t width = 0, height = 0;
+        ResolveTextureSize(settings, uint32_t(result.width), uint32_t(result.height), width, height);
+        if (width == uint32_t(result.width) && height == uint32_t(result.height))
+            return result;
+
+        const uint32_t channels = uint32_t(BytesPerPixel(result.format));
+        if (!ResizeImage(result.pixels, uint32_t(result.width), uint32_t(result.height), channels, width, height))
+        {
+            DEBUG_WARNING("Couldn't resize texture : " + filepath.full);
+            return result;
+        }
+
+        result.width = int(width);
+        result.height = int(height);
+        return result;
+    }
+
     TextureDecodeResult DecodeTextureFileForUpload(const Filesystem::Path& filepath, unsigned threads, bool srgb)
+    {
+        return DecodeTextureFileForUpload(filepath, LoadTextureSettings(filepath), threads, srgb);
+    }
+
+    TextureDecodeResult DecodeTextureFileForUpload(const Filesystem::Path& filepath, const TextureImportSettings& settings, unsigned threads, bool srgb)
     {
         // Null backend draws nothing, so skip decoding. The file is still looked up: a missing asset is an error everywhere.
         if (RendererAPI::Current() && RendererAPI::Current()->GetAPI() == RendererAPI::API::Null)
@@ -183,10 +220,10 @@ namespace Shard::Engine::Rendering{
                 return fromCompressed(std::move(cooked));
         }
 
-        if (!cvTextureCompress.Get())
-            return DecodeTextureFile(filepath);
+        if (!cvTextureCompress.Get() || !settings.compress)
+            return DecodeTextureFile(filepath, settings);
 
-        const std::string key = TextureCache::MakeKey(filepath.full, srgb);
+        const std::string key = TextureCache::MakeKey(filepath.full, srgb, SettingsVariant(settings));
         if (!key.empty())
         {
             auto cached = std::make_shared<CompressedImage>();
@@ -203,7 +240,7 @@ namespace Shard::Engine::Rendering{
             }
         }
 
-        TextureDecodeResult result = DecodeTextureFile(filepath);
+        TextureDecodeResult result = DecodeTextureFile(filepath, settings);
         if (!result.success || !ShouldCompress(uint32_t(result.width), uint32_t(result.height)))
             return result;
 
@@ -225,7 +262,11 @@ namespace Shard::Engine::Rendering{
 
     bool CookTexture(const Filesystem::Path& filepath, bool srgb, unsigned threads, std::vector<uint8_t>& out)
     {
-        TextureDecodeResult result = DecodeTextureFile(filepath);
+        const TextureImportSettings settings = LoadTextureSettings(filepath);
+        if (!settings.compress)
+            return false;
+
+        TextureDecodeResult result = DecodeTextureFile(filepath, settings);
         if (!result.success || !ShouldCompress(uint32_t(result.width), uint32_t(result.height)))
             return false;
 
@@ -278,7 +319,18 @@ namespace Shard::Engine::Rendering{
             return nullptr;
 
         if (decoded.compressed)
+        {
+            if (!spec.generateMips && decoded.compressed->mips.size() > 1)
+            {
+                CompressedImage single;
+                single.width = decoded.compressed->width;
+                single.height = decoded.compressed->height;
+                single.format = decoded.compressed->format;
+                single.mips.push_back(decoded.compressed->mips.front());
+                return Create(static_cast<const TextureSpecifications&>(spec), single, 0);
+            }
             return Create(static_cast<const TextureSpecifications&>(spec), *decoded.compressed, MipsToSkip(decoded.compressed->width, decoded.compressed->height));
+        }
 
         spec.internalFormat = decoded.format;
         spec.width = decoded.width;

@@ -53,7 +53,7 @@ namespace Shard::Engine::Rendering {
         void SetDirectory(const std::string& directory);
         const std::string& GetDirectory();
 
-        std::string MakeKey(const std::string& sourcePath, bool srgb = false);
+        std::string MakeKey(const std::string& sourcePath, bool srgb = false, uint64_t variant = 0);
 
         // A texture cooked by ShardCooker sits next to its source : <source>.lin.stx (data) or <source>.srgb.stx (colour)
         std::string CookedPath(const std::string& sourcePath, bool srgb);

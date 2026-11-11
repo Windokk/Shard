@@ -650,6 +650,8 @@ namespace Shard::Editor::Core{
         assetBrowser->SetParentWindow(this);
         materialEditorPanel = new GUI::MaterialEditorPanel();
         GUI::AssetEditorRegistry::Instance().Register(Engine::Filesystem::Type::T_MATERIAL, materialEditorPanel);
+        textureEditorPanel = new GUI::TextureEditorPanel();
+        GUI::AssetEditorRegistry::Instance().Register(Engine::Filesystem::Type::T_IMAGE, textureEditorPanel);
         propertiesPanel = new GUI::PropertiesPanel();
         propertiesPanel->SetAssetBrowser(assetBrowser);
         worldTree = new GUI::WorldTree();
@@ -1112,6 +1114,7 @@ namespace Shard::Editor::Core{
             }
 
             materialEditorPanel->Draw();
+            textureEditorPanel->Draw();
         }
 
         if(Engine::Core::GetEngine().GetWorldManager()->IsAsyncLoadInProgress())

@@ -596,7 +596,7 @@ namespace Shard::Engine::Rendering {
             return g_CacheDirectory;
         }
 
-        std::string MakeKey(const std::string& sourcePath, bool srgb)
+        std::string MakeKey(const std::string& sourcePath, bool srgb, uint64_t variant)
         {
             std::string directory;
             {
@@ -614,7 +614,7 @@ namespace Shard::Engine::Rendering {
             if (ec)
                 return "";
 
-            const std::string identity = std::to_string(kVersion) + "|" + sourcePath + "|" + std::to_string(size) + "|" + std::to_string(stamp.time_since_epoch().count()) + (srgb ? "|srgb" : "");
+            const std::string identity = std::to_string(kVersion) + "|" + sourcePath + "|" + std::to_string(size) + "|" + std::to_string(stamp.time_since_epoch().count()) + (srgb ? "|srgb" : "") + (variant != 0 ? "|v" + std::to_string(variant) : std::string());
             char name[32];
             std::snprintf(name, sizeof(name), "%016llx.stx", static_cast<unsigned long long>(Fnv1a64(identity)));
             return (std::filesystem::path(directory) / name).generic_string();

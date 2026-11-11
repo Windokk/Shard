@@ -344,6 +344,11 @@ namespace Shard::Engine::Assets {
                     return false;
                 }
 
+                if(!entry.engine && LowerExtension(entry.path) == ".texsettings"){
+                    ApplyTextureSettings(entry.path);
+                    return true;
+                }
+
                 if(entry.engine)
                     ApplyModified(entry.path, true);
                 else if(entry.kind == FileChangeKind::Created)
@@ -353,11 +358,19 @@ namespace Shard::Engine::Assets {
                 return true;
             }
             case FileChangeKind::Deleted:
-                if(!entry.engine)
-                    ApplyDeleted(entry.path);
+                if(!entry.engine){
+                    if(LowerExtension(entry.path) == ".texsettings")
+                        ApplyTextureSettings(entry.path);
+                    else
+                        ApplyDeleted(entry.path);
+                }
                 return true;
             case FileChangeKind::Renamed:
-                if(!entry.engine)
+                if(!entry.engine && (LowerExtension(entry.path) == ".texsettings" || LowerExtension(entry.oldPath) == ".texsettings")){
+                    ApplyTextureSettings(entry.oldPath);
+                    ApplyTextureSettings(entry.path);
+                }
+                else if(!entry.engine)
                     ApplyRenamed(entry.oldPath, entry.path);
                 else
                     ApplyModified(entry.path, true);
@@ -433,6 +446,16 @@ namespace Shard::Engine::Assets {
         }
 
         RegisterPath(path);
+    }
+
+    void HotReloader::ApplyTextureSettings(const std::string& settingsPath)
+    {
+        if(LowerExtension(settingsPath) != ".texsettings" || IsOwnWrite(settingsPath))
+            return;
+
+        const std::string imageName = NameOf(WithoutExtension(settingsPath));
+        if(!imageName.empty())
+            ReloadByFile(imageName);
     }
 
     void HotReloader::ApplyModified(const std::string& path, bool engine)

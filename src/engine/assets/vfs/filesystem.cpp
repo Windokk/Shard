@@ -97,6 +97,10 @@ namespace Shard::Engine::Filesystem{
     {
         AssetIDManager* assetManager = assetIDs;
 
+        // Import settings of an image, they follow it and are not assets of their own
+        if(path.GetExtensionString() == ".texsettings")
+            return AssetID{};
+
         FileInfos infos = GetFileInfos(path);
         if(infos.nameInProject.empty()){
             DEBUG_ERROR("Cannot register asset outside of the resource roots : " + path.full);

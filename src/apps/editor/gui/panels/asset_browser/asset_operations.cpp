@@ -16,6 +16,7 @@
 #include "engine/assets/asset_importer.hpp"
 #include "engine/assets/asset_references.hpp"
 #include "engine/core/diagnostics/logger.hpp"
+#include "engine/renderer/rhi/resources/texture/texture_settings.hpp"
 
 namespace Shard::Editor::GUI::AssetOperations
 {
@@ -120,6 +121,12 @@ namespace Shard::Editor::GUI::AssetOperations
             return r;
         }
 
+        // The import settings of an image follow it.
+        fs::path SidecarOf(const std::string& file)
+        {
+            return fs::path(Engine::Rendering::TextureSettingsPath(Path(file)).full);
+        }
+
         void RegisterTree(const fs::path& root)
         {
             auto* fileManager = Engine::Core::GetEngine().GetFileManager();
@@ -188,6 +195,12 @@ namespace Shard::Editor::GUI::AssetOperations
         if(ec)
             return Fail("Couldn't move \"" + oldName + "\" : " + ec.message());
 
+        if(!isDirectory && fs::exists(SidecarOf(from.full))){
+            std::error_code sidecarError;
+            fs::remove(SidecarOf(to.full), sidecarError);
+            fs::rename(SidecarOf(from.full), SidecarOf(to.full), sidecarError);
+        }
+
         // The asset keeps its ID so dependency lists stay valid.
         auto* fileManager = Engine::Core::GetEngine().GetFileManager();
         for(auto& [id, info] : affected){
@@ -227,6 +240,11 @@ namespace Shard::Editor::GUI::AssetOperations
         if(ec)
             return Fail("Couldn't copy \"" + oldName + "\" : " + ec.message());
 
+        if(!isDirectory && fs::exists(SidecarOf(from.full))){
+            std::error_code sidecarError;
+            fs::copy_file(SidecarOf(from.full), SidecarOf(to.full), fs::copy_options::overwrite_existing, sidecarError);
+        }
+
         RegisterTree(fs::path(to.full));
         PersistDatabase();
 
@@ -257,6 +275,11 @@ namespace Shard::Editor::GUI::AssetOperations
         fs::remove_all(path.full, ec);
         if(ec)
             return Fail("Couldn't delete \"" + name + "\" : " + ec.message());
+
+        if(!isDirectory){
+            std::error_code sidecarError;
+            fs::remove(SidecarOf(path.full), sidecarError);
+        }
 
         auto* assetManager = Engine::Core::GetEngine().GetAssetIDManager();
         for(auto& [id, info] : affected)

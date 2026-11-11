@@ -45,6 +45,9 @@ namespace Shard::Engine::Assets {
 
         void Update();
 
+        // Reloads what is resident of an asset as if its file had just changed (and what depends on it). Main thread only.
+        void ReloadAsset(const std::string& nameInProject) { ReloadByFile(nameInProject); }
+
         uint64_t GetRevision() const { return m_Revision; }
 
         void SetSettleTime(double seconds) { m_SettleSeconds = seconds; }
@@ -72,6 +75,7 @@ namespace Shard::Engine::Assets {
         void ApplyModified(const std::string& path, bool engine);
         void ApplyDeleted(const std::string& path);
         void ApplyRenamed(const std::string& oldPath, const std::string& newPath);
+        void ApplyTextureSettings(const std::string& settingsPath);
 
         int RegisterPath(const std::string& path);
         void ReloadByFile(const std::string& nameInProject);
