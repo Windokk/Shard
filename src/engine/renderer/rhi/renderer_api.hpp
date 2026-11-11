@@ -144,6 +144,8 @@ namespace Shard::Engine::Rendering {
         bool validation = false;
 
         std::function<bool()> vsyncWanted;
+
+        std::string pipelineCachePath;
     };
 
     struct UIBackendInfo
@@ -257,6 +259,8 @@ namespace Shard::Engine::Rendering {
             virtual bool SupportsBlockCompression() { return false; }
 
             virtual GpuProfiler* GetGpuProfiler() { return nullptr; }
+
+            virtual void PersistCaches() {}
 
             virtual std::string GetDeviceVendor() = 0;
             virtual std::string GetRendererName() = 0;

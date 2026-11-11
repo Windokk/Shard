@@ -511,6 +511,8 @@ namespace Shard::Engine::Rendering{
         m_ViewportBuffer->Destroy();
         m_SceneBuffer->Destroy();
         m_LightManager->Clear();
+        if(m_RendererAPI)
+            m_RendererAPI->PersistCaches();
     }
 
     void Renderer::ClearPassesContent()

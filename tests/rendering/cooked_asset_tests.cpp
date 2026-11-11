@@ -1,3 +1,4 @@
+#include <cstring>
 #include <gtest/gtest.h>
 
 #include <cstdint>
@@ -127,6 +128,11 @@ TEST_F(CookedAssetTest, MeshRefusesDamagedData)
     far.submeshes[1].indexCount = 100;
     const std::vector<uint8_t> farBytes = SerializeMeshData(far);
     EXPECT_FALSE(DeserializeMeshData(farBytes.data(), farBytes.size(), out));
+
+    std::vector<uint8_t> manySubmeshes = bytes;
+    const uint32_t huge = 0xFFFFFFFFu;
+    std::memcpy(manySubmeshes.data() + 28, &huge, sizeof(huge));
+    EXPECT_FALSE(DeserializeMeshData(manySubmeshes.data(), manySubmeshes.size(), out));
 }
 
 TEST_F(CookedAssetTest, MeshLoadsNextToItsSource)

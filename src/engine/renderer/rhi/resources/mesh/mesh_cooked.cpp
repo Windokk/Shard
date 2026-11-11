@@ -84,6 +84,8 @@ namespace Shard::Engine::Rendering {
         if (!in.Take(mesh.vertices.data(), mesh.vertices.size()) || !in.Take(mesh.indices.data(), mesh.indices.size() * sizeof(uint32_t))) return false;
 
         const uint64_t vertexCount = vertexBytes / stride;
+        constexpr size_t kSubmeshRecord = 3 * sizeof(uint64_t) + sizeof(uint32_t) + 2 * sizeof(glm::vec3);
+        if (submeshCount > (size - in.at) / kSubmeshRecord) return false;
         mesh.submeshes.reserve(submeshCount);
         for (uint32_t i = 0; i < submeshCount; ++i) {
             SubMesh s;

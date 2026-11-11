@@ -164,9 +164,6 @@ namespace Shard::Engine::Rendering{
             return stub;
         }
 
-        if (!cvTextureCompress.Get())
-            return DecodeTextureFile(filepath);
-
         auto fromCompressed = [](std::shared_ptr<CompressedImage> cached) {
             TextureDecodeResult result;
             result.success = true;
@@ -185,6 +182,9 @@ namespace Shard::Engine::Rendering{
             if (TextureCache::Load(TextureCache::CookedPath(filepath.GetNativePath(), wantSrgb), *cooked))
                 return fromCompressed(std::move(cooked));
         }
+
+        if (!cvTextureCompress.Get())
+            return DecodeTextureFile(filepath);
 
         const std::string key = TextureCache::MakeKey(filepath.full, srgb);
         if (!key.empty())

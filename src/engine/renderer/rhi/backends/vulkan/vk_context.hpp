@@ -28,6 +28,8 @@ namespace Shard::Engine::Rendering::VK {
         int height = 720;
         bool vsync = true;
         std::function<bool()> vsyncWanted;
+
+        std::string pipelineCachePath;
     };
 
     struct SamplerKey
@@ -102,6 +104,8 @@ namespace Shard::Engine::Rendering::VK {
             bool IsRecording() const { return m_Slots[m_Current].recording; }
 
             void Submit(VkSemaphore wait = VK_NULL_HANDLE, VkPipelineStageFlags waitStage = 0, VkSemaphore signal = VK_NULL_HANDLE);
+
+            void SavePipelineCache();
 
             void Flush();
 
@@ -243,6 +247,7 @@ namespace Shard::Engine::Rendering::VK {
             VkFormat m_SwapchainFormat = VK_FORMAT_B8G8R8A8_UNORM;
             bool m_Vsync = true;
             std::function<bool()> m_VsyncWanted;
+            std::string m_PipelineCachePath;
             bool m_SwapchainDirty = false;
             uint32_t m_AcquireIndex = 0;
     };

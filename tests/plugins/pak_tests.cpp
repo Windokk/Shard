@@ -69,6 +69,7 @@ TEST(Pak, RefusesUnsafePaths)
     Pak::PakWriter writer;
     EXPECT_FALSE(writer.Add("../secret.txt", "x"));
     EXPECT_FALSE(writer.Add("a/../b.txt", "x"));
+    EXPECT_FALSE(Pak::IsSafePath("a\\..\\b.txt"));
     EXPECT_FALSE(writer.Add("C:/x.txt", "x"));
     EXPECT_FALSE(writer.Add("", "x"));
     EXPECT_FALSE(writer.Add("a//b.txt", "x"));

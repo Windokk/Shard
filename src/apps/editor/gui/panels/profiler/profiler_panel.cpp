@@ -49,7 +49,7 @@ namespace Shard::Editor::GUI{
         ImGui::Text("Main thread time: %.2f ms", displayedFrame.frameMs);
         ImGui::Text("Render thread time: %.2f ms", displayedFrame.renderMs);
         if (ImGui::IsItemHovered())
-            ImGui::SetTooltip("From the start of the frame on the main thread to the end of its swap on the render thread.");
+            ImGui::SetTooltip("With a render thread : from the start of the frame on the main thread to the end of its swap on the render thread.\nWithout one (render.thread 0) : time the main thread spent drawing and presenting, already part of the main thread time.");
 
         // With the render thread a frame behind, frames alternate between cheap and waiting on the display. The average over the history is the sustained rate.
         {

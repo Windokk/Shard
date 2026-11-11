@@ -129,6 +129,17 @@
   font-size: 0.72rem;
 }
 
+.md-typeset .equal-cols table:not([class]) {
+  table-layout: fixed;
+  width: 100%;
+}
+
+.md-typeset .equal-cols th,
+.md-typeset .equal-cols td {
+  width: 33.33%;
+  overflow-wrap: anywhere;
+}
+
 .md-typeset pre > code {
   font-size: 0.78em;
 }

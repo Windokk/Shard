@@ -170,7 +170,7 @@ namespace Shard::Engine::Pak {
     bool IsSafePath(const std::string& path)
     {
         if (path.empty() || path.size() > 0xFFFF) return false;
-        if (path.front() == '/' || path.find(':') != std::string::npos) return false;
+        if (path.front() == '/' || path.find(':') != std::string::npos || path.find('\\') != std::string::npos) return false;
         std::stringstream ss(path);
         std::string part;
         while (std::getline(ss, part, '/'))

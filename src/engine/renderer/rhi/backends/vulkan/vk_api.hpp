@@ -53,8 +53,8 @@ namespace Shard::Engine::Rendering {
         };
     }
 
-    // Takes the GL backend's calls and records them. GL context state is kept as tables, resolved against shader reflection into descriptor sets at draw.
-    // A render pass begins on the first draw into the target, so a Clear after Bind becomes its load op.
+    // Vulkan implementation of RendererAPI. The interface is stateful like GL (bind, set, draw), so that state is kept as tables and resolved against shader reflection into descriptor sets at draw.
+    // A render pass begins on the first draw into the target, or when a pending clear is flushed, so a Clear after Bind becomes its load op.
     class VKRendererAPI final : public RendererAPI
     {
         public:
@@ -82,6 +82,7 @@ namespace Shard::Engine::Rendering {
             bool IsDepthPrepassCandidate(const DrawCommand& command, const RenderPass& pass) override;
             bool SupportsBlockCompression() override { return VK::Context::Get().GetCaps().blockCompression; }
             GpuProfiler* GetGpuProfiler() override;
+            void PersistCaches() override;
             void SetDebugView(const DebugViewState& state) override;
             void BeginFrame() override;
             void EndFrame() override;

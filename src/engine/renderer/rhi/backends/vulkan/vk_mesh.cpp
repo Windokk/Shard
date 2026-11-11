@@ -8,6 +8,7 @@
 #include "vk_api.hpp"
 
 #include "engine/renderer/rhi/gpu_memory.hpp"
+#include "engine/renderer/rhi/render_thread.hpp"
 #include "engine/renderer/rhi/shader/shader.hpp"
 
 namespace Shard::Engine::Rendering {
@@ -80,6 +81,8 @@ namespace Shard::Engine::Rendering {
 
     void VKMesh::CreateBuffers()
     {
+        SHARD_FORWARD_TO_GRAPHICS_THREAD(CreateBuffers())
+
         m_Vertex.Destroy();
         m_Index.Destroy();
 
@@ -98,13 +101,15 @@ namespace Shard::Engine::Rendering {
 
     bool VKMesh::ReadBackCPUData(MeshCPUCopy& out)
     {
-        if (!m_Vertex.IsValid() || !m_Index.IsValid())
-            return false;
+        return OnGraphicsThread([&]() -> bool {
+            if (!m_Vertex.IsValid() || !m_Index.IsValid())
+                return false;
 
-        out.vertices.resize(m_VertexBytes);
-        out.indices.resize(m_IndexCount);
-        return ReadBuffer(m_Vertex, 0, out.vertices.size(), out.vertices.data()) &&
-               ReadBuffer(m_Index, 0, out.indices.size() * sizeof(uint32_t), out.indices.data());
+            out.vertices.resize(m_VertexBytes);
+            out.indices.resize(m_IndexCount);
+            return ReadBuffer(m_Vertex, 0, out.vertices.size(), out.vertices.data()) &&
+                   ReadBuffer(m_Index, 0, out.indices.size() * sizeof(uint32_t), out.indices.data());
+        });
     }
 
     namespace {

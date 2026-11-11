@@ -3,9 +3,9 @@
 //   ShardCooker plugin  <plugin folder> [--out <folder>]        a plugin ready to ship : its content folder becomes <mount>.shardpak,
 //                                                               the manifest and the other files are copied as they are
 //   ShardCooker project <project.json> [--out <folder>]         a project ready to ship : its resources folder becomes resources.shardpak,
-//                                                               the project file, asset database, plugins... are copied, and the content
+//                                                               the project file, asset database, plugins are copied, and the content
 //                                                               folder of each plugin of the project is cooked too
-//                                                               Textures used by materials become block compressed mips (.stx) and models
+//                                                               Textures used by materials become block compressed mips (.stx) and models become
 //                                                               their finished vertices (.smesh), unless --no-assets is given.
 //   ShardCooker list    <pak>                                   files, sizes, crc
 //   ShardCooker verify  <pak>                                   checks every crc
@@ -136,6 +136,15 @@ namespace {
         return fs::weakly_canonical(a, ec) == fs::weakly_canonical(b, ec);
     }
 
+    std::string RelativeInside(const fs::path& root, const fs::path& inner)
+    {
+        std::error_code ec;
+        const fs::path rel = fs::relative(fs::weakly_canonical(inner, ec), fs::weakly_canonical(root, ec), ec);
+        const std::string name = rel.generic_string();
+        if (ec || name.empty() || name == "." || name == ".." || name.compare(0, 3, "../") == 0) return {};
+        return name;
+    }
+
     // The manifest, binaries... copied ; <mount>/ packed. Used for a plugin and for each plugin folder of a project.
     int CookPluginFolder(const fs::path& root, const fs::path& out)
     {
@@ -145,7 +154,9 @@ namespace {
         std::error_code ec;
         fs::create_directories(out, ec);
         size_t copied = 0;
-        if (!CopyTree(root, out, { mount }, copied)) return 1;
+        std::vector<std::string> skipFolders = { mount };
+        if (const std::string inside = RelativeInside(root, out); !inside.empty()) skipFolders.push_back(inside);
+        if (!CopyTree(root, out, skipFolders, copied)) return 1;
         if (fs::is_directory(root / mount) && PackFolder(root / mount, out / (mount + Pak::kExtension)) < 0) return 1;
         return 0;
     }
@@ -262,7 +273,9 @@ namespace {
             return 1;
         }
         const fs::path root = fs::path(projectFile).parent_path().empty() ? fs::path(".") : fs::path(projectFile).parent_path();
-        if (out.empty()) out = (root.filename().string() + "-cooked");
+        std::error_code canonicalError;
+        const fs::path absoluteRoot = fs::weakly_canonical(root, canonicalError);
+        if (out.empty()) out = (absoluteRoot.parent_path() / (absoluteRoot.filename().string() + "-cooked")).string();
         if (SamePath(out, root)) { std::cerr << "[ERROR] --out must not be the project folder\n"; return 1; }
 
         const std::string resources = fs::path(project["projectResources"].get<std::string>()).generic_string();
@@ -281,6 +294,7 @@ namespace {
             for (const fs::path& p : pluginDirs) skip.push_back(fs::relative(p, root, ec).generic_string());
         }
 
+        if (const std::string inside = RelativeInside(root, out); !inside.empty()) skip.push_back(inside);
         size_t copied = 0;
         if (!CopyTree(root, out, skip, copied)) return 1;
         const fs::path staging = fs::path(out) / ".cook-staging";

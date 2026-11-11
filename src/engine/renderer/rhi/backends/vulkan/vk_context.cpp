@@ -2,17 +2,52 @@
 
 #include <algorithm>
 #include <cstring>
+#include <filesystem>
+#include <fstream>
 
 #include <VkBootstrap.h>
 
 #include "vk_image.hpp"
 #include "vk_vma.hpp"
+#include "engine/renderer/rhi/render_thread.hpp"
 
 namespace Shard::Engine::Rendering::VK {
 
     namespace {
 
         Context* g_Context = nullptr;
+
+        std::vector<uint8_t> LoadPipelineCacheData(const std::string& path, const VkPhysicalDeviceProperties& properties)
+        {
+            std::vector<uint8_t> data;
+            if (path.empty())
+                return data;
+
+            std::ifstream file(path, std::ios::binary | std::ios::ate);
+            if (!file)
+                return data;
+
+            const std::streamsize size = file.tellg();
+            if (size < static_cast<std::streamsize>(sizeof(uint32_t) * 4 + VK_UUID_SIZE))
+                return data;
+
+            data.resize(static_cast<size_t>(size));
+            file.seekg(0);
+            if (!file.read(reinterpret_cast<char*>(data.data()), size))
+            {
+                data.clear();
+                return data;
+            }
+
+            uint32_t header[4];
+            std::memcpy(header, data.data(), sizeof(header));
+            const bool matches = header[0] >= sizeof(header) + VK_UUID_SIZE && header[1] == VK_PIPELINE_CACHE_HEADER_VERSION_ONE &&
+                                 header[2] == properties.vendorID && header[3] == properties.deviceID &&
+                                 std::memcmp(data.data() + sizeof(header), properties.pipelineCacheUUID, VK_UUID_SIZE) == 0;
+            if (!matches)
+                data.clear();
+            return data;
+        }
 
         VKAPI_ATTR VkBool32 VKAPI_CALL DebugCallback(VkDebugUtilsMessageSeverityFlagBitsEXT severity, VkDebugUtilsMessageTypeFlagsEXT type,
                                                      const VkDebugUtilsMessengerCallbackDataEXT* data, void*)
@@ -253,9 +288,16 @@ namespace Shard::Engine::Rendering::VK {
         if (VK_CHECK(vmaCreateAllocator(&allocatorInfo, &m_Allocator)) != VK_SUCCESS)
             return false;
 
+        m_PipelineCachePath = info.pipelineCachePath;
+        const std::vector<uint8_t> cacheData = LoadPipelineCacheData(m_PipelineCachePath, m_Properties);
+
         VkPipelineCacheCreateInfo cacheInfo{VK_STRUCTURE_TYPE_PIPELINE_CACHE_CREATE_INFO};
+        cacheInfo.initialDataSize = cacheData.size();
+        cacheInfo.pInitialData = cacheData.empty() ? nullptr : cacheData.data();
         if (VK_CHECK(vkCreatePipelineCache(m_Device, &cacheInfo, nullptr, &m_PipelineCache)) != VK_SUCCESS)
             m_PipelineCache = VK_NULL_HANDLE;
+        else if (!cacheData.empty())
+            DEBUG_INFO("Vulkan pipeline cache : ", cacheData.size() / 1024, " KB loaded");
 
         return true;
     }
@@ -624,7 +666,10 @@ namespace Shard::Engine::Rendering::VK {
         }
 
         if (m_PipelineCache)
+        {
+            SavePipelineCache();
             vkDestroyPipelineCache(m_Device, m_PipelineCache, nullptr);
+        }
         m_PipelineCache = VK_NULL_HANDLE;
 
         if (m_Allocator)
@@ -683,6 +728,7 @@ namespace Shard::Engine::Rendering::VK {
 
     VkCommandBuffer Context::Cmd()
     {
+        SHARD_ASSERT_GRAPHICS_THREAD();
         Slot& slot = m_Slots[m_Current];
         if (!slot.recording)
         {
@@ -737,6 +783,35 @@ namespace Shard::Engine::Rendering::VK {
         m_FrameCounter++;
     }
 
+    void Context::SavePipelineCache()
+    {
+        if (m_PipelineCachePath.empty() || m_PipelineCache == VK_NULL_HANDLE)
+            return;
+
+        size_t size = 0;
+        if (vkGetPipelineCacheData(m_Device, m_PipelineCache, &size, nullptr) != VK_SUCCESS || size == 0)
+            return;
+        std::vector<uint8_t> data(size);
+        if (vkGetPipelineCacheData(m_Device, m_PipelineCache, &size, data.data()) != VK_SUCCESS)
+            return;
+        data.resize(size);
+
+        std::error_code error;
+        const std::filesystem::path target(m_PipelineCachePath);
+        std::filesystem::create_directories(target.parent_path(), error);
+
+        std::filesystem::path temporary = target;
+        temporary += ".tmp";
+        {
+            std::ofstream file(temporary, std::ios::binary | std::ios::trunc);
+            if (!file || !file.write(reinterpret_cast<const char*>(data.data()), static_cast<std::streamsize>(data.size())))
+                return;
+        }
+        std::filesystem::rename(temporary, target, error);
+        if (error)
+            std::filesystem::remove(temporary, error);
+    }
+
     void Context::Flush()
     {
         if (m_Slots[m_Current].recording)
@@ -752,6 +827,7 @@ namespace Shard::Engine::Rendering::VK {
 
     void Context::ImmediateSubmit(const std::function<void(VkCommandBuffer)>& work)
     {
+        SHARD_ASSERT_GRAPHICS_THREAD();
         VkCommandBufferAllocateInfo allocateInfo{VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO};
         allocateInfo.commandPool = m_ImmediatePool;
         allocateInfo.level = VK_COMMAND_BUFFER_LEVEL_PRIMARY;
@@ -963,6 +1039,7 @@ namespace Shard::Engine::Rendering::VK {
 
     void Context::WriteBindless(uint32_t index, VkImageView view, VkSampler sampler, VkImageLayout layout)
     {
+        SHARD_ASSERT_GRAPHICS_THREAD();
         if (index >= m_Caps.maxBindlessTextures || m_BindlessSet == VK_NULL_HANDLE || view == VK_NULL_HANDLE)
             return;
 

@@ -9,6 +9,7 @@
 #include "vk_vma.hpp"
 
 #include "engine/renderer/rhi/gpu_memory.hpp"
+#include "engine/renderer/rhi/render_thread.hpp"
 
 namespace Shard::Engine::Rendering {
 
@@ -198,6 +199,32 @@ namespace Shard::Engine::Rendering {
         GpuMemory::Add(GpuMemory::Kind::RenderTarget, -m_GpuBytes);
         m_GpuBytes = 0;
         m_Destroyed = true;
+
+        RenderThread& thread = RenderThread::Get();
+        if (!thread.IsGraphicsThread())
+        {
+            auto held = std::make_shared<std::vector<std::unique_ptr<TextureResource>>>();
+            held->push_back(std::move(m_Color));
+            held->push_back(std::move(m_Depth));
+            held->push_back(std::move(m_ResolveColor));
+            held->push_back(std::move(m_ResolveDepth));
+            for (auto& extra : m_ExtraColors)
+                held->push_back(std::move(extra));
+            m_ExtraColors.clear();
+
+            const VKFramebuffer* self = this;
+            thread.Post([self, held] {
+                if (VKRendererAPI* api = VKRendererAPI::Get())
+                    api->ForgetTarget(self);
+                for (auto& resource : *held)
+                {
+                    if (resource)
+                        resource->image.Destroy();
+                }
+                held->clear();
+            });
+            return;
+        }
 
         Release();
         m_Color.reset();

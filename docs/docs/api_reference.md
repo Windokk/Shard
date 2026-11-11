@@ -6,7 +6,11 @@
 
 The headers in `sdk/include/shard` are the contract between a plugin and the engine. This page is generated from their comments, in reading order. See [Plugins](concepts/plugins.md#the-c-abi-and-the-sdk) for the concepts and [the tutorial](tutorials/write-a-game-with-the-sdk.md) to build a plugin.
 
-Every function says which thread may call it : `any`, `system` (from inside a system, possibly in parallel with others), `script` (from a script callback) or `main` (the main thread, outside systems). A function returns a `ShardResult`, either `SHARD_OK` (0) or a negative error, and the details go to the engine's log under the plugin's id. Strings are `ShardStr` : UTF-8, not necessarily zero terminated, valid for the duration of the call. A "text out" function takes `(buffer, capacity, *size)`, copies what fits and returns the full length.
+Every function says which thread may call it : `any`, `system` (from inside a system, possibly in parallel with others), `script` (from a script callback) or `main` (the main thread, outside systems). A function returns a `ShardResult`, either `SHARD_OK` (0) or a negative error, and the details go to the engine's log under the plugin's id. 
+
+Strings are `ShardStr` : UTF-8, not necessarily zero terminated, valid for the duration of the call. A "text out" function takes `(buffer, capacity, *size)`, copies what fits and returns the full length.
+
+<div class="equal-cols" markdown>
 
 | Header | Interface | |
 |---|---|---|
@@ -41,6 +45,8 @@ Every function says which thread may call it : `any`, `system` (from inside a sy
 | [`shard_timers.h`](#shard_timersh) | `shard.timers` 1.0 | delays, repeating timers and coroutines, run by the simulation |
 | [`shard_wasm.h`](#shard_wasmh) | | Sandboxed plugins (tier 2, `"abi"`: `"wasm1"`) |
 | [`shard_worlds.h`](#shard_worldsh) | `shard.worlds` 1.1 | loading worlds, and prefabs ; and which worlds are loaded |
+
+</div>
 
 ### shard_abi.h
 

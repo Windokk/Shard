@@ -97,6 +97,7 @@ namespace Shard::Engine::Rendering {
         info.height = hooks.height;
         info.vsync = hooks.vsync;
         info.vsyncWanted = hooks.vsyncWanted;
+        info.pipelineCachePath = hooks.pipelineCachePath;
 
         if (hooks.createVulkanSurface)
         {
@@ -150,6 +151,8 @@ namespace Shard::Engine::Rendering {
             return false;
         VK::Context::Get().ImmediateSubmit([&](VkCommandBuffer cmd) { vkCmdFillBuffer(cmd, m_DummyBuffer.buffer, 0, VK_WHOLE_SIZE, 0); });
 
+        GetGpuProfiler();
+
         return true;
     }
 
@@ -183,6 +186,12 @@ namespace Shard::Engine::Rendering {
         if (!m_GpuProfiler && VK::Context::Get().GetCaps().timestamps)
             m_GpuProfiler = std::make_unique<VKGpuProfiler>();
         return m_GpuProfiler.get();
+    }
+
+    void VKRendererAPI::PersistCaches()
+    {
+        if (m_Initialised)
+            VK::Context::Get().SavePipelineCache();
     }
 
     void VKRendererAPI::BeginFrame()

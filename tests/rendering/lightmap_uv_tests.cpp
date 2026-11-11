@@ -404,7 +404,7 @@ namespace {
     protected:
         void SetUp() override
         {
-            directory = std::filesystem::temp_directory_path() / "shard_lightmap_uv_cache_test";
+            directory = std::filesystem::temp_directory_path() / (std::string("shard_lightmap_uv_cache_") + ::testing::UnitTest::GetInstance()->current_test_info()->name());
             std::filesystem::remove_all(directory);
             SetLightmapUnwrapCacheDirectory(directory.generic_string());
         }

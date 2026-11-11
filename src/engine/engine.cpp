@@ -236,6 +236,7 @@ namespace Shard::Engine{
                 hooks.vsync = settings.vsync != 0;
                 hooks.vsyncWanted = [] { return cvVsync.Get(); };
                 hooks.validation = cvVulkanValidation.Get() || std::getenv("SHARD_VULKAN_VALIDATION") != nullptr;
+                hooks.pipelineCachePath = (std::filesystem::path(m_Context.currentProject->GetProjectRoot().full) / ".cache" / "vulkan" / "pipelines.bin").generic_string();
                 Rendering::RendererAPI::SetWindowHooks(hooks);
             }
 
@@ -957,7 +958,7 @@ namespace Shard::Engine{
                 return;
 
             Platform::IWindow* window = GetWindow();
-            if(!window || m_RendererSettings->api != RendererAPI::API::OpenGL)
+            if(!window || (m_RendererSettings->api != RendererAPI::API::OpenGL && m_RendererSettings->api != RendererAPI::API::Vulkan))
                 return;
 
             Rendering::RenderThread& thread = Rendering::RenderThread::Get();

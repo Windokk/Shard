@@ -468,7 +468,7 @@ namespace Shard::Editor::Core{
     {
         gameView = !gameView;
         if(gameView)
-            GUI::Notifications::Info("Game view : G to go back");
+            GUI::Notifications::Info("Game view : F11 to go back");
     }
 
     void EditorMainWindow::OnWorldLoaded()
@@ -1067,8 +1067,8 @@ namespace Shard::Editor::Core{
 
         {
             const ImGuiIO& io = ImGui::GetIO();
-            if(!Engine::Core::GetEngine().IsInPlayMode() && !io.WantTextInput && !io.KeyCtrl && !io.KeyShift && !io.KeyAlt && !io.KeySuper
-                && !ImGuizmo::IsUsing() && ImGui::IsKeyPressed(ImGuiKey_G, false))
+            if(!io.WantTextInput && !io.KeyCtrl && !io.KeyShift && !io.KeyAlt && !io.KeySuper
+                && !ImGuizmo::IsUsing() && ImGui::IsKeyPressed(ImGuiKey_F11, false))
                 ToggleGameView();
         }
 

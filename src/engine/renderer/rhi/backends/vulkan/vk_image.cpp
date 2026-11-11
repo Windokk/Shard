@@ -3,6 +3,7 @@
 #include <algorithm>
 
 #include "vk_vma.hpp"
+#include "engine/renderer/rhi/render_thread.hpp"
 #include "engine/renderer/rhi/resources/texture/texture_filtering.hpp"
 
 namespace Shard::Engine::Rendering::VK {
@@ -334,10 +335,15 @@ namespace Shard::Engine::Rendering::VK {
 
         if (Context::Exists())
         {
-            // Reset the bindless slot to white, a reused id must not show this texture.
-            const Image& white = Context::Get().GetDummyImage(ShaderSamplerType::Texture2D);
-            if (white.IsValid())
-                Context::Get().WriteBindless(m_Id, white.view, Context::Get().GetDummySampler(ShaderSamplerType::Texture2D), white.RestingLayout());
+            // Reset the bindless slot to white, a reused id must not show this texture. The descriptor set belongs to the graphics thread, queued writes keep their order with the creation of a texture that reuses the id.
+            const uint32_t id = m_Id;
+            RenderThread::Get().Post([id] {
+                if (!Context::Exists())
+                    return;
+                const Image& white = Context::Get().GetDummyImage(ShaderSamplerType::Texture2D);
+                if (white.IsValid())
+                    Context::Get().WriteBindless(id, white.view, Context::Get().GetDummySampler(ShaderSamplerType::Texture2D), white.RestingLayout());
+            });
 
             image.Destroy();
         }

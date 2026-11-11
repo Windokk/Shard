@@ -189,7 +189,14 @@ namespace Shard::Engine::Debugging{
             }
         }
 
-        frame.frameMs = frame.totalMs + frame.renderMs;
+        if (!render && !s_RenderThreadSampling.load(std::memory_order_acquire))
+        {
+            frame.renderMs = frame.categoryMs[static_cast<size_t>(ProfileCategory::Rendering)]
+                           + frame.categoryMs[static_cast<size_t>(ProfileCategory::Presentation)];
+            frame.frameMs = frame.totalMs;
+        }
+        else
+            frame.frameMs = frame.totalMs + frame.renderMs;
 
         float& renderingMs = frame.categoryMs[static_cast<size_t>(ProfileCategory::Rendering)];
         renderingMs -= subSampleCount * m_SampleOverheadMs;

@@ -140,7 +140,7 @@ namespace Shard::Engine::Plugins::CAbi {
                 PluginContext* ctx = nullptr;
                 std::shared_ptr<int> token;
                 Worlds::Scheduler* scheduler = nullptr;
-                if (const ShardResult r = Prepare(handle, ctx, token, scheduler); r != SHARD_OK) return r;
+                if (const ShardResult r = PrepareToAdd(handle, ctx, token, scheduler); r != SHARD_OK) return r;
                 std::atomic<uint32_t>* active = ActiveCounter(*ctx);
                 const PluginOwner owner = PluginOwner(handle);
                 *out = scheduler->Start([active, owner, step, user]() -> Worlds::Wait {

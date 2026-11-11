@@ -1,11 +1,13 @@
 #include "engine/plugins/content.hpp"
 
 #include <algorithm>
+#include <atomic>
 #include <cstdio>
 #include <filesystem>
 #include <fstream>
 #include <set>
 #include <sstream>
+#include <thread>
 
 namespace Shard::Engine::Plugins {
 
@@ -300,11 +302,20 @@ namespace Shard::Engine::Plugins {
         auto bytes = mount.pak->Read(relative);
         if (!bytes) return std::nullopt;
         fs::create_directories(file.parent_path(), ec);
-        std::ofstream out(file, std::ios::binary | std::ios::trunc);
-        if (!out) return std::nullopt;
-        out.write(bytes->data(), std::streamsize(bytes->size()));
-        out.close();
-        if (!out) return std::nullopt;
+        static std::atomic<uint64_t> counter{ 0 };
+        const fs::path temp = fs::path(file.string() + ".tmp" + std::to_string(counter.fetch_add(1)) + "-" + std::to_string(std::hash<std::thread::id>()(std::this_thread::get_id())));
+        {
+            std::ofstream out(temp, std::ios::binary | std::ios::trunc);
+            if (!out) return std::nullopt;
+            out.write(bytes->data(), std::streamsize(bytes->size()));
+            out.close();
+            if (!out) { fs::remove(temp, ec); return std::nullopt; }
+        }
+        fs::rename(temp, file, ec);
+        if (ec) {
+            fs::remove(temp, ec);
+            if (!(fs::is_regular_file(file, ec) && fs::file_size(file, ec) == entry->size)) return std::nullopt;
+        }
         return Slash(file.generic_string());
     }
 

@@ -650,7 +650,7 @@ def generate():
     out.append('')
     out.append('Every function says which thread may call it : `any`, `system` (from inside a system, possibly in parallel with others), '
                '`script` (from a script callback) or `main` (the main thread, outside systems). A function returns a `ShardResult`, either '
-               '`SHARD_OK` (0) or a negative error, and the details go to the engine\'s log under the plugin\'s id. Strings are `ShardStr` : '
+               '`SHARD_OK` (0) or a negative error, and the details go to the engine\'s log under the plugin\'s id. \n\nStrings are `ShardStr` : '
                'UTF-8, not necessarily zero terminated, valid for the duration of the call. A "text out" function takes '
                '`(buffer, capacity, *size)`, copies what fits and returns the full length.')
     out.append('')
@@ -678,9 +678,13 @@ def generate():
         render_items(items, section, 4)
         sections.append(section)
 
+    out.append('<div class="equal-cols" markdown>')
+    out.append('')
     out.append('| Header | Interface | |')
     out.append('|---|---|---|')
     out.extend(summary)
+    out.append('')
+    out.append('</div>')
     out.append('')
     for s in sections:
         out.extend(s)

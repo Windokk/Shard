@@ -294,7 +294,7 @@ namespace Shard::Editor::GUI{
         if (!ImGui::BeginMenu("Window"))
             return;
 
-        if (ImGui::MenuItem("Game View", "G", parent->IsGameView(), !GetEngine().IsInPlayMode()))
+        if (ImGui::MenuItem("Game View", "F11", parent->IsGameView(), !GetEngine().IsInPlayMode()))
             parent->ToggleGameView();
 
         ImGui::Separator();
