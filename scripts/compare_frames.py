@@ -696,6 +696,7 @@ def heat(t):
 
 
 LEVELS = (1, 2, 4, 8, 16, 32)
+BLANK_SPREAD = 8        # a picture whose levels span less than this has nothing in it
 
 
 def diff_pictures(a, b, width, height, block, gain_levels):
@@ -737,6 +738,7 @@ def diff_pictures(a, b, width, height, block, gain_levels):
     metrics = {
         "width": width, "height": height,
         "identical": max(error) == 0,
+        "spread_a": max(a) - min(a), "spread_b": max(b) - min(b),
         "mean_abs": sum(sum_abs) / (3.0 * count),
         "mean_abs_rgb": [s / count for s in sum_abs],
         "bias_rgb": [s / count for s in sum_signed],
@@ -797,6 +799,9 @@ def print_diff(metrics, name_a, name_b, gain_levels):
 def verdict(metrics, args):
     """The reasons the comparison fails the limits given (--max-mean, --max-p99, --max-over), empty when it passes"""
     reasons = []
+    limited = args.max_mean is not None or args.max_p99 is not None or args.max_over is not None
+    if limited and not args.allow_blank and min(metrics["spread_a"], metrics["spread_b"]) < BLANK_SPREAD:
+        reasons.append(f"a picture is blank (its brightest and darkest levels are {metrics['spread_a']} and {metrics['spread_b']} apart) : nothing was drawn")
     if args.max_mean is not None and metrics["mean_abs"] > args.max_mean:
         reasons.append(f"mean error {metrics['mean_abs']:.3f} > {args.max_mean}")
     if args.max_p99 is not None and metrics["p99"] > args.max_p99:
@@ -812,6 +817,7 @@ def add_diff_options(parser):
     parser.add_argument("--max-mean", type=float, default=None, help="fail (exit 1) when the mean error, in levels of 255, is above this")
     parser.add_argument("--max-p99", type=int, default=None, help="fail when the 99th percentile of the pixel error is above this")
     parser.add_argument("--max-over", type=float, default=None, help="fail when more than this percentage of the pixels are off by more than 8 levels")
+    parser.add_argument("--allow-blank", action="store_true", help="with a --max-* limit, a picture with nothing in it (a flat colour) is an error ; this accepts it")
 
 
 def compare_two(path_a, path_b, name_a, name_b, out, args, stem="diff"):
@@ -849,12 +855,23 @@ def diff_main(argv):
         sys.exit("[FAIL] " + " ; ".join(failures))
 
 
-def write_api_commands(path, folder, args, views):
-    """The console script of one API's run : one PNG per view"""
+def parse_side(text, default_pipeline):
+    """A side of the comparison, 'api' or 'api:pipeline' -> (api, pipeline or None, label used for its folder and in the reports)"""
+    api, _, pipeline = text.partition(":")
+    api = api.strip().lower()
+    pipeline = pipeline.strip() or default_pipeline
+    if api not in ("opengl", "vulkan"):
+        sys.exit(f"[ERROR] a side is 'opengl', 'vulkan' or 'api:pipeline' (vulkan:deferred) : {text!r}")
+    label = api + (("." + re.sub(r"[^A-Za-z0-9_-]", "_", pipeline)) if text.partition(":")[2].strip() else "")
+    return api, pipeline, label
+
+
+def write_api_commands(path, folder, args, views, pipeline):
+    """The console script of one run : one PNG per view"""
     settle = 8          # the render thread lags the simulation
     lines = ["0 timescale 0"]
-    if args.pipeline:
-        lines.append(f"0 render.pipeline {args.pipeline}")
+    if pipeline:
+        lines.append(f"0 render.pipeline {pipeline}")
     for command in args.command:
         lines.append(f"0 {command}")
     frame = args.warmup
@@ -863,19 +880,24 @@ def write_api_commands(path, folder, args, views):
         frame += settle
         lines.append(f'{frame} render.screenshot "{folder}/{view["name"]}.png"')
         frame += 1
+        if args.raytrace:
+            spp, bounces = args.raytrace
+            lines.append(f'{frame} raytrace.render "{folder}/{view["name"]}.rt.hdr" {args.rt_width} {args.rt_height} {spp} {bounces}')
+            frame += 1
     lines.append(f"{frame} render.camera off")
     with open(path, "w", encoding="utf-8", newline="\n") as f:
         f.write("\n".join(lines) + "\n")
     return frame + 3
 
 
-def run_api(args, out, api, views):
-    """Runs the player on one API, with the same script for every API : <out>/<api>/<view>.png"""
+def run_api(args, out, side, views):
+    """Runs the player on one side (an API and maybe a pipeline), with the same script for every side : <out>/<label>/<view>.png"""
+    api, pipeline, label = side
     build = os.path.abspath(args.build)
     player = find_player(build)
     if not player:
         sys.exit(f"[ERROR] no ShardGame in {build} : build the project first (cmake --build build --target ShardGame)")
-    folder = f"{out}/{api}"
+    folder = f"{out}/{label}"
     os.makedirs(folder, exist_ok=True)
     for view in views:
         stale = os.path.join(folder, view["name"] + ".png")
@@ -883,7 +905,7 @@ def run_api(args, out, api, views):
             os.remove(stale)
 
     commands = os.path.join(folder, "commands.txt")
-    frames = write_api_commands(commands, folder, args, views)
+    frames = write_api_commands(commands, folder, args, views, pipeline)
     env = dict(os.environ)
     mingw = r"C:\msys64\mingw64\bin"
     if os.name == "nt" and os.path.isdir(mingw):
@@ -894,7 +916,7 @@ def run_api(args, out, api, views):
     cmd = [player, "--project", os.path.abspath(args.project), "--api", api, "--world", args.world,
            "--frames", str(frames), "--width", str(args.width), "--height", str(args.height), "--vsync", "0",
            "--script", commands, "--seed", str(args.seed)]
-    print(f"[INFO] {api} : {args.world}, {len(views)} view(s), {args.warmup} warm-up frames")
+    print(f"[INFO] {label} : {args.world}, {len(views)} view(s), {args.warmup} warm-up frames")
 
     log_path = os.path.join(folder, "player.log")
     failures = []
@@ -916,24 +938,26 @@ def run_api(args, out, api, views):
                 sys.exit(f"[ERROR] no result after {args.timeout} s (--timeout) : see {log_path}")
         status = process.wait()
     if status != 0:
-        sys.exit(f"[ERROR] the {api} player exited with {status} : see {log_path}")
+        sys.exit(f"[ERROR] the {label} player exited with {status} : see {log_path}")
     if failures:
-        sys.exit(f"[ERROR] {len(failures)} command(s) failed on {api} : see {log_path}")
+        sys.exit(f"[ERROR] {len(failures)} command(s) failed on {label} : see {log_path}")
     for view in views:
         if not os.path.isfile(os.path.join(folder, view["name"] + ".png")):
-            sys.exit(f"[ERROR] {api} wrote no picture for the view {view['name']} : see {log_path}")
+            sys.exit(f"[ERROR] {label} wrote no picture for the view {view['name']} : see {log_path}")
 
 
 def apis_main(argv):
     parser = argparse.ArgumentParser(prog="compare_frames.py apis",
-                                     description="Renders a world with OpenGL and with Vulkan, from the same views, and reports how the pictures differ.")
+                                     description="Renders a world twice, by default with OpenGL then with Vulkan, from the same views, and reports how the pictures differ.")
     parser.add_argument("--world", default="sponza.world", help="world of the project to render")
     parser.add_argument("--view", action="append", default=[],
                         help="a view, 'name=px py pz tx ty tz [fov]' or 'camera' (the world's) ; repeatable ; "
                              "default : the world's views in scripts/reference_views.json, else its camera")
     parser.add_argument("--project", default=os.path.join(ROOT, "example_project", "example_project.json"))
     parser.add_argument("--build", default=os.path.join(ROOT, "build"), help="build folder holding ShardGame")
-    parser.add_argument("--pipeline", default=None, help="render pipeline (render.pipeline : deferred, forward_plus...) ; the project's by default")
+    parser.add_argument("--pipeline", default=None, help="render pipeline of both sides (render.pipeline : deferred, forward_plus...) ; the project's by default")
+    parser.add_argument("--a", default="opengl", metavar="SIDE", help="first side (the reference) : 'opengl', 'vulkan' or 'api:pipeline' such as vulkan:forward_plus (default opengl)")
+    parser.add_argument("--b", default="vulkan", metavar="SIDE", help="second side, same syntax (default vulkan). vulkan:forward_plus against vulkan:deferred compares two pipelines on one API")
     parser.add_argument("--width", type=int, default=640)
     parser.add_argument("--height", type=int, default=360)
     parser.add_argument("--warmup", type=int, default=60, help="frames before the captures (the live GI probes need ~800 in a Debug build)")
@@ -943,6 +967,13 @@ def apis_main(argv):
     parser.add_argument("--reuse", action="store_true", help="do not run the players : compare the pictures already in --out")
     parser.add_argument("--command", action="append", default=[], help="console command run at the start on both APIs (repeatable)")
     parser.add_argument("--verbose", action="store_true", help="print every console command the players run")
+    parser.add_argument("--raytrace", nargs=2, type=int, metavar=("SPP", "BOUNCES"), default=None,
+                        help="also path trace each view with raytrace.render (samples per pixel, bounces) on both sides and compare the two .rt.hdr : "
+                             "the noise differs from one run to the next, so only the bias is judged (--max-rt-bias), not the pixels")
+    parser.add_argument("--rt-width", type=int, default=160, help="width of the path traced pictures")
+    parser.add_argument("--rt-height", type=int, default=90, help="height of the path traced pictures")
+    parser.add_argument("--max-rt-bias", type=float, default=None,
+                        help="fail when the mean signed difference of a path traced picture, per channel, is above this many levels of 255")
     add_diff_options(parser)
     args = parser.parse_args(argv)
 
@@ -952,21 +983,41 @@ def apis_main(argv):
         sys.exit(f"[ERROR] the output folder cannot contain spaces (console paths) : {out}")
     views = views_of(args)
 
+    sides = [parse_side(args.a, args.pipeline), parse_side(args.b, args.pipeline)]
+    label_a, label_b = sides[0][2], sides[1][2]
+    if label_a == label_b:
+        sys.exit(f"[ERROR] both sides are {label_a} : name two different ones (--a, --b)")
+
     if not args.reuse:
-        for api in ("opengl", "vulkan"):
-            run_api(args, out, api, views)
+        for side in sides:
+            run_api(args, out, side, views)
 
     results = []
     failed = []
     for view in views:
         print()
-        metrics, failures = compare_two(f"{out}/opengl/{view['name']}.png", f"{out}/vulkan/{view['name']}.png",
-                                        f"opengl/{view['name']}", f"vulkan/{view['name']}", out, args, f"diff.{view['name']}")
+        metrics, failures = compare_two(f"{out}/{label_a}/{view['name']}.png", f"{out}/{label_b}/{view['name']}.png",
+                                        f"{label_a}/{view['name']}", f"{label_b}/{view['name']}", out, args, f"diff.{view['name']}")
         results.append({"name": view["name"], "view": view["view"], **metrics})
         failed += [f"{view['name']} : {reason}" for reason in failures]
 
-    report = {"world": args.world, "pipeline": args.pipeline or "project default", "width": args.width, "height": args.height,
-              "warmup": args.warmup, "views": results, "failures": failed}
+    rt_results = []
+    if args.raytrace:
+        for view in views:
+            print()
+            stem = f"diff.{view['name']}.rt"
+            rt_args = argparse.Namespace(**{**vars(args), "max_mean": None, "max_p99": None, "max_over": None})
+            metrics, _ = compare_two(f"{out}/{label_a}/{view['name']}.rt.hdr", f"{out}/{label_b}/{view['name']}.rt.hdr",
+                                     f"{label_a}/{view['name']}.rt", f"{label_b}/{view['name']}.rt", out, rt_args, stem)
+            worst = max(abs(v) for v in metrics["bias_rgb"])
+            if args.max_rt_bias is not None and worst > args.max_rt_bias:
+                failed.append(f"{view['name']} (path traced) : bias {worst:.3f} > {args.max_rt_bias}")
+            if min(metrics["spread_a"], metrics["spread_b"]) < BLANK_SPREAD and not args.allow_blank and args.max_rt_bias is not None:
+                failed.append(f"{view['name']} (path traced) : a picture is blank")
+            rt_results.append({"name": view["name"], **metrics})
+
+    report = {"world": args.world, "a": label_a, "b": label_b, "pipeline": args.pipeline or "project default", "width": args.width, "height": args.height,
+              "warmup": args.warmup, "views": results, "raytraced": rt_results, "failures": failed}
     with open(os.path.join(out, "report.json"), "w", encoding="utf-8", newline="\n") as f:
         json.dump(report, f, indent=2)
 
@@ -975,7 +1026,7 @@ def apis_main(argv):
         print(f"{'view':<14} {'mean':>8} {'rmse':>8} {'p99':>5} {'max':>5} {'>8 levels':>10}")
         for r in results:
             print(f"{r['name']:<14} {r['mean_abs']:>8.3f} {r['rmse']:>8.3f} {r['p99']:>5} {r['max']:>5} {r['over']['8'] * 100:>9.2f}%")
-    print(f"\n[INFO] pictures, difference maps (diff.<view>.png : opengl | vulkan | difference) and report.json : {out}")
+    print(f"\n[INFO] pictures, difference maps (diff.<view>.png : {label_a} | {label_b} | difference) and report.json : {out}")
     if failed:
         sys.exit("[FAIL] " + " ; ".join(failed))
 

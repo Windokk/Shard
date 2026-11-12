@@ -552,6 +552,240 @@ EXPORT("wasm_timers_cancel_every") int wasm_timers_cancel_every(void) { return g
 EXPORT("wasm_timers_cancel_all") int wasm_timers_cancel_all(void) { return g_timers->cancel_all(g_ctx); }
 EXPORT("wasm_timers_active") int wasm_timers_active(void) { return g_timers->is_active(g_ctx, g_every); }
 
+static const ShardTimeApi* g_time;
+static ShardTimeInfo g_time_info;
+static uint64_t g_hash_total;
+
+EXPORT("wasm_time_probe") int wasm_time_probe(void)
+{
+    g_time = (const ShardTimeApi*)iface(SHARD_IFACE_TIME, 0);
+    if (!g_time) return -100;
+    g_time_info.structSize = sizeof(g_time_info);
+    return g_time->get(&g_time_info);
+}
+EXPORT("wasm_time_real_is_sim") int wasm_time_real_is_sim(void) { return g_time_info.realTime == g_time_info.simTime; }
+EXPORT("wasm_time_sim_us") uint64_t wasm_time_sim_us(void) { return (uint64_t)(g_time_info.simTime * 1e6 + 0.5); }
+EXPORT("wasm_time_fixed_step") uint64_t wasm_time_fixed_step(void) { return g_time_info.fixedStep; }
+EXPORT("wasm_time_fixed_dt_us") int wasm_time_fixed_dt_us(void) { return (int)(g_time_info.fixedDeltaTime * 1e6f + 0.5f); }
+EXPORT("wasm_time_scale_milli") int wasm_time_scale_milli(void) { return (int)(g_time_info.timeScale * 1000.0f + 0.5f); }
+EXPORT("wasm_time_set_scale") int wasm_time_set_scale(int milli) { return g_time->set_time_scale((float)milli / 1000.0f); }
+EXPORT("wasm_time_set_fixed_us") int wasm_time_set_fixed_us(int micros) { return g_time->set_fixed_delta_time((float)micros / 1e6f); }
+EXPORT("wasm_time_hash") int wasm_time_hash(void)
+{
+    ShardStateHash hash;
+    ShardResult result;
+    hash.structSize = sizeof(hash);
+    result = g_time->state_hash(&hash);
+    g_hash_total = hash.total;
+    return result;
+}
+EXPORT("wasm_time_hash_total") uint64_t wasm_time_hash_total(void) { return g_hash_total; }
+
+static const ShardJobsApi* g_jobs;
+static ShardJob g_job_a, g_job_b, g_job_c, g_job_self;
+static int g_job_log[64];
+static int g_job_log_count;
+static int g_slots[100];
+
+static void job_note(void* user, uint32_t worker)
+{
+    if (worker != 0) ++g_stats[S_JOB_WORKER_BAD];
+    if (g_job_log_count < 64) g_job_log[g_job_log_count++] = (int)(size_t)user;
+    ++g_stats[S_JOB_RUNS];
+}
+static void job_wait_self(void* user, uint32_t worker)
+{
+    (void)user; (void)worker;
+    g_stats[S_JOB_SELF_WAIT] = g_jobs->wait(g_ctx, g_job_self);
+    ++g_stats[S_JOB_RUNS];
+}
+static void on_post(void* user) { g_stats[S_POST_VALUE] = (int)(size_t)user; ++g_stats[S_POST_RUNS]; }
+static void job_post(void* user, uint32_t worker)
+{
+    (void)worker;
+    if (g_jobs->post_main(g_ctx, on_post, user) != SHARD_OK) ++g_stats[S_FAILURES];
+    ++g_stats[S_JOB_RUNS];
+}
+static void job_spin(void* user, uint32_t worker) { volatile int i = 0; (void)user; (void)worker; for (;;) ++i; }
+static void range_note(void* user, uint32_t begin, uint32_t end, uint32_t worker)
+{
+    uint32_t i;
+    int* slots = (int*)user;
+    if (worker != 0) ++g_stats[S_JOB_WORKER_BAD];
+    ++g_stats[S_RANGE_CALLS];
+    for (i = begin; i < end; ++i) slots[i] += (int)i + 1;
+}
+
+EXPORT("wasm_jobs_open") int wasm_jobs_open(void)
+{
+    g_jobs = (const ShardJobsApi*)iface(SHARD_IFACE_JOBS, 0);
+    return g_jobs ? SHARD_OK : -100;
+}
+EXPORT("wasm_jobs_workers") int wasm_jobs_workers(void) { return (int)g_jobs->worker_count(); }
+EXPORT("wasm_jobs_submit") int wasm_jobs_submit(void)
+{
+    g_job_log_count = 0;
+    if (g_jobs->run(g_ctx, job_note, (void*)1, &g_job_a) != SHARD_OK || !g_job_a) return -1;
+    if (g_jobs->run(g_ctx, job_note, (void*)2, &g_job_b) != SHARD_OK || !g_job_b) return -2;
+    if (g_jobs->run(g_ctx, job_note, (void*)3, 0) != SHARD_OK) return -3;
+    return SHARD_OK;
+}
+EXPORT("wasm_jobs_run_null") int wasm_jobs_run_null(void) { return g_jobs->run(g_ctx, 0, 0, 0); }
+EXPORT("wasm_jobs_wait_a") int wasm_jobs_wait_a(void) { return g_jobs->wait(g_ctx, g_job_a); }
+EXPORT("wasm_jobs_wait_b") int wasm_jobs_wait_b(void) { return g_jobs->wait(g_ctx, g_job_b); }
+EXPORT("wasm_jobs_is_done_a") int wasm_jobs_is_done_a(void) { return g_jobs->is_done(g_ctx, g_job_a); }
+EXPORT("wasm_jobs_release_b") int wasm_jobs_release_b(void) { return g_jobs->release(g_ctx, g_job_b); }
+EXPORT("wasm_jobs_log_count") int wasm_jobs_log_count(void) { return g_job_log_count; }
+EXPORT("wasm_jobs_log") int wasm_jobs_log(int i) { return i >= 0 && i < g_job_log_count ? g_job_log[i] : -1; }
+EXPORT("wasm_jobs_submit_self") int wasm_jobs_submit_self(void) { return g_jobs->run(g_ctx, job_wait_self, 0, &g_job_self); }
+EXPORT("wasm_jobs_wait_self") int wasm_jobs_wait_self(void) { return g_jobs->wait(g_ctx, g_job_self); }
+EXPORT("wasm_jobs_submit_post") int wasm_jobs_submit_post(int value) { return g_jobs->run(g_ctx, job_post, (void*)(size_t)value, 0); }
+EXPORT("wasm_jobs_post") int wasm_jobs_post(int value) { return g_jobs->post_main(g_ctx, on_post, (void*)(size_t)value); }
+EXPORT("wasm_jobs_submit_spin") int wasm_jobs_submit_spin(void) { return g_jobs->run(g_ctx, job_spin, 0, 0); }
+EXPORT("wasm_jobs_parallel_for") int wasm_jobs_parallel_for(int count, int grain)
+{
+    int i;
+    for (i = 0; i < 100; ++i) g_slots[i] = 0;
+    g_stats[S_RANGE_CALLS] = 0;
+    return g_jobs->parallel_for(g_ctx, (uint32_t)count, (uint32_t)grain, range_note, g_slots);
+}
+EXPORT("wasm_jobs_parallel_async") int wasm_jobs_parallel_async(int count, int grain)
+{
+    int i;
+    for (i = 0; i < 100; ++i) g_slots[i] = 0;
+    g_stats[S_RANGE_CALLS] = 0;
+    return g_jobs->parallel_for_async(g_ctx, (uint32_t)count, (uint32_t)grain, range_note, g_slots, &g_job_c);
+}
+EXPORT("wasm_jobs_parallel_async_no_out") int wasm_jobs_parallel_async_no_out(void) { return g_jobs->parallel_for_async(g_ctx, 4, 1, range_note, g_slots, 0); }
+EXPORT("wasm_jobs_wait_c") int wasm_jobs_wait_c(void) { return g_jobs->wait(g_ctx, g_job_c); }
+EXPORT("wasm_jobs_slot_sum") int wasm_jobs_slot_sum(void)
+{
+    int i, sum = 0;
+    for (i = 0; i < 100; ++i) sum += g_slots[i];
+    return sum;
+}
+
+static const ShardAssetsApi* g_assets;
+static uint8_t g_pixels[16];
+static ShardResult on_asset(void* user, const ShardAssetInfo* asset)
+{
+    (void)user;
+    if (asset->structSize < sizeof(ShardAssetInfo) || asset->path.size == 0 || asset->sizeBytes == 0) ++g_stats[S_ASSET_LIST_BAD];
+    ++g_stats[S_ASSET_LISTED];
+    return SHARD_OK;
+}
+
+EXPORT("wasm_assets_open") int wasm_assets_open(void)
+{
+    g_assets = (const ShardAssetsApi*)iface(SHARD_IFACE_ASSETS, 0);
+    return g_assets ? SHARD_OK : -100;
+}
+EXPORT("wasm_assets_probe") int wasm_assets_probe(void)
+{
+    int32_t id = 0, missing = 7, picture = 0;
+    ShardAssetInfo info;
+    ShardMeshInfo meshInfo;
+    ShardMeshRead read;
+    float positions[12];
+    char buffer[64];
+    uint64_t size = 0, bytes = 0;
+    void* data = 0;
+    uint32_t width = 0, height = 0;
+    memset(&info, 0, sizeof(info));
+    memset(&meshInfo, 0, sizeof(meshInfo));
+    memset(&read, 0, sizeof(read));
+    CHECK(g_assets->resolve(S("data/hello.txt"), &id) == SHARD_OK && id != 0);
+    CHECK(g_assets->resolve(S("data/none.txt"), &missing) == SHARD_E_NOT_FOUND && missing == 0);
+    info.structSize = sizeof(info);
+    CHECK(g_assets->info(id, &info) == SHARD_OK);
+    CHECK(info.id == id && info.sizeBytes == 12 && equal(info.path, "data/hello.txt") && info.typeName.size == 0);
+    CHECK(g_assets->info(123456, &info) == SHARD_E_NOT_FOUND);
+    CHECK(g_assets->path_of(id, buffer, sizeof(buffer), &size) == SHARD_OK && size == 14 && memcmp(buffer, "data/hello.txt", 14) == 0);
+    CHECK(g_assets->exists(S("data/hello.txt")) == SHARD_TRUE);
+    CHECK(g_assets->exists(S("data/none.txt")) == SHARD_FALSE);
+    CHECK(g_assets->exists(S("../outside.txt")) == SHARD_FALSE);
+    CHECK(g_assets->exists(S("/data/hello.txt")) == SHARD_FALSE);
+    CHECK(g_assets->exists(S("C:/Windows/win.ini")) == SHARD_FALSE);
+    CHECK(g_assets->read(g_ctx, S("data/hello.txt"), &data, &bytes) == SHARD_OK && bytes == 12 && memcmp(data, "hello assets", 12) == 0);
+    g_host->free(g_ctx, data);
+    data = 0;
+    CHECK(g_assets->read(g_ctx, S("data/none.txt"), &data, &bytes) == SHARD_E_NOT_FOUND);
+    CHECK(g_assets->read(g_ctx, S("../secret.txt"), &data, &bytes) == SHARD_E_INVALID_ARG);
+    CHECK(g_assets->read(g_ctx, S("/data/hello.txt"), &data, &bytes) == SHARD_E_INVALID_ARG);
+    CHECK(g_assets->read(g_ctx, S("C:/Windows/win.ini"), &data, &bytes) == SHARD_E_INVALID_ARG);
+    CHECK(g_assets->read(g_ctx, S("mod://shard.other/hello.txt"), &data, &bytes) == SHARD_E_INVALID_ARG);
+    CHECK(g_assets->list(S("data"), SHARD_ASSET_UNKNOWN, on_asset, 0) == SHARD_OK);
+    CHECK(g_assets->list(S("../data"), SHARD_ASSET_UNKNOWN, on_asset, 0) == SHARD_E_INVALID_ARG);
+    CHECK(g_assets->list(S("data"), SHARD_ASSET_MESH, on_asset, 0) == SHARD_OK);
+    CHECK(g_stats[S_ASSET_LISTED] == 2 && g_stats[S_ASSET_LIST_BAD] == 0);
+
+    meshInfo.structSize = sizeof(meshInfo);
+    CHECK(g_assets->mesh_info(id, &meshInfo) == SHARD_E_NOT_FOUND);
+    read.structSize = sizeof(read);
+    read.vertexCapacity = 4;
+    read.positions = positions;
+    CHECK(g_assets->mesh_read(id, &read) == SHARD_E_NOT_FOUND && read.vertexCount == 0);
+    CHECK(g_assets->image_info(id, &width, &height) == SHARD_E_NOT_FOUND);
+
+    CHECK(g_assets->resolve(S("data/pic.png"), &picture) == SHARD_OK);
+    CHECK(g_assets->image_info(picture, &width, &height) == SHARD_OK && width == 2 && height == 2);
+    CHECK(g_assets->image_read(picture, 0, 0, &size) == SHARD_OK && size == 16);
+    size = 0;
+    CHECK(g_assets->image_read(picture, g_pixels, sizeof(g_pixels), &size) == SHARD_OK && size == 16);
+    return g_stats[S_FAILURES];
+}
+EXPORT("wasm_assets_pixel") int wasm_assets_pixel(int i) { return i >= 0 && i < 16 ? g_pixels[i] : -1; }
+EXPORT("wasm_assets_write") int wasm_assets_write(void)
+{
+    int32_t id = 0;
+    const char text[] = "xyz";
+    return g_assets->write(g_ctx, S("out/baked.bin"), text, 3, &id) == SHARD_OK && id != 0 ? SHARD_OK : -1;
+}
+EXPORT("wasm_assets_write_no_id") int wasm_assets_write_no_id(void) { return g_assets->write(g_ctx, S("out/noid.bin"), "q", 1, 0); }
+EXPORT("wasm_assets_write_escape") int wasm_assets_write_escape(void) { return g_assets->write(g_ctx, S("../escaped.bin"), "x", 1, 0); }
+EXPORT("wasm_assets_write_absolute") int wasm_assets_write_absolute(void) { return g_assets->write(g_ctx, S("C:/escaped.bin"), "x", 1, 0); }
+EXPORT("wasm_assets_mesh_oob") int wasm_assets_mesh_oob(void)
+{
+    ShardMeshRead read;
+    memset(&read, 0, sizeof(read));
+    read.structSize = sizeof(read);
+    read.vertexCapacity = 1000000;
+    read.positions = (float*)0x7FFFFFF0u;
+    return g_assets->mesh_read(1, &read);
+}
+
+static const ShardDebugApi* g_debug;
+EXPORT("wasm_debug_open") int wasm_debug_open(void)
+{
+    g_debug = (const ShardDebugApi*)iface(SHARD_IFACE_DEBUG, 0);
+    return g_debug ? SHARD_OK : -100;
+}
+EXPORT("wasm_debug_probe") int wasm_debug_probe(void)
+{
+    const float origin[3] = { 0.0f, 0.0f, 0.0f }, unit[3] = { 1.0f, 2.0f, 3.0f }, up[3] = { 0.0f, 1.0f, 0.0f }, rotation[4] = { 0.0f, 0.0f, 0.0f, 1.0f };
+    const float points[12] = { 0, 0, 0, 1, 0, 0, 1, 0, 0, 1, 1, 0 };
+    const float triangle[9] = { 0, 0, 0, 1, 0, 0, 0, 1, 0 };
+    const uint32_t red = 0xFF0000FFu;
+    int enabled = g_debug->enabled();
+    g_debug->line(origin, unit, red, 0.0f, SHARD_DEBUG_DEPTH_TEST);
+    g_debug->lines(points, 4, red, 0.0f, 0);
+    g_debug->point(unit, 0.1f, red, 0.0f, 0);
+    g_debug->arrow(origin, unit, red, 0.0f, 0);
+    g_debug->circle(origin, up, 1.0f, red, 0.0f, 0);
+    g_debug->sphere(origin, 1.0f, red, 0.0f, 0);
+    g_debug->box(origin, unit, 0, red, 0.0f, 0);
+    g_debug->box(origin, unit, rotation, red, 0.0f, 0);
+    g_debug->capsule(origin, unit, 0.5f, red, 0.0f, 0);
+    g_debug->cone(origin, up, 30.0f, red, 0.0f, 0);
+    g_debug->triangles(triangle, 1, red, 0.0f, 0);
+    g_debug->text(origin, S("a label"), red, 0.0f, 0);
+    g_debug->text_screen(10.0f, 10.0f, S("on the screen"), red, 0.0f);
+    g_debug->lines(points, 0, red, 0.0f, 0);
+    g_debug->clear();
+    return enabled == SHARD_TRUE || enabled == SHARD_FALSE ? SHARD_OK : -1;
+}
+EXPORT("wasm_debug_oob") void wasm_debug_oob(void) { g_debug->lines((const float*)0x7FFFFFF0u, 1000, 0, 0.0f, 0); }
+
 EXPORT("wasm_make_blob") uint64_t wasm_make_blob(void)
 {
     void* data = 0;

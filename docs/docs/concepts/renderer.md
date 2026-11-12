@@ -59,7 +59,7 @@ A render pipeline asset defines how a frame is built. They live in `resources/en
 | Pipeline   | Description                                                                                                   |
 |------------|---------------------------------------------------------------------------------------------------------------|
 | `forward+` | Default. Meshes are lit while drawn, using clustered lights, a depth prepass and MSAA.                         |
-| `deferred` | Opaque and masked geometry is written to a G-buffer and lit in one fullscreen pass. Translucent geometry and the sky are still drawn forward. |
+| `deferred` | Opaque and masked geometry is written to a G-buffer and lit in one fullscreen pass. With MSAA on, the G-buffer is multisampled and the pass lights every sample, so the edges are anti-aliased as in `forward+`. Translucent geometry and the sky are still drawn forward. |
 
 To add one, implement `RenderPipeline` and register it with `RenderPipelineRegistry`.
 
@@ -85,7 +85,7 @@ The maps of each kind of light are the layers of one texture array : one for the
 | Stabilize Cascades | `stabilizeCascades` | on | Snaps each cascade to its texels so shadows don't shimmer when the camera moves. |
 | Caster Range | `casterRange` | 500 | How far from a cascade, towards the sun, casters are still drawn. A caster further than this casts no shadow on it. |
 | Double-sided Casters | `directionalDoubleSided` | on | Draws both faces into the sun's maps. With it off, only the faces turned away from the sun are drawn, which lets light through the edges of single-surface roofs and walls. |
-| Conservative Rasterization | `directionalConservativeRaster` | on | Draws every texel a caster touches, so a gap thinner than a texel (the joints of a model) doesn't let a line of light through. OpenGL with `GL_NV_conservative_raster` only. |
+| Conservative Rasterization | `directionalConservativeRaster` | on | Draws every texel a caster touches, so a gap thinner than a texel (the joints of a model) doesn't let a line of light through. Needs `GL_NV_conservative_raster` (OpenGL) or `VK_EXT_conservative_rasterization` (Vulkan) ; ignored on a GPU without it, and the two APIs then differ by a thin line of light. |
 | Normal Bias | `directionalNormalBias` | 2 | Texels the lit point is moved along the normal before the lookup, more on a surface that grazes the light. |
 | Depth Bias | `directionalDepthBias` | 0.75 | Constant depth offset, in texels. |
 | Slope Bias | `directionalSlopeBias` | 1 | Scale of the receiver plane bias that follows the surface's slope across the filter. |
@@ -176,10 +176,33 @@ The offline path tracer (`raytrace.render`) is the reference the real-time light
 
 A lightmapped surface takes the direct light of `Static` lights from its lightmap, so in real time that light counts as `indirect_diffuse`. Compare with Dynamic or Stationary lights to keep the terms apart.
 
+## Performance
+
+`bash scripts/bench.sh --api vulkan --script my.txt` (with `my.txt` holding `0 render.pipeline deferred`, for example) prints the frame time, the GPU time of every pass and the memory. The figures below are Sponza at 1280x720 with 4x MSAA, 700 frames of which the first 120 are ignored, on an RTX 5060, in a Debug build of the engine. Only the GPU figures mean something in a Debug build (the CPU side is several times slower than in Release), and the player is held at about 120 fps by something in the frame loop (not looked into), so the frame rate says nothing here.
+
+GPU time per frame, in ms, over three runs of each (a run made while another program was using the machine was left out : OpenGL took 23 to 31 ms then, Vulkan 6 to 7 ms) :
+
+| | `forward+` | `deferred` |
+|---|---|---|
+| OpenGL | 8.2 to 8.5 | 7.0 (12.7 in one run) |
+| Vulkan | 6.9 to 7.2 | 6.1 to 6.9 |
+
+| Render targets (engine count) | `forward+` | `deferred` |
+|---|---|---|
+| OpenGL | 149 MB | 290 MB |
+| Vulkan | 149 MB | 269 MB |
+
+- Both pipelines cost about the same : `deferred` is at most a little cheaper, by the 5 to 15% the runs show, which is about the noise. Its G-buffer and lighting passes (1.5 and 3.2 ms on Vulkan) replace the depth sweep and the shaded sweep (0.75 and 5.0 ms).
+- Vulkan is a little faster than OpenGL on the same scene (by about 1 ms for `forward+`), and a lot more stable when the machine is busy.
+- The video memory the driver reports is 2.2 to 2.8 GB for all four, and varies from one run to the next (Vulkan `forward+` gave 2686 then 2238 MB) : it is no figure to compare. Before this was measured the OpenGL count of render targets ignored the extra colour attachments, so it gave 185 MB for the `deferred` G-buffer instead of 290 MB.
+- The pictures of the four combinations agree to a mean error of 0.3 of 255 or less (see above).
+
 ## Editor on Vulkan
 
 `ShardEditor --api vulkan` draws Dear ImGui to the swapchain with `imgui_impl_vulkan` (see `RendererAPI::PresentUI`). Textures reach ImGui as descriptor sets created on the render thread.
 
 ## Comparing OpenGL and Vulkan
 
-`python scripts/compare_frames.py apis --world sponza.world` renders the world with `--api opengl`, then with `--api vulkan`, from the same views and the same seed, and reports how the pictures differ: mean error in levels of 255, RMSE, PSNR, percentiles of the pixel error, the share of pixels off by more than 1 to 32 levels, and the areas that differ most. `build/api_compare/<world>/diff.<view>.png` shows opengl | vulkan | difference map. `--max-mean`, `--max-p99` and `--max-over` make it exit with 1, and `compare_frames.py diff a.png b.png` compares any two pictures. See `scripts/README.md`.
+`python scripts/compare_frames.py apis --world sponza.world` renders the world with `--api opengl`, then with `--api vulkan`, from the same views and the same seed, and reports how the pictures differ: mean error in levels of 255, RMSE, PSNR, percentiles of the pixel error, the share of pixels off by more than 1 to 32 levels, and the areas that differ most. `build/api_compare/<world>/diff.<view>.png` shows opengl | vulkan | difference map. `--max-mean`, `--max-p99` and `--max-over` make it exit with 1 (also when a picture is blank), and `compare_frames.py diff a.png b.png` compares any two pictures. `--a vulkan:forward_plus --b vulkan:deferred` compares two pipelines on one API. `bash scripts/parity_test.sh apis` does the comparison with limits, and the CI runs `parity_test.sh pipelines` on a software Vulkan. See `scripts/README.md`.
+
+On Sponza the two APIs agree to a mean error of 0.15 to 0.3 of 255 (99% of the pixels within 3 levels), and so do the pipelines. The path tracer gives the same picture on both.

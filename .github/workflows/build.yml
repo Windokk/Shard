@@ -159,3 +159,28 @@ jobs:
           LIBGL_ALWAYS_SOFTWARE: '1'
           MESA_GL_VERSION_OVERRIDE: '4.6'
         run: bash scripts/smoke_test.sh
+
+      # Vulkan runs on Mesa's software driver (lavapipe), which has bindless textures, so lit.frag really draws here. cornell.world has no camera : use physics.world.
+      - name: Install the software Vulkan and the validation layers
+        if: runner.os == 'Linux'
+        run: sudo apt-get install -y --no-install-recommends libvulkan1 mesa-vulkan-drivers vulkan-validationlayers
+
+      - name: Smoke test, Vulkan (validation layers on)
+        if: runner.os == 'Linux'
+        env:
+          SHARD_SMOKE_API: vulkan
+          SHARD_SMOKE_WORLD: physics.world
+        run: bash scripts/smoke_test.sh
+
+      # forward+ against deferred on one world and one camera, within the limits of scripts/parity_test.sh. OpenGL against Vulkan needs a GPU : run parity_test.sh apis.
+      - name: Parity test (forward+ against deferred, Vulkan)
+        if: runner.os == 'Linux'
+        run: bash scripts/parity_test.sh pipelines
+
+      - name: Upload the parity pictures
+        if: failure() && runner.os == 'Linux'
+        uses: actions/upload-artifact@v4
+        with:
+          name: parity-pictures
+          path: build/api_compare
+          if-no-files-found: ignore

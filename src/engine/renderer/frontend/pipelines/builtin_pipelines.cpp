@@ -247,7 +247,7 @@ namespace Shard::Engine::Rendering {
         registry.RegisterType("forward+", "Forward+ : every mesh lit where it is drawn, the lights clustered, a depth sweep so that each pixel is shaded once",
             [](const nlohmann::json&) { return std::make_unique<ForwardPlusPipeline>(); });
 
-        registry.RegisterType("deferred", "Deferred : the materials go to a G-buffer, one full screen pass lights it (not anti-aliased on geometry edges)",
+        registry.RegisterType("deferred", "Deferred : the materials go to a G-buffer, one full screen pass lights it (with MSAA on, once per sample, so the edges are anti-aliased). Translucent geometry and the sky are forward",
             [](const nlohmann::json&) { return std::make_unique<DeferredPipeline>(); });
     }
 

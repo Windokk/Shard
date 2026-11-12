@@ -12,7 +12,8 @@
  * Colours are 8 bit r, g, b, a packed as r | g << 8 | b << 16 | a << 24. Positions are in the world ; a large world's are doubles in the
  * rest of the ABI, here floats relative to the camera's region are enough for drawing and the host rebases them.
  *
- * thread : any. A sandboxed plugin (tier 2) is not offered this interface. */
+ * thread : any. A sandboxed plugin (tier 2, shard_wasm.h) has it : its texts are cut to 256 bytes, and one call draws at most 1048576 points of
+ * `lines` or 262144 triangles (what the host keeps anyway). */
 #ifndef SHARD_DEBUG_H
 #define SHARD_DEBUG_H
 

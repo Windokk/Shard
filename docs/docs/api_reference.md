@@ -1355,6 +1355,8 @@ A change to an asset on disk (the user saved it, the importer ran) is the hook `
 
 thread : main, unless a function says otherwise. A plugin that writes the project declares the permission `"fs.write:project"` in its manifest, one that reads outside its own folder `"fs.read:project"` (a native plugin is trusted whatever it declares, but the user is told).
 
+A sandboxed plugin (tier 2, `shard_wasm.h`) is held to it : without `"fs.read:project"` it is not offered this interface, `write` needs `"fs.write:project"` as well. Its paths are paths of the project, '/' separated : one with `".."`, a ':' (a drive, a scheme), a backslash or a leading '/' is `SHARD_E_INVALID_ARG` (`exists` : `SHARD_FALSE`), and `read` takes a `mod://` address only for the plugin's own folder and with `"fs.read:content"`. A file too big for the module's memory is `SHARD_E_OUT_OF_MEMORY`. `info` strings stay valid for good in the module.
+
 | | Value | |
 |---|---|---|
 | `SHARD_IFACE_ASSETS` | `"shard.assets"` |  |
@@ -1542,7 +1544,7 @@ The shapes are projected and drawn over the picture by the host's overlay. `SHAR
 
 Colours are 8 bit r, g, b, a packed as r \| g &lt;&lt; 8 \| b &lt;&lt; 16 \| a &lt;&lt; 24. Positions are in the world ; a large world's are doubles in the rest of the ABI, here floats relative to the camera's region are enough for drawing and the host rebases them.
 
-thread : any. A sandboxed plugin (tier 2) is not offered this interface.
+thread : any. A sandboxed plugin (tier 2, `shard_wasm.h`) has it : its texts are cut to 256 bytes, and one call draws at most 1048576 points of `lines` or 262144 triangles (what the host keeps anyway).
 
 | | Value | |
 |---|---|---|
@@ -2373,7 +2375,9 @@ What a job may call : the functions the headers document as `"thread : any"` (bl
 
 A job that is still running when the plugin is disabled is waited for first : the host never calls a function of a library it is about to unload. A job that never ends therefore blocks the disabling : keep them short, or check a flag of your own.
 
-thread : any, for every function except `wait` and `parallel_for` (below). A sandboxed plugin (tier 2) is not offered this interface.
+thread : any, for every function except `wait` and `parallel_for` (below).
+
+A sandboxed plugin (tier 2, `shard_wasm.h`) has this interface, with no parallelism : a module is one thread's, so its jobs run one after the other on the main thread, in the order they were submitted, inside the frame's budget (budgets.frameMs). A job runs when the module waits for it (`wait`, or `is_done` : the ones submitted before it run first), else at the end of the frame, or before the plugin is disabled ; `worker` is always 0 and `worker_count` is 1 ; `parallel_for` runs its slices in order before it returns (a grain that makes more than 65536 slices is raised). The result does not depend on the machine's cores. A job that needs them belongs in a native plugin.
 
 | | Value | |
 |---|---|---|
@@ -3634,6 +3638,8 @@ Two kinds of time. The simulation's (`simTime`, `fixedStep`) advances by whole f
 
 thread : any, except the setters (main).
 
+A sandboxed plugin (tier 2, `shard_wasm.h`) has this interface without a permission, with two differences : `realTime` is the simulation's (the module never reads the machine's clock : the same value as `simTime`, so it is the same in a replay), and the two setters need the permission `"time.control"` (`SHARD_E_UNSUPPORTED` without it : a module that pauses the game or changes its tick rate is asked for).
+
 | | Value | |
 |---|---|---|
 | `SHARD_IFACE_TIME` | `"shard.time"` |  |
@@ -3791,13 +3797,28 @@ What differs from a native plugin :
 
 * the interfaces : `shard.plugin`, commands, cvars, components, ecs, systems, events, state, scripts, actors, input, physics, audio, worlds,
 ```
-and shard.content for the plugin's own folder ("fs.read:content"). Not offered : shard.editor, hooks, services, extensions, experimental.
+timers, time, jobs, debug, shard.content for the plugin's own folder ("fs.read:content") and shard.assets ("fs.read:project").
+Not offered : shard.editor without "editor", and render, reflect, net, hooks, services, extensions, experimental.
 ```
 
-* permissions : `shard.content` needs `"fs.read:content"`, `shard.input` `"input"`, `shard.physics` `"physics"`, `shard.audio` `"audio"` (without it
+* permissions : `shard.content` needs `"fs.read:content"`, `shard.assets` `"fs.read:project"` (and `"fs.write:project"` for assets.write), `shard.input`
 ```
-query_interface says SHARD_E_NOT_FOUND and the functions answer SHARD_E_UNSUPPORTED, or SHARD_FALSE / 0), worlds.load_world
-"worlds.load", actors.create / actors.spawn / worlds.spawn_prefab "actors.spawn".
+"input", shard.physics "physics", shard.audio "audio" (without it query_interface says SHARD_E_NOT_FOUND and the functions answer
+SHARD_E_UNSUPPORTED, or SHARD_FALSE / 0), worlds.load_world "worlds.load", actors.create / actors.spawn / worlds.spawn_prefab
+"actors.spawn", time.set_time_scale / time.set_fixed_delta_time "time.control". shard.time, jobs and debug need none.
+```
+
+* the clock : `shard.time` gives the simulation's time. `realTime` is the same as `simTime`, the module never reads the machine's clock.
+* `shard.jobs` has no parallelism : a module is one thread's, so its jobs run one after the other on the main thread, in the order they were
+```
+submitted, inside the frame's budget. A job runs when the module waits for it, else at the end of the frame (or before the plugin is
+disabled) ; worker_count is 1, `worker` is 0, parallel_for runs its slices in order, and what a job does or finds does not depend on
+the machine's cores (a replay runs it the same). A module that wants real threads is a native plugin.
+```
+
+* `shard.assets` reaches the files of the project only (a path with `".."`, a drive or a leading '/' is refused), and `mod://` only for the
+```
+plugin's own folder. A mesh, an image or a file is copied into the module, so it needs the room in budgets.memoryMB.
 ```
 
 * memory of the host is copied : the block of a component that `shard.ecs` hands out, the bytes of a blob and the object of a script

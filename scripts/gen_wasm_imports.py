@@ -45,6 +45,10 @@ INTERFACES = [
     ('shard_audio.h', 'ShardAudioApi', 'audio', 'audio'),
     ('shard_worlds.h', 'ShardWorldsApi', 'worlds', None),
     ('shard_timers.h', 'ShardTimersApi', 'timers', None),
+    ('shard_time.h', 'ShardTimeApi', 'time', None),
+    ('shard_assets.h', 'ShardAssetsApi', 'assets', 'fs.read:project'),
+    ('shard_jobs.h', 'ShardJobsApi', 'jobs', None),
+    ('shard_debug.h', 'ShardDebugApi', 'debug', None),
     ('shard_editor.h', 'ShardEditorApi', 'editor', 'editor'),
 ]
 TABLES = [
@@ -76,6 +80,27 @@ MANUAL = {
     'events.describe': 'an array of descriptors with strings',
     'content.read': 'the file is copied into the module, and only its own',
     'content.list': 'a callback, and only its own files',
+    'time.get': "the wall clock is not the module's : realTime is the simulation's",
+    'assets.info': 'strings that live in the host, copied into the module',
+    'assets.list': 'a callback, and strings that live in the host, copied into the module',
+    'assets.read': 'the file is copied into the module, and only a path of the project (or its own mod:// address)',
+    'assets.write': 'the id is optional (a null pointer), and the path is checked : a file of the project only',
+    'assets.exists': 'the path is checked : a file of the project only, never a path of the machine',
+    'assets.mesh_read': 'arrays of the module that the host fills',
+    'assets.image_read': 'a buffer of the module that the host fills',
+    'jobs.worker_count': "one : the module's jobs run one after the other on the main thread",
+    'jobs.run': 'a callback : a table index of the module, run later on the main thread',
+    'jobs.parallel_for': 'a callback : a table index of the module, run on the main thread',
+    'jobs.parallel_for_async': 'a callback : a table index of the module, run later on the main thread',
+    'jobs.is_done': "the jobs are the sandbox's own, run on the main thread",
+    'jobs.wait': "the jobs are the sandbox's own, run on the main thread",
+    'jobs.release': "the jobs are the sandbox's own",
+    'jobs.post_main': 'a callback : a table index of the module',
+    'debug.lines': 'an array of points, counted by the host',
+    'debug.triangles': 'an array of vertices, counted by the host',
+    'debug.box': 'the rotation is optional (a null pointer)',
+    'debug.text': 'a string, cut to what the host keeps',
+    'debug.text_screen': 'a string, cut to what the host keeps',
     'scripts.register_script': 'a descriptor with pointers and callbacks',
     'scripts.get_object': 'the object lives in the module : the host keeps a mirror of its fields',
     'scripts.add_to_actor': 'the object lives in the module : the host keeps a mirror of its fields',
@@ -90,6 +115,9 @@ MANUAL = {
 # Answered with SHARD_E_UNSUPPORTED: they expose host paths (content.*) or take pointers/callbacks the sandbox does not marshal yet. Moving one to MANUAL is a normal addition.
 DENIED_ALWAYS = {'content.resolve', 'content.resolve_logical', 'ShardPhysicsApi.raycast_all', 'physics.raycast_all', 'physics.overlap_sphere', 'physics.overlap_box', 'physics.overlap_capsule', 'physics.sweep_sphere', 'physics.sweep_box', 'physics.collider_create', 'physics.collider_set_pose', 'physics.collider_update', 'editor.undo_push', 'editor.add_asset_opener', 'ui.accept_drag_drop_payload'}
 FUNCTION_PERMISSIONS = {
+    'assets.write': 'fs.write:project',
+    'time.set_time_scale': 'time.control',
+    'time.set_fixed_delta_time': 'time.control',
     'worlds.load_world': 'worlds.load',
     'actors.create': 'actors.spawn',
     'actors.spawn': 'actors.spawn',
@@ -824,8 +852,7 @@ def emit_host_function(h, cache, w, interfaces, short, struct, iface_perm, fn, f
     kind = result_kind(h, fn)
     params, results = wasm_signature(h, fn)
     sig = '{ { %s }, { %s } }' % (', '.join(params), ', '.join(results))
-    perm = FUNCTION_PERMISSIONS.get(full) or iface_perm
-    guard_perm = perm_enum(perm) if perm else None
+    guard_perms = [perm_enum(p) for p in (iface_perm, FUNCTION_PERMISSIONS.get(full)) if p]
     denied = full in DENIED_ALWAYS
     w('            imports.Add("%s", %s, [&s%s](Instance& in, const uint64_t* a, uint64_t* r) -> bool {' % (full, sig, '' if dynamic else ', api'))
     w('                (void)in; (void)a; (void)r;')
@@ -834,7 +861,7 @@ def emit_host_function(h, cache, w, interfaces, short, struct, iface_perm, fn, f
     cond = ['!api', '!SHARD_HAS(api, %s)' % fn.name]
     if denied:
         cond = ['true']
-    if guard_perm:
+    for guard_perm in guard_perms:
         cond.append('!s.Allowed(Permission::%s)' % guard_perm)
     w('                if (%s) { %s return true; }' % (' || '.join(cond), denied_statement(kind)))
     if denied:

@@ -11,7 +11,12 @@
  * A change to an asset on disk (the user saved it, the importer ran) is the hook "AssetImported" of shard.hooks, with the path as subject.
  *
  * thread : main, unless a function says otherwise. A plugin that writes the project declares the permission "fs.write:project" in its manifest,
- * one that reads outside its own folder "fs.read:project" (a native plugin is trusted whatever it declares, but the user is told). */
+ * one that reads outside its own folder "fs.read:project" (a native plugin is trusted whatever it declares, but the user is told).
+ *
+ * A sandboxed plugin (tier 2, shard_wasm.h) is held to it : without "fs.read:project" it is not offered this interface, `write` needs
+ * "fs.write:project" as well. Its paths are paths of the project, '/' separated : one with "..", a ':' (a drive, a scheme), a backslash or a
+ * leading '/' is SHARD_E_INVALID_ARG (`exists` : SHARD_FALSE), and `read` takes a mod:// address only for the plugin's own folder and with
+ * "fs.read:content". A file too big for the module's memory is SHARD_E_OUT_OF_MEMORY. `info` strings stay valid for good in the module. */
 #ifndef SHARD_ASSETS_H
 #define SHARD_ASSETS_H
 

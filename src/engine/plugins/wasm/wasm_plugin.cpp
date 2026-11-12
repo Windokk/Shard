@@ -47,6 +47,7 @@ namespace Shard::Engine::Plugins {
             auto* s = static_cast<Sandbox*>(user);
             if (s->dead) return (S == OnDisable || S == OnUnload) ? SHARD_OK : SHARD_E_INTERNAL;
             if (S == OnLoad) ResetRegistrations(*s);
+            if (S == OnDisable) RunPendingJobs(*s);
             return s->CallResult(s->callbacks[S], kTypeLifecycle, { s->user, s->ctx }, Budget::Call);
         }
 
@@ -172,6 +173,10 @@ namespace Shard::Engine::Plugins {
         AddScriptImports(*s, imports, s->apis);
         AddEditorImports(*s, imports, s->apis);
         AddTimersImports(*s, imports, s->apis);
+        AddTimeImports(*s, imports, s->apis);
+        AddDebugImports(*s, imports, s->apis);
+        AddAssetsImports(*s, imports, s->apis);
+        AddJobsImports(*s, imports, s->apis);
         AddWasiImports(*s, imports, *module.Value());
         auto instance = Instance::Create(module.Value(), imports.Take(), s->fuel);
         if (!instance) return Err(instance.GetError().message);
@@ -275,6 +280,13 @@ namespace Shard::Engine::Plugins {
 
     void EndWasmFrame()
     {
+        // Run the queued jobs while the frame's fuel is open, outside the registry's lock : a job may reach another plugin.
+        std::vector<Sandbox*> sandboxes;
+        {
+            std::lock_guard<std::mutex> lock(gMutex);
+            for (auto& [owner, sandbox] : gSandboxes) sandboxes.push_back(sandbox.get());
+        }
+        for (Sandbox* sandbox : sandboxes) RunPendingJobs(*sandbox);
         std::lock_guard<std::mutex> lock(gMutex);
         for (auto& [owner, sandbox] : gSandboxes) sandbox->frameOpen = false;
     }

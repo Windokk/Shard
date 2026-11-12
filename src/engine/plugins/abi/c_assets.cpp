@@ -22,6 +22,12 @@ namespace Shard::Engine::Plugins::CAbi {
             return engine ? engine->GetAssetIDManager() : nullptr;
         }
 
+        bool IsProjectRelative(std::string& name)
+        {
+            std::replace(name.begin(), name.end(), '\\', '/');
+            return !name.empty() && name[0] != '/' && name.find("..") == std::string::npos && name.find(':') == std::string::npos;
+        }
+
         uint32_t KindOf(Filesystem::Type type)
         {
             using Filesystem::Type;
@@ -173,15 +179,16 @@ namespace Shard::Engine::Plugins::CAbi {
                 file = *resolved;
                 return true;
             }
+            std::string name = path;
             Core::IEngineContext* engine = Core::gSharedEnginePtr;
             Filesystem::FileManager* files = engine ? engine->GetFileManager() : nullptr;
             Filesystem::AssetIDManager* assets = Assets();
-            if (!files || !assets || path.find("..") != std::string::npos) return false;
-            if (auto infos = assets->GetAssetFromID(assets->GetIDFromNameInProject(path))) {
+            if (!files || !assets || !IsProjectRelative(name)) return false;
+            if (auto infos = assets->GetAssetFromID(assets->GetIDFromNameInProject(name))) {
                 file = infos->baseInfos.path.GetNativePath();
                 return true;
             }
-            const std::filesystem::path guess = std::filesystem::path(files->GetProjectResRoot().GetNativePath()) / path;
+            const std::filesystem::path guess = std::filesystem::path(files->GetProjectResRoot().GetNativePath()) / name;
             std::error_code ec;
             if (!std::filesystem::is_regular_file(guess, ec)) return false;
             file = guess.string();
@@ -222,9 +229,7 @@ namespace Shard::Engine::Plugins::CAbi {
                 Filesystem::FileManager* files = engine ? engine->GetFileManager() : nullptr;
                 if (!files) return SHARD_E_UNSUPPORTED;
                 std::string name = ToString(path);
-                std::replace(name.begin(), name.end(), '\\', '/');
-                // Must stay inside the project's resources: no "..", drive or absolute path.
-                if (name.empty() || name[0] == '/' || name.find("..") != std::string::npos || name.find(':') != std::string::npos) return SHARD_E_INVALID_ARG;
+                if (!IsProjectRelative(name)) return SHARD_E_INVALID_ARG;
                 const std::filesystem::path target = std::filesystem::path(files->GetProjectResRoot().GetNativePath()) / name;
                 std::error_code ec;
                 std::filesystem::create_directories(target.parent_path(), ec);
@@ -244,12 +249,12 @@ namespace Shard::Engine::Plugins::CAbi {
         {
             try {
                 std::string name = ToString(path);
-                std::replace(name.begin(), name.end(), '\\', '/');
+                if (!IsProjectRelative(name)) return SHARD_FALSE;
                 Filesystem::AssetIDManager* assets = Assets();
                 if (assets && assets->GetAssetFromID(assets->GetIDFromNameInProject(name))) return SHARD_TRUE;
                 Core::IEngineContext* engine = Core::gSharedEnginePtr;
                 Filesystem::FileManager* files = engine ? engine->GetFileManager() : nullptr;
-                if (!files || name.find("..") != std::string::npos) return SHARD_FALSE;
+                if (!files) return SHARD_FALSE;
                 std::error_code ec;
                 return std::filesystem::is_regular_file(std::filesystem::path(files->GetProjectResRoot().GetNativePath()) / name, ec) ? SHARD_TRUE : SHARD_FALSE;
             } catch (...) { return SHARD_FALSE; }

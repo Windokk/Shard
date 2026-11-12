@@ -15,7 +15,10 @@ if(NOT CMAKE_BUILD_TYPE)
     set(CMAKE_BUILD_TYPE Debug)
 endif()
 
-set(OUTPUT_DIR "${CMAKE_SOURCE_DIR}/build")
+# -DOUTPUT_DIR=<dir> keeps the executables and libraries of a second build tree (another checkout state, a side session) out of build/
+if(NOT OUTPUT_DIR)
+    set(OUTPUT_DIR "${CMAKE_SOURCE_DIR}/build")
+endif()
 
 set(CMAKE_RUNTIME_OUTPUT_DIRECTORY "${OUTPUT_DIR}")
 

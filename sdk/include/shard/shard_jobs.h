@@ -12,7 +12,13 @@
  * A job that is still running when the plugin is disabled is waited for first : the host never calls a function of a library it is about to
  * unload. A job that never ends therefore blocks the disabling : keep them short, or check a flag of your own.
  *
- * thread : any, for every function except `wait` and `parallel_for` (below). A sandboxed plugin (tier 2) is not offered this interface. */
+ * thread : any, for every function except `wait` and `parallel_for` (below).
+ *
+ * A sandboxed plugin (tier 2, shard_wasm.h) has this interface, with no parallelism : a module is one thread's, so its jobs run one after the
+ * other on the main thread, in the order they were submitted, inside the frame's budget (budgets.frameMs). A job runs when the module waits for
+ * it (`wait`, or `is_done` : the ones submitted before it run first), else at the end of the frame, or before the plugin is disabled ; `worker`
+ * is always 0 and worker_count is 1 ; `parallel_for` runs its slices in order before it returns (a grain that makes more than 65536 slices is
+ * raised). The result does not depend on the machine's cores. A job that needs them belongs in a native plugin. */
 #ifndef SHARD_JOBS_H
 #define SHARD_JOBS_H
 

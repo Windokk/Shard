@@ -14,10 +14,19 @@
  *
  * What differs from a native plugin :
  *   - the interfaces : shard.plugin, commands, cvars, components, ecs, systems, events, state, scripts, actors, input, physics, audio, worlds,
- *     and shard.content for the plugin's own folder ("fs.read:content"). Not offered : shard.editor, hooks, services, extensions, experimental.
- *   - permissions : shard.content needs "fs.read:content", shard.input "input", shard.physics "physics", shard.audio "audio" (without it
- *     query_interface says SHARD_E_NOT_FOUND and the functions answer SHARD_E_UNSUPPORTED, or SHARD_FALSE / 0), worlds.load_world
- *     "worlds.load", actors.create / actors.spawn / worlds.spawn_prefab "actors.spawn".
+ *     timers, time, jobs, debug, shard.content for the plugin's own folder ("fs.read:content") and shard.assets ("fs.read:project").
+ *     Not offered : shard.editor without "editor", and render, reflect, net, hooks, services, extensions, experimental.
+ *   - permissions : shard.content needs "fs.read:content", shard.assets "fs.read:project" (and "fs.write:project" for assets.write), shard.input
+ *     "input", shard.physics "physics", shard.audio "audio" (without it query_interface says SHARD_E_NOT_FOUND and the functions answer
+ *     SHARD_E_UNSUPPORTED, or SHARD_FALSE / 0), worlds.load_world "worlds.load", actors.create / actors.spawn / worlds.spawn_prefab
+ *     "actors.spawn", time.set_time_scale / time.set_fixed_delta_time "time.control". shard.time, jobs and debug need none.
+ *   - the clock : shard.time gives the simulation's time. `realTime` is the same as `simTime`, the module never reads the machine's clock.
+ *   - shard.jobs has no parallelism : a module is one thread's, so its jobs run one after the other on the main thread, in the order they were
+ *     submitted, inside the frame's budget. A job runs when the module waits for it, else at the end of the frame (or before the plugin is
+ *     disabled) ; worker_count is 1, `worker` is 0, parallel_for runs its slices in order, and what a job does or finds does not depend on
+ *     the machine's cores (a replay runs it the same). A module that wants real threads is a native plugin.
+ *   - shard.assets reaches the files of the project only (a path with "..", a drive or a leading '/' is refused), and mod:// only for the
+ *     plugin's own folder. A mesh, an image or a file is copied into the module, so it needs the room in budgets.memoryMB.
  *   - memory of the host is copied : the block of a component that shard.ecs hands out, the bytes of a blob and the object of a script
  *     live in the module, and what the module changed is copied back when the call that made the copy returns (a system, a script's
  *     callback, a command...). A blob's pointer stays valid until the module resizes or frees the blob. A string the host hands out

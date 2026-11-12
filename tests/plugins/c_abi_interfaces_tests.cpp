@@ -693,3 +693,28 @@ TEST_F(CAbiTest, RevisionInterfacesOffered)
     EXPECT_EQ(ask(SHARD_IFACE_EDITOR, 0), SHARD_E_NOT_FOUND);
     EXPECT_EQ(SHARD_ABI_MINOR, 8);
 }
+
+TEST(CAbiAssets, ExistsOnlyLooksInsideTheProject)
+{
+    PluginTest::AssetContext context;
+    Core::SetEngine(&context);
+    const auto* api = static_cast<const ShardAssetsApi*>(CAbi::AssetsApi());
+    auto exists = [&](const std::string& path) { return api->exists(ShardStr{ path.data(), path.size() }); };
+
+    const std::filesystem::path inside = std::filesystem::path("project") / "resources" / "c_assets_probe.txt";
+    std::filesystem::create_directories(inside.parent_path());
+    std::ofstream(inside) << "inside";
+
+    PluginTest::TempDir outside;
+    const std::filesystem::path outsideFile = std::filesystem::path(outside.Path()) / "secret.txt";
+    std::ofstream(outsideFile) << "secret";
+
+    EXPECT_EQ(exists("c_assets_probe.txt"), SHARD_TRUE);
+    EXPECT_EQ(exists(outsideFile.generic_string()), SHARD_FALSE);
+    EXPECT_EQ(exists("/" + outsideFile.generic_string()), SHARD_FALSE);
+    EXPECT_EQ(exists("../../" + outsideFile.filename().generic_string()), SHARD_FALSE);
+    EXPECT_EQ(exists(""), SHARD_FALSE);
+
+    std::filesystem::remove(inside);
+    Core::SetEngine(nullptr);
+}

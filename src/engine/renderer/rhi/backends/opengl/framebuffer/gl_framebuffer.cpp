@@ -269,6 +269,12 @@ namespace Shard::Engine::Rendering{
                 bytes += pixels * (m_Specifications.multisampled ? colorBytes * samples + colorBytes : colorBytes);
             if (m_Specifications.hasDepth)
                 bytes += pixels * 4 * (m_Specifications.multisampled ? samples + 1 : 1);
+            if (m_Specifications.hasColor)
+                for (const TextureSpecifications& extra : m_Specifications.extraColorSpecs)
+                {
+                    const int64_t extraBytes = bytesPerTexel(extra.internalFormat);
+                    bytes += pixels * (m_Specifications.multisampled ? extraBytes * samples + extraBytes : extraBytes);
+                }
         }
         GpuMemory::Add(GpuMemory::Kind::RenderTarget, bytes - m_GpuBytes);
         m_GpuBytes = bytes;

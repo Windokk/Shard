@@ -8,7 +8,11 @@
  * for what is not part of the simulation (a loading spinner, a cursor blink, a network time-out) and never for what the game decides. The
  * `time_scale` of the engine (slow motion, pause) acts on the first and not on the second.
  *
- * thread : any, except the setters (main). */
+ * thread : any, except the setters (main).
+ *
+ * A sandboxed plugin (tier 2, shard_wasm.h) has this interface without a permission, with two differences : `realTime` is the simulation's
+ * (the module never reads the machine's clock : the same value as `simTime`, so it is the same in a replay), and the two setters need the
+ * permission "time.control" (SHARD_E_UNSUPPORTED without it : a module that pauses the game or changes its tick rate is asked for). */
 #ifndef SHARD_TIME_H
 #define SHARD_TIME_H
 

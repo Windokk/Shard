@@ -157,7 +157,7 @@ if(SHARD_WASM_CLANG AND SHARD_WASM_LD)
     file(WRITE ${SHARD_TEST_WASM_DIR}/content/hello.txt "hello")
     file(WRITE ${SHARD_TEST_WASM_DIR}/shard-plugin.json [=[{
   "schema": 1, "id": "shard.test.wasm", "version": "1.0.0", "kind": "module", "moduleKind": "code", "linkage": "dynamic", "hosts": ["engine"],
-  "tier": 2, "abi": "wasm1", "binaries": { "wasm": "plugin.wasm" }, "permissions": ["fs.read:content", "input"], "content": { "mount": "content" }
+  "tier": 2, "abi": "wasm1", "binaries": { "wasm": "plugin.wasm" }, "permissions": ["fs.read:content", "input", "fs.read:project", "fs.write:project", "time.control"], "content": { "mount": "content" }
 }
 ]=])
     file(GLOB SHARD_SDK_C_HEADERS ${CMAKE_SOURCE_DIR}/sdk/include/shard/*.h)

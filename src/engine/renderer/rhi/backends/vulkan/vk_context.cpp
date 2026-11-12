@@ -216,6 +216,8 @@ namespace Shard::Engine::Rendering::VK {
         robustness.nullDescriptor = VK_TRUE;
         m_Caps.nullDescriptor = physical.enable_extension_features_if_present(robustness);
 
+        m_Caps.conservativeRaster = physical.enable_extension_if_present(VK_EXT_CONSERVATIVE_RASTERIZATION_EXTENSION_NAME);
+
         if (!m_Caps.depthClipControl)
         {
             DEBUG_ERROR("This GPU does not have VK_EXT_depth_clip_control : the Vulkan backend needs it to keep the clip space of the shaders (OpenGL's, z from -1 to 1).");

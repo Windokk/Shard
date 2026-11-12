@@ -183,6 +183,43 @@ namespace Shard::Engine::Plugins::Wasm {
             { "timers.event_latch", { { L, I, I }, { I } }, false },
             { "timers.latch_fired", { { L, L }, { I } }, false },
             { "timers.latch_release", { { L, L }, { I } }, false },
+            { "time.get", { { I }, { I } }, true },
+            { "time.set_time_scale", { { F }, { I } }, false },
+            { "time.set_fixed_delta_time", { { F }, { I } }, false },
+            { "time.state_hash", { { I }, { I } }, false },
+            { "assets.resolve", { { I, I }, { I } }, false },
+            { "assets.info", { { I, I }, { I } }, true },
+            { "assets.path_of", { { I, I, L, I }, { I } }, false },
+            { "assets.list", { { I, I, I, I }, { I } }, true },
+            { "assets.read", { { L, I, I, I }, { I } }, true },
+            { "assets.write", { { L, I, I, L, I }, { I } }, true },
+            { "assets.exists", { { I }, { I } }, true },
+            { "assets.mesh_info", { { I, I }, { I } }, false },
+            { "assets.mesh_read", { { I, I }, { I } }, true },
+            { "assets.image_info", { { I, I, I }, { I } }, false },
+            { "assets.image_read", { { I, I, L, I }, { I } }, true },
+            { "jobs.worker_count", { {  }, { I } }, true },
+            { "jobs.run", { { L, I, I, I }, { I } }, true },
+            { "jobs.parallel_for", { { L, I, I, I, I }, { I } }, true },
+            { "jobs.parallel_for_async", { { L, I, I, I, I, I }, { I } }, true },
+            { "jobs.is_done", { { L, L }, { I } }, true },
+            { "jobs.wait", { { L, L }, { I } }, true },
+            { "jobs.release", { { L, L }, { I } }, true },
+            { "jobs.post_main", { { L, I, I }, { I } }, true },
+            { "debug.enabled", { {  }, { I } }, false },
+            { "debug.line", { { I, I, I, F, I }, {  } }, false },
+            { "debug.lines", { { I, I, I, F, I }, {  } }, true },
+            { "debug.point", { { I, F, I, F, I }, {  } }, false },
+            { "debug.arrow", { { I, I, I, F, I }, {  } }, false },
+            { "debug.circle", { { I, I, F, I, F, I }, {  } }, false },
+            { "debug.sphere", { { I, F, I, F, I }, {  } }, false },
+            { "debug.box", { { I, I, I, I, F, I }, {  } }, true },
+            { "debug.capsule", { { I, I, F, I, F, I }, {  } }, false },
+            { "debug.cone", { { I, I, F, I, F, I }, {  } }, false },
+            { "debug.triangles", { { I, I, I, F, I }, {  } }, true },
+            { "debug.text", { { I, I, I, F, I }, {  } }, true },
+            { "debug.text_screen", { { F, F, I, I, F }, {  } }, true },
+            { "debug.clear", { {  }, {  } }, false },
             { "editor.add_panel", { { L, I, I, I }, { I } }, true },
             { "editor.add_menu_item", { { L, I, I, I, I }, { I } }, true },
             { "editor.add_toolbar_button", { { L, I, I, I, I }, { I } }, true },
@@ -1505,6 +1542,149 @@ namespace Shard::Engine::Plugins::Wasm {
                 if (!api || !SHARD_HAS(api, latch_release)) { r[0] = uint32_t(SHARD_E_UNSUPPORTED); return true; }
                 const auto rv = api->latch_release(s.ctx, static_cast<ShardLatch>(a[1]));
                 r[0] = uint32_t(rv);
+                return true;
+            });
+        }
+
+        // ---- shard.time ----
+        {
+            const ShardTimeApi* api = apis.time;
+            imports.Add("time.set_time_scale", { { F }, { I } }, [&s, api](Instance& in, const uint64_t* a, uint64_t* r) -> bool {
+                (void)in; (void)a; (void)r;
+                if (!api || !SHARD_HAS(api, set_time_scale) || !s.Allowed(Permission::TimeControl)) { r[0] = uint32_t(SHARD_E_UNSUPPORTED); return true; }
+                const auto rv = api->set_time_scale(F32(a[0]));
+                r[0] = uint32_t(rv);
+                return true;
+            });
+            imports.Add("time.set_fixed_delta_time", { { F }, { I } }, [&s, api](Instance& in, const uint64_t* a, uint64_t* r) -> bool {
+                (void)in; (void)a; (void)r;
+                if (!api || !SHARD_HAS(api, set_fixed_delta_time) || !s.Allowed(Permission::TimeControl)) { r[0] = uint32_t(SHARD_E_UNSUPPORTED); return true; }
+                const auto rv = api->set_fixed_delta_time(F32(a[0]));
+                r[0] = uint32_t(rv);
+                return true;
+            });
+            imports.Add("time.state_hash", { { I }, { I } }, [&s, api](Instance& in, const uint64_t* a, uint64_t* r) -> bool {
+                (void)in; (void)a; (void)r;
+                if (!api || !SHARD_HAS(api, state_hash)) { r[0] = uint32_t(SHARD_E_UNSUPPORTED); return true; }
+                OutArg<ShardStateHash> p0(in, a[0]); if (!p0.ok) return false;
+                const auto rv = api->state_hash(&p0.value);
+                if (!p0.Commit()) return false;
+                r[0] = uint32_t(rv);
+                return true;
+            });
+        }
+
+        // ---- shard.assets ----
+        {
+            const ShardAssetsApi* api = apis.assets;
+            imports.Add("assets.resolve", { { I, I }, { I } }, [&s, api](Instance& in, const uint64_t* a, uint64_t* r) -> bool {
+                (void)in; (void)a; (void)r;
+                if (!api || !SHARD_HAS(api, resolve) || !s.Allowed(Permission::FsReadProject)) { r[0] = uint32_t(SHARD_E_UNSUPPORTED); return true; }
+                std::string p0; if (!ReadStr(in, a[0], p0)) return false;
+                OutArg<int32_t> p1(in, a[1]); if (!p1.ok) return false;
+                const auto rv = api->resolve(ToStr(p0), &p1.value);
+                if (!p1.Commit()) return false;
+                r[0] = uint32_t(rv);
+                return true;
+            });
+            imports.Add("assets.path_of", { { I, I, L, I }, { I } }, [&s, api](Instance& in, const uint64_t* a, uint64_t* r) -> bool {
+                (void)in; (void)a; (void)r;
+                if (!api || !SHARD_HAS(api, path_of) || !s.Allowed(Permission::FsReadProject)) { r[0] = uint32_t(SHARD_E_UNSUPPORTED); return true; }
+                ShardResult rv = SHARD_OK;
+                if (!TextOut(in, a[1], a[2], a[3], rv, [&](char* tb, uint64_t tc, uint64_t* ts) { return api->path_of(static_cast<int32_t>(int32_t(uint32_t(a[0]))), tb, tc, ts); })) return false;
+                r[0] = uint32_t(rv);
+                return true;
+            });
+            imports.Add("assets.mesh_info", { { I, I }, { I } }, [&s, api](Instance& in, const uint64_t* a, uint64_t* r) -> bool {
+                (void)in; (void)a; (void)r;
+                if (!api || !SHARD_HAS(api, mesh_info) || !s.Allowed(Permission::FsReadProject)) { r[0] = uint32_t(SHARD_E_UNSUPPORTED); return true; }
+                OutArg<ShardMeshInfo> p1(in, a[1]); if (!p1.ok) return false;
+                const auto rv = api->mesh_info(static_cast<int32_t>(int32_t(uint32_t(a[0]))), &p1.value);
+                if (!p1.Commit()) return false;
+                r[0] = uint32_t(rv);
+                return true;
+            });
+            imports.Add("assets.image_info", { { I, I, I }, { I } }, [&s, api](Instance& in, const uint64_t* a, uint64_t* r) -> bool {
+                (void)in; (void)a; (void)r;
+                if (!api || !SHARD_HAS(api, image_info) || !s.Allowed(Permission::FsReadProject)) { r[0] = uint32_t(SHARD_E_UNSUPPORTED); return true; }
+                OutArg<uint32_t> p1(in, a[1]); if (!p1.ok) return false;
+                OutArg<uint32_t> p2(in, a[2]); if (!p2.ok) return false;
+                const auto rv = api->image_info(static_cast<int32_t>(int32_t(uint32_t(a[0]))), &p1.value, &p2.value);
+                if (!p1.Commit()) return false;
+                if (!p2.Commit()) return false;
+                r[0] = uint32_t(rv);
+                return true;
+            });
+        }
+
+        // ---- shard.debug ----
+        {
+            const ShardDebugApi* api = apis.debug;
+            imports.Add("debug.enabled", { {  }, { I } }, [&s, api](Instance& in, const uint64_t* a, uint64_t* r) -> bool {
+                (void)in; (void)a; (void)r;
+                if (!api || !SHARD_HAS(api, enabled)) { r[0] = 0; return true; }
+                const auto rv = api->enabled();
+                r[0] = uint32_t(rv);
+                return true;
+            });
+            imports.Add("debug.line", { { I, I, I, F, I }, {  } }, [&s, api](Instance& in, const uint64_t* a, uint64_t* r) -> bool {
+                (void)in; (void)a; (void)r;
+                if (!api || !SHARD_HAS(api, line)) {  return true; }
+                FloatArray<3> p0(in, a[0]); if (!p0.ok) return false;
+                FloatArray<3> p1(in, a[1]); if (!p1.ok) return false;
+                api->line(p0.v, p1.v, static_cast<uint32_t>(uint32_t(a[2])), F32(a[3]), static_cast<uint32_t>(uint32_t(a[4])));
+                return true;
+            });
+            imports.Add("debug.point", { { I, F, I, F, I }, {  } }, [&s, api](Instance& in, const uint64_t* a, uint64_t* r) -> bool {
+                (void)in; (void)a; (void)r;
+                if (!api || !SHARD_HAS(api, point)) {  return true; }
+                FloatArray<3> p0(in, a[0]); if (!p0.ok) return false;
+                api->point(p0.v, F32(a[1]), static_cast<uint32_t>(uint32_t(a[2])), F32(a[3]), static_cast<uint32_t>(uint32_t(a[4])));
+                return true;
+            });
+            imports.Add("debug.arrow", { { I, I, I, F, I }, {  } }, [&s, api](Instance& in, const uint64_t* a, uint64_t* r) -> bool {
+                (void)in; (void)a; (void)r;
+                if (!api || !SHARD_HAS(api, arrow)) {  return true; }
+                FloatArray<3> p0(in, a[0]); if (!p0.ok) return false;
+                FloatArray<3> p1(in, a[1]); if (!p1.ok) return false;
+                api->arrow(p0.v, p1.v, static_cast<uint32_t>(uint32_t(a[2])), F32(a[3]), static_cast<uint32_t>(uint32_t(a[4])));
+                return true;
+            });
+            imports.Add("debug.circle", { { I, I, F, I, F, I }, {  } }, [&s, api](Instance& in, const uint64_t* a, uint64_t* r) -> bool {
+                (void)in; (void)a; (void)r;
+                if (!api || !SHARD_HAS(api, circle)) {  return true; }
+                FloatArray<3> p0(in, a[0]); if (!p0.ok) return false;
+                FloatArray<3> p1(in, a[1]); if (!p1.ok) return false;
+                api->circle(p0.v, p1.v, F32(a[2]), static_cast<uint32_t>(uint32_t(a[3])), F32(a[4]), static_cast<uint32_t>(uint32_t(a[5])));
+                return true;
+            });
+            imports.Add("debug.sphere", { { I, F, I, F, I }, {  } }, [&s, api](Instance& in, const uint64_t* a, uint64_t* r) -> bool {
+                (void)in; (void)a; (void)r;
+                if (!api || !SHARD_HAS(api, sphere)) {  return true; }
+                FloatArray<3> p0(in, a[0]); if (!p0.ok) return false;
+                api->sphere(p0.v, F32(a[1]), static_cast<uint32_t>(uint32_t(a[2])), F32(a[3]), static_cast<uint32_t>(uint32_t(a[4])));
+                return true;
+            });
+            imports.Add("debug.capsule", { { I, I, F, I, F, I }, {  } }, [&s, api](Instance& in, const uint64_t* a, uint64_t* r) -> bool {
+                (void)in; (void)a; (void)r;
+                if (!api || !SHARD_HAS(api, capsule)) {  return true; }
+                FloatArray<3> p0(in, a[0]); if (!p0.ok) return false;
+                FloatArray<3> p1(in, a[1]); if (!p1.ok) return false;
+                api->capsule(p0.v, p1.v, F32(a[2]), static_cast<uint32_t>(uint32_t(a[3])), F32(a[4]), static_cast<uint32_t>(uint32_t(a[5])));
+                return true;
+            });
+            imports.Add("debug.cone", { { I, I, F, I, F, I }, {  } }, [&s, api](Instance& in, const uint64_t* a, uint64_t* r) -> bool {
+                (void)in; (void)a; (void)r;
+                if (!api || !SHARD_HAS(api, cone)) {  return true; }
+                FloatArray<3> p0(in, a[0]); if (!p0.ok) return false;
+                FloatArray<3> p1(in, a[1]); if (!p1.ok) return false;
+                api->cone(p0.v, p1.v, F32(a[2]), static_cast<uint32_t>(uint32_t(a[3])), F32(a[4]), static_cast<uint32_t>(uint32_t(a[5])));
+                return true;
+            });
+            imports.Add("debug.clear", { {  }, {  } }, [&s, api](Instance& in, const uint64_t* a, uint64_t* r) -> bool {
+                (void)in; (void)a; (void)r;
+                if (!api || !SHARD_HAS(api, clear)) {  return true; }
+                api->clear();
                 return true;
             });
         }

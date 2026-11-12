@@ -55,6 +55,7 @@ namespace Shard::Engine::Rendering::VK {
     {
         bool blockCompression = false;
         bool depthClipControl = false;
+        bool conservativeRaster = false;
         bool debugUtils = false;
         bool nullDescriptor = false;
         bool samplerAnisotropy = false;

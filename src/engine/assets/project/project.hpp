@@ -114,7 +114,7 @@ namespace Shard::Engine::Projects{
         // Levels are rarely closed volumes (a roof is often one surface), and back faces only would leak light through edges. Off is cheaper and can reduce acne on closed meshes.
         bool directionalDoubleSided = true;
 
-        // Closes sub-texel gaps (joints between model pieces). Needs OpenGL with GL_NV_conservative_raster, ignored otherwise.
+        // Closes sub-texel gaps (joints between model pieces). Needs GL_NV_conservative_raster (OpenGL) or VK_EXT_conservative_rasterization (Vulkan), ignored otherwise.
         bool directionalConservativeRaster = true;
 
         float directionalNormalBias = 2.0f;

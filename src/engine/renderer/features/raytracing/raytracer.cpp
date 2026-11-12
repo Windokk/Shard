@@ -176,9 +176,9 @@ namespace Shard::Engine::Rendering::Raytracing {
 
         outputImage->BindImage(0, TextureAccess::ReadWrite);
         shader->SetBool("uWriteTerms", settings.writeTerms);
-        if (settings.writeTerms)
-            for (uint32_t t = 0; t < 4; t++)
-                termImages[t]->BindImage(1 + t, TextureAccess::ReadWrite);
+        // The shader declares the term images even when it does not write them : Vulkan needs a valid RGBA32F image on each unit.
+        for (uint32_t t = 0; t < 4; t++)
+            (settings.writeTerms ? termImages[t] : outputImage)->BindImage(1 + t, TextureAccess::ReadWrite);
 
         const bool useSky = settings.useLevelSky && skyCube != nullptr;
         if (useSky)

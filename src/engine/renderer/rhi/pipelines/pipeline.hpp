@@ -148,7 +148,7 @@ namespace Shard::Engine::Rendering{
         bool depthWrite = true;
         DepthCompareOp depthCompare = DepthCompareOp::Less;
 
-        // Draws every pixel a triangle touches (closes sub-texel gaps in shadow maps). Needs GL_NV_conservative_raster, ignored elsewhere.
+        // Draws every pixel a triangle touches (closes sub-texel gaps in shadow maps). Needs GL_NV_conservative_raster or VK_EXT_conservative_rasterization, ignored elsewhere.
         bool conservativeRaster = false;
 
         bool blending = false;

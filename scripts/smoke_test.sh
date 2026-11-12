@@ -6,6 +6,9 @@ root="$(cd "$(dirname "$0")/.." && pwd)"
 world="${SHARD_SMOKE_WORLD:-cornell.world}"
 frames="${SHARD_SMOKE_FRAMES:-30}"
 timeout_seconds="${SHARD_SMOKE_TIMEOUT:-300}"
+api="${SHARD_SMOKE_API:-opengl}"
+# A world without a camera (cornell.world) draws nothing at all : "px py pz tx ty tz [fov]" gives it one, see render.camera. Empty = the world's own.
+view="${SHARD_SMOKE_VIEW-}"
 
 # The CI has no sound card, so audio init errors are ignored.
 ignored_errors='ma_engine_init failed'
@@ -42,15 +45,27 @@ if [ "$(uname -s)" = "Linux" ] && [ -z "${DISPLAY:-}" ] && [ -z "${WAYLAND_DISPL
 fi
 
 log="$(mktemp)"
-trap 'rm -f "$log"' EXIT
+script="$(mktemp)"
+trap 'rm -f "$log" "$script"' EXIT
 
-echo "[INFO] Smoke test : $world of example_project, $frames frames."
+script_args=()
+if [ -n "$view" ]; then
+    echo "5 render.camera $view" > "$script"
+    script_args=(--script "$script")
+fi
+
+if [ "$api" = "vulkan" ] && [ -n "${SHARD_SMOKE_VALIDATION-1}" ]; then
+    export SHARD_VULKAN_VALIDATION=1
+fi
+
+echo "[INFO] Smoke test : $world of example_project, $frames frames, $api${view:+, camera $view}."
 
 # --vsync turns vsync off, nothing to wait for on a virtual display. stdin is closed so nothing waits for Enter.
 timeout "$timeout_seconds" "${wrapper[@]}" "$player" \
     --game "$module" \
     --project ../example_project/example_project.json \
-    --api opengl \
+    --api "$api" \
+    "${script_args[@]}" \
     --world "$world" \
     --frames "$frames" \
     --width 640 --height 360 \
@@ -73,7 +88,7 @@ fi
 
 # Mesa software GL lacks GL_ARB_bindless_texture, which lit.frag needs (SSAO handle), so its shader compile always fails there.
 # When the driver says so, the generic compile/link lines are not counted. A real shader error is hidden too.
-if grep -q "GL_ARB_bindless_texture' unsupported" "$log"; then
+if [ "$api" = "opengl" ] && grep -q "GL_ARB_bindless_texture' unsupported" "$log"; then
     echo "[WARNING] The OpenGL driver has no GL_ARB_bindless_texture : shader compile / link errors are ignored by this smoke test."
     ignored_errors="$ignored_errors|Couldn't compile shader|Couldn't link shader"
 fi
@@ -89,4 +104,4 @@ if [ "$failed" -ne 0 ]; then
     exit 1
 fi
 
-echo "[SMOKE TEST PASSED] example_project / $world : $frames frames rendered, clean shutdown, no error logged."
+echo "[SMOKE TEST PASSED] example_project / $world ($api) : $frames frames rendered, clean shutdown, no error logged."

@@ -27,6 +27,10 @@
 #include "shard_audio.h"
 #include "shard_worlds.h"
 #include "shard_timers.h"
+#include "shard_time.h"
+#include "shard_assets.h"
+#include "shard_jobs.h"
+#include "shard_debug.h"
 #include "shard_editor.h"
 
 #if defined(__wasm__)
@@ -238,6 +242,51 @@ SHARD_WASM_IMPORT("timers.is_active") int32_t shard_wasm_timers_is_active(ShardP
 SHARD_WASM_IMPORT("timers.event_latch") ShardResult shard_wasm_timers_event_latch(ShardPluginCtx ctx, ShardStr name, ShardLatch* out);
 SHARD_WASM_IMPORT("timers.latch_fired") int32_t shard_wasm_timers_latch_fired(ShardPluginCtx ctx, ShardLatch latch);
 SHARD_WASM_IMPORT("timers.latch_release") ShardResult shard_wasm_timers_latch_release(ShardPluginCtx ctx, ShardLatch latch);
+
+/* ---- shard.time ---- */
+SHARD_WASM_IMPORT("time.get") ShardResult shard_wasm_time_get(ShardTimeInfo* out);
+SHARD_WASM_IMPORT("time.set_time_scale") ShardResult shard_wasm_time_set_time_scale(float scale);
+SHARD_WASM_IMPORT("time.set_fixed_delta_time") ShardResult shard_wasm_time_set_fixed_delta_time(float seconds);
+SHARD_WASM_IMPORT("time.state_hash") ShardResult shard_wasm_time_state_hash(ShardStateHash* out);
+
+/* ---- shard.assets ---- */
+SHARD_WASM_IMPORT("assets.resolve") ShardResult shard_wasm_assets_resolve(ShardStr path, int32_t* id);
+SHARD_WASM_IMPORT("assets.info") ShardResult shard_wasm_assets_info(int32_t id, ShardAssetInfo* out);
+SHARD_WASM_IMPORT("assets.path_of") ShardResult shard_wasm_assets_path_of(int32_t id, char* buffer, uint64_t capacity, uint64_t* size);
+SHARD_WASM_IMPORT("assets.list") ShardResult shard_wasm_assets_list(ShardStr subdir, uint32_t kind, ShardAssetListFn fn, void* user);
+SHARD_WASM_IMPORT("assets.read") ShardResult shard_wasm_assets_read(ShardPluginCtx ctx, ShardStr path, void** data, uint64_t* size);
+SHARD_WASM_IMPORT("assets.write") ShardResult shard_wasm_assets_write(ShardPluginCtx ctx, ShardStr path, const void* data, uint64_t size, int32_t* id);
+SHARD_WASM_IMPORT("assets.exists") int32_t shard_wasm_assets_exists(ShardStr path);
+SHARD_WASM_IMPORT("assets.mesh_info") ShardResult shard_wasm_assets_mesh_info(int32_t id, ShardMeshInfo* out);
+SHARD_WASM_IMPORT("assets.mesh_read") ShardResult shard_wasm_assets_mesh_read(int32_t id, ShardMeshRead* io);
+SHARD_WASM_IMPORT("assets.image_info") ShardResult shard_wasm_assets_image_info(int32_t id, uint32_t* width, uint32_t* height);
+SHARD_WASM_IMPORT("assets.image_read") ShardResult shard_wasm_assets_image_read(int32_t id, uint8_t* out, uint64_t capacity, uint64_t* size);
+
+/* ---- shard.jobs ---- */
+SHARD_WASM_IMPORT("jobs.worker_count") uint32_t shard_wasm_jobs_worker_count(void);
+SHARD_WASM_IMPORT("jobs.run") ShardResult shard_wasm_jobs_run(ShardPluginCtx ctx, ShardJobFn fn, void* user, ShardJob* out);
+SHARD_WASM_IMPORT("jobs.parallel_for") ShardResult shard_wasm_jobs_parallel_for(ShardPluginCtx ctx, uint32_t count, uint32_t grain, ShardRangeFn fn, void* user);
+SHARD_WASM_IMPORT("jobs.parallel_for_async") ShardResult shard_wasm_jobs_parallel_for_async(ShardPluginCtx ctx, uint32_t count, uint32_t grain, ShardRangeFn fn, void* user, ShardJob* out);
+SHARD_WASM_IMPORT("jobs.is_done") int32_t shard_wasm_jobs_is_done(ShardPluginCtx ctx, ShardJob job);
+SHARD_WASM_IMPORT("jobs.wait") ShardResult shard_wasm_jobs_wait(ShardPluginCtx ctx, ShardJob job);
+SHARD_WASM_IMPORT("jobs.release") ShardResult shard_wasm_jobs_release(ShardPluginCtx ctx, ShardJob job);
+SHARD_WASM_IMPORT("jobs.post_main") ShardResult shard_wasm_jobs_post_main(ShardPluginCtx ctx, ShardMainFn fn, void* user);
+
+/* ---- shard.debug ---- */
+SHARD_WASM_IMPORT("debug.enabled") int32_t shard_wasm_debug_enabled(void);
+SHARD_WASM_IMPORT("debug.line") void shard_wasm_debug_line(const float from[3], const float to[3], uint32_t color, float duration, uint32_t flags);
+SHARD_WASM_IMPORT("debug.lines") void shard_wasm_debug_lines(const float* points, uint32_t count, uint32_t color, float duration, uint32_t flags);
+SHARD_WASM_IMPORT("debug.point") void shard_wasm_debug_point(const float position[3], float size, uint32_t color, float duration, uint32_t flags);
+SHARD_WASM_IMPORT("debug.arrow") void shard_wasm_debug_arrow(const float from[3], const float to[3], uint32_t color, float duration, uint32_t flags);
+SHARD_WASM_IMPORT("debug.circle") void shard_wasm_debug_circle(const float center[3], const float normal[3], float radius, uint32_t color, float duration, uint32_t flags);
+SHARD_WASM_IMPORT("debug.sphere") void shard_wasm_debug_sphere(const float center[3], float radius, uint32_t color, float duration, uint32_t flags);
+SHARD_WASM_IMPORT("debug.box") void shard_wasm_debug_box(const float center[3], const float half_extent[3], const float rotation[4], uint32_t color, float duration, uint32_t flags);
+SHARD_WASM_IMPORT("debug.capsule") void shard_wasm_debug_capsule(const float from[3], const float to[3], float radius, uint32_t color, float duration, uint32_t flags);
+SHARD_WASM_IMPORT("debug.cone") void shard_wasm_debug_cone(const float apex[3], const float axis[3], float half_angle_degrees, uint32_t color, float duration, uint32_t flags);
+SHARD_WASM_IMPORT("debug.triangles") void shard_wasm_debug_triangles(const float* vertices, uint32_t count, uint32_t color, float duration, uint32_t flags);
+SHARD_WASM_IMPORT("debug.text") void shard_wasm_debug_text(const float position[3], ShardStr text, uint32_t color, float duration, uint32_t flags);
+SHARD_WASM_IMPORT("debug.text_screen") void shard_wasm_debug_text_screen(float x, float y, ShardStr text, uint32_t color, float duration);
+SHARD_WASM_IMPORT("debug.clear") void shard_wasm_debug_clear(void);
 
 /* ---- shard.editor ---- */
 SHARD_WASM_IMPORT("editor.add_panel") ShardResult shard_wasm_editor_add_panel(ShardPluginCtx ctx, ShardStr title, ShardPanelFn draw, void* user);
@@ -595,6 +644,55 @@ static const ShardTimersApi shard_wasm_api_timers = {
     shard_wasm_timers_latch_fired,
     shard_wasm_timers_latch_release,
 };
+static const ShardTimeApi shard_wasm_api_time = {
+    sizeof(ShardTimeApi),
+    shard_wasm_time_get,
+    shard_wasm_time_set_time_scale,
+    shard_wasm_time_set_fixed_delta_time,
+    shard_wasm_time_state_hash,
+};
+static const ShardAssetsApi shard_wasm_api_assets = {
+    sizeof(ShardAssetsApi),
+    shard_wasm_assets_resolve,
+    shard_wasm_assets_info,
+    shard_wasm_assets_path_of,
+    shard_wasm_assets_list,
+    shard_wasm_assets_read,
+    shard_wasm_assets_write,
+    shard_wasm_assets_exists,
+    shard_wasm_assets_mesh_info,
+    shard_wasm_assets_mesh_read,
+    shard_wasm_assets_image_info,
+    shard_wasm_assets_image_read,
+};
+static const ShardJobsApi shard_wasm_api_jobs = {
+    sizeof(ShardJobsApi),
+    shard_wasm_jobs_worker_count,
+    shard_wasm_jobs_run,
+    shard_wasm_jobs_parallel_for,
+    shard_wasm_jobs_parallel_for_async,
+    shard_wasm_jobs_is_done,
+    shard_wasm_jobs_wait,
+    shard_wasm_jobs_release,
+    shard_wasm_jobs_post_main,
+};
+static const ShardDebugApi shard_wasm_api_debug = {
+    sizeof(ShardDebugApi),
+    shard_wasm_debug_enabled,
+    shard_wasm_debug_line,
+    shard_wasm_debug_lines,
+    shard_wasm_debug_point,
+    shard_wasm_debug_arrow,
+    shard_wasm_debug_circle,
+    shard_wasm_debug_sphere,
+    shard_wasm_debug_box,
+    shard_wasm_debug_capsule,
+    shard_wasm_debug_cone,
+    shard_wasm_debug_triangles,
+    shard_wasm_debug_text,
+    shard_wasm_debug_text_screen,
+    shard_wasm_debug_clear,
+};
 static const ShardEditorApi shard_wasm_api_editor = {
     sizeof(ShardEditorApi),
     shard_wasm_editor_add_panel,
@@ -634,6 +732,10 @@ static const ShardWasmInterface shard_wasm_interfaces[] = {
     { "shard.audio", 11, &shard_wasm_api_audio },
     { "shard.worlds", 12, &shard_wasm_api_worlds },
     { "shard.timers", 12, &shard_wasm_api_timers },
+    { "shard.time", 10, &shard_wasm_api_time },
+    { "shard.assets", 12, &shard_wasm_api_assets },
+    { "shard.jobs", 10, &shard_wasm_api_jobs },
+    { "shard.debug", 11, &shard_wasm_api_debug },
     { "shard.editor", 12, &shard_wasm_api_editor },
 };
 
@@ -1168,6 +1270,104 @@ SHARD_WASM_ASSERT(offsetof(ShardTimersApi, is_active) == 24, "ShardTimersApi.is_
 SHARD_WASM_ASSERT(offsetof(ShardTimersApi, event_latch) == 28, "ShardTimersApi.event_latch");
 SHARD_WASM_ASSERT(offsetof(ShardTimersApi, latch_fired) == 32, "ShardTimersApi.latch_fired");
 SHARD_WASM_ASSERT(offsetof(ShardTimersApi, latch_release) == 36, "ShardTimersApi.latch_release");
+SHARD_WASM_ASSERT(sizeof(ShardTimeInfo) == 56 && _Alignof(ShardTimeInfo) == 8, "ShardTimeInfo");
+SHARD_WASM_ASSERT(offsetof(ShardTimeInfo, structSize) == 0, "ShardTimeInfo.structSize");
+SHARD_WASM_ASSERT(offsetof(ShardTimeInfo, playing) == 4, "ShardTimeInfo.playing");
+SHARD_WASM_ASSERT(offsetof(ShardTimeInfo, frame) == 8, "ShardTimeInfo.frame");
+SHARD_WASM_ASSERT(offsetof(ShardTimeInfo, fixedStep) == 16, "ShardTimeInfo.fixedStep");
+SHARD_WASM_ASSERT(offsetof(ShardTimeInfo, simTime) == 24, "ShardTimeInfo.simTime");
+SHARD_WASM_ASSERT(offsetof(ShardTimeInfo, realTime) == 32, "ShardTimeInfo.realTime");
+SHARD_WASM_ASSERT(offsetof(ShardTimeInfo, deltaTime) == 40, "ShardTimeInfo.deltaTime");
+SHARD_WASM_ASSERT(offsetof(ShardTimeInfo, fixedDeltaTime) == 44, "ShardTimeInfo.fixedDeltaTime");
+SHARD_WASM_ASSERT(offsetof(ShardTimeInfo, timeScale) == 48, "ShardTimeInfo.timeScale");
+SHARD_WASM_ASSERT(offsetof(ShardTimeInfo, fixedAlpha) == 52, "ShardTimeInfo.fixedAlpha");
+SHARD_WASM_ASSERT(sizeof(ShardStateHash) == 56 && _Alignof(ShardStateHash) == 8, "ShardStateHash");
+SHARD_WASM_ASSERT(offsetof(ShardStateHash, structSize) == 0, "ShardStateHash.structSize");
+SHARD_WASM_ASSERT(offsetof(ShardStateHash, reserved) == 4, "ShardStateHash.reserved");
+SHARD_WASM_ASSERT(offsetof(ShardStateHash, frame) == 8, "ShardStateHash.frame");
+SHARD_WASM_ASSERT(offsetof(ShardStateHash, physicsSteps) == 16, "ShardStateHash.physicsSteps");
+SHARD_WASM_ASSERT(offsetof(ShardStateHash, transforms) == 24, "ShardStateHash.transforms");
+SHARD_WASM_ASSERT(offsetof(ShardStateHash, physics) == 32, "ShardStateHash.physics");
+SHARD_WASM_ASSERT(offsetof(ShardStateHash, scripts) == 40, "ShardStateHash.scripts");
+SHARD_WASM_ASSERT(offsetof(ShardStateHash, total) == 48, "ShardStateHash.total");
+SHARD_WASM_ASSERT(sizeof(ShardTimeApi) == 20 && _Alignof(ShardTimeApi) == 4, "ShardTimeApi");
+SHARD_WASM_ASSERT(offsetof(ShardTimeApi, structSize) == 0, "ShardTimeApi.structSize");
+SHARD_WASM_ASSERT(offsetof(ShardTimeApi, get) == 4, "ShardTimeApi.get");
+SHARD_WASM_ASSERT(offsetof(ShardTimeApi, set_time_scale) == 8, "ShardTimeApi.set_time_scale");
+SHARD_WASM_ASSERT(offsetof(ShardTimeApi, set_fixed_delta_time) == 12, "ShardTimeApi.set_fixed_delta_time");
+SHARD_WASM_ASSERT(offsetof(ShardTimeApi, state_hash) == 16, "ShardTimeApi.state_hash");
+SHARD_WASM_ASSERT(sizeof(ShardAssetInfo) == 64 && _Alignof(ShardAssetInfo) == 8, "ShardAssetInfo");
+SHARD_WASM_ASSERT(offsetof(ShardAssetInfo, structSize) == 0, "ShardAssetInfo.structSize");
+SHARD_WASM_ASSERT(offsetof(ShardAssetInfo, id) == 4, "ShardAssetInfo.id");
+SHARD_WASM_ASSERT(offsetof(ShardAssetInfo, kind) == 8, "ShardAssetInfo.kind");
+SHARD_WASM_ASSERT(offsetof(ShardAssetInfo, reserved) == 12, "ShardAssetInfo.reserved");
+SHARD_WASM_ASSERT(offsetof(ShardAssetInfo, path) == 16, "ShardAssetInfo.path");
+SHARD_WASM_ASSERT(offsetof(ShardAssetInfo, typeName) == 32, "ShardAssetInfo.typeName");
+SHARD_WASM_ASSERT(offsetof(ShardAssetInfo, sizeBytes) == 48, "ShardAssetInfo.sizeBytes");
+SHARD_WASM_ASSERT(offsetof(ShardAssetInfo, modifiedTime) == 56, "ShardAssetInfo.modifiedTime");
+SHARD_WASM_ASSERT(sizeof(ShardMeshInfo) == 40 && _Alignof(ShardMeshInfo) == 4, "ShardMeshInfo");
+SHARD_WASM_ASSERT(offsetof(ShardMeshInfo, structSize) == 0, "ShardMeshInfo.structSize");
+SHARD_WASM_ASSERT(offsetof(ShardMeshInfo, vertexCount) == 4, "ShardMeshInfo.vertexCount");
+SHARD_WASM_ASSERT(offsetof(ShardMeshInfo, indexCount) == 8, "ShardMeshInfo.indexCount");
+SHARD_WASM_ASSERT(offsetof(ShardMeshInfo, submeshCount) == 12, "ShardMeshInfo.submeshCount");
+SHARD_WASM_ASSERT(offsetof(ShardMeshInfo, boundsMin) == 16, "ShardMeshInfo.boundsMin");
+SHARD_WASM_ASSERT(offsetof(ShardMeshInfo, boundsMax) == 28, "ShardMeshInfo.boundsMax");
+SHARD_WASM_ASSERT(sizeof(ShardMeshSlice) == 12 && _Alignof(ShardMeshSlice) == 4, "ShardMeshSlice");
+SHARD_WASM_ASSERT(offsetof(ShardMeshSlice, indexOffset) == 0, "ShardMeshSlice.indexOffset");
+SHARD_WASM_ASSERT(offsetof(ShardMeshSlice, indexCount) == 4, "ShardMeshSlice.indexCount");
+SHARD_WASM_ASSERT(offsetof(ShardMeshSlice, materialSlot) == 8, "ShardMeshSlice.materialSlot");
+SHARD_WASM_ASSERT(sizeof(ShardMeshRead) == 48 && _Alignof(ShardMeshRead) == 4, "ShardMeshRead");
+SHARD_WASM_ASSERT(offsetof(ShardMeshRead, structSize) == 0, "ShardMeshRead.structSize");
+SHARD_WASM_ASSERT(offsetof(ShardMeshRead, vertexCapacity) == 4, "ShardMeshRead.vertexCapacity");
+SHARD_WASM_ASSERT(offsetof(ShardMeshRead, indexCapacity) == 8, "ShardMeshRead.indexCapacity");
+SHARD_WASM_ASSERT(offsetof(ShardMeshRead, sliceCapacity) == 12, "ShardMeshRead.sliceCapacity");
+SHARD_WASM_ASSERT(offsetof(ShardMeshRead, vertexCount) == 16, "ShardMeshRead.vertexCount");
+SHARD_WASM_ASSERT(offsetof(ShardMeshRead, indexCount) == 20, "ShardMeshRead.indexCount");
+SHARD_WASM_ASSERT(offsetof(ShardMeshRead, sliceCount) == 24, "ShardMeshRead.sliceCount");
+SHARD_WASM_ASSERT(offsetof(ShardMeshRead, positions) == 28, "ShardMeshRead.positions");
+SHARD_WASM_ASSERT(offsetof(ShardMeshRead, normals) == 32, "ShardMeshRead.normals");
+SHARD_WASM_ASSERT(offsetof(ShardMeshRead, uvs) == 36, "ShardMeshRead.uvs");
+SHARD_WASM_ASSERT(offsetof(ShardMeshRead, indices) == 40, "ShardMeshRead.indices");
+SHARD_WASM_ASSERT(offsetof(ShardMeshRead, slices) == 44, "ShardMeshRead.slices");
+SHARD_WASM_ASSERT(sizeof(ShardAssetsApi) == 48 && _Alignof(ShardAssetsApi) == 4, "ShardAssetsApi");
+SHARD_WASM_ASSERT(offsetof(ShardAssetsApi, structSize) == 0, "ShardAssetsApi.structSize");
+SHARD_WASM_ASSERT(offsetof(ShardAssetsApi, resolve) == 4, "ShardAssetsApi.resolve");
+SHARD_WASM_ASSERT(offsetof(ShardAssetsApi, info) == 8, "ShardAssetsApi.info");
+SHARD_WASM_ASSERT(offsetof(ShardAssetsApi, path_of) == 12, "ShardAssetsApi.path_of");
+SHARD_WASM_ASSERT(offsetof(ShardAssetsApi, list) == 16, "ShardAssetsApi.list");
+SHARD_WASM_ASSERT(offsetof(ShardAssetsApi, read) == 20, "ShardAssetsApi.read");
+SHARD_WASM_ASSERT(offsetof(ShardAssetsApi, write) == 24, "ShardAssetsApi.write");
+SHARD_WASM_ASSERT(offsetof(ShardAssetsApi, exists) == 28, "ShardAssetsApi.exists");
+SHARD_WASM_ASSERT(offsetof(ShardAssetsApi, mesh_info) == 32, "ShardAssetsApi.mesh_info");
+SHARD_WASM_ASSERT(offsetof(ShardAssetsApi, mesh_read) == 36, "ShardAssetsApi.mesh_read");
+SHARD_WASM_ASSERT(offsetof(ShardAssetsApi, image_info) == 40, "ShardAssetsApi.image_info");
+SHARD_WASM_ASSERT(offsetof(ShardAssetsApi, image_read) == 44, "ShardAssetsApi.image_read");
+SHARD_WASM_ASSERT(sizeof(ShardJobsApi) == 36 && _Alignof(ShardJobsApi) == 4, "ShardJobsApi");
+SHARD_WASM_ASSERT(offsetof(ShardJobsApi, structSize) == 0, "ShardJobsApi.structSize");
+SHARD_WASM_ASSERT(offsetof(ShardJobsApi, worker_count) == 4, "ShardJobsApi.worker_count");
+SHARD_WASM_ASSERT(offsetof(ShardJobsApi, run) == 8, "ShardJobsApi.run");
+SHARD_WASM_ASSERT(offsetof(ShardJobsApi, parallel_for) == 12, "ShardJobsApi.parallel_for");
+SHARD_WASM_ASSERT(offsetof(ShardJobsApi, parallel_for_async) == 16, "ShardJobsApi.parallel_for_async");
+SHARD_WASM_ASSERT(offsetof(ShardJobsApi, is_done) == 20, "ShardJobsApi.is_done");
+SHARD_WASM_ASSERT(offsetof(ShardJobsApi, wait) == 24, "ShardJobsApi.wait");
+SHARD_WASM_ASSERT(offsetof(ShardJobsApi, release) == 28, "ShardJobsApi.release");
+SHARD_WASM_ASSERT(offsetof(ShardJobsApi, post_main) == 32, "ShardJobsApi.post_main");
+SHARD_WASM_ASSERT(sizeof(ShardDebugApi) == 60 && _Alignof(ShardDebugApi) == 4, "ShardDebugApi");
+SHARD_WASM_ASSERT(offsetof(ShardDebugApi, structSize) == 0, "ShardDebugApi.structSize");
+SHARD_WASM_ASSERT(offsetof(ShardDebugApi, enabled) == 4, "ShardDebugApi.enabled");
+SHARD_WASM_ASSERT(offsetof(ShardDebugApi, line) == 8, "ShardDebugApi.line");
+SHARD_WASM_ASSERT(offsetof(ShardDebugApi, lines) == 12, "ShardDebugApi.lines");
+SHARD_WASM_ASSERT(offsetof(ShardDebugApi, point) == 16, "ShardDebugApi.point");
+SHARD_WASM_ASSERT(offsetof(ShardDebugApi, arrow) == 20, "ShardDebugApi.arrow");
+SHARD_WASM_ASSERT(offsetof(ShardDebugApi, circle) == 24, "ShardDebugApi.circle");
+SHARD_WASM_ASSERT(offsetof(ShardDebugApi, sphere) == 28, "ShardDebugApi.sphere");
+SHARD_WASM_ASSERT(offsetof(ShardDebugApi, box) == 32, "ShardDebugApi.box");
+SHARD_WASM_ASSERT(offsetof(ShardDebugApi, capsule) == 36, "ShardDebugApi.capsule");
+SHARD_WASM_ASSERT(offsetof(ShardDebugApi, cone) == 40, "ShardDebugApi.cone");
+SHARD_WASM_ASSERT(offsetof(ShardDebugApi, triangles) == 44, "ShardDebugApi.triangles");
+SHARD_WASM_ASSERT(offsetof(ShardDebugApi, text) == 48, "ShardDebugApi.text");
+SHARD_WASM_ASSERT(offsetof(ShardDebugApi, text_screen) == 52, "ShardDebugApi.text_screen");
+SHARD_WASM_ASSERT(offsetof(ShardDebugApi, clear) == 56, "ShardDebugApi.clear");
 SHARD_WASM_ASSERT(sizeof(ShardUiApi) == 468 && _Alignof(ShardUiApi) == 4, "ShardUiApi");
 SHARD_WASM_ASSERT(offsetof(ShardUiApi, structSize) == 0, "ShardUiApi.structSize");
 SHARD_WASM_ASSERT(offsetof(ShardUiApi, text) == 4, "ShardUiApi.text");

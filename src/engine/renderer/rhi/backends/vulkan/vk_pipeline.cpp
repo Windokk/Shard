@@ -76,6 +76,7 @@ namespace Shard::Engine::Rendering {
         key = HashCombine64(key, static_cast<uint64_t>(s.topology));
         key = HashCombine64(key, static_cast<uint64_t>(variant.wireframe || s.polygonMode == PolygonMode::Line));
         key = HashCombine64(key, static_cast<uint64_t>(variant.depthOnly));
+        key = HashCombine64(key, static_cast<uint64_t>(s.conservativeRaster && VK::Context::Get().GetCaps().conservativeRaster));
         key = HashCombine64(key, static_cast<uint64_t>(s.blending));
         if (s.blending)
         {
@@ -162,6 +163,13 @@ namespace Shard::Engine::Rendering {
         // Viewport is not flipped (images are stored GL style), so GL's counter clockwise front face is clockwise here.
         rasterization.frontFace = VK_FRONT_FACE_CLOCKWISE;
         rasterization.lineWidth = 1.0f;
+        VkPipelineRasterizationConservativeStateCreateInfoEXT conservative{VK_STRUCTURE_TYPE_PIPELINE_RASTERIZATION_CONSERVATIVE_STATE_CREATE_INFO_EXT};
+        if (s.conservativeRaster && VK::Context::Get().GetCaps().conservativeRaster)
+        {
+            conservative.conservativeRasterizationMode = VK_CONSERVATIVE_RASTERIZATION_MODE_OVERESTIMATE_EXT;
+            conservative.extraPrimitiveOverestimationSize = 0.0f;
+            rasterization.pNext = &conservative;
+        }
         if (variant.wireframe)
         {
             rasterization.depthBiasEnable = VK_TRUE;

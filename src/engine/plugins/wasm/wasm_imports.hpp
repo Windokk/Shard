@@ -46,7 +46,14 @@ namespace Shard::Engine::Plugins::Wasm {
     void AddScriptImports(Sandbox& sandbox, ImportList& imports, const HostApis& apis);
     void AddEditorImports(Sandbox& sandbox, ImportList& imports, const HostApis& apis);
     void AddTimersImports(Sandbox& sandbox, ImportList& imports, const HostApis& apis);
+    void AddTimeImports(Sandbox& sandbox, ImportList& imports, const HostApis& apis);
+    void AddDebugImports(Sandbox& sandbox, ImportList& imports, const HostApis& apis);
+    void AddAssetsImports(Sandbox& sandbox, ImportList& imports, const HostApis& apis);
+    void AddJobsImports(Sandbox& sandbox, ImportList& imports, const HostApis& apis);
     void AddWasiImports(Sandbox& sandbox, ImportList& imports, const Module& module);
+
+    /// Runs the jobs the module queued and did not wait for, in order, on the main thread, inside the frame's fuel.
+    void RunPendingJobs(Sandbox& sandbox);
 
     bool ReadFieldDescs(Instance& in, uint64_t at, uint32_t count, std::vector<ShardFieldDesc>& out, std::deque<std::string>& strings);
 

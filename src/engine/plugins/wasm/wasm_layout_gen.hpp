@@ -25,14 +25,18 @@
 #include <shard/shard_audio.h>
 #include <shard/shard_worlds.h>
 #include <shard/shard_timers.h>
+#include <shard/shard_time.h>
+#include <shard/shard_assets.h>
+#include <shard/shard_jobs.h>
+#include <shard/shard_debug.h>
 #include <shard/shard_editor.h>
 
 namespace Shard::Engine::Plugins::Wasm {
 
     /// A permission of the manifest (`permissions`) that gates an interface or a function of the sandbox
-    enum class Permission : uint8_t { None, FsReadContent, Input, Physics, Audio, Editor, WorldsLoad, ActorsSpawn };
-    inline constexpr const char* kPermissionNames[] = { "", "fs.read:content", "input", "physics", "audio", "editor", "worlds.load", "actors.spawn" };
-    inline constexpr uint32_t kPermissionCount = 8;
+    enum class Permission : uint8_t { None, FsReadContent, Input, Physics, Audio, FsReadProject, Editor, FsWriteProject, TimeControl, WorldsLoad, ActorsSpawn };
+    inline constexpr const char* kPermissionNames[] = { "", "fs.read:content", "input", "physics", "audio", "fs.read:project", "editor", "fs.write:project", "time.control", "worlds.load", "actors.spawn" };
+    inline constexpr uint32_t kPermissionCount = 11;
 
     /// The interfaces the sandbox offers : the id, the revision (minor) of the header, and the permission without which it is not offered
     struct OfferedInterface { const char* id; const char* shortName; uint32_t minor; Permission permission; };
@@ -53,6 +57,10 @@ namespace Shard::Engine::Plugins::Wasm {
         { "shard.audio", "audio", 0, Permission::Audio },
         { "shard.worlds", "worlds", 1, Permission::None },
         { "shard.timers", "timers", 0, Permission::None },
+        { "shard.time", "time", 0, Permission::None },
+        { "shard.assets", "assets", 0, Permission::FsReadProject },
+        { "shard.jobs", "jobs", 0, Permission::None },
+        { "shard.debug", "debug", 0, Permission::None },
         { "shard.editor", "editor", 2, Permission::Editor },
     };
 
@@ -74,6 +82,10 @@ namespace Shard::Engine::Plugins::Wasm {
         const ShardAudioApi* audio = nullptr;
         const ShardWorldsApi* worlds = nullptr;
         const ShardTimersApi* timers = nullptr;
+        const ShardTimeApi* time = nullptr;
+        const ShardAssetsApi* assets = nullptr;
+        const ShardJobsApi* jobs = nullptr;
+        const ShardDebugApi* debug = nullptr;
         const ShardEditorApi* editor = nullptr;
     };
     template <typename Query>
@@ -96,6 +108,10 @@ namespace Shard::Engine::Plugins::Wasm {
         apis.audio = static_cast<const ShardAudioApi*>(query("shard.audio", 0));
         apis.worlds = static_cast<const ShardWorldsApi*>(query("shard.worlds", 1));
         apis.timers = static_cast<const ShardTimersApi*>(query("shard.timers", 0));
+        apis.time = static_cast<const ShardTimeApi*>(query("shard.time", 0));
+        apis.assets = static_cast<const ShardAssetsApi*>(query("shard.assets", 0));
+        apis.jobs = static_cast<const ShardJobsApi*>(query("shard.jobs", 0));
+        apis.debug = static_cast<const ShardDebugApi*>(query("shard.debug", 0));
         apis.editor = static_cast<const ShardEditorApi*>(query("shard.editor", 2));
         return apis;
     }
@@ -519,6 +535,124 @@ namespace Shard::Engine::Plugins::Wasm {
             inline constexpr uint32_t o_event_latch = 28;
             inline constexpr uint32_t o_latch_fired = 32;
             inline constexpr uint32_t o_latch_release = 36;
+        }
+        namespace ShardTimeInfo {
+            inline constexpr uint32_t kSize = 56, kAlign = 8;
+            inline constexpr uint32_t o_structSize = 0;
+            inline constexpr uint32_t o_playing = 4;
+            inline constexpr uint32_t o_frame = 8;
+            inline constexpr uint32_t o_fixedStep = 16;
+            inline constexpr uint32_t o_simTime = 24;
+            inline constexpr uint32_t o_realTime = 32;
+            inline constexpr uint32_t o_deltaTime = 40;
+            inline constexpr uint32_t o_fixedDeltaTime = 44;
+            inline constexpr uint32_t o_timeScale = 48;
+            inline constexpr uint32_t o_fixedAlpha = 52;
+        }
+        namespace ShardStateHash {
+            inline constexpr uint32_t kSize = 56, kAlign = 8;
+            inline constexpr uint32_t o_structSize = 0;
+            inline constexpr uint32_t o_reserved = 4;
+            inline constexpr uint32_t o_frame = 8;
+            inline constexpr uint32_t o_physicsSteps = 16;
+            inline constexpr uint32_t o_transforms = 24;
+            inline constexpr uint32_t o_physics = 32;
+            inline constexpr uint32_t o_scripts = 40;
+            inline constexpr uint32_t o_total = 48;
+        }
+        namespace ShardTimeApi {
+            inline constexpr uint32_t kSize = 20, kAlign = 4;
+            inline constexpr uint32_t o_structSize = 0;
+            inline constexpr uint32_t o_get = 4;
+            inline constexpr uint32_t o_set_time_scale = 8;
+            inline constexpr uint32_t o_set_fixed_delta_time = 12;
+            inline constexpr uint32_t o_state_hash = 16;
+        }
+        namespace ShardAssetInfo {
+            inline constexpr uint32_t kSize = 64, kAlign = 8;
+            inline constexpr uint32_t o_structSize = 0;
+            inline constexpr uint32_t o_id = 4;
+            inline constexpr uint32_t o_kind = 8;
+            inline constexpr uint32_t o_reserved = 12;
+            inline constexpr uint32_t o_path = 16;
+            inline constexpr uint32_t o_typeName = 32;
+            inline constexpr uint32_t o_sizeBytes = 48;
+            inline constexpr uint32_t o_modifiedTime = 56;
+        }
+        namespace ShardMeshInfo {
+            inline constexpr uint32_t kSize = 40, kAlign = 4;
+            inline constexpr uint32_t o_structSize = 0;
+            inline constexpr uint32_t o_vertexCount = 4;
+            inline constexpr uint32_t o_indexCount = 8;
+            inline constexpr uint32_t o_submeshCount = 12;
+            inline constexpr uint32_t o_boundsMin = 16;
+            inline constexpr uint32_t o_boundsMax = 28;
+        }
+        namespace ShardMeshSlice {
+            inline constexpr uint32_t kSize = 12, kAlign = 4;
+            inline constexpr uint32_t o_indexOffset = 0;
+            inline constexpr uint32_t o_indexCount = 4;
+            inline constexpr uint32_t o_materialSlot = 8;
+        }
+        namespace ShardMeshRead {
+            inline constexpr uint32_t kSize = 48, kAlign = 4;
+            inline constexpr uint32_t o_structSize = 0;
+            inline constexpr uint32_t o_vertexCapacity = 4;
+            inline constexpr uint32_t o_indexCapacity = 8;
+            inline constexpr uint32_t o_sliceCapacity = 12;
+            inline constexpr uint32_t o_vertexCount = 16;
+            inline constexpr uint32_t o_indexCount = 20;
+            inline constexpr uint32_t o_sliceCount = 24;
+            inline constexpr uint32_t o_positions = 28;
+            inline constexpr uint32_t o_normals = 32;
+            inline constexpr uint32_t o_uvs = 36;
+            inline constexpr uint32_t o_indices = 40;
+            inline constexpr uint32_t o_slices = 44;
+        }
+        namespace ShardAssetsApi {
+            inline constexpr uint32_t kSize = 48, kAlign = 4;
+            inline constexpr uint32_t o_structSize = 0;
+            inline constexpr uint32_t o_resolve = 4;
+            inline constexpr uint32_t o_info = 8;
+            inline constexpr uint32_t o_path_of = 12;
+            inline constexpr uint32_t o_list = 16;
+            inline constexpr uint32_t o_read = 20;
+            inline constexpr uint32_t o_write = 24;
+            inline constexpr uint32_t o_exists = 28;
+            inline constexpr uint32_t o_mesh_info = 32;
+            inline constexpr uint32_t o_mesh_read = 36;
+            inline constexpr uint32_t o_image_info = 40;
+            inline constexpr uint32_t o_image_read = 44;
+        }
+        namespace ShardJobsApi {
+            inline constexpr uint32_t kSize = 36, kAlign = 4;
+            inline constexpr uint32_t o_structSize = 0;
+            inline constexpr uint32_t o_worker_count = 4;
+            inline constexpr uint32_t o_run = 8;
+            inline constexpr uint32_t o_parallel_for = 12;
+            inline constexpr uint32_t o_parallel_for_async = 16;
+            inline constexpr uint32_t o_is_done = 20;
+            inline constexpr uint32_t o_wait = 24;
+            inline constexpr uint32_t o_release = 28;
+            inline constexpr uint32_t o_post_main = 32;
+        }
+        namespace ShardDebugApi {
+            inline constexpr uint32_t kSize = 60, kAlign = 4;
+            inline constexpr uint32_t o_structSize = 0;
+            inline constexpr uint32_t o_enabled = 4;
+            inline constexpr uint32_t o_line = 8;
+            inline constexpr uint32_t o_lines = 12;
+            inline constexpr uint32_t o_point = 16;
+            inline constexpr uint32_t o_arrow = 20;
+            inline constexpr uint32_t o_circle = 24;
+            inline constexpr uint32_t o_sphere = 28;
+            inline constexpr uint32_t o_box = 32;
+            inline constexpr uint32_t o_capsule = 36;
+            inline constexpr uint32_t o_cone = 40;
+            inline constexpr uint32_t o_triangles = 44;
+            inline constexpr uint32_t o_text = 48;
+            inline constexpr uint32_t o_text_screen = 52;
+            inline constexpr uint32_t o_clear = 56;
         }
         namespace ShardUiApi {
             inline constexpr uint32_t kSize = 468, kAlign = 4;
