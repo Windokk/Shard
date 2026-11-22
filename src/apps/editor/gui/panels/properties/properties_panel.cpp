@@ -1,3 +1,4 @@
+#include "apps/editor/debug/collision_debug_state.hpp"
 #include "properties_panel.hpp"
 #include "apps/editor/gui/plugin_ui.hpp"
 
@@ -29,6 +30,7 @@
 #include "engine/renderer/components/light_component.hpp"
 #include "engine/renderer/components/probe_volume.hpp"
 #include "engine/renderer/components/reflection_probe.hpp"
+#include "engine/physics/constraints/physics_constraint.hpp"
 #include "engine/physics/physics_body.hpp"
 #include "engine/physics/gravity_field.hpp"
 #include "engine/world/components/registry/component_registry.hpp"
@@ -289,6 +291,128 @@ namespace Shard::Editor::GUI{
         return false;
     }
 
+    static bool HasExtension(const std::string& name, const char* extension)
+    {
+        const size_t length = std::strlen(extension);
+        if (name.size() < length)
+            return false;
+        for (size_t i = 0; i < length; ++i)
+            if (std::tolower(static_cast<unsigned char>(name[name.size() - length + i])) != std::tolower(static_cast<unsigned char>(extension[i])))
+                return false;
+        return true;
+    }
+
+    static bool DrawAssetField(const std::string& id, Filesystem::AssetID& value, AssetBrowser* browser, const char* onlyExtension = nullptr);
+
+    template<class Row>
+    static bool DrawMeshShapeFields(PhysicsBody& body, size_t index, Row&& row)
+    {
+        auto& p = body.GetShapeParams<MeshParams>(index);
+        bool changed = false;
+        const bool dynamic = body.motionType == JPH::EMotionType::Dynamic;
+        Physics::PhysicsManager* physics = Engine::Core::GetEngine().GetPhysicsManager();
+
+        row("Mesh");
+        changed |= DrawAssetField("##MeshAsset", p.mesh, nullptr, ".fbx");
+        if (p.mesh.GetAsInt() == 0)
+        {
+            ImGui::TableNextRow();
+            ImGui::TableSetColumnIndex(1);
+            ImGui::TextDisabled("Empty : the model of this actor");
+        }
+
+        row("Show in Viewport");
+        changed |= ImGui::Checkbox("##ShowInViewport", &p.showInViewport);
+        if (ImGui::IsItemHovered())
+            ImGui::SetTooltip("Draws this collider when Show Physics Shapes is on. Above 400000 triangles only the bounding box is drawn.");
+
+        static const char* approximationNames[] = { "Auto", "Exact", "Hull", "Hulls", "Bounds" };
+        int approximation = static_cast<int>(p.approximation);
+        row("Approximation");
+        ImGui::SetNextItemWidth(-FLT_MIN);
+        if (ImGui::Combo("##Approximation", &approximation, approximationNames, IM_ARRAYSIZE(approximationNames)))
+        {
+            p.approximation = static_cast<Physics::MeshApproximation>(approximation);
+            changed = true;
+        }
+        if (ImGui::IsItemHovered())
+            ImGui::SetTooltip("Auto : triangles for a static or kinematic body, convex pieces for a dynamic one.\nExact : the triangles, for bodies that physics does not move.\nHull : one convex shape around the mesh.\nHulls : several convex pieces that follow a concave mesh.\nBounds : the box around the mesh.");
+
+        const Physics::MeshApproximation resolved = Physics::ResolveApproximation(p.approximation, dynamic);
+        const bool usesHulls = resolved == Physics::MeshApproximation::Hulls;
+        const bool usesConvex = usesHulls || resolved == Physics::MeshApproximation::Hull;
+        const bool usesTriangles = resolved == Physics::MeshApproximation::Exact;
+
+        row("Submeshes");
+        {
+            char buffer[64];
+            std::snprintf(buffer, sizeof(buffer), "%s", p.submeshes.c_str());
+            ImGui::SetNextItemWidth(-FLT_MIN);
+            if (ImGui::InputTextWithHint("##Submeshes", "all  (0,2 or 1-3)", buffer, sizeof(buffer)))
+            {
+                p.submeshes = buffer;
+                changed = true;
+            }
+        }
+
+        if (usesConvex)
+        {
+            row("Convex Radius");
+            ImGui::SetNextItemWidth(-FLT_MIN);
+            changed |= ImGui::DragFloat("##ConvexRadius", &p.convexRadius, 0.005f, 0.0f, 0.5f, "%.3f");
+            row("Max Vertices");
+            ImGui::SetNextItemWidth(-FLT_MIN);
+            changed |= ImGui::DragInt("##MaxHullVertices", &p.maxHullVertices, 1.0f, 8, 256);
+        }
+        if (usesHulls)
+        {
+            row("Concavity");
+            ImGui::SetNextItemWidth(-FLT_MIN);
+            changed |= ImGui::DragFloat("##Concavity", &p.concavity, 0.005f, 0.01f, 1.0f, "%.3f");
+            if (ImGui::IsItemHovered())
+                ImGui::SetTooltip("How far a piece may stray from the mesh. Lower fits tighter and takes longer to build");
+            row("Max Pieces");
+            ImGui::SetNextItemWidth(-FLT_MIN);
+            changed |= ImGui::DragInt("##MaxHulls", &p.maxHulls, 0.2f, 1, 64);
+        }
+        if (usesTriangles)
+        {
+            row("Edge Angle");
+            ImGui::SetNextItemWidth(-FLT_MIN);
+            changed |= ImGui::DragFloat("##EdgeAngle", &p.edgeAngle, 0.1f, 0.0f, 90.0f, "%.1f deg");
+            if (ImGui::IsItemHovered())
+                ImGui::SetTooltip("Edges flatter than this are treated as smooth, so a body does not catch on the seams of a floor");
+        }
+
+        ImGui::TableNextRow();
+        ImGui::TableSetColumnIndex(1);
+        if (p.approximation == Physics::MeshApproximation::Exact && dynamic)
+            ImGui::TextColored(ImVec4(0.95f, 0.75f, 0.3f, 1.0f), "Exact does not work on a dynamic body : a hull is used");
+        else
+            ImGui::TextDisabled("Uses : %s", Physics::ApproximationName(resolved));
+
+        if (physics && usesHulls && physics->MeshColliders().PendingJobs() > 0)
+        {
+            ImGui::TableNextRow();
+            ImGui::TableSetColumnIndex(1);
+            ImGui::TextColored(ImVec4(0.55f, 0.75f, 0.95f, 1.0f), "Building the convex pieces, a hull stands in");
+        }
+
+        if (physics)
+        {
+            ImGui::TableNextRow();
+            ImGui::TableSetColumnIndex(1);
+            if (ImGui::Button("Rebuild collider"))
+            {
+                Physics::MeshColliderSettings settings;
+                if (body.GetMeshSettings(index, settings))
+                    physics->MeshColliders().Invalidate(settings.mesh);
+                changed = true;
+            }
+        }
+        return changed;
+    }
+
     void DrawPhysicsBodyShapes(std::shared_ptr<Component> comp)
     {
         auto body = std::dynamic_pointer_cast<PhysicsBody>(comp);
@@ -296,9 +420,27 @@ namespace Shard::Editor::GUI{
             return;
 
         ImGui::Separator();
+        {
+            auto& debug = Debug::CollisionDebugState::Get();
+            const bool active = body->parent && debug.highlight.lock() == body->parent;
+            if (active)
+                ImGui::PushStyleColor(ImGuiCol_Button, ImGui::GetStyleColorVec4(ImGuiCol_ButtonActive));
+            if (ImGui::Button(ICON_LC_SCAN_EYE " Highlight collisions"))
+            {
+                if (active)
+                    debug.highlight.reset();
+                else
+                    debug.highlight = body->parent;
+            }
+            if (active)
+                ImGui::PopStyleColor();
+            if (ImGui::IsItemHovered())
+                ImGui::SetTooltip("Colors every collider by what this one does with it : red blocks, blue overlaps, dark ignores");
+        }
+        ImGui::Separator();
         ImGui::Text("Shapes");
 
-        static const char* shapeTypeNames[] = { "Sphere", "Box", "Capsule", "Cylinder" };
+        static const char* shapeTypeNames[] = { "Sphere", "Box", "Capsule", "Cylinder", "Mesh" };
 
         size_t indexToRemove = static_cast<size_t>(-1);
 
@@ -402,6 +544,11 @@ namespace Shard::Editor::GUI{
                             row("Half Height");
                             ImGui::SetNextItemWidth(-FLT_MIN);
                             paramsChanged |= ImGui::DragFloat("##HalfHeight", &p.halfHeight, 0.05f, 0.001f, FLT_MAX);
+                            break;
+                        }
+                        case Physics::PhysicsShape::MESH:
+                        {
+                            paramsChanged |= DrawMeshShapeFields(*body, i, row);
                             break;
                         }
                     }
@@ -790,6 +937,16 @@ namespace Shard::Editor::GUI{
                 SHARD_ADD_ITEM("Volume", GravityVolume);
                 ImGui::EndMenu();
             }
+            if (ImGui::BeginMenu("Constraint")) {
+                SHARD_ADD_ITEM("Fixed", FixedConstraint);
+                SHARD_ADD_ITEM("Point", PointConstraint);
+                SHARD_ADD_ITEM("Hinge", HingeConstraint);
+                SHARD_ADD_ITEM("Slider", SliderConstraint);
+                SHARD_ADD_ITEM("Distance", DistanceConstraint);
+                SHARD_ADD_ITEM("Cone", ConeConstraint);
+                SHARD_ADD_ITEM("Swing Twist", SwingTwistConstraint);
+                ImGui::EndMenu();
+            }
             ImGui::EndMenu();
         }
 
@@ -1000,7 +1157,7 @@ namespace Shard::Editor::GUI{
         return removeRequested;
     }
 
-    static bool DrawAssetField(const std::string& id, Filesystem::AssetID& value, AssetBrowser* browser)
+    static bool DrawAssetField(const std::string& id, Filesystem::AssetID& value, AssetBrowser* browser, const char* onlyExtension)
     {
         auto* manager = Engine::Core::GetEngine().GetAssetIDManager();
         if (!manager)
@@ -1017,6 +1174,8 @@ namespace Shard::Editor::GUI{
             if (!info || info->baseInfos.nameInProject != name || info->baseInfos.isDirectory)
                 return nullptr;
             if (current && info->baseInfos.type != current->baseInfos.type)
+                return nullptr;
+            if (onlyExtension && !HasExtension(info->baseInfos.nameInProject, onlyExtension))
                 return nullptr;
             return info;
         };
@@ -1087,6 +1246,8 @@ namespace Shard::Editor::GUI{
                 if (!info || info->baseInfos.isDirectory || info->baseInfos.nameInProject.empty())
                     continue;
                 if (current && info->baseInfos.type != current->baseInfos.type)
+                    continue;
+                if (onlyExtension && !HasExtension(info->baseInfos.nameInProject, onlyExtension))
                     continue;
                 if (!needle.empty() && lower(info->baseInfos.nameInProject).find(needle) == std::string::npos)
                     continue;

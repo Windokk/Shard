@@ -53,7 +53,15 @@ typedef struct ShardQueryFilter {
     ShardActor ignore;              /* an actor whose body the query goes through, or 0 */
     uint32_t flags;                 /* SHARD_QUERY_* */
     ShardStr tag;                   /* only the actors that have this tag (or one under it). Empty : any. A plugin collider has no tag. */
+    /* ---- shard.collision 1.0 : the query follows the rules of a collider ---- */
+    ShardStr as_profile;            /* a collision profile by name : the query meets what a collider with that profile would not ignore. Empty : off. */
+    ShardActor as_actor;            /* or the profile the actor's collider has now, overrides included. Wins over as_profile. 0 : off. */
+    uint32_t hit;                   /* SHARD_HIT_BLOCK (0) or SHARD_HIT_OVERLAP : what counts as a hit when `as_*` is on */
+    uint32_t reserved;
 } ShardQueryFilter;
+
+#define SHARD_HIT_BLOCK     0u      /* only what the collider would be blocked by */
+#define SHARD_HIT_OVERLAP   1u      /* what it would be blocked by or overlap */
 
 /* A collider built from geometry. Static : it never moves by itself (collider_set_pose moves it), and bodies collide with it as with any other
  * static body. The geometry is copied during the call. */

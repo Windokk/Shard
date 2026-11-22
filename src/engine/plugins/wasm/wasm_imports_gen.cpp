@@ -165,6 +165,15 @@ namespace Shard::Engine::Plugins::Wasm {
             { "physics.collider_set_pose", { { L, L, I, I }, { I } }, false },
             { "physics.collider_update", { { L, L, I }, { I } }, false },
             { "physics.collider_destroy", { { L, L }, { I } }, false },
+            { "collision.subscribe", { { L, L, I, I, F, I, I }, { I } }, false },
+            { "collision.unsubscribe", { { L, L }, { I } }, false },
+            { "collision.poll_events", { { L, L, I, I, I }, { I } }, false },
+            { "collision.get_overlaps", { { L, L, I, I, I }, { I } }, false },
+            { "collision.explain", { { L, L, L, I, L, I }, { I } }, false },
+            { "collision.set_profile", { { L, L, I }, { I } }, false },
+            { "collision.push_override", { { L, L, I, I, I, I, I, I }, { I } }, false },
+            { "collision.pop_override", { { L, L, L }, { I } }, false },
+            { "collision.ignore_collision", { { L, L, L, I }, { I } }, false },
             { "audio.play", { { L }, { I } }, false },
             { "audio.pause", { { L }, { I } }, false },
             { "audio.set_volume", { { L, F }, { I } }, false },
@@ -174,6 +183,11 @@ namespace Shard::Engine::Plugins::Wasm {
             { "worlds.loaded_count", { {  }, { I } }, false },
             { "worlds.spawn_prefab", { { L, I, L, I }, { I } }, false },
             { "worlds.world_at", { { I, I, I, L, I, I }, { I } }, false },
+            { "worlds.spawn_prefab_ex", { { L, I, L, I, I, I, I, I }, { I } }, false },
+            { "worlds.find_prefab", { { L, I, I, I, I }, { I } }, false },
+            { "worlds.get_prefab", { { L, I, L, I, I }, { I } }, false },
+            { "worlds.destroy_prefab", { { L }, { I } }, false },
+            { "worlds.destroy_prefabs", { { L, I, I }, { I } }, false },
             { "timers.after", { { L, D, I, I, I }, { I } }, true },
             { "timers.every", { { L, D, I, I, I }, { I } }, true },
             { "timers.start", { { L, I, I, I }, { I } }, true },
@@ -1423,6 +1437,88 @@ namespace Shard::Engine::Plugins::Wasm {
             });
         }
 
+        // ---- shard.collision ----
+        {
+            const ShardCollisionApi* api = apis.collision;
+            imports.Add("collision.subscribe", { { L, L, I, I, F, I, I }, { I } }, [&s, api](Instance& in, const uint64_t* a, uint64_t* r) -> bool {
+                (void)in; (void)a; (void)r;
+                if (!api || !SHARD_HAS(api, subscribe) || !s.Allowed(Permission::Physics)) { r[0] = uint32_t(SHARD_E_UNSUPPORTED); return true; }
+                std::string p3; if (!ReadStr(in, a[3], p3)) return false;
+                OutArg<ShardCollisionSub> p6(in, a[6]); if (!p6.ok) return false;
+                const auto rv = api->subscribe(s.ctx, static_cast<ShardActor>(a[1]), static_cast<uint32_t>(uint32_t(a[2])), ToStr(p3), F32(a[4]), static_cast<uint32_t>(uint32_t(a[5])), &p6.value);
+                if (!p6.Commit()) return false;
+                r[0] = uint32_t(rv);
+                return true;
+            });
+            imports.Add("collision.unsubscribe", { { L, L }, { I } }, [&s, api](Instance& in, const uint64_t* a, uint64_t* r) -> bool {
+                (void)in; (void)a; (void)r;
+                if (!api || !SHARD_HAS(api, unsubscribe) || !s.Allowed(Permission::Physics)) { r[0] = uint32_t(SHARD_E_UNSUPPORTED); return true; }
+                const auto rv = api->unsubscribe(s.ctx, static_cast<ShardCollisionSub>(a[1]));
+                r[0] = uint32_t(rv);
+                return true;
+            });
+            imports.Add("collision.poll_events", { { L, L, I, I, I }, { I } }, [&s, api](Instance& in, const uint64_t* a, uint64_t* r) -> bool {
+                (void)in; (void)a; (void)r;
+                if (!api || !SHARD_HAS(api, poll_events) || !s.Allowed(Permission::Physics)) { r[0] = uint32_t(SHARD_E_UNSUPPORTED); return true; }
+                OutArg<ShardCollisionEvent> p2(in, a[2]); if (!p2.ok) return false;
+                OutArg<uint32_t> p4(in, a[4]); if (!p4.ok) return false;
+                const auto rv = api->poll_events(s.ctx, static_cast<ShardCollisionSub>(a[1]), &p2.value, static_cast<uint32_t>(uint32_t(a[3])), &p4.value);
+                if (!p2.Commit()) return false;
+                if (!p4.Commit()) return false;
+                r[0] = uint32_t(rv);
+                return true;
+            });
+            imports.Add("collision.get_overlaps", { { L, L, I, I, I }, { I } }, [&s, api](Instance& in, const uint64_t* a, uint64_t* r) -> bool {
+                (void)in; (void)a; (void)r;
+                if (!api || !SHARD_HAS(api, get_overlaps) || !s.Allowed(Permission::Physics)) { r[0] = uint32_t(SHARD_E_UNSUPPORTED); return true; }
+                ShardResult rv = SHARD_OK;
+                if (!ArrayOut<ShardActor>(in, a[2], a[3], a[4], rv, [&](ShardActor* tb, uint32_t tc, uint32_t* ts) { return api->get_overlaps(s.ctx, static_cast<ShardActor>(a[1]), tb, tc, ts); })) return false;
+                r[0] = uint32_t(rv);
+                return true;
+            });
+            imports.Add("collision.explain", { { L, L, L, I, L, I }, { I } }, [&s, api](Instance& in, const uint64_t* a, uint64_t* r) -> bool {
+                (void)in; (void)a; (void)r;
+                if (!api || !SHARD_HAS(api, explain) || !s.Allowed(Permission::Physics)) { r[0] = uint32_t(SHARD_E_UNSUPPORTED); return true; }
+                ShardResult rv = SHARD_OK;
+                if (!TextOut(in, a[3], a[4], a[5], rv, [&](char* tb, uint64_t tc, uint64_t* ts) { return api->explain(s.ctx, static_cast<ShardActor>(a[1]), static_cast<ShardActor>(a[2]), tb, tc, ts); })) return false;
+                r[0] = uint32_t(rv);
+                return true;
+            });
+            imports.Add("collision.set_profile", { { L, L, I }, { I } }, [&s, api](Instance& in, const uint64_t* a, uint64_t* r) -> bool {
+                (void)in; (void)a; (void)r;
+                if (!api || !SHARD_HAS(api, set_profile) || !s.Allowed(Permission::Physics)) { r[0] = uint32_t(SHARD_E_UNSUPPORTED); return true; }
+                std::string p2; if (!ReadStr(in, a[2], p2)) return false;
+                const auto rv = api->set_profile(s.ctx, static_cast<ShardActor>(a[1]), ToStr(p2));
+                r[0] = uint32_t(rv);
+                return true;
+            });
+            imports.Add("collision.push_override", { { L, L, I, I, I, I, I, I }, { I } }, [&s, api](Instance& in, const uint64_t* a, uint64_t* r) -> bool {
+                (void)in; (void)a; (void)r;
+                if (!api || !SHARD_HAS(api, push_override) || !s.Allowed(Permission::Physics)) { r[0] = uint32_t(SHARD_E_UNSUPPORTED); return true; }
+                std::string p2; if (!ReadStr(in, a[2], p2)) return false;
+                std::string p4; if (!ReadStr(in, a[4], p4)) return false;
+                OutArg<uint64_t> p7(in, a[7]); if (!p7.ok) return false;
+                const auto rv = api->push_override(s.ctx, static_cast<ShardActor>(a[1]), ToStr(p2), static_cast<int32_t>(int32_t(uint32_t(a[3]))), ToStr(p4), static_cast<uint32_t>(uint32_t(a[5])), static_cast<uint32_t>(uint32_t(a[6])), &p7.value);
+                if (!p7.Commit()) return false;
+                r[0] = uint32_t(rv);
+                return true;
+            });
+            imports.Add("collision.pop_override", { { L, L, L }, { I } }, [&s, api](Instance& in, const uint64_t* a, uint64_t* r) -> bool {
+                (void)in; (void)a; (void)r;
+                if (!api || !SHARD_HAS(api, pop_override) || !s.Allowed(Permission::Physics)) { r[0] = uint32_t(SHARD_E_UNSUPPORTED); return true; }
+                const auto rv = api->pop_override(s.ctx, static_cast<ShardActor>(a[1]), static_cast<uint64_t>(a[2]));
+                r[0] = uint32_t(rv);
+                return true;
+            });
+            imports.Add("collision.ignore_collision", { { L, L, L, I }, { I } }, [&s, api](Instance& in, const uint64_t* a, uint64_t* r) -> bool {
+                (void)in; (void)a; (void)r;
+                if (!api || !SHARD_HAS(api, ignore_collision) || !s.Allowed(Permission::Physics)) { r[0] = uint32_t(SHARD_E_UNSUPPORTED); return true; }
+                const auto rv = api->ignore_collision(s.ctx, static_cast<ShardActor>(a[1]), static_cast<ShardActor>(a[2]), static_cast<int32_t>(int32_t(uint32_t(a[3]))));
+                r[0] = uint32_t(rv);
+                return true;
+            });
+        }
+
         // ---- shard.audio ----
         {
             const ShardAudioApi* api = apis.audio;
@@ -1505,6 +1601,58 @@ namespace Shard::Engine::Plugins::Wasm {
                 if (!p2.Commit()) return false;
                 if (!p4.Commit()) return false;
                 if (!p5.Commit()) return false;
+                r[0] = uint32_t(rv);
+                return true;
+            });
+            imports.Add("worlds.spawn_prefab_ex", { { L, I, L, I, I, I, I, I }, { I } }, [&s, api](Instance& in, const uint64_t* a, uint64_t* r) -> bool {
+                (void)in; (void)a; (void)r;
+                if (!api || !SHARD_HAS(api, spawn_prefab_ex)) { r[0] = uint32_t(SHARD_E_UNSUPPORTED); return true; }
+                std::string p1; if (!ReadStr(in, a[1], p1)) return false;
+                InArg<ShardLocalTransform> p4(in, a[4]); if (!p4.ok) return false;
+                std::string p5; if (!ReadStr(in, a[5], p5)) return false;
+                std::string p6; if (!ReadStr(in, a[6], p6)) return false;
+                OutArg<ShardActor> p7(in, a[7]); if (!p7.ok) return false;
+                const auto rv = api->spawn_prefab_ex(static_cast<ShardActor>(a[0]), ToStr(p1), static_cast<ShardActor>(a[2]), static_cast<uint32_t>(uint32_t(a[3])), &p4.value, ToStr(p5), ToStr(p6), &p7.value);
+                if (!p7.Commit()) return false;
+                r[0] = uint32_t(rv);
+                return true;
+            });
+            imports.Add("worlds.find_prefab", { { L, I, I, I, I }, { I } }, [&s, api](Instance& in, const uint64_t* a, uint64_t* r) -> bool {
+                (void)in; (void)a; (void)r;
+                if (!api || !SHARD_HAS(api, find_prefab)) { r[0] = uint32_t(SHARD_E_UNSUPPORTED); return true; }
+                std::string p1; if (!ReadStr(in, a[1], p1)) return false;
+                ShardResult rv = SHARD_OK;
+                if (!ArrayOut<ShardActor>(in, a[2], a[3], a[4], rv, [&](ShardActor* tb, uint32_t tc, uint32_t* ts) { return api->find_prefab(static_cast<ShardActor>(a[0]), ToStr(p1), tb, tc, ts); })) return false;
+                r[0] = uint32_t(rv);
+                return true;
+            });
+            imports.Add("worlds.get_prefab", { { L, I, L, I, I }, { I } }, [&s, api](Instance& in, const uint64_t* a, uint64_t* r) -> bool {
+                (void)in; (void)a; (void)r;
+                if (!api || !SHARD_HAS(api, get_prefab)) { r[0] = uint32_t(SHARD_E_UNSUPPORTED); return true; }
+                InOutText p1(in, a[1], a[2]); if (!p1.ok) return false;
+                OutArg<uint64_t> p3(in, a[3]); if (!p3.ok) return false;
+                OutArg<ShardActor> p4(in, a[4]); if (!p4.ok) return false;
+                const auto rv = api->get_prefab(static_cast<ShardActor>(a[0]), p1.Data(), p1.Capacity(), &p3.value, &p4.value);
+                if (!p1.Commit()) return false;
+                if (!p3.Commit()) return false;
+                if (!p4.Commit()) return false;
+                r[0] = uint32_t(rv);
+                return true;
+            });
+            imports.Add("worlds.destroy_prefab", { { L }, { I } }, [&s, api](Instance& in, const uint64_t* a, uint64_t* r) -> bool {
+                (void)in; (void)a; (void)r;
+                if (!api || !SHARD_HAS(api, destroy_prefab)) { r[0] = uint32_t(SHARD_E_UNSUPPORTED); return true; }
+                const auto rv = api->destroy_prefab(static_cast<ShardActor>(a[0]));
+                r[0] = uint32_t(rv);
+                return true;
+            });
+            imports.Add("worlds.destroy_prefabs", { { L, I, I }, { I } }, [&s, api](Instance& in, const uint64_t* a, uint64_t* r) -> bool {
+                (void)in; (void)a; (void)r;
+                if (!api || !SHARD_HAS(api, destroy_prefabs)) { r[0] = uint32_t(SHARD_E_UNSUPPORTED); return true; }
+                std::string p1; if (!ReadStr(in, a[1], p1)) return false;
+                OutArg<uint32_t> p2(in, a[2]); if (!p2.ok) return false;
+                const auto rv = api->destroy_prefabs(static_cast<ShardActor>(a[0]), ToStr(p1), &p2.value);
+                if (!p2.Commit()) return false;
                 r[0] = uint32_t(rv);
                 return true;
             });

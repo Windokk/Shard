@@ -10,6 +10,7 @@
 #include "physics_body.reflection.hpp"
 
 #include <Jolt/Physics/Collision/Shape/StaticCompoundShape.h>
+#include <Jolt/Physics/Collision/Shape/ScaledShape.h>
 #include <Jolt/Physics/Collision/Shape/RotatedTranslatedShape.h>
 #include <Jolt/Physics/Body/BodyLock.h>
 
@@ -32,6 +33,7 @@ namespace Shard::Engine::Objects::Components{
                 case Physics::PhysicsShape::SPHERE:   params.Initialize(&SphereParams_descriptor); break;
                 case Physics::PhysicsShape::CAPSULE:  params.Initialize(&CapsuleParams_descriptor); break;
                 case Physics::PhysicsShape::CYLINDER: params.Initialize(&CylinderParams_descriptor); break;
+                case Physics::PhysicsShape::MESH:     params.Initialize(&MeshParams_descriptor); break;
             }
         }
 
@@ -41,6 +43,7 @@ namespace Shard::Engine::Objects::Components{
             if (s == "sphere") { out = Physics::PhysicsShape::SPHERE; return true; }
             if (s == "capsule") { out = Physics::PhysicsShape::CAPSULE; return true; }
             if (s == "cylinder") { out = Physics::PhysicsShape::CYLINDER; return true; }
+            if (s == "mesh") { out = Physics::PhysicsShape::MESH; return true; }
             return false;
         }
 
@@ -52,11 +55,12 @@ namespace Shard::Engine::Objects::Components{
                 case Physics::SPHERE:   return "sphere";
                 case Physics::CAPSULE:  return "capsule";
                 case Physics::CYLINDER: return "cylinder";
+                case Physics::MESH:     return "mesh";
             }
             return "box";
         }
 
-        bool ParseShapeParams(const json& p, Physics::PhysicsShape shape, InstancedStruct& outParams, const std::string& parentName)
+        bool ParseShapeParams(const json& p, Physics::PhysicsShape shape, InstancedStruct& outParams, const std::string& parentName, const Serialization::ReflectionContext& context)
         {
             InitShapeParams(outParams, shape);
             if (!outParams.descriptor)
@@ -70,15 +74,22 @@ namespace Shard::Engine::Objects::Components{
             if (shape == Physics::PhysicsShape::BOX && p.contains("x") && !p.contains("halfExtent"))
                 fields = json{ { "halfExtent", p } };
 
-            Serialization::ReadFields(outParams.descriptor->fields, outParams.data, fields, Serialization::ReflectionContext{});
+            Serialization::ReadFields(outParams.descriptor->fields, outParams.data, fields, context);
             return true;
         }
 
-        void SerializeShapeParams(ordered_json& out, const InstancedStruct& params)
+        void SerializeShapeParams(ordered_json& out, const InstancedStruct& params, const Serialization::ReflectionContext& context)
         {
             if (params.descriptor)
-                Serialization::WriteFields(params.descriptor->fields, params.data, out, Serialization::ReflectionContext{});
+                Serialization::WriteFields(params.descriptor->fields, params.data, out, context);
         }
+    }
+
+    Serialization::ReflectionContext PhysicsBody::ContextFor(Physics::PhysicsShape shape) const
+    {
+        if (shape != Physics::PhysicsShape::MESH || !GetEngineContext())
+            return Serialization::ReflectionContext{};
+        return Serialization::ReflectionContext{ GetEngineContext()->GetAssetIDManager() };
     }
 
     PhysicsBody::PhysicsBody(std::shared_ptr<Actor> parent, uint32_t local_id) : Component(parent, local_id)
@@ -87,7 +98,7 @@ namespace Shard::Engine::Objects::Components{
         shapes[0].params.Initialize(&BoxParams_descriptor);
     }
 
-    JPH::ShapeRefC PhysicsBody::CreateJoltShape(Physics::PhysicsShape shape, const InstancedStruct& params)
+    JPH::ShapeRefC PhysicsBody::CreateJoltShape(Physics::PhysicsShape shape, const InstancedStruct& params, EMotionType motion)
     {
         // Jolt shapes have no scale: bake the composed world scale in at creation, otherwise a shape under a scaled actor is the wrong size.
         glm::vec3 scale = parent->transform->GetWorldScale();
@@ -152,6 +163,44 @@ namespace Shard::Engine::Objects::Components{
                 break;
             }
 
+            case Physics::PhysicsShape::MESH:
+            {
+                Physics::PhysicsManager* physics = GetEngineContext()->GetPhysicsManager();
+                Physics::MeshColliderCache& cache = physics->MeshColliders();
+
+                Physics::MeshColliderSettings settings;
+                if (!params.data || !FillMeshSettings(*reinterpret_cast<const MeshParams*>(params.data), settings))
+                {
+                    m_MeshMissing = true;
+                    DEBUG_WARNING("PhysicsBody : the mesh shape of " + parent->GetName() + " has no mesh, and the actor has no model");
+                    return nullptr;
+                }
+
+                Physics::MeshColliderResult built = cache.Acquire(settings, motion == EMotionType::Dynamic);
+                if (!built.shape)
+                {
+                    DEBUG_ERROR("PhysicsBody : mesh shape of " + parent->GetName() + " : " + built.error);
+                    return nullptr;
+                }
+                if (built.refining)
+                    m_MeshRefining = true;
+
+                JPH::Vec3 joltScale = ToJolt(scale);
+                const bool unit = scale == glm::vec3(1.0f);
+                if (unit)
+                {
+                    result = built.shape;
+                    break;
+                }
+                if (!built.shape->IsValidScale(joltScale))
+                    joltScale = built.shape->MakeScaleValid(joltScale);
+                JPH::ScaledShapeSettings scaled(built.shape.GetPtr(), joltScale);
+                auto r = scaled.Create();
+                if (r.HasError()) { return nullptr; }
+                result = r.Get();
+                break;
+            }
+
             default:
                 return nullptr;
         }
@@ -159,15 +208,18 @@ namespace Shard::Engine::Objects::Components{
         return result;
     }
 
-    JPH::ShapeRefC PhysicsBody::BuildShape()
+    JPH::ShapeRefC PhysicsBody::BuildShape(EMotionType motion)
     {
         if (shapes.empty())
             return nullptr;
 
+        m_MeshRefining = false;
+        m_MeshMissing = false;
+
         std::vector<JPH::ShapeRefC> subShapes(shapes.size());
         for (size_t i = 0; i < shapes.size(); i++)
         {
-            subShapes[i] = CreateJoltShape(shapes[i].shapeType, shapes[i].params);
+            subShapes[i] = CreateJoltShape(shapes[i].shapeType, shapes[i].params, motion);
             if (!subShapes[i])
                 return nullptr;
         }
@@ -197,11 +249,117 @@ namespace Shard::Engine::Objects::Components{
         return r.HasError() ? nullptr : r.Get();
     }
 
+    bool PhysicsBody::BuildInspectorPatch(Collision::Patch& patch) const
+    {
+        bool any = false;
+        if (collisionMode != Physics::CollisionModeChoice::Inherit)
+        {
+            static constexpr Collision::Mode modes[] = { Collision::Mode::Solid, Collision::Mode::Solid, Collision::Mode::Sensor, Collision::Mode::QueryOnly, Collision::Mode::Disabled };
+            patch.mode = modes[int(collisionMode)];
+            any = true;
+        }
+        if (collisionDefault != Physics::CollisionResponseChoice::Inherit)
+        {
+            static constexpr Collision::Response responses[] = { Collision::Response::Ignore, Collision::Response::Ignore, Collision::Response::Overlap, Collision::Response::Block };
+            patch.defaultResponse = responses[int(collisionDefault)];
+            any = true;
+        }
+        if (!collisionIgnore.empty())
+        {
+            Core::TagQuery query;
+            std::string error;
+            if (Core::TagQuery::TryParse(collisionIgnore, query, &error))
+            {
+                patch.rules.push_back({ query, Collision::Response::Ignore });
+                any = true;
+            }
+            else
+            {
+                DEBUG_WARNING("PhysicsBody : collision ignore query '" + collisionIgnore + "' : " + error);
+            }
+        }
+        return any;
+    }
+
+    void PhysicsBody::RefreshCollision()
+    {
+        Physics::PhysicsManager* physics = GetEngineContext() ? GetEngineContext()->GetPhysicsManager() : nullptr;
+        if (m_BodyID.IsInvalid() || !physics)
+            return;
+        physics->Collision().RemoveOverrides(m_BodyID, "inspector");
+        Collision::Patch patch;
+        if (BuildInspectorPatch(patch))
+            physics->Collision().PushOverride(m_BodyID, "inspector", -1000, std::move(patch));
+        std::string error;
+        const char* fallback = motionType == EMotionType::Static ? Collision::kDefaultStaticProfile : Collision::kDefaultMovingProfile;
+        physics->Collision().SetProfile(m_BodyID, collisionProfile.empty() ? std::string(fallback) : collisionProfile, &error);
+    }
+
+    bool PhysicsBody::FillMeshSettings(const MeshParams& p, Physics::MeshColliderSettings& settings) const
+    {
+        Physics::PhysicsManager* physics = GetEngineContext() ? GetEngineContext()->GetPhysicsManager() : nullptr;
+        settings.mesh = p.mesh;
+        if (settings.mesh.GetAsInt() == 0 && parent && physics && physics->MeshColliders().Source().modelMesh)
+            settings.mesh = physics->MeshColliders().Source().modelMesh(*parent);
+        if (settings.mesh.GetAsInt() == 0)
+            return false;
+        settings.approximation = p.approximation;
+        settings.submeshMask = Physics::ParseSubmeshMask(p.submeshes);
+        settings.convexRadius = p.convexRadius;
+        settings.concavity = p.concavity;
+        settings.maxHulls = p.maxHulls;
+        settings.maxHullVertices = p.maxHullVertices;
+        settings.edgeAngle = p.edgeAngle;
+        return true;
+    }
+
+    bool PhysicsBody::GetMeshSettings(size_t shapeIndex, Physics::MeshColliderSettings& out) const
+    {
+        if (shapeIndex >= shapes.size() || shapes[shapeIndex].shapeType != Physics::PhysicsShape::MESH || !shapes[shapeIndex].params.data)
+            return false;
+        return FillMeshSettings(*reinterpret_cast<const MeshParams*>(shapes[shapeIndex].params.data), out);
+    }
+
+    bool PhysicsBody::UsesMeshAsset(Filesystem::AssetID asset) const
+    {
+        Physics::PhysicsManager* physics = GetEngineContext() ? GetEngineContext()->GetPhysicsManager() : nullptr;
+        for (const PhysicsShapeEntry& entry : shapes)
+        {
+            if (entry.shapeType != Physics::PhysicsShape::MESH)
+                continue;
+            auto p = reinterpret_cast<const MeshParams*>(entry.params.data);
+            if (!p)
+                continue;
+            if (p->mesh == asset)
+                return true;
+            if (p->mesh.GetAsInt() == 0 && parent && physics && physics->MeshColliders().Source().modelMesh &&
+                physics->MeshColliders().Source().modelMesh(*parent) == asset)
+                return true;
+        }
+        return false;
+    }
+
+    void PhysicsBody::WatchMesh()
+    {
+        Physics::PhysicsManager* physics = GetEngineContext() ? GetEngineContext()->GetPhysicsManager() : nullptr;
+        if (!physics || !parent)
+            return;
+        if (m_MeshRefining && physics->MeshColliders().Generation() != m_MeshGeneration)
+            shouldUpdateShape = true;
+        if (m_MeshMissing)
+        {
+            const auto& source = physics->MeshColliders().Source();
+            if (source.modelMesh && source.modelMesh(*parent).GetAsInt() != 0)
+                shouldUpdateShape = true;
+        }
+    }
+
     void PhysicsBody::CreateBody(EMotionType newMotionType)
     {
-        RemoveBody();
+        RemoveBody(Collision::EndCause::Teleported);
 
-        m_Shape = BuildShape();
+        m_Shape = BuildShape(newMotionType);
+        m_MeshGeneration = GetEngineContext()->GetPhysicsManager()->MeshColliders().Generation();
         if (!m_Shape)
             return;
 
@@ -216,9 +374,7 @@ namespace Shard::Engine::Objects::Components{
             ToJolt(parent->transform->GetWorldPositionD()),
             ToJolt(parent->transform->GetWorldRotationD()),
             motionType,
-            motionType == EMotionType::Static
-                ? Physics::Layers::NON_MOVING
-                : Physics::Layers::MOVING
+            JPH::ObjectLayer(0)
         );
 
         settings.mLinearDamping = linearDamping;
@@ -233,7 +389,18 @@ namespace Shard::Engine::Objects::Components{
             settings.mMassPropertiesOverride.mMass = mass;
         }
 
-        m_BodyID = GetEngineContext()->GetPhysicsManager()->CreateBody(settings, this);
+        Physics::PhysicsManager* physics = GetEngineContext()->GetPhysicsManager();
+        Collision::Patch patch;
+        const bool hasPatch = BuildInspectorPatch(patch);
+        Physics::ColliderState collider;
+        std::string collisionError;
+        if (!physics->Collision().MakeState(collisionProfile, motionType != EMotionType::Static, hasPatch ? &patch : nullptr, collider, &collisionError))
+        {
+            DEBUG_ERROR("PhysicsBody : " + collisionError);
+            return;
+        }
+        physics->Collision().Configure(collider, settings, motionType);
+        m_BodyID = physics->CreateBody(settings, this, std::move(collider));
         m_PoseValid = false;
 
         if (!m_BodyID.IsInvalid())
@@ -346,6 +513,9 @@ namespace Shard::Engine::Objects::Components{
         const bool rotDirty   = parent->transform->IsDirty(DirtyFlags::Rotation);
         const bool scaleDirty = parent->transform->IsDirty(DirtyFlags::Scale);
 
+        if (m_MeshRefining || m_MeshMissing)
+            WatchMesh();
+
         if(shouldUpdateShape)
         {
             CreateBody(motionType);
@@ -406,6 +576,7 @@ namespace Shard::Engine::Objects::Components{
 
         if(motionType == EMotionType::Dynamic || motionType == EMotionType::Kinematic){
             m_PoseValid = false;
+            physics->Collision().NotifyTeleport(m_BodyID);
             bi.SetPosition(
                 m_BodyID,
                 newPosition,
@@ -440,6 +611,7 @@ namespace Shard::Engine::Objects::Components{
         JPH::Quat joltRot = ToJolt(newRot);
 
         m_PoseValid = false;
+        physics->Collision().NotifyTeleport(m_BodyID);
         bi.SetRotation(
             m_BodyID,
             joltRot,
@@ -451,20 +623,27 @@ namespace Shard::Engine::Objects::Components{
     {
         Component::Activate();
 
-        GetEngineContext()->GetPhysicsManager()->GetBodyInterface().ActivateBody(m_BodyID);
+        Physics::PhysicsManager* physics = GetEngineContext()->GetPhysicsManager();
+        physics->Collision().RemoveOverrides(m_BodyID, "deactivated");
+        physics->GetBodyInterface().ActivateBody(m_BodyID);
     }
 
     void PhysicsBody::DeActivate()
     {
         Component::DeActivate();
 
-        GetEngineContext()->GetPhysicsManager()->GetBodyInterface().DeactivateBody(m_BodyID);
+        Physics::PhysicsManager* physics = GetEngineContext()->GetPhysicsManager();
+        Collision::Patch off;
+        off.mode = Collision::Mode::Disabled;
+        physics->Collision().RemoveOverrides(m_BodyID, "deactivated");
+        physics->Collision().PushOverride(m_BodyID, "deactivated", 1000000, std::move(off));
+        physics->GetBodyInterface().DeactivateBody(m_BodyID);
     }
 
-    void PhysicsBody::RemoveBody()
+    void PhysicsBody::RemoveBody(Collision::EndCause cause)
     {
         if (!m_BodyID.IsInvalid()) {
-            GetEngineContext()->GetPhysicsManager()->RemoveBody(m_BodyID);
+            GetEngineContext()->GetPhysicsManager()->RemoveBody(m_BodyID, cause);
             m_BodyID = JPH::BodyID();
         }
     }
@@ -544,7 +723,7 @@ namespace Shard::Engine::Objects::Components{
 
                 PhysicsShapeEntry entry;
                 entry.shapeType = shape;
-                if (!ParseShapeParams(entryJson["params"], shape, entry.params, parentName))
+                if (!ParseShapeParams(entryJson["params"], shape, entry.params, parentName, ContextFor(shape)))
                     return;
 
                 parseOffsetRotation(entryJson, entry);
@@ -577,7 +756,7 @@ namespace Shard::Engine::Objects::Components{
 
             PhysicsShapeEntry entry;
             entry.shapeType = shape;
-            if (!ParseShapeParams(data["params"], shape, entry.params, parentName))
+            if (!ParseShapeParams(data["params"], shape, entry.params, parentName, ContextFor(shape)))
                 return;
 
             newShapes.push_back(std::move(entry));
@@ -609,7 +788,7 @@ namespace Shard::Engine::Objects::Components{
             shapeJson["shape"] = ShapeTypeToString(entry.shapeType);
 
             ordered_json paramsJson = ordered_json::object();
-            SerializeShapeParams(paramsJson, entry.params);
+            SerializeShapeParams(paramsJson, entry.params, ContextFor(entry.shapeType));
             shapeJson["params"] = paramsJson;
 
             shapeJson["offset"]["x"] = entry.offset.x;
@@ -999,6 +1178,10 @@ namespace Shard::Engine::Objects::Components{
         else if (strcmp(name, "gravityMode") == 0 || strcmp(name, "customGravity") == 0)
         {
             SetGravityMode(gravityMode);
+        }
+        else if (strcmp(name, "collisionProfile") == 0 || strcmp(name, "collisionMode") == 0 || strcmp(name, "collisionDefault") == 0 || strcmp(name, "collisionIgnore") == 0)
+        {
+            RefreshCollision();
         }
         else if (strcmp(name, "friction") == 0)
         {

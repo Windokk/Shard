@@ -29,9 +29,11 @@ namespace Shard::Engine::Filesystem{
         T_MATERIAL,
         T_PROBES,
         T_LIGHTMAP,
+        T_PHYSICS_MATERIAL,
         T_CONFIG,
         T_DIRECTORY,
-        T_CUSTOM
+        T_CUSTOM,
+        T_PREFAB
     };
 
     bool RegisterCustomExtension(const std::string& extension);

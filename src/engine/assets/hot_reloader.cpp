@@ -300,14 +300,24 @@ namespace Shard::Engine::Assets {
         }
         m_Entries = std::move(pending);
 
+        bool physicsMaterials = false;
         for(Entry& entry : ready){
             if(!Apply(entry)){
                 entry.last = std::chrono::steady_clock::now();
                 m_Entries.push_back(std::move(entry));
+                continue;
             }
-            else if(!entry.engine && entry.kind != FileChangeKind::Modified)
+            if(!entry.engine){
+                const std::string ext = LowerExtension(entry.path);
+                const std::string oldExt = LowerExtension(entry.oldPath);
+                physicsMaterials |= ext == ".physmat" || oldExt == ".physmat" || (entry.kind != FileChangeKind::Modified && (ext.empty() || oldExt.empty()));
+            }
+            if(!entry.engine && entry.kind != FileChangeKind::Modified)
                 m_Revision++;
         }
+
+        if(physicsMaterials && m_Config.onPhysicsMaterialsChanged)
+            m_Config.onPhysicsMaterialsChanged();
 
         if(m_DatabaseDirty){
             m_DatabaseDirty = false;

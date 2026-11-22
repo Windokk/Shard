@@ -14,6 +14,8 @@
 #include "engine/core/config/cvar.hpp"
 #include "engine/core/diagnostics/logger.hpp"
 #include "engine/core/math/hash.hpp"
+#include "engine/assets/serialization/collision/collision_json.hpp"
+#include "engine/core/collision/collision_profile.hpp"
 #include "engine/core/tags/tag_registry.hpp"
 #include "engine/platform/crash/crash_handler.hpp"
 #include "engine/plugins/abi/c_plugin.hpp"
@@ -882,6 +884,7 @@ namespace Shard::Engine::Plugins {
         if (m_Config.registerModuleAssets) UnregisterModuleAssets(r.manifest.id);
         m_Content.Unmount(r.owner);
         Core::TagRegistry::Get().RemoveDeclarations(Core::TagSource::Plugin, r.manifest.id);
+        Collision::ProfileRegistry::Get().RemoveDeclarations(Collision::Source::Plugin, r.manifest.id);
         FailDependents(r.manifest.id, r.manifest.id);
     }
 
@@ -913,12 +916,35 @@ namespace Shard::Engine::Plugins {
         r.state = PluginState::Initialized;
     }
 
+    void PluginManager::DeclareCollision(PluginRecord& r)
+    {
+        Collision::ProfileRegistry& registry = Collision::ProfileRegistry::Get();
+        if (!r.manifest.collisionTags.empty())
+            registry.SetCollisionRoots(Collision::Source::Plugin, r.manifest.id, r.manifest.collisionTags);
+        std::vector<std::string> problems;
+        if (r.manifest.collisionProfiles.is_object() && !r.manifest.collisionProfiles.empty()) {
+            std::vector<Collision::Profile> profiles;
+            for (auto& [name, profile] : r.manifest.collisionProfiles.items())
+                profiles.push_back(Serialization::ProfileFromJson(name, profile, &problems));
+            registry.SetDeclarations(Collision::Source::Plugin, r.manifest.id, std::move(profiles));
+        }
+        if (r.manifest.physicsMaterials.is_object() && !r.manifest.physicsMaterials.empty()) {
+            std::vector<Collision::PhysicsMaterial> materials;
+            for (auto& [name, material] : r.manifest.physicsMaterials.items())
+                materials.push_back(Serialization::MaterialFromJson(name, material, &problems));
+            registry.SetMaterials(Collision::Source::Plugin, r.manifest.id, std::move(materials));
+        }
+        for (const std::string& problem : problems)
+            DEBUG_WARNING("Plugins : " + r.manifest.id + " : " + problem);
+    }
+
     void PluginManager::MountContent(PluginRecord& r)
     {
         if (!r.manifest.tags.empty()) {
             std::vector<std::pair<std::string, std::string>> tags(r.manifest.tags.begin(), r.manifest.tags.end());
             Core::TagRegistry::Get().SetDeclarations(Core::TagSource::Plugin, r.manifest.id, tags);
         }
+        DeclareCollision(r);
 
         if (!r.manifest.HasContent()) return;
         std::string err;
@@ -1079,6 +1105,7 @@ namespace Shard::Engine::Plugins {
         if (m_Config.registerModuleAssets) UnregisterModuleAssets(r.manifest.id);
         m_Content.Unmount(r.owner);
         Core::TagRegistry::Get().RemoveDeclarations(Core::TagSource::Plugin, r.manifest.id);
+        Collision::ProfileRegistry::Get().RemoveDeclarations(Collision::Source::Plugin, r.manifest.id);
         m_Declared.erase(std::remove_if(m_Declared.begin(), m_Declared.end(), [&](const DeclaredComponentEntry& d) { return d.pluginId == r.manifest.id; }), m_Declared.end());
         m_Services.RevokeOwner(r.owner);
         m_Hooks.RemoveOwner(r.owner);

@@ -2,12 +2,15 @@
 
 #include <algorithm>
 #include <map>
+#include <set>
 #include <string>
 #include <vector>
 
 #include <glm/glm.hpp>
 
 #include "engine/assets/vfs/filesystem.hpp"
+#include "engine/core/collision/collision_profile.hpp"
+#include "engine/core/collision/interaction_table.hpp"
 #include "engine/core/diagnostics/logger.hpp"
 
 namespace Shard::Engine::Projects{
@@ -160,9 +163,21 @@ namespace Shard::Engine::Projects{
         std::map<std::string, std::string> tags;
 
         std::map<std::string, std::string> redirects;
+
+        std::set<std::string> collisionTags;
+    };
+
+    struct CollisionSettings{
+        std::vector<Collision::Profile> profiles;
+
+        std::vector<Collision::InteractionRow> interactions;
     };
 
     void ApplyTagSettings(const TagSettings& settings);
+
+    void ApplyCollisionSettings(const CollisionSettings& settings);
+
+    void ReloadPhysicsMaterials(const Filesystem::AssetIDManager& ids);
 
     class Project{
         public:
@@ -185,6 +200,7 @@ namespace Shard::Engine::Projects{
             bool HasUnsavedChanges();
 
             void RemapWorlds(const std::string& oldName, const std::string& newName, bool isDirectory, const std::string& path);
+            void RemapPhysicsMaterials(const std::string& oldName, const std::string& newName, bool isDirectory, const std::string& path);
 
             Filesystem::Path GetProjectResourcesPath() { return projectResourcesRoot; }
             Filesystem::Path GetProjectRoot() { return projectRoot; }
@@ -203,6 +219,8 @@ namespace Shard::Engine::Projects{
 
             TagSettings* GetTagSettings() { return &tagSettings; }
 
+            CollisionSettings* GetCollisionSettings() { return &collisionSettings; }
+
         private:
             Filesystem::Path projectRoot = Filesystem::Path("");
             Filesystem::Path projectResourcesRoot = Filesystem::Path("");
@@ -213,6 +231,7 @@ namespace Shard::Engine::Projects{
             PhysicsSettings physicsSettings;
             RenderingSettings renderingSettings;
             TagSettings tagSettings;
+            CollisionSettings collisionSettings;
 
             std::string savedState;
     };

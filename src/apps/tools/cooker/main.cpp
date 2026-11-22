@@ -7,6 +7,8 @@
 //                                                               folder of each plugin of the project is cooked too
 //                                                               Textures used by materials become block compressed mips (.stx) and models become
 //                                                               their finished vertices (.smesh), unless --no-assets is given.
+//   ShardCooker collision <project.json> [--no-hulls]           writes <model>.scol next to every model of the project : the mesh colliders
+//                                                               (triangles, hull and convex pieces) a physics body would otherwise build when it loads
 //   ShardCooker list    <pak>                                   files, sizes, crc
 //   ShardCooker verify  <pak>                                   checks every crc
 //   ShardCooker unpack  <pak> <folder>
@@ -22,11 +24,16 @@
 #include <string>
 #include <vector>
 
+#include <Jolt/Jolt.h>
+#include <Jolt/Core/Factory.h>
+#include <Jolt/RegisterTypes.h>
+
 #include <nlohmann/json.hpp>
 
 #include "engine/assets/pak/pak.hpp"
 #include "engine/assets/serialization/material/material_asset_refs.hpp"
 #include "engine/assets/vfs/filesystem.hpp"
+#include "engine/mesh_collision_source.hpp"
 #include "engine/renderer/rhi/resources/mesh/mesh_cooked.hpp"
 #include "engine/renderer/rhi/resources/texture/texture.hpp"
 
@@ -45,6 +52,7 @@ namespace {
                      "  ShardCooker pack    <folder> <out.shardpak> [--prefix <p>] [--store]\n"
                      "  ShardCooker plugin  <plugin folder> [--out <folder>] [--store]\n"
                      "  ShardCooker project <project.json> [--out <folder>] [--store] [--no-assets]\n"
+                     "  ShardCooker collision <project.json> [--no-hulls]\n"
                      "  ShardCooker list    <pak>\n"
                      "  ShardCooker verify  <pak>\n"
                      "  ShardCooker unpack  <pak> <folder>\n";
@@ -314,6 +322,60 @@ namespace {
         return 0;
     }
 
+    int CookCollision(const std::string& projectFile, bool hulls)
+    {
+        namespace Physics = Shard::Engine::Physics;
+        std::ifstream in(projectFile);
+        if (!in) { std::cerr << "[ERROR] cannot read " << projectFile << "\n"; return 1; }
+        nlohmann::json project = nlohmann::json::parse(in, nullptr, false);
+        if (project.is_discarded() || !project.is_object() || !project.contains("projectResources") || !project["projectResources"].is_string()) {
+            std::cerr << "[ERROR] " << projectFile << " is not a project (no projectResources)\n";
+            return 1;
+        }
+        const fs::path root = fs::path(projectFile).parent_path().empty() ? fs::path(".") : fs::path(projectFile).parent_path();
+        const fs::path resources = root / fs::path(project["projectResources"].get<std::string>());
+        if (!fs::is_directory(resources)) { std::cerr << "[ERROR] resources folder '" << resources.string() << "' not found\n"; return 1; }
+
+        JPH::RegisterDefaultAllocator();
+        JPH::Factory::sInstance = new JPH::Factory();
+        JPH::RegisterTypes();
+
+        std::error_code ec;
+        int baked = 0, failed = 0, fresh = 0;
+        for (fs::recursive_directory_iterator it(resources, fs::directory_options::skip_permission_denied, ec), end; it != end; it.increment(ec)) {
+            if (ec) break;
+            if (!it->is_regular_file(ec) || Lower(it->path().extension().string()) != ".fbx") continue;
+            const std::string native = it->path().generic_string();
+            const std::string rel = fs::relative(it->path(), resources, ec).generic_string();
+            const uint64_t stamp = Physics::SourceStamp(native);
+
+            Physics::CookedCollision::File existing;
+            if (stamp != 0 && Physics::CookedCollision::Read(Physics::CookedCollision::PathFor(native), existing) && existing.stamp == stamp &&
+                existing.entries.size() >= (hulls ? 3u : 2u)) {
+                ++fresh;
+                continue;
+            }
+
+            Physics::TriangleSoup soup;
+            if (!Physics::DecodeMeshToSoup(Shard::Engine::Filesystem::Path(native), soup)) {
+                ++failed;
+                std::cerr << "[WARN] cannot read " << rel << "\n";
+                continue;
+            }
+            const Physics::BakeReport report = Physics::BakeMeshCollision(soup, stamp, native, hulls);
+            if (report.built == 0) {
+                ++failed;
+                std::cerr << "[WARN] no collider for " << rel << " : " << report.error << "\n";
+                continue;
+            }
+            if (report.failed > 0) std::cerr << "[WARN] " << rel << " : " << report.error << "\n";
+            std::cout << rel << " : " << soup.TriangleCount() << " triangles, " << report.built << " colliders\n";
+            ++baked;
+        }
+        std::cout << "collision : " << baked << " models baked, " << fresh << " already up to date, " << failed << " failed\n";
+        return failed > 0 ? 1 : 0;
+    }
+
     int Pack(const std::string& folder, const std::string& out, const std::string& prefix)
     {
         if (!fs::is_directory(folder)) { std::cerr << "[ERROR] not a folder : " << folder << "\n"; return 1; }
@@ -367,12 +429,14 @@ int main(int argc, char** argv)
     args.erase(args.begin());
     gStore = Flag(args, "--store");
     gNoAssets = Flag(args, "--no-assets");
+    const bool noHulls = Flag(args, "--no-hulls");
     const std::string prefix = Option(args, "--prefix");
     const std::string out = Option(args, "--out");
 
     if (command == "pack" && args.size() == 2) return Pack(args[0], args[1], prefix);
     if (command == "plugin" && args.size() == 1) return CookPlugin(args[0], out);
     if (command == "project" && args.size() == 1) return CookProject(args[0], out);
+    if (command == "collision" && args.size() == 1) return CookCollision(args[0], !noHulls);
     if (command == "list" && args.size() == 1) return List(args[0]);
     if (command == "verify" && args.size() == 1) return Verify(args[0]);
     if (command == "unpack" && args.size() == 2) return Unpack(args[0], args[1]);

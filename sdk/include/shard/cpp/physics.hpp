@@ -41,6 +41,9 @@ namespace Shard {
         bool collidersOnly = false; ///< only the colliders of plugins
         bool noColliders = false;   ///< only the bodies of actors
         std::string tag;            ///< only the actors that have this tag (or one under it)
+        std::string asProfile;      ///< follow the rules of this collision profile : the query meets what a collider with it would not ignore
+        Actor asActor;              ///< or of this actor's collider as it is now, overrides included (wins over asProfile)
+        bool hitOverlaps = false;   ///< with as*, count what the collider would overlap as a hit too, not only what blocks it
     };
 
     /// A static collider the plugin builds (a voxel chunk, a navigation obstacle, a heightfield cut into a mesh) : it exists in the physics world with no actor
@@ -112,6 +115,18 @@ namespace Shard {
 
     class Physics {
     public:
+        /// Why two actors collide or do not : the mode and motion of each, the rule that matched on each side, any override and the final response
+        static std::string Explain(Actor a, Actor b)
+        {
+            const ShardCollisionApi& api = detail::CollisionApi();
+            uint64_t size = 0;
+            if (api.explain(detail::PluginHandle(), a.Handle(), b.Handle(), nullptr, 0, &size) != SHARD_OK || size == 0) return {};
+            std::string text(size_t(size), '\0');
+            if (api.explain(detail::PluginHandle(), a.Handle(), b.Handle(), text.data(), size, &size) != SHARD_OK) return {};
+            text.resize(size_t(size));
+            return text;
+        }
+
         /// The first body the ray meets within `maxDistance`. `direction` need not be normalized. `ignore` : an actor whose body the ray goes
         /// through, usually the one that fires it. Call it from the callbacks of a script.
         static std::optional<RayHit> Raycast(Vec3 origin, Vec3 direction, float maxDistance, uint32_t layers = Layers::All, Actor ignore = Actor())
@@ -187,15 +202,19 @@ namespace Shard {
     private:
         // The ABI filter over a QueryFilter (the tag text must outlive the call)
         struct Filter {
-            explicit Filter(const QueryFilter& q) : tag(q.tag)
+            explicit Filter(const QueryFilter& q) : tag(q.tag), asProfile(q.asProfile)
             {
                 raw.structSize = sizeof(ShardQueryFilter);
                 raw.layers = q.layers;
                 raw.ignore = q.ignore.Handle();
                 raw.flags = (q.collidersOnly ? SHARD_QUERY_COLLIDERS_ONLY : 0u) | (q.noColliders ? SHARD_QUERY_NO_COLLIDERS : 0u);
                 raw.tag = Str(tag);
+                raw.as_profile = Str(asProfile);
+                raw.as_actor = q.asActor.Handle();
+                raw.hit = q.hitOverlaps ? SHARD_HIT_OVERLAP : SHARD_HIT_BLOCK;
             }
             std::string tag;
+            std::string asProfile;
             ShardQueryFilter raw{};
         };
         static RayHit Convert(const ShardRayHit& hit)

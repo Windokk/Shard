@@ -53,8 +53,43 @@ namespace Shard::Engine::Objects::Components
             s->CancelOwned(static_cast<Core::Object*>(this));
     }
 
+    uint64_t Script::ListenCollisions(uint32_t kinds, Physics::SubscribeOptions options)
+    {
+        if(!parent || !parent->GetEngineContext())
+            return 0;
+        Events::ICollisionHost* host = parent->GetEngineContext()->GetCollisionHost();
+        auto self = weak_from_this().lock();
+        if(!host || !self)
+            return 0;
+        std::weak_ptr<Script> weak = std::static_pointer_cast<Script>(self);
+        const uint64_t id = host->Subscribe(parent, kinds, std::move(options), [weak](const Events::CollisionEvent& event) {
+            auto script = weak.lock();
+            if(!script)
+                return;
+            switch(event.kind)
+            {
+                case Collision::EventKind::OverlapBegin: script->OnOverlapBegin(event); break;
+                case Collision::EventKind::OverlapEnd: script->OnOverlapEnd(event); break;
+                case Collision::EventKind::Hit: script->OnHit(event); break;
+            }
+        }, reinterpret_cast<uint64_t>(this));
+        if(id)
+            collisionListeners.ids.push_back(id);
+        return id;
+    }
+
+    void Script::StopListeningCollisions()
+    {
+        if(collisionListeners.ids.empty() || !parent || !parent->GetEngineContext())
+            return;
+        if(Events::ICollisionHost* host = parent->GetEngineContext()->GetCollisionHost())
+            host->UnsubscribeOwner(reinterpret_cast<uint64_t>(this));
+        collisionListeners.ids.clear();
+    }
+
     void Script::Destroy()
     {
+        StopListeningCollisions();
         StopTimers();
         this->OnDestroyed();
     }
@@ -113,6 +148,18 @@ namespace Shard::Engine::Objects::Components
     }
 
     void Script::OnContactEnded(const Events::ContactRemovedEvent& event)
+    {
+    }
+
+    void Script::OnOverlapBegin(const Events::CollisionEvent& event)
+    {
+    }
+
+    void Script::OnOverlapEnd(const Events::CollisionEvent& event)
+    {
+    }
+
+    void Script::OnHit(const Events::CollisionEvent& event)
     {
     }
 

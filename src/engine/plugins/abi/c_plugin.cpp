@@ -13,6 +13,7 @@
 
 #include <shard/shard_actors.h>
 #include <shard/shard_audio.h>
+#include <shard/shard_collision.h>
 #include <shard/shard_commands.h>
 #include <shard/shard_components.h>
 #include <shard/shard_content.h>
@@ -440,8 +441,9 @@ namespace Shard::Engine::Plugins {
                 { SHARD_IFACE_SCRIPTS, 1, 2, ScriptsApi() },
                 { SHARD_IFACE_INPUT, 1, 1, InputApi() },
                 { SHARD_IFACE_PHYSICS, 1, 1, PhysicsApi() },
+                { SHARD_IFACE_COLLISION, 1, 0, CollisionApi() },
                 { SHARD_IFACE_AUDIO, 1, 0, AudioApi() },
-                { SHARD_IFACE_WORLDS, 1, 1, WorldsApi() },
+                { SHARD_IFACE_WORLDS, 1, 2, WorldsApi() },
                 { SHARD_IFACE_JOBS, 1, 0, JobsApi() },
                 { SHARD_IFACE_TIME, 1, 0, TimeApi() },
                 { SHARD_IFACE_TIMERS, 1, 0, TimersApi() },

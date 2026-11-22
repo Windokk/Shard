@@ -24,6 +24,7 @@
 #include "shard_scripts.h"
 #include "shard_input.h"
 #include "shard_physics.h"
+#include "shard_collision.h"
 #include "shard_audio.h"
 #include "shard_worlds.h"
 #include "shard_timers.h"
@@ -219,6 +220,17 @@ SHARD_WASM_IMPORT("physics.collider_set_pose") ShardResult shard_wasm_physics_co
 SHARD_WASM_IMPORT("physics.collider_update") ShardResult shard_wasm_physics_collider_update(ShardPluginCtx ctx, ShardCollider collider, const ShardColliderDesc* desc);
 SHARD_WASM_IMPORT("physics.collider_destroy") ShardResult shard_wasm_physics_collider_destroy(ShardPluginCtx ctx, ShardCollider collider);
 
+/* ---- shard.collision ---- */
+SHARD_WASM_IMPORT("collision.subscribe") ShardResult shard_wasm_collision_subscribe(ShardPluginCtx ctx, ShardActor actor, uint32_t kinds, ShardStr other, float min_impact_speed, uint32_t flags, ShardCollisionSub* out);
+SHARD_WASM_IMPORT("collision.unsubscribe") ShardResult shard_wasm_collision_unsubscribe(ShardPluginCtx ctx, ShardCollisionSub sub);
+SHARD_WASM_IMPORT("collision.poll_events") ShardResult shard_wasm_collision_poll_events(ShardPluginCtx ctx, ShardCollisionSub sub, ShardCollisionEvent* out, uint32_t capacity, uint32_t* count);
+SHARD_WASM_IMPORT("collision.get_overlaps") ShardResult shard_wasm_collision_get_overlaps(ShardPluginCtx ctx, ShardActor actor, ShardActor* out, uint32_t capacity, uint32_t* count);
+SHARD_WASM_IMPORT("collision.explain") ShardResult shard_wasm_collision_explain(ShardPluginCtx ctx, ShardActor a, ShardActor b, char* buffer, uint64_t capacity, uint64_t* size);
+SHARD_WASM_IMPORT("collision.set_profile") ShardResult shard_wasm_collision_set_profile(ShardPluginCtx ctx, ShardActor actor, ShardStr profile);
+SHARD_WASM_IMPORT("collision.push_override") ShardResult shard_wasm_collision_push_override(ShardPluginCtx ctx, ShardActor actor, ShardStr name, int32_t priority, ShardStr ignore, uint32_t mode, uint32_t default_response, uint64_t* out);
+SHARD_WASM_IMPORT("collision.pop_override") ShardResult shard_wasm_collision_pop_override(ShardPluginCtx ctx, ShardActor actor, uint64_t override_id);
+SHARD_WASM_IMPORT("collision.ignore_collision") ShardResult shard_wasm_collision_ignore_collision(ShardPluginCtx ctx, ShardActor a, ShardActor b, int32_t ignore);
+
 /* ---- shard.audio ---- */
 SHARD_WASM_IMPORT("audio.play") ShardResult shard_wasm_audio_play(ShardActor actor);
 SHARD_WASM_IMPORT("audio.pause") ShardResult shard_wasm_audio_pause(ShardActor actor);
@@ -231,6 +243,11 @@ SHARD_WASM_IMPORT("worlds.is_loading") int32_t shard_wasm_worlds_is_loading(void
 SHARD_WASM_IMPORT("worlds.loaded_count") int32_t shard_wasm_worlds_loaded_count(void);
 SHARD_WASM_IMPORT("worlds.spawn_prefab") ShardResult shard_wasm_worlds_spawn_prefab(ShardActor anchor, ShardStr prefab, ShardActor parent, ShardActor* out);
 SHARD_WASM_IMPORT("worlds.world_at") ShardResult shard_wasm_worlds_world_at(int32_t index, int32_t* asset_id, char* name, uint64_t capacity, uint64_t* size, ShardActor* anchor);
+SHARD_WASM_IMPORT("worlds.spawn_prefab_ex") ShardResult shard_wasm_worlds_spawn_prefab_ex(ShardActor anchor, ShardStr prefab, ShardActor parent, uint32_t flags, const ShardLocalTransform* transform, ShardStr name, ShardStr overrides_json, ShardActor* out);
+SHARD_WASM_IMPORT("worlds.find_prefab") ShardResult shard_wasm_worlds_find_prefab(ShardActor anchor, ShardStr prefab, ShardActor* out, uint32_t capacity, uint32_t* count);
+SHARD_WASM_IMPORT("worlds.get_prefab") ShardResult shard_wasm_worlds_get_prefab(ShardActor actor, char* name, uint64_t capacity, uint64_t* size, ShardActor* root);
+SHARD_WASM_IMPORT("worlds.destroy_prefab") ShardResult shard_wasm_worlds_destroy_prefab(ShardActor actor);
+SHARD_WASM_IMPORT("worlds.destroy_prefabs") ShardResult shard_wasm_worlds_destroy_prefabs(ShardActor anchor, ShardStr prefab, uint32_t* count);
 
 /* ---- shard.timers ---- */
 SHARD_WASM_IMPORT("timers.after") ShardResult shard_wasm_timers_after(ShardPluginCtx ctx, double seconds, ShardTimerFn fn, void* user, ShardTimer* out);
@@ -617,6 +634,18 @@ static const ShardPhysicsApi shard_wasm_api_physics = {
     shard_wasm_physics_collider_update,
     shard_wasm_physics_collider_destroy,
 };
+static const ShardCollisionApi shard_wasm_api_collision = {
+    sizeof(ShardCollisionApi),
+    shard_wasm_collision_subscribe,
+    shard_wasm_collision_unsubscribe,
+    shard_wasm_collision_poll_events,
+    shard_wasm_collision_get_overlaps,
+    shard_wasm_collision_explain,
+    shard_wasm_collision_set_profile,
+    shard_wasm_collision_push_override,
+    shard_wasm_collision_pop_override,
+    shard_wasm_collision_ignore_collision,
+};
 static const ShardAudioApi shard_wasm_api_audio = {
     sizeof(ShardAudioApi),
     shard_wasm_audio_play,
@@ -631,6 +660,11 @@ static const ShardWorldsApi shard_wasm_api_worlds = {
     shard_wasm_worlds_loaded_count,
     shard_wasm_worlds_spawn_prefab,
     shard_wasm_worlds_world_at,
+    shard_wasm_worlds_spawn_prefab_ex,
+    shard_wasm_worlds_find_prefab,
+    shard_wasm_worlds_get_prefab,
+    shard_wasm_worlds_destroy_prefab,
+    shard_wasm_worlds_destroy_prefabs,
 };
 static const ShardTimersApi shard_wasm_api_timers = {
     sizeof(ShardTimersApi),
@@ -729,6 +763,7 @@ static const ShardWasmInterface shard_wasm_interfaces[] = {
     { "shard.scripts", 13, &shard_wasm_api_scripts },
     { "shard.input", 11, &shard_wasm_api_input },
     { "shard.physics", 13, &shard_wasm_api_physics },
+    { "shard.collision", 15, &shard_wasm_api_collision },
     { "shard.audio", 11, &shard_wasm_api_audio },
     { "shard.worlds", 12, &shard_wasm_api_worlds },
     { "shard.timers", 12, &shard_wasm_api_timers },
@@ -1108,7 +1143,7 @@ SHARD_WASM_ASSERT(offsetof(ShardContact, other) == 8, "ShardContact.other");
 SHARD_WASM_ASSERT(offsetof(ShardContact, point) == 16, "ShardContact.point");
 SHARD_WASM_ASSERT(offsetof(ShardContact, normal) == 28, "ShardContact.normal");
 SHARD_WASM_ASSERT(offsetof(ShardContact, penetration) == 40, "ShardContact.penetration");
-SHARD_WASM_ASSERT(sizeof(ShardScriptCallbacks) == 88 && _Alignof(ShardScriptCallbacks) == 4, "ShardScriptCallbacks");
+SHARD_WASM_ASSERT(sizeof(ShardScriptCallbacks) == 100 && _Alignof(ShardScriptCallbacks) == 4, "ShardScriptCallbacks");
 SHARD_WASM_ASSERT(offsetof(ShardScriptCallbacks, structSize) == 0, "ShardScriptCallbacks.structSize");
 SHARD_WASM_ASSERT(offsetof(ShardScriptCallbacks, construct) == 4, "ShardScriptCallbacks.construct");
 SHARD_WASM_ASSERT(offsetof(ShardScriptCallbacks, destruct) == 8, "ShardScriptCallbacks.destruct");
@@ -1131,7 +1166,10 @@ SHARD_WASM_ASSERT(offsetof(ShardScriptCallbacks, text_get) == 72, "ShardScriptCa
 SHARD_WASM_ASSERT(offsetof(ShardScriptCallbacks, text_set) == 76, "ShardScriptCallbacks.text_set");
 SHARD_WASM_ASSERT(offsetof(ShardScriptCallbacks, on_edit_tick) == 80, "ShardScriptCallbacks.on_edit_tick");
 SHARD_WASM_ASSERT(offsetof(ShardScriptCallbacks, on_field_changed) == 84, "ShardScriptCallbacks.on_field_changed");
-SHARD_WASM_ASSERT(sizeof(ShardScriptDesc) == 56 && _Alignof(ShardScriptDesc) == 8, "ShardScriptDesc");
+SHARD_WASM_ASSERT(offsetof(ShardScriptCallbacks, on_overlap_begin) == 88, "ShardScriptCallbacks.on_overlap_begin");
+SHARD_WASM_ASSERT(offsetof(ShardScriptCallbacks, on_overlap_end) == 92, "ShardScriptCallbacks.on_overlap_end");
+SHARD_WASM_ASSERT(offsetof(ShardScriptCallbacks, on_hit) == 96, "ShardScriptCallbacks.on_hit");
+SHARD_WASM_ASSERT(sizeof(ShardScriptDesc) == 64 && _Alignof(ShardScriptDesc) == 8, "ShardScriptDesc");
 SHARD_WASM_ASSERT(offsetof(ShardScriptDesc, structSize) == 0, "ShardScriptDesc.structSize");
 SHARD_WASM_ASSERT(offsetof(ShardScriptDesc, size) == 4, "ShardScriptDesc.size");
 SHARD_WASM_ASSERT(offsetof(ShardScriptDesc, align) == 8, "ShardScriptDesc.align");
@@ -1142,6 +1180,8 @@ SHARD_WASM_ASSERT(offsetof(ShardScriptDesc, user) == 36, "ShardScriptDesc.user")
 SHARD_WASM_ASSERT(offsetof(ShardScriptDesc, callbacks) == 40, "ShardScriptDesc.callbacks");
 SHARD_WASM_ASSERT(offsetof(ShardScriptDesc, flags) == 44, "ShardScriptDesc.flags");
 SHARD_WASM_ASSERT(offsetof(ShardScriptDesc, reserved) == 48, "ShardScriptDesc.reserved");
+SHARD_WASM_ASSERT(offsetof(ShardScriptDesc, collision_kinds) == 52, "ShardScriptDesc.collision_kinds");
+SHARD_WASM_ASSERT(offsetof(ShardScriptDesc, reserved2) == 56, "ShardScriptDesc.reserved2");
 SHARD_WASM_ASSERT(sizeof(ShardScriptsApi) == 16 && _Alignof(ShardScriptsApi) == 4, "ShardScriptsApi");
 SHARD_WASM_ASSERT(offsetof(ShardScriptsApi, structSize) == 0, "ShardScriptsApi.structSize");
 SHARD_WASM_ASSERT(offsetof(ShardScriptsApi, register_script) == 4, "ShardScriptsApi.register_script");
@@ -1194,12 +1234,16 @@ SHARD_WASM_ASSERT(offsetof(ShardRayHit, collider) == 48, "ShardRayHit.collider")
 SHARD_WASM_ASSERT(offsetof(ShardRayHit, userData) == 56, "ShardRayHit.userData");
 SHARD_WASM_ASSERT(offsetof(ShardRayHit, triangle) == 64, "ShardRayHit.triangle");
 SHARD_WASM_ASSERT(offsetof(ShardRayHit, box) == 68, "ShardRayHit.box");
-SHARD_WASM_ASSERT(sizeof(ShardQueryFilter) == 40 && _Alignof(ShardQueryFilter) == 8, "ShardQueryFilter");
+SHARD_WASM_ASSERT(sizeof(ShardQueryFilter) == 72 && _Alignof(ShardQueryFilter) == 8, "ShardQueryFilter");
 SHARD_WASM_ASSERT(offsetof(ShardQueryFilter, structSize) == 0, "ShardQueryFilter.structSize");
 SHARD_WASM_ASSERT(offsetof(ShardQueryFilter, layers) == 4, "ShardQueryFilter.layers");
 SHARD_WASM_ASSERT(offsetof(ShardQueryFilter, ignore) == 8, "ShardQueryFilter.ignore");
 SHARD_WASM_ASSERT(offsetof(ShardQueryFilter, flags) == 16, "ShardQueryFilter.flags");
 SHARD_WASM_ASSERT(offsetof(ShardQueryFilter, tag) == 24, "ShardQueryFilter.tag");
+SHARD_WASM_ASSERT(offsetof(ShardQueryFilter, as_profile) == 40, "ShardQueryFilter.as_profile");
+SHARD_WASM_ASSERT(offsetof(ShardQueryFilter, as_actor) == 56, "ShardQueryFilter.as_actor");
+SHARD_WASM_ASSERT(offsetof(ShardQueryFilter, hit) == 64, "ShardQueryFilter.hit");
+SHARD_WASM_ASSERT(offsetof(ShardQueryFilter, reserved) == 68, "ShardQueryFilter.reserved");
 SHARD_WASM_ASSERT(sizeof(ShardColliderDesc) == 104 && _Alignof(ShardColliderDesc) == 8, "ShardColliderDesc");
 SHARD_WASM_ASSERT(offsetof(ShardColliderDesc, structSize) == 0, "ShardColliderDesc.structSize");
 SHARD_WASM_ASSERT(offsetof(ShardColliderDesc, kind) == 4, "ShardColliderDesc.kind");
@@ -1241,19 +1285,48 @@ SHARD_WASM_ASSERT(offsetof(ShardPhysicsApi, collider_create) == 80, "ShardPhysic
 SHARD_WASM_ASSERT(offsetof(ShardPhysicsApi, collider_set_pose) == 84, "ShardPhysicsApi.collider_set_pose");
 SHARD_WASM_ASSERT(offsetof(ShardPhysicsApi, collider_update) == 88, "ShardPhysicsApi.collider_update");
 SHARD_WASM_ASSERT(offsetof(ShardPhysicsApi, collider_destroy) == 92, "ShardPhysicsApi.collider_destroy");
+SHARD_WASM_ASSERT(sizeof(ShardCollisionEvent) == 152 && _Alignof(ShardCollisionEvent) == 8, "ShardCollisionEvent");
+SHARD_WASM_ASSERT(offsetof(ShardCollisionEvent, structSize) == 0, "ShardCollisionEvent.structSize");
+SHARD_WASM_ASSERT(offsetof(ShardCollisionEvent, kind) == 4, "ShardCollisionEvent.kind");
+SHARD_WASM_ASSERT(offsetof(ShardCollisionEvent, step) == 8, "ShardCollisionEvent.step");
+SHARD_WASM_ASSERT(offsetof(ShardCollisionEvent, self) == 16, "ShardCollisionEvent.self");
+SHARD_WASM_ASSERT(offsetof(ShardCollisionEvent, other) == 24, "ShardCollisionEvent.other");
+SHARD_WASM_ASSERT(offsetof(ShardCollisionEvent, point) == 32, "ShardCollisionEvent.point");
+SHARD_WASM_ASSERT(offsetof(ShardCollisionEvent, normal) == 56, "ShardCollisionEvent.normal");
+SHARD_WASM_ASSERT(offsetof(ShardCollisionEvent, impactSpeed) == 68, "ShardCollisionEvent.impactSpeed");
+SHARD_WASM_ASSERT(offsetof(ShardCollisionEvent, impulse) == 72, "ShardCollisionEvent.impulse");
+SHARD_WASM_ASSERT(offsetof(ShardCollisionEvent, cause) == 76, "ShardCollisionEvent.cause");
+SHARD_WASM_ASSERT(offsetof(ShardCollisionEvent, reserved) == 80, "ShardCollisionEvent.reserved");
+SHARD_WASM_ASSERT(offsetof(ShardCollisionEvent, surface) == 84, "ShardCollisionEvent.surface");
+SHARD_WASM_ASSERT(sizeof(ShardCollisionApi) == 40 && _Alignof(ShardCollisionApi) == 4, "ShardCollisionApi");
+SHARD_WASM_ASSERT(offsetof(ShardCollisionApi, structSize) == 0, "ShardCollisionApi.structSize");
+SHARD_WASM_ASSERT(offsetof(ShardCollisionApi, subscribe) == 4, "ShardCollisionApi.subscribe");
+SHARD_WASM_ASSERT(offsetof(ShardCollisionApi, unsubscribe) == 8, "ShardCollisionApi.unsubscribe");
+SHARD_WASM_ASSERT(offsetof(ShardCollisionApi, poll_events) == 12, "ShardCollisionApi.poll_events");
+SHARD_WASM_ASSERT(offsetof(ShardCollisionApi, get_overlaps) == 16, "ShardCollisionApi.get_overlaps");
+SHARD_WASM_ASSERT(offsetof(ShardCollisionApi, explain) == 20, "ShardCollisionApi.explain");
+SHARD_WASM_ASSERT(offsetof(ShardCollisionApi, set_profile) == 24, "ShardCollisionApi.set_profile");
+SHARD_WASM_ASSERT(offsetof(ShardCollisionApi, push_override) == 28, "ShardCollisionApi.push_override");
+SHARD_WASM_ASSERT(offsetof(ShardCollisionApi, pop_override) == 32, "ShardCollisionApi.pop_override");
+SHARD_WASM_ASSERT(offsetof(ShardCollisionApi, ignore_collision) == 36, "ShardCollisionApi.ignore_collision");
 SHARD_WASM_ASSERT(sizeof(ShardAudioApi) == 20 && _Alignof(ShardAudioApi) == 4, "ShardAudioApi");
 SHARD_WASM_ASSERT(offsetof(ShardAudioApi, structSize) == 0, "ShardAudioApi.structSize");
 SHARD_WASM_ASSERT(offsetof(ShardAudioApi, play) == 4, "ShardAudioApi.play");
 SHARD_WASM_ASSERT(offsetof(ShardAudioApi, pause) == 8, "ShardAudioApi.pause");
 SHARD_WASM_ASSERT(offsetof(ShardAudioApi, set_volume) == 12, "ShardAudioApi.set_volume");
 SHARD_WASM_ASSERT(offsetof(ShardAudioApi, play_one_shot) == 16, "ShardAudioApi.play_one_shot");
-SHARD_WASM_ASSERT(sizeof(ShardWorldsApi) == 24 && _Alignof(ShardWorldsApi) == 4, "ShardWorldsApi");
+SHARD_WASM_ASSERT(sizeof(ShardWorldsApi) == 44 && _Alignof(ShardWorldsApi) == 4, "ShardWorldsApi");
 SHARD_WASM_ASSERT(offsetof(ShardWorldsApi, structSize) == 0, "ShardWorldsApi.structSize");
 SHARD_WASM_ASSERT(offsetof(ShardWorldsApi, load_world) == 4, "ShardWorldsApi.load_world");
 SHARD_WASM_ASSERT(offsetof(ShardWorldsApi, is_loading) == 8, "ShardWorldsApi.is_loading");
 SHARD_WASM_ASSERT(offsetof(ShardWorldsApi, loaded_count) == 12, "ShardWorldsApi.loaded_count");
 SHARD_WASM_ASSERT(offsetof(ShardWorldsApi, spawn_prefab) == 16, "ShardWorldsApi.spawn_prefab");
 SHARD_WASM_ASSERT(offsetof(ShardWorldsApi, world_at) == 20, "ShardWorldsApi.world_at");
+SHARD_WASM_ASSERT(offsetof(ShardWorldsApi, spawn_prefab_ex) == 24, "ShardWorldsApi.spawn_prefab_ex");
+SHARD_WASM_ASSERT(offsetof(ShardWorldsApi, find_prefab) == 28, "ShardWorldsApi.find_prefab");
+SHARD_WASM_ASSERT(offsetof(ShardWorldsApi, get_prefab) == 32, "ShardWorldsApi.get_prefab");
+SHARD_WASM_ASSERT(offsetof(ShardWorldsApi, destroy_prefab) == 36, "ShardWorldsApi.destroy_prefab");
+SHARD_WASM_ASSERT(offsetof(ShardWorldsApi, destroy_prefabs) == 40, "ShardWorldsApi.destroy_prefabs");
 SHARD_WASM_ASSERT(sizeof(ShardWait) == 24 && _Alignof(ShardWait) == 8, "ShardWait");
 SHARD_WASM_ASSERT(offsetof(ShardWait, kind) == 0, "ShardWait.kind");
 SHARD_WASM_ASSERT(offsetof(ShardWait, reserved) == 4, "ShardWait.reserved");

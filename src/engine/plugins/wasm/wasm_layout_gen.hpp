@@ -22,6 +22,7 @@
 #include <shard/shard_scripts.h>
 #include <shard/shard_input.h>
 #include <shard/shard_physics.h>
+#include <shard/shard_collision.h>
 #include <shard/shard_audio.h>
 #include <shard/shard_worlds.h>
 #include <shard/shard_timers.h>
@@ -54,8 +55,9 @@ namespace Shard::Engine::Plugins::Wasm {
         { "shard.scripts", "scripts", 2, Permission::None },
         { "shard.input", "input", 1, Permission::Input },
         { "shard.physics", "physics", 1, Permission::Physics },
+        { "shard.collision", "collision", 0, Permission::Physics },
         { "shard.audio", "audio", 0, Permission::Audio },
-        { "shard.worlds", "worlds", 1, Permission::None },
+        { "shard.worlds", "worlds", 2, Permission::None },
         { "shard.timers", "timers", 0, Permission::None },
         { "shard.time", "time", 0, Permission::None },
         { "shard.assets", "assets", 0, Permission::FsReadProject },
@@ -79,6 +81,7 @@ namespace Shard::Engine::Plugins::Wasm {
         const ShardScriptsApi* scripts = nullptr;
         const ShardInputApi* input = nullptr;
         const ShardPhysicsApi* physics = nullptr;
+        const ShardCollisionApi* collision = nullptr;
         const ShardAudioApi* audio = nullptr;
         const ShardWorldsApi* worlds = nullptr;
         const ShardTimersApi* timers = nullptr;
@@ -105,8 +108,9 @@ namespace Shard::Engine::Plugins::Wasm {
         apis.scripts = static_cast<const ShardScriptsApi*>(query("shard.scripts", 2));
         apis.input = static_cast<const ShardInputApi*>(query("shard.input", 1));
         apis.physics = static_cast<const ShardPhysicsApi*>(query("shard.physics", 1));
+        apis.collision = static_cast<const ShardCollisionApi*>(query("shard.collision", 0));
         apis.audio = static_cast<const ShardAudioApi*>(query("shard.audio", 0));
-        apis.worlds = static_cast<const ShardWorldsApi*>(query("shard.worlds", 1));
+        apis.worlds = static_cast<const ShardWorldsApi*>(query("shard.worlds", 2));
         apis.timers = static_cast<const ShardTimersApi*>(query("shard.timers", 0));
         apis.time = static_cast<const ShardTimeApi*>(query("shard.time", 0));
         apis.assets = static_cast<const ShardAssetsApi*>(query("shard.assets", 0));
@@ -349,7 +353,7 @@ namespace Shard::Engine::Plugins::Wasm {
             inline constexpr uint32_t o_penetration = 40;
         }
         namespace ShardScriptCallbacks {
-            inline constexpr uint32_t kSize = 88, kAlign = 4;
+            inline constexpr uint32_t kSize = 100, kAlign = 4;
             inline constexpr uint32_t o_structSize = 0;
             inline constexpr uint32_t o_construct = 4;
             inline constexpr uint32_t o_destruct = 8;
@@ -372,9 +376,12 @@ namespace Shard::Engine::Plugins::Wasm {
             inline constexpr uint32_t o_text_set = 76;
             inline constexpr uint32_t o_on_edit_tick = 80;
             inline constexpr uint32_t o_on_field_changed = 84;
+            inline constexpr uint32_t o_on_overlap_begin = 88;
+            inline constexpr uint32_t o_on_overlap_end = 92;
+            inline constexpr uint32_t o_on_hit = 96;
         }
         namespace ShardScriptDesc {
-            inline constexpr uint32_t kSize = 56, kAlign = 8;
+            inline constexpr uint32_t kSize = 64, kAlign = 8;
             inline constexpr uint32_t o_structSize = 0;
             inline constexpr uint32_t o_size = 4;
             inline constexpr uint32_t o_align = 8;
@@ -385,6 +392,8 @@ namespace Shard::Engine::Plugins::Wasm {
             inline constexpr uint32_t o_callbacks = 40;
             inline constexpr uint32_t o_flags = 44;
             inline constexpr uint32_t o_reserved = 48;
+            inline constexpr uint32_t o_collision_kinds = 52;
+            inline constexpr uint32_t o_reserved2 = 56;
         }
         namespace ShardScriptsApi {
             inline constexpr uint32_t kSize = 16, kAlign = 4;
@@ -447,12 +456,16 @@ namespace Shard::Engine::Plugins::Wasm {
             inline constexpr uint32_t o_box = 68;
         }
         namespace ShardQueryFilter {
-            inline constexpr uint32_t kSize = 40, kAlign = 8;
+            inline constexpr uint32_t kSize = 72, kAlign = 8;
             inline constexpr uint32_t o_structSize = 0;
             inline constexpr uint32_t o_layers = 4;
             inline constexpr uint32_t o_ignore = 8;
             inline constexpr uint32_t o_flags = 16;
             inline constexpr uint32_t o_tag = 24;
+            inline constexpr uint32_t o_as_profile = 40;
+            inline constexpr uint32_t o_as_actor = 56;
+            inline constexpr uint32_t o_hit = 64;
+            inline constexpr uint32_t o_reserved = 68;
         }
         namespace ShardColliderDesc {
             inline constexpr uint32_t kSize = 104, kAlign = 8;
@@ -499,6 +512,34 @@ namespace Shard::Engine::Plugins::Wasm {
             inline constexpr uint32_t o_collider_update = 88;
             inline constexpr uint32_t o_collider_destroy = 92;
         }
+        namespace ShardCollisionEvent {
+            inline constexpr uint32_t kSize = 152, kAlign = 8;
+            inline constexpr uint32_t o_structSize = 0;
+            inline constexpr uint32_t o_kind = 4;
+            inline constexpr uint32_t o_step = 8;
+            inline constexpr uint32_t o_self = 16;
+            inline constexpr uint32_t o_other = 24;
+            inline constexpr uint32_t o_point = 32;
+            inline constexpr uint32_t o_normal = 56;
+            inline constexpr uint32_t o_impactSpeed = 68;
+            inline constexpr uint32_t o_impulse = 72;
+            inline constexpr uint32_t o_cause = 76;
+            inline constexpr uint32_t o_reserved = 80;
+            inline constexpr uint32_t o_surface = 84;
+        }
+        namespace ShardCollisionApi {
+            inline constexpr uint32_t kSize = 40, kAlign = 4;
+            inline constexpr uint32_t o_structSize = 0;
+            inline constexpr uint32_t o_subscribe = 4;
+            inline constexpr uint32_t o_unsubscribe = 8;
+            inline constexpr uint32_t o_poll_events = 12;
+            inline constexpr uint32_t o_get_overlaps = 16;
+            inline constexpr uint32_t o_explain = 20;
+            inline constexpr uint32_t o_set_profile = 24;
+            inline constexpr uint32_t o_push_override = 28;
+            inline constexpr uint32_t o_pop_override = 32;
+            inline constexpr uint32_t o_ignore_collision = 36;
+        }
         namespace ShardAudioApi {
             inline constexpr uint32_t kSize = 20, kAlign = 4;
             inline constexpr uint32_t o_structSize = 0;
@@ -508,13 +549,18 @@ namespace Shard::Engine::Plugins::Wasm {
             inline constexpr uint32_t o_play_one_shot = 16;
         }
         namespace ShardWorldsApi {
-            inline constexpr uint32_t kSize = 24, kAlign = 4;
+            inline constexpr uint32_t kSize = 44, kAlign = 4;
             inline constexpr uint32_t o_structSize = 0;
             inline constexpr uint32_t o_load_world = 4;
             inline constexpr uint32_t o_is_loading = 8;
             inline constexpr uint32_t o_loaded_count = 12;
             inline constexpr uint32_t o_spawn_prefab = 16;
             inline constexpr uint32_t o_world_at = 20;
+            inline constexpr uint32_t o_spawn_prefab_ex = 24;
+            inline constexpr uint32_t o_find_prefab = 28;
+            inline constexpr uint32_t o_get_prefab = 32;
+            inline constexpr uint32_t o_destroy_prefab = 36;
+            inline constexpr uint32_t o_destroy_prefabs = 40;
         }
         namespace ShardWait {
             inline constexpr uint32_t kSize = 24, kAlign = 8;

@@ -11,6 +11,7 @@
 #include <shard/shard_abi.h>
 #include <shard/shard_actors.h>
 #include <shard/shard_assets.h>
+#include <shard/shard_collision.h>
 #include <shard/shard_components.h>
 #include <shard/shard_ecs.h>
 
@@ -18,6 +19,7 @@
 
 namespace Shard::Engine::Core::Ecs { struct SystemContext; }
 namespace Shard::Engine::Objects { class Actor; }
+namespace Shard::Engine::Events { struct CollisionEvent; }
 namespace Shard::Engine::Events {
     struct ContactAddedEvent;
     struct ContactPersistedEvent;
@@ -155,6 +157,8 @@ namespace Shard::Engine::Plugins::CAbi {
     const void* ScriptsApi();
     const void* InputApi();
     const void* PhysicsApi();
+    const void* CollisionApi();
+    void FillCollisionEvent(const Events::CollisionEvent& event, ShardCollisionEvent& out);
     const void* AudioApi();
     const void* WorldsApi();
     const void* JobsApi();

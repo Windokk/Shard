@@ -21,6 +21,20 @@ namespace Shard::Editor::Debug {
             std::shared_ptr<Engine::Rendering::Mesh> m_Mesh;
     };
 
+    class DebugLines : public DebugShape
+    {
+        public:
+
+            DebugLines(const std::vector<glm::vec3>& vertices, const std::vector<uint32_t>& lineIndices, COL_RGBA color)
+            {
+                Generate(vertices, lineIndices, color);
+            }
+
+        private:
+
+            void Generate(const std::vector<glm::vec3>& vertices, const std::vector<uint32_t>& lineIndices, COL_RGBA color);
+    };
+
     class DebugBox : public DebugShape
     {
         public:

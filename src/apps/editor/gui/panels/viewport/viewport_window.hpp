@@ -47,6 +47,8 @@ namespace Shard::Editor::GUI {
             void DrawSnapControls();
             void DrawViewGizmo();
             void DrawObjectGizmo();
+            void DrawCollisionOverlay(bool gameView);
+            void DrawConstraintGizmos();
             void HandleAssetDrop();
             void ShowFrameStats();
             void ShowCamSettings();

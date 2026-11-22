@@ -42,6 +42,7 @@ INTERFACES = [
     ('shard_scripts.h', 'ShardScriptsApi', 'scripts', None),
     ('shard_input.h', 'ShardInputApi', 'input', 'input'),
     ('shard_physics.h', 'ShardPhysicsApi', 'physics', 'physics'),
+    ('shard_collision.h', 'ShardCollisionApi', 'collision', 'physics'),
     ('shard_audio.h', 'ShardAudioApi', 'audio', 'audio'),
     ('shard_worlds.h', 'ShardWorldsApi', 'worlds', None),
     ('shard_timers.h', 'ShardTimersApi', 'timers', None),

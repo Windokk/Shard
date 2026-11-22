@@ -10,7 +10,10 @@
 
 #include "engine/world/engine.hpp"
 #include "engine/assets/project/project.hpp"
+#include "engine/assets/serialization/collision/collision_json.hpp"
 #include "engine/world/world.hpp"
+#include "engine/world/actor.hpp"
+#include "engine/world/world_manager.hpp"
 #include "engine/assets/resources_manager.hpp"
 #include "engine/assets/asset_database_serializer.hpp"
 #include "engine/assets/asset_importer.hpp"
@@ -111,6 +114,7 @@ namespace Shard::Editor::GUI::AssetOperations
             auto& engine = Engine::Core::GetEngine();
             engine.GetCurrentProject()->RemapWorlds(oldName, newName, isDirectory,
                 engine.GetSettings().readOnly ? std::string() : engine.GetSettings().project);
+            Engine::Projects::ReloadPhysicsMaterials(*engine.GetAssetIDManager());
         }
 
         Result Fail(const std::string& message)
@@ -251,6 +255,32 @@ namespace Shard::Editor::GUI::AssetOperations
         return {};
     }
 
+    namespace {
+        void UnpackDeletedPrefabs(const AssetList& deleted)
+        {
+            auto* worlds = Engine::Core::GetEngine().GetWorldManager();
+            if(!worlds)
+                return;
+
+            for(auto& [id, info] : deleted){
+                if(info->baseInfos.type != Engine::Filesystem::Type::T_PREFAB)
+                    continue;
+
+                for(size_t i = 0; i < worlds->GetLoadedWorldCount(); i++){
+                    Engine::Worlds::World* world = worlds->GetWorldAt(int(i));
+                    if(!world)
+                        continue;
+
+                    const auto instances = world->FindPrefabInstances(info->baseInfos.nameInProject, true);
+                    for(const auto& instance : instances)
+                        instance->ClearPrefab();
+                    if(!instances.empty())
+                        world->SetDirty(true);
+                }
+            }
+        }
+    }
+
     Result Delete(const Path& path)
     {
         std::string name;
@@ -275,6 +305,8 @@ namespace Shard::Editor::GUI::AssetOperations
         fs::remove_all(path.full, ec);
         if(ec)
             return Fail("Couldn't delete \"" + name + "\" : " + ec.message());
+
+        UnpackDeletedPrefabs(affected);
 
         if(!isDirectory){
             std::error_code sidecarError;
@@ -362,6 +394,22 @@ namespace Shard::Editor::GUI::AssetOperations
         return {};
     }
 
+    Result CreatePhysicsMaterial(const Path& dir, Path& created)
+    {
+        created = UniquePath(dir, "NewPhysicsMaterial", ".physmat");
+
+        const std::string content = Engine::Serialization::MaterialToJson(Engine::Collision::PhysicsMaterial()).dump(4) + "\n";
+
+        if(!WriteFileBinary(fs::path(created.full), content)){
+            created = Path("");
+            return Fail("Couldn't create the physics material.");
+        }
+
+        Engine::Core::GetEngine().GetFileManager()->RegisterAsset(Path(created.full, true));
+        PersistDatabase();
+        return {};
+    }
+
     Result CreateFromBytes(const Path& dir, const std::string& defaultName, const std::string& bytes, Path& created)
     {
         const fs::path name(defaultName);
@@ -396,6 +444,65 @@ namespace Shard::Editor::GUI::AssetOperations
             engine->GetBuildSettings()->AddToBuildSettings(Path(name));
 
         PersistDatabase();
+        return {};
+    }
+
+    namespace {
+        std::string PrefabFileText(const std::shared_ptr<Engine::Objects::Actor>& actor)
+        {
+            auto data = Engine::Worlds::SerializePrefabToJson(actor);
+            if(data.contains("components") && data["components"].is_array())
+                for(auto& component : data["components"])
+                    if(component.is_object() && component.value("type", std::string()) == "transform"){
+                        component["position"] = { { "x", 0.0 }, { "y", 0.0 }, { "z", 0.0 } };
+                        component["rotation"] = { { "x", 0.0 }, { "y", 0.0 }, { "z", 0.0 } };
+                    }
+            return data.dump(4) + "\n";
+        }
+
+        std::string SafeFileStem(std::string name)
+        {
+            for(char& c : name)
+                if(c == '/' || c == '\\' || c == ':' || c == '*' || c == '?' || c == '"' || c == '<' || c == '>' || c == '|')
+                    c = '_';
+            return name.empty() ? std::string("Prefab") : name;
+        }
+    }
+
+    Result CreatePrefabFromActor(const std::shared_ptr<Engine::Objects::Actor>& actor, std::string& nameInProject)
+    {
+        nameInProject.clear();
+        if(!actor)
+            return Fail("There is no actor to make a prefab of.");
+
+        const fs::path dir = ProjectRoot() / "prefabs";
+        std::error_code ec;
+        fs::create_directories(dir, ec);
+        if(ec)
+            return Fail("Couldn't create the prefabs folder.");
+
+        Path created;
+        const Result result = CreateFromBytes(Path(dir.string()), SafeFileStem(actor->GetName()) + ".prefab", PrefabFileText(actor), created);
+        if(!result.ok)
+            return result;
+
+        if(!NameInProject(fs::path(created.full), nameInProject))
+            return Fail("The prefab was written outside of the project.");
+        return {};
+    }
+
+    Result ApplyActorToPrefab(const std::shared_ptr<Engine::Objects::Actor>& root)
+    {
+        if(!root || !root->IsPrefabRoot())
+            return Fail("This actor is not the root of a prefab instance.");
+
+        auto* assets = Engine::Core::GetEngine().GetAssetIDManager();
+        auto info = assets->GetAssetFromID(assets->GetIDFromNameInProject(root->GetPrefab()->name));
+        if(!info)
+            return Fail("The prefab \"" + root->GetPrefab()->name + "\" is not in the project.");
+
+        if(!WriteFileBinary(fs::path(info->baseInfos.path.full), PrefabFileText(root)))
+            return Fail("Couldn't write the prefab.");
         return {};
     }
 

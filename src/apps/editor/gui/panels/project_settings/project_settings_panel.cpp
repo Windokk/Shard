@@ -80,6 +80,7 @@ namespace Shard::Editor::GUI{
             { "Physics", ICON_LC_ATOM, [this]{ DrawPhysicsCategory(); } },
             { "Rendering", ICON_LC_MONITOR, [this]{ DrawRenderingCategory(); } },
             { "Tags", ICON_LC_TAGS, [this]{ DrawTagsCategory(); } },
+            { "Collision", ICON_LC_SHAPES, [this]{ DrawCollisionCategory(); } },
             { "Console Variables", ICON_LC_TERMINAL, [this]{ DrawConsoleVariablesCategory(); } },
         });
     }
@@ -174,6 +175,7 @@ namespace Shard::Editor::GUI{
         GetEngine().GetRenderer()->SetRenderPipeline(rendering->renderPipeline);
 
         Projects::ApplyTagSettings(*project->GetTagSettings());
+        ApplyCollision();
     }
 
     void ProjectSettingsPanel::Revert()
@@ -194,6 +196,7 @@ namespace Shard::Editor::GUI{
         *project->GetPhysicsSettings() = *saved->GetPhysicsSettings();
         *project->GetRenderingSettings() = *saved->GetRenderingSettings();
         *project->GetTagSettings() = *saved->GetTagSettings();
+        *project->GetCollisionSettings() = *saved->GetCollisionSettings();
         ApplyToEngine();
 
         CVarRegistry& registry = CVarRegistry::Global();

@@ -53,3 +53,6 @@
 [submodule "submodules/volk"]
 	path = submodules/volk
 	url = https://github.com/zeux/volk.git
+[submodule "submodules/coacd"]
+	path = submodules/coacd
+	url = https://github.com/SarahWeiii/CoACD.git

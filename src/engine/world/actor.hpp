@@ -15,12 +15,18 @@
 #include <stdexcept>
 #include <iostream>
 #include <vector>
+#include <optional>
 
 #include <nlohmann/json.hpp>
 
 namespace Shard::Engine::Objects{
 
     using namespace Components;
+
+    struct PrefabInfo {
+        std::string name;
+        nlohmann::json unresolved;
+    };
 
     class Actor : public WorldObject, public Core::TagContainer::Listener{
         
@@ -32,6 +38,7 @@ namespace Shard::Engine::Objects{
         std::vector<nlohmann::json> unknownComponents;
         Core::IEngineContext* engine = nullptr;
         Core::Ecs::Entity entity;
+        std::optional<PrefabInfo> prefab;
         public:
             Actor(std::string name, Core::IEngineContext* engine);
 
@@ -103,6 +110,12 @@ namespace Shard::Engine::Objects{
             }
 
             std::shared_ptr<Actor> Clone();
+
+            bool IsPrefabRoot() const { return prefab.has_value(); }
+            const std::optional<PrefabInfo>& GetPrefab() const { return prefab; }
+            void SetPrefab(std::string prefabName, nlohmann::json unresolvedLink = nlohmann::json());
+            void ClearPrefab();
+            std::shared_ptr<Actor> GetPrefabRoot();
 
             void SetParent(std::shared_ptr<Actor> newParent, bool keepWorldTransform = true);
 

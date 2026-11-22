@@ -79,6 +79,50 @@ namespace Shard::Editor::Core {
         return {};
     }
 
+    const std::vector<StyleColorEntry>& StyleColorEntries()
+    {
+        static const std::vector<StyleColorEntry> entries = {
+            { "outline", "Selection", "Outline", "Outline of the selected actors.", &ViewportStyle::outline },
+            { "selectionBox", "Selection", "Selection Box", "The box drawn while dragging to select several actors.", &ViewportStyle::selectionBox },
+
+            { "axisX", "Axes and gizmos", "X Axis", "X in the transform gizmo, the view gizmo and the grid.", &ViewportStyle::axisX },
+            { "axisY", "Axes and gizmos", "Y Axis", "Y in the transform gizmo, the view gizmo and the grid.", &ViewportStyle::axisY },
+            { "axisZ", "Axes and gizmos", "Z Axis", "Z in the transform gizmo, the view gizmo and the grid.", &ViewportStyle::axisZ },
+            { "gizmoSelection", "Axes and gizmos", "Gizmo Highlight", "The part of the transform gizmo under the mouse or being dragged.", &ViewportStyle::gizmoSelection },
+            { "gridLines", "Axes and gizmos", "Grid Lines", "The cell lines of the grid.", &ViewportStyle::gridLines },
+
+            { "shapeSolid", "Physics shapes", "Solid Collider", "A collider that blocks or overlaps.", &ViewportStyle::shapeSolid },
+            { "shapeSensor", "Physics shapes", "Sensor", "A collider that only detects.", &ViewportStyle::shapeSensor },
+            { "shapeQueryOnly", "Physics shapes", "Query Only", "A collider that only queries see.", &ViewportStyle::shapeQueryOnly },
+            { "shapeDisabled", "Physics shapes", "Disabled", "A collider that does nothing.", &ViewportStyle::shapeDisabled },
+            { "highlightSource", "Physics shapes", "Highlight Source", "The actor chosen with Highlight collisions.", &ViewportStyle::highlightSource },
+            { "highlightBlock", "Physics shapes", "Highlight Block", "Colliders the highlighted actor blocks.", &ViewportStyle::highlightBlock },
+            { "highlightOverlap", "Physics shapes", "Highlight Overlap", "Colliders the highlighted actor overlaps.", &ViewportStyle::highlightOverlap },
+            { "highlightIgnore", "Physics shapes", "Highlight Ignore", "Colliders the highlighted actor ignores.", &ViewportStyle::highlightIgnore },
+
+            { "constraint", "Constraints and contacts", "Constraint", "The anchors and links of a constraint.", &ViewportStyle::constraint },
+            { "constraintBroken", "Constraints and contacts", "Broken Constraint", "A constraint that broke.", &ViewportStyle::constraintBroken },
+            { "contactBlock", "Constraints and contacts", "Contact, Block", "Contact points of colliders that block.", &ViewportStyle::contactBlock },
+            { "contactOverlap", "Constraints and contacts", "Contact, Overlap", "Contact points of colliders that overlap.", &ViewportStyle::contactOverlap },
+            { "contactNormal", "Constraints and contacts", "Contact Normal", "The normal drawn at a contact point.", &ViewportStyle::contactNormal },
+            { "eventText", "Constraints and contacts", "Event Text", "The collision event log.", &ViewportStyle::eventText },
+
+            { "volume", "Volumes", "Volumes", "Gravity fields and other volumes.", &ViewportStyle::volume },
+            { "probes", "Volumes", "GI Probes", "The probes of the DDGI volumes.", &ViewportStyle::probes },
+        };
+        return entries;
+    }
+
+    bool ViewportStyle::operator==(const ViewportStyle& other) const
+    {
+        if(outlineThickness != other.outlineThickness)
+            return false;
+        for(const StyleColorEntry& entry : StyleColorEntries())
+            if(this->*entry.member != other.*entry.member)
+                return false;
+        return true;
+    }
+
     std::string GetEditorPreferencesPath()
     {
         auto* fileManager = Engine::Core::GetEngine().GetFileManager();
@@ -126,6 +170,12 @@ namespace Shard::Editor::Core {
         data["viewport"]["rotationSnap"] = v.rotationSnap;
         data["viewport"]["scaleSnap"] = v.scaleSnap;
 
+        data["style"]["outlineThickness"] = p.style.outlineThickness;
+        for(const StyleColorEntry& entry : StyleColorEntries()){
+            const glm::vec4& color = p.style.*entry.member;
+            data["style"][entry.key] = { color.r, color.g, color.b, color.a };
+        }
+
         const PanelVisibility& w = p.panels;
         data["panels"]["viewport"] = w.viewport;
         data["panels"]["worldTree"] = w.worldTree;
@@ -133,6 +183,7 @@ namespace Shard::Editor::Core {
         data["panels"]["assetBrowser"] = w.assetBrowser;
         data["panels"]["console"] = w.console;
         data["panels"]["profiler"] = w.profiler;
+        data["panels"]["collision"] = w.collision;
         data["panels"]["worldSettings"] = w.worldSettings;
         data["panels"]["projectSettings"] = w.projectSettings;
         data["panels"]["editorPreferences"] = w.editorPreferences;
@@ -206,6 +257,25 @@ namespace Shard::Editor::Core {
         Read(viewport, "rotationSnap", v.rotationSnap, 0.01f, 360.0f);
         Read(viewport, "scaleSnap", v.scaleSnap, 0.001f, 100.0f);
 
+        const json& style = Section(data, "style");
+        Read(style, "outlineThickness", p.style.outlineThickness, 0.5f, 32.0f);
+        for(const StyleColorEntry& entry : StyleColorEntries()){
+            auto it = style.find(entry.key);
+            if(it == style.end() || !it->is_array() || it->size() != 4)
+                continue;
+            glm::vec4 color = p.style.*entry.member;
+            bool valid = true;
+            for(int i = 0; i < 4; ++i){
+                if(!(*it)[i].is_number()){
+                    valid = false;
+                    break;
+                }
+                color[i] = std::clamp((*it)[i].get<float>(), 0.0f, 1.0f);
+            }
+            if(valid)
+                p.style.*entry.member = color;
+        }
+
         const json& panels = Section(data, "panels");
         PanelVisibility& w = p.panels;
         Read(panels, "viewport", w.viewport);
@@ -214,6 +284,7 @@ namespace Shard::Editor::Core {
         Read(panels, "assetBrowser", w.assetBrowser);
         Read(panels, "console", w.console);
         Read(panels, "profiler", w.profiler);
+        Read(panels, "collision", w.collision);
         Read(panels, "worldSettings", w.worldSettings);
         Read(panels, "projectSettings", w.projectSettings);
         Read(panels, "editorPreferences", w.editorPreferences);

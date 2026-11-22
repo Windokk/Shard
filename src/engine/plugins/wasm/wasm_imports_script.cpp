@@ -20,7 +20,7 @@ namespace Shard::Engine::Plugins::Wasm {
 
         enum Cb : uint32_t {
             CConstruct, CDestruct, CAttach, COnCreate, COnWorldLoaded, COnWorldUnloaded, COnPlay, COnTick, COnFixedTick, COnLateTick, COnStop, COnDestroyed,
-            COnActivated, COnDeactivated, COnContactAdded, COnContactPersisted, COnContactEnded, CTextGet, CTextSet, CbCount
+            COnActivated, COnDeactivated, COnContactAdded, COnContactPersisted, COnContactEnded, CTextGet, CTextSet, COnOverlapBegin, COnOverlapEnd, COnHit, CbCount
         };
         constexpr uint32_t kCbOffsets[CbCount] = {
             Layout::ShardScriptCallbacks::o_construct, Layout::ShardScriptCallbacks::o_destruct, Layout::ShardScriptCallbacks::o_attach,
@@ -29,7 +29,8 @@ namespace Shard::Engine::Plugins::Wasm {
             Layout::ShardScriptCallbacks::o_on_late_tick, Layout::ShardScriptCallbacks::o_on_stop, Layout::ShardScriptCallbacks::o_on_destroyed,
             Layout::ShardScriptCallbacks::o_on_activated, Layout::ShardScriptCallbacks::o_on_deactivated, Layout::ShardScriptCallbacks::o_on_contact_added,
             Layout::ShardScriptCallbacks::o_on_contact_persisted, Layout::ShardScriptCallbacks::o_on_contact_ended, Layout::ShardScriptCallbacks::o_text_get,
-            Layout::ShardScriptCallbacks::o_text_set,
+            Layout::ShardScriptCallbacks::o_text_set, Layout::ShardScriptCallbacks::o_on_overlap_begin, Layout::ShardScriptCallbacks::o_on_overlap_end,
+            Layout::ShardScriptCallbacks::o_on_hit,
         };
 
         struct Object {
@@ -137,6 +138,31 @@ namespace Shard::Engine::Plugins::Wasm {
             std::memcpy(bytes + Lc::o_point, contact->point, 12);
             std::memcpy(bytes + Lc::o_normal, contact->normal, 12);
             Store<float>(bytes, Lc::o_penetration, contact->penetration);
+            s.instance->Write(at, bytes, sizeof(bytes));
+            return CallObject(t, object, C, kContact, { at });
+        }
+
+        template <Cb C>
+        ShardResult SHARD_CALL Collide(void* user, void* object, const ShardCollisionEvent* event)
+        {
+            auto* t = static_cast<WasmScript*>(user);
+            Sandbox& s = *t->sandbox;
+            std::lock_guard<std::recursive_mutex> lock(s.mutex);
+            namespace Le = Layout::ShardCollisionEvent;
+            const uint32_t at = s.dead ? 0 : s.heap.Temp(Le::kSize, 8);
+            if (!at) return SHARD_E_INTERNAL;
+            uint8_t bytes[Le::kSize] = {};
+            Store<uint32_t>(bytes, Le::o_structSize, Le::kSize);
+            Store<uint32_t>(bytes, Le::o_kind, event->kind);
+            Store<uint64_t>(bytes, Le::o_step, event->step);
+            Store<uint64_t>(bytes, Le::o_self, event->self);
+            Store<uint64_t>(bytes, Le::o_other, event->other);
+            std::memcpy(bytes + Le::o_point, event->point, sizeof(event->point));
+            std::memcpy(bytes + Le::o_normal, event->normal, sizeof(event->normal));
+            Store<float>(bytes, Le::o_impactSpeed, event->impactSpeed);
+            Store<float>(bytes, Le::o_impulse, event->impulse);
+            Store<uint32_t>(bytes, Le::o_cause, event->cause);
+            std::memcpy(bytes + Le::o_surface, event->surface, sizeof(event->surface));
             s.instance->Write(at, bytes, sizeof(bytes));
             return CallObject(t, object, C, kContact, { at });
         }
@@ -323,6 +349,9 @@ namespace Shard::Engine::Plugins::Wasm {
             if (t->cb[COnContactAdded]) n.on_contact_added = &Contact<COnContactAdded>;
             if (t->cb[COnContactPersisted]) n.on_contact_persisted = &Contact<COnContactPersisted>;
             if (t->cb[COnContactEnded]) n.on_contact_ended = &Contact<COnContactEnded>;
+            if (t->cb[COnOverlapBegin]) n.on_overlap_begin = &Collide<COnOverlapBegin>;
+            if (t->cb[COnOverlapEnd]) n.on_overlap_end = &Collide<COnOverlapEnd>;
+            if (t->cb[COnHit]) n.on_hit = &Collide<COnHit>;
             if (t->cb[CTextGet]) n.text_get = &TextGetTrampoline;
             if (t->cb[CTextSet]) n.text_set = &TextSetTrampoline;
 
@@ -336,6 +365,8 @@ namespace Shard::Engine::Plugins::Wasm {
             native.fields = fields.empty() ? nullptr : fields.data();
             native.user = t;
             native.callbacks = &n;
+            native.collision_kinds = SHARD_COLLISION_ALL;
+            if (uint32_t(Load<uint32_t>(desc, Ls::o_structSize)) >= Ls::o_collision_kinds + 4) native.collision_kinds = Load<uint32_t>(desc, Ls::o_collision_kinds);
             r[0] = uint32_t(scripts->register_script(s.ctx, &native));
             return true;
         });

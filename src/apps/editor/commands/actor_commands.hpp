@@ -194,6 +194,12 @@ namespace Shard::Editor::Commands{
 
         void MarkWorldDirty();
 
+        std::shared_ptr<Engine::Objects::Actor> PlacePrefab(const std::string& nameInProject, const glm::vec3* position = nullptr, const std::string& folder = "");
+
+        void SetPrefabLink(const std::shared_ptr<Engine::Objects::Actor>& actor, const std::string& nameInProject);
+
+        void UnpackPrefab(const std::shared_ptr<Engine::Objects::Actor>& root);
+
         std::vector<std::shared_ptr<Engine::Objects::Actor>> TopLevel(const std::vector<std::shared_ptr<Engine::Objects::Actor>>& actors);
 
         bool IsSelfOrAncestor(const std::shared_ptr<Engine::Objects::Actor>& ancestor, const std::shared_ptr<Engine::Objects::Actor>& actor);

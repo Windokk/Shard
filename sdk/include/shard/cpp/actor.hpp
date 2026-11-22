@@ -26,6 +26,9 @@
 namespace Shard {
 
     class Actor;
+    class CollisionScope;
+    struct CollisionChange;
+    struct PrefabOptions;
 
     namespace detail {
         /// The name each script class was registered under (filled by Scripts::Register in OnLoad), so that any file can ask for a class's script
@@ -82,6 +85,14 @@ namespace Shard {
         /// ("prefabs/crate.json") or a bare name ("crate"). Throws Shard::Error if there is no such prefab.
         Actor SpawnPrefab(std::string_view prefab, Actor parent);
         Actor SpawnPrefab(std::string_view prefab);
+        /// Builds a prefab with options : where it goes, its name, what differs from the prefab. Throws Shard::Error if there is no such prefab.
+        Actor SpawnPrefab(std::string_view prefab, const PrefabOptions& options);
+        /// The roots of the instances of a prefab, by its name ("crate") or its path ("prefabs/crate.prefab"), in the order of their ids
+        std::vector<Actor> FindPrefabs(std::string_view prefab) const;
+        /// The first instance of a prefab, or an invalid actor
+        Actor FindPrefab(std::string_view prefab) const;
+        /// Destroys every instance of a prefab and returns how many there were
+        uint32_t DestroyPrefabs(std::string_view prefab) const;
         /// The actors that have the tag or one under it ("Enemy" finds an "Enemy.Undead"), in the order of their ids
         std::vector<Actor> FindWithTag(std::string_view tag) const;
         /// The actors whose position is within `radius` of `center` (nearest first), or inside the box [lo, hi] (in the order of the ids) ; `tag` restricts them
@@ -110,6 +121,15 @@ namespace Shard {
         void SetActive(bool active) const { Api().set_active(m_Handle, active ? 1 : 0); }
         /// Removes the actor, its components and its children. Its scripts get OnDestroyed.
         void Destroy() const { Api().destroy(m_Handle); }
+
+        // ---- Prefab instances : an instance is one unit, its root and its children ----
+        bool IsPrefabInstance() const { return detail::WorldsApi().get_prefab(m_Handle, nullptr, 0, nullptr, nullptr) == SHARD_OK; }
+        /// The path of the prefab this actor is an instance of (or part of), empty if it is not
+        std::string PrefabName() const { return Read([&](char* b, uint64_t c, uint64_t* s) { return detail::WorldsApi().get_prefab(m_Handle, b, c, s, nullptr); }); }
+        /// The root of the instance this actor belongs to, or an invalid actor
+        Actor PrefabRoot() const { ShardActor root = 0; return detail::WorldsApi().get_prefab(m_Handle, nullptr, 0, nullptr, &root) == SHARD_OK ? Actor(root) : Actor(); }
+        /// Destroys the whole instance this actor belongs to, from any of its actors. False if it is not part of one.
+        bool DestroyPrefab() const { return detail::WorldsApi().destroy_prefab(m_Handle) == SHARD_OK; }
 
         // ---- Pose : relative to the parent (Local) or in the world ----
         Pose LocalPose() const { ShardLocalTransform t{}; return Api().get_transform(m_Handle, &t) == SHARD_OK ? detail::ToPose(t) : Pose{}; }
@@ -240,6 +260,16 @@ namespace Shard {
         /// Gives the body a gravity of its own : the world's gravity and the fields no longer reach it
         bool SetCustomGravity(Vec3 gravity) const { float g[3]; detail::ToArray(gravity, g); return detail::PhysicsApi().set_custom_gravity(m_Handle, g) == SHARD_OK; }
 
+        // ---- Collision (shard/cpp/collision.hpp) ----
+        /// The actors this one overlaps right now
+        std::vector<Actor> Overlapping() const;
+        /// Skips one pair for good, a projectile and the actor that fired it. `false` brings the collision back.
+        bool IgnoreCollisionWith(Actor other, bool ignore = true) const;
+        /// Gives the collider a profile by name, empty for the default of its motion type
+        bool SetCollisionProfile(std::string_view profile) const;
+        /// A temporary change of the collider that ends when the returned scope is destroyed
+        CollisionScope CollisionOverride(const CollisionChange& change) const;
+
         // ---- Audio : the actor needs an "audio" component (AddComponent("audio", ...)) ----
         bool PlayAudio() const { return detail::AudioApi().play(m_Handle) == SHARD_OK; }
         bool PauseAudio() const { return detail::AudioApi().pause(m_Handle) == SHARD_OK; }
@@ -287,6 +317,13 @@ namespace Shard {
         ShardActor m_Handle = 0;
     };
 
+    struct PrefabOptions {
+        Actor parent;
+        const Pose* pose = nullptr;
+        std::string_view name;
+        std::string_view overridesJson;
+    };
+
     inline Actor Scene::Create(std::string_view name, Actor parent)
     {
         ShardActor out = 0;
@@ -301,6 +338,27 @@ namespace Shard {
         return Actor(out);
     }
     inline Actor Scene::SpawnPrefab(std::string_view prefab) { return SpawnPrefab(prefab, Actor()); }
+    inline Actor Scene::SpawnPrefab(std::string_view prefab, const PrefabOptions& options)
+    {
+        ShardActor out = 0;
+        ShardLocalTransform pose{};
+        uint32_t flags = 0;
+        if (options.pose) { pose = detail::ToTransform(*options.pose); flags |= SHARD_PREFAB_SET_TRANSFORM; }
+        detail::Check(detail::WorldsApi().spawn_prefab_ex(m_Anchor, Str(prefab), options.parent.Handle(), flags, options.pose ? &pose : nullptr,
+                                                          Str(options.name), Str(options.overridesJson), &out), "spawn prefab '" + std::string(prefab) + "'");
+        return Actor(out);
+    }
+    inline Actor Scene::FindPrefab(std::string_view prefab) const
+    {
+        const std::vector<Actor> all = FindPrefabs(prefab);
+        return all.empty() ? Actor() : all.front();
+    }
+    inline uint32_t Scene::DestroyPrefabs(std::string_view prefab) const
+    {
+        uint32_t count = 0;
+        detail::WorldsApi().destroy_prefabs(m_Anchor, Str(prefab), &count);
+        return count;
+    }
     inline Actor Scene::Spawn(std::string_view actorJson, Actor parent)
     {
         ShardActor out = 0;
@@ -351,8 +409,15 @@ namespace Shard {
         return detail::CollectActors([&](ShardActor* out, uint32_t capacity, uint32_t* count) { return detail::Actors().find_in_box(m_Anchor, a, b, Str(tag), out, capacity, count); });
     }
 
+    inline std::vector<Actor> Scene::FindPrefabs(std::string_view prefab) const
+    {
+        return detail::CollectActors([&](ShardActor* out, uint32_t capacity, uint32_t* count) { return detail::WorldsApi().find_prefab(m_Anchor, Str(prefab), out, capacity, count); });
+    }
+
     /// An Actor member of a script is a reference to another actor : the host saves it by the actor's path in the world (SHARD_FIELD_ACTOR) and
     /// finds it again when the world is loaded, or when a copy of the world is made for play mode. IsValid() says whether it points at something.
     static_assert(sizeof(Actor) == sizeof(ShardActor), "an Actor is its handle");
     template <> struct FieldType<Actor> { static constexpr uint32_t value = SHARD_FIELD_ACTOR; };
 }
+
+#include <shard/cpp/collision.hpp>

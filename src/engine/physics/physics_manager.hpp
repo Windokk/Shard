@@ -8,6 +8,7 @@
 #include <Jolt/Core/JobSystemThreadPool.h>
 #include <Jolt/Core/JobSystemSingleThreaded.h>
 #include <Jolt/Physics/PhysicsSettings.h>
+#include <Jolt/Physics/Constraints/TwoBodyConstraint.h>
 #include <Jolt/Physics/PhysicsSystem.h>
 #include <Jolt/Physics/Collision/Shape/BoxShape.h>
 #include <Jolt/Physics/Collision/Shape/SphereShape.h>
@@ -31,6 +32,8 @@
 #include "engine/core/diagnostics/logger.hpp"
 
 #include "engine/physics/gravity.hpp"
+#include "engine/physics/collision/collision_system.hpp"
+#include "engine/physics/mesh/mesh_collider.hpp"
 
 
 
@@ -46,6 +49,7 @@ namespace Shard::Engine::Objects{
 
 namespace Shard::Engine::Objects::Components{
     class PhysicsBody;
+    class PhysicsConstraint;
     class Script;
 }
 
@@ -111,7 +115,8 @@ namespace Shard::Engine::Physics
         SPHERE,
         BOX,
         CAPSULE,
-        CYLINDER
+        CYLINDER,
+        MESH
     };
 
     inline void TraceImpl(const char *inFMT, ...)
@@ -141,25 +146,6 @@ namespace Shard::Engine::Physics
     {
         static constexpr ObjectLayer NON_MOVING = 0;
         static constexpr ObjectLayer MOVING = 1;
-        static constexpr ObjectLayer NUM_LAYERS = 2;
-    };
-
-    class ObjectLayerPairFilterImpl : public ObjectLayerPairFilter
-    {
-    public:
-        virtual bool ShouldCollide(ObjectLayer inObject1, ObjectLayer inObject2) const override
-        {
-            switch (inObject1)
-            {
-            case Layers::NON_MOVING:
-                return inObject2 == Layers::MOVING;
-            case Layers::MOVING:
-                return true;
-            default:
-                JPH_ASSERT(false);
-                return false;
-            }
-        }
     };
 
     namespace BroadPhaseLayers
@@ -172,60 +158,6 @@ namespace Shard::Engine::Physics
 
         static constexpr uint NUM_LAYERS = 2;
     }
-    
-    class BPLayerInterfaceImpl final : public BroadPhaseLayerInterface
-    {
-    public:
-        BPLayerInterfaceImpl()
-        {
-            mObjectToBroadPhase[Layers::NON_MOVING] = BroadPhaseLayers::NON_MOVING;
-            mObjectToBroadPhase[Layers::MOVING] = BroadPhaseLayers::MOVING;
-        }
-
-        virtual uint GetNumBroadPhaseLayers() const override
-        {
-            return BroadPhaseLayers::NUM_LAYERS;
-        }
-
-        virtual BroadPhaseLayer GetBroadPhaseLayer(ObjectLayer inLayer) const override
-        {
-            JPH_ASSERT(inLayer < Layers::NUM_LAYERS);
-            return mObjectToBroadPhase[inLayer];
-        }
-
-    #if defined(JPH_EXTERNAL_PROFILE) || defined(JPH_PROFILE_ENABLED)
-        virtual const char *			GetBroadPhaseLayerName(BroadPhaseLayer inLayer) const override
-        {
-            switch ((BroadPhaseLayer::Type)inLayer)
-            {
-            case (BroadPhaseLayer::Type)BroadPhaseLayers::NON_MOVING:	return "NON_MOVING";
-            case (BroadPhaseLayer::Type)BroadPhaseLayers::MOVING:		return "MOVING";
-            default:													JPH_ASSERT(false); return "INVALID";
-            }
-        }
-    #endif
-
-    private:
-        BroadPhaseLayer	mObjectToBroadPhase[Layers::NUM_LAYERS];
-    };
-
-    class ObjectVsBroadPhaseLayerFilterImpl : public ObjectVsBroadPhaseLayerFilter
-    {
-    public:
-        virtual bool ShouldCollide(ObjectLayer inLayer1, BroadPhaseLayer inLayer2) const override
-        {
-            switch (inLayer1)
-            {
-            case Layers::NON_MOVING:
-                return inLayer2 == BroadPhaseLayers::MOVING;
-            case Layers::MOVING:
-                return true;
-            default:
-                JPH_ASSERT(false);
-                return false;
-            }
-        }
-    };
 
     class PhysicsBodyActivationListener : public BodyActivationListener
     {
@@ -258,8 +190,8 @@ namespace Shard::Engine::Physics
     using ObjectLayerMask = uint32_t;
     using BroadPhaseLayerMask = uint32_t;
 
-    constexpr ObjectLayerMask ObjectLayer_NonMoving = 1 << Layers::NON_MOVING;
-    constexpr ObjectLayerMask ObjectLayer_Moving    = 1 << Layers::MOVING;
+    constexpr ObjectLayerMask ObjectLayer_NonMoving = 1u;
+    constexpr ObjectLayerMask ObjectLayer_Moving    = 2u;
 
     constexpr BroadPhaseLayerMask BroadPhase_NonMoving =
         1u << BroadPhaseLayers::NON_MOVING_IDX;
@@ -282,20 +214,7 @@ namespace Shard::Engine::Physics
         BroadPhaseLayerMask mMask;
     };
 
-    class RaycastObjectLayerFilter final : public ObjectLayerFilter
-    {
-    public:
-        explicit RaycastObjectLayerFilter(ObjectLayerMask mask)
-            : mMask(mask) {}
-
-        bool ShouldCollide(ObjectLayer inLayer) const override
-        {
-            return (mMask & (1u << inLayer)) != 0;
-        }
-
-    private:
-        ObjectLayerMask mMask;
-    };
+    using RaycastObjectLayerFilter = CollisionSystem::MaskFilter;
 
     struct RaycastRequest
     {
@@ -317,6 +236,8 @@ namespace Shard::Engine::Physics
         float hitDistance = -1.0f;
         glm::vec3 point = glm::vec3(0.0f);
         glm::vec3 normal = glm::vec3(0.0f, 1.0f, 0.0f);
+        bool onMesh = false;
+        uint32_t submesh = 0;
     };
 
     class PhysicsManager {
@@ -355,7 +276,21 @@ namespace Shard::Engine::Physics
         void TickBodies(float deltaTime);
 
         JPH::BodyID CreateBody(const JPH::BodyCreationSettings& settings, Objects::Components::PhysicsBody* component, JPH::EActivation activation = JPH::EActivation::Activate);
-        void RemoveBody(JPH::BodyID id);
+        JPH::BodyID CreateBody(const JPH::BodyCreationSettings& settings, Objects::Components::PhysicsBody* component, ColliderState&& collider, JPH::EActivation activation = JPH::EActivation::Activate);
+        void RemoveBody(JPH::BodyID id, Collision::EndCause cause = Collision::EndCause::Destroyed);
+
+        MeshColliderCache& MeshColliders() { return m_MeshColliders; }
+        const MeshColliderCache& MeshColliders() const { return m_MeshColliders; }
+
+        CollisionSystem& Collision() { return m_Collision; }
+        const CollisionSystem& Collision() const { return m_Collision; }
+
+        void RegisterConstraint(Objects::Components::PhysicsConstraint* owner, JPH::BodyID a, JPH::BodyID b, JPH::TwoBodyConstraint* constraint);
+        void UnregisterConstraint(Objects::Components::PhysicsConstraint* owner);
+        void TickConstraints(bool playing);
+        void ClearConstraints();
+        void WakeConstraintBodies(JPH::BodyID a, JPH::BodyID b);
+        size_t GetConstraintCount() const { return m_Constraints.size(); }
 
         bool IsInitialized() const { return initialized; }
 
@@ -396,6 +331,18 @@ namespace Shard::Engine::Physics
         Objects::Components::PhysicsBody* FindComponent(JPH::BodyID id) const;
         const std::vector<std::shared_ptr<Objects::Components::Script>>& ScriptsOf(Objects::Actor& actor);
 
+        struct ConstraintRecord {
+            Objects::Components::PhysicsConstraint* owner = nullptr;
+            JPH::BodyID a;
+            JPH::BodyID b;
+            JPH::Ref<JPH::TwoBodyConstraint> constraint;
+        };
+
+        void DropConstraintsOf(JPH::BodyID id);
+        void CheckConstraintBreaks(float deltaTime);
+
+        std::vector<ConstraintRecord> m_Constraints;
+
         std::unordered_map<JPH::BodyID, Objects::Components::PhysicsBody*> bodyIDToComponentMap;
 
         std::vector<GravityFieldData> m_GravityFields;
@@ -416,9 +363,8 @@ namespace Shard::Engine::Physics
         JPH::PhysicsSystem m_physicsSystem;
         uint m_bodiesAddedSinceOptimize = 0;
 
-        ObjectLayerPairFilterImpl m_objectLayerFilter;
-        ObjectVsBroadPhaseLayerFilterImpl m_objectVsBroadphase;
-        BPLayerInterfaceImpl m_broadPhaseLayer;
+        CollisionSystem m_Collision;
+        MeshColliderCache m_MeshColliders;
 
         PhysicsContactListener m_contactListener;
         PhysicsBodyActivationListener m_activationListener;
@@ -431,6 +377,7 @@ namespace Shard::Engine::Physics
         uint64_t m_StepCount = 0;
 
         friend class PhysicsContactListener;
+        friend class CollisionSystem;
     };
 
 }

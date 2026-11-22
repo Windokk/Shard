@@ -39,6 +39,7 @@ namespace Shard::Editor::GUI{
                              float min, float max, const char* format = "%.3f");
             bool DragInt(const char* label, const char* tooltip, int& value, int defaultValue,
                          float speed, int min, int max, const char* format = "%d");
+            bool Color(const char* label, const char* tooltip, float value[4], const float defaultValue[4]);
             bool Combo(const char* label, const char* tooltip, int& value, int defaultValue, const char* const items[], int count);
 
         private:

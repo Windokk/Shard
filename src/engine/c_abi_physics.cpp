@@ -145,6 +145,7 @@ namespace Shard::Engine::Plugins::CAbi {
             JPH::BodyID body;
             ShardActor owner = 0;
             uint64_t userData = 0;
+            std::string profile;
             float friction = 0.5f, restitution = 0.0f;
             JPH::RVec3 position = JPH::RVec3::sZero();
             JPH::Quat rotation = JPH::Quat::sIdentity();
@@ -315,6 +316,11 @@ namespace Shard::Engine::Plugins::CAbi {
             JPH::BodyID ignored;
             bool hasTag = false;
             Core::Tag tag;
+            bool useRow = false;
+            bool asActor = false;
+            ShardStr asProfile{};
+            ShardActor asActorHandle = 0;
+            Collision::Response minimum = Collision::Response::Block;
         };
 
         bool ReadFilter(const ShardQueryFilter* filter, QueryFilter& out)
@@ -329,9 +335,16 @@ namespace Shard::Engine::Plugins::CAbi {
                 for (const auto& body : actor->GetComponents<PhysicsBody>())
                     if (!body->GetBodyID().IsInvalid()) { out.ignored = body->GetBodyID(); break; }
             }
-            if (filter->structSize >= sizeof(ShardQueryFilter) && filter->tag.size) {
+            if (filter->structSize >= offsetof(ShardQueryFilter, tag) + sizeof(ShardStr) && filter->tag.size) {
                 out.tag = Core::Tag::Request(ToString(filter->tag));
                 out.hasTag = true;
+            }
+            if (filter->structSize >= offsetof(ShardQueryFilter, hit) + sizeof(uint32_t)) {
+                if (filter->hit > SHARD_HIT_OVERLAP) return false;
+                out.minimum = filter->hit == SHARD_HIT_OVERLAP ? Collision::Response::Overlap : Collision::Response::Block;
+                out.asProfile = filter->as_profile;
+                out.asActorHandle = filter->as_actor;
+                out.useRow = filter->as_actor != 0 || filter->as_profile.size != 0;
             }
             return true;
         }
@@ -396,11 +409,60 @@ namespace Shard::Engine::Plugins::CAbi {
         }
 
         struct Prepared {
+            Prepared() = default;
+            Prepared(const Prepared&) = delete;
+            Prepared& operator=(const Prepared&) = delete;
+            ~Prepared()
+            {
+                if (manager && ownsClass) manager->Collision().Classes().Release(asClass);
+            }
+
             Physics::PhysicsManager* manager = nullptr;
             QueryFilter filter;
             Physics::ObjectLayerMask objectMask = 0;
             Physics::BroadPhaseLayerMask broadMask = 0;
+            Collision::ClassId asClass = Collision::kInvalidClass;
+            bool ownsClass = false;
         };
+
+        class QueryObjectFilter final : public JPH::ObjectLayerFilter {
+        public:
+            explicit QueryObjectFilter(const Prepared& p)
+                : mMask(p.manager->Collision().Classes(), p.objectMask),
+                  mRow(p.manager->Collision().Classes(), p.asClass == Collision::kInvalidClass ? 0 : p.asClass, p.filter.minimum),
+                  mUseRow(p.filter.useRow) {}
+            bool ShouldCollide(JPH::ObjectLayer layer) const override
+            {
+                return mMask.ShouldCollide(layer) && (!mUseRow || mRow.ShouldCollide(layer));
+            }
+        private:
+            Physics::CollisionSystem::MaskFilter mMask;
+            Physics::CollisionSystem::RowFilter mRow;
+            bool mUseRow;
+        };
+
+        ShardResult ResolveAs(Prepared& p)
+        {
+            if (!p.filter.useRow) return SHARD_OK;
+            Physics::CollisionSystem& collision = p.manager->Collision();
+            if (p.filter.asActorHandle) {
+                std::shared_ptr<Objects::Actor> actor = ActorOf(p.filter.asActorHandle);
+                if (!actor) return SHARD_E_STALE_HANDLE;
+                for (const auto& body : actor->GetComponents<PhysicsBody>()) {
+                    if (body->GetBodyID().IsInvalid()) continue;
+                    p.asClass = collision.ClassOf(body->GetBodyID());
+                    break;
+                }
+                if (p.asClass == Collision::kInvalidClass) return SHARD_E_NOT_FOUND;
+                return SHARD_OK;
+            }
+            Collision::ResolvedProfile resolved;
+            if (!Collision::ProfileRegistry::Get().Resolve(ToString(p.filter.asProfile), resolved)) return SHARD_E_NOT_FOUND;
+            p.asClass = collision.Classes().Acquire(resolved, true);
+            if (p.asClass == Collision::kInvalidClass) return SHARD_E_OUT_OF_MEMORY;
+            p.ownsClass = true;
+            return SHARD_OK;
+        }
 
         ShardResult Prepare(const ShardQueryFilter* filter, Prepared& p)
         {
@@ -409,7 +471,7 @@ namespace Shard::Engine::Plugins::CAbi {
             if (!p.manager) return SHARD_E_UNSUPPORTED;
             if (!ReadFilter(filter, p.filter)) return SHARD_E_INVALID_ARG;
             LayerMasks(p.filter.layers, p.objectMask, p.broadMask);
-            return SHARD_OK;
+            return ResolveAs(p);
         }
 
         void StoreMany(const std::vector<ShardRayHit>& hits, ShardRayHit* out, uint32_t capacity, uint32_t* count)
@@ -447,7 +509,7 @@ namespace Shard::Engine::Plugins::CAbi {
                 const glm::vec3 n = glm::normalize(d);
                 const JPH::RRayCast ray(JPH::RVec3(origin[0], origin[1], origin[2]), JPH::Vec3(n.x, n.y, n.z) * maxDistance);
                 Physics::RaycastBroadPhaseFilter broad(p.broadMask);
-                Physics::RaycastObjectLayerFilter object(p.objectMask);
+                QueryObjectFilter object(p);
                 PluginBodyFilter bodies(p.filter, *p.manager);
                 JPH::RayCastResult hit;
                 if (!p.manager->GetPhysicsSystem().GetNarrowPhaseQuery().CastRay(ray, hit, broad, object, bodies)) return SHARD_E_NOT_FOUND;
@@ -483,7 +545,7 @@ namespace Shard::Engine::Plugins::CAbi {
                 const glm::vec3 n = glm::normalize(d);
                 const JPH::RRayCast ray(JPH::RVec3(origin[0], origin[1], origin[2]), JPH::Vec3(n.x, n.y, n.z) * maxDistance);
                 Physics::RaycastBroadPhaseFilter broad(p.broadMask);
-                Physics::RaycastObjectLayerFilter object(p.objectMask);
+                QueryObjectFilter object(p);
                 PluginBodyFilter bodies(p.filter, *p.manager);
                 JPH::AllHitCollisionCollector<JPH::CastRayCollector> collector;
                 p.manager->GetPhysicsSystem().GetNarrowPhaseQuery().CastRay(ray, JPH::RayCastSettings(), collector, broad, object, bodies);
@@ -518,7 +580,7 @@ namespace Shard::Engine::Plugins::CAbi {
             if (!p.objectMask) return SHARD_OK;
 
             Physics::RaycastBroadPhaseFilter broad(p.broadMask);
-            Physics::RaycastObjectLayerFilter object(p.objectMask);
+            QueryObjectFilter object(p);
             PluginBodyFilter bodies(p.filter, *p.manager);
             JPH::CollideShapeSettings settings;
             const JPH::RVec3 base = transform.GetTranslation();
@@ -623,7 +685,7 @@ namespace Shard::Engine::Plugins::CAbi {
             const JPH::Vec3 move = JPH::Vec3(n.x, n.y, n.z) * maxDistance;
             const JPH::RShapeCast cast(shape, JPH::Vec3::sReplicate(1.0f), start, move);
             Physics::RaycastBroadPhaseFilter broad(p.broadMask);
-            Physics::RaycastObjectLayerFilter object(p.objectMask);
+            QueryObjectFilter object(p);
             PluginBodyFilter bodies(p.filter, *p.manager);
             const JPH::RVec3 base = start.GetTranslation();
             JPH::ClosestHitCollisionCollector<JPH::CastShapeCollector> collector;
@@ -686,11 +748,18 @@ namespace Shard::Engine::Plugins::CAbi {
             }
             if (c->body.IsInvalid()) {
                 if (!c->shape) continue;
-                JPH::BodyCreationSettings settings(c->shape, c->position, c->rotation, JPH::EMotionType::Static, Physics::Layers::NON_MOVING);
+                JPH::BodyCreationSettings settings(c->shape, c->position, c->rotation, JPH::EMotionType::Static, JPH::ObjectLayer(0));
                 settings.mFriction = c->friction;
                 settings.mRestitution = c->restitution;
                 settings.mUserData = c->handle;
-                c->body = physics->CreateBody(settings, nullptr, JPH::EActivation::DontActivate);
+                Physics::ColliderState state;
+                std::string error;
+                if (!physics->Collision().MakeState(c->profile, false, nullptr, state, &error)) {
+                    c->shape = nullptr;
+                    continue;
+                }
+                physics->Collision().Configure(state, settings, JPH::EMotionType::Static);
+                c->body = physics->CreateBody(settings, nullptr, std::move(state), JPH::EActivation::DontActivate);
                 c->shape = nullptr;
                 c->shapeDirty = c->poseDirty = false;
                 continue;

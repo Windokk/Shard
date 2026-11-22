@@ -237,6 +237,7 @@ namespace Shard::Engine::Plugins {
         void RunLoad(PluginRecord& record);
         void RunInitialize(PluginRecord& record);
         void MountContent(PluginRecord& record);
+        void DeclareCollision(PluginRecord& record);
         void Fail(PluginRecord& record, const std::string& message);
         void FailDependents(const std::string& id, const std::string& because);
         bool Guard(PluginRecord& record, const char* what, const std::function<void()>& call);

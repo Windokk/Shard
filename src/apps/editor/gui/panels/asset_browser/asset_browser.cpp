@@ -46,10 +46,12 @@ namespace Shard::Editor::GUI{
             case Engine::Filesystem::Type::T_MATERIAL:       return IM_COL32(46, 204, 113, 255);
             case Engine::Filesystem::Type::T_PROBES:         return IM_COL32(236, 96, 160, 255);
             case Engine::Filesystem::Type::T_LIGHTMAP:       return IM_COL32(244, 143, 177, 255);
+            case Engine::Filesystem::Type::T_PHYSICS_MATERIAL: return IM_COL32(120, 190, 90, 255);
             case Engine::Filesystem::Type::T_IMAGE:          return IM_COL32(175, 110, 220, 255);
             case Engine::Filesystem::Type::T_SOUND:          return IM_COL32(26, 188, 156, 255);
             case Engine::Filesystem::Type::T_SCRIPT:         return IM_COL32(241, 196, 15, 255);
             case Engine::Filesystem::Type::T_WORLD:          return IM_COL32(231, 76, 60, 255);
+            case Engine::Filesystem::Type::T_PREFAB:         return IM_COL32(86, 156, 214, 255);
             case Engine::Filesystem::Type::T_SHADER:         return IM_COL32(52, 152, 219, 255);
             case Engine::Filesystem::Type::T_COMPUTE_SHADER: return IM_COL32(41, 128, 185, 255);
             case Engine::Filesystem::Type::T_FONT:           return IM_COL32(149, 165, 166, 255);
@@ -70,10 +72,12 @@ namespace Shard::Editor::GUI{
             case Engine::Filesystem::Type::T_MATERIAL:       return "Material";
             case Engine::Filesystem::Type::T_PROBES:         return "Probe Bake";
             case Engine::Filesystem::Type::T_LIGHTMAP:       return "Lightmap Bake";
+            case Engine::Filesystem::Type::T_PHYSICS_MATERIAL: return "Physics Material";
             case Engine::Filesystem::Type::T_IMAGE:          return "Texture";
             case Engine::Filesystem::Type::T_SOUND:          return "Sound";
             case Engine::Filesystem::Type::T_SCRIPT:         return "Script";
             case Engine::Filesystem::Type::T_WORLD:          return "World";
+            case Engine::Filesystem::Type::T_PREFAB:         return "Prefab";
             case Engine::Filesystem::Type::T_SHADER:         return "Shader";
             case Engine::Filesystem::Type::T_COMPUTE_SHADER: return "Compute Shader";
             case Engine::Filesystem::Type::T_FONT:           return "Font";
@@ -598,7 +602,7 @@ namespace Shard::Editor::GUI{
         using Engine::Filesystem::Type;
         static const Type kTypes[] = {
             Type::T_MODEL, Type::T_MATERIAL, Type::T_IMAGE, Type::T_SOUND, Type::T_WORLD, Type::T_SCRIPT, Type::T_SHADER,
-            Type::T_COMPUTE_SHADER, Type::T_FONT, Type::T_PROBES, Type::T_LIGHTMAP, Type::T_TEXT, Type::T_CONFIG
+            Type::T_COMPUTE_SHADER, Type::T_FONT, Type::T_PROBES, Type::T_LIGHTMAP, Type::T_PHYSICS_MATERIAL, Type::T_PREFAB, Type::T_TEXT, Type::T_CONFIG
         };
 
         for (Type type : kTypes)
@@ -1390,6 +1394,8 @@ namespace Shard::Editor::GUI{
                     pendingAction = Action::NewFolder;
                 if (ImGui::MenuItem("Material"))
                     pendingAction = Action::NewMaterial;
+                if (ImGui::MenuItem("Physics Material"))
+                    pendingAction = Action::NewPhysicsMaterial;
                 if (ImGui::MenuItem("World"))
                     pendingAction = Action::NewWorld;
                 for (const auto& tpl : Engine::Plugins::PluginManager::Get().Extensions().Get<Engine::Plugins::EditorAssetTemplateItem>("editor.assettemplate"))
@@ -1566,11 +1572,13 @@ namespace Shard::Editor::GUI{
 
             case Action::NewFolder:
             case Action::NewMaterial:
+            case Action::NewPhysicsMaterial:
             case Action::NewWorld:
             {
                 Path created;
                 Ops::Result r = action == Action::NewFolder ? Ops::CreateFolder(currentPath, created)
                               : action == Action::NewMaterial ? Ops::CreateMaterial(currentPath, created)
+                              : action == Action::NewPhysicsMaterial ? Ops::CreatePhysicsMaterial(currentPath, created)
                               : Ops::CreateWorld(currentPath, created);
                 if (!r.ok)
                     failures.push_back(r.message);

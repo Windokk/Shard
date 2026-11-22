@@ -235,7 +235,9 @@ namespace Shard::Engine::Filesystem{
             {".mat", Type::T_MATERIAL}, {".material", Type::T_MATERIAL},
             {".probes", Type::T_PROBES},
             {".lightmap", Type::T_LIGHTMAP},
+            {".physmat", Type::T_PHYSICS_MATERIAL},
             {".world", Type::T_WORLD},
+            {".prefab", Type::T_PREFAB},
             {".json", Type::T_CONFIG}, {".ini", Type::T_CONFIG}, {".cfg", Type::T_CONFIG},
             {"<directory>", Type::T_DIRECTORY}
         };

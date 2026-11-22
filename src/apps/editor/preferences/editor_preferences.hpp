@@ -3,7 +3,10 @@
 #include "engine/renderer/rhi/renderer_api.hpp"
 #include "engine/assets/reflection/attributes.hpp"
 
+#include <glm/glm.hpp>
+
 #include <string>
+#include <vector>
 
 #define PREFERENCE_RANGE(Struct, field)     ((void)sizeof(Struct::field), ::Shard::Editor::Core::GetPreferenceRange(#Struct, #field))
 
@@ -40,6 +43,7 @@ namespace Shard::Editor::Core {
         bool assetBrowser = true;
         bool console = true;
         bool profiler = true;
+        bool collision = false;
         bool worldSettings = true;
         bool projectSettings = false;
         bool editorPreferences = false;
@@ -84,6 +88,49 @@ namespace Shard::Editor::Core {
         }
     };
 
+    struct ViewportStyle{
+        glm::vec4 outline = glm::vec4(1.0f, 0.722f, 0.0f, 1.0f);
+        float outlineThickness = 4.0f;
+
+        glm::vec4 axisX = glm::vec4(0.86f, 0.25f, 0.25f, 1.0f);
+        glm::vec4 axisY = glm::vec4(0.45f, 0.80f, 0.25f, 1.0f);
+        glm::vec4 axisZ = glm::vec4(0.25f, 0.47f, 0.92f, 1.0f);
+        glm::vec4 gridLines = glm::vec4(0.85f, 0.85f, 0.85f, 1.0f);
+        glm::vec4 gizmoSelection = glm::vec4(1.0f, 0.5f, 0.062f, 0.541f);
+
+        glm::vec4 shapeSolid = glm::vec4(0.0f, 1.0f, 1.0f, 1.0f);
+        glm::vec4 shapeSensor = glm::vec4(0.35f, 1.0f, 0.35f, 1.0f);
+        glm::vec4 shapeQueryOnly = glm::vec4(1.0f, 0.85f, 0.2f, 1.0f);
+        glm::vec4 shapeDisabled = glm::vec4(0.45f, 0.45f, 0.45f, 1.0f);
+        glm::vec4 highlightSource = glm::vec4(1.0f, 0.4f, 1.0f, 1.0f);
+        glm::vec4 highlightBlock = glm::vec4(1.0f, 0.3f, 0.25f, 1.0f);
+        glm::vec4 highlightOverlap = glm::vec4(0.35f, 0.6f, 1.0f, 1.0f);
+        glm::vec4 highlightIgnore = glm::vec4(0.25f, 0.25f, 0.25f, 1.0f);
+
+        glm::vec4 constraint = glm::vec4(1.0f, 0.667f, 0.235f, 1.0f);
+        glm::vec4 constraintBroken = glm::vec4(0.588f, 0.588f, 0.588f, 1.0f);
+        glm::vec4 contactBlock = glm::vec4(1.0f, 0.314f, 0.275f, 1.0f);
+        glm::vec4 contactOverlap = glm::vec4(0.353f, 0.588f, 1.0f, 1.0f);
+        glm::vec4 contactNormal = glm::vec4(1.0f);
+        glm::vec4 eventText = glm::vec4(0.922f, 0.922f, 0.922f, 1.0f);
+
+        glm::vec4 volume = glm::vec4(0.0f, 1.0f, 1.0f, 1.0f);
+        glm::vec4 probes = glm::vec4(1.0f);
+        glm::vec4 selectionBox = glm::vec4(0.47f, 0.686f, 1.0f, 0.86f);
+
+        bool operator==(const ViewportStyle& other) const;
+    };
+
+    struct StyleColorEntry{
+        const char* key;
+        const char* group;
+        const char* label;
+        const char* tooltip;
+        glm::vec4 ViewportStyle::* member;
+    };
+
+    const std::vector<StyleColorEntry>& StyleColorEntries();
+
     struct PreferenceRange{
         float min = 0.0f;
         float max = 0.0f;
@@ -96,6 +143,7 @@ namespace Shard::Editor::Core {
         CameraPreferences camera;
         SavingPreferences saving;
         EditorSettings viewport;
+        ViewportStyle style;
         PanelVisibility panels;
     };
 

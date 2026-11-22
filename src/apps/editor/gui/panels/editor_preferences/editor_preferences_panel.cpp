@@ -9,6 +9,7 @@
 #include "imgui/imgui.h"
 
 #include <algorithm>
+#include <cstring>
 #include <filesystem>
 
 namespace Shard::Editor::GUI{
@@ -22,6 +23,7 @@ namespace Shard::Editor::GUI{
         m_View.SetCategories({
             { "Appearance", ICON_LC_PALETTE, [this]{ DrawAppearanceCategory(); } },
             { "Viewport", ICON_LC_CAMERA, [this]{ DrawViewportCategory(); } },
+            { "Colors", ICON_LC_SWATCH_BOOK, [this]{ DrawColorsCategory(); } },
             { "Snapping", ICON_LC_MAGNET, [this]{ DrawSnappingCategory(); } },
             { "Saving & Undo", ICON_LC_SAVE, [this]{ DrawSavingCategory(); } },
         });
@@ -167,6 +169,26 @@ namespace Shard::Editor::GUI{
         m_View.Checkbox("XZ Plane (Y, floor)", "The grid plane perpendicular to Y : the floor.", viewport.showGridY, viewportDefaults.showGridY);
         m_View.Checkbox("XY Plane (Z)", "The grid plane perpendicular to Z.", viewport.showGridZ, viewportDefaults.showGridZ);
         ImGui::EndDisabled();
+    }
+
+    void EditorPreferencesPanel::DrawColorsCategory()
+    {
+        Core::ViewportStyle& style = m_Parent->preferences.style;
+        const Core::ViewportStyle& defaults = kDefaults.style;
+
+        const char* group = nullptr;
+        for (const Core::StyleColorEntry& entry : Core::StyleColorEntries())
+        {
+            if (!group || std::strcmp(group, entry.group) != 0)
+            {
+                group = entry.group;
+                m_View.Section(group);
+                if (std::strcmp(group, "Selection") == 0)
+                    m_View.DragFloat("Outline Thickness", "Width of the selection outline, in pixels.",
+                                     style.outlineThickness, defaults.outlineThickness, 0.1f, 0.5f, 32.0f, "%.1f px");
+            }
+            m_View.Color(entry.label, entry.tooltip, &(style.*entry.member).x, &(defaults.*entry.member).x);
+        }
     }
 
     void EditorPreferencesPanel::DrawSnappingCategory()

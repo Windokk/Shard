@@ -1,0 +1,6 @@
+{
+    "friction": 0.20000000298023224,
+    "restitution": 0.0,
+    "density": 1000.0,
+    "combine": "Average"
+}

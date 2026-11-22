@@ -47,6 +47,7 @@
 #include "engine/renderer/rhi/resources/mesh/lightmap_uv.hpp"
 #include <filesystem>
 #include "engine/audio/audio_manager.hpp"
+#include "engine/mesh_collision_source.hpp"
 #include "engine/physics/physics_manager.hpp"
 #include "engine/physics/physics_body.hpp"
 #include "engine/renderer/frontend/renderer.hpp"
@@ -185,6 +186,7 @@ namespace Shard::Engine{
             else{
                 m_Context.currentProject = project;
                 Projects::ApplyTagSettings(*project->GetTagSettings());
+                Projects::ApplyCollisionSettings(*project->GetCollisionSettings());
                 LoadConfigLayer(ConfigLayer::Project, ConfigPath(project->GetProjectRoot(), "project.cfg"));
             }
 
@@ -194,6 +196,7 @@ namespace Shard::Engine{
             Rendering::SetLightmapUnwrapCacheDirectory((std::filesystem::path(m_Context.currentProject->GetProjectRoot().full) / ".cache" / "lightmap_uv").generic_string());
 
             m_Context.resourcesManager->ConstructGlobalFileIndex(m_Context.currentProject->GetProjectResourcesPath(), m_Context.currentProject->GetAssetDatabasePath());
+            Projects::ReloadPhysicsMaterials(*m_Context.assetIDManager);
 
             // RenderDoc must be in the process before the graphics API starts.
             {
@@ -219,6 +222,13 @@ namespace Shard::Engine{
                 physicsSettings->gravity = settings.gravity;
 
             m_Context.physicsManager->Init(physicsSettings->gravity, settings.deterministic);
+            Physics::InstallMeshColliderSource(*m_Context.physicsManager, *this);
+            m_Context.physicsManager->MeshColliders().SetWriteCooked(!settings.readOnly);
+            {
+                Collision::InteractionTable& table = m_Context.physicsManager->Collision().Interactions();
+                table.Rows() = m_Context.currentProject->GetCollisionSettings()->interactions;
+                table.Touch();
+            }
             m_Context.audioManager->Init(100.0f, settings.headless);
             m_RendererSettings = std::make_shared<RendererSettings>();
             m_RendererSettings->viewportWidth = m_Context.platform->GetWindow()->GetFramebufferWidth();
@@ -435,6 +445,7 @@ namespace Shard::Engine{
             m_Context.audioIDManager = new Audio::AudioIDManager();
 
             m_Context.physicsManager = new Physics::PhysicsManager();
+            m_Context.collisionHost = &m_Context.physicsManager->Collision();
 
             m_Context.timeManager = new Time::TimeManager();
 
@@ -774,6 +785,7 @@ namespace Shard::Engine{
             }
             m_Context.platform->GetInput()->Shutdown();
             m_Context.audioManager->Shutdown();
+            m_Context.collisionHost = nullptr;
             m_Context.physicsManager->Shutdown();
             m_Context.worldManager->UnloadAllWorlds();
             // Plugins stop before the systems and renderer they registered into are destroyed.
@@ -1096,8 +1108,19 @@ namespace Shard::Engine{
             };
             config.onMeshReplaced = [this](const std::string& name){
                 Objects::Components::ReloadModelsUsingMesh(*m_Context.worldManager, name);
+                const Filesystem::AssetID id = m_Context.assetIDManager->GetIDFromNameInProject(name);
+                m_Context.physicsManager->MeshColliders().Invalidate(id);
+                for(int i = 0; i < m_Context.worldManager->GetLoadedWorldCount(); i++){
+                    Worlds::World* world = m_Context.worldManager->GetWorldAt(i);
+                    if(!world)
+                        continue;
+                    for(auto& [bodyId, body] : world->Ext<Physics::PhysicsWorldData>().bodies)
+                        if(body->UsesMeshAsset(id))
+                            body->MarkShapesDirty();
+                }
             };
             config.onWorldChanged = [this](const std::string& name){ ReloadWorldFromDisk(name); };
+            config.onPhysicsMaterialsChanged = [this]{ Projects::ReloadPhysicsMaterials(*m_Context.assetIDManager); };
             if(!m_EngineSettings.readOnly){
                 config.persistDatabase = [this]{
                     Serialization::SerializeAssetDataBase(m_Context.currentProject->GetAssetDatabasePath(), *m_Context.assetIDManager);

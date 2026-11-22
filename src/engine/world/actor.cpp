@@ -144,6 +144,8 @@ namespace Shard::Engine::Objects{
 
             world->RemoveActor(id);
             world->IndexActorTags(AsShared<Actor>(), Core::TagContainer(), tags);
+            if(prefab)
+                world->IndexPrefab(AsShared<Actor>(), false);
             
             if(world->IsLoaded()){
                 int worldAssetID = world->ResolveAssetID();
@@ -232,6 +234,8 @@ namespace Shard::Engine::Objects{
 
         world->transforms.emplace(GetComponentIDInWorld(transform->GetLocalId()), transform);
         world->IndexActorTags(AsShared<Actor>(), tags, Core::TagContainer());
+        if(prefab)
+            world->IndexPrefab(AsShared<Actor>(), true);
 
         if(world->IsLoaded()){
             int worldAssetID = world->ResolveAssetID();
@@ -273,6 +277,35 @@ namespace Shard::Engine::Objects{
         }
     }
     
+    void Actor::SetPrefab(std::string prefabName, nlohmann::json unresolvedLink)
+    {
+        if(prefab && world)
+            world->IndexPrefab(AsShared<Actor>(), false);
+        prefab = PrefabInfo{ std::move(prefabName), std::move(unresolvedLink) };
+        if(world)
+            world->IndexPrefab(AsShared<Actor>(), true);
+    }
+
+    void Actor::ClearPrefab()
+    {
+        if(!prefab)
+            return;
+        if(world)
+            world->IndexPrefab(AsShared<Actor>(), false);
+        prefab.reset();
+    }
+
+    std::shared_ptr<Actor> Actor::GetPrefabRoot()
+    {
+        std::shared_ptr<Actor> current = AsShared<Actor>();
+        while(current){
+            if(current->prefab)
+                return current;
+            current = std::dynamic_pointer_cast<Actor>(current->GetParent());
+        }
+        return nullptr;
+    }
+
     std::shared_ptr<Actor> Actor::Clone()
     {
         std::shared_ptr<Actor> copy = Core::Object::CreateWithContext<Actor>(engine, "Copy of "+name, engine);
@@ -298,6 +331,9 @@ namespace Shard::Engine::Objects{
         else{
             DEBUG_INFO("Cloning : Base actor was not placed in a world, clone won't be placed in a world either");
         }
+
+        if(prefab && prefab->unresolved.is_null())
+            copy->SetPrefab(prefab->name);
 
         for(size_t i = 0; i < components.size(); i++){
 

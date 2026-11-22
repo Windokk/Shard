@@ -157,6 +157,7 @@ target_link_libraries(ShardRenderer PRIVATE freetype)
 target_link_directories(ShardRenderer PUBLIC ${FREETYPE_LIB_DIR})
 
 target_link_libraries(ShardPhysics PUBLIC Jolt)
+target_link_libraries(ShardPhysics PRIVATE CoACD)
 if(UNIX)
   target_link_libraries(ShardAudio PRIVATE ${CMAKE_DL_LIBS} Threads::Threads m)
 endif()

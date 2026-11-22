@@ -10,6 +10,7 @@
 #include "engine/assets/serialization/tags/tag_json.hpp"
 #include "engine/core/tags/tag_registry.hpp"
 #include "engine/world/event_system.hpp"
+#include "engine/world/prefab.hpp"
 #include "engine/world/time_manager.hpp"
 
 namespace Shard::Engine::Worlds{
@@ -101,6 +102,9 @@ namespace Shard::Engine::Worlds{
 
     void DeserializeActor(std::shared_ptr<Objects::Actor> a, json data, json actor){
 
+        if (actor.contains("prefab") && actor["prefab"].is_string())
+            a->SetPrefab(actor["prefab"].get<std::string>(), actor.contains("prefabUnresolved") ? actor["prefabUnresolved"] : json());
+
         if (actor.contains("tags"))
             a->GetTags().Assign(Serialization::TagsFromJson(actor["tags"]), true);
 
@@ -124,10 +128,13 @@ namespace Shard::Engine::Worlds{
         }
     }
 
-    static void CollectActorAssetRefs(const json& actor, std::vector<Core::Resources::ResourceKey>& refs){
+    static void CollectActorAssetRefs(const json& source, std::vector<Core::Resources::ResourceKey>& refs){
 
-        if (!actor.is_object())
+        if (!source.is_object())
             return;
+
+        const json expanded = IsPrefabLink(source) ? ExpandPrefabLinks(source) : json();
+        const json& actor = expanded.is_object() ? expanded : source;
 
         if (actor.contains("children") && actor["children"].is_array()) {
             for (auto& child : actor["children"]) {
@@ -279,9 +286,10 @@ namespace Shard::Engine::Worlds{
                     DEBUG_WARNING("Skipped an entry of the actors of world " + name + " : it is not an object");
                     continue;
                 }
-                std::shared_ptr<Objects::Actor> a = Core::Object::CreateWithContext<Objects::Actor>(engine, ActorNameFromJson(actor), engine);
+                const json resolved = ExpandPrefabLinks(actor);
+                std::shared_ptr<Objects::Actor> a = Core::Object::CreateWithContext<Objects::Actor>(engine, ActorNameFromJson(resolved), engine);
                 AddActor(a);
-                DeserializeActor(a, data, actor);
+                DeserializeActor(a, data, resolved);
             }
 
             if(data.contains("settings")){
@@ -336,11 +344,41 @@ namespace Shard::Engine::Worlds{
         dirty = false;
     }
 
-    void SerializeActor(std::shared_ptr<Shard::Engine::Objects::Actor> a, ordered_json* actorsArray){
-        
+    void SerializeActor(std::shared_ptr<Shard::Engine::Objects::Actor> a, ordered_json* actorsArray, bool linked = true){
+
+        if(linked && a->IsPrefabRoot()){
+            const auto& info = *a->GetPrefab();
+            if(!info.unresolved.is_null()){
+                actorsArray->push_back(ordered_json(info.unresolved));
+                return;
+            }
+
+            json base;
+            std::string canonical;
+            if(LoadResolvedPrefab(info.name, base, canonical)){
+                ordered_json expanded = ordered_json::array();
+                SerializeActor(a, &expanded, false);
+                const json diff = DiffPrefabActor(base, json::parse(expanded[0].dump()));
+
+                ordered_json link;
+                link["name"] = a->GetName();
+                link["prefab"] = info.name;
+                if(!diff.empty())
+                    link["overrides"] = ordered_json::parse(diff.dump());
+                actorsArray->push_back(link);
+                return;
+            }
+        }
+
         ordered_json actor;
 
         actor["name"] = a->GetName();
+
+        if(a->IsPrefabRoot()){
+            actor["prefab"] = a->GetPrefab()->name;
+            if(!a->GetPrefab()->unresolved.is_null())
+                actor["prefabUnresolved"] = ordered_json(a->GetPrefab()->unresolved);
+        }
 
         if(!a->GetFolder().empty())
             actor["folder"] = a->GetFolder();
@@ -350,7 +388,7 @@ namespace Shard::Engine::Worlds{
 
         for(auto& childrenID : a->GetChildrenID(false)){
             auto child = a->GetChild(childrenID);
-            SerializeActor(std::dynamic_pointer_cast<Objects::Actor>(child), &actor["children"]);
+            SerializeActor(std::dynamic_pointer_cast<Objects::Actor>(child), &actor["children"], linked);
         }
 
         for(auto& comp : a->GetComponents()){
@@ -373,8 +411,21 @@ namespace Shard::Engine::Worlds{
         return array.empty() ? ordered_json::object() : array[0];
     }
 
-    std::shared_ptr<Objects::Actor> InstantiateActor(World& world, const json& actorData, const std::shared_ptr<Objects::Actor>& parent)
+    ordered_json SerializePrefabToJson(const std::shared_ptr<Objects::Actor>& actor)
     {
+        ordered_json array = ordered_json::array();
+        if (!actor)
+            return ordered_json::object();
+        SerializeActor(actor, &array, false);
+        ordered_json out = array.empty() ? ordered_json::object() : array[0];
+        out.erase("prefab");
+        out.erase("prefabUnresolved");
+        return out;
+    }
+
+    std::shared_ptr<Objects::Actor> InstantiateActor(World& world, const json& sourceData, const std::shared_ptr<Objects::Actor>& parent)
+    {
+        const json actorData = ExpandPrefabLinks(sourceData);
         if (!actorData.is_object() || !actorData.contains("name") || !actorData["name"].is_string())
             return nullptr;
 
@@ -515,6 +566,7 @@ namespace Shard::Engine::Worlds{
         tags.Assign(Core::TagContainer(), true);
         actorsByTag.clear();
         componentsByTag.clear();
+        instancesByPrefab.clear();
     }
 
     void World::OnLoad()
@@ -684,6 +736,74 @@ namespace Shard::Engine::Worlds{
         }
         for (Core::Tag tag : added)
             actorsByTag[tag.GetId().Value()][actorID] = actor;
+    }
+
+    namespace {
+        std::vector<std::string> PrefabKeys(const std::string& name)
+        {
+            std::vector<std::string> keys{ name };
+            const std::string stem = PrefabStem(name);
+            if (stem != name)
+                keys.push_back(stem);
+            return keys;
+        }
+    }
+
+    void World::IndexPrefab(const std::shared_ptr<Objects::Actor>& actor, bool add)
+    {
+        if (!actor || !actor->GetPrefab())
+            return;
+
+        const Core::ObjectID actorID = actor->GetID();
+        for (const std::string& key : PrefabKeys(actor->GetPrefab()->name)) {
+            if (add) {
+                instancesByPrefab[key][actorID] = actor;
+                continue;
+            }
+            auto it = instancesByPrefab.find(key);
+            if (it == instancesByPrefab.end())
+                continue;
+            it->second.erase(actorID);
+            if (it->second.empty())
+                instancesByPrefab.erase(it);
+        }
+    }
+
+    std::vector<std::shared_ptr<Objects::Actor>> World::FindPrefabInstances(const std::string& name, bool includeInactive)
+    {
+        std::vector<std::shared_ptr<Objects::Actor>> out;
+        const std::string key = name.find('/') == std::string::npos ? PrefabStem(name) : name;
+        auto it = instancesByPrefab.find(key);
+        if (it == instancesByPrefab.end())
+            return out;
+        for (auto& [id, weak] : it->second) {
+            std::shared_ptr<Objects::Actor> actor = weak.lock();
+            if (actor && (includeInactive || actor->IsActive()))
+                out.push_back(std::move(actor));
+        }
+        return out;
+    }
+
+    std::shared_ptr<Objects::Actor> World::SpawnPrefab(const std::string& name, const std::shared_ptr<Objects::Actor>& parent,
+                                                       const nlohmann::json& overrides, const std::string& instanceName)
+    {
+        json resolved;
+        std::string canonical;
+        if (!LoadResolvedPrefab(name, resolved, canonical))
+            return nullptr;
+        if (overrides.is_object())
+            ApplyPrefabDiff(resolved, overrides);
+        if (!instanceName.empty())
+            resolved["name"] = instanceName;
+        return InstantiateActor(*this, resolved, parent);
+    }
+
+    size_t World::DestroyPrefabInstances(const std::string& name)
+    {
+        const auto instances = FindPrefabInstances(name, true);
+        for (const auto& instance : instances)
+            instance->Destroy();
+        return instances.size();
     }
 
     void World::IndexComponentTags(int idInWorld, const std::shared_ptr<Objects::Components::Component>& component,

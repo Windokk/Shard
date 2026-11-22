@@ -26,6 +26,7 @@ namespace Shard::Engine::Plugins::CAbi {
         void* user = nullptr;
         ShardScriptCallbacks cb{};
         uint32_t flags = 0;
+        uint32_t collisionKinds = SHARD_COLLISION_ALL;
         std::atomic<uint32_t>* active = nullptr;
         std::function<void(PluginOwner, const std::string&)> report;
         std::atomic<bool> alive{ true };
@@ -93,6 +94,10 @@ namespace Shard::Engine::Plugins::CAbi {
             void OnContactPersisted(const Events::ContactPersistedEvent& e) override { if (m_Type->cb.on_contact_persisted) Contact(m_Type->cb.on_contact_persisted, "on_contact_persisted", DecodeContact(e)); }
             void OnContactEnded(const Events::ContactRemovedEvent& e) override { if (m_Type->cb.on_contact_ended) Contact(m_Type->cb.on_contact_ended, "on_contact_ended", DecodeContact(e)); }
 
+            void OnOverlapBegin(const Events::CollisionEvent& e) override { Collide(m_Type->cb.on_overlap_begin, "on_overlap_begin", e); }
+            void OnOverlapEnd(const Events::CollisionEvent& e) override { Collide(m_Type->cb.on_overlap_end, "on_overlap_end", e); }
+            void OnHit(const Events::CollisionEvent& e) override { Collide(m_Type->cb.on_hit, "on_hit", e); }
+
             void OnDestroyed() override
             {
                 if (m_Destroyed) return;
@@ -109,6 +114,7 @@ namespace Shard::Engine::Plugins::CAbi {
 
             void OnAttached() override
             {
+                ListenToCollisions();
                 if (!m_Type->cb.attach || !parent) return;
                 const ShardActor owner = ActorHandle(parent);
                 Call("attach", [&] { return m_Type->cb.attach(m_Type->user, Data(), owner); });
@@ -239,6 +245,24 @@ namespace Shard::Engine::Plugins::CAbi {
                 Call(what, [&] { return fn(m_Type->user, Data(), &contact); });
             }
 
+            void ListenToCollisions()
+            {
+                uint32_t kinds = 0;
+                if (m_Type->cb.on_overlap_begin) kinds |= Physics::KindBit(Collision::EventKind::OverlapBegin);
+                if (m_Type->cb.on_overlap_end) kinds |= Physics::KindBit(Collision::EventKind::OverlapEnd);
+                if (m_Type->cb.on_hit) kinds |= Physics::KindBit(Collision::EventKind::Hit);
+                kinds &= m_Type->collisionKinds;
+                if (kinds && parent) ListenCollisions(kinds);
+            }
+
+            void Collide(ShardScriptCollisionFn fn, const char* what, const Events::CollisionEvent& e)
+            {
+                if (!fn || !parent) return;
+                ShardCollisionEvent raw;
+                FillCollisionEvent(e, raw);
+                Call(what, [&] { return fn(m_Type->user, Data(), &raw); });
+            }
+
             void Fire(ShardScriptFn fn, const char* what)
             {
                 if (fn) Call(what, [&] { return fn(m_Type->user, Data()); });
@@ -345,7 +369,8 @@ namespace Shard::Engine::Plugins::CAbi {
                 type->size = desc->size;
                 type->align = desc->align;
                 type->user = desc->user;
-                if (desc->structSize >= sizeof(ShardScriptDesc)) type->flags = desc->flags;
+                if (desc->structSize >= offsetof(ShardScriptDesc, flags) + sizeof(uint32_t)) type->flags = desc->flags;
+                if (desc->structSize >= offsetof(ShardScriptDesc, collision_kinds) + sizeof(uint32_t)) type->collisionKinds = desc->collision_kinds;
                 std::memcpy(&type->cb, desc->callbacks, std::min<size_t>(desc->callbacks->structSize, sizeof(ShardScriptCallbacks)));
                 type->active = ActiveCounter(*ctx);
                 type->report = ctx->Bindings().reportError;

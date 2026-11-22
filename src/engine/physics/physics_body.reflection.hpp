@@ -175,6 +175,181 @@ inline StructDescriptor CylinderParams_descriptor = {
     }
 };
 
+// Reflection for struct MeshParams
+
+inline FieldInfo MeshParams_mesh_info = {
+    "mesh",
+    TypeID::Asset,
+    offsetof(Shard::Engine::Objects::Components::MeshParams, mesh),
+    Editable,
+    0, 0,
+    "The mesh to collide with. Empty uses the model of this actor",
+    nullptr,
+    nullptr,
+    &CopyConstruct<Filesystem::AssetID>,
+    &Assign<Filesystem::AssetID>,
+    &Destroy<Filesystem::AssetID>,
+    &Equals<Filesystem::AssetID>
+};
+
+static EnumDescriptor MeshApproximation_descriptor = {
+    "MeshApproximation",
+    {
+        { 0, "Auto" },
+        { 1, "Exact" },
+        { 2, "Hull" },
+        { 3, "Hulls" },
+        { 4, "Bounds" },
+    },
+    sizeof(Physics::MeshApproximation)
+};
+
+inline FieldInfo MeshParams_approximation_info = {
+    "approximation",
+    TypeID::Enum,
+    offsetof(Shard::Engine::Objects::Components::MeshParams, approximation),
+    Editable,
+    0, 0,
+    "Auto : exact triangles for a static or kinematic body and convex pieces for a dynamic one. Exact is only for bodies that do not move by physics",
+    nullptr,
+    &MeshApproximation_descriptor,
+    &CopyConstruct<Physics::MeshApproximation>,
+    &Assign<Physics::MeshApproximation>,
+    &Destroy<Physics::MeshApproximation>,
+    &Equals<Physics::MeshApproximation>
+};
+
+inline FieldInfo MeshParams_submeshes_info = {
+    "submeshes",
+    TypeID::String,
+    offsetof(Shard::Engine::Objects::Components::MeshParams, submeshes),
+    Editable,
+    0, 0,
+    "Submeshes to use, for example 0 or 1-3 or 0,2. Empty uses all of them",
+    nullptr,
+    nullptr,
+    &CopyConstruct<std::string>,
+    &Assign<std::string>,
+    &Destroy<std::string>,
+    &Equals<std::string>
+};
+
+inline FieldInfo MeshParams_convexRadius_info = {
+    "convexRadius",
+    TypeID::Float,
+    offsetof(Shard::Engine::Objects::Components::MeshParams, convexRadius),
+    Editable,
+    0.0f, 0.5f,
+    "Rounding of the convex pieces, in metres. A little helps stability",
+    nullptr,
+    nullptr,
+    &CopyConstruct<float>,
+    &Assign<float>,
+    &Destroy<float>,
+    &Equals<float>
+};
+
+inline FieldInfo MeshParams_concavity_info = {
+    "concavity",
+    TypeID::Float,
+    offsetof(Shard::Engine::Objects::Components::MeshParams, concavity),
+    Editable,
+    0.01f, 1.0f,
+    "Hulls only : how far a piece may stray from the mesh. Lower is tighter and slower to build",
+    nullptr,
+    nullptr,
+    &CopyConstruct<float>,
+    &Assign<float>,
+    &Destroy<float>,
+    &Equals<float>
+};
+
+inline FieldInfo MeshParams_maxHulls_info = {
+    "maxHulls",
+    TypeID::Int32,
+    offsetof(Shard::Engine::Objects::Components::MeshParams, maxHulls),
+    Editable,
+    1, 64,
+    "Hulls only : most convex pieces",
+    nullptr,
+    nullptr,
+    &CopyConstruct<int>,
+    &Assign<int>,
+    &Destroy<int>,
+    &Equals<int>
+};
+
+inline FieldInfo MeshParams_maxHullVertices_info = {
+    "maxHullVertices",
+    TypeID::Int32,
+    offsetof(Shard::Engine::Objects::Components::MeshParams, maxHullVertices),
+    Editable,
+    8, 256,
+    "Most vertices of a convex piece",
+    nullptr,
+    nullptr,
+    &CopyConstruct<int>,
+    &Assign<int>,
+    &Destroy<int>,
+    &Equals<int>
+};
+
+inline FieldInfo MeshParams_edgeAngle_info = {
+    "edgeAngle",
+    TypeID::Float,
+    offsetof(Shard::Engine::Objects::Components::MeshParams, edgeAngle),
+    Editable,
+    0.0f, 90.0f,
+    "Exact only : edges flatter than this angle are smooth, so a body does not catch on the seams of a floor",
+    nullptr,
+    nullptr,
+    &CopyConstruct<float>,
+    &Assign<float>,
+    &Destroy<float>,
+    &Equals<float>
+};
+
+inline FieldInfo MeshParams_showInViewport_info = {
+    "showInViewport",
+    TypeID::Bool,
+    offsetof(Shard::Engine::Objects::Components::MeshParams, showInViewport),
+    Editable,
+    0, 0,
+    "Draws this collider in the viewport when Show Physics Shapes is on. Turn it off for a heavy mesh",
+    nullptr,
+    nullptr,
+    &CopyConstruct<bool>,
+    &Assign<bool>,
+    &Destroy<bool>,
+    &Equals<bool>
+};
+
+inline StructDescriptor MeshParams_descriptor = {
+    "MeshParams",
+    {
+        &MeshParams_mesh_info,
+        &MeshParams_approximation_info,
+        &MeshParams_submeshes_info,
+        &MeshParams_convexRadius_info,
+        &MeshParams_concavity_info,
+        &MeshParams_maxHulls_info,
+        &MeshParams_maxHullVertices_info,
+        &MeshParams_edgeAngle_info,
+        &MeshParams_showInViewport_info,
+    },
+    sizeof(Shard::Engine::Objects::Components::MeshParams),
+    [](void* p) { new (p) Shard::Engine::Objects::Components::MeshParams(); },
+    [](void* p) { static_cast<Shard::Engine::Objects::Components::MeshParams*>(p)->~MeshParams(); },
+    [](void* d, const void* s) {
+        *static_cast<Shard::Engine::Objects::Components::MeshParams*>(d) =
+        *static_cast<const Shard::Engine::Objects::Components::MeshParams*>(s);
+    },
+    [](const void* a, const void* b) {
+        return *static_cast<const Shard::Engine::Objects::Components::MeshParams*>(a)
+            == *static_cast<const Shard::Engine::Objects::Components::MeshParams*>(b);
+    }
+};
+
 // Reflection for class PhysicsBody
 
 static EnumDescriptor EMotionType_descriptor = {
@@ -332,6 +507,89 @@ inline FieldInfo PhysicsBody_friction_info = {
     &Equals<float>
 };
 
+inline FieldInfo PhysicsBody_collisionProfile_info = {
+    "collisionProfile",
+    TypeID::String,
+    offsetof(Shard::Engine::Objects::Components::PhysicsBody, collisionProfile),
+    Editable,
+    0, 0,
+    "Collision profile of this collider. Empty uses Default.Static or Default.Moving from the motion type",
+    nullptr,
+    nullptr,
+    &CopyConstruct<std::string>,
+    &Assign<std::string>,
+    &Destroy<std::string>,
+    &Equals<std::string>
+};
+
+static EnumDescriptor CollisionModeChoice_descriptor = {
+    "CollisionModeChoice",
+    {
+        { 0, "Inherit" },
+        { 1, "Solid" },
+        { 2, "Sensor" },
+        { 3, "QueryOnly" },
+        { 4, "Disabled" },
+    },
+    sizeof(Physics::CollisionModeChoice)
+};
+
+inline FieldInfo PhysicsBody_collisionMode_info = {
+    "collisionMode",
+    TypeID::Enum,
+    offsetof(Shard::Engine::Objects::Components::PhysicsBody, collisionMode),
+    Editable,
+    0, 0,
+    "Replaces the mode of the profile, Inherit keeps it",
+    nullptr,
+    &CollisionModeChoice_descriptor,
+    &CopyConstruct<Physics::CollisionModeChoice>,
+    &Assign<Physics::CollisionModeChoice>,
+    &Destroy<Physics::CollisionModeChoice>,
+    &Equals<Physics::CollisionModeChoice>
+};
+
+static EnumDescriptor CollisionResponseChoice_descriptor = {
+    "CollisionResponseChoice",
+    {
+        { 0, "Inherit" },
+        { 1, "Ignore" },
+        { 2, "Overlap" },
+        { 3, "Block" },
+    },
+    sizeof(Physics::CollisionResponseChoice)
+};
+
+inline FieldInfo PhysicsBody_collisionDefault_info = {
+    "collisionDefault",
+    TypeID::Enum,
+    offsetof(Shard::Engine::Objects::Components::PhysicsBody, collisionDefault),
+    Editable,
+    0, 0,
+    "Replaces the default response of the profile, Inherit keeps it",
+    nullptr,
+    &CollisionResponseChoice_descriptor,
+    &CopyConstruct<Physics::CollisionResponseChoice>,
+    &Assign<Physics::CollisionResponseChoice>,
+    &Destroy<Physics::CollisionResponseChoice>,
+    &Equals<Physics::CollisionResponseChoice>
+};
+
+inline FieldInfo PhysicsBody_collisionIgnore_info = {
+    "collisionIgnore",
+    TypeID::String,
+    offsetof(Shard::Engine::Objects::Components::PhysicsBody, collisionIgnore),
+    Editable,
+    0, 0,
+    "Tag query for the colliders this one ignores, for example Enemy or Prop | Pickup",
+    nullptr,
+    nullptr,
+    &CopyConstruct<std::string>,
+    &Assign<std::string>,
+    &Destroy<std::string>,
+    &Equals<std::string>
+};
+
 inline FieldInfo PhysicsBody_restitution_info = {
     "restitution",
     TypeID::Float,
@@ -359,6 +617,10 @@ inline ClassDescriptor Shard::Engine::Objects::Components::PhysicsBody::descript
         &PhysicsBody_gravityMode_info,
         &PhysicsBody_customGravity_info,
         &PhysicsBody_friction_info,
+        &PhysicsBody_collisionProfile_info,
+        &PhysicsBody_collisionMode_info,
+        &PhysicsBody_collisionDefault_info,
+        &PhysicsBody_collisionIgnore_info,
         &PhysicsBody_restitution_info,
     }
 };

@@ -6,6 +6,7 @@
 #include "engine/world/scheduler.hpp"
 
 #include "engine/assets/reflection/attributes.hpp"
+#include "engine/world/collision_events.hpp"
 
 namespace Shard::Engine::Events
 {
@@ -53,6 +54,18 @@ namespace Shard::Engine::Objects::Components
 
             virtual void OnContactEnded(const Events::ContactRemovedEvent& event);
 
+            // Called only after ListenCollisions(). The event carries both actors, the point, the normal and the impact speed.
+            virtual void OnOverlapBegin(const Events::CollisionEvent& event);
+
+            virtual void OnOverlapEnd(const Events::CollisionEvent& event);
+
+            virtual void OnHit(const Events::CollisionEvent& event);
+
+            // Starts the collision events for this actor. Nothing is produced for a pair until something listens for it.
+            // Returns 0 when the actor has no physics world. The subscription ends with the script.
+            uint64_t ListenCollisions(uint32_t kinds = Physics::kAllCollisionKinds, Physics::SubscribeOptions options = {});
+            void StopListeningCollisions();
+
             virtual void OnActivated();
 
             virtual void OnDeactivated();
@@ -90,6 +103,14 @@ namespace Shard::Engine::Objects::Components
 
             // Kept apart from the world pointer, which outlives the world : the timers are stopped through it, and a world that is gone has none left to stop
             std::weak_ptr<Worlds::Scheduler> timers;
+
+            struct CollisionListeners {
+                CollisionListeners() = default;
+                CollisionListeners(const CollisionListeners&) {}
+                CollisionListeners& operator=(const CollisionListeners&) { return *this; }
+                std::vector<uint64_t> ids;
+            };
+            CollisionListeners collisionListeners;
 
 
     };

@@ -27,6 +27,9 @@ How the engine works, by topic.
 |---|---|
 | [Large world](concepts/large-world.md) | 64-bit coordinates and reference frames |
 | [Gravity fields](concepts/gravity.md) | gravity as world data |
+| [Collision](concepts/collision.md) | tag based collision rules, events, explanations |
+| [Constraints](concepts/constraints.md) | hinges, sliders, ropes, joints and breakable links between bodies |
+| [Mesh colliders](concepts/mesh_colliders.md) | collide with the shape of a model: triangles, hulls and convex pieces |
 | [Headless mode and determinism](concepts/headless.md) | running with no window, replays, dedicated servers |
 
 ## Executables

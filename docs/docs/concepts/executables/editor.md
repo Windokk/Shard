@@ -52,9 +52,21 @@ Every panel is toggled from the **Window** menu.
 | Console | runs [console commands and variables](../time.md#time-scale) (`timescale 0.5`), and shows the log |
 | Profiler | the time of the last frames by category, CPU and GPU |
 | Project Settings | physics step, rendering and other project-wide values |
-| Editor Preferences | how the editor itself behaves, stored per user and not in the project |
+| Editor Preferences | how the editor itself behaves, stored per user and not in the project. The Colors category sets the viewport colors, see below |
 
 Double-clicking an asset opens its own editor when there is one (the material editor, for example).
+
+## Viewport colors
+
+Editor Preferences, Colors changes what the viewport draws with. Each color has a reset button, and the file is saved with the other preferences.
+
+| Group | Colors |
+|---|---|
+| Selection | outline (and its thickness in pixels), selection box |
+| Axes and gizmos | X, Y and Z, used by the transform gizmo, the view gizmo and the grid. Highlight of the gizmo part under the mouse. Grid lines |
+| Physics shapes | solid, sensor, query only and disabled colliders, and the four colors of Highlight collisions (source, block, overlap, ignore) |
+| Constraints and contacts | constraint, broken constraint, contact points that block or overlap, contact normal, event text |
+| Volumes | gravity fields and other volumes, GI probes |
 
 ## Editing
 

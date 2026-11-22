@@ -37,6 +37,14 @@ TEST_EXPORT int game_stat(const char* name)
     if (n == "crossScript") return s.crossScript;
     if (n == "driftSteps") return s.driftSteps;
     if (n == "aimed") return s.aimed;
+    if (n == "overlapBegins") return s.overlapBegins;
+    if (n == "overlapEnds") return s.overlapEnds;
+    if (n == "overlapCount") return s.overlapCount;
+    if (n == "overlapCause") return s.overlapCause;
+    if (n == "zoneHits") return s.zoneHits;
+    if (n == "hits") return s.hits;
+    if (n == "fallerOverlaps") return s.fallerOverlaps;
+    if (n == "quietEvents") return s.quietEvents;
     if (n == "contactsAdded") return s.contactsAdded;
     if (n == "contactsEnded") return s.contactsEnded;
     if (n == "rayHits") return s.rayHits;
@@ -77,6 +85,8 @@ TEST_EXPORT float game_float(const char* name)
 {
     const Stats& s = GetStats();
     const std::string n = name;
+    if (n == "hitSpeed") return s.hitSpeed;
+    if (n == "hitNormalY") return s.hitNormalY;
     if (n == "contactNormalY") return s.contactNormalY;
     if (n == "contactPenetration") return s.contactPenetration;
     if (n == "rayDistance") return s.rayDistance;
@@ -98,6 +108,7 @@ TEST_EXPORT const char* game_text(const char* name)
     if (n == "inspected") return s.inspected.c_str();
     if (n == "gizmoActor") return s.gizmoActor.c_str();
     if (n == "contactOther") return s.contactOther.c_str();
+    if (n == "overlapOther") return s.overlapOther.c_str();
     if (n == "rayActor") return s.rayActor.c_str();
     return "";
 }

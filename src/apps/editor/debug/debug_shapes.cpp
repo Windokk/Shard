@@ -17,6 +17,28 @@ namespace Shard::Editor::Debug {
         glm::vec4 color;
     };
 
+    void DebugLines::Generate(const std::vector<glm::vec3>& points, const std::vector<uint32_t>& lineIndices, COL_RGBA color)
+    {
+        std::vector<Vertex> vertices(points.size());
+        for (size_t i = 0; i < points.size(); ++i) {
+            vertices[i].position = points[i];
+            vertices[i].normal = glm::vec3(0, 1, 0);
+            vertices[i].color = color;
+            vertices[i].texCoord = glm::vec2(0, 0);
+        }
+
+        std::vector<uint8_t> vertexBuffer(vertices.size() * sizeof(Vertex));
+        memcpy(vertexBuffer.data(), vertices.data(), vertexBuffer.size());
+
+        m_Mesh = Mesh::Create();
+        m_Mesh->Create(vertexBuffer, lineIndices, {{
+            {"aPos",     ShaderDataType::Vec3, 0, offsetof(Vertex, position)},
+            {"aTexCoord",ShaderDataType::Vec2, 1, offsetof(Vertex, texCoord)},
+            {"aNormal",  ShaderDataType::Vec3, 2, offsetof(Vertex, normal)},
+            {"aColor",   ShaderDataType::Vec4, 3, offsetof(Vertex, color)},
+        }, sizeof(Vertex)});
+    }
+
     void DebugBox::GenerateBox(glm::vec3 halfExtent, COL_RGBA color)
     {
         std::vector<glm::vec3> localCorners = {

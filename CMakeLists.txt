@@ -50,6 +50,9 @@ set(SDL_TEST_LIBRARY OFF CACHE BOOL "" FORCE)
 set(SDL_EXAMPLES OFF CACHE BOOL "" FORCE)
 set(SDL_INSTALL OFF CACHE BOOL "" FORCE)
 add_subdirectory(submodules/SDL EXCLUDE_FROM_ALL SYSTEM)
+if(UNIX AND NOT APPLE AND TARGET SDL3-shared)
+    target_compile_definitions(SDL3-shared PRIVATE posix_spawn_file_actions_addchdir=posix_spawn_file_actions_addchdir_np)
+endif()
 add_subdirectory(submodules/glm SYSTEM)
 
 set(ENABLE_OPT OFF CACHE BOOL "" FORCE)
@@ -87,6 +90,21 @@ endif()
 # Jolt needs RTTI: without it a class deriving from JPH::JobSystemWithBarrier fails to link on Linux (no typeinfo).
 set(CPP_RTTI_ENABLED ON CACHE BOOL "" FORCE)
 add_subdirectory(submodules/jolt/Build SYSTEM)
+
+file(GLOB COACD_SOURCES CONFIGURE_DEPENDS
+    "${CMAKE_SOURCE_DIR}/submodules/coacd/src/*.cpp"
+    "${CMAKE_SOURCE_DIR}/submodules/coacd/src/btConvexHull/*.cpp"
+    "${CMAKE_SOURCE_DIR}/submodules/coacd/src/quickhull/*.cpp")
+list(FILTER COACD_SOURCES EXCLUDE REGEX ".*preprocess.*")
+add_library(CoACD STATIC ${COACD_SOURCES} "${CMAKE_SOURCE_DIR}/submodules/coacd/public/coacd.cpp")
+target_include_directories(CoACD PUBLIC "${CMAKE_SOURCE_DIR}/submodules/coacd/public")
+target_include_directories(CoACD PRIVATE "${CMAKE_SOURCE_DIR}/submodules/coacd/3rd/cdt/CDT/include" "${CMAKE_SOURCE_DIR}/cmake/coacd_shim")
+target_compile_definitions(CoACD PUBLIC COACD_STATIC PRIVATE WITH_3RD_PARTY_LIBS=0 WITH_STD_THREADS=1)
+target_compile_features(CoACD PRIVATE cxx_std_20)
+set_target_properties(CoACD PROPERTIES POSITION_INDEPENDENT_CODE ON CXX_STANDARD 20 CXX_STANDARD_REQUIRED ON)
+target_compile_options(CoACD PRIVATE $<$<CXX_COMPILER_ID:GNU,Clang,AppleClang>:-w> $<$<CXX_COMPILER_ID:MSVC>:/W0 /bigobj>)
+find_package(Threads REQUIRED)
+target_link_libraries(CoACD PRIVATE Threads::Threads)
 
 add_subdirectory(src/apps/tools/reflect)
 

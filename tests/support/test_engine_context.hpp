@@ -6,6 +6,7 @@
 #include "engine/world/engine.hpp"
 #include "engine/world/objectID.hpp"
 #include "engine/world/event_system.hpp"
+#include "engine/world/collision_events.hpp"
 
 // Minimal IEngineContext for tests. Only ObjectIDManager and EventDispatcher are real, every other accessor aborts the test.
 namespace Shard::Tests {
@@ -40,7 +41,11 @@ namespace Shard::Tests {
             Shard::Engine::Rendering::CameraManager* GetCameraManager() const override { Unsupported("GetCameraManager"); return nullptr; }
             Shard::Engine::Core::Resources::ResourcesManager* GetResourcesManager() const override { Unsupported("GetResourcesManager"); return nullptr; }
             Shard::Engine::Filesystem::FileManager* GetFileManager() const override { Unsupported("GetFileManager"); return nullptr; }
-            Shard::Engine::Filesystem::AssetIDManager* GetAssetIDManager() const override { Unsupported("GetAssetIDManager"); return nullptr; }
+            Shard::Engine::Filesystem::AssetIDManager* GetAssetIDManager() const override {
+                if (!assetIDManager) Unsupported("GetAssetIDManager");
+                return assetIDManager;
+            }
+            Shard::Engine::Events::ICollisionHost* GetCollisionHost() const override { return collisionHost; }
             Shard::Engine::Physics::PhysicsManager* GetPhysicsManager() const override {
                 if (!physicsManager) Unsupported("GetPhysicsManager");
                 return physicsManager;
@@ -65,6 +70,8 @@ namespace Shard::Tests {
         public:
             Shard::Engine::Core::JobSystem* jobSystem = nullptr;
             Shard::Engine::Physics::PhysicsManager* physicsManager = nullptr;
+            Shard::Engine::Filesystem::AssetIDManager* assetIDManager = nullptr;
+            Shard::Engine::Events::ICollisionHost* collisionHost = nullptr;
 
         private:
             static void Unsupported(const char* method) {

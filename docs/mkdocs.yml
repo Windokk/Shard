@@ -61,6 +61,7 @@ nav:
       - Event system: concepts/events.md
       - Time: concepts/time.md
       - Tags: concepts/tags.md
+      - Prefabs: concepts/prefabs.md
     - Rendering:
       - Renderer: concepts/renderer.md
       - Display and tonemapping: concepts/display.md
@@ -68,6 +69,9 @@ nav:
     - World and simulation:
       - Large world: concepts/large-world.md
       - Gravity fields: concepts/gravity.md
+      - Collision: concepts/collision.md
+      - Constraints: concepts/constraints.md
+      - Mesh colliders: concepts/mesh_colliders.md
       - Headless mode and determinism: concepts/headless.md
     - Executables:
       - Editor: concepts/executables/editor.md

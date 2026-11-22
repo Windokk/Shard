@@ -1,4 +1,5 @@
 #include "project_serializer.hpp"
+#include "engine/assets/serialization/collision/collision_json.hpp"
 
 #include <filesystem>
 
@@ -215,8 +216,11 @@ namespace Shard::Engine::Serialization{
             if(data.contains("tags")){
                 const json& tags = data["tags"];
                 if(tags.is_object()){
-                    for(auto& [tagName, tag] : tags.items())
+                    for(auto& [tagName, tag] : tags.items()){
                         tagSettings.tags[tagName] = (tag.is_object() && tag.contains("comment") && tag["comment"].is_string()) ? tag["comment"].get<std::string>() : std::string();
+                        if(tag.is_object() && tag.contains("collision") && tag["collision"].is_boolean() && tag["collision"].get<bool>())
+                            tagSettings.collisionTags.insert(tagName);
+                    }
                 }
                 else if(tags.is_array()){
                     for(const json& tag : tags)
@@ -233,6 +237,19 @@ namespace Shard::Engine::Serialization{
                         tagSettings.redirects[from] = to.get<std::string>();
             }
 
+            Projects::CollisionSettings collisionSettings;
+            {
+                std::vector<std::string> problems;
+                if(data.contains("collision_profiles") && data["collision_profiles"].is_object())
+                    for(auto& [name, profile] : data["collision_profiles"].items())
+                        collisionSettings.profiles.push_back(ProfileFromJson(name, profile, &problems));
+                if(data.contains("collision_interactions") && data["collision_interactions"].is_array())
+                    for(const json& row : data["collision_interactions"])
+                        collisionSettings.interactions.push_back(InteractionFromJson(row, &problems));
+                for(const std::string& problem : problems)
+                    DEBUG_ERROR("Project collision settings : " + problem);
+            }
+
             project = std::make_shared<Projects::Project>(path.GetFilename(false), projectRoot, projectResPath, pluginsPath, buildSettings, assetDatabasePath);
 
             if(data.contains("plugins") && data["plugins"].is_array())
@@ -241,6 +258,7 @@ namespace Shard::Engine::Serialization{
             *project->GetPhysicsSettings() = physicsSettings;
             *project->GetRenderingSettings() = renderingSettings;
             *project->GetTagSettings() = tagSettings;
+            *project->GetCollisionSettings() = collisionSettings;
 
             project->versionMajor = projectMajorVersion;
             project->versionMinor = projectMinorVersion;
@@ -330,9 +348,25 @@ namespace Shard::Engine::Serialization{
                 ordered_json tag = ordered_json::object();
                 if(!comment.empty())
                     tag["comment"] = comment;
+                if(tags->collisionTags.count(tagName))
+                    tag["collision"] = true;
                 out[tagName] = tag;
             }
             data["tags"] = out;
+        }
+
+        const Projects::CollisionSettings* collision = pro->GetCollisionSettings();
+        if(!collision->profiles.empty()){
+            ordered_json out = ordered_json::object();
+            for(const Collision::Profile& profile : collision->profiles)
+                out[profile.name] = ProfileToJson(profile);
+            data["collision_profiles"] = out;
+        }
+        if(!collision->interactions.empty()){
+            ordered_json out = ordered_json::array();
+            for(const Collision::InteractionRow& row : collision->interactions)
+                out.push_back(InteractionToJson(row));
+            data["collision_interactions"] = out;
         }
         if(!tags->redirects.empty())
             data["tagRedirects"] = tags->redirects;

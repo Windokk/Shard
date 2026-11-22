@@ -13,6 +13,9 @@
 
 #include "engine/physics/physics_manager.hpp"
 #include "engine/physics/gravity.hpp"
+#include "engine/physics/collision/collision_choices.hpp"
+#include "engine/physics/mesh/mesh_collider.hpp"
+#include "engine/assets/assetID.hpp"
 
 #include "engine/world/components/component.hpp"
 
@@ -24,6 +27,7 @@
 
 #include "engine/assets/reflection/reflection_fields.hpp"
 #include "engine/assets/reflection/attributes.hpp"
+#include "engine/assets/serialization/reflection/reflection_serializer.hpp"
 
 
 namespace Shard::Engine::Physics
@@ -95,6 +99,26 @@ namespace Shard::Engine::Objects::Components
         }
     };
 
+    struct STRUCT() MeshParams{
+        FIELD(Editable, tooltip=The mesh to collide with. Empty uses the model of this actor) Filesystem::AssetID mesh;
+        FIELD(Editable, tooltip=Auto : exact triangles for a static or kinematic body and convex pieces for a dynamic one. Exact is only for bodies that do not move by physics) Physics::MeshApproximation approximation = Physics::MeshApproximation::Auto;
+        FIELD(Editable, tooltip=Submeshes to use, for example 0 or 1-3 or 0,2. Empty uses all of them) std::string submeshes;
+        FIELD(Editable, range=0.0f|0.5f, tooltip=Rounding of the convex pieces, in metres. A little helps stability) float convexRadius = 0.02f;
+        FIELD(Editable, range=0.01f|1.0f, tooltip=Hulls only : how far a piece may stray from the mesh. Lower is tighter and slower to build) float concavity = 0.05f;
+        FIELD(Editable, range=1|64, tooltip=Hulls only : most convex pieces) int maxHulls = 16;
+        FIELD(Editable, range=8|256, tooltip=Most vertices of a convex piece) int maxHullVertices = 64;
+        FIELD(Editable, range=0.0f|90.0f, tooltip=Exact only : edges flatter than this angle are smooth, so a body does not catch on the seams of a floor) float edgeAngle = 5.0f;
+        FIELD(Editable, tooltip=Draws this collider in the viewport when Show Physics Shapes is on. Turn it off for a heavy mesh) bool showInViewport = true;
+        MeshParams() = default;
+        ~MeshParams() = default;
+
+        inline bool operator==(const MeshParams& other) const {
+            return mesh == other.mesh && approximation == other.approximation && submeshes == other.submeshes &&
+                convexRadius == other.convexRadius && concavity == other.concavity && maxHulls == other.maxHulls &&
+                maxHullVertices == other.maxHullVertices && edgeAngle == other.edgeAngle;
+        }
+    };
+
     struct PhysicsShapeEntry
     {
         Physics::PhysicsShape shapeType = Physics::PhysicsShape::BOX;
@@ -134,7 +158,11 @@ namespace Shard::Engine::Objects::Components
                 RemoveBody();
             }
 
-            void RemoveBody();
+            void RemoveBody(Collision::EndCause cause = Collision::EndCause::Destroyed);
+
+            void RefreshCollision();
+
+            bool BuildInspectorPatch(Collision::Patch& patch) const;
 
             void Deserialize(const json componentData) override;
 
@@ -159,6 +187,10 @@ namespace Shard::Engine::Objects::Components
             void SetShapeType(size_t index, Physics::PhysicsShape newType);
 
             void MarkShapesDirty() { shouldUpdateShape = true; }
+
+            bool UsesMeshAsset(Filesystem::AssetID asset) const;
+
+            bool GetMeshSettings(size_t shapeIndex, Physics::MeshColliderSettings& out) const;
 
             JPH::BodyID GetBodyID() const { return m_BodyID; }
             EMotionType GetMotionType() { return motionType; }
@@ -236,6 +268,18 @@ namespace Shard::Engine::Objects::Components
             FIELD(Editable, range=0.0f|1.0f, tooltip=Resistance when sliding on another body, 0 is ice and 1 is very grippy)
             float friction = 0.2f;
 
+            FIELD(Editable, tooltip=Collision profile of this collider. Empty uses Default.Static or Default.Moving from the motion type)
+            std::string collisionProfile;
+
+            FIELD(Editable, tooltip=Replaces the mode of the profile, Inherit keeps it)
+            Physics::CollisionModeChoice collisionMode = Physics::CollisionModeChoice::Inherit;
+
+            FIELD(Editable, tooltip=Replaces the default response of the profile, Inherit keeps it)
+            Physics::CollisionResponseChoice collisionDefault = Physics::CollisionResponseChoice::Inherit;
+
+            FIELD(Editable, tooltip=Tag query for the colliders this one ignores, for example Enemy or Prop | Pickup)
+            std::string collisionIgnore;
+
             FIELD(Editable, range=0.0f|1.0f, tooltip=Bounciness, 0 does not bounce and 1 bounces back with all its energy)
             float restitution = 0.0f;
 
@@ -252,9 +296,19 @@ namespace Shard::Engine::Objects::Components
             uint64_t m_PoseStep = 0;
             bool m_PoseValid = false;
 
-            JPH::ShapeRefC BuildShape();
+            JPH::ShapeRefC BuildShape(EMotionType motion);
 
-            JPH::ShapeRefC CreateJoltShape(Physics::PhysicsShape shape, const InstancedStruct& params);
+            JPH::ShapeRefC CreateJoltShape(Physics::PhysicsShape shape, const InstancedStruct& params, EMotionType motion);
+
+            void WatchMesh();
+
+            bool FillMeshSettings(const MeshParams& p, Physics::MeshColliderSettings& out) const;
+
+            Serialization::ReflectionContext ContextFor(Physics::PhysicsShape shape) const;
+
+            bool m_MeshRefining = false;
+            bool m_MeshMissing = false;
+            uint64_t m_MeshGeneration = 0;
 
             void ApplyMassProperties();
 

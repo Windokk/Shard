@@ -331,14 +331,23 @@ namespace Shard::Engine::Plugins {
                 else m.tags[name] = std::move(comment);
             };
             if (t.is_object()) {
-                for (auto& [name, tag] : t.items())
+                for (auto& [name, tag] : t.items()) {
                     add(name, (tag.is_object() && tag.contains("comment") && tag["comment"].is_string()) ? tag["comment"].get<std::string>() : std::string());
+                    if (tag.is_object() && tag.contains("collision") && tag["collision"].is_boolean() && tag["collision"].get<bool>())
+                        m.collisionTags.push_back(name);
+                }
             } else if (t.is_array()) {
                 for (const json& name : t) {
                     if (name.is_string()) add(name.get<std::string>(), std::string());
                     else errors.push_back("'tags' must hold names");
                 }
             } else errors.push_back("'tags' must be an object (name : { comment }) or an array of names");
+        }
+
+        for (const char* key : { "collision_profiles", "physics_materials" }) {
+            if (!r.Has(key)) continue;
+            if (!j[key].is_object()) errors.push_back(std::string("'") + key + "' must be an object");
+            else (std::string(key) == "collision_profiles" ? m.collisionProfiles : m.physicsMaterials) = j[key];
         }
 
         if (!errors.empty()) {
@@ -391,10 +400,13 @@ namespace Shard::Engine::Plugins {
             for (const auto& [name, comment] : m.tags) {
                 nlohmann::ordered_json tag = nlohmann::ordered_json::object();
                 if (!comment.empty()) tag["comment"] = comment;
+                if (std::find(m.collisionTags.begin(), m.collisionTags.end(), name) != m.collisionTags.end()) tag["collision"] = true;
                 tags[name] = tag;
             }
             j["tags"] = tags;
         }
+        if (m.collisionProfiles.is_object() && !m.collisionProfiles.empty()) j["collision_profiles"] = m.collisionProfiles;
+        if (m.physicsMaterials.is_object() && !m.physicsMaterials.empty()) j["physics_materials"] = m.physicsMaterials;
         return j;
     }
 }

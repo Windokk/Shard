@@ -12,6 +12,8 @@
 #include "engine/audio/audio_manager.hpp"
 #include "engine/audio/audio_world_data.hpp"
 #include "engine/audio/audioID.hpp"
+#include "engine/core/collision/collision_profile.hpp"
+#include "engine/core/tags/tag_registry.hpp"
 #include "engine/physics/physics_body.hpp"
 #include "engine/physics/physics_manager.hpp"
 #include "engine/plugins/abi/c_plugin.hpp"
@@ -502,9 +504,11 @@ namespace {
             GameScriptsTest::SetUp();
             physics.Init(glm::vec3(0.0f, -9.81f, 0.0f));
             context.physicsManager = &physics;
+            context.collisionHost = &physics.Collision();
         }
         void TearDown() override
         {
+            context.collisionHost = nullptr;
             actors.clear();
             world.reset();
             PluginManager::Get().ResetForTests();
@@ -1064,4 +1068,178 @@ TEST_F(GamePhysicsTest, EditorKeepsPluginAdditions)
     EXPECT_TRUE(pm().Extensions().Get<EditorAssetOpenerItem>("editor.assetopener").empty());
     Undos().clear();
     SetEditorUiBackend(nullptr);
+}
+
+namespace {
+    Collision::Profile CollisionProfile(const char* name, const char* identity, std::initializer_list<std::pair<const char*, Collision::Response>> rules, Collision::Mode mode = Collision::Mode::Solid)
+    {
+        Collision::Profile p;
+        p.name = name;
+        p.identity.Add(Core::Tag::Request(identity));
+        for (const auto& [text, response] : rules) p.rules.push_back({ Core::TagQuery::Parse(text), response });
+        p.defaultResponse = Collision::Response::Ignore;
+        p.mode = mode;
+        return p;
+    }
+}
+
+TEST_F(GamePhysicsTest, ScriptsReceiveTheCollisionEventsTheyName)
+{
+    Core::TagRegistry::Get().Clear();
+    Core::TagRegistry::Get().SetDeclarations(Core::TagSource::Project, "", { { "Hero", "" }, { "Floor", "" }, { "Trigger", "" } });
+    Collision::ProfileRegistry::Get().Clear();
+    Collision::ProfileRegistry::Get().SetCollisionRoots(Collision::Source::Project, "", { "Hero", "Floor", "Trigger" });
+    using R = Collision::Response;
+    Collision::ProfileRegistry::Get().Declare(Collision::Source::Project, "", CollisionProfile("Hero", "Hero", { { "Floor", R::Block }, { "Trigger", R::Overlap } }));
+    Collision::ProfileRegistry::Get().Declare(Collision::Source::Project, "", CollisionProfile("Floor", "Floor", { { "Hero", R::Block } }));
+    Collision::ProfileRegistry::Get().Declare(Collision::Source::Project, "", CollisionProfile("Zone", "Trigger", { { "Hero", R::Overlap } }, Collision::Mode::Sensor));
+    Start();
+
+    auto Spawn = [&](const char* name, const char* profile, glm::vec3 position, glm::vec3 scale, JPH::EMotionType motion) {
+        auto actor = NewActor(name);
+        actor->transform->SetPosition(position);
+        actor->transform->SetScale(scale);
+        auto body = actor->AddComponent<Objects::Components::PhysicsBody>();
+        body->collisionProfile = profile;
+        body->CreateBody(motion);
+        actors.push_back(actor);
+        return actor;
+    };
+
+    Spawn("Ground", "Floor", glm::vec3(0.0f, -0.5f, 0.0f), glm::vec3(40.0f, 1.0f, 40.0f), JPH::EMotionType::Static);
+    auto zone = Spawn("Zone", "Zone", glm::vec3(0.0f, 5.0f, 0.0f), glm::vec3(4.0f, 2.0f, 4.0f), JPH::EMotionType::Static);
+    auto hero = Spawn("Hero", "Hero", glm::vec3(0.0f, 9.0f, 0.0f), glm::vec3(1.0f), JPH::EMotionType::Dynamic);
+    ASSERT_NE(zone->AddComponentByName(Type("Zone")), nullptr);
+    ASSERT_NE(hero->AddComponentByName(Type("Faller")), nullptr);
+    ASSERT_NE(hero->AddComponentByName(Type("Quiet")), nullptr);
+
+    world->Play();
+    EXPECT_EQ(Stat("overlapBegins"), 0);
+    for (int step = 0; step < 240; ++step) physics.StepSimulation(1.0f / 60.0f, false);
+
+    EXPECT_EQ(Stat("overlapBegins"), 1);
+    EXPECT_EQ(Stat("overlapEnds"), 1);
+    EXPECT_EQ(Stat("overlapCause"), 1);
+    EXPECT_EQ(Stat("overlapCount"), 1);
+    EXPECT_STREQ(Export<const char* (*)(const char*)>("game_text")("overlapOther"), "Hero");
+    EXPECT_GE(Stat("hits"), 1);
+    EXPECT_GT(Export<float (*)(const char*)>("game_float")("hitSpeed"), 3.0f);
+    EXPECT_GT(Export<float (*)(const char*)>("game_float")("hitNormalY"), 0.5f);
+    EXPECT_EQ(Stat("zoneHits"), 0);
+    EXPECT_EQ(Stat("fallerOverlaps"), 0);
+    EXPECT_EQ(Stat("quietEvents"), 0);
+    EXPECT_EQ(Rec()->errorCount, 0u);
+}
+
+TEST_F(GamePhysicsTest, CollisionInterfacePollsEventsExplainsAndQueriesAsAProfile)
+{
+    Core::TagRegistry::Get().Clear();
+    Core::TagRegistry::Get().SetDeclarations(Core::TagSource::Project, "", { { "Hero", "" }, { "Floor", "" }, { "Shot", "" } });
+    Collision::ProfileRegistry::Get().Clear();
+    Collision::ProfileRegistry::Get().SetCollisionRoots(Collision::Source::Project, "", { "Hero", "Floor", "Shot" });
+    using R = Collision::Response;
+    Collision::ProfileRegistry::Get().Declare(Collision::Source::Project, "", CollisionProfile("Hero", "Hero", { { "Floor", R::Block } }));
+    Collision::ProfileRegistry::Get().Declare(Collision::Source::Project, "", CollisionProfile("Floor", "Floor", { { "Hero | Shot", R::Block } }));
+    Collision::ProfileRegistry::Get().Declare(Collision::Source::Project, "", CollisionProfile("Shot", "Shot", { { "Hero", R::Block } }));
+    Start();
+
+    auto ground = NewActor("Ground");
+    ground->transform->SetPosition(glm::vec3(0.0f, -0.5f, 0.0f));
+    ground->transform->SetScale(glm::vec3(40.0f, 1.0f, 40.0f));
+    auto groundBody = ground->AddComponent<Objects::Components::PhysicsBody>();
+    groundBody->collisionProfile = "Floor";
+    groundBody->CreateBody(JPH::EMotionType::Static);
+    auto wall = NewActor("Wall");
+    wall->transform->SetPosition(glm::vec3(0.0f, 2.0f, 0.0f));
+    auto wallBody = wall->AddComponent<Objects::Components::PhysicsBody>();
+    wallBody->collisionProfile = "Hero";
+    wallBody->CreateBody(JPH::EMotionType::Static);
+    auto hero = NewActor("Hero");
+    hero->transform->SetPosition(glm::vec3(8.0f, 3.0f, 0.0f));
+    auto heroBody = hero->AddComponent<Objects::Components::PhysicsBody>();
+    heroBody->collisionProfile = "Hero";
+    heroBody->CreateBody(JPH::EMotionType::Dynamic);
+    actors = { ground, wall, hero };
+
+    const ShardHostApi* host = GetCHostApi();
+    const void* table = nullptr;
+    ASSERT_EQ(host->query_interface(ShardStr{ SHARD_IFACE_COLLISION, std::strlen(SHARD_IFACE_COLLISION) }, 1, 0, &table), SHARD_OK);
+    const auto* api = static_cast<const ShardCollisionApi*>(table);
+    ASSERT_EQ(host->query_interface(ShardStr{ SHARD_IFACE_PHYSICS, std::strlen(SHARD_IFACE_PHYSICS) }, 1, 0, &table), SHARD_OK);
+    const auto* physicsApi = static_cast<const ShardPhysicsApi*>(table);
+    const ShardPluginCtx ctx = ShardPluginCtx(Rec()->owner);
+    ASSERT_NE(ctx, 0u);
+    const ShardActor heroHandle = CAbi::ActorHandle(hero);
+    const ShardActor groundHandle = CAbi::ActorHandle(ground);
+
+    ShardCollisionSub sub = 0;
+    ASSERT_EQ(api->subscribe(ctx, heroHandle, SHARD_COLLISION_HIT, ShardStr{ nullptr, 0 }, 0.0f, 0u, &sub), SHARD_OK);
+    ASSERT_NE(sub, 0u);
+    ASSERT_EQ(api->subscribe(ctx, heroHandle, 0u, ShardStr{ nullptr, 0 }, 0.0f, 0u, &sub), SHARD_E_INVALID_ARG);
+    ASSERT_EQ(api->subscribe(ctx, heroHandle, SHARD_COLLISION_HIT, ShardStr{ "Hero &", 6 }, 0.0f, 0u, &sub), SHARD_E_INVALID_ARG);
+    ASSERT_EQ(api->subscribe(ctx, heroHandle, SHARD_COLLISION_HIT, ShardStr{ nullptr, 0 }, 0.0f, 0u, &sub), SHARD_OK);
+
+    for (int step = 0; step < 120; ++step) physics.StepSimulation(1.0f / 60.0f, false);
+
+    ShardCollisionEvent events[8];
+    for (ShardCollisionEvent& e : events) e.structSize = sizeof(ShardCollisionEvent);
+    uint32_t count = 0;
+    ASSERT_EQ(api->poll_events(ctx, sub, events, 8, &count), SHARD_OK);
+    ASSERT_GE(count, 1u);
+    EXPECT_EQ(events[0].kind, uint32_t(SHARD_COLLISION_HIT));
+    EXPECT_EQ(events[0].self, heroHandle);
+    EXPECT_EQ(events[0].other, groundHandle);
+    EXPECT_GT(events[0].impactSpeed, 3.0f);
+    ASSERT_EQ(api->poll_events(ctx, sub, events, 8, &count), SHARD_OK);
+    EXPECT_EQ(count, 0u);
+    EXPECT_EQ(api->poll_events(ctx, sub + 1000, events, 8, &count), SHARD_E_NOT_FOUND);
+
+    uint64_t size = 0;
+    ASSERT_EQ(api->explain(ctx, heroHandle, groundHandle, nullptr, 0, &size), SHARD_OK);
+    std::string why(size_t(size), '\0');
+    ASSERT_EQ(api->explain(ctx, heroHandle, groundHandle, why.data(), size, &size), SHARD_OK);
+    EXPECT_NE(why.find("profile 'Hero'"), std::string::npos);
+    EXPECT_NE(why.find("Block"), std::string::npos);
+
+    uint64_t overrideId = 0;
+    ASSERT_EQ(api->push_override(ctx, heroHandle, ShardStr{ "dash", 4 }, 5, ShardStr{ "Floor", 5 }, 0u, 0u, &overrideId), SHARD_OK);
+    ASSERT_NE(overrideId, 0u);
+    ASSERT_EQ(api->explain(ctx, heroHandle, groundHandle, nullptr, 0, &size), SHARD_OK);
+    why.assign(size_t(size), '\0');
+    ASSERT_EQ(api->explain(ctx, heroHandle, groundHandle, why.data(), size, &size), SHARD_OK);
+    EXPECT_NE(why.find("dash"), std::string::npos);
+    EXPECT_EQ(api->pop_override(ctx, heroHandle, overrideId), SHARD_OK);
+    EXPECT_EQ(api->pop_override(ctx, heroHandle, overrideId), SHARD_E_NOT_FOUND);
+    EXPECT_EQ(api->set_profile(ctx, heroHandle, ShardStr{ "Nobody", 6 }), SHARD_E_NOT_FOUND);
+
+    ShardQueryFilter filter{};
+    filter.structSize = sizeof(ShardQueryFilter);
+    filter.as_profile = ShardStr{ "Shot", 4 };
+    ShardRayHit hits[4];
+    for (ShardRayHit& h : hits) h.structSize = sizeof(ShardRayHit);
+    const float origin[3] = { 0.0f, 10.0f, 0.0f };
+    const float down[3] = { 0.0f, -1.0f, 0.0f };
+    uint32_t found = 0;
+    ASSERT_EQ(physicsApi->raycast_all(origin, down, 30.0f, &filter, hits, 4, &found), SHARD_OK);
+    EXPECT_EQ(found, 1u);
+    EXPECT_EQ(hits[0].actor, CAbi::ActorHandle(wall));
+
+    filter.as_profile = ShardStr{ "Hero", 4 };
+    ASSERT_EQ(physicsApi->raycast_all(origin, down, 30.0f, &filter, hits, 4, &found), SHARD_OK);
+    EXPECT_EQ(found, 1u);
+    EXPECT_EQ(hits[0].actor, groundHandle);
+    filter.as_profile = ShardStr{ nullptr, 0 };
+    ASSERT_EQ(physicsApi->raycast_all(origin, down, 30.0f, &filter, hits, 4, &found), SHARD_OK);
+    EXPECT_EQ(found, 2u);
+    filter.as_profile = ShardStr{ "Hero", 4 };
+    filter.as_profile = ShardStr{ "Missing", 7 };
+    EXPECT_EQ(physicsApi->raycast_all(origin, down, 30.0f, &filter, hits, 4, &found), SHARD_E_NOT_FOUND);
+    filter.as_profile = ShardStr{ nullptr, 0 };
+    filter.as_actor = heroHandle;
+    ASSERT_EQ(physicsApi->raycast_all(origin, down, 30.0f, &filter, hits, 4, &found), SHARD_OK);
+    EXPECT_EQ(found, 1u);
+    EXPECT_EQ(hits[0].actor, groundHandle);
+
+    ASSERT_EQ(api->unsubscribe(ctx, sub), SHARD_OK);
+    EXPECT_EQ(api->unsubscribe(ctx, sub), SHARD_E_NOT_FOUND);
 }

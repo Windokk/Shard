@@ -729,6 +729,7 @@ A plugin can ship its content as one file instead of a folder. `ShardCooker` doe
 ShardCooker plugin <plugin folder> --out <folder>   # content/ becomes content.shardpak, the rest is copied
 ShardCooker pack   <folder> <out.shardpak>          # any folder in one pak
 ShardCooker project <project.json> --out <folder>   # a whole project (see below)
+ShardCooker collision <project.json> [--no-hulls]   # mesh colliders of every model, written as <model>.scol
 ShardCooker list | verify | unpack <pak> ...
 ```
 

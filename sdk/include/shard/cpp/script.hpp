@@ -35,6 +35,7 @@
 
 #include <shard/shard_scripts.h>
 #include <shard/cpp/actor.hpp>
+#include <shard/cpp/collision.hpp>
 #include <shard/cpp/component.hpp>
 #include <shard/cpp/detail.hpp>
 #include <shard/cpp/field.hpp>
@@ -80,6 +81,11 @@ namespace Shard {
         virtual void OnContactAdded(const Contact&) {}
         virtual void OnContactPersisted(const Contact&) {}
         virtual void OnContactEnded(const Contact&) {}
+        /// Collision events, for the kinds the class names in `static constexpr uint32_t kCollisionEvents = CollisionKinds::OverlapBegin | ...;`.
+        /// Nothing is produced for a kind that is not named. They run right after the physics step.
+        virtual void OnOverlapBegin(const CollisionEvent&) {}
+        virtual void OnOverlapEnd(const CollisionEvent&) {}
+        virtual void OnHit(const CollisionEvent&) {}
         /// Every frame the world does NOT play (the editor's edit mode), with the real frame time : a particle emitter, a UI being laid out, a preview.
         /// Only for a class that declares `static constexpr bool kExecuteInEditMode = true;`. What it does must not change what gets saved.
         virtual void OnEditTick(float /*deltaTime*/) {}
@@ -114,6 +120,8 @@ namespace Shard {
             static std::unordered_map<std::type_index, std::vector<std::string>> names;
             return names;
         }
+        template <typename T, typename = void> struct CollisionKindsOf { static constexpr uint32_t value = 0; };
+        template <typename T> struct CollisionKindsOf<T, std::void_t<decltype(T::kCollisionEvents)>> { static constexpr uint32_t value = T::kCollisionEvents; };
         template <typename T, typename = void> struct ExecutesInEditMode : std::false_type {};
         template <typename T> struct ExecutesInEditMode<T, std::enable_if_t<T::kExecuteInEditMode>> : std::true_type {};
     }
@@ -180,6 +188,11 @@ namespace Shard {
                 (static_cast<Script*>(static_cast<T*>(object))->*Fn)(contact);
             });
         }
+        template <void (Script::*Fn)(const CollisionEvent&)>
+        static ShardResult CollisionCallback(void*, void* object, const ShardCollisionEvent* raw)
+        {
+            return detail::Guard(detail::PluginHandle(), "a script", [&] { (static_cast<Script*>(static_cast<T*>(object))->*Fn)(CollisionEvent::From(*raw)); });
+        }
         // The text of a std::string member, for the host (SHARD_FIELD_ACCESSOR) : the offset is where the field is in the object
         static void SHARD_CALL TextGet(void*, void* object, uint32_t offset, ShardStr* out)
         {
@@ -228,6 +241,9 @@ namespace Shard {
                 c.text_set = &TextSet;
                 c.on_edit_tick = &Tick<&Script::OnEditTick>;
                 c.on_field_changed = &FieldChanged;
+                c.on_overlap_begin = &CollisionCallback<&Script::OnOverlapBegin>;
+                c.on_overlap_end = &CollisionCallback<&Script::OnOverlapEnd>;
+                c.on_hit = &CollisionCallback<&Script::OnHit>;
                 return c;
             }();
             return table;
@@ -280,6 +296,7 @@ namespace Shard {
             desc.user = nullptr;
             desc.callbacks = &ScriptThunks<T>::Table();
             desc.flags = detail::ExecutesInEditMode<T>::value ? SHARD_SCRIPT_EDIT_MODE : 0u;
+            desc.collision_kinds = detail::CollisionKindsOf<T>::value;
             detail::Check(detail::ScriptsApi().register_script(m_Ctx, &desc), "script '" + name + "'");
             detail::ScriptNames()[std::type_index(typeid(T))] = name;
             std::vector<std::string>& names = detail::ScriptFieldNames()[std::type_index(typeid(T))];

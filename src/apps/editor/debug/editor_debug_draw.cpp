@@ -3,6 +3,7 @@
 #define GLM_ENABLE_EXPERIMENTAL
 
 #include <cmath>
+#include <unordered_set>
 
 #include <glm/gtc/matrix_transform.hpp>
 #include <glm/gtc/quaternion.hpp>
@@ -12,7 +13,9 @@
 #include "engine/assets/resources_manager.hpp"
 #include "engine/core/config/cvar.hpp"
 #include "engine/physics/gravity_field.hpp"
+#include "engine/physics/collision/collision_system.hpp"
 #include "engine/physics/physics_body.hpp"
+#include "engine/physics/physics_manager.hpp"
 #include "engine/renderer/components/probe_volume.hpp"
 #include "engine/renderer/components/reflection_probe.hpp"
 #include "engine/renderer/components/volume.hpp"
@@ -28,6 +31,7 @@
 #include "engine/world/world.hpp"
 #include "engine/world/world_manager.hpp"
 
+#include "apps/editor/debug/collision_debug_state.hpp"
 #include "apps/editor/debug/debug_shapes.hpp"
 
 namespace Shard::Editor::Debug{
@@ -60,7 +64,6 @@ namespace Shard::Editor::Debug{
             glm::vec4 color;
         };
 
-        const COL_RGBA kWireframeColor = COL_RGBA(0.0f, 1.0f, 1.0f, 1.0f);
         const glm::vec3 kGravityArrowHalfExtent = glm::vec3(0.3f, 0.6f, 0.3f);
 
         glm::mat4 GravityArrowPose(const glm::vec3& position, const glm::vec3& direction)
@@ -70,7 +73,78 @@ namespace Shard::Editor::Debug{
             return glm::translate(glm::mat4(1.0f), position) * glm::mat4_cast(glm::rotation(glm::vec3(0.0f, 1.0f, 0.0f), dir));
         }
 
-        const COL_RGBA kProbeColor = COL_RGBA(1.0f, 1.0f, 1.0f, 1.0f);
+        COL_RGBA ToColor(const glm::vec4& color)
+        {
+            return COL_RGBA(color.r, color.g, color.b, color.a);
+        }
+
+        COL_RGBA PhysicsTint(const Core::ViewportStyle& style, int tint)
+        {
+            switch(tint){
+                case 1:  return ToColor(style.shapeSensor);
+                case 2:  return ToColor(style.shapeQueryOnly);
+                case 3:  return ToColor(style.shapeDisabled);
+                case 4:  return ToColor(style.highlightBlock);
+                case 5:  return ToColor(style.highlightOverlap);
+                case 6:  return ToColor(style.highlightIgnore);
+                case 7:  return ToColor(style.highlightSource);
+                default: return ToColor(style.shapeSolid);
+            }
+        }
+
+        int ModeTint(Engine::Collision::Mode mode)
+        {
+            switch(mode){
+                case Engine::Collision::Mode::Sensor:    return 1;
+                case Engine::Collision::Mode::QueryOnly: return 2;
+                case Engine::Collision::Mode::Disabled:  return 3;
+                default:                                 return 0;
+            }
+        }
+
+        Engine::Collision::Mode InspectorMode(Components::PhysicsBody& body)
+        {
+            using Engine::Collision::Mode;
+            switch(body.collisionMode){
+                case Engine::Physics::CollisionModeChoice::Sensor:    return Mode::Sensor;
+                case Engine::Physics::CollisionModeChoice::QueryOnly: return Mode::QueryOnly;
+                case Engine::Physics::CollisionModeChoice::Disabled:  return Mode::Disabled;
+                default:                                              return Mode::Solid;
+            }
+        }
+
+        int TintOf(Components::PhysicsBody& body, const Engine::Objects::Actor& actor)
+        {
+            Engine::Physics::PhysicsManager* physics = Engine::Core::GetEngine().GetPhysicsManager();
+            Engine::Physics::CollisionSystem* system = physics ? &physics->Collision() : nullptr;
+            const JPH::BodyID id = body.GetBodyID();
+            const Engine::Physics::ColliderState* state = system && !id.IsInvalid() ? system->StateOf(id) : nullptr;
+
+            const std::shared_ptr<Engine::Objects::Actor> source = CollisionDebugState::Get().highlight.lock();
+            if(source && system)
+            {
+                if(source.get() == &actor)
+                    return 7;
+                auto sourceBody = source->GetComponent<Components::PhysicsBody>();
+                if(sourceBody && !sourceBody->GetBodyID().IsInvalid() && state)
+                {
+                    const Engine::Collision::ClassId a = system->ClassOf(sourceBody->GetBodyID());
+                    const Engine::Collision::ClassId b = state->cls;
+                    if(a != Engine::Collision::kInvalidClass && b != Engine::Collision::kInvalidClass && system->Classes().IsAlive(a) && system->Classes().IsAlive(b))
+                    {
+                        switch(system->Classes().PairResponse(a, b)){
+                            case Engine::Collision::Response::Block:   return 4;
+                            case Engine::Collision::Response::Overlap: return 5;
+                            default:                                   return 6;
+                        }
+                    }
+                }
+                return 6;
+            }
+
+            return ModeTint(state ? state->mode : InspectorMode(body));
+        }
+
         constexpr float kProbeRadius = 0.08f;
     }
 
@@ -128,18 +202,81 @@ namespace Shard::Editor::Debug{
             m_Passes[(int)layer]->enabled = visible;
     }
 
+    std::unique_ptr<DebugShape> EditorDebugDraw::BuildMeshWire(const ShapeSpec& spec) const
+    {
+        constexpr size_t kMaxWireTriangles = 400000;
+        if(!spec.shape)
+            return nullptr;
+
+        std::vector<glm::vec3> triangles;
+        const bool complete = Engine::Physics::ExtractShapeTriangles(*spec.shape, triangles, kMaxWireTriangles);
+
+        std::vector<glm::vec3> points;
+        std::vector<uint32_t> lines;
+
+        if(complete && !triangles.empty())
+        {
+            struct Key { int64_t x, y, z; bool operator==(const Key& o) const { return x == o.x && y == o.y && z == o.z; } };
+            struct KeyHash { size_t operator()(const Key& k) const { return size_t(k.x * 73856093ll) ^ size_t(k.y * 19349663ll) ^ size_t(k.z * 83492791ll); } };
+            std::unordered_map<Key, uint32_t, KeyHash> welded;
+            std::unordered_set<uint64_t> seen;
+
+            auto indexOf = [&](const glm::vec3& p) {
+                const Key key{ int64_t(std::llround(p.x * 10000.0)), int64_t(std::llround(p.y * 10000.0)), int64_t(std::llround(p.z * 10000.0)) };
+                const auto [it, added] = welded.try_emplace(key, uint32_t(points.size()));
+                if(added)
+                    points.push_back(p);
+                return it->second;
+            };
+
+            for(size_t t = 0; t + 2 < triangles.size(); t += 3)
+            {
+                const uint32_t corner[3] = { indexOf(triangles[t]), indexOf(triangles[t + 1]), indexOf(triangles[t + 2]) };
+                for(int e = 0; e < 3; ++e)
+                {
+                    const uint32_t a = corner[e], b = corner[(e + 1) % 3];
+                    if(a == b)
+                        continue;
+                    const uint64_t edge = (uint64_t(std::min(a, b)) << 32) | std::max(a, b);
+                    if(seen.insert(edge).second)
+                    {
+                        lines.push_back(a);
+                        lines.push_back(b);
+                    }
+                }
+            }
+        }
+        else
+        {
+            const JPH::AABox box = spec.shape->GetLocalBounds();
+            const JPH::Vec3 centre = spec.shape->GetCenterOfMass();
+            for(int corner = 0; corner < 8; ++corner)
+            {
+                const JPH::Vec3 p = centre + JPH::Vec3((corner & 1) ? box.mMax.GetX() : box.mMin.GetX(), (corner & 2) ? box.mMax.GetY() : box.mMin.GetY(), (corner & 4) ? box.mMax.GetZ() : box.mMin.GetZ());
+                points.emplace_back(p.GetX(), p.GetY(), p.GetZ());
+            }
+            lines = { 0,1, 2,3, 4,5, 6,7, 0,2, 1,3, 4,6, 5,7, 0,4, 1,5, 2,6, 3,7 };
+        }
+
+        if(lines.empty())
+            return nullptr;
+        return std::make_unique<DebugLines>(points, lines, PhysicsTint(m_Style, spec.tint));
+    }
+
     std::unique_ptr<DebugShape> EditorDebugDraw::BuildShape(const ShapeSpec& spec) const
     {
         switch(spec.kind){
-            case ShapeKind::Sphere:   return std::make_unique<DebugSphere>(spec.radius, kWireframeColor);
-            case ShapeKind::Box:      return std::make_unique<DebugBox>(spec.halfExtent, kWireframeColor);
-            case ShapeKind::Capsule:  return std::make_unique<DebugCapsule>(spec.radius, spec.halfHeight, kWireframeColor);
-            case ShapeKind::Cylinder: return std::make_unique<DebugCylinder>(spec.radius, spec.halfHeight, kWireframeColor);
+            case ShapeKind::Sphere:   return std::make_unique<DebugSphere>(spec.radius, PhysicsTint(m_Style, spec.tint));
+            case ShapeKind::Box:      return std::make_unique<DebugBox>(spec.halfExtent, PhysicsTint(m_Style, spec.tint));
+            case ShapeKind::Capsule:  return std::make_unique<DebugCapsule>(spec.radius, spec.halfHeight, PhysicsTint(m_Style, spec.tint));
+            case ShapeKind::Cylinder: return std::make_unique<DebugCylinder>(spec.radius, spec.halfHeight, PhysicsTint(m_Style, spec.tint));
 
-            case ShapeKind::VolumeSphere:   return std::make_unique<DebugVolumeShape>(DebugVolumeShape::Kind::Sphere, spec.halfExtent, kWireframeColor);
-            case ShapeKind::VolumeCylinder: return std::make_unique<DebugVolumeShape>(DebugVolumeShape::Kind::Cylinder, spec.halfExtent, kWireframeColor);
-            case ShapeKind::VolumeCone:     return std::make_unique<DebugVolumeShape>(DebugVolumeShape::Kind::Cone, spec.halfExtent, kWireframeColor);
-            case ShapeKind::VolumePyramid:  return std::make_unique<DebugVolumeShape>(DebugVolumeShape::Kind::Pyramid, spec.halfExtent, kWireframeColor);
+            case ShapeKind::Mesh:     return BuildMeshWire(spec);
+
+            case ShapeKind::VolumeSphere:   return std::make_unique<DebugVolumeShape>(DebugVolumeShape::Kind::Sphere, spec.halfExtent, ToColor(m_Style.volume));
+            case ShapeKind::VolumeCylinder: return std::make_unique<DebugVolumeShape>(DebugVolumeShape::Kind::Cylinder, spec.halfExtent, ToColor(m_Style.volume));
+            case ShapeKind::VolumeCone:     return std::make_unique<DebugVolumeShape>(DebugVolumeShape::Kind::Cone, spec.halfExtent, ToColor(m_Style.volume));
+            case ShapeKind::VolumePyramid:  return std::make_unique<DebugVolumeShape>(DebugVolumeShape::Kind::Pyramid, spec.halfExtent, ToColor(m_Style.volume));
 
             case ShapeKind::ProbeGrid:
             {
@@ -154,7 +291,7 @@ namespace Shard::Editor::Debug{
                         for (int x = 0; x < counts.x; x++)
                             centers.push_back(localOrigin + spacing * glm::vec3((float)x, (float)y, (float)z));
 
-                return std::make_unique<DebugMultiSphere>(centers, kProbeRadius, kProbeColor);
+                return std::make_unique<DebugMultiSphere>(centers, kProbeRadius, ToColor(m_Style.probes));
             }
         }
 
@@ -222,6 +359,21 @@ namespace Shard::Editor::Debug{
         entry.submitted = true;
     }
 
+    void EditorDebugDraw::SetStyle(const Core::ViewportStyle& style)
+    {
+        if(style == m_Style)
+            return;
+        m_Style = style;
+
+        if(!m_Renderer)
+            return;
+        for(auto& [key, entry] : m_Entries)
+        {
+            Remove(entry);
+            entry.shape.reset();
+        }
+    }
+
     void EditorDebugDraw::Remove(Entry& entry)
     {
         if(entry.submitted)
@@ -255,9 +407,12 @@ namespace Shard::Editor::Debug{
                             world = poseOffset * world;
                     }
 
+                    const int tint = TintOf(*body, actor);
+
                     for(size_t i = 0; i < body->GetShapeCount(); i++)
                     {
                         ShapeSpec spec;
+                        spec.tint = tint;
 
                         switch(body->GetShapeType(i)){
                             case Engine::Physics::PhysicsShape::SPHERE:
@@ -278,6 +433,19 @@ namespace Shard::Editor::Debug{
                                 spec.radius = body->GetShapeParams<Components::CylinderParams>(i).radius;
                                 spec.halfHeight = body->GetShapeParams<Components::CylinderParams>(i).halfHeight;
                                 break;
+                            case Engine::Physics::PhysicsShape::MESH:
+                            {
+                                Engine::Physics::PhysicsManager* physics = Engine::Core::GetEngine().GetPhysicsManager();
+                                Engine::Physics::MeshColliderSettings meshSettings;
+                                if(!physics || !body->GetMeshSettings(i, meshSettings) || !body->GetShapeParams<Components::MeshParams>(i).showInViewport)
+                                    continue;
+                                const Engine::Physics::MeshColliderResult built = physics->MeshColliders().Acquire(meshSettings, body->motionType == JPH::EMotionType::Dynamic);
+                                if(!built.shape)
+                                    continue;
+                                spec.kind = ShapeKind::Mesh;
+                                spec.shape = built.shape;
+                                break;
+                            }
                             default:
                                 continue;
                         }

@@ -1,1 +1,2 @@
 Sponza.fbx filter=lfs diff=lfs merge=lfs -text
+Sponza.fbx.scol filter=lfs diff=lfs merge=lfs -text

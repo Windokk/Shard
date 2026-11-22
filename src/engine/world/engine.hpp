@@ -26,6 +26,7 @@ namespace Shard::Engine{
 
     namespace Events {
         class EventDispatcher;
+        class ICollisionHost;
     }
 
     namespace Worlds{
@@ -137,6 +138,8 @@ namespace Shard::Engine{
 
             Physics::PhysicsManager* physicsManager = nullptr;
 
+            Events::ICollisionHost* collisionHost = nullptr;
+
             Time::TimeManager* timeManager = nullptr;
 
             Platform::IPlatform* platform = nullptr;
@@ -177,6 +180,7 @@ namespace Shard::Engine{
                 virtual Filesystem::AssetIDManager* GetAssetIDManager() const = 0;
                 virtual ObjectIDManager* GetObjectIDManager() const = 0;
                 virtual Physics::PhysicsManager* GetPhysicsManager() const = 0;
+                virtual Events::ICollisionHost* GetCollisionHost() const { return nullptr; }
                 virtual Worlds::WorldManager* GetWorldManager() const = 0;
                 virtual Events::EventDispatcher* GetEventDispatcher() const = 0;
                 virtual Audio::AudioManager* GetAudioManager() const = 0;
@@ -241,6 +245,8 @@ namespace Shard::Engine{
                 ObjectIDManager* GetObjectIDManager() const override { return m_Context.objIDManager; }
 
                 Physics::PhysicsManager* GetPhysicsManager() const override { return m_Context.physicsManager; }
+
+                Events::ICollisionHost* GetCollisionHost() const override { return m_Context.collisionHost; }
 
                 Worlds::WorldManager* GetWorldManager() const override { return m_Context.worldManager; }
 

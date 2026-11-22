@@ -191,6 +191,34 @@ namespace Shard::Editor::Commands{
                 world->SetDirty(true);
         }
 
+        std::shared_ptr<Actor> PlacePrefab(const std::string& nameInProject, const glm::vec3* position, const std::string& folder)
+        {
+            Engine::Worlds::World* world = CurrentWorld();
+            if (!world)
+                return nullptr;
+
+            nlohmann::json overrides = nlohmann::json::object();
+            if (position)
+                overrides["components"]["transform"]["position"] = { { "x", position->x }, { "y", position->y }, { "z", position->z } };
+            if (!folder.empty())
+                overrides["folder"] = folder;
+
+            std::shared_ptr<Actor> placed = world->SpawnPrefab(nameInProject, nullptr, overrides);
+            if (placed)
+                RecordCreated(placed, "Place Prefab");
+            return placed;
+        }
+
+        void SetPrefabLink(const std::shared_ptr<Actor>& actor, const std::string& nameInProject)
+        {
+            EditActor(actor, "Create Prefab", [&]{ actor->SetPrefab(nameInProject); });
+        }
+
+        void UnpackPrefab(const std::shared_ptr<Actor>& root)
+        {
+            EditActor(root, "Unpack Prefab", [&]{ root->ClearPrefab(); });
+        }
+
         void RecordCreated(const std::shared_ptr<Actor>& actor, const std::string& label)
         {
             if (!actor)

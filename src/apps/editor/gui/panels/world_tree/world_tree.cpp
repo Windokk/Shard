@@ -19,6 +19,7 @@
 #include "apps/editor/gui/dragdrop/asset_drag_drop.hpp"
 #include "apps/editor/commands/actor_commands.hpp"
 #include "apps/editor/commands/command_stack.hpp"
+#include "apps/editor/gui/panels/asset_browser/asset_operations.hpp"
 
 #include "imgui/imgui.h"
 #include "imgui/imgui_internal.h"
@@ -1303,6 +1304,48 @@ namespace Shard::Editor::GUI{
         ImGui::EndMenu();
     }
 
+    void WorldTree::DrawPrefabMenu(const ActorPtr& actor, bool single)
+    {
+        if (!single)
+            return;
+
+        const ActorPtr root = actor->GetPrefabRoot();
+
+        if (!root && ImGui::MenuItem(ICON_LC_BOXES "  Create Prefab"))
+        {
+            pendingEdit = [actor]{
+                std::string name;
+                const auto result = Editor::GUI::AssetOperations::CreatePrefabFromActor(actor, name);
+                if (!result.ok)
+                    Notifications::Warning("%s", result.message.c_str());
+                else
+                    Commands::Actions::SetPrefabLink(actor, name);
+            };
+        }
+
+        if (root)
+        {
+            ImGui::TextDisabled("Prefab : %s", root->GetPrefab()->name.c_str());
+
+            if (root != actor && ImGui::MenuItem(ICON_LC_MOUSE_POINTER_CLICK "  Select Prefab Root"))
+                pendingEdit = [this, root]{ parent->SetSelectedActor(root); selectionTouched = true; };
+
+            if (root == actor)
+            {
+                if (ImGui::MenuItem(ICON_LC_SAVE "  Apply To Prefab"))
+                    pendingEdit = [actor]{
+                        const auto result = Editor::GUI::AssetOperations::ApplyActorToPrefab(actor);
+                        if (!result.ok)
+                            Notifications::Warning("%s", result.message.c_str());
+                    };
+                if (ImGui::MenuItem(ICON_LC_UNLINK "  Unpack Prefab"))
+                    pendingEdit = [actor]{ Commands::Actions::UnpackPrefab(actor); };
+            }
+        }
+
+        ImGui::Separator();
+    }
+
     void WorldTree::DrawActorContextMenu(const ActorPtr& actor)
     {
         const size_t count = parent->GetSelectionCount();
@@ -1334,6 +1377,8 @@ namespace Shard::Editor::GUI{
             DrawCreateMenu(actor, std::string());
             ImGui::EndMenu();
         }
+
+        DrawPrefabMenu(actor, single);
 
         if (ImGui::MenuItem(ICON_LC_GROUP "  Group", "Ctrl+G"))
         {
@@ -1533,7 +1578,17 @@ namespace Shard::Editor::GUI{
 
         for (const auto& nameInProject : assets)
         {
-            if (Engine::Filesystem::Path(nameInProject).GetExtensionType() != Engine::Filesystem::Type::T_MODEL)
+            const auto type = Engine::Filesystem::Path(nameInProject).GetExtensionType();
+            if (type == Engine::Filesystem::Type::T_PREFAB)
+            {
+                if (auto instance = Commands::Actions::PlacePrefab(nameInProject, nullptr, folder))
+                    placed.push_back(instance);
+                else
+                    Notifications::Warning("Cannot place the prefab \"%s\"", nameInProject.c_str());
+                continue;
+            }
+
+            if (type != Engine::Filesystem::Type::T_MODEL)
                 continue;
 
             auto actor = Engine::Core::Object::CreateWithContext<Engine::Objects::Actor>(

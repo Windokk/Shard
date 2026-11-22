@@ -650,6 +650,8 @@ namespace Shard::Editor::Core{
         assetBrowser->SetParentWindow(this);
         materialEditorPanel = new GUI::MaterialEditorPanel();
         GUI::AssetEditorRegistry::Instance().Register(Engine::Filesystem::Type::T_MATERIAL, materialEditorPanel);
+        physicsMaterialEditorPanel = new GUI::PhysicsMaterialEditorPanel();
+        GUI::AssetEditorRegistry::Instance().Register(Engine::Filesystem::Type::T_PHYSICS_MATERIAL, physicsMaterialEditorPanel);
         textureEditorPanel = new GUI::TextureEditorPanel();
         GUI::AssetEditorRegistry::Instance().Register(Engine::Filesystem::Type::T_IMAGE, textureEditorPanel);
         propertiesPanel = new GUI::PropertiesPanel();
@@ -665,6 +667,8 @@ namespace Shard::Editor::Core{
         console = new GUI::Console();
         console->SetParentWindow(this);
         profilerPanel = new GUI::ProfilerPanel();
+        collisionPanel = new GUI::CollisionDebugPanel();
+        collisionPanel->SetParentWindow(this);
         pluginsPanel = new GUI::PluginsPanel();
         menuBar = new GUI::MenuBar();
         menuBar->SetParentWindow(this);
@@ -778,6 +782,7 @@ namespace Shard::Editor::Core{
         // Submitted before the frame is handed over, from SwapBuffers it would be drawn one frame behind the meshes.
         const bool game = gameView;
 
+        debugDraw.SetStyle(preferences.style);
         debugDraw.SetLayerVisible(Debug::DebugLayer::Volumes, !game && settings.showGizmos);
         debugDraw.SetLayerVisible(Debug::DebugLayer::Probes, !game && settings.showDDGIGizmos);
         debugDraw.SetLayerVisible(Debug::DebugLayer::Physics, !game && settings.showPhysicsShapes);
@@ -984,6 +989,10 @@ namespace Shard::Editor::Core{
                 gridPass->overridePipeline = true;
                 gridPass->customUniforms["axis"] = axis;
                 gridPass->customUniforms["cellSize"] = 1.0f;
+                gridPass->customUniforms["gridColor"] = glm::vec3(preferences.style.gridLines);
+                gridPass->customUniforms["axisColorX"] = glm::vec3(preferences.style.axisX);
+                gridPass->customUniforms["axisColorY"] = glm::vec3(preferences.style.axisY);
+                gridPass->customUniforms["axisColorZ"] = glm::vec3(preferences.style.axisZ);
 
                 renderer->AddRenderPass(gridPass, gridPassNames[axis], {"ForwardPass"});
 
@@ -1013,13 +1022,19 @@ namespace Shard::Editor::Core{
             const bool gridPlaneEnabled[3] = { settings.showGridX, settings.showGridY, settings.showGridZ };
             const bool showOutlines = !game && settings.showOutlines;
             const bool showGrid = !game && settings.showGrid;
+            const glm::vec3 outlineColor(preferences.style.outline);
+            const float outlineThickness = preferences.style.outlineThickness;
+            const glm::vec3 gridColor(preferences.style.gridLines);
+            const glm::vec3 axisColors[3] = { glm::vec3(preferences.style.axisX), glm::vec3(preferences.style.axisY), glm::vec3(preferences.style.axisZ) };
 
             // Set from the render thread between two frames, from copies of the editor settings. Flags and uniforms apply to the frame after the one being drawn.
-            Rendering::RenderThread::Get().Post([renderer, showOutlines, showGrid, gridPlaneEnabled, gridCell,
+            Rendering::RenderThread::Get().Post([renderer, showOutlines, showGrid, gridPlaneEnabled, gridCell, outlineColor, outlineThickness, gridColor, axisColors,
                                                  gridCommands = gridCommands, fullscreenCommands = outlinePipelineFullscreenCommands]()
             {
                 renderer->GetRenderPass("EditorOutlineMaskPass")->enabled = showOutlines;
                 renderer->GetRenderPass("EditorOutlinePass")->enabled = showOutlines;
+                renderer->GetRenderPass("EditorOutlinePass")->customUniforms["outlineColor"] = outlineColor;
+                renderer->GetRenderPass("EditorOutlinePass")->customUniforms["outlineThickness"] = outlineThickness;
 
                 const char* gridPassNames[3] = {"EditorGridPassX", "EditorGridPassY", "EditorGridPassZ"};
                 for (int axis = 0; axis < 3; axis++)
@@ -1027,6 +1042,10 @@ namespace Shard::Editor::Core{
                     auto gridPass = renderer->GetRenderPass(gridPassNames[axis]);
                     gridPass->enabled = showGrid && gridPlaneEnabled[axis];
                     gridPass->customUniforms["cellSize"] = gridCell;
+                    gridPass->customUniforms["gridColor"] = gridColor;
+                    gridPass->customUniforms["axisColorX"] = axisColors[0];
+                    gridPass->customUniforms["axisColorY"] = axisColors[1];
+                    gridPass->customUniforms["axisColorZ"] = axisColors[2];
                 }
 
                 for(auto& [passName, material] : gridCommands)
@@ -1106,6 +1125,8 @@ namespace Shard::Editor::Core{
                 console->Draw();
             if(panelVisibility.profiler)
                 profilerPanel->Draw();
+            if(panelVisibility.collision)
+                collisionPanel->Draw(&panelVisibility.collision);
             if(panelVisibility.plugins)
                 pluginsPanel->Draw(&panelVisibility.plugins);
             for(const auto& panel : Engine::Plugins::PluginManager::Get().Extensions().Get<Engine::Plugins::EditorPanelItem>("editor.panel")){
@@ -1114,6 +1135,7 @@ namespace Shard::Editor::Core{
             }
 
             materialEditorPanel->Draw();
+            physicsMaterialEditorPanel->Draw();
             textureEditorPanel->Draw();
         }
 

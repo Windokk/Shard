@@ -18,7 +18,13 @@
 #include "engine/renderer/components/camera_manager.hpp"
 #include "engine/renderer/components/camera.hpp"
 #include "engine/renderer/features/billboards/billboard_renderer.hpp"
+#include "engine/physics/constraints/physics_constraint.hpp"
 #include "engine/physics/physics_body.hpp"
+#include "engine/physics/physics_manager.hpp"
+#include "engine/renderer/rhi/pipelines/pipeline.hpp"
+#include "engine/renderer/rhi/resources/mesh/mesh.hpp"
+#include "engine/physics/collision/collision_system.hpp"
+#include "apps/editor/debug/collision_debug_state.hpp"
 
 
 #include <glm/gtx/string_cast.hpp>
@@ -26,6 +32,7 @@
 #include <algorithm>
 #include <cfloat>
 #include <cstdio>
+#include <cstring>
 
 #include <Jolt/Physics/Collision/CollisionCollectorImpl.h>
 #include <Jolt/Physics/Body/BodyFilter.h>
@@ -120,6 +127,68 @@ namespace {
         }
 
         return found;
+    }
+
+    // Double sided, from inside a closed mesh as well. `t` is in the units of `dir`, so the caller's distances stay comparable.
+    bool RayHitsMeshTriangles(Shard::Engine::Rendering::Mesh& mesh, const glm::mat4& meshToRay, const glm::vec3& origin, const glm::vec3& dir, float maxDistance, float& outT)
+    {
+        const std::shared_ptr<const Shard::Engine::Rendering::MeshCPUCopy> cpu = mesh.AcquireCPUData();
+        if (!cpu || cpu->indices.size() < 3)
+            return false;
+
+        const Shard::Engine::Rendering::VertexElement* position = nullptr;
+        for (const Shard::Engine::Rendering::VertexElement& element : mesh.GetVertexLayout().GetElements())
+            if (element.location == 0) { position = &element; break; }
+        const uint32_t stride = mesh.GetVertexLayout().GetStride();
+        if (!position || stride < position->offset + sizeof(float) * 3 || cpu->vertices.size() % stride != 0)
+            return false;
+
+        const glm::mat4 toLocal = glm::inverse(meshToRay);
+        const glm::vec3 o = glm::vec3(toLocal * glm::vec4(origin, 1.0f));
+        const glm::vec3 d = glm::vec3(toLocal * glm::vec4(dir, 0.0f));
+        const size_t vertexCount = cpu->vertices.size() / stride;
+
+        auto vertex = [&](uint32_t index) {
+            glm::vec3 p(0.0f);
+            if (index < vertexCount)
+                std::memcpy(&p, cpu->vertices.data() + size_t(index) * stride + position->offset, sizeof(float) * 3);
+            return p;
+        };
+
+        bool hit = false;
+        float best = maxDistance;
+        for (size_t i = 0; i + 2 < cpu->indices.size(); i += 3)
+        {
+            const glm::vec3 a = vertex(cpu->indices[i]);
+            const glm::vec3 e1 = vertex(cpu->indices[i + 1]) - a;
+            const glm::vec3 e2 = vertex(cpu->indices[i + 2]) - a;
+            const glm::vec3 p = glm::cross(d, e2);
+            const float det = glm::dot(e1, p);
+            if (std::abs(det) < 1e-12f)
+                continue;
+            const float inv = 1.0f / det;
+            const glm::vec3 s = o - a;
+            const float u = glm::dot(s, p) * inv;
+            if (u < 0.0f || u > 1.0f)
+                continue;
+            const glm::vec3 q = glm::cross(s, e1);
+            const float v = glm::dot(d, q) * inv;
+            if (v < 0.0f || u + v > 1.0f)
+                continue;
+            const float t = glm::dot(e2, q) * inv;
+            if (t > 1e-5f && t < best)
+            {
+                best = t;
+                hit = true;
+            }
+        }
+        outT = best;
+        return hit;
+    }
+
+    ImU32 StyleColor(const glm::vec4& color, float alpha = 1.0f)
+    {
+        return ImGui::ColorConvertFloat4ToU32(ImVec4(color.r, color.g, color.b, color.a * alpha));
     }
 
 }
@@ -247,14 +316,19 @@ namespace Shard::Editor::GUI {
             DrawPluginGizmos(camera->GetProjection() * camera->GetView(), low, high, parent->GetSelectedActors());
         }
 
+        DrawCollisionOverlay(gameView);
+
+        if(!gameView && parent && parent->HasSelection() && parent->settings.showGizmos && camera)
+            DrawConstraintGizmos();
+
         if(marqueeActive)
         {
             ImDrawList* drawList = ImGui::GetWindowDrawList();
             const ImVec2 low(std::min(marqueeStart.x, marqueeEnd.x), std::min(marqueeStart.y, marqueeEnd.y));
             const ImVec2 high(std::max(marqueeStart.x, marqueeEnd.x), std::max(marqueeStart.y, marqueeEnd.y));
             drawList->PushClipRect(viewportImageMin, viewportImageMax, true);
-            drawList->AddRectFilled(low, high, IM_COL32(90, 150, 255, 40));
-            drawList->AddRect(low, high, IM_COL32(120, 175, 255, 220));
+            drawList->AddRectFilled(low, high, StyleColor(parent->preferences.style.selectionBox, 0.18f));
+            drawList->AddRect(low, high, StyleColor(parent->preferences.style.selectionBox));
             drawList->PopClipRect();
         }
 
@@ -447,6 +521,17 @@ namespace Shard::Editor::GUI {
 
         glm::mat4 view = cam->GetView();
 
+        {
+            const Editor::Core::ViewportStyle& style = parent->preferences.style;
+            auto back = [](const glm::vec4& color) { return StyleColor(glm::vec4(color.r * 0.6f, color.g * 0.6f, color.b * 0.6f, color.a)); };
+            ImOGuizmo::config.xCircleFrontColor = StyleColor(style.axisX);
+            ImOGuizmo::config.xCircleBackColor = back(style.axisX);
+            ImOGuizmo::config.yCircleFrontColor = StyleColor(style.axisY);
+            ImOGuizmo::config.yCircleBackColor = back(style.axisY);
+            ImOGuizmo::config.zCircleFrontColor = StyleColor(style.axisZ);
+            ImOGuizmo::config.zCircleBackColor = back(style.axisZ);
+        }
+
         int axis = ImOGuizmo::DrawGizmo(glm::value_ptr(view), glm::value_ptr(gizmoProj), 0.1f);
         if(axis != -1 && ImGui::IsMouseDoubleClicked(ImGuiMouseButton_Left))
         {
@@ -536,6 +621,20 @@ namespace Shard::Editor::GUI {
             case ImGuizmo::ROTATE:    ApplySnap(settings.snapRotation, settings.rotationSnap); break;
             case ImGuizmo::SCALE:     ApplySnap(settings.snapScale,    settings.scaleSnap);    break;
             default: break;
+        }
+
+        {
+            const Editor::Core::ViewportStyle& style = parent->preferences.style;
+            ImGuizmo::Style& gizmoStyle = ImGuizmo::GetStyle();
+            const glm::vec4 axes[3] = { style.axisX, style.axisY, style.axisZ };
+            for (int axis = 0; axis < 3; ++axis)
+            {
+                gizmoStyle.Colors[ImGuizmo::DIRECTION_X + axis] = ImVec4(axes[axis].r, axes[axis].g, axes[axis].b, 1.0f);
+                gizmoStyle.Colors[ImGuizmo::PLANE_X + axis] = ImVec4(axes[axis].r, axes[axis].g, axes[axis].b, 0.38f);
+            }
+            gizmoStyle.Colors[ImGuizmo::SELECTION] = ImVec4(style.gizmoSelection.r, style.gizmoSelection.g, style.gizmoSelection.b, style.gizmoSelection.a);
+            gizmoStyle.Colors[ImGuizmo::ROTATION_USING_BORDER] = ImVec4(style.gizmoSelection.r, style.gizmoSelection.g, style.gizmoSelection.b, 1.0f);
+            gizmoStyle.Colors[ImGuizmo::ROTATION_USING_FILL] = ImVec4(style.gizmoSelection.r, style.gizmoSelection.g, style.gizmoSelection.b, 0.5f);
         }
 
         ImGuizmo::Manipulate(
@@ -815,7 +914,15 @@ namespace Shard::Editor::GUI {
 
                 for (const auto& nameInProject : dropped)
                 {
-                    if (Engine::Filesystem::Path(nameInProject).GetExtensionType() != Engine::Filesystem::Type::T_MODEL)
+                    const auto type = Engine::Filesystem::Path(nameInProject).GetExtensionType();
+                    if (type == Engine::Filesystem::Type::T_PREFAB)
+                    {
+                        if (auto instance = Commands::Actions::PlacePrefab(nameInProject, &spawnPos))
+                            lastSpawned = instance;
+                        continue;
+                    }
+
+                    if (type != Engine::Filesystem::Type::T_MODEL)
                         continue;
 
                     auto actor = Engine::Core::Object::CreateWithContext<Engine::Objects::Actor>(
@@ -1298,7 +1405,22 @@ namespace Shard::Editor::GUI {
         if (result.hit)
             pickedActor = result.hitBody->parent;
 
-        // Models without a PhysicsBody are invisible to the raycast, so test them against mesh AABBs. Bodies are skipped here, their real collider is more accurate.
+        // A body the raycast can see is picked through its real collider, whatever its shape (mesh colliders included). A model without one, or whose body queries cannot see (collision Disabled, a mesh collider still missing its model), is tested against its mesh AABB.
+        Engine::Physics::CollisionSystem* collision = cameraInRoot ? &Engine::Core::GetEngine().GetPhysicsManager()->Collision() : nullptr;
+        auto seenByRaycast = [collision](Engine::Objects::Actor& actor) {
+            if (!collision)
+                return false;
+            for (const auto& body : actor.GetComponents<Engine::Objects::Components::PhysicsBody>())
+            {
+                const JPH::BodyID id = body->GetBodyID();
+                const Engine::Physics::ColliderState* state = id.IsInvalid() ? nullptr : collision->StateOf(id);
+                if (state && state->mode != Engine::Collision::Mode::Disabled)
+                    return true;
+            }
+            return false;
+        };
+
+        // Models without a queryable body are invisible to the raycast, so test them against mesh AABBs.
         if (auto* world = engine->GetWorldManager()->GetWorldAt(0))
         {
             for (auto& modelEntry : world->Ext<Engine::Rendering::RenderWorldData>().models)
@@ -1308,7 +1430,7 @@ namespace Shard::Editor::GUI {
                 if (!modelComp || !modelComp->parent)
                     continue;
 
-                if (cameraInRoot && modelComp->parent->HasComponent<Engine::Objects::Components::PhysicsBody>())
+                if (seenByRaycast(*modelComp->parent))
                     continue;
 
                 auto mesh = modelComp->GetMesh();
@@ -1329,13 +1451,21 @@ namespace Shard::Editor::GUI {
                 glm::vec3 worldMin, worldMax;
                 ComputeWorldBounds(boundsMin, boundsMax, worldMatrix, worldMin, worldMax);
 
-                // Camera inside the bounds makes the slab tMin clamp to 0, so it would win as closest hit wherever the click landed. Skip it.
+                // Inside the bounds the slab test would answer 0 wherever the click landed, so the triangles decide : a room is picked when the ray reaches one of its walls.
                 bool cameraInside =
                     origin.x >= worldMin.x && origin.x <= worldMax.x &&
                     origin.y >= worldMin.y && origin.y <= worldMax.y &&
                     origin.z >= worldMin.z && origin.z <= worldMax.z;
                 if (cameraInside)
+                {
+                    float t;
+                    if (RayHitsMeshTriangles(*mesh, worldMatrix, origin, dir, pickedDistance, t) && t < pickedDistance)
+                    {
+                        pickedDistance = t;
+                        pickedActor = modelComp->parent;
+                    }
                     continue;
+                }
 
                 float t;
                 if (RayIntersectsAABB(origin, dir, worldMin, worldMax, pickedDistance, t) && t < pickedDistance)
@@ -1425,6 +1555,183 @@ namespace Shard::Editor::GUI {
         }
 
         return true;
+    }
+
+    void ViewportWindow::DrawConstraintGizmos()
+    {
+        using namespace Engine::Objects::Components;
+
+        const glm::mat4 viewProjection = camera->GetProjection() * camera->GetView();
+        const ImVec2 size(viewportImageMax.x - viewportImageMin.x, viewportImageMax.y - viewportImageMin.y);
+        auto project = [&](const glm::vec3& point, ImVec2& out){
+            const glm::vec4 clip = viewProjection * glm::vec4(point, 1.0f);
+            if (clip.w <= 1.0e-5f)
+                return false;
+            out = ImVec2(viewportImageMin.x + (clip.x / clip.w * 0.5f + 0.5f) * size.x,
+                         viewportImageMin.y + (1.0f - (clip.y / clip.w * 0.5f + 0.5f)) * size.y);
+            return true;
+        };
+
+        ImDrawList* drawList = ImGui::GetWindowDrawList();
+        drawList->PushClipRect(viewportImageMin, viewportImageMax, true);
+
+        for (const auto& actor : parent->GetSelectedActors())
+        {
+            if (!actor || !actor->transform)
+                continue;
+
+            const glm::vec3 origin = actor->transform->GetWorldPosition();
+            const glm::quat rotation = actor->transform->GetWorldRotationQuat();
+            const glm::vec3 scale = actor->transform->GetWorldScale();
+
+            for (const auto& constraint : actor->GetComponents<PhysicsConstraint>())
+            {
+                const glm::vec3 pivot = origin + rotation * (constraint->anchor * scale);
+                const Editor::Core::ViewportStyle& style = parent->preferences.style;
+                const ImU32 color = StyleColor(constraint->IsBroken() ? style.constraintBroken : style.constraint);
+
+                ImVec2 at;
+                if (!project(pivot, at))
+                    continue;
+                drawList->AddCircleFilled(at, 5.0f, color);
+                drawList->AddCircle(at, 8.0f, color, 0, 1.5f);
+
+                glm::vec3 axis(0.0f);
+                if (auto hinge = std::dynamic_pointer_cast<HingeConstraint>(constraint))
+                    axis = hinge->axis;
+                else if (auto slider = std::dynamic_pointer_cast<SliderConstraint>(constraint))
+                    axis = slider->axis;
+                else if (auto cone = std::dynamic_pointer_cast<ConeConstraint>(constraint))
+                    axis = cone->axis;
+                else if (auto joint = std::dynamic_pointer_cast<SwingTwistConstraint>(constraint))
+                    axis = joint->twistAxis;
+
+                if (glm::dot(axis, axis) > 1.0e-8f)
+                {
+                    const glm::vec3 direction = rotation * glm::normalize(axis);
+                    ImVec2 from, to;
+                    if (project(pivot - direction * 0.6f, from) && project(pivot + direction * 0.6f, to))
+                        drawList->AddLine(from, to, color, 2.0f);
+                }
+
+                std::shared_ptr<Engine::Objects::Actor> other = constraint->GetTarget();
+                if (!other && !constraint->target.IsEmpty() && actor->world)
+                {
+                    for (const auto& candidate : actor->world->FindActors(constraint->target))
+                        if (candidate && candidate != actor)
+                        {
+                            other = candidate;
+                            break;
+                        }
+                }
+                if (other && other->transform)
+                {
+                    ImVec2 to;
+                    if (project(other->transform->GetWorldPosition(), to))
+                    {
+                        drawList->AddLine(at, to, StyleColor(style.constraint, 0.55f), 1.5f);
+                        drawList->AddCircle(to, 4.0f, StyleColor(style.constraint, 0.8f));
+                    }
+                }
+            }
+        }
+
+        drawList->PopClipRect();
+    }
+
+    void ViewportWindow::DrawCollisionOverlay(bool gameView)
+    {
+        Engine::Physics::PhysicsManager* physics = Engine::Core::GetEngine().GetPhysicsManager();
+        if (!physics)
+            return;
+        Engine::Physics::CollisionSystem& system = physics->Collision();
+        Debug::CollisionDebugState& state = Debug::CollisionDebugState::Get();
+
+        const bool wanted = state.overlay && !gameView && camera;
+        if (system.DebugTap() != wanted)
+            system.SetDebugTap(wanted);
+        if (!wanted)
+            return;
+
+        Engine::Time::TimeManager* time = Engine::Core::GetEngine().GetTimeManager();
+        const float stepSeconds = time && time->GetFixedDeltaTime() > 0.0f ? time->GetFixedDeltaTime() : 1.0f / 60.0f;
+        const double fadeSteps = std::max(1.0, double(state.fadeSeconds / stepSeconds));
+        const uint64_t now = system.CurrentStep();
+
+        const glm::mat4 viewProjection = camera->GetProjection() * camera->GetView();
+        const ImVec2 size(viewportImageMax.x - viewportImageMin.x, viewportImageMax.y - viewportImageMin.y);
+        auto project = [&](const glm::dvec3& point, ImVec2& out){
+            const glm::vec4 clip = viewProjection * glm::vec4(glm::vec3(point), 1.0f);
+            if (clip.w <= 1.0e-5f)
+                return false;
+            out = ImVec2(viewportImageMin.x + (clip.x / clip.w * 0.5f + 0.5f) * size.x,
+                         viewportImageMin.y + (1.0f - (clip.y / clip.w * 0.5f + 0.5f)) * size.y);
+            return true;
+        };
+        auto alphaOf = [&](uint64_t step){
+            if (step > now)
+                return 0.0f;
+            return float(std::clamp(1.0 - double(now - step) / fadeSteps, 0.0, 1.0));
+        };
+
+        ImDrawList* drawList = ImGui::GetWindowDrawList();
+        drawList->PushClipRect(viewportImageMin, viewportImageMax, true);
+
+        if (state.contacts)
+        {
+            for (const Engine::Physics::DebugContact& contact : system.DebugContacts())
+            {
+                const float alpha = alphaOf(contact.step);
+                if (alpha <= 0.0f)
+                    continue;
+                ImVec2 from;
+                if (!project(contact.point, from))
+                    continue;
+                const bool block = contact.response == Engine::Collision::Response::Block;
+                const Editor::Core::ViewportStyle& style = parent->preferences.style;
+                const ImU32 color = StyleColor(block ? style.contactBlock : style.contactOverlap, alpha);
+                drawList->AddCircleFilled(from, contact.persisted ? 2.5f : 4.5f, color);
+                if (state.normals)
+                {
+                    ImVec2 to;
+                    if (project(contact.point + glm::dvec3(contact.normal) * 0.5, to))
+                        drawList->AddLine(from, to, StyleColor(parent->preferences.style.contactNormal, 0.86f * alpha), 1.5f);
+                }
+            }
+        }
+
+        if (state.events)
+        {
+            static const char* kinds[] = { "Begin", "End", "Hit" };
+            static const char* causes[] = { "", " separated", " destroyed", " disabled", " profile changed", " teleported" };
+            const ImVec2 origin(viewportImageMin.x + 10.0f, viewportImageMin.y + 40.0f);
+            float y = 0.0f;
+            const auto& events = system.DebugEvents();
+            for (auto it = events.rbegin(); it != events.rend(); ++it)
+            {
+                const float alpha = alphaOf(it->step);
+                if (alpha <= 0.0f)
+                    continue;
+
+                char line[256];
+                if (it->kind == Engine::Collision::EventKind::Hit)
+                    std::snprintf(line, sizeof(line), "Hit %s / %s %.1f m/s", it->self.c_str(), it->other.c_str(), it->impactSpeed);
+                else
+                    std::snprintf(line, sizeof(line), "%s %s / %s%s", kinds[int(it->kind)], it->self.c_str(), it->other.c_str(), causes[std::min<int>(int(it->cause), 5)]);
+
+                const ImU32 color = StyleColor(parent->preferences.style.eventText, alpha);
+                if (y < 160.0f)
+                {
+                    drawList->AddText(ImVec2(origin.x, origin.y + y), color, line);
+                    y += ImGui::GetTextLineHeightWithSpacing();
+                }
+                ImVec2 at;
+                if (it->hasPoint && project(it->point, at))
+                    drawList->AddText(ImVec2(at.x + 6.0f, at.y - 14.0f), color, line);
+            }
+        }
+
+        drawList->PopClipRect();
     }
 
     void ViewportWindow::SelectInRect(const ImVec2& a, const ImVec2& b, bool toggle)

@@ -28,6 +28,8 @@ namespace Shard::Engine::Worlds{
 
     ordered_json SerializeActorToJson(const std::shared_ptr<Objects::Actor>& actor);
 
+    ordered_json SerializePrefabToJson(const std::shared_ptr<Objects::Actor>& actor);
+
     std::shared_ptr<Objects::Actor> InstantiateActor(World& world, const json& actorData, const std::shared_ptr<Objects::Actor>& parent = nullptr);
 
     class World : public Core::TagContainer::Listener{
@@ -162,6 +164,12 @@ namespace Shard::Engine::Worlds{
             void QueryAABB(const Core::AABB& box, const Core::TagQuery& query,
                            std::vector<std::shared_ptr<Objects::Actor>>& out, bool includeInactive = false);
 
+            void IndexPrefab(const std::shared_ptr<Objects::Actor>& actor, bool add);
+            std::vector<std::shared_ptr<Objects::Actor>> FindPrefabInstances(const std::string& name, bool includeInactive = false);
+            std::shared_ptr<Objects::Actor> SpawnPrefab(const std::string& name, const std::shared_ptr<Objects::Actor>& parent = nullptr,
+                                                        const nlohmann::json& overrides = nlohmann::json::object(), const std::string& instanceName = std::string());
+            size_t DestroyPrefabInstances(const std::string& name);
+
             void IndexActorTags(const std::shared_ptr<Objects::Actor>& actor, const Core::TagContainer& added, const Core::TagContainer& removed);
             void IndexComponentTags(int idInWorld, const std::shared_ptr<Objects::Components::Component>& component,
                                     const Core::TagContainer& added, const Core::TagContainer& removed);
@@ -176,6 +184,7 @@ namespace Shard::Engine::Worlds{
 
             std::unordered_map<uint64_t, std::map<Core::ObjectID, std::weak_ptr<Objects::Actor>>> actorsByTag;
             std::unordered_map<uint64_t, std::map<int, std::weak_ptr<Objects::Components::Component>>> componentsByTag;
+            std::unordered_map<std::string, std::map<Core::ObjectID, std::weak_ptr<Objects::Actor>>> instancesByPrefab;
 
             std::map<Core::ObjectID, std::shared_ptr<Objects::Actor>> CollectTagged(Core::Tag tag, bool includeInactive);
             std::map<Core::ObjectID, std::shared_ptr<Objects::Actor>> CollectAll(bool includeInactive);

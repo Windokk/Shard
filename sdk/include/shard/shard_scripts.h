@@ -24,6 +24,7 @@
 #include "shard_abi.h"
 #include "shard_actors.h"
 #include "shard_components.h"
+#include "shard_collision.h"
 
 #ifdef __cplusplus
 extern "C" {
@@ -50,6 +51,10 @@ typedef struct ShardContact {
 } ShardContact;
 
 typedef ShardResult (SHARD_CALL *ShardScriptContactFn)(void* user, void* object, const ShardContact* contact);
+
+/* What a script is told about the collisions of its actor (shard.collision, ABI 1.9) : the event is described in shard_collision.h. A script that
+ * has one of these callbacks is subscribed to the matching events by the host, from its first step in a world until it is destroyed. */
+typedef ShardResult (SHARD_CALL *ShardScriptCollisionFn)(void* user, void* object, const ShardCollisionEvent* event);
 
 typedef struct ShardScriptCallbacks {
     uint32_t structSize;
@@ -91,6 +96,11 @@ typedef struct ShardScriptCallbacks {
      * the fields the script changes itself. */
     ShardResult (SHARD_CALL *on_field_changed)(void* user, void* object, uint32_t field);
 
+    /* ---- 1.9 : collision events, after the physics step that made them, on the thread that steps the physics ---- */
+    ShardScriptCollisionFn on_overlap_begin;
+    ShardScriptCollisionFn on_overlap_end;
+    ShardScriptCollisionFn on_hit;
+
     /* Callbacks of later ABI revisions go HERE : the host checks structSize before reading them. */
 } ShardScriptCallbacks;
 
@@ -108,6 +118,10 @@ typedef struct ShardScriptDesc {
     /* ---- 1.2 ---- */
     uint32_t flags;                         /* SHARD_SCRIPT_* */
     uint32_t reserved;
+    /* ---- 1.9 ---- */
+    uint32_t collision_kinds;               /* SHARD_COLLISION_* : the kinds of event the host subscribes the script to, among the ones it has a callback for.
+                                             * A descriptor without this field (older) gets all of them. 0 : none, nothing is produced for the script. */
+    uint32_t reserved2;
 } ShardScriptDesc;
 
 typedef struct ShardScriptsApi {

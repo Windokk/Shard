@@ -230,6 +230,20 @@ namespace Shard::Editor::GUI{
         return ImGui::SliderFloat(id.c_str(), &value, min, max, format, ImGuiSliderFlags_AlwaysClamp) || reset;
     }
 
+    bool SettingsView::Color(const char* label, const char* tooltip, float value[4], const float defaultValue[4])
+    {
+        const bool modified = value[0] != defaultValue[0] || value[1] != defaultValue[1] || value[2] != defaultValue[2] || value[3] != defaultValue[3];
+        bool reset = false;
+        if (!BeginRow(label, tooltip, modified, &reset))
+            return false;
+        if (reset)
+            for (int i = 0; i < 4; ++i)
+                value[i] = defaultValue[i];
+
+        const std::string id = WidgetId(label);
+        return ImGui::ColorEdit4(id.c_str(), value, ImGuiColorEditFlags_AlphaBar | ImGuiColorEditFlags_AlphaPreviewHalf) || reset;
+    }
+
     bool SettingsView::DragInt(const char* label, const char* tooltip, int& value, int defaultValue,
                                float speed, int min, int max, const char* format)
     {

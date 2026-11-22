@@ -4,9 +4,13 @@
 #include <memory>
 #include <unordered_map>
 
+#include <Jolt/Jolt.h>
+#include <Jolt/Physics/Collision/Shape/Shape.h>
+
 #include <glm/glm.hpp>
 
 #include "engine/core/color.hpp"
+#include "apps/editor/preferences/editor_preferences.hpp"
 
 namespace Shard::Engine::Objects{
     class Actor;
@@ -37,13 +41,15 @@ namespace Shard::Editor::Debug{
 
             void SetLayerVisible(DebugLayer layer, bool visible);
 
+            void SetStyle(const Core::ViewportStyle& style);
+
             void Update();
 
             void Clear();
 
         private:
 
-            enum class ShapeKind { Sphere, Box, Capsule, Cylinder, ProbeGrid, VolumeSphere, VolumeCylinder, VolumeCone, VolumePyramid };
+            enum class ShapeKind { Sphere, Box, Capsule, Cylinder, Mesh, ProbeGrid, VolumeSphere, VolumeCylinder, VolumeCone, VolumePyramid };
 
             struct ShapeSpec{
                 ShapeKind kind = ShapeKind::Box;
@@ -51,11 +57,13 @@ namespace Shard::Editor::Debug{
                 float halfHeight = 0.0f;
                 glm::vec3 halfExtent = glm::vec3(0.0f);
                 glm::ivec3 probeCounts = glm::ivec3(0);
+                int tint = 0;
+                JPH::RefConst<JPH::Shape> shape;
 
                 bool operator==(const ShapeSpec& other) const
                 {
                     return kind == other.kind && radius == other.radius && halfHeight == other.halfHeight
-                        && halfExtent == other.halfExtent && probeCounts == other.probeCounts;
+                        && halfExtent == other.halfExtent && probeCounts == other.probeCounts && tint == other.tint && shape == other.shape;
                 }
                 bool operator!=(const ShapeSpec& other) const { return !(*this == other); }
             };
@@ -80,6 +88,9 @@ namespace Shard::Editor::Debug{
 
             std::unique_ptr<DebugShape> BuildShape(const ShapeSpec& spec) const;
 
+            std::unique_ptr<DebugShape> BuildMeshWire(const ShapeSpec& spec) const;
+
+            Core::ViewportStyle m_Style;
             Engine::Rendering::Renderer* m_Renderer = nullptr;
             std::shared_ptr<Engine::Rendering::Material> m_Material;
             std::shared_ptr<Engine::Rendering::RenderPass> m_Passes[3];

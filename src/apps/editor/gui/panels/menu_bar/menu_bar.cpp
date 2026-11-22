@@ -306,6 +306,7 @@ namespace Shard::Editor::GUI{
         ImGui::MenuItem("Asset Browser", nullptr, &parent->panelVisibility.assetBrowser);
         ImGui::MenuItem("Console", nullptr, &parent->panelVisibility.console);
         ImGui::MenuItem("Profiler", nullptr, &parent->panelVisibility.profiler);
+        ImGui::MenuItem("Collision", nullptr, &parent->panelVisibility.collision);
         ImGui::MenuItem("Plugins", nullptr, &parent->panelVisibility.plugins);
         for(const auto& panel : Engine::Plugins::PluginManager::Get().Extensions().Get<Engine::Plugins::EditorPanelItem>("editor.panel"))
             ImGui::MenuItem(panel->title.c_str(), nullptr, &panel->visible);

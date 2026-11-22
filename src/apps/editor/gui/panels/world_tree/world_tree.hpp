@@ -79,6 +79,7 @@ namespace Shard::Editor::GUI{
             std::vector<ActorPtr> SelectedTopLevel() const;
 
             void ReparentSelection(const std::vector<ActorPtr>& actors, const ActorPtr& newParent);
+            void DrawPrefabMenu(const std::shared_ptr<Engine::Objects::Actor>& actor, bool single);
             void SpawnAssets(Engine::Worlds::World* world, const std::vector<std::string>& assets, const std::string& folder);
             void NewFolder(bool withSelection);
             void DeleteFolder(const std::string& path);

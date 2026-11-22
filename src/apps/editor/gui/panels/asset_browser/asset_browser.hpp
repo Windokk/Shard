@@ -186,7 +186,7 @@ namespace Shard::Editor::GUI{
             void RequestOpenWorld(const Engine::Filesystem::Path &path);
 
             // Menu and shortcuts only request an action, it runs after the item loop (ProcessAction) since most rebuild `items`.
-            enum class Action { None, Open, Cut, Copy, Paste, Duplicate, Rename, Delete, Refresh, NewFolder, NewMaterial, NewWorld, Reveal, CopyPath, RefreshThumbnail, ShowInFolder, Import };
+            enum class Action { None, Open, Cut, Copy, Paste, Duplicate, Rename, Delete, Refresh, NewFolder, NewMaterial, NewPhysicsMaterial, NewWorld, Reveal, CopyPath, RefreshThumbnail, ShowInFolder, Import };
 
             void DrawContextMenu();
             void ProcessAction();
@@ -248,7 +248,7 @@ namespace Shard::Editor::GUI{
             bool showSidebar = true;
             float sidebarWidth = 200.0f;
 
-            bool typeHidden[14]{};
+            bool typeHidden[32]{};
             bool showFolders = true;
             bool searchSubfolders = true;
 
@@ -281,7 +281,9 @@ namespace Shard::Editor::GUI{
                 Engine::Filesystem::Type::T_MATERIAL,
                 Engine::Filesystem::Type::T_PROBES,
                 Engine::Filesystem::Type::T_LIGHTMAP,
+                Engine::Filesystem::Type::T_PHYSICS_MATERIAL,
                 Engine::Filesystem::Type::T_CONFIG,
+                Engine::Filesystem::Type::T_PREFAB,
                 Engine::Filesystem::Type::T_DIRECTORY
             };
 

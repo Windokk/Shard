@@ -28,6 +28,7 @@ namespace Shard::Engine::Assets {
             std::function<void()> persistDatabase;
             std::function<void(const std::string& nameInProject)> onMeshReplaced;
             std::function<void(const std::string& nameInProject)> onWorldChanged;
+            std::function<void()> onPhysicsMaterialsChanged;
         };
 
         using ChangeListener = std::function<void(const std::string& nameInProject)>;

@@ -39,6 +39,7 @@ namespace Shard::Engine::Plugins::CAbi {
                 case Type::T_COMPUTE_SHADER: return SHARD_ASSET_SHADER;
                 case Type::T_WORLD: return SHARD_ASSET_WORLD;
                 case Type::T_SOUND: return SHARD_ASSET_SOUND;
+                case Type::T_PREFAB: return SHARD_ASSET_PREFAB;
                 case Type::T_CUSTOM: return SHARD_ASSET_PLUGIN;
                 default: return SHARD_ASSET_UNKNOWN;
             }

@@ -22,6 +22,7 @@ namespace Shard::Editor::GUI{
             void DrawViewportCategory();
             void DrawSnappingCategory();
             void DrawSavingCategory();
+            void DrawColorsCategory();
 
             Core::EditorMainWindow* m_Parent = nullptr;
             SettingsView m_View;

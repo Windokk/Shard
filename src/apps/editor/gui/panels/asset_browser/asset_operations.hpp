@@ -1,9 +1,12 @@
 #pragma once
 
+#include <memory>
 #include <string>
 #include <vector>
 
 #include "engine/assets/vfs/filesystem.hpp"
+
+namespace Shard::Engine::Objects { class Actor; }
 
 // Each operation keeps the asset database, the world and material files that reference the asset by path, the build settings and the resource caches consistent. Anything a loaded world or resident material uses is refused.
 namespace Shard::Editor::GUI::AssetOperations
@@ -28,8 +31,12 @@ namespace Shard::Editor::GUI::AssetOperations
 
     Result CreateFolder(const Engine::Filesystem::Path& dir, Engine::Filesystem::Path& created);
     Result CreateMaterial(const Engine::Filesystem::Path& dir, Engine::Filesystem::Path& created);
+    Result CreatePhysicsMaterial(const Engine::Filesystem::Path& dir, Engine::Filesystem::Path& created);
     Result CreateFromBytes(const Engine::Filesystem::Path& dir, const std::string& defaultName, const std::string& bytes, Engine::Filesystem::Path& created);
     Result CreateWorld(const Engine::Filesystem::Path& dir, Engine::Filesystem::Path& created);
+
+    Result CreatePrefabFromActor(const std::shared_ptr<Engine::Objects::Actor>& actor, std::string& nameInProject);
+    Result ApplyActorToPrefab(const std::shared_ptr<Engine::Objects::Actor>& root);
 
     struct ImportSummary
     {

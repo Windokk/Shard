@@ -4,6 +4,7 @@
 
 #include "engine/world/world_manager.hpp"
 
+#include "engine/physics/constraints/physics_constraint.hpp"
 #include "engine/physics/physics_body.hpp"
 #include "engine/physics/physics_events.hpp"
 #include "engine/physics/physics_world_data.hpp"
@@ -53,16 +54,24 @@ namespace Shard::Engine::Physics {
         else
             m_jobSystem = new JPH::JobSystemThreadPool(JPH::cMaxPhysicsJobs, JPH::cMaxPhysicsBarriers, Core::Platform::HardwareConcurrency() - 1);
 
+        m_Collision.Init(this);
+
         m_physicsSystem.Init(
             cMaxBodies,
             cNumBodyMutexes,
             cMaxBodyPairs,
             cMaxContactConstraints,
-            m_broadPhaseLayer,
-            m_objectVsBroadphase,
-            m_objectLayerFilter
+            m_Collision.BroadPhaseInterface(),
+            m_Collision.ObjectVsBroadPhase(),
+            m_Collision.PairFilter()
         );
-        
+
+        m_physicsSystem.SetCombineFriction([](const JPH::Body& a, const JPH::SubShapeID&, const JPH::Body& b, const JPH::SubShapeID&) {
+            return CollisionSystem::Active()->CombineFriction(a, b);
+        });
+        m_physicsSystem.SetCombineRestitution([](const JPH::Body& a, const JPH::SubShapeID&, const JPH::Body& b, const JPH::SubShapeID&) {
+            return CollisionSystem::Active()->CombineRestitution(a, b);
+        });
 
         m_physicsSystem.SetBodyActivationListener(&m_activationListener);
         m_contactListener.owner = this;
@@ -77,6 +86,9 @@ namespace Shard::Engine::Physics {
         if (!initialized)
             return;
 
+        ClearConstraints();
+        m_MeshColliders.Clear();
+        m_Collision.Shutdown();
         bodyIDToComponentMap.clear();
         m_PendingContacts.clear();
         m_DispatchedContacts.clear();
@@ -305,7 +317,7 @@ namespace Shard::Engine::Physics {
         JPH::RRayCast ray(origin, direction);
 
         RaycastBroadPhaseFilter broadPhaseFilter(request.broadPhaseMask);
-        RaycastObjectLayerFilter objectLayerFilter(request.objectMask);
+        RaycastObjectLayerFilter objectLayerFilter(m_Collision.Classes(), request.objectMask);
 
         RayCastResult ioHit;
 
@@ -325,6 +337,7 @@ namespace Shard::Engine::Physics {
             if (lock.Succeeded()) {
                 const JPH::Vec3 normal = lock.GetBody().GetWorldSpaceSurfaceNormal(ioHit.mSubShapeID2, point);
                 result.normal = glm::vec3(normal.GetX(), normal.GetY(), normal.GetZ());
+                result.onMesh = MeshSubmeshAt(*lock.GetBody().GetShape(), ioHit.mSubShapeID2, result.submesh);
             }
         }
 
@@ -449,14 +462,18 @@ namespace Shard::Engine::Physics {
         }
 
         ApplyGravityFields();
+        m_Collision.BeginStep();
 
         m_physicsSystem.Update(deltaTime, 1, m_tempAllocator, m_jobSystem);
         m_StepCount++;
 
         DispatchContacts();
+        m_Collision.EndStep(m_StepCount);
+        CheckConstraintBreaks(deltaTime);
     }
  
     void PhysicsManager::TickBodies(float deltaTime){
+        m_MeshColliders.Poll();
         
         Worlds::WorldManager* worlds = Core::GetEngine().GetWorldManager();
         const int worldCount = worlds->GetLoadedWorldCount();
@@ -469,6 +486,99 @@ namespace Shard::Engine::Physics {
                     physicsBody->Tick(deltaTime);
             }
         }
+
+        TickConstraints(Core::GetEngine().IsInPlayMode());
+    }
+
+    void PhysicsManager::TickConstraints(bool playing)
+    {
+        if(!playing)
+        {
+            ClearConstraints();
+            return;
+        }
+
+        Worlds::WorldManager* worlds = Core::GetEngine().GetWorldManager();
+        const int worldCount = worlds->GetLoadedWorldCount();
+        for(int i = 0; i < worldCount; i++){
+            Worlds::World* world = worlds->GetWorldAt(i);
+            if(!world)
+                continue;
+            const auto constraints = world->Ext<PhysicsWorldData>().constraints;
+            for (auto& [id, constraint] : constraints)
+                constraint->Sync(*this);
+        }
+    }
+
+    void PhysicsManager::RegisterConstraint(Objects::Components::PhysicsConstraint* owner, JPH::BodyID a, JPH::BodyID b, JPH::TwoBodyConstraint* constraint)
+    {
+        ConstraintRecord record;
+        record.owner = owner;
+        record.a = a;
+        record.b = b;
+        record.constraint = constraint;
+        m_physicsSystem.AddConstraint(constraint);
+        m_Constraints.push_back(std::move(record));
+        WakeConstraintBodies(a, b);
+    }
+
+    void PhysicsManager::UnregisterConstraint(Objects::Components::PhysicsConstraint* owner)
+    {
+        for (auto it = m_Constraints.begin(); it != m_Constraints.end(); ++it)
+        {
+            if (it->owner != owner)
+                continue;
+            m_physicsSystem.RemoveConstraint(it->constraint);
+            WakeConstraintBodies(it->a, it->b);
+            m_Constraints.erase(it);
+            return;
+        }
+    }
+
+    void PhysicsManager::ClearConstraints()
+    {
+        while (!m_Constraints.empty())
+        {
+            Objects::Components::PhysicsConstraint* owner = m_Constraints.back().owner;
+            UnregisterConstraint(owner);
+            owner->OnConstraintDropped();
+        }
+    }
+
+    void PhysicsManager::DropConstraintsOf(JPH::BodyID id)
+    {
+        std::vector<Objects::Components::PhysicsConstraint*> owners;
+        for (const ConstraintRecord& record : m_Constraints)
+            if (record.a == id || record.b == id)
+                owners.push_back(record.owner);
+
+        for (Objects::Components::PhysicsConstraint* owner : owners)
+        {
+            UnregisterConstraint(owner);
+            owner->OnConstraintDropped();
+        }
+    }
+
+    void PhysicsManager::CheckConstraintBreaks(float deltaTime)
+    {
+        if (m_Constraints.empty())
+            return;
+
+        std::vector<Objects::Components::PhysicsConstraint*> owners;
+        owners.reserve(m_Constraints.size());
+        for (const ConstraintRecord& record : m_Constraints)
+            owners.push_back(record.owner);
+
+        for (Objects::Components::PhysicsConstraint* owner : owners)
+            owner->CheckBreak(deltaTime);
+    }
+
+    void PhysicsManager::WakeConstraintBodies(JPH::BodyID a, JPH::BodyID b)
+    {
+        JPH::BodyInterface& bodies = m_physicsSystem.GetBodyInterface();
+        for (JPH::BodyID id : { a, b })
+            if (!id.IsInvalid() && bodies.GetMotionType(id) != JPH::EMotionType::Static)
+                bodies.ActivateBody(id);
     }
 
     JPH::BodyID PhysicsManager::CreateBody(const JPH::BodyCreationSettings &settings, Objects::Components::PhysicsBody *component, JPH::EActivation activation)
@@ -488,8 +598,20 @@ namespace Shard::Engine::Physics {
         return body->GetID();
     }
 
-    void PhysicsManager::RemoveBody(JPH::BodyID id)
+    JPH::BodyID PhysicsManager::CreateBody(const JPH::BodyCreationSettings &settings, Objects::Components::PhysicsBody *component, ColliderState&& collider, JPH::EActivation activation)
     {
+        const JPH::BodyID id = CreateBody(settings, component, activation);
+        if (id.IsInvalid())
+            m_Collision.Discard(collider);
+        else
+            m_Collision.Attach(id, std::move(collider), component);
+        return id;
+    }
+
+    void PhysicsManager::RemoveBody(JPH::BodyID id, Collision::EndCause cause)
+    {
+        DropConstraintsOf(id);
+        m_Collision.Detach(id, cause);
         JPH::BodyInterface& bodyInterface = m_physicsSystem.GetBodyInterface();
         bodyInterface.RemoveBody(id);
         bodyInterface.DestroyBody(id);
@@ -500,21 +622,24 @@ namespace Shard::Engine::Physics {
 
     ValidateResult PhysicsContactListener::OnContactValidate(const Body &inBody1, const Body &inBody2, RVec3Arg inBaseOffset, const CollideShapeResult &inCollisionResult)
     {
-        return ValidateResult::AcceptAllContactsForThisBodyPair;
+        return owner->Collision().OnValidate(inBody1, inBody2);
     }
 
     void PhysicsContactListener::OnContactAdded(const Body &inBody1, const Body &inBody2, const ContactManifold &inManifold, ContactSettings &ioSettings)
     {
+        owner->Collision().OnContact(true, inBody1, inBody2, inManifold, ioSettings);
         owner->QueueContact(PhysicsManager::PendingContact::Kind::Added, inBody1, inBody2, inManifold, ioSettings);
     }
 
     void PhysicsContactListener::OnContactPersisted(const Body &inBody1, const Body &inBody2, const ContactManifold &inManifold, ContactSettings &ioSettings)
     {
+        owner->Collision().OnContact(false, inBody1, inBody2, inManifold, ioSettings);
         owner->QueueContact(PhysicsManager::PendingContact::Kind::Persisted, inBody1, inBody2, inManifold, ioSettings);
     }
 
     void PhysicsContactListener::OnContactRemoved(const SubShapeIDPair &inSubShapePair)
     {
+        owner->Collision().OnContactRemoved(inSubShapePair);
         owner->QueueContactRemoved(inSubShapePair);
     }
 }

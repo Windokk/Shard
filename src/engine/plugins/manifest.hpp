@@ -106,6 +106,9 @@ namespace Shard::Engine::Plugins {
         nlohmann::json settings = nlohmann::json::object();
 
         std::map<std::string, std::string> tags;
+        std::vector<std::string> collisionTags;
+        nlohmann::json collisionProfiles = nlohmann::json::object();
+        nlohmann::json physicsMaterials = nlohmann::json::object();
 
         std::string rootDir;
         std::string manifestPath;

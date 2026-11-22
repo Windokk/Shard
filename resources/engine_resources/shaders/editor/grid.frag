@@ -10,12 +10,10 @@ uniform mat4 uView;
 uniform int axis;
 uniform float cellSize;
 
-const vec3 kGridColor = vec3(0.85);
-const vec3 kAxisColors[3] = vec3[](
-    vec3(0.86, 0.25, 0.25),
-    vec3(0.45, 0.80, 0.25),
-    vec3(0.25, 0.47, 0.92)
-);
+uniform vec3 gridColor;
+uniform vec3 axisColorX;
+uniform vec3 axisColorY;
+uniform vec3 axisColorZ;
 
 void main()
 {
@@ -52,7 +50,8 @@ void main()
 
     // Axis lines replace the cell line under them, or the cell line's anti-aliased edges show as an outline.
     float axisLine = max(axisLineA, axisLineB);
-    vec3 axisColor = (axisLineA >= axisLineB) ? kAxisColors[axisB] : kAxisColors[axisA];
+    vec3 axisColors[3] = vec3[](axisColorX, axisColorY, axisColorZ);
+    vec3 axisColor = (axisLineA >= axisLineB) ? axisColors[axisB] : axisColors[axisA];
 
     float axisAlpha = axisLine * 0.9;
     float cellAlpha = cellLine * 0.45 * (1.0 - axisLine);
@@ -61,7 +60,7 @@ void main()
     if (alpha < 0.002)
         discard;
 
-    vec3 color = (axisColor * axisAlpha + kGridColor * cellAlpha) / (axisAlpha + cellAlpha);
+    vec3 color = (axisColor * axisAlpha + gridColor * cellAlpha) / (axisAlpha + cellAlpha);
 
     vec4 clip = uProjection * uView * vec4(world, 1.0);
     gl_FragDepth = clamp((clip.z / clip.w) * 0.5 + 0.5, 0.0, 1.0);

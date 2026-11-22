@@ -29,6 +29,9 @@ namespace Shard::Editor::GUI{
             void DrawRenderingCategory();
             void DrawConsoleVariablesCategory();
 
+            void DrawCollisionCategory();
+            void ApplyCollision();
+
             void DrawTagsCategory();
             void DrawTagNode(Engine::Core::Tag tag);
             void DrawTagPopups();

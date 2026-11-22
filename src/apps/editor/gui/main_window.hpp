@@ -12,6 +12,7 @@
 #include "apps/editor/gui/panels/properties/properties_panel.hpp"
 #include "apps/editor/gui/panels/asset_browser/asset_browser.hpp"
 #include "apps/editor/gui/panels/material_editor/material_editor_panel.hpp"
+#include "apps/editor/gui/panels/physics_material_editor/physics_material_editor_panel.hpp"
 #include "apps/editor/gui/panels/texture_editor/texture_editor_panel.hpp"
 #include "apps/editor/gui/panels/asset_editor_registry.hpp"
 #include "apps/editor/gui/panels/world_tree/world_tree.hpp"
@@ -20,6 +21,7 @@
 #include "apps/editor/gui/panels/editor_preferences/editor_preferences_panel.hpp"
 #include "apps/editor/gui/panels/console/console.hpp"
 #include "apps/editor/gui/panels/profiler/profiler_panel.hpp"
+#include "apps/editor/gui/panels/collision_debug/collision_debug_panel.hpp"
 #include "apps/editor/gui/panels/plugins/plugins_panel.hpp"
 #include "apps/editor/gui/panels/menu_bar/menu_bar.hpp"
 #include "apps/editor/debug/editor_debug_draw.hpp"
@@ -143,6 +145,7 @@ namespace Shard::Editor::Core {
 
         GUI::AssetBrowser* assetBrowser = nullptr;
         GUI::MaterialEditorPanel* materialEditorPanel = nullptr;
+        GUI::PhysicsMaterialEditorPanel* physicsMaterialEditorPanel = nullptr;
         GUI::TextureEditorPanel* textureEditorPanel = nullptr;
         GUI::PropertiesPanel* propertiesPanel = nullptr;
         GUI::WorldTree* worldTree = nullptr;
@@ -151,6 +154,7 @@ namespace Shard::Editor::Core {
         GUI::EditorPreferencesPanel* editorPreferencesPanel = nullptr;
         GUI::Console* console = nullptr;
         GUI::ProfilerPanel* profilerPanel = nullptr;
+        GUI::CollisionDebugPanel* collisionPanel = nullptr;
         GUI::PluginsPanel* pluginsPanel = nullptr;
         GUI::MenuBar* menuBar = nullptr;
         

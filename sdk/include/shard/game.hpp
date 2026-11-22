@@ -16,6 +16,7 @@
 #include <shard/cpp/actor.hpp>
 #include <shard/cpp/assets.hpp>
 #include <shard/cpp/audio.hpp>
+#include <shard/cpp/collision.hpp>
 #include <shard/cpp/component.hpp>
 #include <shard/cpp/debug.hpp>
 #include <shard/cpp/editor.hpp>

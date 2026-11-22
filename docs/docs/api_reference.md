@@ -31,6 +31,7 @@ Strings are `ShardStr` : UTF-8, not necessarily zero terminated, valid for the d
 | [`shard_actors.h`](#shard_actorsh) | | Interface `"shard.actors"` 1.2 (1.0 + the fields of a component, one at a time in 1.1 ; stable ids, bounds and neighbours in 1.2) |
 | [`shard_assets.h`](#shard_assetsh) | `shard.assets` 1.0 | the assets of the project, by path and by id |
 | [`shard_audio.h`](#shard_audioh) | `shard.audio` 1.0 | sounds |
+| [`shard_collision.h`](#shard_collisionh) | `shard.collision` 1.0 | collision profiles, overlap and hit events, temporary changes and the reason two actors do or do not collide |
 | [`shard_debug.h`](#shard_debugh) | `shard.debug` 1.0 | drawing for the developer, in the world, from anywhere : a navigation mesh, the path an agent follows, a field of view, a voxel chunk's bounds, a bone, a network ghost, the node a graph is running |
 | [`shard_editor.h`](#shard_editorh) | `shard.editor` 1.2 | the editor's windows, menus, toolbar, inspectors and gizmos, drawn with a small set of widgets |
 | [`shard_experimental.h`](#shard_experimentalh) | `shard.experimental.world_ecs` 0.1 | the engine's entities from the main thread, outside the systems |
@@ -64,7 +65,7 @@ Changing a struct without bumping `SHARD_ABI_MINOR` is a bug : `tests/plugins/ab
 | | Value | |
 |---|---|---|
 | `SHARD_ABI_MAJOR` | `1` |  |
-| `SHARD_ABI_MINOR` | `8` |  |
+| `SHARD_ABI_MINOR` | `9` |  |
 
 Calling convention of every function pointer in the tables. Empty on `x86_64` and arm64.
 
@@ -1534,6 +1535,117 @@ Plays `clip` once, from `position` in the world when `spatial` is `SHARD_TRUE` (
 ShardResult play_one_shot(ShardStr clip, const float position[3], float volume, int32_t spatial);
 ```
 
+### shard_collision.h
+
+Interface `"shard.collision"` 1.0 : collision profiles, overlap and hit events, temporary changes and the reason two actors do or do not collide.
+
+A collider has a profile (a project asset, or one a plugin declares in its manifest) that says what it is and how it reacts to the others. This interface reads and changes that at run time. The profiles themselves are data : `"collision_profiles"` in the project file or the plugin manifest, `"collision"`: true on the tags that are part of a collider's identity.
+
+Events. subscribe asks for the events of one actor (the ones of all its colliders). Nothing is produced for a pair until something listens for it. The plugin reads them with `poll_events`, after the physics step that made them : they come in the same order for the same simulation. A script gets the same events through `on_overlap_begin`, `on_overlap_end` and `on_hit` (`shard_scripts.h`) with no subscription to make. Every overlap Begin is followed by an End, with a cause when the collider went away or changed.
+
+Queries follow the rules of a profile or an actor through the `as_profile` and `as_actor` fields of `shard.physics`' `ShardQueryFilter`.
+
+thread : script. Subscriptions, overrides and everything made through the context go with the plugin. `SHARD_E_NOT_FOUND` : the actor has no live physics body. `SHARD_E_UNSUPPORTED` : this host has no physics.
+
+| | Value | |
+|---|---|---|
+| `SHARD_IFACE_COLLISION` | `"shard.collision"` |  |
+
+```c
+typedef uint64_t ShardCollisionSub;    // 0 is never a subscription
+```
+
+The kinds of event, as a bit mask for subscribe and as a value in `ShardCollisionEvent::kind`
+
+| | Value | |
+|---|---|---|
+| `SHARD_COLLISION_OVERLAP_BEGIN` | `1u` | two colliders that overlap started touching |
+| `SHARD_COLLISION_OVERLAP_END` | `2u` | they stopped, or one went away (see cause) |
+| `SHARD_COLLISION_HIT` | `4u` | two colliders that block each other came into contact |
+| `SHARD_COLLISION_ALL` | `7u` |  |
+
+Why an overlap ended
+
+| | Value | |
+|---|---|---|
+| `SHARD_COLLISION_CAUSE_NONE` | `0u` |  |
+| `SHARD_COLLISION_CAUSE_SEPARATED` | `1u` | the shapes stopped touching |
+| `SHARD_COLLISION_CAUSE_DESTROYED` | `2u` | an actor or collider was destroyed |
+| `SHARD_COLLISION_CAUSE_DISABLED` | `3u` | the body or its mode was disabled |
+| `SHARD_COLLISION_CAUSE_PROFILE_CHANGED` | `4u` | the pair is now ignored |
+| `SHARD_COLLISION_CAUSE_TELEPORTED` | `5u` | the position was set directly |
+
+#### ShardCollisionEvent
+
+```c
+uint32_t structSize;
+uint32_t kind;    // one SHARD_COLLISION_* kind
+uint64_t step;    // the fixed step it happened in
+ShardActor self;    // the actor that listens
+ShardActor other;    // what it touched
+double point[3];    // where, in the world (64 bits : far from the origin it stays exact)
+float normal[3];    // the direction pointing out of `other`
+float impactSpeed;    // speed of approach along the normal, before the contact is resolved (hits)
+float impulse;    // estimated from the impact speed and the masses (hits)
+uint32_t cause;    // SHARD_COLLISION_CAUSE_*, for an overlap end
+uint32_t reserved;
+uint8_t surface[64];    // the surface tag of `other`'s material as NUL-terminated text, or empty
+```
+
+| | Value | |
+|---|---|---|
+| `SHARD_COLLISION_ONCE` | `1u` | subscribe's `flags` : the subscription ends after its first event |
+
+#### ShardCollisionApi
+
+```c
+uint32_t structSize;
+```
+
+Starts listening to the events of `actor` (all its colliders). `kinds` : `SHARD_COLLISION_*`. `other` : a tag query on the other collider (`"Enemy & !Status.Dead"`), empty for anything. `min_impact_speed` : hits slower than this are not reported. `flags` : `SHARD_COLLISION_ONCE`.
+
+```c
+ShardResult subscribe(ShardPluginCtx ctx, ShardActor actor, uint32_t kinds, ShardStr other, float min_impact_speed, uint32_t flags, ShardCollisionSub* out);
+ShardResult unsubscribe(ShardPluginCtx ctx, ShardCollisionSub sub);
+```
+
+The events the subscription received since the last poll, oldest first : up to `capacity` of them into `out` (each structSize set) and the number written into `*count`. What does not fit stays for the next poll. At most 4096 wait : past that the oldest are dropped.
+
+```c
+ShardResult poll_events(ShardPluginCtx ctx, ShardCollisionSub sub, ShardCollisionEvent* out, uint32_t capacity, uint32_t* count);
+```
+
+The actors `actor` overlaps right now. The number found goes into `*count` (which may be more than `capacity`) ; ask with capacity 0.
+
+```c
+ShardResult get_overlaps(ShardPluginCtx ctx, ShardActor actor, ShardActor* out, uint32_t capacity, uint32_t* count);
+```
+
+The reason for the result between two actors, as text : the mode and motion of each, the rule that matched on each side with its profile and position, any override and who set it, the final response. The text out of the ABI : `capacity` bytes into `buffer`, the full length in `*size`.
+
+```c
+ShardResult explain(ShardPluginCtx ctx, ShardActor a, ShardActor b, char* buffer, uint64_t capacity, uint64_t* size);
+```
+
+Gives the collider a profile by name (empty : back to the default of its motion type). `SHARD_E_NOT_FOUND` : no such profile.
+
+```c
+ShardResult set_profile(ShardPluginCtx ctx, ShardActor actor, ShardStr profile);
+```
+
+A temporary change of a collider. It folds over the profile by priority (higher wins) until it is popped, and goes with the plugin. `name` : who asks, shown in explain (`"dash"`). `ignore` : a tag query, the colliders it matches are ignored while the override lives (empty : none). `mode` : 0 unchanged, 1 Solid, 2 Sensor, 3 QueryOnly, 4 Disabled. `default_response` : 0 unchanged, 1 Ignore, 2 Overlap, 3 Block.
+
+```c
+ShardResult push_override(ShardPluginCtx ctx, ShardActor actor, ShardStr name, int32_t priority, ShardStr ignore, uint32_t mode, uint32_t default_response, uint64_t* out);
+ShardResult pop_override(ShardPluginCtx ctx, ShardActor actor, uint64_t override_id);
+```
+
+Skips one pair of actors for good (a projectile and the actor that fired it) until ignore is 0 or one of them is destroyed.
+
+```c
+ShardResult ignore_collision(ShardPluginCtx ctx, ShardActor a, ShardActor b, int32_t ignore);
+```
+
 ### shard_debug.h
 
 Interface `"shard.debug"` 1.0 : drawing for the developer, in the world, from anywhere : a navigation mesh, the path an agent follows, a field of view, a voxel chunk's bounds, a bone, a network ghost, the node a graph is running.
@@ -2648,6 +2760,20 @@ uint32_t flags;    // SHARD_QUERY_*
 ShardStr tag;    // only the actors that have this tag (or one under it). Empty : any. A plugin collider has no tag.
 ```
 
+**`shard.collision` 1.0 : the query follows the rules of a collider**
+
+```c
+ShardStr as_profile;    // a collision profile by name : the query meets what a collider with that profile would not ignore. Empty : off.
+ShardActor as_actor;    // or the profile the actor's collider has now, overrides included. Wins over as_profile. 0 : off.
+uint32_t hit;    // SHARD_HIT_BLOCK (0) or SHARD_HIT_OVERLAP : what counts as a hit when `as_*` is on
+uint32_t reserved;
+```
+
+| | Value | |
+|---|---|---|
+| `SHARD_HIT_BLOCK` | `0u` | only what the collider would be blocked by |
+| `SHARD_HIT_OVERLAP` | `1u` | what it would be blocked by or overlap |
+
 A collider built from geometry. Static : it never moves by itself (`collider_set_pose` moves it), and bodies collide with it as with any other static body. The geometry is copied during the call.
 
 | | Value | |
@@ -3516,6 +3642,12 @@ float penetration;
 typedef ShardResult (*ShardScriptContactFn)(void* user, void* object, const ShardContact* contact);
 ```
 
+What a script is told about the collisions of its actor (`shard.collision`, ABI 1.9) : the event is described in `shard_collision.h`. A script that has one of these callbacks is subscribed to the matching events by the host, from its first step in a world until it is destroyed.
+
+```c
+typedef ShardResult (*ShardScriptCollisionFn)(void* user, void* object, const ShardCollisionEvent* event);
+```
+
 #### ShardScriptCallbacks
 
 ```c
@@ -3578,6 +3710,14 @@ A field was edited (inspector, `shard.actors`' `set_component`, an undo) ; `fiel
 ShardResult on_field_changed(void* user, void* object, uint32_t field);
 ```
 
+**1.9 : collision events, after the physics step that made them, on the thread that steps the physics**
+
+```c
+ShardScriptCollisionFn on_overlap_begin;
+ShardScriptCollisionFn on_overlap_end;
+ShardScriptCollisionFn on_hit;
+```
+
 Callbacks of later ABI revisions go HERE : the host checks structSize before reading them.
 
 | | Value | |
@@ -3602,6 +3742,13 @@ const ShardScriptCallbacks* callbacks;    // copied up to its structSize during 
 ```c
 uint32_t flags;    // SHARD_SCRIPT_*
 uint32_t reserved;
+```
+
+**1.9**
+
+```c
+uint32_t collision_kinds;    // SHARD_COLLISION_* : the kinds of event the host subscribes the script to, among the ones it has a callback for. A descriptor without this field (older) gets all of them. 0 : none, nothing is produced for the script.
+uint32_t reserved2;
 ```
 
 #### ShardScriptsApi
@@ -4621,6 +4768,14 @@ bool AddAngularImpulse(Vec3 impulse) const;
 Vec3 Gravity() const;
 /// Gives the body a gravity of its own : the world's gravity and the fields no longer reach it
 bool SetCustomGravity(Vec3 gravity) const;
+/// The actors this one overlaps right now
+std::vector<Actor> Overlapping() const;
+/// Skips one pair for good, a projectile and the actor that fired it. `false` brings the collision back.
+bool IgnoreCollisionWith(Actor other, bool ignore = true) const;
+/// Gives the collider a profile by name, empty for the default of its motion type
+bool SetCollisionProfile(std::string_view profile) const;
+/// A temporary change of the collider that ends when the returned scope is destroyed
+CollisionScope CollisionOverride(const CollisionChange& change) const;
 bool PlayAudio() const;
 bool PauseAudio() const;
 bool SetAudioVolume(float volume) const;
@@ -4745,6 +4900,113 @@ Shard::Audio::PlayOneShot("sounds/shot.wav", Owner().WorldPosition());
 static void PlayOneShot(std::string_view clip, Vec3 position, float volume = 1.f, bool spatial = true);
 /// A flat sound, with no place
 static void PlayOneShot(std::string_view clip, float volume = 1.f);
+```
+
+### shard/cpp/collision.hpp
+
+Shard C++ SDK : collision profiles at run time, overlap and hit events, temporary changes (`shard_collision.h`).
+
+```cpp
+class Door : public Shard::Script {
+public:
+    static constexpr uint32_t kCollisionEvents = Shard::CollisionKinds::OverlapBegin | Shard::CollisionKinds::OverlapEnd;
+    void OnOverlapBegin(const Shard::CollisionEvent& e) override { if (e.other.HasTag("Player")) Open(); }
+    void OnOverlapEnd(const Shard::CollisionEvent& e) override { if (e.other.HasTag("Player")) Close(); }
+};
+
+auto scope = actor.CollisionOverride({ .ignore = "Enemy" });     // ignores enemies until `scope` is destroyed
+actor.IgnoreCollisionWith(shooter);
+std::string why = Shard::Physics::Explain(a, b);
+```
+
+A script gets the events it names in kCollisionEvents, nothing is produced for the others. Outside a script, a `Shard::CollisionListener` collects the events of an actor and the plugin reads them with `Poll()` after the physics step.
+
+#### `CollisionKinds`
+
+```cpp
+static constexpr uint32_t OverlapBegin = SHARD_COLLISION_OVERLAP_BEGIN;
+static constexpr uint32_t OverlapEnd = SHARD_COLLISION_OVERLAP_END;
+static constexpr uint32_t Hit = SHARD_COLLISION_HIT;
+static constexpr uint32_t All = SHARD_COLLISION_ALL;
+```
+
+```cpp
+enum class EndCause : uint32_t { None = SHARD_COLLISION_CAUSE_NONE, Separated = SHARD_COLLISION_CAUSE_SEPARATED, Destroyed = SHARD_COLLISION_CAUSE_DESTROYED, Disabled = SHARD_COLLISION_CAUSE_DISABLED, ProfileChanged = SHARD_COLLISION_CAUSE_PROFILE_CHANGED, Teleported = SHARD_COLLISION_CAUSE_TELEPORTED, };
+```
+
+#### `CollisionEvent`
+
+An overlap that began or ended, or a hit between two colliders that block each other
+
+```cpp
+/// one of CollisionKinds
+uint32_t kind = 0;
+/// the fixed step it happened in
+uint64_t step = 0;
+/// the actor that listens
+Actor self;
+/// what it touched
+Actor other;
+double point[3] = {};
+/// the direction pointing out of `other`
+Vec3 normal;
+/// speed of approach along the normal, before the contact is resolved
+float impactSpeed = 0.f;
+/// estimated from the impact speed and the masses
+float impulse = 0.f;
+/// for an overlap end
+EndCause cause = EndCause::None;
+/// the surface tag of `other`, or empty
+std::string surface;
+static CollisionEvent From(const ShardCollisionEvent& raw);
+```
+
+#### `CollisionChange`
+
+A temporary change of a collider
+
+```cpp
+/// a tag query : what it matches is ignored ("Enemy & !Status.Dead")
+std::string ignore;
+/// higher wins when several changes touch the same thing
+int priority = 0;
+/// who asks, shown by Explain
+std::string name;
+/// 0 unchanged, 1 Solid, 2 Sensor, 3 QueryOnly, 4 Disabled
+uint32_t mode = 0;
+/// 0 unchanged, 1 Ignore, 2 Overlap, 3 Block
+uint32_t defaultResponse = 0;
+```
+
+#### `CollisionScope`
+
+Gives the change back when destroyed (or `Release()`), and with the actor
+
+```cpp
+CollisionScope& operator=(CollisionScope&& o) noexcept;
+CollisionScope& operator=(const CollisionScope&) = delete;
+explicit operator bool() const;
+void Release();
+```
+
+#### `CollisionListener`
+
+The events of one actor, read after the physics step. Nothing is produced for a pair until a listener asks for it.
+
+```cpp
+CollisionListener& operator=(CollisionListener&& o) noexcept;
+CollisionListener& operator=(const CollisionListener&) = delete;
+explicit operator bool() const;
+/// What arrived since the last call, oldest first
+std::vector<CollisionEvent> Poll(uint32_t maxEvents = 256) const;
+void Reset();
+```
+
+```cpp
+inline std::vector<Actor> Actor::Overlapping() const;
+inline bool Actor::IgnoreCollisionWith(Actor other, bool ignore) const;
+inline bool Actor::SetCollisionProfile(std::string_view profile) const;
+inline CollisionScope Actor::CollisionOverride(const CollisionChange& change) const;
 ```
 
 ### shard/cpp/debug.hpp
@@ -5724,6 +5986,12 @@ bool collidersOnly = false;
 bool noColliders = false;
 /// only the actors that have this tag (or one under it)
 std::string tag;
+/// follow the rules of this collision profile : the query meets what a collider with it would not ignore
+std::string asProfile;
+/// or of this actor's collider as it is now, overrides included (wins over asProfile)
+Actor asActor;
+/// with as*, count what the collider would overlap as a hit too, not only what blocks it
+bool hitOverlaps = false;
 ```
 
 #### `Collider`
@@ -5748,6 +6016,8 @@ void Reset();
 #### `Physics`
 
 ```cpp
+/// Why two actors collide or do not : the mode and motion of each, the rule that matched on each side, any override and the final response
+static std::string Explain(Actor a, Actor b);
 /// The first body the ray meets within `maxDistance`. `direction` need not be normalized. `ignore` : an actor whose body the ray goes
 /// through, usually the one that fires it. Call it from the callbacks of a script.
 static std::optional<RayHit> Raycast(Vec3 origin, Vec3 direction, float maxDistance, uint32_t layers = Layers::All, Actor ignore = Actor());
@@ -6253,6 +6523,11 @@ virtual void OnDeactivated();
 virtual void OnContactAdded(const Contact&);
 virtual void OnContactPersisted(const Contact&);
 virtual void OnContactEnded(const Contact&);
+/// Collision events, for the kinds the class names in `static constexpr uint32_t kCollisionEvents = CollisionKinds::OverlapBegin | ...;`.
+/// Nothing is produced for a kind that is not named. They run right after the physics step.
+virtual void OnOverlapBegin(const CollisionEvent&);
+virtual void OnOverlapEnd(const CollisionEvent&);
+virtual void OnHit(const CollisionEvent&);
 /// Every frame the world does NOT play (the editor's edit mode), with the real frame time : a particle emitter, a UI being laid out, a preview.
 /// Only for a class that declares `static constexpr bool kExecuteInEditMode = true;`. What it does must not change what gets saved.
 virtual void OnEditTick(float /*deltaTime*/);
@@ -6296,6 +6571,7 @@ static ShardResult Attach(void*, void* object, ShardActor owner);
 template <void (Script::*Fn)()> static ShardResult Event(void*, void* object);
 static ShardResult Destroyed(void*, void* object);
 template <void (Script::*Fn)(const Contact&)> static ShardResult ContactEvent(void*, void* object, const ShardContact* c);
+template <void (Script::*Fn)(const CollisionEvent&)> static ShardResult CollisionCallback(void*, void* object, const ShardCollisionEvent* raw);
 static void SHARD_CALL TextGet(void*, void* object, uint32_t offset, ShardStr* out);
 static ShardResult TextSet(void*, void* object, uint32_t offset, ShardStr text);
 template <void (Script::*Fn)(float)> static ShardResult Tick(void*, void* object, float dt);

@@ -71,6 +71,14 @@ namespace Shard::Editor::GUI {
                     c.Poly({{2, 20}, {9, 8}, {16, 20}}, kSoft);
                     c.Poly({{10, 20}, {16, 11}, {22, 20}});
                     break;
+                case Type::T_PREFAB:            // the source cube, faded, and its solid instance beside it
+                    c.Poly({{7, 1.5f}, {13, 4.5f}, {7, 7.5f}, {1, 4.5f}}, 0.45f);
+                    c.Poly({{1, 4.5f}, {7, 7.5f}, {7, 15}, {1, 12}}, 0.3f);
+                    c.Poly({{13, 4.5f}, {7, 7.5f}, {7, 15}, {13, 12}}, 0.2f);
+                    c.Poly({{17.5f, 9}, {23.5f, 12}, {17.5f, 15}, {11.5f, 12}});
+                    c.Poly({{11.5f, 12}, {17.5f, 15}, {17.5f, 22.5f}, {11.5f, 19.5f}}, 0.65f);
+                    c.Poly({{23.5f, 12}, {17.5f, 15}, {17.5f, 22.5f}, {23.5f, 19.5f}}, 0.35f);
+                    break;
                 case Type::T_MODEL:             // cube, three lit faces
                     c.Poly({{12, 2.5f}, {21, 7.5f}, {12, 12.5f}, {3, 7.5f}});
                     c.Poly({{3, 7.5f}, {12, 12.5f}, {12, 22}, {3, 16.5f}}, 0.65f);
@@ -79,6 +87,10 @@ namespace Shard::Editor::GUI {
                 case Type::T_MATERIAL:          // lit sphere
                     c.Disc(12, 12, 9.5f, kSoft);
                     c.Disc(10.5f, 10.5f, 6.5f);
+                    break;
+                case Type::T_PHYSICS_MATERIAL:  // bouncing ball on a surface
+                    c.Rect(3, 18.5f, 21, 21, kSoft);
+                    c.Disc(12, 10.5f, 6.5f);
                     break;
                 case Type::T_IMAGE:             // checker : the texture
                     c.Rect(3, 3, 21, 21, kSoft);
