@@ -24,11 +24,8 @@ namespace Shard::Engine {
         config.allowHotReload = options.hotReload && !options.deterministic;
         config.ignoreSafeMode = options.ignoreSafeMode;
         config.registerModuleAssets = true;
-        config.registries = options.registries;
         config.trustFiles = options.trustFiles;
         config.allowUnsigned = options.allowUnsigned;
-        if (const char* env = std::getenv("SHARD_PLUGIN_REGISTRY"))
-            if (*env) config.registries.push_back(env);
 
         if (const char* env = std::getenv("SHARD_PLUGIN_PATH")) {
 #if defined(_WIN32)
@@ -80,10 +77,6 @@ namespace Shard::Engine {
         }
         if (std::strcmp(arg, "--disable-plugin") == 0) {
             if (const char* v = value("--disable-plugin")) { options.disabled.insert(v); return 2; }
-            return 1;
-        }
-        if (std::strcmp(arg, "--registry") == 0) {
-            if (const char* v = value("--registry")) { options.registries.push_back(v); return 2; }
             return 1;
         }
         if (std::strcmp(arg, "--trust-file") == 0) {

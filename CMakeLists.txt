@@ -111,6 +111,7 @@ add_subdirectory(src/apps/tools/reflect)
 add_subdirectory(src/engine)
 add_subdirectory(src/apps/tools/shaderc)
 add_subdirectory(src/apps/tools/shardpkg)
+add_subdirectory(src/apps/tools/shard_cli)
 add_subdirectory(src/apps/tools/asset_validator)
 add_subdirectory(src/apps/tools/cooker)
 add_subdirectory(src/apps/game)
@@ -124,19 +125,19 @@ install(DIRECTORY ${CMAKE_SOURCE_DIR}/sdk/include/ DESTINATION sdk/include COMPO
 install(DIRECTORY ${CMAKE_SOURCE_DIR}/sdk/cmake/ DESTINATION sdk/cmake COMPONENT sdk)
 install(DIRECTORY ${CMAKE_SOURCE_DIR}/sdk/templates/ DESTINATION sdk/templates COMPONENT sdk)
 install(FILES ${CMAKE_SOURCE_DIR}/sdk/VERSION ${CMAKE_SOURCE_DIR}/sdk/README.md DESTINATION sdk COMPONENT sdk)
-install(TARGETS ShardPkg RUNTIME DESTINATION sdk/bin COMPONENT sdk)
+install(TARGETS ShardPkg ShardCli RUNTIME DESTINATION sdk/bin COMPONENT sdk)
 add_custom_target(ShardSDKArchive
     COMMAND ${CMAKE_COMMAND} -E rm -rf ${CMAKE_BINARY_DIR}/sdk_stage
     COMMAND ${CMAKE_COMMAND} --install ${CMAKE_BINARY_DIR} --component sdk --prefix ${CMAKE_BINARY_DIR}/sdk_stage
     COMMAND ${CMAKE_COMMAND} -E chdir ${CMAKE_BINARY_DIR}/sdk_stage ${CMAKE_COMMAND} -E tar cf ${CMAKE_BINARY_DIR}/shard-sdk-${SHARD_SDK_VERSION}.zip --format=zip sdk
     COMMENT "Packing the SDK into shard-sdk-${SHARD_SDK_VERSION}.zip"
     VERBATIM)
-add_dependencies(ShardSDKArchive ShardPkg)
+add_dependencies(ShardSDKArchive ShardPkg ShardCli)
 
 enable_testing()
 add_subdirectory(tests)
 
 shard_enable_warnings(
     ShardCore ShardPlatform ShardAssets ShardWorld ShardPhysics ShardAudio ShardShaderCompiler ShardRHI ShardRenderer ShardEngine
-    ShardEditor ShardGame ShardHeadless ShardShaderc ShardPkg ShardAssetValidator ShardCooker ShardTests
+    ShardEditor ShardGame ShardHeadless ShardShaderc ShardPkg ShardCli ShardAssetValidator ShardCooker ShardTests
 )

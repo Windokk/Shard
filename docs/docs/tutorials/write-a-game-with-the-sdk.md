@@ -245,6 +245,6 @@ To write a plugin in C instead, include `<shard/shard.h>` and fill the tables yo
 
 ## 10. Ship it
 
-The template asks for `PACKAGE`, so `cmake --build my-game/build --target template_plugin_package` writes `my-game/build/plugins/<id>.shardplugin` using the SDK's `bin/ShardPkg` (`SHARD_PKG_EXECUTABLE` selects another one). The archive contains the manifest, the library and the content. To sign it, see [Packaging, signing and registries](../concepts/plugins.md#packaging-signing-and-registries). A signed plugin cannot use the experimental interfaces.
+The template asks for `PACKAGE`, so `cmake --build my-game/build --target template_plugin_package` writes `my-game/build/plugins/<id>.shardplugin` using the SDK's `bin/ShardPkg` (`SHARD_PKG_EXECUTABLE` selects another one). The archive contains the manifest, the library and the content. To sign it, see [Packaging, signing and installing](../concepts/plugins.md#packaging-signing-and-installing). A signed plugin cannot use the experimental interfaces.
 
 A plugin built with SDK 1.x loads in every engine of ABI 1.x whose minor revision is at least the SDK's. To reach more engines, build against the oldest SDK that has what you use.

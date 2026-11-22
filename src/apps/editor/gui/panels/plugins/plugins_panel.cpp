@@ -5,6 +5,7 @@
 #include "imgui/imgui.h"
 
 #include <cstdio>
+#include <sstream>
 
 namespace Shard::Editor::GUI{
 
@@ -62,6 +63,7 @@ namespace Shard::Editor::GUI{
         if(!m_LastMessage.empty())
             ImGui::TextColored(m_LastMessageIsError ? ImVec4(0.95f, 0.35f, 0.30f, 1.0f) : ImVec4(0.30f, 0.80f, 0.40f, 1.0f), "%s", m_LastMessage.c_str());
 
+        DrawInstall();
         ImGui::Separator();
         DrawList();
         ImGui::Separator();
@@ -69,6 +71,44 @@ namespace Shard::Editor::GUI{
         DrawProblems();
 
         ImGui::End();
+    }
+
+    void PluginsPanel::DrawInstall()
+    {
+        PluginManager& manager = PluginManager::Get();
+        if(!ImGui::CollapsingHeader("Install from disk"))
+            return;
+
+        const bool canInstall = !manager.InstallDirectory().empty();
+        ImGui::BeginDisabled(!canInstall);
+        ImGui::SetNextItemWidth(-1.0f);
+        ImGui::InputTextWithHint("##installPath", "a .shardplugin archive, or a folder or archive holding several", m_InstallPath, sizeof(m_InstallPath));
+        ImGui::SetNextItemWidth(-1.0f);
+        ImGui::InputTextWithHint("##installOnly", "bundle : only these ids (space separated), empty for all", m_InstallOnly, sizeof(m_InstallOnly));
+
+        const bool hasPath = m_InstallPath[0] != '\0';
+        ImGui::BeginDisabled(!hasPath);
+        if(ImGui::Button("Install archive")){
+            auto installed = manager.InstallArchive(m_InstallPath);
+            m_LastMessageIsError = !installed;
+            m_LastMessage = installed ? "Installed " + installed.Value().id + " " + installed.Value().version + " : restart to load it" : installed.GetError().message;
+        }
+        ImGui::SameLine();
+        if(ImGui::Button("Install bundle")){
+            std::vector<std::string> only;
+            std::istringstream ids(m_InstallOnly);
+            for(std::string id; ids >> id;) only.push_back(id);
+            auto installed = manager.InstallBundle(m_InstallPath, only);
+            m_LastMessageIsError = !installed;
+            m_LastMessage = installed ? "Installed " + std::to_string(installed.Value().size()) + " plugins : restart to load them" : installed.GetError().message;
+        }
+        ImGui::EndDisabled();
+        ImGui::EndDisabled();
+
+        if(!canInstall)
+            ImGui::TextDisabled("Open a project : plugins are installed in its plugins folder.");
+        else
+            ImGui::TextDisabled("Into %s. Archives must be signed by a trusted publisher (plugin-trust.json).", manager.InstallDirectory().c_str());
     }
 
     void PluginsPanel::DrawList()
@@ -146,6 +186,19 @@ namespace Shard::Editor::GUI{
         ImGui::EndDisabled();
         if(!canReload && ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled))
             ImGui::SetTooltip("Only a library built with SHARD_PLUGIN can be reloaded, and only while the editor is not deterministic.");
+
+        if(r->installed){
+            ImGui::SameLine();
+            ImGui::BeginDisabled(r->IsLive());
+            if(ImGui::Button("Uninstall")){
+                auto removed = PluginInstaller::Uninstall(manager.InstallDirectory(), r->manifest.id);
+                m_LastMessageIsError = !removed;
+                m_LastMessage = removed ? r->manifest.id + " removed : restart to apply" : removed.GetError().message;
+            }
+            ImGui::EndDisabled();
+            if(r->IsLive() && ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled))
+                ImGui::SetTooltip("Disable the plugin and restart before removing it.");
+        }
 
         ImGui::BeginChild("##details", ImVec2(0, 0), ImGuiChildFlags_None);
         ImGui::TextUnformatted(manager.DescribePlugin(r->manifest.id).c_str());

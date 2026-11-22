@@ -304,8 +304,6 @@ namespace Shard::Engine::Plugins {
         if (project.contains("pluginsFolder") && project["pluginsFolder"].is_string() && !project["pluginsFolder"].get<std::string>().empty())
             extraFolders.push_back(Slash((root / project["pluginsFolder"].get<std::string>()).lexically_normal().generic_string()));
 
-        if (project.contains("registries") && project["registries"].is_array())
-            for (const json& r : project["registries"]) if (r.is_string()) m_ProjectRegistries.push_back(r.get<std::string>());
 
         if (!project.contains("plugins") || !project["plugins"].is_array()) return;
         for (const json& entry : project["plugins"]) {
@@ -376,7 +374,7 @@ namespace Shard::Engine::Plugins {
             if (sig.status == SignatureInfo::Status::Invalid) refusal = "its signature is invalid : " + sig.message;
             else if (sig.status == SignatureInfo::Status::Revoked) refusal = sig.message;
             else if (installed && sig.status != SignatureInfo::Status::Valid)
-                refusal = "it was installed from a registry and is " + std::string(SignatureStatusName(sig.status)) + (sig.message.empty() ? "" : " (" + sig.message + ")");
+                refusal = "it was installed and is " + std::string(SignatureStatusName(sig.status)) + (sig.message.empty() ? "" : " (" + sig.message + ")");
             else if (m.tier == TrustTier::Native && sig.status != SignatureInfo::Status::Valid && !m_Config.allowUnsigned && !allowUnsigned.count(m.id))
                 refusal = "a native plugin (tier 1) has to be signed by a trusted publisher (" + std::string(SignatureStatusName(sig.status)) +
                           "). Trust the publisher in plugin-trust.json, or set \"allowUnsigned\": true on its entry of the project's plugin list";
@@ -394,20 +392,6 @@ namespace Shard::Engine::Plugins {
         candidates = std::move(kept);
     }
 
-    Core::Result<std::vector<Registry>> PluginManager::LoadRegistries()
-    {
-        std::vector<Registry> registries;
-        std::string errors;
-        for (const std::string& source : m_Config.registries) {
-            Registry r;
-            auto loaded = r.Load(source);
-            if (!loaded) { errors += (errors.empty() ? "" : "\n") + source + " : " + loaded.GetError().message; continue; }
-            registries.push_back(std::move(r));
-        }
-        if (registries.empty()) return Core::Err(errors.empty() ? std::string("no registry is configured (the project's \"registries\" list, SHARD_PLUGIN_REGISTRY)") : errors);
-        return Core::Ok(std::move(registries));
-    }
-
     Core::Result<bool> PluginManager::TrustPublisher(const std::string& publisher, const std::string& keyHex)
     {
         std::vector<uint8_t> bytes;
@@ -420,22 +404,29 @@ namespace Shard::Engine::Plugins {
         return m_Trust.SaveFile(m_Config.trustFiles.front());
     }
 
-    Core::Result<std::vector<InstalledPlugin>> PluginManager::InstallPlugin(const std::string& id, const std::string& rangeText)
+    namespace {
+        InstallOptions MakeInstallOptions(const PluginManagerConfig& config, const std::string& installDirectory, const TrustStore& trust, const std::vector<std::unique_ptr<PluginRecord>>& records)
+        {
+            InstallOptions options;
+            options.installDirectory = installDirectory;
+            options.engineVersion = config.engineVersion;
+            options.trust = &trust;
+            options.allowUnsigned = config.allowUnsigned;
+            for (const auto& r : records) if (r->isStatic) options.alreadyAvailable.push_back(r->manifest.id);
+            return options;
+        }
+    }
+
+    Core::Result<InstalledPlugin> PluginManager::InstallArchive(const std::string& archivePath)
     {
         if (m_InstallDirectory.empty()) return Core::Err("there is no plugins folder to install into (open a project)");
-        std::string err;
-        auto range = VersionRange::Parse(rangeText, &err);
-        if (!range) return Core::Err(err);
-        auto registries = LoadRegistries();
-        if (!registries) return Core::Err(registries.GetError().message);
-        InstallOptions options;
-        options.installDirectory = m_InstallDirectory;
-        options.engineVersion = m_Config.engineVersion;
-        options.trust = &m_Trust;
-        options.allowUnsigned = m_Config.allowUnsigned;
-        for (const auto& r : m_Records) if (r->isStatic) options.alreadyAvailable.push_back(r->manifest.id);
-        PluginInstaller installer(std::move(registries.Value()));
-        return installer.Install(id, *range, options);
+        return PluginInstaller::InstallArchive(archivePath, MakeInstallOptions(m_Config, m_InstallDirectory, m_Trust, m_Records));
+    }
+
+    Core::Result<std::vector<InstalledPlugin>> PluginManager::InstallBundle(const std::string& bundlePath, const std::vector<std::string>& only)
+    {
+        if (m_InstallDirectory.empty()) return Core::Err("there is no plugins folder to install into (open a project)");
+        return PluginInstaller::InstallBundle(bundlePath, only, MakeInstallOptions(m_Config, m_InstallDirectory, m_Trust, m_Records));
     }
 
     void PluginManager::RegisterBuiltinPlugins()
@@ -503,7 +494,6 @@ namespace Shard::Engine::Plugins {
         m_Signatures.clear();
         m_InstalledIds.clear();
         m_ProjectAllowUnsigned.clear();
-        m_ProjectRegistries.clear();
 
         RegisterBuiltinPlugins();
         for (auto& p : PendingStatic()) m_Static.push_back({ p.manifest, p.factory });
@@ -522,7 +512,6 @@ namespace Shard::Engine::Plugins {
         options.disabled = disabled;
         ReadProject(projectFolders, projectPlugins, options, m_ProjectSettings);
         m_InstallDirectory = !m_Config.installDirectory.empty() ? m_Config.installDirectory : (projectFolders.empty() ? std::string() : projectFolders.front());
-        for (const std::string& r : m_ProjectRegistries) m_Config.registries.push_back(r);
 
         for (const StaticEntry& s : m_Static) {
             auto parsed = ParseManifestText(s.manifestJson);

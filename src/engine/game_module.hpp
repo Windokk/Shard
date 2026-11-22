@@ -20,7 +20,6 @@ namespace Shard::Engine {
         bool strictLock = false;
         bool hotReload = false;
         bool ignoreSafeMode = false;
-        std::vector<std::string> registries;
         std::vector<std::string> trustFiles;
         bool allowUnsigned = false;
     };

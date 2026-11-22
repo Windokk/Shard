@@ -570,7 +570,7 @@ namespace Shard::Engine::Plugins {
         if (!r->isStatic && !m.manifestPath.empty()) {
             out << "  signature : " << SignatureStatusName(r->signature.status);
             if (!r->signature.publisher.empty()) out << " (" << r->signature.publisher << ")";
-            if (r->installed) out << ", installed from a registry";
+            if (r->installed) out << ", installed";
             out << "\n";
         }
         out << "  affects the simulation : " << (m.affectsSimulation ? "yes" : "no") << ", hash " << Hex(r->identityHash) << "\n";
@@ -762,58 +762,33 @@ namespace Shard::Engine::Plugins {
             }
             return R{ true, out };
         });
-        add("plugin.search", "plugin.search [text] : plugins the configured registries offer", [this](const Args& a) {
-            auto registries = LoadRegistries();
-            if (!registries) return R{ false, registries.GetError().message };
-            std::ostringstream out;
-            for (const Registry& r : registries.Value())
-                for (const RegistryVersion& v : r.Search(a.empty() ? std::string() : a[0]))
-                    out << v.id << " " << v.version.ToString() << "  " << v.name << (v.publisher.empty() ? "" : "  by " + v.publisher) << "  [" << r.Name() << "]\n";
-            const std::string text = out.str();
-            return R{ true, text.empty() ? "nothing found" : text };
+        add("plugin.install", "plugin.install <file.shardplugin> : installs a plugin archive into the project's plugins folder (it loads on the next start)", [this](const Args& a) {
+            if (a.empty()) return R{ false, "usage : plugin.install <file.shardplugin>" };
+            auto installed = InstallArchive(a[0]);
+            if (!installed) return R{ false, installed.GetError().message };
+            const InstalledPlugin& p = installed.Value();
+            return R{ true, "installed " + p.id + " " + p.version + (p.publisher.empty() ? "" : " (by " + p.publisher + ")") + "\nrestart to load it" };
         });
-        add("plugin.install", "plugin.install <id> [range] : installs a plugin and what it needs from a registry (it loads on the next start)", [this](const Args& a) {
-            if (a.empty()) return R{ false, "usage : plugin.install <id> [range]" };
-            auto installed = InstallPlugin(a[0], a.size() > 1 ? a[1] : std::string("*"));
+        add("plugin.install-bundle", "plugin.install-bundle <folder or archive> [id...] : installs the plugins of a bundle (all of them, or the ones named and what they need)", [this](const Args& a) {
+            if (a.empty()) return R{ false, "usage : plugin.install-bundle <folder or archive> [id...]" };
+            auto installed = InstallBundle(a[0], std::vector<std::string>(a.begin() + 1, a.end()));
             if (!installed) return R{ false, installed.GetError().message };
             std::string text;
             for (const InstalledPlugin& p : installed.Value()) text += "installed " + p.id + " " + p.version + (p.publisher.empty() ? "" : " (by " + p.publisher + ")") + "\n";
             return R{ true, text + "restart to load them" };
         });
-        add("plugin.installed", "plugin.installed : the plugins installed from registries", [this](const Args&) {
+        add("plugin.installed", "plugin.installed : the plugins Shard installed from archives", [this](const Args&) {
             std::ostringstream out;
             for (const InstalledPlugin& p : PluginInstaller::ListInstalled(m_InstallDirectory))
                 out << p.id << " " << p.version << "  (" << p.source << ")\n";
             const std::string text = out.str();
-            return R{ true, text.empty() ? "nothing installed from a registry" : text };
+            return R{ true, text.empty() ? "nothing installed" : text };
         });
-        add("plugin.uninstall", "plugin.uninstall <id> : removes a plugin installed from a registry (not while it is loaded)", [this](const Args& a) {
+        add("plugin.uninstall", "plugin.uninstall <id> : removes a plugin Shard installed (not while it is loaded)", [this](const Args& a) {
             if (a.empty()) return R{ false, "usage : plugin.uninstall <id>" };
             if (const PluginRecord* r = Find(a[0]); r && r->IsLive()) return R{ false, a[0] + " is loaded : disable it and restart first" };
             auto removed = PluginInstaller::Uninstall(m_InstallDirectory, a[0]);
             return removed ? R{ true, "removed " + a[0] } : R{ false, removed.GetError().message };
-        });
-        add("plugin.updates", "plugin.updates : installed plugins a registry has a newer version of (same major)", [this](const Args&) {
-            auto registries = LoadRegistries();
-            if (!registries) return R{ false, registries.GetError().message };
-            PluginInstaller installer(std::move(registries.Value()));
-            std::ostringstream out;
-            for (const auto& [installed, newer] : installer.FindUpdates(m_InstallDirectory, m_Config.engineVersion))
-                out << installed.id << " " << installed.version << " -> " << newer.version.ToString() << "\n";
-            const std::string text = out.str();
-            return R{ true, text.empty() ? "everything is up to date" : text };
-        });
-        add("plugin.update", "plugin.update <id> : installs the newest version a registry has, same major", [this](const Args& a) {
-            if (a.empty()) return R{ false, "usage : plugin.update <id>" };
-            auto registries = LoadRegistries();
-            if (!registries) return R{ false, registries.GetError().message };
-            PluginInstaller installer(std::move(registries.Value()));
-            for (const auto& [installed, newer] : installer.FindUpdates(m_InstallDirectory, m_Config.engineVersion)) {
-                if (installed.id != a[0]) continue;
-                auto done = InstallPlugin(installed.id, newer.version.ToString());
-                return done ? R{ true, "updated " + installed.id + " to " + newer.version.ToString() + " : restart to load it" } : R{ false, done.GetError().message };
-            }
-            return R{ true, a[0] + " is up to date" };
         });
         add("plugin.trust", "plugin.trust <publisher> <public key> : accepts the signatures of a publisher", [this](const Args& a) {
             if (a.size() < 2) return R{ false, "usage : plugin.trust <publisher> <64 hex digits>" };

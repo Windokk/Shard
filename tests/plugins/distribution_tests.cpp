@@ -1,23 +1,17 @@
 #include <gtest/gtest.h>
 
-#include <atomic>
-#include <map>
-#include <thread>
+#include <fstream>
 
-#include "engine/platform/network/sockets/socket.hpp"
 #include "engine/plugins/archive.hpp"
 #include "engine/plugins/manager.hpp"
 #include "engine/plugins/package.hpp"
-#include "engine/plugins/registry.hpp"
+#include "engine/plugins/installer.hpp"
 #include "plugins/plugin_test_utils.hpp"
 
 using namespace Shard::Engine;
 using namespace Shard::Engine::Plugins;
 using nlohmann::json;
 using PluginTest::TempDir;
-using Core::Platform::Socket;
-using Core::Platform::SocketAddress;
-using Core::Platform::SocketType;
 
 namespace {
     struct Publisher {
@@ -38,8 +32,7 @@ namespace {
         dir.Write(folder + "/content/tables/t.json", table);
     }
 
-    std::string Publish(const TempDir& dir, const std::string& folder, const std::string& registryFolder, const std::string& id, const std::string& version,
-                        const Publisher* signer, json& index, json dependencies = json::array())
+    std::string Pack(const TempDir& dir, const std::string& folder, const std::string& outFolder, const std::string& id, const std::string& version, const Publisher* signer)
     {
         if (signer)
         {
@@ -47,98 +40,26 @@ namespace {
         }
         ZipWriter zip;
         EXPECT_TRUE(zip.AddDirectory(dir.Sub(folder)));
-        const std::string file = id + "-" + version + std::string(kArchiveExtension);
+        const std::string file = outFolder + "/" + id + "-" + version + std::string(kArchiveExtension);
         const std::vector<uint8_t> bytes = zip.Finish();
-        dir.Write(registryFolder + "/" + file, std::string(bytes.begin(), bytes.end()));
-        const std::string hash = Crypto::ToHex(Crypto::Sha256Of(bytes.data(), bytes.size()));
-        json* entry = nullptr;
-        for (json& p : index["plugins"]) if (p["id"] == id) entry = &p;
-        if (!entry) {
-            index["plugins"].push_back({ { "id", id }, { "name", "Plugin " + id }, { "description", "a test plugin" }, { "versions", json::array() } });
-            entry = &index["plugins"].back();
-        }
-        (*entry)["versions"].push_back({ { "version", version }, { "file", file }, { "sha256", hash }, { "size", bytes.size() }, { "publisher", "acme" }, { "dependencies", dependencies } });
-        return hash;
+        dir.Write(file, std::string(bytes.begin(), bytes.end()));
+        return dir.Sub(file);
     }
 
-    json NewIndex() { return json{ { "schema", 1 }, { "name", "Test registry" }, { "plugins", json::array() } }; }
-
-    class TestHttpServer {
-    public:
-        struct Route { int status = 200; std::vector<uint8_t> body; std::string location; bool truncate = false; };
-
-        TestHttpServer()
-        {
-            m_Listener = Socket::Create(SocketType::TCP);
-            m_Listener->SetReuseAddress(true);
-            m_Listener->Bind(SocketAddress{ "127.0.0.1", 0 });
-            m_Listener->Listen();
-            m_Port = m_Listener->LocalPort();
-            m_Thread = std::thread([this] { Serve(); });
-        }
-        ~TestHttpServer()
-        {
-            m_Stop = true;
-            m_Thread.join();
-        }
-        uint16_t Port() const { return m_Port; }
-        std::string Url(const std::string& path = "") const { return "http://127.0.0.1:" + std::to_string(m_Port) + path; }
-        void Set(const std::string& path, Route route) { std::lock_guard<std::mutex> l(m_Mutex); m_Routes[path] = std::move(route); }
-        void SetBytes(const std::string& path, const std::string& text) { Route r; r.body.assign(text.begin(), text.end()); Set(path, r); }
-
-    private:
-        void Serve()
-        {
-            while (!m_Stop) {
-                if (!m_Listener->WaitReadable(50)) continue;
-                auto client = m_Listener->Accept();
-                if (!client) continue;
-                std::string request;
-                char buffer[2048];
-                while (request.find("\r\n\r\n") == std::string::npos && request.size() < 16384) {
-                    if (!client->WaitReadable(2000)) break;
-                    size_t got = 0;
-                    if (client->Receive(buffer, sizeof(buffer), &got) != Core::Platform::SocketStatus::Ok) break;
-                    request.append(buffer, got);
-                }
-                std::string path = "/";
-                const size_t sp1 = request.find(' ');
-                const size_t sp2 = request.find(' ', sp1 + 1);
-                if (sp1 != std::string::npos && sp2 != std::string::npos) path = request.substr(sp1 + 1, sp2 - sp1 - 1);
-
-                Route route;
-                bool found = false;
-                { std::lock_guard<std::mutex> l(m_Mutex); auto it = m_Routes.find(path); if (it != m_Routes.end()) { route = it->second; found = true; } }
-                std::string head;
-                if (!found) { head = "HTTP/1.0 404 Not Found\r\nContent-Length: 0\r\n\r\n"; route.body.clear(); }
-                else if (route.status >= 300 && route.status < 400) { head = "HTTP/1.0 " + std::to_string(route.status) + " Moved\r\nLocation: " + route.location + "\r\nContent-Length: 0\r\n\r\n"; route.body.clear(); }
-                else head = "HTTP/1.0 200 OK\r\nContent-Length: " + std::to_string(route.body.size() + (route.truncate ? 100 : 0)) + "\r\n\r\n";
-                Send(*client, head.data(), head.size());
-                if (!route.body.empty()) Send(*client, route.body.data(), route.body.size());
-            }
-        }
-        static void Send(Socket& s, const void* data, size_t size)
-        {
-            const char* p = static_cast<const char*>(data);
-            while (size > 0) {
-                size_t sent = 0;
-                if (s.Send(p, size, &sent) != Core::Platform::SocketStatus::Ok) return;
-                p += sent; size -= sent;
-            }
-        }
-
-        std::unique_ptr<Socket> m_Listener;
-        uint16_t m_Port = 0;
-        std::thread m_Thread;
-        std::atomic<bool> m_Stop{ false };
-        std::mutex m_Mutex;
-        std::map<std::string, Route> m_Routes;
-    };
-
-    std::vector<uint8_t> FileBytes(const TempDir& dir, const std::string& rel)
+    std::string Sha256OfFile(const std::string& path)
     {
-        const std::string s = dir.Read(rel);
-        return std::vector<uint8_t>(s.begin(), s.end());
+        std::ifstream in(path, std::ios::binary);
+        std::vector<uint8_t> bytes((std::istreambuf_iterator<char>(in)), std::istreambuf_iterator<char>());
+        return Crypto::ToHex(Crypto::Sha256Of(bytes.data(), bytes.size()));
+    }
+
+    InstallOptions Options(const TempDir& dir, const TrustStore& trust)
+    {
+        InstallOptions options;
+        options.installDirectory = dir.Sub("project/plugins");
+        options.engineVersion = SemVer{ 0, 1, 0, {} };
+        options.trust = &trust;
+        return options;
     }
 }
 
@@ -258,278 +179,217 @@ TEST(PluginPackage, TrustStoreFilesAndKeyFiles)
     EXPECT_FALSE(ReadSecretKey(dir.Sub("keys/absent.key")));
 }
 
-TEST(PluginRegistry, SearchAndFind)
+TEST(PluginInstaller, InstallsSignedArchive)
 {
     TempDir dir;
     Publisher acme(1);
-    json index = NewIndex();
-    MakePack(dir, "a1", "com.acme.weather", "1.0.0");
-    MakePack(dir, "a2", "com.acme.weather", "1.2.0");
-    MakePack(dir, "a3", "com.acme.weather", "2.0.0");
-    MakePack(dir, "b", "com.acme.clouds", "0.5.0");
-    Publish(dir, "a1", "reg", "com.acme.weather", "1.0.0", &acme, index);
-    Publish(dir, "a2", "reg", "com.acme.weather", "1.2.0", &acme, index);
-    Publish(dir, "a3", "reg", "com.acme.weather", "2.0.0", &acme, index);
-    Publish(dir, "b", "reg", "com.acme.clouds", "0.5.0", &acme, index);
-    dir.Write("reg/index.json", index.dump());
-
-    Registry reg;
-    ASSERT_TRUE(reg.Load(dir.Sub("reg")));
-    EXPECT_EQ(reg.Name(), "Test registry");
-    EXPECT_EQ(reg.Versions().size(), 4u);
-    const auto found = reg.Search("weather");
-    ASSERT_EQ(found.size(), 1u);
-    EXPECT_EQ(found[0].version.ToString(), "2.0.0");
-    EXPECT_EQ(reg.Search("").size(), 2u);
-    EXPECT_EQ(reg.Search("TEST PLUGIN").size(), 2u);
-    EXPECT_TRUE(reg.Search("nothing like it").empty());
-
-    const SemVer engine{ 0, 1, 0, {} };
-    EXPECT_EQ(reg.Find("com.acme.weather", *VersionRange::Parse("^1.0"), engine)->version.ToString(), "1.2.0");
-    EXPECT_FALSE(reg.Find("com.acme.weather", *VersionRange::Parse("^3.0"), engine));
-    EXPECT_FALSE(reg.Find("nobody", VersionRange::Any(), engine));
-
-    EXPECT_FALSE(Registry().Load(dir.Sub("absent")));
-    dir.Write("badreg/index.json", R"({ "schema": 2 })");
-    EXPECT_FALSE(Registry().Load(dir.Sub("badreg")));
-}
-
-TEST(PluginRegistry, InstallsSignedPlugin)
-{
-    TempDir dir;
-    Publisher acme(1);
-    json index = NewIndex();
-    MakePack(dir, "lib", "com.acme.lib", "1.0.0");
     MakePack(dir, "app", "com.acme.app", "1.0.0");
-    Publish(dir, "lib", "reg", "com.acme.lib", "1.0.0", &acme, index);
-    Publish(dir, "app", "reg", "com.acme.app", "1.0.0", &acme, index, json::array({ json{ { "id", "com.acme.lib" }, { "version", "^1.0" } }, json{ { "id", "shard.physics" } } }));
-    dir.Write("reg/index.json", index.dump());
-
-    Registry reg;
-    ASSERT_TRUE(reg.Load(dir.Sub("reg")));
+    const std::string archive = Pack(dir, "app", "dl", "com.acme.app", "1.0.0", &acme);
     TrustStore trust;
     trust.Trust("acme", acme.pk);
-    InstallOptions options;
-    options.installDirectory = dir.Sub("project/plugins");
-    options.engineVersion = SemVer{ 0, 1, 0, {} };
-    options.trust = &trust;
-    options.alreadyAvailable = { "shard.physics" };
-    PluginInstaller installer({ reg });
+    const InstallOptions options = Options(dir, trust);
 
-    auto plan = installer.Plan("com.acme.app", VersionRange::Any(), options);
-    ASSERT_TRUE(plan) << plan.GetError().message;
-    ASSERT_EQ(plan.Value().size(), 2u);
-    EXPECT_EQ(plan.Value()[0].id, "com.acme.lib");
-
-    auto installed = installer.Install("com.acme.app", VersionRange::Any(), options);
+    auto installed = PluginInstaller::InstallArchive(archive, options);
     ASSERT_TRUE(installed) << installed.GetError().message;
-    ASSERT_EQ(installed.Value().size(), 2u);
-    EXPECT_FALSE(dir.Read("project/plugins/com.acme.app/shard-plugin.json").empty());
-    EXPECT_FALSE(dir.Read("project/plugins/com.acme.lib/content/tables/t.json").empty());
+    EXPECT_EQ(installed.Value().id, "com.acme.app");
+    EXPECT_EQ(installed.Value().publisher, "acme");
+    EXPECT_FALSE(dir.Read("project/plugins/com.acme.app/content/tables/t.json").empty());
 
     InstallMarker marker;
     ASSERT_TRUE(ReadInstallMarker(dir.Sub("project/plugins/com.acme.app"), marker));
     EXPECT_EQ(marker.version, "1.0.0");
-    EXPECT_EQ(marker.publisher, "acme");
-    EXPECT_EQ(PluginInstaller::ListInstalled(options.installDirectory).size(), 2u);
-    // Still verifies: the install marker is left out of the digest.
+    EXPECT_EQ(marker.source, archive);
+    EXPECT_EQ(PluginInstaller::ListInstalled(options.installDirectory).size(), 1u);
     EXPECT_EQ(VerifyPackage(dir.Sub("project/plugins/com.acme.app"), trust).status, SignatureInfo::Status::Valid);
 
-    EXPECT_TRUE(installer.Install("com.acme.app", VersionRange::Any(), options));
-
     ASSERT_TRUE(PluginInstaller::Uninstall(options.installDirectory, "com.acme.app"));
-    EXPECT_EQ(PluginInstaller::ListInstalled(options.installDirectory).size(), 1u);
+    EXPECT_TRUE(PluginInstaller::ListInstalled(options.installDirectory).empty());
     EXPECT_FALSE(PluginInstaller::Uninstall(options.installDirectory, "com.acme.app"));
     EXPECT_FALSE(PluginInstaller::Uninstall(options.installDirectory, "../escape"));
 }
 
-TEST(PluginRegistry, RefusesIndexMismatch)
+TEST(PluginInstaller, RefusesWrongChecksumAndMissingFile)
 {
     TempDir dir;
     Publisher acme(1);
-    json index = NewIndex();
     MakePack(dir, "p", "com.acme.p", "1.0.0");
-    Publish(dir, "p", "reg", "com.acme.p", "1.0.0", &acme, index);
-    dir.Write("reg/index.json", index.dump());
+    const std::string archive = Pack(dir, "p", "dl", "com.acme.p", "1.0.0", &acme);
     TrustStore trust;
     trust.Trust("acme", acme.pk);
-    InstallOptions options;
-    options.installDirectory = dir.Sub("plugins");
-    options.engineVersion = SemVer{ 0, 1, 0, {} };
-    options.trust = &trust;
+    InstallOptions options = Options(dir, trust);
 
-    Registry reg;
-    ASSERT_TRUE(reg.Load(dir.Sub("reg")));
-    std::string archive = dir.Read("reg/com.acme.p-1.0.0.shardplugin");
-    archive[archive.size() / 2] ^= 1;
-    dir.Write("reg/com.acme.p-1.0.0.shardplugin", archive);
-    auto tampered = PluginInstaller({ reg }).Install("com.acme.p", VersionRange::Any(), options);
-    ASSERT_FALSE(tampered);
-    EXPECT_NE(tampered.GetError().message.find("SHA-256"), std::string::npos) << tampered.GetError().message;
-    EXPECT_FALSE(std::filesystem::exists(dir.Sub("plugins/com.acme.p")));
+    options.expectedSha256 = std::string(64, '0');
+    auto wrong = PluginInstaller::InstallArchive(archive, options);
+    ASSERT_FALSE(wrong);
+    EXPECT_NE(wrong.GetError().message.find("SHA-256"), std::string::npos) << wrong.GetError().message;
+    EXPECT_FALSE(std::filesystem::exists(dir.Sub("project/plugins/com.acme.p")));
 
-    EXPECT_FALSE(PluginInstaller({ reg }).Plan("com.acme.nobody", VersionRange::Any(), options));
-    EXPECT_FALSE(PluginInstaller({ reg }).Plan("com.acme.p", *VersionRange::Parse("^2.0"), options));
+    options.expectedSha256 = Sha256OfFile(archive);
+    EXPECT_TRUE(PluginInstaller::InstallArchive(archive, options));
+    EXPECT_FALSE(PluginInstaller::InstallArchive(dir.Sub("dl/absent.shardplugin"), Options(dir, trust)));
+
+    dir.Write("dl/junk.shardplugin", "this is not a zip");
+    EXPECT_FALSE(PluginInstaller::InstallArchive(dir.Sub("dl/junk.shardplugin"), Options(dir, trust)));
 }
 
-TEST(PluginRegistry, UnsignedNeedsConsent)
+TEST(PluginInstaller, UnsignedNeedsConsent)
 {
     TempDir dir;
-    Publisher acme(1);
-    json index = NewIndex();
+    Publisher acme(1), mallory(2);
     MakePack(dir, "unsigned", "com.acme.unsigned", "1.0.0");
     MakePack(dir, "signed", "com.acme.signed", "1.0.0");
-    Publish(dir, "unsigned", "reg", "com.acme.unsigned", "1.0.0", nullptr, index);
-    Publish(dir, "signed", "reg", "com.acme.signed", "1.0.0", &acme, index);
-    dir.Write("reg/index.json", index.dump());
-    Registry reg;
-    ASSERT_TRUE(reg.Load(dir.Sub("reg")));
-
-    TrustStore empty, trust;
+    const std::string unsignedArchive = Pack(dir, "unsigned", "dl", "com.acme.unsigned", "1.0.0", nullptr);
+    const std::string signedArchive = Pack(dir, "signed", "dl", "com.acme.signed", "1.0.0", &mallory);
+    TrustStore trust;
     trust.Trust("acme", acme.pk);
-    InstallOptions options;
-    options.installDirectory = dir.Sub("plugins");
-    options.engineVersion = SemVer{ 0, 1, 0, {} };
-    PluginInstaller installer({ reg });
+    InstallOptions options = Options(dir, trust);
 
-    options.trust = &trust;
-    auto unsignedInstall = installer.Install("com.acme.unsigned", VersionRange::Any(), options);
+    auto unsignedInstall = PluginInstaller::InstallArchive(unsignedArchive, options);
     ASSERT_FALSE(unsignedInstall);
-    EXPECT_NE(unsignedInstall.GetError().message.find("unsigned"), std::string::npos);
+    EXPECT_NE(unsignedInstall.GetError().message.find("not installed"), std::string::npos);
+    EXPECT_FALSE(PluginInstaller::InstallArchive(signedArchive, options));
+    EXPECT_TRUE(PluginInstaller::ListInstalled(options.installDirectory).empty());
 
-    options.trust = &empty;
-    auto untrusted = installer.Install("com.acme.signed", VersionRange::Any(), options);
-    ASSERT_FALSE(untrusted);
-    EXPECT_NE(untrusted.GetError().message.find("untrusted"), std::string::npos);
-
+    trust.Trust("acme", mallory.pk);
+    EXPECT_TRUE(PluginInstaller::InstallArchive(signedArchive, options));
     options.allowUnsigned = true;
-    EXPECT_TRUE(installer.Install("com.acme.signed", VersionRange::Any(), options));
-    EXPECT_TRUE(installer.Install("com.acme.unsigned", VersionRange::Any(), options));
+    EXPECT_TRUE(PluginInstaller::InstallArchive(unsignedArchive, options));
 }
 
-TEST(PluginRegistry, BadSignatureNeverInstalled)
+TEST(PluginInstaller, BadSignatureNeverInstalled)
 {
     TempDir dir;
     Publisher acme(1);
-    json index = NewIndex();
     MakePack(dir, "p", "com.acme.p", "1.0.0");
     ASSERT_TRUE(SignPackage(dir.Sub("p"), "acme", acme.sk));
-    dir.Write("p/content/tables/t.json", R"({"changed":true})");
-    Publish(dir, "p", "reg", "com.acme.p", "1.0.0", nullptr, index);
-    dir.Write("reg/index.json", index.dump());
-    Registry reg;
-    ASSERT_TRUE(reg.Load(dir.Sub("reg")));
+    dir.Write("p/content/tables/t.json", R"({"tampered":1})");
+    const std::string archive = Pack(dir, "p", "dl", "com.acme.p", "1.0.0", nullptr);
     TrustStore trust;
     trust.Trust("acme", acme.pk);
-    InstallOptions options;
-    options.installDirectory = dir.Sub("plugins");
-    options.engineVersion = SemVer{ 0, 1, 0, {} };
-    options.trust = &trust;
+    InstallOptions options = Options(dir, trust);
     options.allowUnsigned = true;
-    auto result = PluginInstaller({ reg }).Install("com.acme.p", VersionRange::Any(), options);
-    ASSERT_FALSE(result);
-    EXPECT_NE(result.GetError().message.find("not the ones that were signed"), std::string::npos) << result.GetError().message;
+    EXPECT_FALSE(PluginInstaller::InstallArchive(archive, options));
+    EXPECT_FALSE(std::filesystem::exists(dir.Sub("project/plugins/com.acme.p")));
 }
 
-TEST(PluginRegistry, ReplacesOlderVersion)
+TEST(PluginInstaller, ChecksEngineAndApi)
 {
     TempDir dir;
     Publisher acme(1);
-    json index = NewIndex();
+    MakePack(dir, "future", "com.acme.future", "1.0.0", R"({"a":1})", json{ { "engine", { { "versions", ">=9.0.0" } } } });
+    MakePack(dir, "api2", "com.acme.api2", "1.0.0", R"({"a":1})", json{ { "engine", { { "api", "2.0" } } } });
+    const std::string future = Pack(dir, "future", "dl", "com.acme.future", "1.0.0", &acme);
+    const std::string api2 = Pack(dir, "api2", "dl", "com.acme.api2", "1.0.0", &acme);
+    TrustStore trust;
+    trust.Trust("acme", acme.pk);
+    const InstallOptions options = Options(dir, trust);
+    auto tooNew = PluginInstaller::InstallArchive(future, options);
+    ASSERT_FALSE(tooNew);
+    EXPECT_NE(tooNew.GetError().message.find("engine"), std::string::npos) << tooNew.GetError().message;
+    auto otherApi = PluginInstaller::InstallArchive(api2, options);
+    ASSERT_FALSE(otherApi);
+    EXPECT_NE(otherApi.GetError().message.find("API"), std::string::npos) << otherApi.GetError().message;
+}
+
+TEST(PluginInstaller, ReplacesOlderVersion)
+{
+    TempDir dir;
+    Publisher acme(1);
     MakePack(dir, "v1", "com.acme.p", "1.0.0");
-    Publish(dir, "v1", "reg", "com.acme.p", "1.0.0", &acme, index);
-    dir.Write("reg/index.json", index.dump());
+    MakePack(dir, "v11", "com.acme.p", "1.1.0", R"({"a":11})");
+    const std::string first = Pack(dir, "v1", "dl", "com.acme.p", "1.0.0", &acme);
+    const std::string second = Pack(dir, "v11", "dl", "com.acme.p", "1.1.0", &acme);
     TrustStore trust;
     trust.Trust("acme", acme.pk);
-    InstallOptions options;
-    options.installDirectory = dir.Sub("plugins");
-    options.engineVersion = SemVer{ 0, 1, 0, {} };
-    options.trust = &trust;
+    const InstallOptions options = Options(dir, trust);
+    ASSERT_TRUE(PluginInstaller::InstallArchive(first, options));
+    ASSERT_TRUE(PluginInstaller::InstallArchive(second, options));
+    EXPECT_EQ(dir.Read("project/plugins/com.acme.p/content/tables/t.json"), R"({"a":11})");
+    ASSERT_EQ(PluginInstaller::ListInstalled(options.installDirectory).size(), 1u);
+    EXPECT_EQ(PluginInstaller::ListInstalled(options.installDirectory)[0].version, "1.1.0");
+}
+
+namespace {
+    void MakeBundle(const TempDir& dir, Publisher& signer)
     {
-        Registry reg;
-        ASSERT_TRUE(reg.Load(dir.Sub("reg")));
-        ASSERT_TRUE(PluginInstaller({ reg }).Install("com.acme.p", VersionRange::Any(), options));
+        MakePack(dir, "lib", "com.acme.lib", "1.0.0");
+        MakePack(dir, "lib2", "com.acme.lib", "1.2.0");
+        MakePack(dir, "app", "com.acme.app", "1.0.0", R"({"a":1})",
+                 json{ { "dependencies", json::array({ json{ { "id", "com.acme.lib" }, { "version", "^1.0" } }, json{ { "id", "shard.physics" } } }) } });
+        MakePack(dir, "solo", "com.acme.solo", "1.0.0");
+        Pack(dir, "lib", "bundle", "com.acme.lib", "1.0.0", &signer);
+        Pack(dir, "lib2", "bundle", "com.acme.lib", "1.2.0", &signer);
+        Pack(dir, "app", "bundle", "com.acme.app", "1.0.0", &signer);
+        Pack(dir, "solo", "bundle", "com.acme.solo", "1.0.0", &signer);
     }
-    MakePack(dir, "v11", "com.acme.p", "1.1.0", R"({"a":11})");
-    MakePack(dir, "v2", "com.acme.p", "2.0.0");
-    Publish(dir, "v11", "reg", "com.acme.p", "1.1.0", &acme, index);
-    Publish(dir, "v2", "reg", "com.acme.p", "2.0.0", &acme, index);
-    dir.Write("reg/index.json", index.dump());
-
-    Registry reg;
-    ASSERT_TRUE(reg.Load(dir.Sub("reg")));
-    PluginInstaller installer({ reg });
-    const auto updates = installer.FindUpdates(options.installDirectory, options.engineVersion);
-    ASSERT_EQ(updates.size(), 1u);
-    EXPECT_EQ(updates[0].second.version.ToString(), "1.1.0");
-
-    ASSERT_TRUE(installer.Install("com.acme.p", *VersionRange::Parse("^1.0"), options));
-    EXPECT_EQ(dir.Read("plugins/com.acme.p/content/tables/t.json"), R"({"a":11})");
-    EXPECT_TRUE(installer.FindUpdates(options.installDirectory, options.engineVersion).empty());
 }
 
-TEST(PluginRegistryHttp, FetchesThroughRedirects)
-{
-    TestHttpServer server;
-    server.SetBytes("/hello.txt", "hello over http");
-    TestHttpServer::Route moved;
-    moved.status = 302;
-    moved.location = "/hello.txt";
-    server.Set("/old", moved);
-    TestHttpServer::Route cut;
-    cut.body = { 'a', 'b', 'c' };
-    cut.truncate = true;
-    server.Set("/cut", cut);
-
-    auto ok = FetchBytes(server.Url("/hello.txt"));
-    ASSERT_TRUE(ok) << ok.GetError().message;
-    EXPECT_EQ(std::string(ok.Value().begin(), ok.Value().end()), "hello over http");
-    auto redirected = FetchBytes(server.Url("/old"));
-    ASSERT_TRUE(redirected) << redirected.GetError().message;
-    EXPECT_EQ(redirected.Value().size(), 15u);
-
-    EXPECT_FALSE(FetchBytes(server.Url("/missing")));
-    auto truncated = FetchBytes(server.Url("/cut"));
-    ASSERT_FALSE(truncated);
-    EXPECT_NE(truncated.GetError().message.find("truncated"), std::string::npos);
-    auto big = FetchBytes(server.Url("/hello.txt"), 5);
-    EXPECT_FALSE(big);
-    auto https = FetchBytes("https://127.0.0.1/x");
-    ASSERT_FALSE(https);
-    EXPECT_NE(https.GetError().message.find("https"), std::string::npos);
-    EXPECT_FALSE(FetchBytes("ftp://example.org/x"));
-    EXPECT_FALSE(FetchBytes("http://127.0.0.1:1/never", 1000, 500));
-}
-
-TEST(PluginRegistryHttp, InstallsFromAnHttpRegistry)
+TEST(PluginInstaller, BundleInstallsEverythingOrWhatIsAskedWithDependencies)
 {
     TempDir dir;
     Publisher acme(1);
-    json index = NewIndex();
-    MakePack(dir, "p", "com.acme.web", "1.0.0");
-    Publish(dir, "p", "reg", "com.acme.web", "1.0.0", &acme, index);
-    dir.Write("reg/index.json", index.dump());
-
-    TestHttpServer server;
-    server.SetBytes("/registry/index.json", dir.Read("reg/index.json"));
-    TestHttpServer::Route archive;
-    archive.body = FileBytes(dir, "reg/com.acme.web-1.0.0.shardplugin");
-    server.Set("/registry/com.acme.web-1.0.0.shardplugin", archive);
-
-    Registry reg;
-    auto loaded = reg.Load(server.Url("/registry/index.json"));
-    ASSERT_TRUE(loaded) << loaded.GetError().message;
-    EXPECT_EQ(reg.ArchiveLocation(reg.Versions()[0]), server.Url("/registry/com.acme.web-1.0.0.shardplugin"));
-
+    MakeBundle(dir, acme);
     TrustStore trust;
     trust.Trust("acme", acme.pk);
-    InstallOptions options;
-    options.installDirectory = dir.Sub("project/plugins");
-    options.engineVersion = SemVer{ 0, 1, 0, {} };
-    options.trust = &trust;
-    auto installed = PluginInstaller({ reg }).Install("com.acme.web", VersionRange::Any(), options);
+    InstallOptions options = Options(dir, trust);
+    options.alreadyAvailable = { "shard.physics" };
+
+    auto read = PluginInstaller::ReadBundle(dir.Sub("bundle"), options);
+    ASSERT_TRUE(read) << read.GetError().message;
+    ASSERT_EQ(read.Value().size(), 3u);
+
+    auto plan = PluginInstaller::PlanBundle(dir.Sub("bundle"), { "com.acme.app" }, options);
+    ASSERT_TRUE(plan) << plan.GetError().message;
+    ASSERT_EQ(plan.Value().size(), 2u);
+    EXPECT_EQ(plan.Value()[0].id, "com.acme.lib");
+    EXPECT_EQ(plan.Value()[0].version.ToString(), "1.2.0");
+    EXPECT_EQ(plan.Value()[1].id, "com.acme.app");
+
+    auto some = PluginInstaller::InstallBundle(dir.Sub("bundle"), { "com.acme.app" }, options);
+    ASSERT_TRUE(some) << some.GetError().message;
+    EXPECT_EQ(some.Value().size(), 2u);
+    EXPECT_EQ(PluginInstaller::ListInstalled(options.installDirectory).size(), 2u);
+    EXPECT_FALSE(std::filesystem::exists(dir.Sub("project/plugins/com.acme.solo")));
+
+    auto all = PluginInstaller::InstallBundle(dir.Sub("bundle"), {}, options);
+    ASSERT_TRUE(all) << all.GetError().message;
+    EXPECT_EQ(all.Value().size(), 3u);
+    EXPECT_EQ(PluginInstaller::ListInstalled(options.installDirectory).size(), 3u);
+
+    EXPECT_FALSE(PluginInstaller::PlanBundle(dir.Sub("bundle"), { "com.acme.nobody" }, options));
+    EXPECT_FALSE(PluginInstaller::ReadBundle(dir.Sub("bundle/absent"), options));
+}
+
+TEST(PluginInstaller, BundleMissingDependencyRefused)
+{
+    TempDir dir;
+    Publisher acme(1);
+    MakePack(dir, "app", "com.acme.app", "1.0.0", R"({"a":1})", json{ { "dependencies", json::array({ json{ { "id", "com.acme.lib" } } }) } });
+    Pack(dir, "app", "bundle", "com.acme.app", "1.0.0", &acme);
+    TrustStore trust;
+    trust.Trust("acme", acme.pk);
+    const InstallOptions options = Options(dir, trust);
+    auto plan = PluginInstaller::PlanBundle(dir.Sub("bundle"), {}, options);
+    ASSERT_FALSE(plan);
+    EXPECT_NE(plan.GetError().message.find("com.acme.lib"), std::string::npos);
+}
+
+TEST(PluginInstaller, BundleFromASingleArchive)
+{
+    TempDir dir;
+    Publisher acme(1);
+    MakeBundle(dir, acme);
+    ZipWriter bundle;
+    ASSERT_TRUE(bundle.AddDirectory(dir.Sub("bundle")));
+    ASSERT_TRUE(bundle.Save(dir.Sub("all.zip")));
+    TrustStore trust;
+    trust.Trust("acme", acme.pk);
+    InstallOptions options = Options(dir, trust);
+    options.alreadyAvailable = { "shard.physics" };
+    auto installed = PluginInstaller::InstallBundle(dir.Sub("all.zip"), { "com.acme.solo" }, options);
     ASSERT_TRUE(installed) << installed.GetError().message;
-    EXPECT_FALSE(dir.Read("project/plugins/com.acme.web/content/tables/t.json").empty());
+    ASSERT_EQ(installed.Value().size(), 1u);
+    EXPECT_FALSE(dir.Read("project/plugins/com.acme.solo/content/tables/t.json").empty());
 }
 
 namespace {
@@ -700,11 +560,9 @@ TEST_F(DistributionManagerTest, InstallThroughTheManager)
 {
     TempDir dir;
     Publisher acme(1);
-    json index = NewIndex();
     MakePack(dir, "p", "com.acme.managed", "1.0.0");
-    Publish(dir, "p", "reg", "com.acme.managed", "1.0.0", &acme, index);
-    dir.Write("reg/index.json", index.dump());
-    dir.Write("proj/project.json", R"({ "pluginsFolder": "plugins", "registries": [ ")" + dir.Sub("reg") + R"(" ] })");
+    const std::string archive = Pack(dir, "p", "dl", "com.acme.managed", "1.0.0", &acme);
+    dir.Write("proj/project.json", R"({ "pluginsFolder": "plugins" })");
     TrustStore store;
     store.Trust("acme", acme.pk);
     ASSERT_TRUE(store.SaveFile(dir.Sub("proj/plugin-trust.json")));
@@ -714,11 +572,11 @@ TEST_F(DistributionManagerTest, InstallThroughTheManager)
     EXPECT_EQ(pm().Find("com.acme.managed"), nullptr);
 
     auto& console = Core::CVarRegistry::Global();
-    EXPECT_NE(console.Execute("plugin.search managed").output.find("com.acme.managed"), std::string::npos);
-    const auto installed = console.Execute("plugin.install com.acme.managed");
+    const auto installed = console.Execute("plugin.install " + archive);
     EXPECT_TRUE(installed.ok) << installed.output;
     EXPECT_NE(console.Execute("plugin.installed").output.find("com.acme.managed"), std::string::npos);
-    EXPECT_TRUE(console.Execute("plugin.updates").ok);
+    EXPECT_FALSE(console.Execute("plugin.install " + dir.Sub("dl/absent.shardplugin")).ok);
+    EXPECT_FALSE(console.Execute("plugin.search managed").ok);
 
     pm().ResetForTests();
     config.registerConsoleCommands = false;
@@ -727,13 +585,37 @@ TEST_F(DistributionManagerTest, InstallThroughTheManager)
     ASSERT_NE(r, nullptr);
     EXPECT_TRUE(r->installed);
     EXPECT_EQ(r->signature.status, SignatureInfo::Status::Valid);
-    EXPECT_NE(pm().DescribePlugin("com.acme.managed").find("installed from a registry"), std::string::npos);
+    EXPECT_NE(pm().DescribePlugin("com.acme.managed").find("installed"), std::string::npos);
 
     config.registerConsoleCommands = true;
     pm().ResetForTests();
     ASSERT_TRUE(Start());
     EXPECT_FALSE(console.Execute("plugin.uninstall com.acme.managed").ok);
     EXPECT_NE(console.Execute("plugin.verify com.acme.managed").output.find("valid"), std::string::npos);
+}
+
+TEST_F(DistributionManagerTest, InstallBundleThroughTheManager)
+{
+    TempDir dir;
+    Publisher acme(1);
+    MakePack(dir, "a", "com.acme.a", "1.0.0");
+    MakePack(dir, "b", "com.acme.b", "1.0.0");
+    Pack(dir, "a", "bundle", "com.acme.a", "1.0.0", &acme);
+    Pack(dir, "b", "bundle", "com.acme.b", "1.0.0", &acme);
+    dir.Write("proj/project.json", R"({ "pluginsFolder": "plugins" })");
+    TrustStore store;
+    store.Trust("acme", acme.pk);
+    ASSERT_TRUE(store.SaveFile(dir.Sub("proj/plugin-trust.json")));
+    config.projectFile = dir.Sub("proj/project.json");
+    config.registerConsoleCommands = true;
+    ASSERT_TRUE(Start());
+
+    auto& console = Core::CVarRegistry::Global();
+    const auto one = console.Execute("plugin.install-bundle " + dir.Sub("bundle") + " com.acme.a");
+    EXPECT_TRUE(one.ok) << one.output;
+    EXPECT_EQ(console.Execute("plugin.installed").output.find("com.acme.b"), std::string::npos);
+    EXPECT_TRUE(console.Execute("plugin.install-bundle " + dir.Sub("bundle")).ok);
+    EXPECT_NE(console.Execute("plugin.installed").output.find("com.acme.b"), std::string::npos);
 }
 
 TEST_F(DistributionManagerTest, TrustedPublisherSaved)

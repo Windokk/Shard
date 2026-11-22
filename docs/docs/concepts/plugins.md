@@ -32,7 +32,7 @@ A plugin lists the hosts it can run in. A host only loads the plugins that name 
 
 ## Installing a plugin
 
-A plugin is a folder with a `shard-plugin.json` at its root, or the same folder packed in a `.shardplugin` archive (a ZIP file : see [Packaging](#packaging-signing-and-registries)). Put it in the project's plugins folder (`pluginsFolder` in the project file, shown under *Project Settings > Plugins*), or in any folder listed in the `SHARD_PLUGIN_PATH` environment variable (separated by `:`, or `;` on Windows). Shard looks at that folder, and one level of subfolders below it, for plugin folders and `.shardplugin` archives. An archive is unpacked once into a cache folder (`.cache/plugin_cache` next to the project) named after its hash, then loaded from there.
+A plugin is a folder with a `shard-plugin.json` at its root, or the same folder packed in a `.shardplugin` archive (a ZIP file : see [Packaging](#packaging-signing-and-installing)). Put it in the project's plugins folder (`pluginsFolder` in the project file, shown under *Project Settings > Plugins*), or in any folder listed in the `SHARD_PLUGIN_PATH` environment variable (separated by `:`, or `;` on Windows). Shard looks at that folder, and one level of subfolders below it, for plugin folders and `.shardplugin` archives. An archive is unpacked once into a cache folder (`.cache/plugin_cache` next to the project) named after its hash, then loaded from there.
 
 The project file can then say which plugins it wants :
 
@@ -55,8 +55,6 @@ The project file can then say which plugins it wants :
 | `allowUnsigned` | load this plugin even if it is a native plugin (tier 1) with no signature from a trusted publisher, see [Trust levels](#trust-levels) |
 | `settings` | values for the plugin's console variables. A key is relative to the plugin's variables (`rain_rate` is `com.acme.weather.rain_rate`) |
 
-The project file can also list `"registries"`, the places `plugin.search` and `plugin.install` look in (see below).
-
 A plugin the project does not mention is loaded anyway if it sits in a plugins folder. List it only to configure it, turn it off, or require it.
 
 On the first run Shard writes `plugins.lock` next to the project file : the exact version and a hash of the content of every plugin that was loaded. Commit it. On later runs a difference (another version, another content, a plugin that appeared or vanished) is written to the log, and `--strict-plugin-lock` makes it an error. `ShardHeadless` and the player are strict when they play a replay. Rewrite the lock with the *Write plugins.lock* button of the Plugins panel, or `plugin.lock write` in the console. A read-only run (`--frames`, a replay) never writes it.
@@ -73,9 +71,8 @@ The editor, the player and `ShardHeadless` take these :
 | `--hot-reload-plugins` | player : allow `plugin.reload` (the editor always allows it ; a deterministic run never does) |
 | `--strict-plugin-lock` | a `plugins.lock` that does not match is an error |
 | `--ignore-safe-mode` | load a plugin even if the last run crashed in it |
-| `--registry <source>` | a registry for `plugin.search` and `plugin.install` : an `index.json`, a folder holding one, or an `http://` URL ; repeatable (`SHARD_PLUGIN_REGISTRY` adds one) |
 | `--trust-file <path>` | a file of trusted publishers ; repeatable (default : `plugin-trust.json` next to the project) |
-| `--allow-unsigned-plugins` | load native plugins and install from registries without a signature of a trusted publisher |
+| `--allow-unsigned-plugins` | load native plugins without a signature of a trusted publisher |
 
 `--game <library>` still works : the library is loaded as the plugin `game`, a code module. It does not need a manifest, and it may be a C++ plugin or one built with the SDK (the engine tells them apart by the entry point they export). The example game is built with `shard_add_plugin` (id `game`, `ABI c1`, so against the SDK alone), and sits at `<build>/plugins/game/bin/<platform>/` with its `shard-plugin.json` : pass the library to `--game`, or the folder to `--plugin` to load it through its manifest. Its scripts are the components `game.Character`, `game.Gun` and `game.RandomKicker`, as every script is named after its plugin.
 
@@ -814,11 +811,13 @@ A plugin folder can carry a `shard-signature.json` : an Ed25519 signature, by a 
 
 Where a signature is required :
 
-* a plugin that was **installed from a registry** (`plugin.install` leaves `.shard-install.json` in its folder) must carry a valid signature of a trusted publisher to load ;
+* a plugin that was **installed by Shard** (`plugin.install` and `shard plugin install` leave `.shard-install.json` in its folder) must carry a valid signature of a trusted publisher to load ;
 * a **native plugin** (`"tier": 1`) that is not signed that way is refused, unless the project's plugin entry says `"allowUnsigned": true` or the run has `--allow-unsigned-plugins` ;
 * any other plugin loads unsigned : plugins you put in the folder yourself are yours.
 
-## Packaging, signing and registries
+## Packaging, signing and installing
+
+Shard never downloads a plugin : you fetch the archive yourself (from the release page of the plugin, a bundle, a colleague) and install it from disk. Every archive is checked before it is put in the plugins folder, so a downloaded file can be installed without trusting where it came from.
 
 `ShardPkg` is the publisher's tool :
 
@@ -827,24 +826,41 @@ ShardPkg keygen acme --out keys                  # keys/acme.key (keep it privat
 ShardPkg sign my_plugin --publisher acme --key keys/acme.key
 ShardPkg pack my_plugin --out com.acme.weather-1.4.2.shardplugin
 ShardPkg verify com.acme.weather-1.4.2.shardplugin --trust plugin-trust.json
-ShardPkg index registry/index.json add registry/com.acme.weather-1.4.2.shardplugin --name "Acme"
+ShardPkg sums releases/                          # writes releases/SHA256SUMS for every archive in the folder
 ShardPkg fingerprint                             # the build fingerprint of this engine, what `cpp` plugins are checked against
 ```
 
-Sign first, then pack, then index : signing writes `shard-signature.json` into the folder, and the archive is made of the folder as it is. Without `--out`, `pack` names the archive `<id>-<version>.shardplugin`. The archive holds the manifest, the libraries and the content, and nothing else : the import library a Windows build produces stays in the build folder.
+Sign first, then pack : signing writes `shard-signature.json` into the folder, and the archive is made of the folder as it is. Without `--out`, `pack` names the archive `<id>-<version>.shardplugin`. The archive holds the manifest, the libraries and the content, and nothing else : the import library a Windows build produces stays in the build folder.
 
 `ShardPkg` is installed in the SDK (`sdk/bin`) (on Windows with MinGW it is linked statically, so it runs without the engine or a compiler runtime next to it), so a plugin built outside the engine's repository can pack and sign itself : `shard_sdk_add_plugin(... PACKAGE)` finds it there (`SHARD_PKG_EXECUTABLE` points CMake at another one). It works the same way for `cpp` and `c1` plugins.
 
-A registry is a folder (or a web server's folder) with an `index.json` and the archives it lists. The index gives each archive's file name, size and SHA-256, its publisher, the engine versions it works with and its dependencies. Serve it over plain `http://` ; `https://` is not supported, and nothing depends on it : the archive is checked against the hash in the index, and its files against the signature.
+### The `shard` command
 
-In the editor or any executable with a project :
+`shard` installs and checks plugins without starting the engine. It finds the plugins folder and the trust file through the project (`--project <project.json>`, the project's `pluginsFolder` and `plugin-trust.json`), or `--plugins <folder>` and `--trust <file>`. A `plugin-trust.json` next to the executable is read too : it is where the keys of the publishers shipped with the engine go.
 
 | Command | |
 |---|---|
-| `plugin.search [text]` | what the registries offer |
-| `plugin.install <id> [range]` | downloads the plugin and the dependencies the registries can satisfy, checks size, SHA-256, the archive's paths and the signature, and puts them in the project's plugins folder. They load on the next start. An older version is replaced only once the new one is complete |
-| `plugin.installed`, `plugin.updates`, `plugin.update <id>` | what came from registries, and newer versions inside the same major |
-| `plugin.uninstall <id>` | removes a plugin installed from a registry (not while it is loaded, and nothing that was not installed that way) |
+| `shard plugin install <file.shardplugin> [--sha256 <hex>]` | checks the SHA-256 (when given), the archive's paths, the manifest (plugin API, engine version, a binary for this platform) and the signature, then puts the plugin in the plugins folder. An older version is replaced only once the new one is complete |
+| `shard plugin install-bundle <folder or archive> [--only a,b]` | the same for every plugin of a bundle, or for the ones named and what they need from the bundle. Dependencies are installed first ; the highest version of a plugin in the bundle is used |
+| `shard plugin list`, `info <id>` | what is in the plugins folder, with the state of its signature |
+| `shard plugin remove <id>` | removes a plugin Shard installed, and nothing that it did not install |
+| `shard plugin doctor` | plugin API, engine version, missing binary, missing or mismatched dependency, conflict, signature that does not match : exit code 1 if there is a problem |
+| `shard plugin new <id> [--dir <folder>] [--name <text>]` | creates a plugin from the SDK's template (`<folder>/<id>`) with the id, the name and the CMake target filled in. The template is found next to the executable (`sdk/templates/plugin`) or through `SHARD_SDK_DIR` |
+| `shard plugin keygen <publisher> [--out <folder>]`, `sign <folder> --publisher <name> --key <file>`, `pack <folder> [--out <file>]` | what `ShardPkg` does (same files, same result), so `shard` alone is enough to write, sign and share a plugin |
+| `shard plugin enable <id>`, `disable <id>` | turns a plugin on or off for a project (`--project` is needed) : it writes `"enabled": false` in the project's plugin list and leaves the files where they are |
+
+`--json` gives machine-readable output, `--allow-unsigned` accepts an archive without a trusted signature. A bundle is a folder of `.shardplugin` archives, or one archive that holds them.
+
+The *Plugins* panel of the editor has an *Install from disk* section : type the path of an archive (or of a bundle, and optionally the ids to take from it) and press *Install archive* or *Install bundle* ; a plugin Shard installed can be removed from its details once it is disabled.
+
+The same is available in the console of the editor and the other executables :
+
+| Command | |
+|---|---|
+| `plugin.install <file.shardplugin>` | installs an archive. The plugin loads on the next start |
+| `plugin.install-bundle <folder or archive> [id...]` | installs a bundle, or part of it |
+| `plugin.installed` | what Shard installed |
+| `plugin.uninstall <id>` | removes a plugin Shard installed (not while it is loaded) |
 
 An archive is refused if an entry would leave the folder it is unpacked into (`..`, an absolute path, a drive, a backslash), if it expands by more than a thousand times, or past 512 MB per file or 2 GB in all.
 
@@ -887,7 +903,7 @@ If the new library does not load, the plugin is `Failed` with the reason.
 | `plugin.lock [verify\|write]` | check or rewrite `plugins.lock` |
 | `plugin.validate <folder>` | check a plugin folder without loading it |
 | `plugin.budgets` | time per frame and counted memory against each plugin's budget |
-| `plugin.search`, `plugin.install`, `plugin.installed`, `plugin.updates`, `plugin.update`, `plugin.uninstall` | registries, see above |
+| `plugin.install`, `plugin.install-bundle`, `plugin.installed`, `plugin.uninstall` | installing from archives, see above |
 | `plugin.trust <publisher> <key>`, `plugin.verify <id>` | trusted publishers and signatures |
 | `event.list` | the named events that plugins described (ABI 1.2) and their fields |
 | `event.watch <name>`, `event.unwatch <name>` | log every event sent under that name with its values, or stop |

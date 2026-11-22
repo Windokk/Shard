@@ -19,7 +19,7 @@
 #include "engine/plugins/manifest.hpp"
 #include "engine/plugins/package.hpp"
 #include "engine/plugins/plugin.hpp"
-#include "engine/plugins/registry.hpp"
+#include "engine/plugins/installer.hpp"
 #include "engine/plugins/resolver.hpp"
 #include "engine/plugins/services.hpp"
 
@@ -117,7 +117,6 @@ namespace Shard::Engine::Plugins {
 
         std::vector<std::string> trustFiles;
         std::string cacheDirectory;
-        std::vector<std::string> registries;
         std::string installDirectory;
         bool allowUnsigned = false;
     };
@@ -193,7 +192,8 @@ namespace Shard::Engine::Plugins {
         TrustStore& Trust() { return m_Trust; }
         const std::string& InstallDirectory() const { return m_InstallDirectory; }
         Core::Result<bool> TrustPublisher(const std::string& publisher, const std::string& keyHex);
-        Core::Result<std::vector<InstalledPlugin>> InstallPlugin(const std::string& id, const std::string& range = "*");
+        Core::Result<InstalledPlugin> InstallArchive(const std::string& archivePath);
+        Core::Result<std::vector<InstalledPlugin>> InstallBundle(const std::string& bundlePath, const std::vector<std::string>& only = {});
 
         nlohmann::json LockfileJson() const;
         std::vector<std::string> VerifyLockfile(const nlohmann::json& lock) const;
@@ -226,7 +226,6 @@ namespace Shard::Engine::Plugins {
 
         std::string ExtractArchive(const std::string& archive, std::vector<std::string>& problems);
         void ApplyTrustPolicy(std::vector<PluginManifest>& candidates, std::set<std::string>& allowUnsigned);
-        Core::Result<std::vector<Registry>> LoadRegistries();
 
         bool LoadRecord(PluginRecord& record);
         void EditorInitOne(PluginRecord& record);
@@ -277,7 +276,6 @@ namespace Shard::Engine::Plugins {
         EditorImGui m_EditorImGui;
         bool m_EditorInitialized = false;
         std::set<std::string> m_ProjectAllowUnsigned;
-        std::vector<std::string> m_ProjectRegistries;
 
         HookRegistry m_Hooks;
         ServiceRegistry m_Services;

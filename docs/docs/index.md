@@ -41,7 +41,7 @@ A 3D game engine in C++17 for Windows and Linux. It is split into modules (rende
 | Input | Keyboard, mouse and gamepads, with dead zones and rumble. Input is recorded in replays |
 | Assets | FBX import ([ufbx](https://github.com/ufbx/ufbx)), compressed and cached textures, JSON serialization generated from reflection |
 | Editor | ImGui editor with a world tree, gizmos, an inspector, a profiler and hot reload of game code. See [Editor](concepts/executables/editor.md) |
-| Plugins | Datapacks without code, native plugins with dependencies, signed packages and registries, and a C ABI that plugins can use with any compiler. See [Plugins and modules](concepts/plugins.md) |
+| Plugins | Datapacks without code, native plugins with dependencies, signed packages installed from disk, and a C ABI that plugins can use with any compiler. See [Plugins and modules](concepts/plugins.md) |
 | Simulation | Archetype ECS with systems that declare what they read and write. A fixed timestep and seeded random streams make a run deterministic, and it can run without a window or a GPU. See [Headless mode and determinism](concepts/headless.md) |
 | Large worlds | 64-bit coordinates and nested reference frames. See [Large world](concepts/large-world.md) |
 

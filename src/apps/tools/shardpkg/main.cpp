@@ -28,7 +28,7 @@ namespace {
             "shardpkg pack <folder> [--out <file>]\n"
             "shardpkg sign <folder> --publisher <name> --key <file>\n"
             "shardpkg verify <folder|archive> [--trust <file>]\n"
-            "shardpkg index <index.json> add <archive> [--name <registry name>]\n"
+            "shardpkg sums <folder> [--out <file>]\n"
             "shardpkg fingerprint\n";
     }
 
@@ -134,66 +134,29 @@ namespace {
         return (sig.status == SignatureInfo::Status::Valid) ? 0 : (sig.status == SignatureInfo::Status::Untrusted ? 0 : 2);
     }
 
-    int Index(const std::vector<std::string>& args)
+    int Sums(const std::vector<std::string>& args)
     {
-        if (args.size() < 3 || args[1] != "add") return Fail("usage : shardpkg index <index.json> add <archive>");
-        const fs::path indexPath = args[0];
-        auto zip = ZipArchive::Open(args[2]);
-        if (!zip) return Fail(zip.GetError().message);
-        auto manifestBytes = zip.Value().Read("shard-plugin.json");
-        if (!manifestBytes) return Fail("the archive has no readable shard-plugin.json");
-        auto manifest = ParseManifestText(std::string(manifestBytes.Value().begin(), manifestBytes.Value().end()));
-        if (!manifest) return Fail("shard-plugin.json :\n" + manifest.GetError().message);
-        const PluginManifest& m = manifest.Value();
-
-        std::string publisher;
-        if (auto sig = zip.Value().Read(kSignatureFile)) {
-            json j = json::parse(sig.Value().begin(), sig.Value().end(), nullptr, false);
-            if (j.is_object()) publisher = j.value("publisher", std::string());
-        }
-
-        std::string bytes;
-        if (!ReadFile(args[2], bytes)) return Fail("cannot read " + args[2]);
-        const std::string hash = Crypto::ToHex(Crypto::Sha256Of(bytes.data(), bytes.size()));
-
-        json index = json{ { "schema", 1 }, { "name", "Plugins" }, { "plugins", json::array() } };
-        std::string existing;
-        if (ReadFile(indexPath.string(), existing)) {
-            index = json::parse(existing, nullptr, false);
-            if (index.is_discarded() || !index.is_object() || index.value("schema", 0) != 1) return Fail(indexPath.string() + " is not a registry index");
-        }
-        if (const char* name = Option(args, "--name")) index["name"] = name;
-
+        if (args.empty()) return Fail("usage : shardpkg sums <folder> [--out <file>]");
+        std::vector<fs::path> archives;
         std::error_code ec;
-        const fs::path relative = fs::relative(fs::absolute(args[2]), fs::absolute(indexPath).parent_path(), ec);
-        json dependencies = json::array();
-        for (const DependencySpec& d : m.dependencies) dependencies.push_back({ { "id", d.id }, { "version", d.range.Text() }, { "optional", d.optional } });
-        json version = { { "version", m.version.ToString() }, { "file", relative.generic_string() }, { "sha256", hash }, { "size", bytes.size() },
-                         { "publisher", publisher }, { "engine", m.engineVersions.Text() }, { "dependencies", dependencies } };
-
-        json* entry = nullptr;
-        for (json& p : index["plugins"]) if (p.value("id", std::string()) == m.id) entry = &p;
-        if (!entry) {
-            index["plugins"].push_back({ { "id", m.id }, { "name", m.name }, { "description", m.description }, { "versions", json::array() } });
-            entry = &index["plugins"].back();
+        for (fs::recursive_directory_iterator it(args[0], ec), end; it != end; it.increment(ec)) {
+            if (ec) break;
+            if (it->is_regular_file(ec) && it->path().extension() == kArchiveExtension) archives.push_back(it->path());
         }
-        (*entry)["name"] = m.name;
-        (*entry)["description"] = m.description;
-        auto& versions = (*entry)["versions"];
-        for (auto it = versions.begin(); it != versions.end();) {
-            if (it->value("version", std::string()) == m.version.ToString()) it = versions.erase(it); else ++it;
+        if (archives.empty()) return Fail("no " + std::string(kArchiveExtension) + " in " + args[0]);
+        std::sort(archives.begin(), archives.end());
+        std::ostringstream text;
+        for (const fs::path& archive : archives) {
+            std::string bytes;
+            if (!ReadFile(archive.string(), bytes)) return Fail("cannot read " + archive.string());
+            const std::string hash = Crypto::ToHex(Crypto::Sha256Of(bytes.data(), bytes.size()));
+            text << hash << "  " << fs::relative(archive, args[0], ec).generic_string() << "\n";
         }
-        versions.push_back(version);
-        std::sort(versions.begin(), versions.end(), [](const json& a, const json& b) {
-            auto va = SemVer::Parse(a.value("version", std::string())), vb = SemVer::Parse(b.value("version", std::string()));
-            return va && vb && *va < *vb;
-        });
-
-        fs::create_directories(indexPath.parent_path(), ec);
-        std::ofstream out(indexPath, std::ios::trunc);
-        if (!out) return Fail("cannot write " + indexPath.string());
-        out << index.dump(2) << "\n";
-        std::cout << "indexed " << m.id << " " << m.version.ToString() << " (sha256 " << hash.substr(0, 16) << "...) in " << indexPath.string() << "\n";
+        const std::string outPath = Option(args, "--out") ? Option(args, "--out") : (fs::path(args[0]) / "SHA256SUMS").string();
+        std::ofstream out(outPath, std::ios::trunc | std::ios::binary);
+        if (!out) return Fail("cannot write " + outPath);
+        out << text.str();
+        std::cout << "wrote " << outPath << " (" << archives.size() << " archives)\n";
         return 0;
     }
 }
@@ -210,7 +173,7 @@ int main(int argc, char** argv)
     if (command == "pack") return Pack(args);
     if (command == "sign") return Sign(args);
     if (command == "verify") return Verify(args);
-    if (command == "index") return Index(args);
+    if (command == "sums") return Sums(args);
     if (command == "fingerprint") { std::cout << kBuildFingerprint << "\n"; return 0; }
     std::cerr << "[ERROR] Unknown command : " << command << "\n";
     Usage();
