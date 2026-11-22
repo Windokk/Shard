@@ -119,6 +119,12 @@ add_subdirectory(src/apps/editor)
 add_subdirectory(src/apps/player)
 add_subdirectory(src/apps/headless)
 
+# The official plugins live in the Shard-Plugins repository. Pointing this at its checkout builds them in this tree, against this engine.
+set(SHARD_PLUGINS_DIR "" CACHE PATH "Folder of the Shard-Plugins repository, built along with the engine")
+if(SHARD_PLUGINS_DIR)
+    add_subdirectory(${SHARD_PLUGINS_DIR} ${CMAKE_BINARY_DIR}/shard_plugins)
+endif()
+
 file(READ ${CMAKE_SOURCE_DIR}/sdk/VERSION SHARD_SDK_VERSION)
 string(STRIP "${SHARD_SDK_VERSION}" SHARD_SDK_VERSION)
 install(DIRECTORY ${CMAKE_SOURCE_DIR}/sdk/include/ DESTINATION sdk/include COMPONENT sdk)

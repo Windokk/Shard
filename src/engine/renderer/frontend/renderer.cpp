@@ -196,6 +196,12 @@ namespace Shard::Engine::Rendering{
         sceneSpecs.colorSpecs.internalFormat = TextureInternalFormat::RGBA16F;
         m_SceneBuffer = Framebuffer::Create(sceneSpecs);
 
+        FramebufferSpecifications postSpecs = sceneSpecs;
+        postSpecs.multisampled = false;
+        postSpecs.hasDepth = false;
+        for(std::shared_ptr<Framebuffer>& buffer : m_PostBuffers)
+            buffer = Framebuffer::Create(postSpecs);
+
         struct BasicVertex {
             glm::vec3 position;
             glm::vec2 texCoord;
@@ -510,6 +516,10 @@ namespace Shard::Engine::Rendering{
         m_ImmediateRenderer.Shutdown();
         m_ViewportBuffer->Destroy();
         m_SceneBuffer->Destroy();
+        m_FullscreenPasses.clear();
+        for(const std::shared_ptr<Framebuffer>& buffer : m_PostBuffers)
+            if(buffer)
+                buffer->Destroy();
         m_LightManager->Clear();
         if(m_RendererAPI)
             m_RendererAPI->PersistCaches();
@@ -936,7 +946,7 @@ namespace Shard::Engine::Rendering{
             }
         }
 
-        for(const auto& buffer : {m_ViewportBuffer, m_SceneBuffer}){
+        for(const auto& buffer : {m_ViewportBuffer, m_SceneBuffer, m_PostBuffers[0], m_PostBuffers[1]}){
             if(buffer && (buffer->GetWidth() != uint32_t(newWidth) || buffer->GetHeight() != uint32_t(newHeight)))
                 buffer->Resize(newWidth, newHeight);
         }
@@ -1714,6 +1724,76 @@ namespace Shard::Engine::Rendering{
         m_TonemapPass->allowCulling = false;
     }
 
+    std::shared_ptr<Shader> Renderer::CreateShader(const std::string& vertexPath, const std::string& fragmentPath)
+    {
+        return Shader::Create(Filesystem::Path(vertexPath), Filesystem::Path(fragmentPath), Filesystem::Path(""));
+    }
+
+    std::shared_ptr<Framebuffer> Renderer::CreateFramebuffer(const FramebufferSpecifications& specs)
+    {
+        return Framebuffer::Create(specs);
+    }
+
+    std::shared_ptr<Material> Renderer::CreateMaterial(const std::shared_ptr<Shader>& shader, const std::shared_ptr<Pipeline>& pipeline)
+    {
+        return Material::Create(shader, pipeline, false, Opacity::Opaque);
+    }
+
+    void Renderer::DrawFullscreen(const std::shared_ptr<Material>& material, const std::shared_ptr<Framebuffer>& target)
+    {
+        if(!material || !target)
+            return;
+
+        std::shared_ptr<RenderPass>& pass = m_FullscreenPasses[target.get()];
+        if(!pass)
+        {
+            pass = std::make_shared<RenderPass>();
+            pass->target = target;
+            pass->clearColor = false;
+            pass->clearDepth = false;
+            pass->allowResize = false;
+            pass->allowCulling = false;
+        }
+
+        DrawCommand command{};
+        command.commandID = 0x504F5354;
+        command.mesh = nullptr;
+        command.material = material;
+        command.indexCount = 3;
+        command.vertexCount = 3;
+        command.fullscreenTri = true;
+        command.bindCameraState = false;
+
+        BeginRenderPass(pass);
+        m_RendererAPI->ExecuteDrawCommand(command, pass);
+        EndRenderPass();
+    }
+
+    uint32_t Renderer::RunPostProcess()
+    {
+        const std::vector<std::shared_ptr<RenderFeature>> effects = CollectPostProcessEffects(m_Features);
+        if(effects.empty() || !m_PostBuffers[0] || !m_PostBuffers[1])
+            return 0;
+
+        uint32_t current = m_SceneBuffer->GetResolveColorAttachment();
+        const uint32_t depth = m_SceneBuffer->GetResolveDepthAttachment();
+        size_t next = 0;
+        for(const std::shared_ptr<RenderFeature>& effect : effects)
+        {
+            PostProcessContext ctx;
+            ctx.inputColor = current;
+            ctx.depth = depth;
+            ctx.output = m_PostBuffers[next];
+            ctx.width = ctx.output->GetWidth();
+            ctx.height = ctx.output->GetHeight();
+            GpuScope scope(m_RendererAPI->GetGpuProfiler(), effect->GetName());
+            effect->PostProcess(*this, ctx);
+            current = ctx.output->GetResolveColorAttachment();
+            next ^= 1;
+        }
+        return current;
+    }
+
     int Renderer::GetDisplayMode() const
     {
         const DebugViewState& view = m_DebugView;
@@ -1753,8 +1833,9 @@ namespace Shard::Engine::Rendering{
 
         const DisplaySettings& display = GetSnapshot().environment.display;
         const FramebufferSpecifications& sceneSpecs = m_SceneBuffer->GetSpecifications();
-        const int sceneSamples = sceneSpecs.multisampled ? static_cast<int>(sceneSpecs.samplesCount) : 0;
-        m_TonemapMaterial->SetTextureParameter("sceneTexture", m_SceneBuffer->GetResolveColorAttachment());
+        const uint32_t processed = RunPostProcess();
+        const int sceneSamples = (!processed && sceneSpecs.multisampled) ? static_cast<int>(sceneSpecs.samplesCount) : 0;
+        m_TonemapMaterial->SetTextureParameter("sceneTexture", processed ? processed : m_SceneBuffer->GetResolveColorAttachment());
         m_TonemapMaterial->SetTextureParameter("sceneTextureMS", sceneSamples > 0 ? m_SceneBuffer->GetColorAttachment() : 0);
         m_TonemapMaterial->SetScalarParameter("sceneSamples", sceneSamples);
         m_TonemapMaterial->SetScalarParameter("exposure", display.ExposureScale());

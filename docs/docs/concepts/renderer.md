@@ -36,7 +36,7 @@ Shaders are written in GLSL 4.3. For Vulkan, `ShardShaderCompiler` compiles them
 
 Some drivers allow only 32 samplers in a fragment shader. `lit.frag` uses 11 : the material's textures (or the G-buffer), the sky, the reflection probe, one array per kind of shadow map, and the emission map. The engine's other textures (AO, reflections, lightmap pages, GI probe atlases) are read through bindless handles. The layout is listed at the top of `lit.frag`.
 
-SPIRV-Reflect runs on the output. A compiled program is saved as a `.spvpack` (SPIR-V plus reflection data), keyed on a hash of the sources, defines and compiler version, so a stale file is never loaded.
+SPIRV-Reflect runs on the output. A compiled program is saved as a `.spvpack` (SPIR-V plus reflection data), keyed on a hash of the sources, defines and compiler version, so a stale file is never loaded. For shaders inside a plugin folder (one that holds `shard-plugin.json`) the file is written to the user's cache directory instead, never next to the plugin, so the plugin's signature stays valid. A `.spvpack` placed there before signing is read first.
 
 ```
 ShardShaderc <shader root> <output dir> [--define NAME[=VALUE]] [--only name] [--reflect] [--force] [-j n]

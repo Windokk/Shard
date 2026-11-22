@@ -14,6 +14,8 @@
 namespace Shard::Engine::Rendering {
 
     class Framebuffer;
+    struct FramebufferSpecifications;
+    class Shader;
     class Mesh;
     class Material;
     class LightManager;
@@ -53,6 +55,12 @@ namespace Shard::Engine::Rendering {
 
             virtual RenderSnapshotBuffer& GetSnapshotBuffer() = 0;
             virtual const RenderSnapshot& GetSnapshot() const = 0;
+
+            // Plugins build GPU objects through these : a plugin is a separate binary, it must not call the engine's own factories.
+            virtual std::shared_ptr<Shader> CreateShader(const std::string& vertexPath, const std::string& fragmentPath) { (void)vertexPath; (void)fragmentPath; return nullptr; }
+            virtual std::shared_ptr<Framebuffer> CreateFramebuffer(const FramebufferSpecifications& specs) { (void)specs; return nullptr; }
+            virtual std::shared_ptr<Material> CreateMaterial(const std::shared_ptr<Shader>& shader, const std::shared_ptr<Pipeline>& pipeline) { (void)shader; (void)pipeline; return nullptr; }
+            virtual void DrawFullscreen(const std::shared_ptr<Material>& material, const std::shared_ptr<Framebuffer>& target) { (void)material; (void)target; }
 
             virtual std::shared_ptr<Framebuffer> GetViewportFramebuffer() const = 0;
             virtual RendererAPI* GetRendererAPI() const = 0;

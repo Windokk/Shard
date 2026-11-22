@@ -407,3 +407,24 @@ TEST(CVarSuggest, LimitAndHiddenVariables) {
 
     EXPECT_LE(CVarRegistry::Global().Suggest("", 3).size(), 3u);
 }
+
+TEST(CommandUsage, ReadsParametersFromTheHelpText)
+{
+    const auto info = Shard::Engine::Core::CVarRegistry::ParseUsage("plugin.install-bundle", "plugin.install-bundle <path> [id...] [--dir <folder>] : installs a bundle");
+    EXPECT_EQ(info.description, "installs a bundle");
+    ASSERT_EQ(info.params.size(), 3u);
+    EXPECT_EQ(info.params[0].name, "path");
+    EXPECT_FALSE(info.params[0].optional);
+    EXPECT_EQ(info.params[1].name, "id");
+    EXPECT_TRUE(info.params[1].optional);
+    EXPECT_TRUE(info.params[1].variadic);
+    EXPECT_EQ(info.params[2].name, "--dir <folder>");
+    EXPECT_TRUE(info.params[2].optional);
+
+    const auto none = Shard::Engine::Core::CVarRegistry::ParseUsage("render.features", "render.features : lists the features");
+    EXPECT_TRUE(none.params.empty());
+    EXPECT_EQ(none.description, "lists the features");
+
+    const auto plain = Shard::Engine::Core::CVarRegistry::ParseUsage("ping", "pings");
+    EXPECT_TRUE(plain.params.empty());
+}

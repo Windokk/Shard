@@ -254,6 +254,22 @@ namespace Shard::Engine::Core {
         std::string ArchiveText() const;
         size_t ParseCommandLine(int argc, const char* const* argv, std::vector<std::string>* warnings = nullptr);
 
+        struct CommandParam {
+            std::string name;
+            bool optional = false;
+            bool variadic = false;
+        };
+        struct CommandInfo {
+            std::string name;
+            std::string help;
+            std::string description;
+            std::vector<CommandParam> params;
+        };
+
+        // The usage is read from the help text : "name <required> [optional] [more...] : what it does".
+        std::vector<CommandInfo> ListCommands() const;
+        static CommandInfo ParseUsage(const std::string& name, const std::string& help);
+
         void RegisterCommand(std::string name, std::string help, CommandFn fn);
         void UnregisterCommand(std::string_view name);
         CommandResult Execute(std::string_view line);

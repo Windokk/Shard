@@ -4,6 +4,7 @@
 #include <iostream>
 
 #include "engine/core/diagnostics/logger.hpp"
+#include "engine/world/components/component.hpp"
 
 namespace Shard::Engine::Objects::Components {
 
@@ -34,8 +35,31 @@ namespace Shard::Engine::Objects::Components {
         return it->second();
     }
 
-    void ComponentRegistry::RegisterBuiltin(const std::string& typeName, BuiltinComponentFactory factory, ComponentAssetRefs assetRefs) {
-        builtins[typeName] = Builtin{ std::move(factory), std::move(assetRefs) };
+    void ComponentRegistry::RegisterBuiltin(const std::string& typeName, BuiltinComponentFactory factory, ComponentAssetRefs assetRefs, const ClassDescriptor* descriptor) {
+        builtins[typeName] = Builtin{ std::move(factory), std::move(assetRefs), descriptor };
+    }
+
+    const ClassDescriptor* ComponentRegistry::DescriptorOf(const std::string& typeName) const {
+        auto builtin = builtins.find(typeName);
+        if (builtin != builtins.end())
+            return builtin->second.descriptor;
+        auto custom = registry.find(typeName);
+        if (custom == registry.end() || !custom->second)
+            return nullptr;
+        try {
+            std::shared_ptr<Component> instance = custom->second();
+            return instance ? instance->GetDescriptor() : nullptr;
+        } catch (...) {
+            return nullptr;
+        }
+    }
+
+    std::vector<std::string> ComponentRegistry::AllNames() const {
+        std::vector<std::string> names = BuiltinNames();
+        for (const auto& kv : registry) names.push_back(kv.first);
+        std::sort(names.begin(), names.end());
+        names.erase(std::unique(names.begin(), names.end()), names.end());
+        return names;
     }
 
     std::shared_ptr<Component> ComponentRegistry::CreateBuiltinComponent(const std::string& typeName, Core::IEngineContext* engine, std::shared_ptr<Actor> actor, uint32_t localId) {

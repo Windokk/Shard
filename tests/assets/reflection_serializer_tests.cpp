@@ -3,6 +3,7 @@
 #include <glm/glm.hpp>
 #include <glm/gtc/quaternion.hpp>
 
+#include "engine/assets/serialization/reflection/reflection_schema.hpp"
 #include "engine/assets/serialization/reflection/reflection_serializer.hpp"
 
 using namespace Shard::Engine;
@@ -174,4 +175,46 @@ TEST_F(ReflectionSerializerTest, RotationReadsEulerOrQuat)
     Sample raw;
     Serialization::ReadFields(reflected.all, &raw, json{ { "rotation", { { "x", 0.0f }, { "y", 0.0f }, { "z", 0.0f }, { "w", 1.0f } } } }, context);
     EXPECT_NEAR(glm::abs(glm::dot(raw.rotation, glm::quat(1, 0, 0, 0))), 1.0f, 1e-5f);
+}
+
+TEST_F(ReflectionSerializerTest, DescribesAClassForTools)
+{
+    ClassDescriptor descriptor;
+    descriptor.name = "Sample";
+    descriptor.fields = reflected.all;
+    const ordered_json schema = Serialization::DescribeClass(descriptor);
+
+    EXPECT_EQ(schema["name"], "Sample");
+    ASSERT_EQ(schema["fields"].size(), 9u);
+    EXPECT_EQ(schema["fields"][0]["name"], "speed");
+    EXPECT_EQ(schema["fields"][0]["type"], "float");
+    EXPECT_TRUE(schema["fields"][0]["editable"].get<bool>());
+    EXPECT_EQ(schema["fields"][4]["type"], "vec3");
+    EXPECT_EQ(schema["fields"][6]["enum"], "Mode");
+    ASSERT_EQ(schema["fields"][6]["values"].size(), 3u);
+    EXPECT_EQ(schema["fields"][6]["values"][2]["name"], "Auto");
+    EXPECT_EQ(schema["fields"][7]["element"], "float");
+    EXPECT_TRUE(schema["fields"][8]["readOnly"].get<bool>());
+}
+
+TEST_F(ReflectionSerializerTest, GetsAndSetsAFieldByName)
+{
+    ClassDescriptor descriptor;
+    descriptor.name = "Sample";
+    descriptor.fields = reflected.all;
+
+    Sample s;
+    EXPECT_TRUE(Serialization::SetFieldValue(descriptor, &s, "speed", 4.5f, context));
+    EXPECT_FLOAT_EQ(s.speed, 4.5f);
+    EXPECT_TRUE(Serialization::SetFieldValue(descriptor, &s, "label", "hi", context));
+    EXPECT_EQ(s.label, "hi");
+
+    ordered_json value;
+    ASSERT_TRUE(Serialization::GetFieldValue(descriptor, &s, "speed", value, context));
+    EXPECT_FLOAT_EQ(value.get<float>(), 4.5f);
+
+    EXPECT_FALSE(Serialization::SetFieldValue(descriptor, &s, "runtime", 1.0f, context));
+    EXPECT_FLOAT_EQ(s.runtime, 5.0f);
+    EXPECT_FALSE(Serialization::SetFieldValue(descriptor, &s, "nothing", 1, context));
+    EXPECT_FALSE(Serialization::GetFieldValue(descriptor, &s, "nothing", value, context));
 }

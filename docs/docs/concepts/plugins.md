@@ -251,7 +251,7 @@ Everything a plugin registers goes through its `PluginContext`. The context tags
 | `CVars()` | console variables, named `<plugin id>.<name>` : `Bool`, `Int`, `Float`, `String`. Values from the manifest and the project reach them even though they are set before the variable exists |
 | `Worlds()` | world extensions and world settings asset references |
 | `Assets()` | `Add<T>(point, name, item)` : an item for an extension point, `Uri(path)` and `GuidOf(path)` for the plugin's files |
-| `Render()` | `AddFeature` and `AddPipeline` : items for the `render.feature` and `render.pipeline` points |
+| `Render()` | `AddFeature`, `AddPipeline` and `AddSnapshotChannel` : items for the `render.feature`, `render.pipeline` and `render.snapshot` points |
 | `Hooks()` | interception points, see below |
 | `Services()` | interfaces shared with other plugins, see below |
 | `Content()` | the mounted content of all modules |
@@ -267,6 +267,7 @@ Everything a plugin registers goes through its `PluginContext`. The context tags
 | Point | Item type | What the engine does with it |
 |---|---|---|
 | `render.feature` | `Rendering::RenderFeature` | `Render().AddFeature<Rendering::RenderFeature>(name, feature)`. Activated on the graphics thread, called with each frame's snapshot, deactivated before the plugin goes. `render.features` in the console lists them |
+| `render.snapshot` | `Rendering::SnapshotChannel` | `Render().AddSnapshotChannel(name, Rendering::MakeSnapshotChannel<T>(name, extract))`. `extract(previous, next)` runs once a frame during extraction and returns the data of that frame. A render feature reads it with `snapshot.Payload<T>(name)`, which is null if the channel or the type does not match |
 | `render.pipeline` | `Rendering::RenderPipelineExtension` | `Render().AddPipeline<Rendering::RenderPipelineExtension>(name, item)`. A new kind of pipeline that `.renderpipeline` assets and `render.pipeline` can name. If it is the one drawing when its plugin goes, the forward pipeline takes over |
 | `asset.type` | `Core::Resources::AssetTypeExtension` | a kind of asset with its loader and file extensions. The engine gives it a kind id (`item->kind`), files with its extensions are indexed as assets of the project (`Filesystem::Type::T_CUSTOM`), and what is cached of the kind is dropped when the plugin goes |
 | `asset.importer` | `Filesystem::AssetImporterExtension` | converts a source format into files the engine reads. `asset.import <file> [folder]` runs it, `Filesystem::AssetImporters::Get().Import` does from code |
@@ -278,6 +279,10 @@ Everything a plugin registers goes through its `PluginContext`. The context tags
 | `tool.validator` | `ToolValidatorItem` | a check `ShardAssetValidator` runs : it gets the project file and returns the problems it found |
 
 Pass the base type explicitly when you add something that derives from it (`Add<Rendering::RenderFeature>(name, std::make_shared<MyFeature>())`), the engine finds items by that type. Other names can be used between plugins and engine code that agree on them.
+
+#### Post-processing from a render feature
+
+A feature that overrides `HasPostProcess()` to return true is run on the linear HDR scene, after the multisample resolve and before the tonemap. `PostProcess(renderer, ctx)` reads `ctx.inputColor` (and `ctx.depth`) and draws into `ctx.output` with `renderer.DrawFullscreen(material, ctx.output)`. Effects run by increasing `PostProcessOrder()`, each one reading what the previous wrote ; the tonemap reads the last. Without an effect the frame is drawn as before. There is no stage after the tonemap yet.
 
 #### Drawing with ImGui
 
@@ -331,7 +336,8 @@ A `ServiceRef` becomes empty when the provider is disabled or unloaded, so check
 * **Release what you own in `OnUnload`.** The host removes what went through the context ; anything else (GPU resources, files, your own threads) is yours.
 * **Don't free what you didn't allocate.** Memory that crosses between the plugin and the engine has to come from the same allocator.
 * **Exceptions stay inside the plugin.** The host catches them at every callback and system, but an exception can't cross a library boundary safely in general.
-* **Don't read the world from a render feature.** It works from the frame's snapshot.
+* **Don't read the world from a render feature.** It works from the frame's snapshot. To get your own data there, add a snapshot channel.
+* **Shaders of a plugin are cached outside its folder.** The compiled `.spvpack` goes to the user's cache directory, so a signed plugin stays valid after it runs. A `.spvpack` shipped in the plugin before signing is read first.
 * **Don't include engine internals** from a genre or game module : the layering check (`scripts/check_deps.py`) enforces it.
 
 ## Building
@@ -864,6 +870,12 @@ The same is available in the console of the editor and the other executables :
 
 An archive is refused if an entry would leave the folder it is unpacked into (`..`, an absolute path, a drive, a backslash), if it expands by more than a thousand times, or past 512 MB per file or 2 GB in all.
 
+### Official bundles
+
+Official plugins are native and ship as a **bundle** per platform (Linux, Windows) : one major, shared with the engine's plugin API (`kPluginApiMajor`), and a minor of their own per plugin. They are built, signed and released from the separate repository **Shard-Plugins** : this repository provides the tools it uses (`ShardPkg`, `shard`) and the engine it builds against.
+
+Nothing is downloaded by the engine : users fetch `shard-plugins-<major>-<platform>.zip` from a Shard-Plugins release and install it with `shard plugin install-bundle`. A user trusts the publisher with `{ "publishers": { "shard-official": "<public key>" } }` in `plugin-trust.json`, then checks a download against `SHA256SUMS` or `--sha256`. A native plugin is built for one engine build (the full build fingerprint is checked), so a bundle goes with the engine release it was built against.
+
 ## Determinism and multiplayer
 
 A plugin whose manifest says `simulation.affects: true` changes what the simulation computes, so everyone who shares that simulation needs the same one :
@@ -907,6 +919,8 @@ If the new library does not load, the plugin is `Failed` with the reason.
 | `plugin.trust <publisher> <key>`, `plugin.verify <id>` | trusted publishers and signatures |
 | `event.list` | the named events that plugins described (ABI 1.2) and their fields |
 | `event.watch <name>`, `event.unwatch <name>` | log every event sent under that name with its values, or stop |
+| `reflect.components [type]` | the component types, built in and from plugins, with their fields (name, type, bounds, enum values) as JSON. It is what a tool such as a visual scripting editor builds its nodes from. A type whose factory gives nothing comes back with `"described": false` |
+| `reflect.commands`, `reflect.events` | the console commands with their parameters, and the named events plugins described with their fields, as JSON. A command's parameters are read from its help text : `name <required> [optional] [more...] : what it does` |
 | `asset.import <file> [folder]`, `render.features` | what plugins brought to the asset and render systems |
 
 The editor's *Plugins* window (Window menu) shows the same list, with the problems found at startup and buttons for enable, disable and reload.

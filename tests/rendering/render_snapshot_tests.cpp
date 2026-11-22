@@ -188,3 +188,34 @@ TEST(RenderSnapshot, ProbeGridZeroCount) {
     const glm::vec3 spacing = proxy.GridSpacing();
     EXPECT_TRUE(std::isfinite(spacing.x) && std::isfinite(spacing.y) && std::isfinite(spacing.z));
 }
+
+namespace {
+    struct WaterData { float level = 0.0f; int tiles = 0; };
+}
+
+TEST(SnapshotChannel, CarriesPluginDataToTheReader)
+{
+    using namespace Shard::Engine::Rendering;
+    auto channel = MakeSnapshotChannel<WaterData>("water", [](const RenderSnapshot& previous, const RenderSnapshot& next) {
+        auto data = std::make_shared<WaterData>();
+        data->level = 2.5f;
+        data->tiles = int(next.frame) + (previous.payloads.empty() ? 0 : 100);
+        return std::shared_ptr<const WaterData>(data);
+    });
+    EXPECT_EQ(channel->name, "water");
+
+    RenderSnapshot previous;
+    RenderSnapshot next;
+    next.frame = 7;
+    next.payloads.push_back({ channel->name, channel->typeName, channel->extract(previous, next) });
+
+    const WaterData* read = next.Payload<WaterData>("water");
+    ASSERT_NE(read, nullptr);
+    EXPECT_FLOAT_EQ(read->level, 2.5f);
+    EXPECT_EQ(read->tiles, 7);
+    EXPECT_EQ(next.Payload<WaterData>("lava"), nullptr);
+    EXPECT_EQ(next.Payload<int>("water"), nullptr);
+
+    next.Reset();
+    EXPECT_EQ(next.Payload<WaterData>("water"), nullptr);
+}

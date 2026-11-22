@@ -268,6 +268,8 @@ namespace Shard::Engine::Plugins {
         bool AddFeature(const std::string& name, std::shared_ptr<T> feature);
         template <typename T>
         bool AddPipeline(const std::string& name, std::shared_ptr<T> pipeline);
+        template <typename T>
+        bool AddSnapshotChannel(const std::string& name, std::shared_ptr<T> channel);
 
     private:
         friend class PluginContext;
@@ -429,6 +431,12 @@ namespace Shard::Engine::Plugins {
     bool RenderRegistrar::AddPipeline(const std::string& name, std::shared_ptr<T> pipeline)
     {
         return m_Ctx.m_Assets.Add<T>("render.pipeline", name, std::move(pipeline));
+    }
+
+    template <typename T>
+    bool RenderRegistrar::AddSnapshotChannel(const std::string& name, std::shared_ptr<T> channel)
+    {
+        return m_Ctx.m_Assets.Add<T>("render.snapshot", name, std::move(channel));
     }
 
     template <typename H>

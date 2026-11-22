@@ -343,3 +343,45 @@ TEST(RenderGraph, PingPongFollowsDependencies)
     EXPECT_EQ(RunOrder(compiled), (std::vector<std::string>{"Init", "Step0", "Step1", "Step2", "Outline"}));
     EXPECT_EQ(compiled.CulledCount(), 0);
 }
+
+#include "engine/renderer/frontend/render_feature.hpp"
+
+namespace {
+    class FakeEffect final : public Shard::Engine::Rendering::RenderFeature {
+    public:
+        FakeEffect(const char* name, bool post, int order) : m_Name(name), m_Post(post), m_Order(order) {}
+        const char* GetName() const override { return m_Name; }
+        bool HasPostProcess() const override { return m_Post; }
+        int PostProcessOrder() const override { return m_Order; }
+    private:
+        const char* m_Name;
+        bool m_Post;
+        int m_Order;
+    };
+}
+
+TEST(PostProcessChain, KeepsOnlyEffectsAndSortsByOrder)
+{
+    using Shard::Engine::Rendering::RenderFeature;
+    std::vector<std::shared_ptr<RenderFeature>> features = {
+        std::make_shared<FakeEffect>("late", true, 10),
+        std::make_shared<FakeEffect>("plain", false, 0),
+        std::make_shared<FakeEffect>("early", true, -5),
+        std::make_shared<FakeEffect>("tieA", true, 3),
+        std::make_shared<FakeEffect>("tieB", true, 3),
+        nullptr,
+    };
+    const auto effects = Shard::Engine::Rendering::CollectPostProcessEffects(features);
+    ASSERT_EQ(effects.size(), 4u);
+    EXPECT_STREQ(effects[0]->GetName(), "early");
+    EXPECT_STREQ(effects[1]->GetName(), "tieA");
+    EXPECT_STREQ(effects[2]->GetName(), "tieB");
+    EXPECT_STREQ(effects[3]->GetName(), "late");
+}
+
+TEST(PostProcessChain, EmptyWithoutEffects)
+{
+    using Shard::Engine::Rendering::RenderFeature;
+    std::vector<std::shared_ptr<RenderFeature>> features = {std::make_shared<FakeEffect>("plain", false, 0)};
+    EXPECT_TRUE(Shard::Engine::Rendering::CollectPostProcessEffects(features).empty());
+}

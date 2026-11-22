@@ -406,6 +406,53 @@ namespace Shard::Engine::Core {
         return applied;
     }
 
+    CVarRegistry::CommandInfo CVarRegistry::ParseUsage(const std::string& name, const std::string& help) {
+        CommandInfo info;
+        info.name = name;
+        info.help = help;
+        const size_t split = help.find(" : ");
+        const std::string usage = split == std::string::npos ? help : help.substr(0, split);
+        info.description = split == std::string::npos ? std::string() : help.substr(split + 3);
+
+        std::vector<std::string> groups;
+        std::string current;
+        int depth = 0;
+        std::istringstream words(usage);
+        std::string word;
+        bool first = true;
+        while (words >> word) {
+            if (first) { first = false; if (word == name) continue; }
+            for (char c : word) {
+                if (c == '[' || c == '<') ++depth;
+                else if (c == ']' || c == '>') --depth;
+            }
+            current += (current.empty() ? "" : " ") + word;
+            if (depth <= 0) { groups.push_back(current); current.clear(); depth = 0; }
+        }
+        if (!current.empty()) groups.push_back(current);
+
+        for (const std::string& group : groups) {
+            if (group.empty() || (group[0] != '<' && group[0] != '[')) continue;
+            CommandParam param;
+            param.optional = group[0] == '[';
+            std::string body = group.substr(1, group.size() - 2 > 0 ? group.size() - 2 : 0);
+            if (group.size() >= 4 && group.compare(group.size() - 4, 3, "...") == 0) { param.variadic = true; body = group.substr(1, group.size() - 5); }
+            else if (body.size() >= 3 && body.compare(body.size() - 3, 3, "...") == 0) { param.variadic = true; body.resize(body.size() - 3); }
+            param.name = body;
+            info.params.push_back(std::move(param));
+        }
+        return info;
+    }
+
+    std::vector<CVarRegistry::CommandInfo> CVarRegistry::ListCommands() const {
+        std::vector<CommandInfo> out;
+        std::lock_guard<std::mutex> lock(m_Mutex);
+        for (const auto& entry : m_Commands)
+            out.push_back(ParseUsage(entry.second.name, entry.second.help));
+        std::sort(out.begin(), out.end(), [](const CommandInfo& a, const CommandInfo& b) { return a.name < b.name; });
+        return out;
+    }
+
     void CVarRegistry::RegisterCommand(std::string name, std::string help, CommandFn fn) {
         const std::string key = Lower(name);
         std::lock_guard<std::mutex> lock(m_Mutex);

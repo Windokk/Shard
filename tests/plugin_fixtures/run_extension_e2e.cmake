@@ -3,6 +3,9 @@ file(MAKE_DIRECTORY "${OUT}")
 file(WRITE "${OUT}/script.txt"
 "3 render.features
 3 shardtest.assetkind
+3 reflect.components transform
+3 reflect.commands
+3 reflect.events
 4 asset.import ${SAMPLE} ${OUT}/imported
 5 render.pipeline shard-test-pipeline
 7 render.features
@@ -22,6 +25,9 @@ endif()
 set(expected
     "Asset type : shard-test-asset"
     "[TESTPLUGIN] feature activated"
+    "\"name\": \"position\""
+    "\"name\": \"shardtest.ping\""
+    "[TESTPLUGIN] snapshot channel extracted"
     "render.features : features : shard-test-feature"
     "imported by the test plugin"
     "[TESTPLUGIN] pipeline activated"

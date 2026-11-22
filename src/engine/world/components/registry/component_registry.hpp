@@ -8,7 +8,11 @@
 #include <functional>
 #include <vector>
 
+#include <type_traits>
+
 #include <nlohmann/json.hpp>
+
+#include "engine/assets/reflection/reflection_fields.hpp"
 
 #include "engine/world/object.hpp"
 #include "engine/assets/resources_manager.hpp"
@@ -20,6 +24,10 @@ namespace Shard::Engine::Objects {
 namespace Shard::Engine::Objects::Components {
 
     class Component;
+    template <typename T, typename = void>
+    struct HasStaticDescriptor : std::false_type {};
+    template <typename T>
+    struct HasStaticDescriptor<T, std::void_t<decltype(&T::descriptor)>> : std::true_type {};
     using ComponentFactory = std::function<std::shared_ptr<Component>()>;
 
     using BuiltinComponentFactory = std::function<std::shared_ptr<Component>(Core::IEngineContext*, std::shared_ptr<Actor>, uint32_t localId)>;
@@ -41,13 +49,20 @@ namespace Shard::Engine::Objects::Components {
                 BuiltinComponentFactory factory = [](Core::IEngineContext* engine, std::shared_ptr<Actor> actor, uint32_t localId) -> std::shared_ptr<Component> {
                     return Core::Object::CreateWithContext<T>(engine, std::move(actor), localId);
                 };
-                RegisterBuiltin(typeName, std::move(factory), std::move(assetRefs));
+                const ClassDescriptor* descriptor = nullptr;
+                if constexpr (HasStaticDescriptor<T>::value)
+                    descriptor = &T::descriptor;
+                RegisterBuiltin(typeName, std::move(factory), std::move(assetRefs), descriptor);
             }
 
             std::shared_ptr<Component> CreateBuiltinComponent(const std::string& typeName, Core::IEngineContext* engine, std::shared_ptr<Actor> actor, uint32_t localId);
 
             bool IsBuiltinComponent(const std::string& typeName) const;
             std::vector<std::string> BuiltinNames() const;
+
+            // Built-in types answer from their static descriptor. A plugin's type is asked from its factory, which may give nothing.
+            const ClassDescriptor* DescriptorOf(const std::string& typeName) const;
+            std::vector<std::string> AllNames() const;
 
             void CollectAssetRefs(const std::string& typeName, const nlohmann::json& component, std::vector<Core::Resources::ResourceKey>& out) const;
 
@@ -56,11 +71,12 @@ namespace Shard::Engine::Objects::Components {
             ComponentRegistry& operator=(const ComponentRegistry&) = delete;
 
         private:
-            void RegisterBuiltin(const std::string& typeName, BuiltinComponentFactory factory, ComponentAssetRefs assetRefs);
+            void RegisterBuiltin(const std::string& typeName, BuiltinComponentFactory factory, ComponentAssetRefs assetRefs, const ClassDescriptor* descriptor);
 
         struct Builtin {
             BuiltinComponentFactory factory;
             ComponentAssetRefs assetRefs;
+            const ClassDescriptor* descriptor = nullptr;
         };
 
         std::unordered_map<std::string, ComponentFactory> registry;

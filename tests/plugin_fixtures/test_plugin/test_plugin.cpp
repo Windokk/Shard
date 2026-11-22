@@ -65,6 +65,15 @@ public:
 
         ctx.Render().AddFeature<Rendering::RenderFeature>("shard-test-feature", std::make_shared<TestFeature>());
 
+        ctx.Render().AddSnapshotChannel("shard-test-channel", Rendering::MakeSnapshotChannel<int>("shard-test-channel",
+            [logged = std::make_shared<bool>(false)](const Rendering::RenderSnapshot&, const Rendering::RenderSnapshot& next) {
+                if (!*logged) {
+                    *logged = true;
+                    std::cout << "[TESTPLUGIN] snapshot channel extracted" << std::endl;
+                }
+                return std::make_shared<const int>(int(next.frame));
+            }));
+
         auto pipeline = std::make_shared<Rendering::RenderPipelineExtension>();
         pipeline->type = "shard-test-pipeline";
         pipeline->description = "A pipeline with no passes, from the test plugin";

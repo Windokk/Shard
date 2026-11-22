@@ -1,13 +1,16 @@
 #include "vk_shader.hpp"
 
 #include <atomic>
+#include <cstdio>
 #include <cstring>
 #include <filesystem>
 #include <fstream>
+#include <functional>
 #include <mutex>
 
 #include "vk_buffer.hpp"
 
+#include "engine/platform/filesystem/paths.hpp"
 #include "engine/renderer/rhi/shader_compiler/shader_compiler.hpp"
 #include "engine/renderer/rhi/render_thread.hpp"
 
@@ -78,7 +81,6 @@ namespace Shard::Engine::Rendering {
             const std::filesystem::path directory = stageFile.parent_path();
             const std::string name = stageFile.stem().string();
 
-            // Shader root is the nearest directory named "shaders". Binaries sit in "shaders_spv" next to it.
             for (std::filesystem::path root = directory; !root.empty() && root.has_parent_path() && root != root.parent_path(); root = root.parent_path())
             {
                 if (root.filename() == "shaders")
@@ -89,6 +91,26 @@ namespace Shard::Engine::Rendering {
             }
 
             return directory / "shaders_spv" / (name + suffix + ".spvpack");
+        }
+
+        bool InsidePlugin(const std::filesystem::path& stageFile)
+        {
+            std::error_code ec;
+            for (std::filesystem::path dir = stageFile.parent_path(); !dir.empty() && dir != dir.parent_path(); dir = dir.parent_path())
+            {
+                if (std::filesystem::exists(dir / "shard-plugin.json", ec))
+                    return true;
+            }
+            return false;
+        }
+
+        std::filesystem::path UserCachePathFor(const std::filesystem::path& stageFile, const std::filesystem::path& packagePath)
+        {
+            std::error_code ec;
+            const std::string key = std::filesystem::absolute(stageFile, ec).generic_string();
+            char id[17];
+            std::snprintf(id, sizeof(id), "%016zx", std::hash<std::string>{}(key));
+            return std::filesystem::path(Core::Platform::Paths::UserCacheDirectory("Shard")) / "shaders" / id / packagePath.filename();
         }
     }
 
@@ -165,15 +187,22 @@ namespace Shard::Engine::Rendering {
         }
 
         const uint64_t hash = ShaderCompiler::HashSources(stages, options);
-        const std::filesystem::path cachePath = CachePathFor(files.front().second, defines);
+        const std::filesystem::path packagePath = CachePathFor(files.front().second, defines);
+        const bool pluginShader = InsidePlugin(files.front().second);
+        const std::filesystem::path userPath = UserCachePathFor(files.front().second, packagePath);
+        const std::filesystem::path cachePath = pluginShader ? userPath : packagePath;
 
         ShaderBinary binary;
         bool fromCache = false;
 
         {
-            std::ifstream file(cachePath, std::ios::binary);
-            if (file)
+            for (const std::filesystem::path& candidate : {packagePath, userPath})
             {
+                if (fromCache || (candidate == userPath && !pluginShader))
+                    continue;
+                std::ifstream file(candidate, std::ios::binary);
+                if (!file)
+                    continue;
                 std::vector<uint8_t> bytes((std::istreambuf_iterator<char>(file)), std::istreambuf_iterator<char>());
                 if (DeserializeShaderBinary(bytes.data(), bytes.size(), binary) && binary.sourceHash == hash)
                     fromCache = true;

@@ -37,6 +37,8 @@
 #include "engine/world/time_manager.hpp"
 #include "engine/renderer/components/camera_manager.hpp"
 #include "engine/renderer/components/render_extractor.hpp"
+#include "engine/world/components/registry/component_catalog.hpp"
+#include "engine/world/components/registry/script_catalog.hpp"
 #include "engine/renderer/rhi/resources/mesh/mesh.hpp"
 #include "engine/renderer/features/lighting/probe_manager.hpp"
 #include "engine/renderer/features/lighting/lightmap_manager.hpp"
@@ -509,6 +511,13 @@ namespace Shard::Engine{
             auto poseOffsets = std::make_shared<Rendering::RenderExtractor::PoseOffsets>();
             extractor->SetPoseOffsets(poseOffsets.get());
             extractor->AddSnapshotProvider(&Plugins::CAbi::ExtractPluginRender);
+            extractor->AddSnapshotProvider([](const Rendering::RenderSnapshot& previous, Rendering::RenderSnapshot& next) {
+                for (const auto& channel : Plugins::PluginManager::Get().Extensions().Get<Rendering::SnapshotChannel>("render.snapshot")) {
+                    if (!channel || !channel->extract) continue;
+                    if (auto data = channel->extract(previous, next))
+                        next.payloads.push_back({ channel->name, channel->typeName, std::move(data) });
+                }
+            });
             add("Render.Extract", Phase::Extract, [this, extractor, poseOffsets](SystemContext& c){
                 extractor->SetRebaseDistance(double(cvRebaseDistance.Get()));
                 {
@@ -622,6 +631,26 @@ namespace Shard::Engine{
                     for(const std::string& file : result.outputs)
                         text += (text.empty() ? "" : "\n") + std::string("wrote ") + file;
                     return CommandResult{result.ok, text.empty() ? std::string("imported") : text};
+                });
+
+            CVarRegistry::Global().RegisterCommand("reflect.components", "reflect.components [type] : the component types with their fields, as JSON",
+                [](const std::vector<std::string>& args) {
+                    const auto& registry = Objects::Components::GetComponentRegistry();
+                    if(!args.empty())
+                        return CommandResult{true, Objects::Components::DescribeComponentType(registry, args[0]).dump(2)};
+                    return CommandResult{true, Objects::Components::DescribeComponentCatalog(registry).dump(2)};
+                });
+
+            CVarRegistry::Global().RegisterCommand("reflect.commands", "reflect.commands : the console commands with their parameters, as JSON",
+                [](const std::vector<std::string>&) {
+                    return CommandResult{true, Objects::Components::DescribeCommands(CVarRegistry::Global()).dump(2)};
+                });
+
+            CVarRegistry::Global().RegisterCommand("reflect.events", "reflect.events : the named events plugins described, with their fields, as JSON",
+                [this](const std::vector<std::string>&) {
+                    if(!m_Context.eventDispatcher)
+                        return CommandResult{false, "no event dispatcher in this run"};
+                    return CommandResult{true, Objects::Components::DescribeEvents(*m_Context.eventDispatcher).dump(2)};
                 });
 
             CVarRegistry::Global().RegisterCommand("render.features", "render.features : the render features plugins added, and the render pipelines that can be picked",
@@ -805,6 +834,9 @@ namespace Shard::Engine{
             CVarRegistry::Global().UnregisterCommand("render.camera");
             CVarRegistry::Global().UnregisterCommand("asset.import");
             CVarRegistry::Global().UnregisterCommand("render.features");
+            CVarRegistry::Global().UnregisterCommand("reflect.components");
+            CVarRegistry::Global().UnregisterCommand("reflect.commands");
+            CVarRegistry::Global().UnregisterCommand("reflect.events");
 
             // Run queued pool tasks to the end first (they may use the job system), then shut the job system down.
             CVarRegistry::Global().UnregisterCommand("sim.hash");

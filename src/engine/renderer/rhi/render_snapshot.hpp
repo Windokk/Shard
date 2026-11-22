@@ -2,9 +2,11 @@
 
 #include <condition_variable>
 #include <cstdint>
+#include <functional>
 #include <memory>
 #include <mutex>
 #include <string>
+#include <typeinfo>
 #include <vector>
 
 #include <glm/glm.hpp>
@@ -220,6 +222,12 @@ namespace Shard::Engine::Rendering {
         int skyboxObjectId = -1;
     };
 
+    struct SnapshotPayload {
+        std::string channel;
+        std::string typeName;
+        std::shared_ptr<const void> data;
+    };
+
     struct RenderSnapshot {
         uint64_t frame = 0;
         int viewportWidth = 0;
@@ -239,6 +247,16 @@ namespace Shard::Engine::Rendering {
         std::vector<BillboardProxy> billboards;
         std::vector<SpriteBatchProxy> spriteBatches;
         std::vector<OverlayProxy> overlays;
+        std::vector<SnapshotPayload> payloads;
+
+        template <typename T>
+        const T* Payload(const std::string& channel) const
+        {
+            for (const SnapshotPayload& payload : payloads)
+                if (payload.channel == channel && payload.typeName == typeid(T).name())
+                    return static_cast<const T*>(payload.data.get());
+            return nullptr;
+        }
 
         void Reset()
         {
@@ -254,6 +272,7 @@ namespace Shard::Engine::Rendering {
             billboards.clear();
             spriteBatches.clear();
             overlays.clear();
+            payloads.clear();
         }
 
         template <typename Proxy>
@@ -265,6 +284,23 @@ namespace Shard::Engine::Rendering {
             return nullptr;
         }
     };
+
+    // Lets a native plugin carry its own data from the simulation thread to the render thread. Extract runs `extract` once a frame and the result is read back with RenderSnapshot::Payload<T>(name).
+    struct SnapshotChannel {
+        std::string name;
+        std::string typeName;
+        std::function<std::shared_ptr<const void>(const RenderSnapshot& previous, const RenderSnapshot& next)> extract;
+    };
+
+    template <typename T>
+    std::shared_ptr<SnapshotChannel> MakeSnapshotChannel(const std::string& name, std::function<std::shared_ptr<const T>(const RenderSnapshot& previous, const RenderSnapshot& next)> extract)
+    {
+        auto channel = std::make_shared<SnapshotChannel>();
+        channel->name = name;
+        channel->typeName = typeid(T).name();
+        channel->extract = [extract = std::move(extract)](const RenderSnapshot& previous, const RenderSnapshot& next) -> std::shared_ptr<const void> { return extract(previous, next); };
+        return channel;
+    }
 
     bool BuildMainView(const RenderSnapshot& snapshot, RenderView& out);
 

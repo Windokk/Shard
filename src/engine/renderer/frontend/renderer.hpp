@@ -122,6 +122,11 @@ bool GetCurrentView(RenderView& out) override;
             std::shared_ptr<Framebuffer> GetViewportFramebuffer() const override { return m_ViewportBuffer; }
 
             std::shared_ptr<Framebuffer> GetSceneFramebuffer() const { return m_SceneBuffer; }
+
+            void DrawFullscreen(const std::shared_ptr<Material>& material, const std::shared_ptr<Framebuffer>& target) override;
+            std::shared_ptr<Shader> CreateShader(const std::string& vertexPath, const std::string& fragmentPath) override;
+            std::shared_ptr<Framebuffer> CreateFramebuffer(const FramebufferSpecifications& specs) override;
+            std::shared_ptr<Material> CreateMaterial(const std::shared_ptr<Shader>& shader, const std::shared_ptr<Pipeline>& pipeline) override;
             glm::ivec2 GetViewportSize() const { return glm::ivec2(m_ViewportBuffer ? m_ViewportBuffer->GetWidth() : 0, m_ViewportBuffer ? m_ViewportBuffer->GetHeight() : 0); }
 
             void SetRenderPipeline(const std::string& name);
@@ -275,6 +280,10 @@ bool GetCurrentView(RenderView& out) override;
             std::shared_ptr<Material> m_TonemapMaterial;
             std::shared_ptr<RenderPass> m_TonemapPass;
             void EnsureTonemapPass();
+
+            std::shared_ptr<Framebuffer> m_PostBuffers[2];
+            std::unordered_map<Framebuffer*, std::shared_ptr<RenderPass>> m_FullscreenPasses;
+            uint32_t RunPostProcess();
 
             void DrawPluginOverlays(bool intoTextures);
             std::shared_ptr<RenderPass> m_OverlayPass;
