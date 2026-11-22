@@ -45,7 +45,7 @@ Strings are `ShardStr` : UTF-8, not necessarily zero terminated, valid for the d
 | [`shard_time.h`](#shard_timeh) | `shard.time` 1.0 | the simulation's clock, and a fingerprint of its state |
 | [`shard_timers.h`](#shard_timersh) | `shard.timers` 1.0 | delays, repeating timers and coroutines, run by the simulation |
 | [`shard_wasm.h`](#shard_wasmh) | | Sandboxed plugins (tier 2, `"abi"`: `"wasm1"`) |
-| [`shard_worlds.h`](#shard_worldsh) | `shard.worlds` 1.1 | loading worlds, and prefabs ; and which worlds are loaded |
+| [`shard_worlds.h`](#shard_worldsh) | `shard.worlds` 1.2 | loading worlds, and prefabs ; which worlds are loaded |
 
 </div>
 
@@ -4002,17 +4002,23 @@ wasm-ld ... or clang++ -mexec-model=reactor -Wl,--export=shard_plugin_entry -Wl,
 
 ### shard_worlds.h
 
-Interface `"shard.worlds"` 1.1 : loading worlds, and prefabs ; and which worlds are loaded (1.1).
+Interface `"shard.worlds"` 1.2 : loading worlds, and prefabs ; which worlds are loaded (1.1) ; prefab instances, found and destroyed as a whole (1.2).
 
 A world is loaded by its path in the project (`"worlds/arena.world"`). The load is a request : it starts in the background, and the world is swapped in at the start of a following frame, where the old worlds are unloaded (their scripts get `on_destroyed`) and the new one is loaded (the plugin's `on_world_loaded` is called). A script that asks for a load keeps running until then, so nothing it holds is pulled from under it in the middle of a frame.
 
-A prefab is an actor stored as JSON in the content of a module (`prefabs/<name>.json`, `shard_content.h`) : the form the editor writes an actor in. Spawning one builds the actor, its components and its children.
+A prefab is an asset of the project (`prefabs/<name>.prefab`) : an actor stored as JSON, with its components and its children. It is also found in the content of a module (`prefabs/<name>.json`, `shard_content.h`). Spawning one builds the actor, its components and its children : an instance, whose root remembers the prefab it comes from. An instance is one unit : it is found by the name of its prefab, and destroyed whole from any of its actors. A world file keeps an instance as a link to its prefab and the differences from it.
 
 thread : script (`shard_actors.h` says where that is).
 
 | | Value | |
 |---|---|---|
 | `SHARD_IFACE_WORLDS` | `"shard.worlds"` |  |
+
+`spawn_prefab_ex` flags
+
+| | Value | |
+|---|---|---|
+| `SHARD_PREFAB_SET_TRANSFORM` | `0x1u` | `transform` is the pose of the instance (relative to `parent`), applied before its children are built |
 
 #### ShardWorldsApi
 
@@ -4050,6 +4056,38 @@ The loaded world at an index (0 .. `loaded_count` - 1, the order they were loade
 
 ```c
 ShardResult world_at(int32_t index, int32_t* asset_id, char* name, uint64_t capacity, uint64_t* size, ShardActor* anchor);
+```
+
+**1.2**
+
+`spawn_prefab` with options. `parent` : 0 for the root of the world. `flags` : `SHARD_PREFAB_*`, `transform` is read only with `SHARD_PREFAB_SET_TRANSFORM` (it may be NULL otherwise). `name` : the name of the instance's root, empty for the prefab's. `overrides_json` : the differences from the prefab, as a world file writes them in `"overrides"` (`"{\"`components\`":{\"`light\`":{\"`intensity\`":3}}}"`), empty for none. `SHARD_E_INVALID_ARG` : bad overrides, or the prefab is not an actor.
+
+```c
+ShardResult spawn_prefab_ex(ShardActor anchor, ShardStr prefab, ShardActor parent, uint32_t flags, const ShardLocalTransform* transform, ShardStr name, ShardStr overrides_json, ShardActor* out);
+```
+
+The roots of the instances of a prefab, in the order of their ids, in the world of `anchor` : up to `capacity` into `out`, how many there are in `*count` (call it with capacity 0 to ask). `prefab` is its name (`"crate"`), or its path (`"prefabs/crate.prefab"`) to tell two prefabs of the same name apart. The deactivated ones are left out.
+
+```c
+ShardResult find_prefab(ShardActor anchor, ShardStr prefab, ShardActor* out, uint32_t capacity, uint32_t* count);
+```
+
+The instance that the actor belongs to : the path of its prefab as a `"text out"` (any pointer may be NULL), and its root. `SHARD_E_NOT_FOUND` : the actor is not part of an instance.
+
+```c
+ShardResult get_prefab(ShardActor actor, char* name, uint64_t capacity, uint64_t* size, ShardActor* root);
+```
+
+Destroys the whole instance that the actor belongs to (its root, its children). `SHARD_E_NOT_FOUND` : not part of an instance.
+
+```c
+ShardResult destroy_prefab(ShardActor actor);
+```
+
+Destroys every instance of a prefab in the world of `anchor`. `*count` (may be NULL) : how many.
+
+```c
+ShardResult destroy_prefabs(ShardActor anchor, ShardStr prefab, uint32_t* count);
 ```
 
 ## The C++ SDK
@@ -4677,6 +4715,14 @@ Actor Find(std::string_view name) const;
 /// ("prefabs/crate.json") or a bare name ("crate"). Throws Shard::Error if there is no such prefab.
 Actor SpawnPrefab(std::string_view prefab, Actor parent);
 Actor SpawnPrefab(std::string_view prefab);
+/// Builds a prefab with options : where it goes, its name, what differs from the prefab. Throws Shard::Error if there is no such prefab.
+Actor SpawnPrefab(std::string_view prefab, const PrefabOptions& options);
+/// The roots of the instances of a prefab, by its name ("crate") or its path ("prefabs/crate.prefab"), in the order of their ids
+std::vector<Actor> FindPrefabs(std::string_view prefab) const;
+/// The first instance of a prefab, or an invalid actor
+Actor FindPrefab(std::string_view prefab) const;
+/// Destroys every instance of a prefab and returns how many there were
+uint32_t DestroyPrefabs(std::string_view prefab) const;
 /// The actors that have the tag or one under it ("Enemy" finds an "Enemy.Undead"), in the order of their ids
 std::vector<Actor> FindWithTag(std::string_view tag) const;
 /// The actors whose position is within `radius` of `center` (nearest first), or inside the box [lo, hi] (in the order of the ids) ; `tag` restricts them
@@ -4698,6 +4744,13 @@ bool IsActive() const;
 void SetActive(bool active) const;
 /// Removes the actor, its components and its children. Its scripts get OnDestroyed.
 void Destroy() const;
+bool IsPrefabInstance() const;
+/// The path of the prefab this actor is an instance of (or part of), empty if it is not
+std::string PrefabName() const;
+/// The root of the instance this actor belongs to, or an invalid actor
+Actor PrefabRoot() const;
+/// Destroys the whole instance this actor belongs to, from any of its actors. False if it is not part of one.
+bool DestroyPrefab() const;
 Pose LocalPose() const;
 void SetLocalPose(const Pose& pose) const;
 Pose WorldPose() const;
@@ -4787,17 +4840,30 @@ template <typename T> T* AddScript() const;
 Scene GetScene() const;
 ```
 
+#### `PrefabOptions`
+
+```cpp
+Actor parent;
+const Pose* pose = nullptr;
+std::string_view name;
+std::string_view overridesJson;
+```
+
 ```cpp
 inline Actor Scene::Create(std::string_view name, Actor parent);
 inline Actor Scene::Create(std::string_view name);
 inline Actor Scene::SpawnPrefab(std::string_view prefab, Actor parent);
 inline Actor Scene::SpawnPrefab(std::string_view prefab);
+inline Actor Scene::SpawnPrefab(std::string_view prefab, const PrefabOptions& options);
+inline Actor Scene::FindPrefab(std::string_view prefab) const;
+inline uint32_t Scene::DestroyPrefabs(std::string_view prefab) const;
 inline Actor Scene::Spawn(std::string_view actorJson, Actor parent);
 inline Actor Scene::Spawn(std::string_view actorJson);
 inline Actor Scene::Find(std::string_view name) const;
 inline std::vector<Actor> Scene::FindWithTag(std::string_view tag) const;
 inline std::vector<Actor> Scene::FindInSphere(Vec3 center, float radius, std::string_view tag) const;
 inline std::vector<Actor> Scene::FindInBox(Vec3 lo, Vec3 hi, std::string_view tag) const;
+inline std::vector<Actor> Scene::FindPrefabs(std::string_view prefab) const;
 ```
 
 #### `FieldType<Actor>`

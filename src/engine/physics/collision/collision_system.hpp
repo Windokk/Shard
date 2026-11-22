@@ -112,7 +112,7 @@ namespace Shard::Engine::Physics {
     class ClassBroadPhaseInterface final : public JPH::BroadPhaseLayerInterface {
     public:
         explicit ClassBroadPhaseInterface(const Collision::ClassTable& classes) : m_Classes(classes) {}
-        uint GetNumBroadPhaseLayers() const override { return 2; }
+        JPH::uint GetNumBroadPhaseLayers() const override { return 2; }
         JPH::BroadPhaseLayer GetBroadPhaseLayer(JPH::ObjectLayer layer) const override
         {
             return JPH::BroadPhaseLayer(layer < m_Classes.Slots() && m_Classes.Get(layer).moving ? 1 : 0);
