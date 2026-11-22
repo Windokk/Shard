@@ -135,8 +135,6 @@ typedef struct Counter {
     int32_t count;
 } Counter;
 
-static int g_moverConstructed;
-
 static ShardResult mover_construct(void* user, void* storage)
 {
     Mover* m = (Mover*)storage;
@@ -148,7 +146,6 @@ static ShardResult mover_construct(void* user, void* storage)
     m->owner = 0;
     m->secret = 100;
     ++g_stats[S_CONSTRUCTED];
-    ++g_moverConstructed;
     return SHARD_OK;
 }
 static void mover_destruct(void* user, void* storage)
