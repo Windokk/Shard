@@ -33,11 +33,17 @@ foreach(expected
         "shard_wasm_systems_add (i64, i32) -> (i32)"
         "shard_wasm_actors_find_by_tag (i64, i32, i32, i32, i32) -> (i32)"
         "shard_wasm_input_get_cursor (i32, i32) -> (i32)"
-        "shard_wasm_physics_raycast (i32, i32, f32, i32, i64, i32) -> (i32)"
-        "import_name	shard_wasm_cvars_create_float, cvars.create_float"
-        "import_name	shard_wasm_plugin_id, plugin.id")
+        "shard_wasm_physics_raycast (i32, i32, f32, i32, i64, i32) -> (i32)")
     string(FIND "${assembly}" "${expected}" at)
     if(at EQUAL -1)
         message(FATAL_ERROR "expected \"${expected}\" in what Clang made of ${SOURCE}\n${assembly}")
+    endif()
+endforeach()
+foreach(pair "shard_wasm_cvars_create_float|cvars.create_float" "shard_wasm_plugin_id|plugin.id")
+    string(REPLACE "|" ";" parts "${pair}")
+    list(GET parts 0 symbol)
+    list(GET parts 1 import)
+    if(NOT assembly MATCHES "import_name[ \t]+${symbol}, \"?${import}\"?")
+        message(FATAL_ERROR "expected import_name ${symbol} -> ${import} in what Clang made of ${SOURCE}\n${assembly}")
     endif()
 endforeach()
