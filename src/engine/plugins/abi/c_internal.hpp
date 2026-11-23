@@ -79,6 +79,7 @@ namespace Shard::Engine::Plugins::CAbi {
 
     ShardResult AssetMeshInfo(int32_t id, ShardMeshInfo* out);
     ShardResult AssetMeshRead(int32_t id, ShardMeshRead* io);
+    ShardResult AssetSkinRead(int32_t id, ShardSkinRead* io);
     ShardResult AssetImageInfo(int32_t id, uint32_t* width, uint32_t* height);
     ShardResult AssetImageRead(int32_t id, uint8_t* out, uint64_t capacity, uint64_t* size);
 

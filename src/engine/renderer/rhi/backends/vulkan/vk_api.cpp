@@ -698,6 +698,9 @@ namespace Shard::Engine::Rendering {
     void VKRendererAPI::ExecuteDepthOnlyDraw(const DrawCommand& command)
     {
         std::shared_ptr<Pipeline> pipeline = command.material->GetPipeline();
+        if (command.skin)
+            if (std::shared_ptr<Pipeline> skinned = pipeline->GetVariant("SKINNED"))
+                pipeline = skinned;
         std::shared_ptr<Shader> shader = pipeline->GetSpecifications().shader;
         VKShader* vkShader = static_cast<VKShader*>(shader.get());
         const uint32_t program = vkShader->Program().GetId();
@@ -722,6 +725,8 @@ namespace Shard::Engine::Rendering {
 
         if (m_LastDraw.pipeline != pipeline.get() || m_LastDraw.modelMatrix != command.modelMatrix)
             shader->SetMat4("model", command.modelMatrix);
+        if (command.skin)
+            shader->SetInt("uBoneOffset", int(command.skin->gpuOffset));
 
         m_LastDraw.pass = nullptr;
         m_LastDraw.pipeline = pipeline.get();
@@ -751,6 +756,11 @@ namespace Shard::Engine::Rendering {
             if (std::shared_ptr<Pipeline> variant = pipeline->GetVariant(pass->shaderVariant))
                 pipeline = variant;
         }
+
+        // A posed skinned mesh : the variant of the shader that skins the vertices from the bone palette
+        if (command.skin)
+            if (std::shared_ptr<Pipeline> skinned = pipeline->GetVariant("SKINNED"))
+                pipeline = skinned;
 
         VKShader* vkShader = static_cast<VKShader*>(pipeline->GetSpecifications().shader.get());
         if (!vkShader || !vkShader->Program().IsValid())
@@ -794,6 +804,9 @@ namespace Shard::Engine::Rendering {
         {
             m_LastDraw = LastDraw{};
         }
+
+        if (command.skin)
+            shader->SetInt("uBoneOffset", int(command.skin->gpuOffset));
 
         if (command.bindCameraState && NeedsPassGlobalsUpdate(program, PassGlobalsKind::Camera))
         {

@@ -441,7 +441,11 @@ static_assert(offsetof(ShardMeshRead, vertexCapacity) == 4, "ShardMeshRead.verte
 static_assert(offsetof(ShardMeshRead, vertexCount) == 16, "ShardMeshRead.vertexCount");
 static_assert(offsetof(ShardMeshRead, positions) == 32, "ShardMeshRead.positions");
 static_assert(offsetof(ShardMeshRead, slices) == 64, "ShardMeshRead.slices");
-static_assert(sizeof(ShardAssetsApi) == 96, "ShardAssetsApi");
+static_assert(sizeof(ShardAssetsApi) == 104, "ShardAssetsApi");
+static_assert(sizeof(ShardSkinNode) == 172, "ShardSkinNode");
+static_assert(sizeof(ShardSkinRead) == 72, "ShardSkinRead");
+static_assert(offsetof(ShardSkinRead, joints) == 32, "ShardSkinRead.joints");
+static_assert(offsetof(ShardSkinRead, inverseBind) == 64, "ShardSkinRead.inverseBind");
 static_assert(offsetof(ShardAssetsApi, resolve) == 8, "ShardAssetsApi.resolve");
 static_assert(offsetof(ShardAssetsApi, info) == 16, "ShardAssetsApi.info");
 static_assert(offsetof(ShardAssetsApi, path_of) == 24, "ShardAssetsApi.path_of");
@@ -453,6 +457,7 @@ static_assert(offsetof(ShardAssetsApi, mesh_info) == 64, "ShardAssetsApi.mesh_in
 static_assert(offsetof(ShardAssetsApi, mesh_read) == 72, "ShardAssetsApi.mesh_read");
 static_assert(offsetof(ShardAssetsApi, image_info) == 80, "ShardAssetsApi.image_info");
 static_assert(offsetof(ShardAssetsApi, image_read) == 88, "ShardAssetsApi.image_read");
+static_assert(offsetof(ShardAssetsApi, mesh_skin_read) == 96, "ShardAssetsApi.mesh_skin_read");
 static_assert(sizeof(ShardSubmesh) == 12, "ShardSubmesh");
 static_assert(sizeof(ShardMeshDesc) == 88, "ShardMeshDesc");
 static_assert(offsetof(ShardMeshDesc, vertexFlags) == 4, "ShardMeshDesc.vertexFlags");
@@ -687,7 +692,7 @@ static_assert(SHARD_PHASE_UPDATE == 4 && SHARD_PHASE_LATE == 5 && SHARD_PHASE_EX
 static_assert(SHARD_SYSTEM_EXCLUSIVE == 1 && SHARD_SYSTEM_MAIN_THREAD == 2, "system flags");
 static_assert(SHARD_PRIORITY_EARLIEST == -200 && SHARD_PRIORITY_EARLY == -100 && SHARD_PRIORITY_NORMAL == 0 && SHARD_PRIORITY_LATE == 100 && SHARD_PRIORITY_LATEST == 200, "priorities");
 static_assert(SHARD_LOG_INFO == 0 && SHARD_LOG_WARNING == 1 && SHARD_LOG_ERROR == 2, "log levels");
-static_assert(SHARD_ABI_MAJOR == 1 && SHARD_ABI_MINOR == 9, "the ABI revision of these headers");
+static_assert(SHARD_ABI_MAJOR == 1 && SHARD_ABI_MINOR == 10, "the ABI revision of these headers");
 
 TEST(AbiLayout, HeadersPinLayout)
 {

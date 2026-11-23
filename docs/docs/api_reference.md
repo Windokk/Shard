@@ -29,7 +29,7 @@ Strings are `ShardStr` : UTF-8, not necessarily zero terminated, valid for the d
 | [`shard_content.h`](#shard_contenth) | `shard.content` 1.0 | the content folders of the loaded modules |
 | [`shard_state.h`](#shard_stateh) | `shard.state` 1.0 | what a plugin keeps across a hot reload |
 | [`shard_actors.h`](#shard_actorsh) | | Interface `"shard.actors"` 1.2 (1.0 + the fields of a component, one at a time in 1.1 ; stable ids, bounds and neighbours in 1.2) |
-| [`shard_assets.h`](#shard_assetsh) | `shard.assets` 1.0 | the assets of the project, by path and by id |
+| [`shard_assets.h`](#shard_assetsh) | `shard.assets` 1.1 | the assets of the project, by path and by id |
 | [`shard_audio.h`](#shard_audioh) | `shard.audio` 1.0 | sounds |
 | [`shard_collision.h`](#shard_collisionh) | `shard.collision` 1.0 | collision profiles, overlap and hit events, temporary changes and the reason two actors do or do not collide |
 | [`shard_debug.h`](#shard_debugh) | `shard.debug` 1.0 | drawing for the developer, in the world, from anywhere : a navigation mesh, the path an agent follows, a field of view, a voxel chunk's bounds, a bone, a network ghost, the node a graph is running |
@@ -65,7 +65,7 @@ Changing a struct without bumping `SHARD_ABI_MINOR` is a bug : `tests/plugins/ab
 | | Value | |
 |---|---|---|
 | `SHARD_ABI_MAJOR` | `1` |  |
-| `SHARD_ABI_MINOR` | `9` |  |
+| `SHARD_ABI_MINOR` | `10` |  |
 
 Calling convention of every function pointer in the tables. Empty on `x86_64` and arm64.
 
@@ -1346,7 +1346,7 @@ ShardResult find_in_box(ShardActor anchor, const float box_min[3], const float b
 
 ### shard_assets.h
 
-Interface `"shard.assets"` 1.0 : the assets of the project, by path and by id.
+Interface `"shard.assets"` 1.1 : the assets of the project, by path and by id.
 
 An asset is a file of the project the engine knows (its asset database gives it an id : the value of a `SHARD_FIELD_ASSET`, `shard_components.h`) under a path in the project (`"models/crate.fbx"`). `shard.content` is the other way in : the files a plugin ships in its own folder, as `mod://` addresses. A path given here is a path in the project ; a `mod://` address is also accepted wherever a file is read.
 
@@ -1431,6 +1431,37 @@ uint32_t* indices;
 ShardMeshSlice* slices;
 ```
 
+The skeleton and the skin weights an FBX model brought (`shard.assets` 1.1). A node is a node of the file's hierarchy (a bone, or what it hangs from) ; its local rest transform is in meters, like the mesh, so a pose built from these lands in the mesh's space.
+
+| | Value | |
+|---|---|---|
+| `SHARD_SKIN_NAME_MAX` | `128` |  |
+
+#### ShardSkinNode
+
+```c
+char name[SHARD_SKIN_NAME_MAX];    // UTF-8, zero terminated, cut if longer
+int32_t parent;    // index in `nodes`, -1 for a root
+float translation[3];
+float rotation[4];    // quaternion x, y, z, w
+float scale[3];
+```
+
+#### ShardSkinRead
+
+A skin read into the caller's arrays, same convention as `ShardMeshRead` (every array optional, capacities in, counts out whatever the capacity). `joints` and `weights` are 4 values a vertex, in the order of the mesh's vertices (`mesh_read`, and the mesh `shard.render`'s `mesh_from_asset` makes) ; the weights of a vertex sum to 1. A joint is a node (`jointNodes`, an index in `nodes`) with its inverse bind matrix (16 floats, column major, in the mesh's space) : the pose matrix of a joint is its node's transform in the mesh's space times that matrix.
+
+```c
+uint32_t structSize;
+uint32_t vertexCapacity, nodeCapacity, jointCapacity;
+uint32_t vertexCount, nodeCount, jointCount;    // out
+uint16_t* joints;
+float* weights;
+ShardSkinNode* nodes;
+int32_t* jointNodes;
+float* inverseBind;
+```
+
 #### ShardAssetsApi
 
 ```c
@@ -1499,6 +1530,14 @@ The size of an image asset, and the pixels decoded to 8 bit RGBA (4 bytes a pixe
 ```c
 ShardResult image_info(int32_t id, uint32_t* width, uint32_t* height);
 ShardResult image_read(int32_t id, uint8_t* out, uint64_t capacity, uint64_t* size);
+```
+
+**Skins (1.1)**
+
+The skeleton and weights of a skinned model (an FBX with a skin ; every mesh of the file is one mesh). `SHARD_E_NOT_FOUND` : not a mesh, or not skinned. thread : main
+
+```c
+ShardResult mesh_skin_read(int32_t id, ShardSkinRead* io);
 ```
 
 ### shard_audio.h
@@ -3487,7 +3526,7 @@ Replaces some vertices, same layout (soft bodies, a morph target applied on the 
 ShardResult mesh_update_range(ShardPluginCtx ctx, ShardMesh mesh, const ShardMeshRange* range);
 ```
 
-A model asset of the project as a mesh the plugin can use in its own objects. thread : main
+A model asset of the project as a mesh the plugin can use in its own objects. A skinned model (an FBX with a skeleton, see `shard.assets` `mesh_skin_read`) comes with its joints and weights, so an object that shows it can be posed with `object_set_pose`. thread : main
 
 ```c
 ShardResult mesh_from_asset(ShardPluginCtx ctx, int32_t assetId, ShardMesh* out);
@@ -3542,7 +3581,7 @@ ShardResult object_set_materials(ShardPluginCtx ctx, ShardRenderObject object, c
 ShardResult object_set_flags(ShardPluginCtx ctx, ShardRenderObject object, uint32_t flags);
 ```
 
-The pose of a skinned mesh : `count` matrices of 16 floats, one per bone (the bone's transform in the mesh's space times its inverse bind pose), copied. The vertices follow the bones their JOINTS name. `SHARD_E_INVALID_ARG` : the mesh has no JOINTS and WEIGHTS.
+The pose of a skinned mesh : `count` matrices of 16 floats, one per bone (the bone's transform in the mesh's space times its inverse bind pose), copied. The vertices follow the bones their JOINTS name. The GPU does the skinning, from a buffer of the frame's poses : setting a pose costs the copy of the matrices, whatever the number of vertices, and a pose that is the same as the last one costs the renderer nothing. The engine's own shaders skin (lit, unlit, shadows, depth) ; a shader of the project that does not is drawn in the bind pose. `SHARD_E_INVALID_ARG` : the mesh has no JOINTS and WEIGHTS.
 
 ```c
 ShardResult object_set_pose(ShardPluginCtx ctx, ShardRenderObject object, const float* matrices, uint32_t count);
@@ -4918,6 +4957,23 @@ Vec3 boundsMin, boundsMax;
 uint32_t VertexCount() const;
 ```
 
+#### `SkinData`
+
+The skeleton and weights of a skinned model (an FBX with a skin), as `Assets::ReadSkin` returns them. The vertices are those of the mesh (`ReadMesh`, `Mesh::FromAsset`) ; the nodes' rest transforms are in meters, like the mesh.
+
+```cpp
+/// 4 a vertex : the joints it follows
+std::vector<uint16_t> joints;
+/// 4 a vertex, summing to 1
+std::vector<float> weights;
+std::vector<Node> nodes;
+/// the node of each joint
+std::vector<int32_t> jointNodes;
+/// 16 floats a joint, column major
+std::vector<float> inverseBind;
+uint32_t VertexCount() const;
+```
+
 #### `ImageData`
 
 An image decoded to 8 bit RGBA, rows from the top
@@ -4946,6 +5002,8 @@ static std::optional<std::string> ReadTextFile(std::string_view path);
 static std::optional<int32_t> Write(std::string_view path, const void* data, uint64_t size);
 /// The geometry of a model asset
 static std::optional<MeshData> ReadMesh(int32_t id);
+/// The skeleton and skin weights of a skinned model. Empty optional : not a model, not skinned, or a host older than shard.assets 1.1. thread : main
+static std::optional<SkinData> ReadSkin(int32_t id);
 /// An image asset decoded. thread : any
 static std::optional<ImageData> ReadImage(int32_t id);
 ```

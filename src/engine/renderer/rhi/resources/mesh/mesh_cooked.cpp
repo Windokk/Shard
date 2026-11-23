@@ -11,6 +11,8 @@ namespace Shard::Engine::Rendering {
         // File layout (native byte order : a cooked file is for the platform it was cooked on, and checked by its version) :
         //   "SMSH", u32 version, u32 stride, u64 vertexBytes, u64 indexCount, u32 submeshCount, 6 floats bounds, then vertices, indices, submeshes
         //   submesh : u64 indexOffset, u64 indexCount, u64 vertexCount, u32 materialIndex, 6 floats bounds
+        //   then the skin : u8 present, and when it is : u32 nodeCount, u32 jointCount, the joints (4 u16) and weights (4 floats) of every vertex,
+        //   the nodes (u32 nameLength, the name, i32 parent, translation, rotation, scale) and the joints (i32 node, 16 floats inverse bind)
         constexpr char kMagic[4] = { 'S', 'M', 'S', 'H' };
 
         void Put(std::vector<uint8_t>& out, const void* data, size_t size)
@@ -60,6 +62,27 @@ namespace Shard::Engine::Rendering {
             PutValue(out, s.boundsMin);
             PutValue(out, s.boundsMax);
         }
+        const bool skinned = data.skin && !data.skin->joints.empty();
+        PutValue(out, uint8_t(skinned ? 1 : 0));
+        if (skinned) {
+            const MeshSkin& skin = *data.skin;
+            PutValue(out, uint32_t(skin.nodes.size()));
+            PutValue(out, uint32_t(skin.jointNodes.size()));
+            Put(out, skin.joints.data(), skin.joints.size() * sizeof(glm::u16vec4));
+            Put(out, skin.weights.data(), skin.weights.size() * sizeof(glm::vec4));
+            for (const MeshSkinNode& n : skin.nodes) {
+                PutValue(out, uint32_t(n.name.size()));
+                Put(out, n.name.data(), n.name.size());
+                PutValue(out, n.parent);
+                PutValue(out, n.translation);
+                PutValue(out, n.rotation);
+                PutValue(out, n.scale);
+            }
+            for (size_t j = 0; j < skin.jointNodes.size(); ++j) {
+                PutValue(out, skin.jointNodes[j]);
+                PutValue(out, skin.inverseBind[j]);
+            }
+        }
         return out;
     }
 
@@ -101,6 +124,43 @@ namespace Shard::Engine::Rendering {
         }
         for (uint32_t index : mesh.indices)
             if (index >= vertexCount) return false;
+
+        uint8_t skinned = 0;
+        if (!in.TakeValue(skinned) || skinned > 1) return false;
+        if (skinned) {
+            uint32_t nodeCount = 0, jointCount = 0;
+            if (!in.TakeValue(nodeCount) || !in.TakeValue(jointCount)) return false;
+            auto skin = std::make_shared<MeshSkin>();
+            const size_t perVertex = sizeof(glm::u16vec4) + sizeof(glm::vec4);
+            if (vertexCount > (size - in.at) / perVertex) return false;
+            skin->joints.resize(size_t(vertexCount));
+            skin->weights.resize(size_t(vertexCount));
+            if (!in.Take(skin->joints.data(), skin->joints.size() * sizeof(glm::u16vec4)) || !in.Take(skin->weights.data(), skin->weights.size() * sizeof(glm::vec4))) return false;
+            // A node is at least its name length, parent, and the three transforms
+            constexpr size_t kNodeMinimum = sizeof(uint32_t) + sizeof(int32_t) + 2 * sizeof(glm::vec3) + sizeof(glm::quat);
+            if (nodeCount > (size - in.at) / kNodeMinimum) return false;
+            skin->nodes.resize(nodeCount);
+            for (MeshSkinNode& n : skin->nodes) {
+                uint32_t length = 0;
+                if (!in.TakeValue(length) || length > size - in.at) return false;
+                n.name.resize(length);
+                if (!in.Take(n.name.data(), length) || !in.TakeValue(n.parent) || !in.TakeValue(n.translation) || !in.TakeValue(n.rotation) || !in.TakeValue(n.scale)) return false;
+                if (n.parent >= int32_t(nodeCount)) return false;
+            }
+            constexpr size_t kJointRecord = sizeof(int32_t) + sizeof(glm::mat4);
+            if (jointCount > (size - in.at) / kJointRecord) return false;
+            skin->jointNodes.resize(jointCount);
+            skin->inverseBind.resize(jointCount);
+            for (uint32_t j = 0; j < jointCount; ++j) {
+                if (!in.TakeValue(skin->jointNodes[j]) || !in.TakeValue(skin->inverseBind[j])) return false;
+                if (skin->jointNodes[j] < 0 || skin->jointNodes[j] >= int32_t(nodeCount)) return false;
+            }
+            // A vertex must not follow a joint that is not there
+            for (const glm::u16vec4& joints : skin->joints)
+                for (int k = 0; k < 4; ++k)
+                    if (joints[k] >= jointCount) return false;
+            mesh.skin = std::move(skin);
+        }
 
         mesh.layout = layout;
         mesh.success = true;

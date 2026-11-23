@@ -297,7 +297,8 @@ typedef struct ShardRenderApi {
     ShardResult (SHARD_CALL *mesh_update)(ShardPluginCtx ctx, ShardMesh mesh, const ShardMeshDesc* desc);
     /* Replaces some vertices, same layout (soft bodies, a morph target applied on the CPU). thread : any */
     ShardResult (SHARD_CALL *mesh_update_range)(ShardPluginCtx ctx, ShardMesh mesh, const ShardMeshRange* range);
-    /* A model asset of the project as a mesh the plugin can use in its own objects. thread : main */
+    /* A model asset of the project as a mesh the plugin can use in its own objects. A skinned model (an FBX with a skeleton, see shard.assets
+     * mesh_skin_read) comes with its joints and weights, so an object that shows it can be posed with object_set_pose. thread : main */
     ShardResult (SHARD_CALL *mesh_from_asset)(ShardPluginCtx ctx, int32_t assetId, ShardMesh* out);
     ShardResult (SHARD_CALL *mesh_destroy)(ShardPluginCtx ctx, ShardMesh mesh);
 
@@ -329,7 +330,10 @@ typedef struct ShardRenderApi {
     ShardResult (SHARD_CALL *object_set_materials)(ShardPluginCtx ctx, ShardRenderObject object, const ShardMaterial* materials, uint32_t count);
     ShardResult (SHARD_CALL *object_set_flags)(ShardPluginCtx ctx, ShardRenderObject object, uint32_t flags);
     /* The pose of a skinned mesh : `count` matrices of 16 floats, one per bone (the bone's transform in the mesh's space times its inverse
-     * bind pose), copied. The vertices follow the bones their JOINTS name. SHARD_E_INVALID_ARG : the mesh has no JOINTS and WEIGHTS. */
+     * bind pose), copied. The vertices follow the bones their JOINTS name. The GPU does the skinning, from a buffer of the frame's poses : setting a
+     * pose costs the copy of the matrices, whatever the number of vertices, and a pose that is the same as the last one costs the renderer nothing.
+     * The engine's own shaders skin (lit, unlit, shadows, depth) ; a shader of the project that does not is drawn in the bind pose.
+     * SHARD_E_INVALID_ARG : the mesh has no JOINTS and WEIGHTS. */
     ShardResult (SHARD_CALL *object_set_pose)(ShardPluginCtx ctx, ShardRenderObject object, const float* matrices, uint32_t count);
     ShardResult (SHARD_CALL *object_destroy)(ShardPluginCtx ctx, ShardRenderObject object);
 

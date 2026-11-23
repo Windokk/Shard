@@ -98,9 +98,9 @@ namespace Shard::Engine::Plugins::CAbi {
             ShardRenderTransform transform{};
             std::vector<glm::mat4> pose;
             uint64_t poseVersion = 0;
-            std::shared_ptr<Mesh> skinned;
-            uint64_t skinnedPose = 0;
-            uint64_t skinnedFrom = 0;
+            // The pose as the renderer takes it : a new vector with every pose, so the renderer sees by the pointer that the bones changed
+            std::shared_ptr<const std::vector<glm::mat4>> poseShared;
+            uint64_t poseSharedVersion = 0;
             int componentId = 0;
         };
 
@@ -289,7 +289,8 @@ namespace Shard::Engine::Plugins::CAbi {
         }
 
         std::shared_ptr<Mesh> UploadMesh(const std::vector<EngineVertex>& vertices, const std::vector<uint32_t>& indices, const std::vector<ShardSubmesh>& parts,
-                                         bool boundsGiven, const glm::vec3& givenMin, const glm::vec3& givenMax)
+                                         bool boundsGiven, const glm::vec3& givenMin, const glm::vec3& givenMax,
+                                         const std::vector<glm::u16vec4>* joints = nullptr, const std::vector<glm::vec4>* weights = nullptr)
         {
             MeshCPUData data;
             data.vertices.resize(vertices.size() * sizeof(EngineVertex));
@@ -316,6 +317,8 @@ namespace Shard::Engine::Plugins::CAbi {
                 data.submeshes.push_back(sub);
             }
             data.success = true;
+            // A skinned mesh is skinned by the GPU : its vertices carry their joints and weights (the shaders read the bones from the object's pose)
+            if (joints && weights) data = AddGpuSkin(std::move(data), *joints, *weights);
             std::shared_ptr<Mesh> mesh = Mesh::Create();
             mesh->CreateFromData(data);
             return mesh;
@@ -329,44 +332,9 @@ namespace Shard::Engine::Plugins::CAbi {
             if (m.gpu && m.uploaded == m.version) return m.gpu;
             if (gUploads >= kUploadsPerFrame) return m.gpu;
             ++gUploads;
-            m.gpu = UploadMesh(m.vertices, m.indices, m.submeshes, m.boundsGiven, m.boundsMin, m.boundsMax);
+            m.gpu = UploadMesh(m.vertices, m.indices, m.submeshes, m.boundsGiven, m.boundsMin, m.boundsMax, m.skinned ? &m.joints : nullptr, m.skinned ? &m.weights : nullptr);
             m.uploaded = m.version;
             return m.gpu;
-        }
-
-        std::shared_ptr<Mesh> SkinnedMesh(ObjectRec& o, MeshRec& m)
-        {
-            if (o.skinned && o.skinnedPose == o.poseVersion && o.skinnedFrom == m.version) return o.skinned;
-            if (gUploads >= kUploadsPerFrame) return o.skinned;
-            ++gUploads;
-            std::vector<EngineVertex> deformed;
-            std::vector<uint32_t> indices;
-            std::vector<ShardSubmesh> parts;
-            {
-                std::lock_guard<std::mutex> lock(m.mutex);
-                deformed = m.vertices;
-                indices = m.indices;
-                parts = m.submeshes;
-                const size_t bones = o.pose.size();
-                for (size_t i = 0; i < deformed.size(); ++i) {
-                    glm::mat4 skin(0.0f);
-                    for (int k = 0; k < 4; ++k) {
-                        const float w = m.weights[i][k];
-                        if (w <= 0.0f) continue;
-                        skin += w * o.pose[std::min<size_t>(m.joints[i][k], bones - 1)];
-                    }
-                    EngineVertex& v = deformed[i];
-                    const glm::mat3 linear(skin);
-                    v.position = glm::vec3(skin * glm::vec4(v.position, 1.0f));
-                    const glm::vec3 n = linear * v.normal, t = linear * v.tangent;
-                    v.normal = glm::dot(n, n) > 1e-12f ? glm::normalize(n) : v.normal;
-                    v.tangent = glm::dot(t, t) > 1e-12f ? glm::normalize(t) : v.tangent;
-                }
-                o.skinnedFrom = m.version;
-            }
-            o.skinned = UploadMesh(deformed, indices, parts, false, glm::vec3(0), glm::vec3(0));
-            o.skinnedPose = o.poseVersion;
-            return o.skinned;
         }
 
         ShardResult SHARD_CALL MeshCreate(ShardPluginCtx handle, const ShardMeshDesc* desc, ShardMesh* out)
@@ -451,6 +419,8 @@ namespace Shard::Engine::Plugins::CAbi {
                 rec->owner = PluginOwner(handle);
                 rec->asset = mesh;
                 rec->slots = mesh->GetMaterialSlotCount();
+                // A skinned model keeps its joints and weights on the GPU (the importer put them in its vertices) : an object that shows it can be posed
+                rec->skinned = mesh->GetSkin() && mesh->IsSkinnable();
                 *out = gMeshes.Add(PluginOwner(handle), rec);
                 return SHARD_OK;
             } catch (...) { return SHARD_E_INTERNAL; }
@@ -800,7 +770,6 @@ namespace Shard::Engine::Plugins::CAbi {
                 if (!r || !gMeshes.Get(PluginOwner(handle), mesh)) return SHARD_E_STALE_HANDLE;
                 std::lock_guard<std::mutex> lock(r->mutex);
                 r->mesh = mesh;
-                r->skinned.reset();
                 return SHARD_OK;
             } catch (...) { return SHARD_E_INTERNAL; }
         }
@@ -1139,12 +1108,19 @@ namespace Shard::Engine::Plugins::CAbi {
             if (object.flags & SHARD_OBJECT_HIDDEN) return;
             std::shared_ptr<MeshRec> meshRec = gMeshes.Get(owner, object.mesh);
             if (!meshRec) return;
-            std::shared_ptr<Mesh> mesh;
+            std::shared_ptr<Mesh> mesh = GpuMesh(*meshRec);
+            if (!mesh) return;
+            std::shared_ptr<const std::vector<glm::mat4>> bones;
             {
                 std::lock_guard<std::mutex> lock(object.mutex);
-                mesh = (meshRec->skinned && !object.pose.empty()) ? SkinnedMesh(object, *meshRec) : GpuMesh(*meshRec);
+                if (meshRec->skinned && !object.pose.empty()) {
+                    if (!object.poseShared || object.poseSharedVersion != object.poseVersion) {
+                        object.poseShared = std::make_shared<const std::vector<glm::mat4>>(object.pose);
+                        object.poseSharedVersion = object.poseVersion;
+                    }
+                    bones = object.poseShared;
+                }
             }
-            if (!mesh) return;
             std::vector<std::shared_ptr<Material>> materials = MaterialsOf(owner, object.materials, meshRec->slots);
             std::lock_guard<std::mutex> lock(object.mutex);
             MeshProxy proxy;
@@ -1153,6 +1129,7 @@ namespace Shard::Engine::Plugins::CAbi {
             proxy.objectId = ActorId(object.pick, actorId) ? actorId : -1;
             proxy.componentId = object.componentId;
             proxy.mesh = mesh;
+            proxy.bones = std::move(bones);
             proxy.materials = std::move(materials);
             proxy.worldMatrix = WorldMatrix(object.transform, next.renderOrigin);
             proxy.staticLighting = false;

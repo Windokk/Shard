@@ -14,7 +14,8 @@ namespace Shard::Engine::Rendering {
 
     // A model cooked by ShardCooker sits next to its source : <source>.smesh. It holds the finished vertices, indices and submeshes,
     // so the player neither parses the FBX nor rebuilds tangents and lightmap UVs.
-    constexpr uint32_t kCookedMeshVersion = 1;
+    // 2 : the skeleton and skin weights of a skinned model follow the submeshes
+    constexpr uint32_t kCookedMeshVersion = 2;
     std::string CookedMeshPath(const std::string& sourcePath);
 
     std::vector<uint8_t> SerializeMeshData(const MeshCPUData& data);

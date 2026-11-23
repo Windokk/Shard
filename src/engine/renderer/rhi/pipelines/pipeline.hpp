@@ -92,6 +92,11 @@ namespace Shard::Engine::Rendering{
             {
             }
 
+            VertexLayout(std::vector<VertexElement> elements, uint32_t stride)
+                : m_Elements(std::move(elements)), m_Stride(stride)
+            {
+            }
+
             const std::vector<VertexElement>& GetElements() const
             {
                 return m_Elements;

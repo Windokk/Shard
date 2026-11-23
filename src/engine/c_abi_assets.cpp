@@ -28,7 +28,7 @@ namespace Shard::Engine::Plugins::CAbi {
             return false;
         }
 
-        ShardResult MeshOf(int32_t id, std::shared_ptr<Rendering::Mesh>& mesh, std::shared_ptr<const Rendering::MeshCPUCopy>& cpu)
+        ShardResult MeshAssetOf(int32_t id, std::shared_ptr<Rendering::Mesh>& mesh)
         {
             auto infos = InfosOf(id);
             if (!infos || infos->baseInfos.type != Filesystem::Type::T_MODEL) return SHARD_E_NOT_FOUND;
@@ -36,7 +36,13 @@ namespace Shard::Engine::Plugins::CAbi {
             Core::Resources::ResourcesManager* resources = engine ? engine->GetResourcesManager() : nullptr;
             if (!resources) return SHARD_E_UNSUPPORTED;
             mesh = resources->Get<Rendering::Mesh>(Core::Resources::AssetKind::Mesh, infos->baseInfos.nameInProject);
-            if (!mesh) return SHARD_E_NOT_FOUND;
+            return mesh ? SHARD_OK : SHARD_E_NOT_FOUND;
+        }
+
+        ShardResult MeshOf(int32_t id, std::shared_ptr<Rendering::Mesh>& mesh, std::shared_ptr<const Rendering::MeshCPUCopy>& cpu)
+        {
+            const ShardResult found = MeshAssetOf(id, mesh);
+            if (found != SHARD_OK) return found;
             cpu = mesh->AcquireCPUData();
             return cpu ? SHARD_OK : SHARD_E_NOT_FOUND;
         }
@@ -107,6 +113,44 @@ namespace Shard::Engine::Plugins::CAbi {
                 io->slices[i].indexCount = uint32_t(submeshes[i].indexCount);
                 io->slices[i].materialSlot = submeshes[i].materialIndex;
             }
+        return SHARD_OK;
+    }
+
+    ShardResult AssetSkinRead(int32_t id, ShardSkinRead* io)
+    {
+        std::shared_ptr<Rendering::Mesh> mesh;
+        const ShardResult r = MeshAssetOf(id, mesh);
+        if (r != SHARD_OK) return r;
+        const std::shared_ptr<const Rendering::MeshSkin>& skin = mesh->GetSkin();
+        if (!skin) return SHARD_E_NOT_FOUND;
+
+        io->vertexCount = uint32_t(skin->joints.size());
+        io->nodeCount = uint32_t(skin->nodes.size());
+        io->jointCount = uint32_t(skin->jointNodes.size());
+        if (io->structSize < sizeof(ShardSkinRead)) return SHARD_OK;
+
+        if (io->joints && io->vertexCapacity)
+            for (uint32_t i = 0; i < std::min(io->vertexCount, io->vertexCapacity); ++i)
+                for (int k = 0; k < 4; ++k) io->joints[i * 4 + k] = skin->joints[i][k];
+        if (io->weights && io->vertexCapacity)
+            for (uint32_t i = 0; i < std::min(io->vertexCount, io->vertexCapacity); ++i)
+                for (int k = 0; k < 4; ++k) io->weights[i * 4 + k] = skin->weights[i][k];
+        if (io->nodes && io->nodeCapacity)
+            for (uint32_t i = 0; i < std::min(io->nodeCount, io->nodeCapacity); ++i) {
+                const Rendering::MeshSkinNode& in = skin->nodes[i];
+                ShardSkinNode& out = io->nodes[i];
+                std::memset(out.name, 0, sizeof(out.name));
+                std::memcpy(out.name, in.name.data(), std::min<size_t>(in.name.size(), SHARD_SKIN_NAME_MAX - 1));
+                out.parent = in.parent;
+                out.translation[0] = in.translation.x; out.translation[1] = in.translation.y; out.translation[2] = in.translation.z;
+                out.rotation[0] = in.rotation.x; out.rotation[1] = in.rotation.y; out.rotation[2] = in.rotation.z; out.rotation[3] = in.rotation.w;
+                out.scale[0] = in.scale.x; out.scale[1] = in.scale.y; out.scale[2] = in.scale.z;
+            }
+        if (io->jointNodes && io->jointCapacity)
+            for (uint32_t i = 0; i < std::min(io->jointCount, io->jointCapacity); ++i) io->jointNodes[i] = skin->jointNodes[i];
+        if (io->inverseBind && io->jointCapacity)
+            for (uint32_t i = 0; i < std::min(io->jointCount, io->jointCapacity); ++i)
+                std::memcpy(io->inverseBind + size_t(i) * 16, &skin->inverseBind[i][0][0], sizeof(float) * 16);
         return SHARD_OK;
     }
 

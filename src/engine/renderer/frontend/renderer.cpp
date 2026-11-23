@@ -9,6 +9,7 @@
 #include "engine/renderer/rhi/pipelines/compute_pipeline.hpp"
 #include "engine/renderer/rhi/shader/shader.hpp"
 #include "engine/renderer/rhi/resources/mesh/mesh.hpp"
+#include "engine/renderer/rhi/resources/buffer/storage_buffer.hpp"
 #include "engine/renderer/features/lighting/shadow_manager.hpp"
 #include "engine/renderer/features/lighting/probe_manager.hpp"
 #include "engine/renderer/features/lighting/lightmap_manager.hpp"
@@ -71,6 +72,8 @@ namespace Shard::Engine::Rendering{
                 h = HashValue(h, cmd.material.get());
                 h = HashValue(h, cmd.material && cmd.material->IsDoubleSided());
                 h = HashValue(h, cmd.modelMatrix);
+                // A pose that moves must draw again what caches its output (the shadow maps)
+                h = HashValue(h, cmd.skin ? cmd.skin->revision : uint64_t(0));
                 h = HashValue(h, cmd.lightmapHandle);
                 h = HashValue(h, cmd.lightmapScaleOffset);
             }
@@ -1179,9 +1182,28 @@ namespace Shard::Engine::Rendering{
             SyncedMesh& synced = it->second;
             synced.seenInSync = m_SyncCount;
 
+            // A posed skinned mesh : its draws share a palette whose bones change in place, the commands stay as they are
+            const bool posed = proxy.bones && !proxy.bones->empty() && proxy.mesh && proxy.mesh->IsSkinnable();
+            if(posed)
+            {
+                if(!synced.skin)
+                    synced.skin = std::make_shared<SkinPalette>();
+                if(synced.bonesSource != proxy.bones)
+                {
+                    synced.skin->bones = *proxy.bones;
+                    ++synced.skin->revision;
+                    synced.bonesSource = proxy.bones;
+                }
+            }
+            else
+            {
+                synced.skin.reset();
+                synced.bonesSource.reset();
+            }
+
             const uint64_t lightmapHandle = m_LightmapManager->GetPageHandle(proxy.lightmapPage);
 
-            const bool unchanged = !inserted && synced.mesh == proxy.mesh && synced.materials == proxy.materials &&
+            const bool unchanged = !inserted && synced.skinnedCommands == posed && synced.mesh == proxy.mesh && synced.materials == proxy.materials &&
                                    synced.worldMatrix == proxy.worldMatrix && synced.extraPasses == proxy.extraPasses &&
                                    synced.objectId == proxy.objectId && synced.componentId == proxy.componentId &&
                                    synced.lightmapHandle == lightmapHandle && synced.lightmapScaleOffset == proxy.lightmapScaleOffset;
@@ -1192,7 +1214,7 @@ namespace Shard::Engine::Rendering{
                 RemoveSyncedMeshCommands(synced);
 
             std::vector<DrawCommand> commands = proxy.mesh->CreateDrawCommands(proxy.worldMatrix, proxy.objectId, proxy.componentId, proxy.materials,
-                                                                               lightmapHandle, proxy.lightmapScaleOffset);
+                                                                               lightmapHandle, proxy.lightmapScaleOffset, posed ? synced.skin : nullptr);
 
             // SSAO prepass always runs and needs every mesh's real geometry. ssaoEnabled only gates the shading.
             AddOrUpdateCommands(commands, kScenePasses, true);
@@ -1207,6 +1229,7 @@ namespace Shard::Engine::Rendering{
             synced.componentId = proxy.componentId;
             synced.lightmapHandle = lightmapHandle;
             synced.lightmapScaleOffset = proxy.lightmapScaleOffset;
+            synced.skinnedCommands = posed;
         }
 
         for(auto it = m_SyncedMeshes.begin(); it != m_SyncedMeshes.end();)
@@ -1221,6 +1244,47 @@ namespace Shard::Engine::Rendering{
         }
 
         SyncSkyboxDrawCommand();
+        UploadSkinPalettes();
+    }
+
+    void Renderer::UploadSkinPalettes()
+    {
+        constexpr uint32_t kSkinBonesBinding = 28;      // skinning.glsl
+
+        m_SkinScratch.clear();
+        uint64_t signature = 1469598103934665603ULL;
+        for(auto& [key, synced] : m_SyncedMeshes)
+        {
+            if(!synced.skin)
+                continue;
+            synced.skin->gpuOffset = static_cast<uint32_t>(m_SkinScratch.size());
+            m_SkinScratch.insert(m_SkinScratch.end(), synced.skin->bones.begin(), synced.skin->bones.end());
+            signature = HashValue(signature, key);
+            signature = HashValue(signature, synced.skin->revision);
+            signature = HashValue(signature, synced.skin->gpuOffset);
+        }
+
+        if(m_SkinScratch.empty())
+            return;
+
+        const uint32_t count = static_cast<uint32_t>(m_SkinScratch.size());
+        if(!m_SkinBuffer || count > m_SkinCapacity)
+        {
+            m_SkinCapacity = std::max<uint32_t>(256u, m_SkinCapacity);
+            while(m_SkinCapacity < count)
+                m_SkinCapacity *= 2;
+            m_SkinBuffer = StorageBuffer::Create(m_SkinCapacity * uint32_t(sizeof(glm::mat4)));
+            m_SkinSignature = 0;
+        }
+
+        // The whole buffer each time, a different size would reallocate it. Nothing to send when no pose moved.
+        if(signature != m_SkinSignature)
+        {
+            m_SkinScratch.resize(m_SkinCapacity);
+            m_SkinBuffer->SetData(m_SkinScratch.data(), m_SkinCapacity * uint32_t(sizeof(glm::mat4)));
+            m_SkinSignature = signature;
+        }
+        m_SkinBuffer->Bind(kSkinBonesBinding);
     }
 
     void Renderer::SyncSkyboxDrawCommand()

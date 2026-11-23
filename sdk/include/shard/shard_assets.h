@@ -1,4 +1,4 @@
-/* Interface "shard.assets" 1.0 : the assets of the project, by path and by id.
+/* Interface "shard.assets" 1.1 : the assets of the project, by path and by id.
  *
  * An asset is a file of the project the engine knows (its asset database gives it an id : the value of a SHARD_FIELD_ASSET, shard_components.h)
  * under a path in the project ("models/crate.fbx"). shard.content is the other way in : the files a plugin ships in its own folder, as mod://
@@ -85,6 +85,33 @@ typedef struct ShardMeshRead {
     ShardMeshSlice* slices;
 } ShardMeshRead;
 
+/* The skeleton and the skin weights an FBX model brought (shard.assets 1.1). A node is a node of the file's hierarchy (a bone, or what it hangs
+ * from) ; its local rest transform is in meters, like the mesh, so a pose built from these lands in the mesh's space. */
+#define SHARD_SKIN_NAME_MAX 128
+
+typedef struct ShardSkinNode {
+    char     name[SHARD_SKIN_NAME_MAX];     /* UTF-8, zero terminated, cut if longer */
+    int32_t  parent;                        /* index in `nodes`, -1 for a root */
+    float    translation[3];
+    float    rotation[4];                   /* quaternion x, y, z, w */
+    float    scale[3];
+} ShardSkinNode;
+
+/* A skin read into the caller's arrays, same convention as ShardMeshRead (every array optional, capacities in, counts out whatever the capacity).
+ * `joints` and `weights` are 4 values a vertex, in the order of the mesh's vertices (mesh_read, and the mesh shard.render's mesh_from_asset makes) ;
+ * the weights of a vertex sum to 1. A joint is a node (`jointNodes`, an index in `nodes`) with its inverse bind matrix (16 floats, column major, in
+ * the mesh's space) : the pose matrix of a joint is its node's transform in the mesh's space times that matrix. */
+typedef struct ShardSkinRead {
+    uint32_t structSize;
+    uint32_t vertexCapacity, nodeCapacity, jointCapacity;
+    uint32_t vertexCount, nodeCount, jointCount;        /* out */
+    uint16_t*      joints;
+    float*         weights;
+    ShardSkinNode* nodes;
+    int32_t*       jointNodes;
+    float*         inverseBind;
+} ShardSkinRead;
+
 typedef struct ShardAssetsApi {
     uint32_t structSize;
 
@@ -121,6 +148,11 @@ typedef struct ShardAssetsApi {
      * thread : any (a job may decode images). SHARD_E_NOT_FOUND : not an image. */
     ShardResult (SHARD_CALL *image_info)(int32_t id, uint32_t* width, uint32_t* height);
     ShardResult (SHARD_CALL *image_read)(int32_t id, uint8_t* out, uint64_t capacity, uint64_t* size);
+
+    /* ---- Skins (1.1) ---- */
+    /* The skeleton and weights of a skinned model (an FBX with a skin ; every mesh of the file is one mesh). SHARD_E_NOT_FOUND : not a mesh, or not
+     * skinned. thread : main */
+    ShardResult (SHARD_CALL *mesh_skin_read)(int32_t id, ShardSkinRead* io);
 } ShardAssetsApi;
 
 #ifdef __cplusplus

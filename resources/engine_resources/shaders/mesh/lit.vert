@@ -7,6 +7,8 @@ layout (location = 3) in vec4 aColor;
 layout (location = 4) in vec3 aTangent;
 layout (location = 5) in vec2 aLightmapUV;
 
+#include "../common/skinning.glsl"
+
 uniform mat4 model;
 uniform mat4 uProjection;
 uniform mat4 uView;
@@ -23,8 +25,18 @@ out vec3 N_in;
 
 void main()
 {
-    vec3 T_world = normalize(mat3(model) * aTangent);
-    vec3 N_world = normalize(mat3(model) * aNormal);
+    vec3 localPos = aPos;
+    vec3 localNormal = aNormal;
+    vec3 localTangent = aTangent;
+#ifdef SKINNED
+    mat4 skin = SkinMatrix();
+    localPos = (skin * vec4(localPos, 1.0)).xyz;
+    localNormal = mat3(skin) * localNormal;
+    localTangent = mat3(skin) * localTangent;
+#endif
+
+    vec3 T_world = normalize(mat3(model) * localTangent);
+    vec3 N_world = normalize(mat3(model) * localNormal);
     vec3 B_world = normalize(cross(N_world, T_world));
 
     T = T_world;
@@ -36,7 +48,7 @@ void main()
     color = aColor;
     viewMatrix = uView;
 
-    vec4 world = model * vec4(aPos, 1.0);
+    vec4 world = model * vec4(localPos, 1.0);
     worldPos = world.xyz;
 
     gl_Position = (uProjection * uView) * world;

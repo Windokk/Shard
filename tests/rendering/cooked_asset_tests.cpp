@@ -106,6 +106,87 @@ TEST_F(CookedAssetTest, MeshRoundTrips)
     EXPECT_EQ(out.layout.GetElements().size(), 6u);
 }
 
+TEST(GpuSkinTest, VerticesCarryTheirJointsAndWeights)
+{
+    MeshCPUData mesh = SampleMesh();
+    const uint32_t stride = mesh.layout.GetStride();
+    std::vector<glm::u16vec4> joints = { { 3, 2, 1, 0 }, { 7, 0, 0, 0 }, { 0, 0, 0, 0 }, { 5, 6, 0, 0 } };
+    std::vector<glm::vec4> weights = { { 0.5f, 0.25f, 0.25f, 0.0f }, { 1, 0, 0, 0 }, { 1, 0, 0, 0 }, { 0.75f, 0.25f, 0, 0 } };
+    const std::vector<uint8_t> original = mesh.vertices;
+
+    const MeshCPUData out = AddGpuSkin(mesh, joints, weights);
+    ASSERT_TRUE(out.success);
+    EXPECT_EQ(out.layout.GetStride(), stride + 32u);
+    ASSERT_EQ(out.layout.GetElements().size(), mesh.layout.GetElements().size() + 2);
+    ASSERT_EQ(out.vertices.size(), 4u * (stride + 32u));
+    EXPECT_EQ(out.layout.GetElements()[6].location, kSkinJointsLocation);
+    EXPECT_EQ(out.layout.GetElements()[7].location, kSkinWeightsLocation);
+    EXPECT_EQ(out.layout.GetElements()[6].offset, stride);
+    EXPECT_EQ(out.layout.GetElements()[7].offset, stride + 16u);
+
+    for (size_t i = 0; i < 4; ++i) {
+        const uint8_t* v = out.vertices.data() + i * (stride + 32u);
+        EXPECT_EQ(0, std::memcmp(v, original.data() + i * stride, stride)) << "vertex " << i << " keeps its own bytes";
+        glm::vec4 j, w;
+        std::memcpy(&j, v + stride, sizeof(j));
+        std::memcpy(&w, v + stride + 16, sizeof(w));
+        EXPECT_EQ(j, glm::vec4(joints[i]));
+        EXPECT_EQ(w, weights[i]);
+    }
+
+    // A skin that does not cover the vertices, and a mesh that already has one, come back as they were
+    const MeshCPUData same = AddGpuSkin(mesh, std::vector<glm::u16vec4>(3), std::vector<glm::vec4>(3));
+    EXPECT_EQ(same.vertices, original);
+    EXPECT_EQ(same.layout.GetStride(), stride);
+    const MeshCPUData twice = AddGpuSkin(out, joints, weights);
+    EXPECT_EQ(twice.vertices, out.vertices);
+}
+
+TEST_F(CookedAssetTest, SkinnedMeshKeepsItsSkeleton)
+{
+    MeshCPUData in = SampleMesh();
+    auto skin = std::make_shared<MeshSkin>();
+    skin->joints.assign(4, glm::u16vec4(1, 0, 0, 0));
+    skin->weights.assign(4, glm::vec4(1, 0, 0, 0));
+    skin->nodes.resize(3);
+    skin->nodes[0].name = "Root";
+    skin->nodes[1].name = "Hips";
+    skin->nodes[1].parent = 0;
+    skin->nodes[1].translation = glm::vec3(0, 1, 0);
+    skin->nodes[2].name = "Spine";
+    skin->nodes[2].parent = 1;
+    skin->nodes[2].rotation = glm::quat(0.5f, 0.5f, 0.5f, 0.5f);
+    skin->jointNodes = { 1, 2 };
+    skin->inverseBind = { glm::mat4(1.0f), glm::translate(glm::mat4(1.0f), glm::vec3(0, -1, 0)) };
+    in.skin = skin;
+
+    const std::vector<uint8_t> bytes = SerializeMeshData(in);
+    MeshCPUData out;
+    ASSERT_TRUE(DeserializeMeshData(bytes.data(), bytes.size(), out));
+    ASSERT_TRUE(out.skin);
+    EXPECT_EQ(out.skin->joints, skin->joints);
+    EXPECT_EQ(out.skin->weights, skin->weights);
+    ASSERT_EQ(out.skin->nodes.size(), 3u);
+    EXPECT_EQ(out.skin->nodes[1].name, "Hips");
+    EXPECT_EQ(out.skin->nodes[2].parent, 1);
+    EXPECT_EQ(out.skin->nodes[1].translation, glm::vec3(0, 1, 0));
+    EXPECT_EQ(out.skin->jointNodes, skin->jointNodes);
+    EXPECT_EQ(out.skin->inverseBind[1], skin->inverseBind[1]);
+
+    // A vertex that follows a joint past the last one must not get through
+    MeshCPUData wild = in;
+    auto wildSkin = std::make_shared<MeshSkin>(*skin);
+    wildSkin->joints[2] = glm::u16vec4(7, 0, 0, 0);
+    wild.skin = wildSkin;
+    const std::vector<uint8_t> wildBytes = SerializeMeshData(wild);
+    EXPECT_FALSE(DeserializeMeshData(wildBytes.data(), wildBytes.size(), out));
+
+    // And the unskinned mesh has none
+    const std::vector<uint8_t> plain = SerializeMeshData(SampleMesh());
+    ASSERT_TRUE(DeserializeMeshData(plain.data(), plain.size(), out));
+    EXPECT_FALSE(out.skin);
+}
+
 TEST_F(CookedAssetTest, MeshRefusesDamagedData)
 {
     const std::vector<uint8_t> bytes = SerializeMeshData(SampleMesh());

@@ -30,49 +30,16 @@ namespace Shard::Engine::Rendering{
 
         std::shared_ptr<Mesh> LoadModel(const Filesystem::Path &path)
         {
-            // Cooked next to the file : the finished data, no FBX parsing
-            {
-                MeshCPUData cooked;
-                if (LoadCookedMesh(path.GetNativePath(), cooked)) {
-                    std::shared_ptr<Mesh> mesh = Mesh::Create();
-                    mesh->CreateFromData(cooked);
-                    return mesh;
-                }
-            }
-
-            ufbx_load_opts opts = { 0 };
-            ufbx_error error;
-            const std::string filePath = path.GetNativePath();
-            ufbx_scene *scene = ufbx_load_file(filePath.c_str(), &opts, &error);
-            if (!scene) {
-                DEBUG_ERROR(
-                    "Failed to load " + path.full + " : " +
-                    (error.description.data ? error.description.data : "Unknown error"));
+            // Every mesh of the file, in one : a character is often several (body, clothes, eyes), and its skeleton comes along
+            // (the cooked <file>.smesh, if there is one, is looked for first)
+            const MeshCPUData data = DecodeMeshFile(path);
+            if (!data.success)
                 return nullptr;
-            }
-
-            if (scene->meshes.count > 1) {
-                ufbx_free_scene(scene);
-                DEBUG_ERROR("Multiple meshes per fbx file isn't supported yet.");
-                return nullptr;
-            }
-
-            ufbx_mesh* ufbx_mesh = scene->meshes.data[0];
-
-            ufbx_node* mesh_node = nullptr;
-
-            for (size_t i = 0; i < scene->nodes.count; i++) {
-                ufbx_node* node = scene->nodes.data[i];
-                if (node->mesh == ufbx_mesh) {
-                    mesh_node = node;
-                    break;
-                }
-            }
 
             std::shared_ptr<Mesh> mesh = Mesh::Create();
-            mesh->CreateFromFBX(ufbx_mesh, scene->settings.unit_meters, scene->materials, mesh_node);
-
-            ufbx_free_scene(scene);
+            // A skinned model brings its joints and weights to the GPU, which skins it (AddGpuSkin)
+            mesh->CreateFromData(AddGpuSkin(data));
+            mesh->SetSkin(data.skin);
 
             return mesh;
         }
@@ -137,7 +104,8 @@ namespace Shard::Engine::Rendering{
 
                 return [&resources, pathInProject, data](){
                     std::shared_ptr<Mesh> mesh = Mesh::Create();
-                    mesh->CreateFromData(*data);
+                    mesh->CreateFromData(AddGpuSkin(*data));
+                    mesh->SetSkin(data->skin);
                     resources.Adopt(AssetKind::Mesh, pathInProject, mesh);
                 };
             };

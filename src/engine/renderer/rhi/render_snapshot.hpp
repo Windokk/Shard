@@ -36,6 +36,9 @@ namespace Shard::Engine::Rendering {
         glm::mat4 worldMatrix = glm::mat4(1.0f);
         std::vector<std::string> extraPasses;
 
+        // The bone matrices of a posed skinned mesh (null : drawn as it is). A new vector with every pose, so the pointer says whether it changed.
+        std::shared_ptr<const std::vector<glm::mat4>> bones;
+
         bool staticLighting = true;
         int lightmapResolution = 0;
         int lightmapPage = -1;

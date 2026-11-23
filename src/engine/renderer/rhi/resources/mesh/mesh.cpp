@@ -25,6 +25,9 @@ namespace {
         glm::vec4 color;
         glm::vec3 tangent;
         glm::vec2 lightmapUV;
+        // Not part of what the GPU gets (see kGpuVertexSize) : the skin follows the vertex while the loader dedups, cuts and splits.
+        glm::u16vec4 joints = glm::u16vec4(0);
+        glm::vec4 weights = glm::vec4(0.0f);
 
         bool operator==(const Vertex& other) const {
             const float eps = 0.0001f;
@@ -33,9 +36,14 @@ namespace {
                 glm::all(glm::epsilonEqual(color, other.color, eps)) &&
                 glm::all(glm::epsilonEqual(texCoord, other.texCoord, eps))&&
                 glm::all(glm::epsilonEqual(tangent, other.tangent, eps)) &&
-                glm::all(glm::epsilonEqual(lightmapUV, other.lightmapUV, eps));
+                glm::all(glm::epsilonEqual(lightmapUV, other.lightmapUV, eps)) &&
+                joints == other.joints &&
+                glm::all(glm::epsilonEqual(weights, other.weights, eps));
         }
     };
+
+    // The bytes of a vertex the GPU reads : everything before the skin
+    constexpr size_t kGpuVertexSize = offsetof(Vertex, joints);
 
     inline int Quantize(float v) {
         return static_cast<int>(v * 10000.0f);
@@ -387,159 +395,360 @@ namespace Shard::Engine::Rendering{
         }
     }
 
-    MeshCPUData BuildMeshCPUDataFromFBX(const ufbx_mesh *ufbx_mesh, double scene_unit_meters,
-        ufbx_material_list &ufbx_mats, ufbx_node *mesh_node, COL_RGBA vertexColor)
-    {
-        MeshCPUData result;
+    namespace {
 
-        double scene_scale = scene_unit_meters;
+        struct FbxInstance {
+            const ufbx_mesh* mesh = nullptr;
+            const ufbx_node* node = nullptr;
+        };
 
-        // One group per FBX material slot, in slot order. World files address materials by index, so submesh N must map to slot N, even when empty.
-        uint32_t materialSlotCount = (ufbx_mesh->materials.count > 0)
-            ? (uint32_t)ufbx_mesh->materials.count
-            : 1u;
-
-        std::vector<GroupedTriangles> materialGroups(materialSlotCount);
-
+        glm::mat4 ToMat4(const ufbx_matrix& m, double translationScale)
         {
-            std::vector<size_t> corners(materialSlotCount, 0);
-            for (size_t i = 0; i < ufbx_mesh->num_faces; i++) {
-                uint32_t mat_index = (ufbx_mesh->face_material.data && i < ufbx_mesh->face_material.count) ? ufbx_mesh->face_material.data[i] : 0;
-                if (mat_index >= materialSlotCount)
-                    mat_index = 0;
-                const ufbx_face face = ufbx_mesh->faces.data[i];
-                corners[mat_index] += face.num_indices >= 3 ? (face.num_indices - 2) * 3 : 0;
-            }
-            for (uint32_t slot = 0; slot < materialSlotCount; slot++) {
-                materialGroups[slot].dedup = std::make_unique<VertexDeduplicator>(corners[slot]);
-                materialGroups[slot].verts.reserve(corners[slot]);
-                materialGroups[slot].localIndices.reserve(corners[slot]);
-            }
+            glm::mat4 r(1.0f);
+            for (int c = 0; c < 3; ++c)
+                r[c] = glm::vec4(float(m.cols[c].x), float(m.cols[c].y), float(m.cols[c].z), 0.0f);
+            r[3] = glm::vec4(float(m.cols[3].x * translationScale), float(m.cols[3].y * translationScale), float(m.cols[3].z * translationScale), 1.0f);
+            return r;
         }
 
-        const ufbx_matrix normalMatrix = ufbx_matrix_for_normals(&mesh_node->geometry_to_world);
+        // What the skin of a vertex of one mesh comes to : the joints and weights, and the matrices that bring the vertex (and its normal)
+        // to the bind pose of the scene.
+        struct VertexSkin {
+            bool done = false;
+            glm::u16vec4 joints = glm::u16vec4(0);
+            glm::vec4 weights = glm::vec4(1.0f, 0.0f, 0.0f, 0.0f);
+            ufbx_matrix position{};
+            ufbx_matrix normal{};
+        };
 
-        for (size_t i = 0; i < ufbx_mesh->num_faces; i++) {
-            ufbx_face face = ufbx_mesh->faces.data[i];
+        // The meshes of a file as one mesh. `scene` is given to bring the skeleton and the skin weights along (a skinned mesh is drawn in its
+        // bind pose) ; null : the meshes are placed where the scene's current pose has them.
+        MeshCPUData BuildFromInstances(const std::vector<FbxInstance>& instances, double scene_scale, const ufbx_scene* scene, COL_RGBA vertexColor)
+        {
+            MeshCPUData result;
 
-            uint32_t mat_index = 0;
-            if (ufbx_mesh->face_material.data && i < ufbx_mesh->face_material.count) {
-                mat_index = ufbx_mesh->face_material.data[i];
+            // One group per FBX material slot, in slot order. World files address materials by index, so submesh N must map to slot N, even when empty.
+            // The slots of the meshes follow one another.
+            std::vector<uint32_t> slotBase(instances.size(), 0);
+            uint32_t materialSlotCount = 0;
+            for (size_t i = 0; i < instances.size(); i++)
+            {
+                slotBase[i] = materialSlotCount;
+                materialSlotCount += (instances[i].mesh->materials.count > 0) ? (uint32_t)instances[i].mesh->materials.count : 1u;
             }
-            if (mat_index >= materialSlotCount) {
-                mat_index = 0;
-            }
+            if (materialSlotCount == 0)
+                materialSlotCount = 1;
 
-            GroupedTriangles& group = materialGroups[mat_index];
-            size_t start = face.index_begin;
-            size_t count = face.num_indices;
+            bool skinned = false;
+            if (scene)
+                for (const FbxInstance& instance : instances)
+                    if (instance.mesh->skin_deformers.count > 0)
+                        skinned = true;
 
-            for (size_t j = 1; j + 1 < count; j++) {
-                size_t triIndices[3] = {
-                    start + 0,
-                    start + j,
-                    start + j + 1
-                };
-
-                for (int k = 0; k < 3; k++) {
-                    size_t vertex_index = triIndices[k];
-                    Vertex v{};
-
-                    ufbx_vec3 pos = ufbx_get_vertex_vec3(&ufbx_mesh->vertex_position, vertex_index);
-                    ufbx_vec3 wpos = ufbx_transform_position(&mesh_node->geometry_to_world, pos);
-                    v.position = { wpos.x * scene_scale, wpos.y * scene_scale, wpos.z * scene_scale };
-
-                    result.boundsMin = glm::min(result.boundsMin, v.position);
-                    result.boundsMax = glm::max(result.boundsMax, v.position);
-
-                    if (ufbx_mesh->vertex_normal.exists) {
-                        ufbx_vec3 normal = ufbx_get_vertex_vec3(&ufbx_mesh->vertex_normal, vertex_index);
-                        ufbx_vec3 wn = ufbx_transform_direction(&normalMatrix, normal);
-                        v.normal = glm::normalize(glm::vec3{ wn.x, wn.y, wn.z });
-                    }
-
-                    if (ufbx_mesh->vertex_uv.exists) {
-                        ufbx_vec2 uv = ufbx_get_vertex_vec2(&ufbx_mesh->vertex_uv, vertex_index);
-                        v.texCoord = { uv.x, uv.y };
-                    }
-
-                    v.color = vertexColor;
-
-                    group.localIndices.push_back(group.dedup->FindOrAdd(v, group.verts));
+            std::shared_ptr<MeshSkin> skin;
+            std::vector<int32_t> jointOfNode;
+            if (skinned)
+            {
+                skin = std::make_shared<MeshSkin>();
+                jointOfNode.assign(scene->nodes.count, -1);
+                skin->nodes.resize(scene->nodes.count);
+                for (size_t n = 0; n < scene->nodes.count; n++)
+                {
+                    const ufbx_node* node = scene->nodes.data[n];
+                    MeshSkinNode& out = skin->nodes[n];
+                    out.name.assign(node->name.data ? node->name.data : "", node->name.length);
+                    out.parent = node->parent ? int32_t(node->parent->typed_id) : -1;
+                    const ufbx_transform& t = node->local_transform;
+                    out.translation = glm::vec3(float(t.translation.x * scene_scale), float(t.translation.y * scene_scale), float(t.translation.z * scene_scale));
+                    out.rotation = glm::quat(float(t.rotation.w), float(t.rotation.x), float(t.rotation.y), float(t.rotation.z));
+                    out.scale = glm::vec3(float(t.scale.x), float(t.scale.y), float(t.scale.z));
                 }
             }
-        }
 
-        (void)ufbx_mats;
+            // The joint of a node, made on first use with the bind pose it is given
+            auto jointFor = [&](const ufbx_node* node, const ufbx_matrix& bindToWorld) -> int
+            {
+                int32_t& joint = jointOfNode[node->typed_id];
+                if (joint < 0)
+                {
+                    if (skin->jointNodes.size() >= 65535)
+                        return 0;
+                    joint = int32_t(skin->jointNodes.size());
+                    skin->jointNodes.push_back(int32_t(node->typed_id));
+                    skin->inverseBind.push_back(glm::inverse(ToMat4(bindToWorld, scene_scale)));
+                }
+                return joint;
+            };
 
-        for (GroupedTriangles& group : materialGroups)
-            group.dedup.reset();
+            std::vector<GroupedTriangles> materialGroups(materialSlotCount);
 
-        // Tangents are computed before the lightmap cut. Both halves of a vertex split on a seam must shade with the same tangent.
-        for (GroupedTriangles& group : materialGroups)
-            ComputeTangents(group.verts, group.localIndices);
-
-        if (cvLightmapUVs.Get())
-            AssignLightmapUVs(materialGroups);
-
-        uint32_t totalVertexCount = 0;
-
-        for (uint32_t slot = 0; slot < materialSlotCount; slot++) {
-            auto& group = materialGroups[slot];
-
-            std::vector<ChunkRange> chunks = SplitIntoChunks(group.verts, group.localIndices, kMaxSubMeshTriangles);
-
-            size_t vertexOffset = totalVertexCount;
-            totalVertexCount += group.verts.size();
-
-            size_t byteOffset = result.vertices.size();
-            size_t byteSize   = group.verts.size() * sizeof(Vertex);
-
-            result.vertices.resize(byteOffset + byteSize);
-
-            if (byteSize > 0) {
-                memcpy(
-                    result.vertices.data() + byteOffset,
-                    group.verts.data(),
-                    byteSize
-                );
+            {
+                std::vector<size_t> corners(materialSlotCount, 0);
+                for (size_t m = 0; m < instances.size(); m++)
+                {
+                    const ufbx_mesh* fbxMesh = instances[m].mesh;
+                    const uint32_t slots = (fbxMesh->materials.count > 0) ? (uint32_t)fbxMesh->materials.count : 1u;
+                    for (size_t i = 0; i < fbxMesh->num_faces; i++) {
+                        uint32_t mat_index = (fbxMesh->face_material.data && i < fbxMesh->face_material.count) ? fbxMesh->face_material.data[i] : 0;
+                        if (mat_index >= slots)
+                            mat_index = 0;
+                        const ufbx_face face = fbxMesh->faces.data[i];
+                        corners[slotBase[m] + mat_index] += face.num_indices >= 3 ? (face.num_indices - 2) * 3 : 0;
+                    }
+                }
+                for (uint32_t slot = 0; slot < materialSlotCount; slot++) {
+                    materialGroups[slot].dedup = std::make_unique<VertexDeduplicator>(corners[slot]);
+                    materialGroups[slot].verts.reserve(corners[slot]);
+                    materialGroups[slot].localIndices.reserve(corners[slot]);
+                }
             }
 
-            size_t slotIndexOffset = result.indices.size();
+            for (size_t m = 0; m < instances.size(); m++)
+            {
+                const ufbx_mesh* fbxMesh = instances[m].mesh;
+                const ufbx_node* node = instances[m].node;
+                const uint32_t slots = (fbxMesh->materials.count > 0) ? (uint32_t)fbxMesh->materials.count : 1u;
+                const ufbx_matrix normalMatrix = ufbx_matrix_for_normals(&node->geometry_to_world);
 
-            for (auto idx : group.localIndices)
-                result.indices.push_back(static_cast<uint32_t>(vertexOffset + idx));
+                const ufbx_skin_deformer* deformer = (skinned && fbxMesh->skin_deformers.count > 0) ? fbxMesh->skin_deformers.data[0] : nullptr;
+                std::vector<ufbx_matrix> clusterBind;
+                std::vector<int> clusterJoint;
+                if (deformer)
+                {
+                    clusterBind.resize(deformer->clusters.count);
+                    clusterJoint.assign(deformer->clusters.count, -1);
+                    for (size_t c = 0; c < deformer->clusters.count; c++)
+                    {
+                        const ufbx_skin_cluster* cluster = deformer->clusters.data[c];
+                        if (!cluster->bone_node)
+                            continue;
+                        clusterBind[c] = ufbx_matrix_mul(&cluster->bind_to_world, &cluster->geometry_to_bone);
+                        clusterJoint[c] = jointFor(cluster->bone_node, cluster->bind_to_world);
+                    }
+                }
 
-            for (const ChunkRange& chunk : chunks) {
-                // Field by field: designated initializers are C++20, MSVC refuses them in C++17.
-                SubMesh submesh;
-                submesh.indexOffset = slotIndexOffset + chunk.firstIndex;
-                submesh.indexCount = chunk.indexCount;
-                submesh.vertexCount = chunk.vertexCount;
-                submesh.materialIndex = slot;
-                submesh.boundsMin = chunk.boundsMin;
-                submesh.boundsMax = chunk.boundsMax;
-                result.submeshes.push_back(submesh);
+                // A mesh without weights follows its own node as a single bone ; the same for a vertex the skin does not reach
+                int rigidJoint = -1;
+                std::vector<VertexSkin> vertexSkin(skinned ? fbxMesh->num_vertices : 0);
+                auto skinOf = [&](size_t vertex) -> const VertexSkin&
+                {
+                    VertexSkin& s = vertexSkin[vertex];
+                    if (s.done)
+                        return s;
+                    s.done = true;
+
+                    if (deformer && vertex < deformer->vertices.count)
+                    {
+                        const ufbx_skin_vertex sv = deformer->vertices.data[vertex];
+                        float total = 0.0f;
+                        int count = 0;
+                        for (uint32_t k = 0; k < sv.num_weights && count < 4; k++)
+                        {
+                            const ufbx_skin_weight sw = deformer->weights.data[sv.weight_begin + k];
+                            if (sw.cluster_index >= clusterJoint.size() || clusterJoint[sw.cluster_index] < 0 || sw.weight <= 0.0)
+                                continue;
+                            s.joints[count] = uint16_t(clusterJoint[sw.cluster_index]);
+                            s.weights[count] = float(sw.weight);
+                            total += float(sw.weight);
+                            count++;
+                        }
+                        if (count > 0 && total > 1e-6f)
+                        {
+                            ufbx_matrix blend{};
+                            for (int k = 0; k < 4; k++)
+                            {
+                                s.weights[k] = k < count ? s.weights[k] / total : 0.0f;
+                                if (k >= count)
+                                    s.joints[k] = 0;
+                            }
+                            // Accumulate the weighted bind matrices of the influences (the cluster of each influence, found again from its joint)
+                            for (uint32_t k = 0, taken = 0; k < sv.num_weights && taken < uint32_t(count); k++)
+                            {
+                                const ufbx_skin_weight sw = deformer->weights.data[sv.weight_begin + k];
+                                if (sw.cluster_index >= clusterJoint.size() || clusterJoint[sw.cluster_index] < 0 || sw.weight <= 0.0)
+                                    continue;
+                                const float w = s.weights[taken++];
+                                const ufbx_matrix& cm = clusterBind[sw.cluster_index];
+                                for (int c = 0; c < 4; c++)
+                                {
+                                    blend.cols[c].x += w * cm.cols[c].x;
+                                    blend.cols[c].y += w * cm.cols[c].y;
+                                    blend.cols[c].z += w * cm.cols[c].z;
+                                }
+                            }
+                            s.position = blend;
+                            s.normal = ufbx_matrix_for_normals(&blend);
+                            return s;
+                        }
+                    }
+
+                    if (rigidJoint < 0)
+                        rigidJoint = jointFor(node, node->node_to_world);
+                    s.joints = glm::u16vec4(uint16_t(rigidJoint), 0, 0, 0);
+                    s.weights = glm::vec4(1.0f, 0.0f, 0.0f, 0.0f);
+                    s.position = node->geometry_to_world;
+                    s.normal = normalMatrix;
+                    return s;
+                };
+
+                for (size_t i = 0; i < fbxMesh->num_faces; i++) {
+                    ufbx_face face = fbxMesh->faces.data[i];
+
+                    uint32_t mat_index = 0;
+                    if (fbxMesh->face_material.data && i < fbxMesh->face_material.count) {
+                        mat_index = fbxMesh->face_material.data[i];
+                    }
+                    if (mat_index >= slots) {
+                        mat_index = 0;
+                    }
+
+                    GroupedTriangles& group = materialGroups[slotBase[m] + mat_index];
+                    size_t start = face.index_begin;
+                    size_t count = face.num_indices;
+
+                    for (size_t j = 1; j + 1 < count; j++) {
+                        size_t triIndices[3] = {
+                            start + 0,
+                            start + j,
+                            start + j + 1
+                        };
+
+                        for (int k = 0; k < 3; k++) {
+                            size_t vertex_index = triIndices[k];
+                            Vertex v{};
+
+                            const ufbx_matrix* placeMatrix = &node->geometry_to_world;
+                            const ufbx_matrix* normalPlace = &normalMatrix;
+                            if (skinned)
+                            {
+                                const VertexSkin& s = skinOf(fbxMesh->vertex_indices.data[vertex_index]);
+                                placeMatrix = &s.position;
+                                normalPlace = &s.normal;
+                                v.joints = s.joints;
+                                v.weights = s.weights;
+                            }
+
+                            ufbx_vec3 pos = ufbx_get_vertex_vec3(&fbxMesh->vertex_position, vertex_index);
+                            ufbx_vec3 wpos = ufbx_transform_position(placeMatrix, pos);
+                            v.position = { wpos.x * scene_scale, wpos.y * scene_scale, wpos.z * scene_scale };
+
+                            result.boundsMin = glm::min(result.boundsMin, v.position);
+                            result.boundsMax = glm::max(result.boundsMax, v.position);
+
+                            if (fbxMesh->vertex_normal.exists) {
+                                ufbx_vec3 normal = ufbx_get_vertex_vec3(&fbxMesh->vertex_normal, vertex_index);
+                                ufbx_vec3 wn = ufbx_transform_direction(normalPlace, normal);
+                                v.normal = glm::normalize(glm::vec3{ wn.x, wn.y, wn.z });
+                            }
+
+                            if (fbxMesh->vertex_uv.exists) {
+                                ufbx_vec2 uv = ufbx_get_vertex_vec2(&fbxMesh->vertex_uv, vertex_index);
+                                v.texCoord = { uv.x, uv.y };
+                            }
+
+                            v.color = vertexColor;
+
+                            group.localIndices.push_back(group.dedup->FindOrAdd(v, group.verts));
+                        }
+                    }
+                }
             }
+
+            for (GroupedTriangles& group : materialGroups)
+                group.dedup.reset();
+
+            // Tangents are computed before the lightmap cut. Both halves of a vertex split on a seam must shade with the same tangent.
+            for (GroupedTriangles& group : materialGroups)
+                ComputeTangents(group.verts, group.localIndices);
+
+            if (cvLightmapUVs.Get())
+                AssignLightmapUVs(materialGroups);
+
+            uint32_t totalVertexCount = 0;
+
+            for (uint32_t slot = 0; slot < materialSlotCount; slot++) {
+                auto& group = materialGroups[slot];
+
+                std::vector<ChunkRange> chunks = SplitIntoChunks(group.verts, group.localIndices, kMaxSubMeshTriangles);
+
+                size_t vertexOffset = totalVertexCount;
+                totalVertexCount += group.verts.size();
+
+                size_t byteOffset = result.vertices.size();
+                size_t byteSize   = group.verts.size() * kGpuVertexSize;
+
+                result.vertices.resize(byteOffset + byteSize);
+
+                // The GPU gets the vertex without its skin, which goes to the mesh's skin in the same order
+                for (size_t i = 0; i < group.verts.size(); i++)
+                    memcpy(result.vertices.data() + byteOffset + i * kGpuVertexSize, &group.verts[i], kGpuVertexSize);
+
+                if (skin)
+                    for (const Vertex& v : group.verts)
+                    {
+                        skin->joints.push_back(v.joints);
+                        skin->weights.push_back(v.weights);
+                    }
+
+                size_t slotIndexOffset = result.indices.size();
+
+                for (auto idx : group.localIndices)
+                    result.indices.push_back(static_cast<uint32_t>(vertexOffset + idx));
+
+                for (const ChunkRange& chunk : chunks) {
+                    // Field by field: designated initializers are C++20, MSVC refuses them in C++17.
+                    SubMesh submesh;
+                    submesh.indexOffset = slotIndexOffset + chunk.firstIndex;
+                    submesh.indexCount = chunk.indexCount;
+                    submesh.vertexCount = chunk.vertexCount;
+                    submesh.materialIndex = slot;
+                    submesh.boundsMin = chunk.boundsMin;
+                    submesh.boundsMax = chunk.boundsMax;
+                    result.submeshes.push_back(submesh);
+                }
+            }
+
+            result.layout = StandardMeshLayout();
+
+            result.skin = std::move(skin);
+            result.success = true;
+
+            return result;
         }
-
-        result.layout = StandardMeshLayout();
-
-        result.success = true;
-
-        return result;
     }
 
     VertexLayout StandardMeshLayout()
     {
+        // What the GPU reads : the vertex without its skin, which stays on the CPU (MeshSkin)
         return {
             {{"aPos",     ShaderDataType::Vec3, 0, offsetof(Vertex, position)},
             {"aTexCoord",ShaderDataType::Vec2, 1, offsetof(Vertex, texCoord)},
             {"aNormal",  ShaderDataType::Vec3, 2, offsetof(Vertex, normal)},
             {"aColor",   ShaderDataType::Vec4, 3, offsetof(Vertex, color)},
             {"aTangent", ShaderDataType::Vec3, 4, offsetof(Vertex, tangent)},
-            {"aLightmapUV", ShaderDataType::Vec2, 5, offsetof(Vertex, lightmapUV)}}, sizeof(Vertex)
+            {"aLightmapUV", ShaderDataType::Vec2, 5, offsetof(Vertex, lightmapUV)}}, kGpuVertexSize
         };
+    }
+
+    MeshCPUData BuildMeshCPUDataFromFBX(const ufbx_mesh *ufbx_mesh, double scene_unit_meters,
+        ufbx_material_list &ufbx_mats, ufbx_node *mesh_node, COL_RGBA vertexColor)
+    {
+        (void)ufbx_mats;
+        return BuildFromInstances({ FbxInstance{ ufbx_mesh, mesh_node } }, scene_unit_meters, nullptr, vertexColor);
+    }
+
+    MeshCPUData BuildMeshCPUDataFromScene(const ufbx_scene *scene, COL_RGBA vertexColor)
+    {
+        std::vector<FbxInstance> instances;
+        for (size_t i = 0; i < scene->nodes.count; i++)
+        {
+            const ufbx_node* node = scene->nodes.data[i];
+            if (node->mesh && node->mesh->num_faces > 0)
+                instances.push_back(FbxInstance{ node->mesh, node });
+        }
+        if (instances.empty())
+            return MeshCPUData{};
+        return BuildFromInstances(instances, scene->settings.unit_meters, scene, vertexColor);
     }
 
     MeshCPUData DecodeMeshFile(const Filesystem::Path &path)
@@ -561,25 +770,9 @@ namespace Shard::Engine::Rendering{
             return result;
         }
 
-        if (scene->meshes.count > 1) {
-            ufbx_free_scene(scene);
-            DEBUG_ERROR("Multiple meshes per fbx file isn't supported yet.");
-            return result;
-        }
-
-        ufbx_mesh* ufbx_mesh = scene->meshes.data[0];
-
-        ufbx_node* mesh_node = nullptr;
-
-        for (size_t i = 0; i < scene->nodes.count; i++) {
-            ufbx_node* node = scene->nodes.data[i];
-            if (node->mesh == ufbx_mesh) {
-                mesh_node = node;
-                break;
-            }
-        }
-
-        result = BuildMeshCPUDataFromFBX(ufbx_mesh, scene->settings.unit_meters, scene->materials, mesh_node);
+        result = BuildMeshCPUDataFromScene(scene);
+        if (!result.success)
+            DEBUG_ERROR("No mesh in " + path.full);
 
         ufbx_free_scene(scene);
 
@@ -657,8 +850,37 @@ namespace Shard::Engine::Rendering{
         }
     }
 
+    MeshCPUData AddGpuSkin(MeshCPUData data, const std::vector<glm::u16vec4>& joints, const std::vector<glm::vec4>& weights)
+    {
+        const uint32_t stride = data.layout.GetStride();
+        if (!data.success || stride == 0 || data.vertices.size() % stride != 0) return data;
+        const size_t count = data.vertices.size() / stride;
+        if (count == 0 || joints.size() != count || weights.size() != count) return data;
+        for (const VertexElement& element : data.layout.GetElements())
+            if (element.location == kSkinJointsLocation || element.location == kSkinWeightsLocation) return data;
+
+        const uint32_t jointsOffset = stride, weightsOffset = stride + uint32_t(sizeof(glm::vec4));
+        const uint32_t skinnedStride = stride + 2 * uint32_t(sizeof(glm::vec4));
+        std::vector<uint8_t> vertices(count * skinnedStride);
+        for (size_t i = 0; i < count; ++i)
+        {
+            uint8_t* out = vertices.data() + i * skinnedStride;
+            std::memcpy(out, data.vertices.data() + i * stride, stride);
+            const glm::vec4 j(float(joints[i].x), float(joints[i].y), float(joints[i].z), float(joints[i].w));
+            std::memcpy(out + jointsOffset, &j, sizeof(j));
+            std::memcpy(out + weightsOffset, &weights[i], sizeof(glm::vec4));
+        }
+
+        std::vector<VertexElement> elements = data.layout.GetElements();
+        elements.push_back({ "aJoints", ShaderDataType::Vec4, kSkinJointsLocation, jointsOffset });
+        elements.push_back({ "aWeights", ShaderDataType::Vec4, kSkinWeightsLocation, weightsOffset });
+        data.layout = VertexLayout(std::move(elements), skinnedStride);
+        data.vertices = std::move(vertices);
+        return data;
+    }
+
     std::vector<DrawCommand> Mesh::CreateDrawCommands(const glm::mat4& worldMatrix, int objectID, int modelID, std::vector<std::shared_ptr<Material>> mats,
-        uint64_t lightmapHandle, const glm::vec4& lightmapScaleOffset)
+        uint64_t lightmapHandle, const glm::vec4& lightmapScaleOffset, const std::shared_ptr<SkinPalette>& skin)
     {
         if(mats.empty()){
             DEBUG_ERROR("Cannot create draw commands: no materials supplied");
@@ -696,6 +918,15 @@ namespace Shard::Engine::Rendering{
 
             cmd.boundsMax = m_Submeshes[i].boundsMax;
             cmd.boundsMin = m_Submeshes[i].boundsMin;
+
+            if (skin)
+            {
+                // The pose moves the vertices out of the bind pose : cull with the whole mesh, grown
+                const glm::vec3 pad = glm::max(0.5f * (m_BoundsMax - m_BoundsMin), glm::vec3(0.25f));
+                cmd.boundsMin = m_BoundsMin - pad;
+                cmd.boundsMax = m_BoundsMax + pad;
+                cmd.skin = skin;
+            }
 
             cmds.push_back(cmd);
         }

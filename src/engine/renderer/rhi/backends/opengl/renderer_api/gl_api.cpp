@@ -303,6 +303,9 @@ namespace Shard::Engine::Rendering{
             BindMesh(command.mesh);
 
             std::shared_ptr<Pipeline> pipeline = command.material->GetPipeline();
+            if (command.skin)
+                if (std::shared_ptr<Pipeline> skinned = pipeline->GetVariant("SKINNED"))
+                    pipeline = skinned;
             BindPipeline(pipeline);
 
             std::shared_ptr<Shader> shader = pipeline->GetSpecifications().shader;
@@ -328,6 +331,8 @@ namespace Shard::Engine::Rendering{
 
             if (m_LastDraw.pipeline != pipeline.get() || m_LastDraw.modelMatrix != command.modelMatrix)
                 shader->SetMat4("model", command.modelMatrix);
+            if (command.skin)
+                shader->SetInt("uBoneOffset", int(command.skin->gpuOffset));
 
             m_LastDraw.pass = nullptr;
             m_LastDraw.pipeline = pipeline.get();
@@ -386,6 +391,11 @@ namespace Shard::Engine::Rendering{
                         pipeline = variant;
                 }
             }
+
+            // A posed skinned mesh : the variant of the shader that skins the vertices from the bone palette
+            if(command.skin)
+                if(std::shared_ptr<Pipeline> skinned = pipeline->GetVariant("SKINNED"))
+                    pipeline = skinned;
             BindPipeline(pipeline);
 
             if(!command.fullscreenTri && command.material && command.material->IsDoubleSided())
@@ -430,6 +440,9 @@ namespace Shard::Engine::Rendering{
             {
                 m_LastDraw = LastDraw{};
             }
+
+            if(command.skin)
+                pipeline->GetSpecifications().shader->SetInt("uBoneOffset", int(command.skin->gpuOffset));
 
             if(command.bindCameraState && GLStateCache::NeedsPassGlobalsUpdate(program, GLStateCache::PassGlobalsKind::Camera)){
                 RenderView currentView;

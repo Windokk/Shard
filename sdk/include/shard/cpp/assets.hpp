@@ -46,6 +46,24 @@ namespace Shard {
         uint32_t VertexCount() const { return uint32_t(positions.size() / 3); }
     };
 
+    /// The skeleton and weights of a skinned model (an FBX with a skin), as `Assets::ReadSkin` returns them. The vertices are those of the mesh
+    /// (`ReadMesh`, `Mesh::FromAsset`) ; the nodes' rest transforms are in meters, like the mesh.
+    struct SkinData {
+        struct Node {
+            std::string name;
+            int32_t parent = -1;            ///< an index in `nodes`, -1 for a root
+            Vec3 translation;
+            Quat rotation;
+            Vec3 scale{ 1.f, 1.f, 1.f };
+        };
+        std::vector<uint16_t> joints;       ///< 4 a vertex : the joints it follows
+        std::vector<float> weights;         ///< 4 a vertex, summing to 1
+        std::vector<Node> nodes;
+        std::vector<int32_t> jointNodes;    ///< the node of each joint
+        std::vector<float> inverseBind;     ///< 16 floats a joint, column major
+        uint32_t VertexCount() const { return uint32_t(joints.size() / 4); }
+    };
+
     /// An image decoded to 8 bit RGBA, rows from the top
     struct ImageData {
         uint32_t width = 0, height = 0;
@@ -136,6 +154,37 @@ namespace Shard {
             if (Api().mesh_info(id, &info) == SHARD_OK) {
                 out.boundsMin = Vec3{ info.boundsMin[0], info.boundsMin[1], info.boundsMin[2] };
                 out.boundsMax = Vec3{ info.boundsMax[0], info.boundsMax[1], info.boundsMax[2] };
+            }
+            return out;
+        }
+        /// The skeleton and skin weights of a skinned model. Empty optional : not a model, not skinned, or a host older than shard.assets 1.1. thread : main
+        static std::optional<SkinData> ReadSkin(int32_t id)
+        {
+            const ShardAssetsApi& api = Api();
+            if (api.structSize < offsetof(ShardAssetsApi, mesh_skin_read) + sizeof(void*) || !api.mesh_skin_read) return std::nullopt;
+            ShardSkinRead io{};
+            io.structSize = sizeof(ShardSkinRead);
+            if (api.mesh_skin_read(id, &io) != SHARD_OK) return std::nullopt;      // the counts, with capacities of 0
+            SkinData out;
+            out.joints.resize(size_t(io.vertexCount) * 4);
+            out.weights.resize(size_t(io.vertexCount) * 4);
+            std::vector<ShardSkinNode> nodes(io.nodeCount);
+            out.jointNodes.resize(io.jointCount);
+            out.inverseBind.resize(size_t(io.jointCount) * 16);
+            ShardSkinRead fill{};
+            fill.structSize = sizeof(ShardSkinRead);
+            fill.vertexCapacity = io.vertexCount; fill.nodeCapacity = io.nodeCount; fill.jointCapacity = io.jointCount;
+            fill.joints = out.joints.data(); fill.weights = out.weights.data(); fill.nodes = nodes.data();
+            fill.jointNodes = out.jointNodes.data(); fill.inverseBind = out.inverseBind.data();
+            if (api.mesh_skin_read(id, &fill) != SHARD_OK) return std::nullopt;
+            for (const ShardSkinNode& n : nodes) {
+                SkinData::Node node;
+                node.name = n.name;
+                node.parent = n.parent;
+                node.translation = Vec3{ n.translation[0], n.translation[1], n.translation[2] };
+                node.rotation = Quat{ n.rotation[0], n.rotation[1], n.rotation[2], n.rotation[3] };
+                node.scale = Vec3{ n.scale[0], n.scale[1], n.scale[2] };
+                out.nodes.push_back(std::move(node));
             }
             return out;
         }

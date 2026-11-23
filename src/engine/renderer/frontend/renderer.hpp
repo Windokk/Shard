@@ -31,6 +31,7 @@
 #include <variant>
 
 namespace Shard::Engine::Rendering {
+    class StorageBuffer;
 
     /// @todo move this in a "setting manager" system
     struct RendererSettings{
@@ -258,12 +259,22 @@ bool GetCurrentView(RenderView& out) override;
                 uint64_t lightmapHandle = 0;
                 glm::vec4 lightmapScaleOffset = glm::vec4(1.0f, 1.0f, 0.0f, 0.0f);
                 uint64_t seenInSync = 0;
+                std::shared_ptr<SkinPalette> skin;      // shared with its draw commands, the bones change in place
+                std::shared_ptr<const std::vector<glm::mat4>> bonesSource;
+                bool skinnedCommands = false;
             };
             std::unordered_map<uint64_t, SyncedMesh> m_SyncedMeshes;
             uint64_t m_SyncCount = 0;
             std::shared_ptr<Material> m_SyncedSkyMaterial;
             int m_SyncedSkyObjectId = -1;
             void RemoveSyncedMeshCommands(const SyncedMesh& synced);
+
+            // The bone palettes of the posed skinned meshes, packed in one buffer the skinning shaders read (binding 28)
+            void UploadSkinPalettes();
+            std::shared_ptr<StorageBuffer> m_SkinBuffer;
+            uint32_t m_SkinCapacity = 0;
+            uint64_t m_SkinSignature = 0;
+            std::vector<glm::mat4> m_SkinScratch;
             
             std::unordered_map<std::string, std::vector<std::string>> m_RenderPassDependencies;
             std::unordered_map<std::string, std::vector<std::string>> m_RenderPassDependents;

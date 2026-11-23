@@ -447,7 +447,7 @@ namespace Shard::Engine::Plugins {
                 { SHARD_IFACE_JOBS, 1, 0, JobsApi() },
                 { SHARD_IFACE_TIME, 1, 0, TimeApi() },
                 { SHARD_IFACE_TIMERS, 1, 0, TimersApi() },
-                { SHARD_IFACE_ASSETS, 1, 0, AssetsApi() },
+                { SHARD_IFACE_ASSETS, 1, 1, AssetsApi() },
                 { SHARD_IFACE_REFLECT, 1, 0, ReflectApi() },
                 { SHARD_IFACE_NET, 1, 0, NetApi() },
                 { SHARD_IFACE_RENDER, 1, 0, RenderApi() },

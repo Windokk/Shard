@@ -279,6 +279,15 @@ namespace Shard::Engine::Plugins::CAbi {
             } catch (...) { return SHARD_E_INTERNAL; }
         }
 
+        ShardResult SHARD_CALL MeshSkinRead(int32_t id, ShardSkinRead* io)
+        {
+            try {
+                if (!io || io->structSize < offsetof(ShardSkinRead, joints)) return SHARD_E_INVALID_ARG;
+                if (!OnMainThread()) return SHARD_E_WRONG_THREAD;
+                return AssetSkinRead(id, io);
+            } catch (...) { return SHARD_E_INTERNAL; }
+        }
+
         ShardResult SHARD_CALL ImageInfo(int32_t id, uint32_t* width, uint32_t* height)
         {
             try {
@@ -301,7 +310,7 @@ namespace Shard::Engine::Plugins::CAbi {
     const void* AssetsApi()
     {
         static const ShardAssetsApi api = {
-            sizeof(ShardAssetsApi), &Resolve, &Info, &PathOf, &List, &Read, &Write, &Exists, &MeshInfo, &MeshRead, &ImageInfo, &ImageRead };
+            sizeof(ShardAssetsApi), &Resolve, &Info, &PathOf, &List, &Read, &Write, &Exists, &MeshInfo, &MeshRead, &ImageInfo, &ImageRead, &MeshSkinRead };
         return &api;
     }
 }
