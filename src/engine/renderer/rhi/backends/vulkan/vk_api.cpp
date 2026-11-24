@@ -181,6 +181,22 @@ namespace Shard::Engine::Rendering {
                "." + std::to_string(VK_API_VERSION_PATCH(properties.apiVersion)) + ", driver " + std::to_string(properties.driverVersion);
     }
 
+    uint64_t VKRendererAPI::GetDedicatedVideoMemoryMB()
+    {
+        VK::Context& context = VK::Context::Get();
+        // An integrated GPU's heap is the system memory : not a figure of its own
+        if (context.GetProperties().deviceType == VK_PHYSICAL_DEVICE_TYPE_INTEGRATED_GPU)
+            return 0;
+
+        VkPhysicalDeviceMemoryProperties memory{};
+        vkGetPhysicalDeviceMemoryProperties(context.GetPhysicalDevice(), &memory);
+        VkDeviceSize largest = 0;
+        for (uint32_t i = 0; i < memory.memoryHeapCount; i++)
+            if (memory.memoryHeaps[i].flags & VK_MEMORY_HEAP_DEVICE_LOCAL_BIT)
+                largest = std::max(largest, memory.memoryHeaps[i].size);
+        return uint64_t(largest) / (1024 * 1024);
+    }
+
     GpuProfiler* VKRendererAPI::GetGpuProfiler()
     {
         if (!m_GpuProfiler && VK::Context::Get().GetCaps().timestamps)

@@ -94,7 +94,16 @@ uniform float pointLightFarPlanes[10];
 #ifdef SHARD_DEFERRED_LIGHTING
 #ifdef SHARD_GBUFFER_MS
 #define GBUFFER_SAMPLER sampler2DMS
-#define GBUFFER_FETCH(tex, pixel) texelFetch(tex, pixel, gl_SampleID)
+// Reading gl_SampleID makes the whole draw run once per sample. With SHARD_GBUFFER_SPLIT the draw is cut in two, using the edge mask (gbuffer_edge_mask.frag) :
+//   SHARD_GBUFFER_INTERIOR : the pixels whose samples show one surface, lit once from sample 0 (the colour goes to every sample).
+//   otherwise              : the edge pixels, lit once per sample.
+// Without SHARD_GBUFFER_SPLIT every pixel is lit once per sample.
+#ifdef SHARD_GBUFFER_INTERIOR
+#define GBUFFER_SAMPLE_INDEX 0
+#else
+#define GBUFFER_SAMPLE_INDEX gl_SampleID
+#endif
+#define GBUFFER_FETCH(tex, pixel) texelFetch(tex, pixel, GBUFFER_SAMPLE_INDEX)
 #define GBUFFER_SIZE(tex) textureSize(tex)
 #else
 #define GBUFFER_SAMPLER sampler2D
@@ -105,6 +114,10 @@ layout(binding = 0) uniform GBUFFER_SAMPLER gAlbedoTex;
 layout(binding = 1) uniform GBUFFER_SAMPLER gNormalsTex;
 layout(binding = 2) uniform GBUFFER_SAMPLER gMaterialTex;
 layout(binding = 3) uniform GBUFFER_SAMPLER gBakedTex;
+#ifdef SHARD_GBUFFER_SPLIT
+// 1 where the samples of the pixel do not all show the same surface.
+layout(binding = 11) uniform sampler2D gEdgeMaskTex;
+#endif
 #else
 layout(binding = 0) uniform sampler2D albedo;
 layout(binding = 1) uniform sampler2D metallicMap;
@@ -129,6 +142,7 @@ uniform uvec2 ddgi_distanceAtlasHandle[MAX_PROBE_VOLUMES];
 //   6     the reflection probe
 //   7-9   the shadow maps : one array per kind of light, a light's map is a layer of it
 //   10    the emission map (forward) or the G-buffer's depth (deferred lighting)
+//   11    the edge mask of the multisampled G-buffer (deferred lighting, SHARD_GBUFFER_SPLIT)
 
 layout(binding = 6) uniform samplerCube rp_prefilter;
 uniform bool rp_enabled;
@@ -859,6 +873,17 @@ vec3 VertexDebugColor(bool hasLightmap) {
 
 void main() {
     ivec2 pixel = ivec2(gl_FragCoord.xy);
+
+#ifdef SHARD_GBUFFER_SPLIT
+    bool edgePixel = texelFetch(gEdgeMaskTex, pixel, 0).r > 0.5;
+#ifdef SHARD_GBUFFER_INTERIOR
+    if (edgePixel)
+        discard;
+#else
+    if (!edgePixel)
+        discard;
+#endif
+#endif
 
     float depth = GBUFFER_FETCH(gDepthTex, pixel).r;
     if (depth >= 1.0)

@@ -7,6 +7,7 @@
 #include <string>
 #include <vector>
 
+#include "engine/assets/project/quality.hpp"
 #include "engine/core/config/cvar.hpp"
 #include "engine/core/diagnostics/logger.hpp"
 #include "engine/core/diagnostics/profiler.hpp"
@@ -102,6 +103,31 @@ namespace Shard::Engine::Core {
                                   "Driver   : " + m_Context.renderer->GetDriverVersion();
                 const Rendering::RenderSnapshot& snapshot = m_Context.renderer->GetSnapshot();
                 out += "\nViewport : " + std::to_string(snapshot.viewportWidth) + " x " + std::to_string(snapshot.viewportHeight);
+                return CommandResult{true, out};
+            });
+
+        registry.RegisterCommand("quality", "quality [presets] : the quality preset in use, why, and the settings it gives (set it with quality.preset <name>)",
+            [this](const std::vector<std::string>& args) {
+                if (!args.empty() && args[0] == "presets") {
+                    std::string out = "Presets : custom (the project's own values), auto";
+                    for (size_t i = 0; i < Projects::kQualityLevelCount; i++)
+                        out += std::string(", ") + Projects::QualityLevelName(Projects::QualityLevel(i));
+                    return CommandResult{true, out};
+                }
+
+                const Projects::EffectiveQuality quality = Projects::GetActiveQuality();
+                const Projects::HardwareProfile hardware = Projects::GetDetectedHardware();
+                std::string out = "Selection : " + Projects::FormatQualitySelection(quality.selection);
+                if (quality.presetActive)
+                    out += std::string(" -> ") + Projects::QualityLevelLabel(quality.level);
+                out += "\nMachine   : " + hardware.gpuName + ", " + (hardware.vramMB ? std::to_string(hardware.vramMB) + " MB of video memory" : std::string("video memory unknown")) +
+                       ", " + std::to_string(hardware.cpuLogicalCores) + " logical cores, " + std::to_string(hardware.ramMB) + " MB of RAM";
+                out += std::string("\nRecommended : ") + Projects::QualityLevelLabel(quality.recommendation.level) + " (" + Projects::GpuClassName(quality.recommendation.gpuClass) + " GPU)";
+                for (const std::string& reason : quality.recommendation.reasons)
+                    out += "\n    " + reason;
+                out += "\nIn use :";
+                for (const std::string& line : Projects::DescribeQuality(quality))
+                    out += "\n    " + line;
                 return CommandResult{true, out};
             });
 

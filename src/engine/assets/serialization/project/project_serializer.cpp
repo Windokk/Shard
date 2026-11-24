@@ -1,4 +1,5 @@
 #include "project_serializer.hpp"
+#include "engine/assets/project/quality.hpp"
 #include "engine/assets/serialization/collision/collision_json.hpp"
 
 #include <filesystem>
@@ -135,6 +136,15 @@ namespace Shard::Engine::Serialization{
                     else
                         DEBUG_ERROR("Project physics maxAccumulatedTime must be at least one fixedTimeStep, keeping the default");
                 }
+
+                if(physics.contains("velocitySteps") && physics["velocitySteps"].is_number_unsigned())
+                    physicsSettings.velocitySteps = std::clamp<uint32_t>(physics["velocitySteps"], 1u, 64u);
+
+                if(physics.contains("positionSteps") && physics["positionSteps"].is_number_unsigned())
+                    physicsSettings.positionSteps = std::clamp<uint32_t>(physics["positionSteps"], 1u, 64u);
+
+                if(physics.contains("collisionSteps") && physics["collisionSteps"].is_number_unsigned())
+                    physicsSettings.collisionSteps = std::clamp<uint32_t>(physics["collisionSteps"], 1u, 8u);
             }
             else{
                 DEBUG_INFO("No physics settings for project: "+path.full+", using the defaults");
@@ -149,7 +159,16 @@ namespace Shard::Engine::Serialization{
                     renderingSettings.occlusionCulling = rendering["occlusionCulling"];
 
                 if(rendering.contains("msaaSamples") && rendering["msaaSamples"].is_number_unsigned())
-                    renderingSettings.msaaSamples = std::clamp<uint32_t>(rendering["msaaSamples"], 2u, 16u);
+                    renderingSettings.msaaSamples = std::clamp<uint32_t>(rendering["msaaSamples"], 1u, 16u);
+
+                if(rendering.contains("ssao") && rendering["ssao"].is_boolean())
+                    renderingSettings.ssao = rendering["ssao"];
+
+                if(rendering.contains("ssr") && rendering["ssr"].is_boolean())
+                    renderingSettings.ssr = rendering["ssr"];
+
+                if(rendering.contains("maxAnisotropy") && rendering["maxAnisotropy"].is_number_unsigned())
+                    renderingSettings.maxAnisotropy = std::clamp<uint32_t>(rendering["maxAnisotropy"], 1u, 16u);
 
                 if(rendering.contains("renderPipeline") && rendering["renderPipeline"].is_string())
                     renderingSettings.renderPipeline = rendering["renderPipeline"].get<std::string>();
@@ -211,6 +230,17 @@ namespace Shard::Engine::Serialization{
                 DEBUG_INFO("No rendering settings for project: "+path.full+", using the defaults");
             }
 
+            Projects::QualitySettings qualitySettings;
+
+            if(data.contains("quality") && data["quality"].is_object()){
+                const json& quality = data["quality"];
+                if(quality.contains("preset") && quality["preset"].is_string()){
+                    const std::string preset = quality["preset"].get<std::string>();
+                    if(!Projects::ParseQualitySelection(preset, qualitySettings.preset))
+                        DEBUG_ERROR("Project quality preset \"" + preset + "\" is not custom, auto, ultra_low, low, medium, high or ultra_high, using custom");
+                }
+            }
+
             Projects::TagSettings tagSettings;
 
             if(data.contains("tags")){
@@ -257,6 +287,7 @@ namespace Shard::Engine::Serialization{
 
             *project->GetPhysicsSettings() = physicsSettings;
             *project->GetRenderingSettings() = renderingSettings;
+            *project->GetQualitySettings() = qualitySettings;
             *project->GetTagSettings() = tagSettings;
             *project->GetCollisionSettings() = collisionSettings;
 
@@ -306,10 +337,16 @@ namespace Shard::Engine::Serialization{
         data["physics"]["gravity"]["z"] = physics->gravity.z;
         data["physics"]["fixedTimeStep"] = physics->fixedTimeStep;
         data["physics"]["maxAccumulatedTime"] = physics->maxAccumulatedTime;
+        data["physics"]["velocitySteps"] = physics->velocitySteps;
+        data["physics"]["positionSteps"] = physics->positionSteps;
+        data["physics"]["collisionSteps"] = physics->collisionSteps;
 
         data["rendering"]["occlusionCulling"] = pro->GetRenderingSettings()->occlusionCulling;
         data["rendering"]["msaaSamples"] = pro->GetRenderingSettings()->msaaSamples;
         data["rendering"]["renderPipeline"] = pro->GetRenderingSettings()->renderPipeline;
+        data["rendering"]["ssao"] = pro->GetRenderingSettings()->ssao;
+        data["rendering"]["ssr"] = pro->GetRenderingSettings()->ssr;
+        data["rendering"]["maxAnisotropy"] = pro->GetRenderingSettings()->maxAnisotropy;
         {
             const Projects::ShadowSettings& shadows = pro->GetRenderingSettings()->shadows;
             json out = json::object();
@@ -340,6 +377,8 @@ namespace Shard::Engine::Serialization{
             out["pointFilterRadius"] = shadows.pointFilterRadius;
             data["rendering"]["shadows"] = out;
         }
+
+        data["quality"]["preset"] = Projects::FormatQualitySelection(pro->GetQualitySettings()->preset);
 
         const Projects::TagSettings* tags = pro->GetTagSettings();
         if(!tags->tags.empty()){

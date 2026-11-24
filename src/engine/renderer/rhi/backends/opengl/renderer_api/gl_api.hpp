@@ -54,6 +54,7 @@ namespace Shard::Engine::Rendering{
             std::string GetDeviceVendor() override;
             std::string GetRendererName() override;
             std::string GetDriverVersion() override;
+            uint64_t GetDedicatedVideoMemoryMB() override;
 
         private:
 

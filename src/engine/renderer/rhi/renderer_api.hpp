@@ -265,6 +265,8 @@ namespace Shard::Engine::Rendering {
             virtual std::string GetDeviceVendor() = 0;
             virtual std::string GetRendererName() = 0;
             virtual std::string GetDriverVersion() = 0;
+            // Dedicated video memory in MB, 0 when the API cannot tell (or the memory is shared with the system)
+            virtual uint64_t GetDedicatedVideoMemoryMB() { return 0; }
 
         protected:
             API api = API::OpenGL;

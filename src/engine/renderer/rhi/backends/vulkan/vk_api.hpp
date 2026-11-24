@@ -97,6 +97,7 @@ namespace Shard::Engine::Rendering {
             std::string GetDeviceVendor() override;
             std::string GetRendererName() override;
             std::string GetDriverVersion() override;
+            uint64_t GetDedicatedVideoMemoryMB() override;
 
             void BindStorageBuffer(uint32_t binding, uint32_t bufferId);
             void BindStorageImage(uint32_t unit, uint32_t textureId, TextureAccess access, uint32_t mip);

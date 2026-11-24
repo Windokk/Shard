@@ -1,5 +1,8 @@
 #include "texture_filtering.hpp"
 
+#include <algorithm>
+
+#include "engine/assets/project/quality.hpp"
 #include "engine/core/config/cvar.hpp"
 
 namespace Shard::Engine::Rendering {
@@ -11,6 +14,7 @@ namespace Shard::Engine::Rendering {
 
     float RequestedAnisotropy()
     {
-        return static_cast<float>(cvAnisotropy.Get());
+        // The quality preset caps what the variable asks for
+        return static_cast<float>(std::min<int>(cvAnisotropy.Get(), int(Projects::QualityMaxAnisotropy())));
     }
 }

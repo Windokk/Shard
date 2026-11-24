@@ -79,6 +79,19 @@ namespace Shard::Engine::Core::Platform {
         return ReadKiloBytes("/proc/self/status", "VmRSS:");
     }
 
+    uint64_t QueryDedicatedVideoMemoryMB(const std::string&)
+    {
+        // The amdgpu driver tells the size of its video memory ; the others have no such file, and the caller falls back on what the graphics API reports.
+        for (int card = 0; card < 4; card++)
+        {
+            std::ifstream file("/sys/class/drm/card" + std::to_string(card) + "/device/mem_info_vram_total");
+            uint64_t bytes = 0;
+            if (file.good() && (file >> bytes) && bytes > 0)
+                return bytes / (1024 * 1024);
+        }
+        return 0;
+    }
+
     uint64_t ProcessGpuMemoryUsage()
     {
         std::ifstream vendorFile("/sys/class/drm/card0/device/vendor");

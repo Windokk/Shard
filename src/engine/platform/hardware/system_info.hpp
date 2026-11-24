@@ -43,4 +43,8 @@ namespace Shard::Engine::Core::Platform {
     uint64_t ProcessMemoryUsage();
 
     uint64_t ProcessGpuMemoryUsage();
+
+    // Dedicated video memory, in MB, of the adapter whose name `adapterName` (GL_RENDERER, a Vulkan device name) contains or is contained in.
+    // 0 when the system cannot tell (no match, or no way to ask : only Windows can) : the caller treats it as unknown.
+    uint64_t QueryDedicatedVideoMemoryMB(const std::string& adapterName);
 }

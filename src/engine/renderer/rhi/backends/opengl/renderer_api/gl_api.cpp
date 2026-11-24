@@ -114,6 +114,30 @@ namespace Shard::Engine::Rendering{
         return renderer ? reinterpret_cast<const char*>(renderer) : "Unknown";
     }
 
+    uint64_t GLRendererAPI::GetDedicatedVideoMemoryMB()
+    {
+        SHARD_ASSERT_GRAPHICS_THREAD();
+
+        // GL_NVX_gpu_memory_info : the only extension that gives the total (GL_ATI_meminfo gives the free part only)
+        constexpr GLenum kNumExtensions = 0x821D;
+        constexpr GLenum kDedicatedVidmemNVX = 0x9047;
+        GLint count = 0;
+        glGetIntegerv(kNumExtensions, &count);
+        for (GLint i = 0; i < count; i++)
+        {
+            const GLubyte* name = glGetStringi(GL_EXTENSIONS, GLuint(i));
+            if (name && std::string(reinterpret_cast<const char*>(name)) == "GL_NVX_gpu_memory_info")
+            {
+                GLint kilobytes = 0;
+                glGetIntegerv(kDedicatedVidmemNVX, &kilobytes);
+                while (glGetError() != GL_NO_ERROR) {}
+                return kilobytes > 0 ? uint64_t(kilobytes) / 1024 : 0;
+            }
+        }
+        while (glGetError() != GL_NO_ERROR) {}
+        return 0;
+    }
+
     std::string GLRendererAPI::GetDriverVersion()
     {
         SHARD_ASSERT_GRAPHICS_THREAD();

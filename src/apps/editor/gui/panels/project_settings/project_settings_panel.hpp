@@ -27,6 +27,7 @@ namespace Shard::Editor::GUI{
             void DrawBuildCategory();
             void DrawPhysicsCategory();
             void DrawRenderingCategory();
+            void DrawQualityCategory();
             void DrawConsoleVariablesCategory();
 
             void DrawCollisionCategory();

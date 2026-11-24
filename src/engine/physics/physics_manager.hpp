@@ -255,6 +255,9 @@ namespace Shard::Engine::Physics
         void SetGravity(glm::vec3 gravity);
         glm::vec3 GetGravity();
 
+        // Jolt's solver : iterations of the velocity and position constraints per step, and the collision sub-steps each step is cut into (the quality presets set them).
+        void SetSolverSettings(uint32_t velocitySteps, uint32_t positionSteps, uint32_t collisionSteps);
+
         // Jolt has one gravity. Fields and per-body gravity are applied on top as a force (difference from Jolt's), so no fields means no cost.
 
         void SetGravityFields(std::vector<GravityFieldData> fields);
@@ -375,6 +378,7 @@ namespace Shard::Engine::Physics
         bool initialized = false;
 
         uint64_t m_StepCount = 0;
+        int m_CollisionSteps = 1;
 
         friend class PhysicsContactListener;
         friend class CollisionSystem;

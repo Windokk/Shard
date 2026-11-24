@@ -85,7 +85,7 @@ The maps of each kind of light are the layers of one texture array : one for the
 | Stabilize Cascades | `stabilizeCascades` | on | Snaps each cascade to its texels so shadows don't shimmer when the camera moves. |
 | Caster Range | `casterRange` | 500 | How far from a cascade, towards the sun, casters are still drawn. A caster further than this casts no shadow on it. |
 | Double-sided Casters | `directionalDoubleSided` | on | Draws both faces into the sun's maps. With it off, only the faces turned away from the sun are drawn, which lets light through the edges of single-surface roofs and walls. |
-| Conservative Rasterization | `directionalConservativeRaster` | on | Draws every texel a caster touches, so a gap thinner than a texel (the joints of a model) doesn't let a line of light through. Needs `GL_NV_conservative_raster` (OpenGL) or `VK_EXT_conservative_rasterization` (Vulkan) ; ignored on a GPU without it, and the two APIs then differ by a thin line of light. |
+| Conservative Rasterization | `directionalConservativeRaster` | off | Draws every texel a caster touches (it costs about three times the time of a cascade on a dense level, hence off by default), so a gap thinner than a texel (the joints of a model) doesn't let a line of light through. Needs `GL_NV_conservative_raster` (OpenGL) or `VK_EXT_conservative_rasterization` (Vulkan) ; ignored on a GPU without it, and the two APIs then differ by a thin line of light. |
 | Normal Bias | `directionalNormalBias` | 2 | Texels the lit point is moved along the normal before the lookup, more on a surface that grazes the light. |
 | Depth Bias | `directionalDepthBias` | 0.75 | Constant depth offset, in texels. |
 | Slope Bias | `directionalSlopeBias` | 1 | Scale of the receiver plane bias that follows the surface's slope across the filter. |
@@ -149,7 +149,89 @@ Orthographic cameras and the studio views (material previews) have no SSR. The t
 
 ## Texture filtering
 
-Textures that have mips are sampled with anisotropic filtering, 16x by default (`render.anisotropy`, 1 to 16, capped by the GPU). It is read when a texture is loaded, so a texture already in memory keeps its level until it is loaded again.
+Textures that have mips are sampled with anisotropic filtering, 16x by default (`render.anisotropy`, 1 to 16, capped by the GPU). It is read when a texture is loaded, so a texture already in memory keeps its level until it is loaded again. `rendering.maxAnisotropy` in the project file (set by the [quality presets](#quality-presets)) caps it : the smaller of the two applies.
+
+## Quality presets
+
+A quality preset is a named set of values for settings the project already has : MSAA, the shadow maps, SSAO and SSR, anisotropy, occlusion culling, and the physics solver and time step. There are five, **Ultra Low**, **Low**, **Medium**, **High** and **Ultra High**, and the engine can pick one for the machine it runs on. **High is exactly what a project had before the presets existed** (the defaults of *Project Settings > Rendering* and *Physics*), and a project that says nothing about quality is `custom` : its own values are used as they are.
+
+### Choosing
+
+| Choice | Meaning |
+|---|---|
+| `custom` | No preset : the values of the Rendering and Physics categories. The default. |
+| `auto` | The preset recommended for this machine (below). |
+| `ultra_low`, `low`, `medium`, `high`, `ultra_high` | That preset, whatever the machine. |
+
+- In the editor, *Project Settings > Quality* has the *Quality Preset* list, what the engine found of the machine, the preset *Auto* would use and why, and the values in use. *Copy Into Project Settings* writes those values into the Rendering and Physics categories and goes back to Custom, to tune them by hand. While a preset is in use, the rows it covers in the Rendering category (and the time step and solver in Physics) are disabled and show the project's own values.
+- In the project file : `"quality": { "preset": "auto" }`. It is saved with the project and shared by everyone who runs it.
+- With the `quality.preset` variable : `project` (the default : defer to the project file) or one of the choices above. It is what a player sets, so it wins over the file : `ShardGame --project p.json +quality.preset=low`, a `quality.preset = low` line in `user.cfg` next to the executable, or the console while the game runs (the new preset is applied at once, and a value set from the console is written to `user.cfg` when the engine shuts down ; one from the command line is not). A name that is not a preset is ignored.
+- The `quality` console command prints the selection, the machine, the recommendation and the values in use ; `quality presets` lists the names.
+
+The preset overrides the values it covers **while the engine runs** and never rewrites the project's own : saving the project saves what the Rendering and Physics categories say, plus the choice.
+
+### What a preset sets
+
+| Setting | Ultra Low | Low | Medium | High | Ultra High |
+|---|---|---|---|---|---|
+| MSAA | off | off | 2x | 4x | 8x |
+| Anisotropy cap (`maxAnisotropy`) | 1x | 4x | 8x | 16x | 16x |
+| SSAO / SSR allowed (`ssao`, `ssr`) | off / off | off / off | on / off | on / on | on / on |
+| Occlusion culling | on | on | on | on | on |
+| Sun shadows : map size × cascades | 512 × 2 | 1024 × 2 | 1024 × 3 | 2048 × 3 | 4096 × 4 |
+| Sun shadows : filter radius | 0 | 1 | 1 | 2 | 3 |
+| Sun casters | single-sided | single-sided | single-sided | double-sided | double-sided |
+| Conservative rasterization | off | off | off | off | on (if the GPU has it) |
+| Spot shadow map / filter radius | 512 / 0 | 512 / 1 | 1024 / 1 | 1024 / 2 | 2048 / 3 |
+| Point shadow map / filter samples | 512 / 4 | 512 / 8 | 1024 / 12 | 1024 / 20 | 2048 / 20 |
+| Physics time step | project's × 2 | × 1.5 | × 1 | × 1 | × 0.5 |
+| Velocity / position iterations, collision steps | 4 / 1, 1 | 6 / 1, 1 | 8 / 2, 1 | 10 / 2, 1 | 14 / 3, 1 |
+
+What a preset does not cover keeps the project's value : the render pipeline, the biases, the shadow distance, the cascade splits when the project already has as many cascades as the preset asks for, the gravity.
+
+- `ssao` and `ssr` are switches of the *project* (`rendering.ssao`, `rendering.ssr`, on by default) : a world turns SSAO and SSR on in its own settings, and a preset that switches them off wins over the world. With both off the SSAO depth and normal prepass, a second sweep over the scene, is skipped too.
+- `maxAnisotropy` (`rendering.maxAnisotropy`, 16 by default) caps `render.anisotropy` : the smaller of the two applies, to the textures loaded afterwards.
+- `velocitySteps`, `positionSteps` and `collisionSteps` (`physics.*`, Jolt's 10, 2 and 1) are the solver's iterations per step and the collision sub-steps of a step.
+- MSAA off (`msaaSamples` 1) is accepted in the project file and in the editor's list (*Off*). The project file used to refuse anything under 2.
+- **The simulation follows the preset only when it can.** In a deterministic run (one that records or replays), the time step and the solver are left as the project has them, so that every machine computes the same simulation ; the image still follows. Elsewhere, remember that a preset changes the physics too : a project whose gameplay needs the same simulation on every machine (lockstep multiplayer, for one) should use `custom`, or `high`, rather than `auto`.
+
+### Choosing for the machine
+
+`auto` reads the machine once, after the renderer starts : the GPU's name (`GL_RENDERER`, or the Vulkan device name), its dedicated video memory, the logical cores and the physical memory. The video memory comes from the graphics API (`GL_NVX_gpu_memory_info` on OpenGL, the device-local heap on Vulkan, nothing for an integrated GPU, whose heap is the system's), or else from the system (DXGI on Windows, `amdgpu` on Linux). `RecommendQuality` (`engine/assets/project/quality.hpp`) turns it into a preset in three steps :
+
+1. **The kind of GPU.** A software renderer (`llvmpipe`, SwiftShader, Microsoft Basic Render Driver, a headless run) gets Ultra Low. An integrated GPU (Intel UHD, HD, Iris and Xe, the Radeon Graphics and Vega of an APU, Apple, Adreno, Mali) starts at Low.
+2. **A discrete GPU is placed by its video memory** : under 1.5 GB Ultra Low, under 3 GB Low, under 7 GB Medium, under 15 GB High, and Ultra High above. The thresholds sit under the round sizes because the figures reported do (an 8 GB card shows 8151 MB on OpenGL and 7895 MB on Vulkan). When the memory is not known the answer is Medium. An older discrete card, whose memory flatters it (the GTX 9 and 10 series and before, the RX 400 and 500, Radeon R9 and HD), is capped at Medium.
+3. **The system caps it.** Under 3.5 GB of RAM : Ultra Low ; under 7 GB : at most Low ; under 11 GB : at most Medium. Two logical cores or fewer : at most Low ; four or fewer : at most Medium. An unknown figure (0) caps nothing.
+
+The memory is a crude measure of a GPU's speed, and the name lists are short on purpose : the recommendation is a starting point, which the *Quality* category and the `quality` command explain line by line (*"NVIDIA GeForce RTX 4090 : 24564 MB of video memory, starts at Ultra High"*, *"4 logical cores : capped at Medium"*). The test machines of `tests/assets/quality_tests.cpp` (a RTX 5060 gets High, a 4090 Ultra High, a GTX 1060 Medium, an Intel UHD Low, llvmpipe Ultra Low...) pin the heuristic down ; it needs no GPU to run, since the machine is a `HardwareProfile` that the test fills in. To change a threshold, change the constants at the top of `quality.cpp` and the test that names them.
+
+### What they cost
+
+`ShardGame --bench --bench-warmup 100 --frames 300 +render.gpu_timers=true +quality.preset=<name>` on Sponza (1.9 M triangles, the project's `deferred` pipeline) at 1920x1080, on an RTX 5060 with a Ryzen 7 9800X3D, in the `build/` of the repository ; the game is GPU-bound there (a Debug build gives the same figures). One run of each, vsync off ; a run varies by about 5 to 8% (the scene is dynamic), so two figures closer than that are the same.
+
+| Preset | OpenGL fps | GPU frame | gain over `custom` | Vulkan fps | Render targets |
+|---|---|---|---|---|---|
+| `custom` (= High) | 74.1 | 13.4 ms | : | 83.3 | 671 MB |
+| Ultra Low | 174.0 | 5.6 ms | x 2.3 | 203.7 | 249 MB |
+| Low | 154.9 | 6.3 ms | x 2.1 | 199.4 | 255 MB |
+| Medium | 97.4 | 10.2 ms | x 1.3 | 111.0 | 429 MB |
+| High | 73.3 | 13.5 ms | x 1.0 | 89.9 | 671 MB |
+| Ultra High | 34.3 | 29.1 ms | x 0.46 | 49.8 | 1290 MB |
+
+`custom` and High agree, as they must : on this project they are the same settings (the figures differ by the noise). Where the time goes, in ms of GPU time on OpenGL :
+
+| Pass | Low | Medium | High | Ultra High |
+|---|---|---|---|---|
+| G-buffer | 2.1 | 2.3 | 3.1 | 4.8 |
+| Lighting (interior + edge pixels) | 2.2 | 3.4 | 5.0 | 7.5 |
+| Sun cascades (each) | 0.8 | 0.8 | 1.0 | 3.0 to 4.2 |
+| SSAO (prepass, raw, blur) | off | 1.5 | 1.6 | 1.6 |
+
+- High to Low saves 7.2 ms : about 2.8 in the lighting (no samples to light at the edges), 1.6 for the SSAO (with SSAO and SSR off, the prepass that redraws the scene is skipped), 1.4 in the cascades (one less, and 1024 instead of 2048), 1.0 in the G-buffer and 0.15 in the MSAA resolve. Before the presets, switching MSAA off alone had taken this scene from 80 to 97 fps.
+- Medium keeps 2x MSAA and the SSAO, and drops SSR, the second face of the sun casters, the cascade size and a ring of the filter : the "combo" measured before the presets, with 2x samples left.
+- Ultra High costs more than twice High : 8x samples, a fourth cascade and the conservative rasterization (which tripled each cascade on this level). It is for a GPU that has time to spare : `auto` never picks it on this one.
+- The video memory of the process went from 2.5 GB (Ultra Low) to 2.9 GB (High) and 3.5 GB (Ultra High) : the render targets and the shadow maps, the textures and the meshes are the same.
+- The physics changes are not in these figures : the scene has few bodies, and the physics took 6 ms of CPU time per frame, in parallel with the GPU.
 
 ## Debugging
 

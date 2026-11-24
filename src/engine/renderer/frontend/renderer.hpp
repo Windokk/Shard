@@ -170,6 +170,8 @@ bool GetCurrentView(RenderView& out) override;
             std::string GetDeviceVendor();
             std::string GetRendererName();
             std::string GetDriverVersion();
+            // 0 : unknown
+            uint64_t GetDedicatedVideoMemoryMB();
             uint32_t GetPassesCount() const { return m_PublishedPassCount; }
             uint32_t GetDrawCallsCount() const { return m_DrawCallsCount; }
             uint32_t GetPrimitivesCount() const { return m_PrimitivesCount; }

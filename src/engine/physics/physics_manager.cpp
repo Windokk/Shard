@@ -124,6 +124,18 @@ namespace Shard::Engine::Physics {
         m_physicsSystem.GetBodyInterface().ActivateBodies(bodies.data(), bodies.size());
     }
 
+    void PhysicsManager::SetSolverSettings(uint32_t velocitySteps, uint32_t positionSteps, uint32_t collisionSteps)
+    {
+        if (!initialized)
+            DEBUG_FATAL("Physics system is not yet initialized");
+
+        JPH::PhysicsSettings settings = m_physicsSystem.GetPhysicsSettings();
+        settings.mNumVelocitySteps = std::clamp<uint32_t>(velocitySteps, 1u, 64u);
+        settings.mNumPositionSteps = std::clamp<uint32_t>(positionSteps, 1u, 64u);
+        m_physicsSystem.SetPhysicsSettings(settings);
+        m_CollisionSteps = int(std::clamp<uint32_t>(collisionSteps, 1u, 8u));
+    }
+
     glm::vec3 PhysicsManager::GetGravity()
     {
         if (!initialized)
@@ -464,7 +476,7 @@ namespace Shard::Engine::Physics {
         ApplyGravityFields();
         m_Collision.BeginStep();
 
-        m_physicsSystem.Update(deltaTime, 1, m_tempAllocator, m_jobSystem);
+        m_physicsSystem.Update(deltaTime, m_CollisionSteps, m_tempAllocator, m_jobSystem);
         m_StepCount++;
 
         DispatchContacts();

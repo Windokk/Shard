@@ -7,6 +7,7 @@
 #include "engine/renderer/frontend/renderer.hpp"
 #include "engine/renderer/frontend/pipelines/render_pipeline.hpp"
 #include "engine/assets/project/project.hpp"
+#include "engine/assets/project/quality.hpp"
 #include "engine/assets/serialization/project/project_serializer.hpp"
 #include "engine/world/time_manager.hpp"
 #include "engine/core/config/cvar.hpp"
@@ -79,6 +80,7 @@ namespace Shard::Editor::GUI{
             { "Build", ICON_LC_PACKAGE, [this]{ DrawBuildCategory(); } },
             { "Physics", ICON_LC_ATOM, [this]{ DrawPhysicsCategory(); } },
             { "Rendering", ICON_LC_MONITOR, [this]{ DrawRenderingCategory(); } },
+            { "Quality", ICON_LC_GAUGE, [this]{ DrawQualityCategory(); } },
             { "Tags", ICON_LC_TAGS, [this]{ DrawTagsCategory(); } },
             { "Collision", ICON_LC_SHAPES, [this]{ DrawCollisionCategory(); } },
             { "Console Variables", ICON_LC_TERMINAL, [this]{ DrawConsoleVariablesCategory(); } },
@@ -166,12 +168,9 @@ namespace Shard::Editor::GUI{
         Projects::RenderingSettings* rendering = project->GetRenderingSettings();
 
         GetEngine().GetPhysicsManager()->SetGravity(physics->gravity);
-        GetEngine().GetTimeManager()->SetFixedDeltaTime(physics->fixedTimeStep);
-        GetEngine().GetTimeManager()->SetMaxAccumulatedTime(physics->maxAccumulatedTime);
 
-        GetEngine().GetRenderer()->SetOcclusionCullingEnabled(rendering->occlusionCulling);
-        GetEngine().GetRenderer()->SetMultisampleCount(rendering->msaaSamples);
-        GetEngine().GetRenderer()->SetShadowSettings(rendering->shadows);
+        // The quality preset (if one is chosen) decides the values the renderer, the solver and the time step really get
+        GetEngine().ApplyQuality();
         GetEngine().GetRenderer()->SetRenderPipeline(rendering->renderPipeline);
 
         Projects::ApplyTagSettings(*project->GetTagSettings());
@@ -195,6 +194,7 @@ namespace Shard::Editor::GUI{
         *project->GetBuildSettings() = *saved->GetBuildSettings();
         *project->GetPhysicsSettings() = *saved->GetPhysicsSettings();
         *project->GetRenderingSettings() = *saved->GetRenderingSettings();
+        *project->GetQualitySettings() = *saved->GetQualitySettings();
         *project->GetTagSettings() = *saved->GetTagSettings();
         *project->GetCollisionSettings() = *saved->GetCollisionSettings();
         ApplyToEngine();
@@ -502,6 +502,15 @@ namespace Shard::Editor::GUI{
 
         m_View.Section("Simulation");
 
+        const Projects::EffectiveQuality activeQuality = Projects::GetActiveQuality();
+        const bool simulationFromPreset = activeQuality.presetActive && activeQuality.physicsOverridden;
+        if (simulationFromPreset)
+        {
+            ImGui::TextColored(kWarningColor, "The %s quality preset sets the time step and the solver while the game runs.", Projects::QualityLevelLabel(activeQuality.level));
+            ImGui::TextDisabled("These are the project's own values : choose Custom in the Quality category to edit them.");
+        }
+        ImGui::BeginDisabled(simulationFromPreset);
+
         if (m_View.DragFloat("Fixed Time Step", "Time one simulation step covers, in seconds. Lower is more accurate but costs more steps per second.",
                              physics->fixedTimeStep, defaults.fixedTimeStep, 0.0005f, 0.001f, 0.1f, "%.4f s"))
         {
@@ -534,6 +543,25 @@ namespace Shard::Editor::GUI{
             const float maxSteps = physics->maxAccumulatedTime / physics->fixedTimeStep;
             ImGui::TextDisabled("At most %.0f steps in one frame after a stall.", std::floor(maxSteps));
         }
+
+        m_View.Section("Solver");
+
+        auto solverRow = [&](const char* label, const char* tooltip, uint32_t& value, uint32_t defaultValue, int min, int max) {
+            int v = int(value);
+            if (m_View.DragInt(label, tooltip, v, int(defaultValue), 0.1f, min, max))
+            {
+                value = uint32_t(std::clamp(v, min, max));
+                GetEngine().ApplyQuality();
+            }
+        };
+        solverRow("Velocity Iterations", "Iterations of the velocity constraints in each step. More makes stacks and joints stiffer and costs more ; Jolt's default is 10.",
+                  physics->velocitySteps, defaults.velocitySteps, 1, 64);
+        solverRow("Position Iterations", "Iterations of the position constraints in each step, which push overlapping bodies apart. Jolt's default is 2.",
+                  physics->positionSteps, defaults.positionSteps, 1, 64);
+        solverRow("Collision Steps", "How many sub-steps each step is cut into for the collision detection. 1 is enough unless bodies move fast enough to tunnel through thin geometry ; each one multiplies the cost of the step.",
+                  physics->collisionSteps, defaults.collisionSteps, 1, 8);
+
+        ImGui::EndDisabled();
     }
 
     void ProjectSettingsPanel::DrawRenderingCategory()
@@ -541,6 +569,13 @@ namespace Shard::Editor::GUI{
         Projects::RenderingSettings* rendering = GetEngine().GetCurrentProject()->GetRenderingSettings();
         const Projects::RenderingSettings defaults{};
         Rendering::Renderer* renderer = GetEngine().GetRenderer();
+
+        const Projects::EffectiveQuality activeQuality = Projects::GetActiveQuality();
+        if (activeQuality.presetActive)
+        {
+            ImGui::TextColored(kWarningColor, "The %s quality preset is in use : it overrides MSAA, occlusion culling, SSAO, SSR, anisotropy and the shadow settings it covers while the game runs.", Projects::QualityLevelLabel(activeQuality.level));
+            ImGui::TextDisabled("These are the project's own values : choose Custom in the Quality category to edit them.");
+        }
 
         m_View.Section("Pipeline");
 
@@ -575,6 +610,8 @@ namespace Shard::Editor::GUI{
             }
         }
 
+        ImGui::BeginDisabled(activeQuality.presetActive);
+
         m_View.Section("Culling");
 
         if (m_View.Checkbox("Occlusion Culling", "The GPU skips drawing geometry that is hidden behind other geometry (Hi-Z occlusion culling, computed every frame in a compute shader). It never changes the image - only how much has to be drawn to produce it. Turn it off to compare, or to rule it out when chasing a rendering problem.",
@@ -593,13 +630,14 @@ namespace Shard::Editor::GUI{
                 renderer->SetMultisampleCount(rendering->msaaSamples);
             }
 
-            static const uint32_t counts[] = { 2, 4, 8, 16 };
-            const std::string preview = std::to_string(rendering->msaaSamples) + "x";
+            static const uint32_t counts[] = { 1, 2, 4, 8, 16 };
+            auto countLabel = [](uint32_t count) { return count <= 1 ? std::string("Off") : std::to_string(count) + "x"; };
+            const std::string preview = countLabel(rendering->msaaSamples);
             if (ImGui::BeginCombo("##MSAASamples", preview.c_str()))
             {
                 for (uint32_t count : counts)
                 {
-                    const std::string label = std::to_string(count) + "x";
+                    const std::string label = countLabel(count);
                     if (ImGui::Selectable(label.c_str(), rendering->msaaSamples == count))
                     {
                         rendering->msaaSamples = count;
@@ -701,6 +739,80 @@ namespace Shard::Editor::GUI{
                  shadows.pointFilterSamples, shadowDefaults.pointFilterSamples, 1, 20);
         floatRow("Filter Radius", "Radius of that disc, in world units at the surface : the softness of the shadow's edge.",
                  shadows.pointFilterRadius, shadowDefaults.pointFilterRadius, 0.005f, 0.0f, 2.0f, "%.3f");
+
+        ImGui::EndDisabled();
+    }
+
+    void ProjectSettingsPanel::DrawQualityCategory()
+    {
+        auto project = GetEngine().GetCurrentProject();
+        Projects::QualitySelection& selection = project->GetQualitySettings()->preset;
+        const Projects::EffectiveQuality quality = Projects::GetActiveQuality();
+        const Projects::HardwareProfile hardware = Projects::GetDetectedHardware();
+
+        m_View.Section("Preset");
+
+        // 0 : Custom, 1 : Auto, then the levels
+        static const char* const labels[] = { "Custom (the project's own values)", "Auto (chosen for this machine)", "Ultra Low", "Low", "Medium", "High", "Ultra High" };
+        int index = selection.mode == Projects::QualityMode::Custom ? 0 : selection.mode == Projects::QualityMode::Auto ? 1 : 2 + int(selection.level);
+        if (m_View.Combo("Quality Preset", "Custom uses the values of the Rendering and Physics categories as they are. A preset overrides MSAA, shadows, SSAO and SSR, anisotropy, occlusion culling and the physics solver and time step while the game runs, without changing what the project saves. Auto picks the preset for the GPU, the RAM and the CPU of the machine the game runs on. High is what a project had before the presets existed. The quality.preset variable (command line : +quality.preset=low, or a user.cfg) overrides this choice for one player.",
+                         index, 0, labels, 7))
+        {
+            if (index == 0)
+                selection.mode = Projects::QualityMode::Custom;
+            else if (index == 1)
+                selection.mode = Projects::QualityMode::Auto;
+            else
+            {
+                selection.mode = Projects::QualityMode::Fixed;
+                selection.level = Projects::QualityLevel(index - 2);
+            }
+            GetEngine().ApplyQuality();
+        }
+
+        if (const CVarBase* variable = CVarRegistry::Global().Find("quality.preset"); variable && variable->ToString() != "project")
+            ImGui::TextColored(kWarningColor, "The quality.preset variable is \"%s\" : it overrides this choice.", variable->ToString().c_str());
+
+        m_View.Section("This Machine");
+
+        auto textRow = [&](const char* label, const char* tooltip, const std::string& value) {
+            if (m_View.BeginRow(label, tooltip))
+                ImGui::TextUnformatted(value.c_str());
+        };
+        textRow("GPU", "The graphics card the renderer runs on.", hardware.gpuName.empty() ? std::string("unknown") : hardware.gpuName);
+        textRow("Video Memory", "Dedicated video memory, as the graphics API or the system reports it. Unknown on some drivers, and not a figure of its own on an integrated GPU.",
+                hardware.vramMB ? std::to_string(hardware.vramMB) + " MB" : std::string("unknown or shared"));
+        textRow("CPU Threads", "Logical cores of the processor.", std::to_string(hardware.cpuLogicalCores));
+        textRow("RAM", "Physical memory of the machine.", std::to_string(hardware.ramMB) + " MB");
+        textRow("Graphics API", "", hardware.api);
+
+        if (m_View.BeginRow("Recommended", "The preset Auto would use here : the GPU's video memory sets a first level (an integrated GPU starts at Low, a software renderer at Ultra Low), and little RAM or few CPU threads lower it."))
+        {
+            ImGui::Text("%s  (%s GPU)", Projects::QualityLevelLabel(quality.recommendation.level), Projects::GpuClassName(quality.recommendation.gpuClass));
+            for (const std::string& reason : quality.recommendation.reasons)
+                ImGui::TextDisabled("%s", reason.c_str());
+        }
+
+        m_View.Section("In Use");
+
+        if (m_View.BeginBlock("in use effective settings values"))
+        {
+            for (const std::string& line : Projects::DescribeQuality(quality))
+                ImGui::BulletText("%s", line.c_str());
+
+            ImGui::BeginDisabled(!quality.presetActive);
+            if (ImGui::Button("Copy Into Project Settings"))
+            {
+                // What the game runs with becomes the project's own values, and the preset goes back to Custom
+                *project->GetRenderingSettings() = quality.rendering;
+                if (quality.physicsOverridden)
+                    *project->GetPhysicsSettings() = quality.physics;
+                selection = Projects::QualitySelection{};
+                GetEngine().ApplyQuality();
+            }
+            ImGui::EndDisabled();
+            Tooltip("Writes the values above into the Rendering and Physics categories and chooses Custom, to keep them as they are and tune them by hand.");
+        }
     }
 
     bool ProjectSettingsPanel::DrawCascadeEditor(Projects::ShadowSettings& shadows, const Projects::ShadowSettings& defaults)

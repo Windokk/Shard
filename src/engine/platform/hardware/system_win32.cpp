@@ -12,6 +12,10 @@
 #include <pdhmsg.h>
 #include <psapi.h>
 #include <process.h>
+#include <dxgi.h>
+
+#include <algorithm>
+#include <cctype>
 
 #include <mutex>
 #include <string>
@@ -176,6 +180,49 @@ namespace Shard::Engine::Core::Platform {
     {
         static GpuMemoryCounters counters;
         return counters.Query();
+    }
+
+    uint64_t QueryDedicatedVideoMemoryMB(const std::string& adapterName)
+    {
+        // dxgi.dll is loaded on demand : the engine does not link against it
+        using CreateFactoryFn = HRESULT (WINAPI*)(REFIID, void**);
+        HMODULE dxgi = LoadLibraryW(L"dxgi.dll");
+        if (!dxgi)
+            return 0;
+        auto create = reinterpret_cast<CreateFactoryFn>(reinterpret_cast<void*>(GetProcAddress(dxgi, "CreateDXGIFactory1")));
+        IDXGIFactory1* factory = nullptr;
+        if (!create || FAILED(create(__uuidof(IDXGIFactory1), reinterpret_cast<void**>(&factory))) || !factory)
+        {
+            FreeLibrary(dxgi);
+            return 0;
+        }
+
+        auto normalize = [](std::string text) {
+            std::transform(text.begin(), text.end(), text.begin(), [](unsigned char c) { return char(std::tolower(c)); });
+            return text;
+        };
+        const std::string wanted = normalize(adapterName);
+
+        uint64_t result = 0;
+        IDXGIAdapter1* adapter = nullptr;
+        for (UINT i = 0; !result && factory->EnumAdapters1(i, &adapter) != DXGI_ERROR_NOT_FOUND; i++)
+        {
+            DXGI_ADAPTER_DESC1 desc{};
+            if (SUCCEEDED(adapter->GetDesc1(&desc)) && !(desc.Flags & DXGI_ADAPTER_FLAG_SOFTWARE))
+            {
+                std::string name;
+                for (const WCHAR* c = desc.Description; *c; ++c)
+                    name.push_back(*c < 128 ? char(*c) : '?');
+                name = normalize(name);
+                if (!name.empty() && !wanted.empty() && (wanted.find(name) != std::string::npos || name.find(wanted) != std::string::npos))
+                    result = uint64_t(desc.DedicatedVideoMemory) / (1024 * 1024);
+            }
+            adapter->Release();
+        }
+
+        factory->Release();
+        FreeLibrary(dxgi);
+        return result;
     }
 }
 

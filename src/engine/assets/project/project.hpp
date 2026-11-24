@@ -8,6 +8,7 @@
 
 #include <glm/glm.hpp>
 
+#include "engine/assets/project/quality_types.hpp"
 #include "engine/assets/vfs/filesystem.hpp"
 #include "engine/core/collision/collision_profile.hpp"
 #include "engine/core/collision/interaction_table.hpp"
@@ -73,6 +74,12 @@ namespace Shard::Engine::Projects{
 
         // Caps how much real time one frame feeds the simulation, so a stall does not spiral.
         float maxAccumulatedTime = 0.25f;
+
+        // Jolt's solver : iterations of the velocity and position constraints per step, and how many times a step is cut into collision sub-steps.
+        // Fewer is cheaper and less stable (stacks sag, bodies sink a little) ; the defaults are Jolt's.
+        uint32_t velocitySteps = 10;
+        uint32_t positionSteps = 2;
+        uint32_t collisionSteps = 1;
     };
 
     // Resolutions are the side of a square shadow map in texels. Biases are in texels where stated, in world units for point lights.
@@ -118,7 +125,8 @@ namespace Shard::Engine::Projects{
         bool directionalDoubleSided = true;
 
         // Closes sub-texel gaps (joints between model pieces). Needs GL_NV_conservative_raster (OpenGL) or VK_EXT_conservative_rasterization (Vulkan), ignored otherwise.
-        bool directionalConservativeRaster = true;
+        // Off by default : it rasterizes every texel a triangle touches, which tripled the cost of each cascade on a dense level (Sponza : 2.9 ms against 1.0 ms per cascade at 2048).
+        bool directionalConservativeRaster = false;
 
         float directionalNormalBias = 2.0f;
 
@@ -155,6 +163,13 @@ namespace Shard::Engine::Projects{
         uint32_t msaaSamples = 4;
 
         std::string renderPipeline = "forward+";
+
+        // Switches for what a world turns on itself : off here, the effect is off whatever the world says.
+        bool ssao = true;
+        bool ssr = true;
+
+        // Cap on the anisotropic filtering (the `render.anisotropy` variable asks for up to 16 ; the smaller of the two applies)
+        uint32_t maxAnisotropy = 16;
 
         ShadowSettings shadows;
     };
@@ -217,6 +232,8 @@ namespace Shard::Engine::Projects{
 
             RenderingSettings* GetRenderingSettings() { return &renderingSettings; }
 
+            QualitySettings* GetQualitySettings() { return &qualitySettings; }
+
             TagSettings* GetTagSettings() { return &tagSettings; }
 
             CollisionSettings* GetCollisionSettings() { return &collisionSettings; }
@@ -230,6 +247,7 @@ namespace Shard::Engine::Projects{
             BuildSettings buildSettings;
             PhysicsSettings physicsSettings;
             RenderingSettings renderingSettings;
+            QualitySettings qualitySettings;
             TagSettings tagSettings;
             CollisionSettings collisionSettings;
 

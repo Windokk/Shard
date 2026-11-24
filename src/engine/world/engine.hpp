@@ -11,6 +11,7 @@
 #include <vector>
 #include <glm/glm.hpp>
 
+#include "engine/assets/project/quality_types.hpp"
 #include "engine/core/math/random.hpp"
 
 namespace Shard::Engine::Assets { class HotReloader; }
@@ -205,6 +206,10 @@ namespace Shard::Engine{
                 // Named stream: same name and seed give the same sequence whatever the system start order. Keep it, don't ask each frame.
                 // Gameplay uses this instead of rand() / std::random_device. Member, not a free function, because the game module has its own copy of the engine's statics.
                 virtual Random MakeRandomStream(std::string_view name) const { return Random(Fnv1a64(name)); }
+
+                // Picks the quality preset (the project's choice, or the `quality.preset` variable's) and applies it : renderer, physics solver and time step.
+                // Call it after changing the project's quality, rendering or physics settings. What runs is in Projects::GetActiveQuality().
+                virtual void ApplyQuality() {}
         };
 
         class EngineInstance : public IEngineContext {
@@ -284,6 +289,7 @@ namespace Shard::Engine{
                 bool IsDeterministic() const override { return m_EngineSettings.deterministic; }
                 uint64_t GetSimulationSeed() const override;
                 Random MakeRandomStream(std::string_view name) const override;
+                void ApplyQuality() override;
 
             private:
                 EngineInstance() = default;
@@ -328,6 +334,8 @@ namespace Shard::Engine{
 
                 bool m_PlayMode = false;
                 bool m_ActivateAllPhysics = false;
+
+                Projects::HardwareProfile m_Hardware;
                 bool m_ReloadCurrentWorld = false;
                 
                 std::shared_ptr<Rendering::RendererSettings> m_RendererSettings;

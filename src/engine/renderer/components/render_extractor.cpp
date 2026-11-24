@@ -6,6 +6,7 @@
 
 #include <glm/gtc/matrix_transform.hpp>
 
+#include "engine/assets/project/quality.hpp"
 #include "engine/core/jobs/job_system.hpp"
 #include "engine/core/jobs/parallel_for.hpp"
 #include "engine/core/diagnostics/profiler.hpp"
@@ -223,7 +224,7 @@ namespace Shard::Engine::Rendering {
         {
             EnvironmentProxy env;
             env.ambientColor = world.ambientColor;
-            env.ssaoEnabled = world.ssaoEnabled;
+            env.ssaoEnabled = world.ssaoEnabled && Projects::QualityAllowsSSAO();
             env.ssaoRadius = world.ssaoRadius;
             env.ssaoBias = world.ssaoBias;
             env.ssaoIntensity = world.ssaoIntensity;
@@ -232,6 +233,7 @@ namespace Shard::Engine::Rendering {
             env.lightmapData = world.Ext<RenderWorldData>().lightmapData;
             env.display = world.Ext<RenderWorldData>().display;
             env.ssr = world.Ext<RenderWorldData>().ssr;
+            env.ssr.enabled = env.ssr.enabled && Projects::QualityAllowsSSR();
 
             const auto& skybox = world.Ext<RenderWorldData>().skybox;
             if (skybox) {

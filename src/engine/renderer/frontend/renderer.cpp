@@ -19,6 +19,7 @@
 #include "engine/assets/resources_manager.hpp"
 #include "engine/renderer/frontend/render_asset_kinds.hpp"
 #include "engine/core/diagnostics/profiler.hpp"
+#include "engine/platform/hardware/system_info.hpp"
 #include "engine/renderer/rhi/frustum.hpp"
 #include <queue>
 #include <unordered_set>
@@ -1138,6 +1139,14 @@ namespace Shard::Engine::Rendering{
     std::string Renderer::GetDriverVersion()
     {
         return OnGraphicsThread([this] { return m_RendererAPI->GetDriverVersion(); });
+    }
+
+    uint64_t Renderer::GetDedicatedVideoMemoryMB()
+    {
+        return OnGraphicsThread([this]() -> uint64_t {
+            const uint64_t reported = m_RendererAPI->GetDedicatedVideoMemoryMB();
+            return reported ? reported : Core::Platform::QueryDedicatedVideoMemoryMB(m_RendererAPI->GetRendererName());
+        });
     }
 
     namespace {

@@ -25,6 +25,7 @@
 #include "engine/platform/thread/thread.hpp"
 #include "engine/platform/time/clock.hpp"
 #include "engine/platform/process/process.hpp"
+#include "engine/assets/project/quality.hpp"
 #include "engine/assets/serialization/project/project_serializer.hpp"
 #include "engine/assets/hot_reloader.hpp"
 #include "engine/renderer/components/model_component.hpp"
@@ -90,6 +91,10 @@ namespace Shard::Engine{
             }
             CVar<bool> cvRenderDoc("render.renderdoc", false, "Load RenderDoc before the graphics API starts, so that `render.capture` can take a capture (applies at startup, SHARD_RENDERDOC=1 does the same)");
             CVar<bool> cvVulkanValidation("render.vulkan_validation", false, "Vulkan : turn the validation layer on (needs the Vulkan SDK ; applies at startup, SHARD_VULKAN_VALIDATION=1 does the same)");
+
+            CVar<std::string> cvQualityPreset("quality.preset", "project",
+                "Quality preset : project (what the project file says), custom (the project's own values), auto (picked for this machine), ultra_low, low, medium, high or ultra_high. See the `quality` command",
+                CVarFlags::Archive);
 
             CVar<bool> cvHotReload("assets.hot_reload", true, "Reload the assets changed on disk while the engine runs (applies at startup)", CVarFlags::Archive);
 
@@ -284,9 +289,22 @@ namespace Shard::Engine{
             lightmaps->releaseData = [this](const std::string& path) {
                 PostToMainThread([this, path] { m_Context.resourcesManager->Unload(Core::Resources::AssetKind::Lightmap, path); });
             };
-            m_Context.renderer->SetOcclusionCullingEnabled(m_Context.currentProject->GetRenderingSettings()->occlusionCulling);
-            m_Context.renderer->SetMultisampleCount(m_Context.currentProject->GetRenderingSettings()->msaaSamples);
-            m_Context.renderer->SetShadowSettings(m_Context.currentProject->GetRenderingSettings()->shadows);
+            {
+                // The machine, for the quality presets : the GPU is known now that the renderer runs
+                Platform::SystemInfos hardwareInfos = GetWindow()->GetSystemInfos();
+                Projects::HardwareProfile hardware;
+                hardware.gpuName = hardwareInfos.gpu_renderer;
+                hardware.gpuVendor = hardwareInfos.gpu_vendor;
+                hardware.api = m_RendererSettings->api == RendererAPI::API::Vulkan ? "vulkan" : "opengl";
+                hardware.vramMB = m_Context.renderer->GetDedicatedVideoMemoryMB();
+                hardware.cpuLogicalCores = uint32_t(std::max(hardwareInfos.cpuLogicalCores, 0));
+                hardware.ramMB = hardwareInfos.totalRamMB;
+                m_Hardware = hardware;
+                DEBUG_INFO("Quality : machine = " + hardware.gpuName + " (" + (hardware.vramMB ? std::to_string(hardware.vramMB) + " MB of video memory" : std::string("video memory unknown")) + "), " +
+                           std::to_string(hardware.cpuLogicalCores) + " threads, " + std::to_string(hardware.ramMB) + " MB of RAM");
+                ApplyQuality();
+                cvQualityPreset.AddOnChange([this](const CVarBase&) { PostToMainThread([this] { ApplyQuality(); }); });
+            }
             m_Context.renderer->SetRenderPipeline(m_Context.currentProject->GetRenderingSettings()->renderPipeline);
             m_Context.platform->CreateInput();
 
@@ -295,7 +313,11 @@ namespace Shard::Engine{
                 Events::TranslateInputEvent(event, *m_Context.eventDispatcher);
             });
 
-            m_Context.timeManager->Init(physicsSettings->fixedTimeStep, physicsSettings->maxAccumulatedTime);
+            {
+                // The quality preset may have changed the step (ApplyQuality ran before the time manager existed)
+                const Projects::EffectiveQuality quality = Projects::GetActiveQuality();
+                m_Context.timeManager->Init(quality.physics.fixedTimeStep, quality.physics.maxAccumulatedTime);
+            }
 
             Platform::SystemInfos infos = GetWindow()->GetSystemInfos();
 
@@ -386,6 +408,34 @@ namespace Shard::Engine{
         {
             return Determinism::Seed();
         }
+
+    void EngineInstance::ApplyQuality()
+    {
+        if(!m_Context.currentProject || !m_Context.renderer)
+            return;
+
+        Projects::Project& project = *m_Context.currentProject;
+        const Projects::QualitySelection selection = Projects::ResolveQualitySelection(project.GetQualitySettings()->preset, cvQualityPreset.Get());
+        const Projects::EffectiveQuality quality = Projects::ResolveQuality(*project.GetRenderingSettings(), *project.GetPhysicsSettings(), selection, m_Hardware, m_EngineSettings.deterministic);
+        Projects::SetActiveQuality(quality, m_Hardware);
+
+        m_Context.renderer->SetOcclusionCullingEnabled(quality.rendering.occlusionCulling);
+        m_Context.renderer->SetMultisampleCount(quality.rendering.msaaSamples);
+        m_Context.renderer->SetShadowSettings(quality.rendering.shadows);
+
+        if(m_Context.physicsManager && m_Context.physicsManager->IsInitialized())
+            m_Context.physicsManager->SetSolverSettings(quality.physics.velocitySteps, quality.physics.positionSteps, quality.physics.collisionSteps);
+        if(m_Context.timeManager){
+            m_Context.timeManager->SetFixedDeltaTime(quality.physics.fixedTimeStep);
+            m_Context.timeManager->SetMaxAccumulatedTime(quality.physics.maxAccumulatedTime);
+        }
+
+        std::string line = "Quality : " + Projects::FormatQualitySelection(selection);
+        if(quality.presetActive)
+            line += std::string(" -> ") + Projects::QualityLevelLabel(quality.level);
+        line += std::string(" (this machine : ") + Projects::QualityLevelLabel(quality.recommendation.level) + ")";
+        DEBUG_INFO(line);
+    }
 
         Random EngineInstance::MakeRandomStream(std::string_view name) const
         {
