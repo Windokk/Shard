@@ -75,7 +75,7 @@ SDL3.dll is built with the project and lands in the build folder.
 
 On Linux, SDL3 is built from source and needs the development packages of your window system (X11 / Wayland, ALSA / PulseAudio, libudev ...) : see https://wiki.libsdl.org/SDL3/README-linux
 
-Copy the resources/engine_resources and resources/editor_resources folders inside the build directory
+The build copies resources/engine_resources and resources/editor_resources into the build directory (target `ShardResources`) : only the fonts you place in resources/editor_resources/fonts need to be there beforehand
 
 This runs the editor, loads the game module, opens the example project and uses open gl core as the rendering api
 ```powershell

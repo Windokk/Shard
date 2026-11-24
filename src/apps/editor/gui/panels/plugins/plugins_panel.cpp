@@ -1,10 +1,14 @@
 #include "plugins_panel.hpp"
 
 #include "engine/plugins/manager.hpp"
+#include "engine/platform/clipboard/clipboard.hpp"
+#include "engine/platform/windowing/iwindow.hpp"
+#include "engine/world/engine.hpp"
 
 #include "imgui/imgui.h"
 
 #include <cstdio>
+#include <filesystem>
 #include <sstream>
 
 namespace Shard::Editor::GUI{
@@ -79,36 +83,99 @@ namespace Shard::Editor::GUI{
         if(!ImGui::CollapsingHeader("Install from disk"))
             return;
 
+        ProcessImports();
+
         const bool canInstall = !manager.InstallDirectory().empty();
         ImGui::BeginDisabled(!canInstall);
         ImGui::SetNextItemWidth(-1.0f);
-        ImGui::InputTextWithHint("##installPath", "a .shardplugin archive, or a folder or archive holding several", m_InstallPath, sizeof(m_InstallPath));
-        ImGui::SetNextItemWidth(-1.0f);
         ImGui::InputTextWithHint("##installOnly", "bundle : only these ids (space separated), empty for all", m_InstallOnly, sizeof(m_InstallOnly));
 
-        const bool hasPath = m_InstallPath[0] != '\0';
-        ImGui::BeginDisabled(!hasPath);
-        if(ImGui::Button("Install archive")){
-            auto installed = manager.InstallArchive(m_InstallPath);
-            m_LastMessageIsError = !installed;
-            m_LastMessage = installed ? "Installed " + installed.Value().id + " " + installed.Value().version + " : restart to load it" : installed.GetError().message;
-        }
+        if(ImGui::Button("Import plugin..."))
+            OpenImportDialog(false, false);
         ImGui::SameLine();
-        if(ImGui::Button("Install bundle")){
-            std::vector<std::string> only;
-            std::istringstream ids(m_InstallOnly);
-            for(std::string id; ids >> id;) only.push_back(id);
-            auto installed = manager.InstallBundle(m_InstallPath, only);
-            m_LastMessageIsError = !installed;
-            m_LastMessage = installed ? "Installed " + std::to_string(installed.Value().size()) + " plugins : restart to load them" : installed.GetError().message;
-        }
-        ImGui::EndDisabled();
+        if(ImGui::Button("Import bundle..."))
+            OpenImportDialog(true, false);
+        ImGui::SameLine();
+        if(ImGui::Button("Import bundle folder..."))
+            OpenImportDialog(true, true);
         ImGui::EndDisabled();
 
         if(!canInstall)
             ImGui::TextDisabled("Open a project : plugins are installed in its plugins folder.");
         else
             ImGui::TextDisabled("Into %s. Archives must be signed by a trusted publisher (plugin-trust.json).", manager.InstallDirectory().c_str());
+    }
+
+    void PluginsPanel::OpenImportDialog(bool bundle, bool folder)
+    {
+        namespace Dialogs = Engine::Core::Platform::Dialogs;
+
+        {
+            std::lock_guard<std::mutex> lock(m_Imports->mutex);
+            if(m_Imports->pending)
+                return;
+        }
+
+        Dialogs::FileDialogDesc desc;
+        desc.title = folder ? "Import a plugin bundle folder" : bundle ? "Import a plugin bundle" : "Import a plugin";
+        desc.parentWindow = Engine::Core::GetEngine().GetWindow()->GetNativeHandle();
+        {
+            std::lock_guard<std::mutex> lock(m_Imports->mutex);
+            desc.defaultPath = m_Imports->lastFolder;
+        }
+        if(!folder){
+            if(bundle)
+                desc.filters.push_back({ "Plugin bundles", "zip" });
+            else
+                desc.filters.push_back({ "Plugin archives", "shardplugin" });
+            desc.filters.push_back({ "All files", "*" });
+        }
+
+        auto callback = [queue = m_Imports, bundle](const std::vector<std::string>& paths)
+        {
+            if(paths.empty())
+                return;
+            std::lock_guard<std::mutex> lock(queue->mutex);
+            queue->lastFolder = std::filesystem::u8path(paths[0]).parent_path().u8string();
+            queue->paths = paths;
+            queue->bundle = bundle;
+            queue->pending = true;
+        };
+
+        if(folder)
+            Dialogs::ShowOpenFolderDialog(desc, callback);
+        else
+            Dialogs::ShowOpenFileDialog(desc, callback);
+    }
+
+    void PluginsPanel::ProcessImports()
+    {
+        std::vector<std::string> paths;
+        bool bundle = false;
+        {
+            std::lock_guard<std::mutex> lock(m_Imports->mutex);
+            if(!m_Imports->pending)
+                return;
+            paths.swap(m_Imports->paths);
+            bundle = m_Imports->bundle;
+            m_Imports->pending = false;
+        }
+
+        PluginManager& manager = PluginManager::Get();
+        const std::string& path = paths.front();
+        if(bundle){
+            std::vector<std::string> only;
+            std::istringstream ids(m_InstallOnly);
+            for(std::string id; ids >> id;) only.push_back(id);
+            auto installed = manager.InstallBundle(path, only);
+            m_LastMessageIsError = !installed;
+            m_LastMessage = installed ? "Installed " + std::to_string(installed.Value().size()) + " plugins : restart to load them" : installed.GetError().message;
+        }
+        else{
+            auto installed = manager.InstallArchive(path);
+            m_LastMessageIsError = !installed;
+            m_LastMessage = installed ? "Installed " + installed.Value().id + " " + installed.Value().version + " : restart to load it" : installed.GetError().message;
+        }
     }
 
     void PluginsPanel::DrawList()

@@ -119,6 +119,15 @@ add_subdirectory(src/apps/editor)
 add_subdirectory(src/apps/player)
 add_subdirectory(src/apps/headless)
 
+add_custom_target(ShardResources ALL
+    COMMAND ${CMAKE_COMMAND} -E copy_directory_if_different ${CMAKE_SOURCE_DIR}/resources/engine_resources ${CMAKE_BINARY_DIR}/engine_resources
+    COMMAND ${CMAKE_COMMAND} -E copy_directory_if_different ${CMAKE_SOURCE_DIR}/resources/editor_resources ${CMAKE_BINARY_DIR}/editor_resources
+    VERBATIM
+)
+foreach(_app ShardEditor ShardGame ShardHeadless)
+    add_dependencies(${_app} ShardResources)
+endforeach()
+
 # The official plugins live in the Shard-Plugins repository. Pointing this at its checkout builds them in this tree, against this engine.
 set(SHARD_PLUGINS_DIR "" CACHE PATH "Folder of the Shard-Plugins repository, built along with the engine")
 if(SHARD_PLUGINS_DIR)

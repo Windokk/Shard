@@ -1506,12 +1506,9 @@ namespace Shard::Editor::GUI{
             case TypeID::String:
             {
                 std::string* str = static_cast<std::string*>(value);
-                static char buffer[256] = "";
-
-                if (!str->empty()) {
-                    strncpy(buffer, str->c_str(), sizeof(buffer) - 1);
-                    buffer[sizeof(buffer) - 1] = '\0';
-                }
+                char buffer[1024];
+                strncpy(buffer, str->c_str(), sizeof(buffer) - 1);
+                buffer[sizeof(buffer) - 1] = '\0';
 
                 ImGui::SetNextItemWidth(-FLT_MIN);
                 if (ImGui::InputText(id.c_str(), buffer, sizeof(buffer)))
