@@ -156,6 +156,11 @@ namespace Shard::Engine::Rendering {
             if (specs.hasDepth)
                 make(m_ResolveDepth, specs.depthSpecs, true, VK_SAMPLE_COUNT_1_BIT, "Framebuffer resolved depth");
         }
+        else
+        {
+            m_ResolveColor.reset();
+            m_ResolveDepth.reset();
+        }
 
         int64_t bytes = 0;
         std::vector<const std::unique_ptr<TextureResource>*> everything = {&m_Color, &m_Depth, &m_ResolveColor, &m_ResolveDepth};

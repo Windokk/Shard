@@ -1,0 +1,29 @@
+{
+    "doubleSided": false,
+    "recievesShadows": true,
+    "renderMode": "opaque",
+    "shader": "shaders/mesh/lit",
+    "uniforms": [
+        {
+            "albedo": "textures/astronaut/AstronautColor.png"
+        },
+        {
+            "metallicMap": "textures/white.png"
+        },
+        {
+            "roughnessMap": "textures/grey.png"
+        },
+        {
+            "normalMap": "textures/default_normal.png"
+        },
+        {
+            "metallic": 0.0
+        },
+        {
+            "roughness": 0.5
+        },
+        {
+            "useEnvReflections": false
+        }
+    ]
+}

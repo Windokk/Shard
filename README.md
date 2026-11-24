@@ -138,6 +138,7 @@ This runs the editor, loads the game module, opens the example project and uses 
   - Intel Sponza 2022 Scene commissioned by Frank Meinl, sponsored by Anton Kaplanyan [Link](https://www.intel.com/content/www/us/en/developer/topic-technology/graphics-processing-research/samples.html)
   - "Cerberus" Gun model [Andrew Maximov](https://artisaverb.info/PBT.html) 
   - "Stanford Dragon (Vrip)" (<https://skfb.ly/BSZn>) by 3D graphics 101 is licensed under Creative Commons Attribution-NonCommercial (<http://creativecommons.org/licenses/by-nc/4.0/>).
+  - "Little Astronaut" (https://skfb.ly/6TpWY) by Jelle Vermandere is licensed under Creative Commons Attribution (http://creativecommons.org/licenses/by/4.0/).
 
 - Textures :
   - [Qwantani Afternoon (Pure Sky)](https://polyhaven.com/a/qwantani_afternoon_puresky)

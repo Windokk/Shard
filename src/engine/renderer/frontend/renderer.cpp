@@ -974,9 +974,15 @@ namespace Shard::Engine::Rendering{
     {
         SHARD_FORWARD_TO_GRAPHICS_THREAD(SetMultisampleCount(samples))
 
+        const bool wasMultisampled = m_SceneBuffer && m_SceneBuffer->GetSpecifications().multisampled && m_SceneBuffer->GetSpecifications().samplesCount > 1;
+
         for(const auto& buffer : {m_ViewportBuffer, m_SceneBuffer})
             if(buffer)
                 buffer->SetSamplesCount(samples);
+
+        const bool isMultisampled = m_SceneBuffer && m_SceneBuffer->GetSpecifications().multisampled && m_SceneBuffer->GetSpecifications().samplesCount > 1;
+        if(m_ActivePipeline && wasMultisampled != isMultisampled)
+            ActivatePipeline(std::string(m_ActivePipelineName));
     }
 
     void Renderer::SetShadowSettings(const Projects::ShadowSettings& settings)
@@ -1907,7 +1913,7 @@ namespace Shard::Engine::Rendering{
         const DisplaySettings& display = GetSnapshot().environment.display;
         const FramebufferSpecifications& sceneSpecs = m_SceneBuffer->GetSpecifications();
         const uint32_t processed = RunPostProcess();
-        const int sceneSamples = (!processed && sceneSpecs.multisampled) ? static_cast<int>(sceneSpecs.samplesCount) : 0;
+        const int sceneSamples = (!processed && sceneSpecs.multisampled && sceneSpecs.samplesCount > 1) ?static_cast<int>(sceneSpecs.samplesCount) : 0;
         m_TonemapMaterial->SetTextureParameter("sceneTexture", processed ? processed : m_SceneBuffer->GetResolveColorAttachment());
         m_TonemapMaterial->SetTextureParameter("sceneTextureMS", sceneSamples > 0 ? m_SceneBuffer->GetColorAttachment() : 0);
         m_TonemapMaterial->SetScalarParameter("sceneSamples", sceneSamples);

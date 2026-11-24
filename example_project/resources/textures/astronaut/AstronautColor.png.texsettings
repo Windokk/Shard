@@ -1,0 +1,12 @@
+{
+    "compress": true,
+    "customHeight": 0,
+    "customWidth": 0,
+    "generateMips": true,
+    "magFilter": "Nearest",
+    "maxSize": 0,
+    "minFilter": "Nearest",
+    "sizeMode": "Original",
+    "wrapS": "Repeat",
+    "wrapT": "Repeat"
+}

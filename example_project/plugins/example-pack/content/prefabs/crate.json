@@ -1,6 +1,0 @@
-{
-  "name": "Crate",
-  "components": [
-    { "type": "transform", "active": true }
-  ]
-}
