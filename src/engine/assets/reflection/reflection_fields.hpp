@@ -19,7 +19,8 @@ using namespace Shard::Engine;
 
 enum FieldFlags : uint32_t {
     Editable     = 1 << 0,
-    ReadOnly     = 1 << 1
+    ReadOnly     = 1 << 1,
+    AssetList    = 1 << 2
 };
 
 struct Container{
@@ -70,11 +71,15 @@ struct FieldInfo {
     void (*Assign)(void* dst, const void* src);
     void (*Destroy)(void* obj);
     bool (*Equals)(const void* a, const void* b);
+
+    const char* assetFilter = nullptr;
 };
 
 struct ClassDescriptor{
     std::string name;
     std::vector<FieldInfo*> fields;
+    std::string displayName;
+    std::string category;
 };
 
 struct InstancedStruct

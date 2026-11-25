@@ -2,6 +2,7 @@
 #pragma once
 
 #include <functional>
+#include <initializer_list>
 #include <optional>
 #include <string>
 #include <string_view>
@@ -108,6 +109,36 @@ namespace Shard {
     using AssetLoadFn = std::function<void*(std::string_view path, std::string_view file)>;
     using AssetUnloadFn = std::function<void(void* resource)>;
 
+    /// The icon of an asset type : flat shapes on a 24 x 24 grid, in the type's accent. `alpha` 1 for what matters, about 0.5 for the rest.
+    class Icon {
+    public:
+        Icon& Rect(float x0, float y0, float x1, float y1, float alpha = 1.f) { return Add(SHARD_ICON_RECT, 0, alpha, { x0, y0, x1, y1 }); }
+        Icon& Disc(float x, float y, float radius, float alpha = 1.f) { return Add(SHARD_ICON_DISC, 0, alpha, { x, y, radius }); }
+        Icon& Poly(std::initializer_list<float> xy, float alpha = 1.f) { return Add(SHARD_ICON_POLY, uint32_t(xy.size() / 2), alpha, xy); }
+
+        std::vector<ShardIconShape> shapes;
+
+    private:
+        Icon& Add(uint32_t kind, uint32_t points, float alpha, std::initializer_list<float> values)
+        {
+            ShardIconShape shape{};
+            shape.kind = kind;
+            shape.pointCount = points;
+            shape.alpha = alpha;
+            size_t i = 0;
+            for (float v : values) if (i < 8) shape.v[i++] = v;
+            shapes.push_back(shape);
+            return *this;
+        }
+    };
+
+    /// How the content browser shows the files of an asset type
+    struct AssetLook {
+        std::string displayName;    ///< "Post Profile" ; empty : the type's name
+        uint32_t accent = 0;        ///< 0xRRGGBB ; 0 : derived from the name
+        Icon icon;                  ///< none : a generic file icon
+    };
+
     class Extensions {
     public:
         explicit Extensions(ShardPluginCtx ctx) : m_Ctx(ctx) {}
@@ -144,7 +175,7 @@ namespace Shard {
             detail::Check(Api().add_importer(m_Ctx, &item), "importer '" + name + "'");
         }
 
-        void AddAssetType(const std::string& name, const std::vector<std::string>& extensions, AssetLoadFn load, AssetUnloadFn unload) const
+        void AddAssetType(const std::string& name, const std::vector<std::string>& extensions, AssetLoadFn load, AssetUnloadFn unload, const AssetLook& look = {}) const
         {
             std::vector<ShardStr> exts;
             for (const std::string& e : extensions) exts.push_back(Str(e));
@@ -163,6 +194,10 @@ namespace Shard {
                 detail::Guard(ctx, "an asset unloader", [&] { if (static_cast<Pair*>(user)->unload) static_cast<Pair*>(user)->unload(resource); });
             };
             item.user = detail::Keep(Pair{ std::move(load), std::move(unload) });
+            item.displayName = Str(look.displayName);
+            item.accent = look.accent;
+            item.iconCount = uint32_t(look.icon.shapes.size());
+            item.icon = look.icon.shapes.data();
             detail::Check(Api().add_asset_type(m_Ctx, &item), "asset type '" + name + "'");
         }
 

@@ -74,6 +74,7 @@ namespace Shard::Engine::Core::Resources{
     struct AssetTypeExtension {
         std::string name;
         std::vector<std::string> extensions;
+        std::shared_ptr<const Filesystem::AssetLook> look;
         AssetKindInfo info;
         AssetKind kind = AssetKind::FirstUser;
     };

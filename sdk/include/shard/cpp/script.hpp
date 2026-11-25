@@ -124,6 +124,12 @@ namespace Shard {
         template <typename T> struct CollisionKindsOf<T, std::void_t<decltype(T::kCollisionEvents)>> { static constexpr uint32_t value = T::kCollisionEvents; };
         template <typename T, typename = void> struct ExecutesInEditMode : std::false_type {};
         template <typename T> struct ExecutesInEditMode<T, std::enable_if_t<T::kExecuteInEditMode>> : std::true_type {};
+        /// `static constexpr const char* kDisplayName = "Animator 3D";` in a script class : what the editor shows instead of the registered name
+        template <typename T, typename = void> struct DisplayNameOf { static std::string Get() { return {}; } };
+        template <typename T> struct DisplayNameOf<T, std::void_t<decltype(T::kDisplayName)>> { static std::string Get() { return T::kDisplayName; } };
+        /// `static constexpr const char* kCategory = "Rendering/Post Process";` : the submenu of "Add Component" the script is filed in
+        template <typename T, typename = void> struct CategoryOf { static std::string Get() { return {}; } };
+        template <typename T> struct CategoryOf<T, std::void_t<decltype(T::kCategory)>> { static std::string Get() { return T::kCategory; } };
     }
 
     /// The index of the field `name` of the script class T (what OnFieldChanged is told), or -1
@@ -286,6 +292,9 @@ namespace Shard {
             }
 #endif
             sample->~T();
+            std::vector<ShardFieldHint> hints;
+            detail::AppendDeclaredHints(declared, hints);
+            const std::string displayName = detail::DisplayNameOf<T>::Get();
             ShardScriptDesc desc{};
             desc.structSize = sizeof(ShardScriptDesc);
             desc.size = uint32_t(sizeof(T));
@@ -297,6 +306,11 @@ namespace Shard {
             desc.callbacks = &ScriptThunks<T>::Table();
             desc.flags = detail::ExecutesInEditMode<T>::value ? SHARD_SCRIPT_EDIT_MODE : 0u;
             desc.collision_kinds = detail::CollisionKindsOf<T>::value;
+            const std::string category = detail::CategoryOf<T>::Get();
+            desc.displayName = Str(displayName);
+            desc.category = Str(category);
+            desc.hints = hints.data();
+            desc.hintCount = uint32_t(hints.size());
             detail::Check(detail::ScriptsApi().register_script(m_Ctx, &desc), "script '" + name + "'");
             detail::ScriptNames()[std::type_index(typeid(T))] = name;
             std::vector<std::string>& names = detail::ScriptFieldNames()[std::type_index(typeid(T))];

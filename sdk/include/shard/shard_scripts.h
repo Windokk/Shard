@@ -1,4 +1,4 @@
-/* Interface "shard.scripts" 1.2 : scripts, the components that carry a plugin's gameplay code.
+/* Interface "shard.scripts" 1.3 : scripts, the components that carry a plugin's gameplay code.
  *
  * A script is an object of the plugin (a C++ class in the SDK) that lives on an actor, as the engine's own Script components do. The host
  * owns its memory and calls it back : it is created with the component, receives the callbacks of the actor's life and of the frame
@@ -122,6 +122,12 @@ typedef struct ShardScriptDesc {
     uint32_t collision_kinds;               /* SHARD_COLLISION_* : the kinds of event the host subscribes the script to, among the ones it has a callback for.
                                              * A descriptor without this field (older) gets all of them. 0 : none, nothing is produced for the script. */
     uint32_t reserved2;
+    /* ---- 1.3 ---- */
+    ShardStr displayName;                   /* what the editor shows instead of the registered name ("Animator 3D") ; empty : the name */
+    const ShardFieldHint* hints;            /* optional : see shard_components.h. Read during the call only. */
+    uint32_t hintCount;
+    uint32_t reserved3;
+    ShardStr category;                      /* where "Add Component" files the script : "Rendering/Post Process" (submenus by '/') ; empty : under "Scripts" */
 } ShardScriptDesc;
 
 typedef struct ShardScriptsApi {

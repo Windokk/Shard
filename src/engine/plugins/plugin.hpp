@@ -131,6 +131,22 @@ namespace Shard::Engine::Plugins {
         std::string bytes;
     };
 
+    struct EditorActorTemplateItem {
+        std::string path;
+        std::vector<std::string> components;
+    };
+
+    struct EditorAssetActionItem {
+        std::string extension;
+        std::string label;
+        std::function<void(const std::string& pathInProject)> run;
+    };
+
+    struct EditorActorActionItem {
+        std::string label;
+        std::function<void(const std::vector<std::shared_ptr<Objects::Actor>>& actors)> run;
+    };
+
     struct EditorGizmoItem {
         std::string name;
         std::function<void(const ShardGizmoApi* gizmo, uint64_t actor)> draw;

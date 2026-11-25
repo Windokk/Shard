@@ -99,9 +99,13 @@ namespace Shard::Engine::Plugins {
         std::string name;
         std::string type;
         nlohmann::json defaultValue;
+        std::string assets;
+        bool list = false;
     };
     struct DeclaredComponent {
         std::string name;
+        std::string displayName;
+        std::string category;
         std::vector<DeclaredField> fields;
     };
     Core::Result<DeclaredComponent> ParseDeclaredComponent(const nlohmann::json& json);

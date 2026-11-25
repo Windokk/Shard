@@ -388,6 +388,28 @@ namespace Shard::Editor::GUI {
         }
     }
 
+    void DrawPathEntries(const std::vector<PathEntry>& entries)
+    {
+        std::vector<std::string> submenus;
+        for (const PathEntry& entry : entries) {
+            const auto [head, rest] = SplitPath(entry.path);
+            if (!rest.empty() && std::find(submenus.begin(), submenus.end(), head) == submenus.end()) submenus.push_back(head);
+        }
+        std::sort(submenus.begin(), submenus.end());
+        for (const std::string& submenu : submenus) {
+            if (!ImGui::BeginMenu(submenu.c_str())) continue;
+            std::vector<PathEntry> inside;
+            for (const PathEntry& entry : entries) {
+                const auto [head, rest] = SplitPath(entry.path);
+                if (head == submenu && !rest.empty()) inside.push_back({ rest, entry.run });
+            }
+            DrawPathEntries(inside);
+            ImGui::EndMenu();
+        }
+        for (const PathEntry& entry : entries)
+            if (entry.path.find('/') == std::string::npos && ImGui::MenuItem(entry.path.c_str()) && entry.run) entry.run();
+    }
+
     void DrawPluginMenuItems(const char* menu, bool separator)
     {
         std::vector<MenuEntry> entries;

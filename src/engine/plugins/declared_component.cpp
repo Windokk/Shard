@@ -105,6 +105,8 @@ namespace Shard::Engine::Plugins {
 
         auto type = std::shared_ptr<DeclaredComponentType>(new DeclaredComponentType());
         type->m_Descriptor.name = declaration.name;
+        type->m_Descriptor.displayName = declaration.displayName;
+        type->m_Descriptor.category = declaration.category;
         type->m_Declared = declaration.fields;
         type->m_StorageBase = StorageOffset();
 
@@ -130,6 +132,10 @@ namespace Shard::Engine::Plugins {
             info.max = 0.0f;
             info.tooltip = nullptr;
             FillFor(info);
+            if (!declared.assets.empty()) {
+                info.assetFilter = type->m_Declared[&declared - declaration.fields.data()].assets.c_str();
+                if (declared.list) info.flags |= AssetList;
+            }
             type->m_FieldInfos.push_back(info);
             cursor += layout.size;
         }

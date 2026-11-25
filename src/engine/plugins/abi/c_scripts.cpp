@@ -383,6 +383,9 @@ namespace Shard::Engine::Plugins::CAbi {
                 else { storageOffset = CScriptComponent<16384>::StorageOffset(); make = &MakeComponent<16384>; }
                 std::string why;
                 if (!BuildFieldSet(*type, full, desc->fields, desc->fieldCount, desc->size, storageOffset, CScriptBase::TextOffset(), true, why)) return refuse(why);
+                if (desc->structSize >= offsetof(ShardScriptDesc, hintCount) + sizeof(uint32_t) && !ApplyFieldHints(*type, desc->hints, desc->hintCount, why)) return refuse(why);
+                if (desc->structSize >= offsetof(ShardScriptDesc, displayName) + sizeof(ShardStr)) type->descriptor.displayName = ToString(desc->displayName);
+                if (desc->structSize >= offsetof(ShardScriptDesc, category) + sizeof(ShardStr)) type->descriptor.category = ToString(desc->category);
                 for (const CField& f : type->fields)
                     if (f.accessor && (!type->cb.text_get || !type->cb.text_set)) return refuse("'" + full + "' : the field '" + f.name + "' is an accessor string, the script needs text_get and text_set");
 

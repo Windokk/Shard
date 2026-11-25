@@ -45,14 +45,14 @@ namespace Shard::Engine::Plugins::Wasm {
         { "shard.plugin", "plugin", 2, Permission::None },
         { "shard.commands", "commands", 1, Permission::None },
         { "shard.cvars", "cvars", 0, Permission::None },
-        { "shard.components", "components", 4, Permission::None },
+        { "shard.components", "components", 5, Permission::None },
         { "shard.ecs", "ecs", 1, Permission::None },
         { "shard.systems", "systems", 0, Permission::None },
         { "shard.events", "events", 1, Permission::None },
         { "shard.content", "content", 0, Permission::FsReadContent },
         { "shard.state", "state", 0, Permission::None },
         { "shard.actors", "actors", 2, Permission::None },
-        { "shard.scripts", "scripts", 2, Permission::None },
+        { "shard.scripts", "scripts", 3, Permission::None },
         { "shard.input", "input", 1, Permission::Input },
         { "shard.physics", "physics", 1, Permission::Physics },
         { "shard.collision", "collision", 0, Permission::Physics },
@@ -60,10 +60,10 @@ namespace Shard::Engine::Plugins::Wasm {
         { "shard.worlds", "worlds", 2, Permission::None },
         { "shard.timers", "timers", 0, Permission::None },
         { "shard.time", "time", 0, Permission::None },
-        { "shard.assets", "assets", 0, Permission::FsReadProject },
+        { "shard.assets", "assets", 1, Permission::FsReadProject },
         { "shard.jobs", "jobs", 0, Permission::None },
         { "shard.debug", "debug", 0, Permission::None },
-        { "shard.editor", "editor", 2, Permission::Editor },
+        { "shard.editor", "editor", 3, Permission::Editor },
     };
 
     /// The native tables of the host, as the sandbox's imports call them (null where the host does not have the interface)
@@ -98,14 +98,14 @@ namespace Shard::Engine::Plugins::Wasm {
         apis.plugin = static_cast<const ShardPluginApi*>(query("shard.plugin", 2));
         apis.commands = static_cast<const ShardCommandsApi*>(query("shard.commands", 1));
         apis.cvars = static_cast<const ShardCVarsApi*>(query("shard.cvars", 0));
-        apis.components = static_cast<const ShardComponentsApi*>(query("shard.components", 4));
+        apis.components = static_cast<const ShardComponentsApi*>(query("shard.components", 5));
         apis.ecs = static_cast<const ShardEcsApi*>(query("shard.ecs", 1));
         apis.systems = static_cast<const ShardSystemsApi*>(query("shard.systems", 0));
         apis.events = static_cast<const ShardEventsApi*>(query("shard.events", 1));
         apis.content = static_cast<const ShardContentApi*>(query("shard.content", 0));
         apis.state = static_cast<const ShardStateApi*>(query("shard.state", 0));
         apis.actors = static_cast<const ShardActorsApi*>(query("shard.actors", 2));
-        apis.scripts = static_cast<const ShardScriptsApi*>(query("shard.scripts", 2));
+        apis.scripts = static_cast<const ShardScriptsApi*>(query("shard.scripts", 3));
         apis.input = static_cast<const ShardInputApi*>(query("shard.input", 1));
         apis.physics = static_cast<const ShardPhysicsApi*>(query("shard.physics", 1));
         apis.collision = static_cast<const ShardCollisionApi*>(query("shard.collision", 0));
@@ -113,10 +113,10 @@ namespace Shard::Engine::Plugins::Wasm {
         apis.worlds = static_cast<const ShardWorldsApi*>(query("shard.worlds", 2));
         apis.timers = static_cast<const ShardTimersApi*>(query("shard.timers", 0));
         apis.time = static_cast<const ShardTimeApi*>(query("shard.time", 0));
-        apis.assets = static_cast<const ShardAssetsApi*>(query("shard.assets", 0));
+        apis.assets = static_cast<const ShardAssetsApi*>(query("shard.assets", 1));
         apis.jobs = static_cast<const ShardJobsApi*>(query("shard.jobs", 0));
         apis.debug = static_cast<const ShardDebugApi*>(query("shard.debug", 0));
-        apis.editor = static_cast<const ShardEditorApi*>(query("shard.editor", 2));
+        apis.editor = static_cast<const ShardEditorApi*>(query("shard.editor", 3));
         return apis;
     }
 
@@ -158,6 +158,13 @@ namespace Shard::Engine::Plugins::Wasm {
             inline constexpr uint32_t o_set_float = 44;
             inline constexpr uint32_t o_set_string = 48;
         }
+        namespace ShardFieldHint {
+            inline constexpr uint32_t kSize = 40, kAlign = 8;
+            inline constexpr uint32_t o_structSize = 0;
+            inline constexpr uint32_t o_flags = 4;
+            inline constexpr uint32_t o_field = 8;
+            inline constexpr uint32_t o_assets = 24;
+        }
         namespace ShardFieldDesc {
             inline constexpr uint32_t kSize = 56, kAlign = 8;
             inline constexpr uint32_t o_structSize = 0;
@@ -179,7 +186,7 @@ namespace Shard::Engine::Plugins::Wasm {
             inline constexpr uint32_t o_user = 20;
         }
         namespace ShardComponentDesc {
-            inline constexpr uint32_t kSize = 48, kAlign = 8;
+            inline constexpr uint32_t kSize = 88, kAlign = 8;
             inline constexpr uint32_t o_structSize = 0;
             inline constexpr uint32_t o_size = 4;
             inline constexpr uint32_t o_align = 8;
@@ -188,6 +195,11 @@ namespace Shard::Engine::Plugins::Wasm {
             inline constexpr uint32_t o_fields = 32;
             inline constexpr uint32_t o_defaults = 36;
             inline constexpr uint32_t o_callbacks = 40;
+            inline constexpr uint32_t o_hints = 44;
+            inline constexpr uint32_t o_hintCount = 48;
+            inline constexpr uint32_t o_reserved = 52;
+            inline constexpr uint32_t o_displayName = 56;
+            inline constexpr uint32_t o_category = 72;
         }
         namespace ShardComponentsApi {
             inline constexpr uint32_t kSize = 52, kAlign = 4;
@@ -381,7 +393,7 @@ namespace Shard::Engine::Plugins::Wasm {
             inline constexpr uint32_t o_on_hit = 96;
         }
         namespace ShardScriptDesc {
-            inline constexpr uint32_t kSize = 64, kAlign = 8;
+            inline constexpr uint32_t kSize = 112, kAlign = 8;
             inline constexpr uint32_t o_structSize = 0;
             inline constexpr uint32_t o_size = 4;
             inline constexpr uint32_t o_align = 8;
@@ -394,6 +406,11 @@ namespace Shard::Engine::Plugins::Wasm {
             inline constexpr uint32_t o_reserved = 48;
             inline constexpr uint32_t o_collision_kinds = 52;
             inline constexpr uint32_t o_reserved2 = 56;
+            inline constexpr uint32_t o_displayName = 64;
+            inline constexpr uint32_t o_hints = 80;
+            inline constexpr uint32_t o_hintCount = 84;
+            inline constexpr uint32_t o_reserved3 = 88;
+            inline constexpr uint32_t o_category = 96;
         }
         namespace ShardScriptsApi {
             inline constexpr uint32_t kSize = 16, kAlign = 4;
@@ -655,8 +672,31 @@ namespace Shard::Engine::Plugins::Wasm {
             inline constexpr uint32_t o_indices = 40;
             inline constexpr uint32_t o_slices = 44;
         }
-        namespace ShardAssetsApi {
+        namespace ShardSkinNode {
+            inline constexpr uint32_t kSize = 172, kAlign = 4;
+            inline constexpr uint32_t o_name = 0;
+            inline constexpr uint32_t o_parent = 128;
+            inline constexpr uint32_t o_translation = 132;
+            inline constexpr uint32_t o_rotation = 144;
+            inline constexpr uint32_t o_scale = 160;
+        }
+        namespace ShardSkinRead {
             inline constexpr uint32_t kSize = 48, kAlign = 4;
+            inline constexpr uint32_t o_structSize = 0;
+            inline constexpr uint32_t o_vertexCapacity = 4;
+            inline constexpr uint32_t o_nodeCapacity = 8;
+            inline constexpr uint32_t o_jointCapacity = 12;
+            inline constexpr uint32_t o_vertexCount = 16;
+            inline constexpr uint32_t o_nodeCount = 20;
+            inline constexpr uint32_t o_jointCount = 24;
+            inline constexpr uint32_t o_joints = 28;
+            inline constexpr uint32_t o_weights = 32;
+            inline constexpr uint32_t o_nodes = 36;
+            inline constexpr uint32_t o_jointNodes = 40;
+            inline constexpr uint32_t o_inverseBind = 44;
+        }
+        namespace ShardAssetsApi {
+            inline constexpr uint32_t kSize = 52, kAlign = 4;
             inline constexpr uint32_t o_structSize = 0;
             inline constexpr uint32_t o_resolve = 4;
             inline constexpr uint32_t o_info = 8;
@@ -669,6 +709,7 @@ namespace Shard::Engine::Plugins::Wasm {
             inline constexpr uint32_t o_mesh_read = 36;
             inline constexpr uint32_t o_image_info = 40;
             inline constexpr uint32_t o_image_read = 44;
+            inline constexpr uint32_t o_mesh_skin_read = 48;
         }
         namespace ShardJobsApi {
             inline constexpr uint32_t kSize = 36, kAlign = 4;
@@ -832,7 +873,7 @@ namespace Shard::Engine::Plugins::Wasm {
             inline constexpr uint32_t o_text = 28;
         }
         namespace ShardEditorApi {
-            inline constexpr uint32_t kSize = 52, kAlign = 4;
+            inline constexpr uint32_t kSize = 64, kAlign = 4;
             inline constexpr uint32_t o_structSize = 0;
             inline constexpr uint32_t o_add_panel = 4;
             inline constexpr uint32_t o_add_menu_item = 8;
@@ -846,6 +887,9 @@ namespace Shard::Engine::Plugins::Wasm {
             inline constexpr uint32_t o_undo_push = 40;
             inline constexpr uint32_t o_add_asset_opener = 44;
             inline constexpr uint32_t o_add_asset_template = 48;
+            inline constexpr uint32_t o_add_actor_template = 52;
+            inline constexpr uint32_t o_add_asset_action = 56;
+            inline constexpr uint32_t o_add_actor_action = 60;
         }
         namespace ShardStr {
             inline constexpr uint32_t kSize = 16, kAlign = 8;

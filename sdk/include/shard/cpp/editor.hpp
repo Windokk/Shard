@@ -455,14 +455,45 @@ namespace Shard {
                 Guarded("an asset opener", [&] { (*static_cast<std::function<void(std::string_view)>*>(user))(View(path)); });
             }, kept) == SHARD_OK;
         }
-        /// An entry of the content browser Create menu that writes a new file with these bytes
+        /// An entry of the content browser Create menu that writes a new file with these bytes. `label` may hold '/' : "Rendering/Post Profile" is
+        /// the entry "Post Profile" of the submenu "Rendering".
         bool AddAssetTemplate(const std::string& label, const std::string& defaultName, const std::string& bytes) const
         {
             const ShardEditorApi* api = Api12();
             return api && api->add_asset_template && api->add_asset_template(m_Ctx, Str(label), Str(defaultName), bytes.data(), bytes.size()) == SHARD_OK;
         }
 
+        /// An entry of the world tree's Create menus ("Post Process/Volume") that makes an actor named after the last part, with these components
+        /// (registered names). False : the editor is older.
+        bool AddActorTemplate(const std::string& path, const std::vector<std::string>& components) const
+        {
+            const ShardEditorApi* api = Api13();
+            if (!api || !api->add_actor_template) return false;
+            std::vector<ShardStr> types;
+            for (const std::string& type : components) types.push_back(Str(type));
+            return api->add_actor_template(m_Ctx, Str(path), types.data(), uint32_t(types.size())) == SHARD_OK;
+        }
+        /// An entry ("Bake/Rebuild", '/' = submenus) of the content browser's context menu for a single asset of that extension
+        bool AddAssetAction(const std::string& extension, const std::string& label, std::function<void(std::string_view path)> run) const
+        {
+            const ShardEditorApi* api = Api13();
+            if (!api || !api->add_asset_action) return false;
+            auto* kept = detail::Keep(std::move(run));
+            return api->add_asset_action(m_Ctx, Str(extension), Str(label), [](void* user, ShardStr path) {
+                Guarded("an asset action", [&] { (*static_cast<std::function<void(std::string_view)>*>(user))(View(path)); });
+            }, kept) == SHARD_OK;
+        }
+        /// An entry of the world tree's context menu ('/' = submenus) : `run` gets the selected actors
+        bool AddActorAction(const std::string& label, SelectionFn run) const
+        {
+            const ShardEditorApi* api = Api13();
+            if (!api || !api->add_actor_action) return false;
+            SelectionFn* kept = detail::Keep(std::move(run));
+            return api->add_actor_action(m_Ctx, Str(label), &Selection, kept) == SHARD_OK;
+        }
+
     private:
+        static const ShardEditorApi* Api13() { return detail::Interface<ShardEditorApi>(SHARD_IFACE_EDITOR, 3); }
         static const ShardEditorApi* Api11() { return detail::Interface<ShardEditorApi>(SHARD_IFACE_EDITOR, 1); }
         static const ShardEditorApi* Api12() { return detail::Interface<ShardEditorApi>(SHARD_IFACE_EDITOR, 2); }
 

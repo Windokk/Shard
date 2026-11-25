@@ -1,4 +1,4 @@
-/* Interface "shard.components" 1.4 : component types described field by field.
+/* Interface "shard.components" 1.5 : component types described field by field.
  *
  * One registration gives a type two faces, under one name ("<plugin id>.<name>", made by the host) :
  *   - an ECS component : a block of `size` bytes on an entity, what systems query and write (shard_ecs.h). Plain data : copied with memcpy,
@@ -65,6 +65,18 @@ typedef uint64_t ShardBlob;             /* 0 is never valid : an empty blob fiel
 #define SHARD_FIELD_ACCESSOR    4u  /* a SHARD_FIELD_STRING of a script that is not a handle : the plugin's own string at that offset, read and written
                                      * by the script's text_get and text_set callbacks (shard_scripts.h) instead of a blob (1.5) */
 
+#define SHARD_HINT_ASSET_LIST   1u  /* ShardFieldHint::flags : the text is a list of files, separated by ';' (1.5) */
+
+/* What the inspector accepts in a SHARD_FIELD_STRING (1.5) : the files of the project dropped on it, by name. `assets` lists the extensions it takes,
+ * separated by ';' (".fbx;.glb") ; a project file with another extension is refused. With SHARD_HINT_ASSET_LIST a drop is added to the list, else
+ * it replaces the text. Hints go with the description of the type, next to the fields they are about. */
+typedef struct ShardFieldHint {
+    uint32_t structSize;
+    uint32_t flags;         /* SHARD_HINT_* */
+    ShardStr field;         /* a SHARD_FIELD_STRING of the type */
+    ShardStr assets;
+} ShardFieldHint;
+
 typedef struct ShardFieldDesc {
     uint32_t structSize;
     uint32_t type;          /* SHARD_FIELD_* */
@@ -106,6 +118,12 @@ typedef struct ShardComponentDesc {
     const void* defaults;           /* `size` bytes : the value of a new component. NULL : zeroes. Read during the call only. */
     /* ---- 1.4 ---- */
     const ShardComponentCallbacks* callbacks;   /* optional, copied up to its structSize during the call */
+    /* ---- 1.5 ---- */
+    const ShardFieldHint* hints;                /* optional, read during the call only */
+    uint32_t hintCount;
+    uint32_t reserved;
+    ShardStr displayName;                       /* what the editor shows instead of the name ; empty : the name */
+    ShardStr category;                          /* where "Add Component" files the type : "Rendering/Post Process" ; empty : under "Scripts" */
 } ShardComponentDesc;
 
 #define SHARD_COMPONENT_MAX_SIZE    1024u

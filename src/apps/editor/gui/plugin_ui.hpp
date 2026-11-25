@@ -1,5 +1,6 @@
 #pragma once
 
+#include <functional>
 #include <memory>
 #include <string>
 #include <vector>
@@ -14,6 +15,13 @@ namespace Shard::Editor::GUI {
 
     void InstallPluginUi(Core::EditorMainWindow* window);
     void RemovePluginUi();
+
+    struct PathEntry {
+        std::string path;
+        std::function<void()> run;
+    };
+    /// The entries of a menu, grouped in submenus by the '/' of their path
+    void DrawPathEntries(const std::vector<PathEntry>& entries);
 
     void DrawPluginMenuItems(const char* menu, bool separator = true);
     std::vector<std::string> PluginMenuNames();

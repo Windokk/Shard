@@ -34,6 +34,7 @@ namespace Shard::Engine::Plugins::CAbi {
         std::deque<CField> fields;
         ClassDescriptor descriptor;
         std::deque<FieldInfo> infos;
+        std::deque<std::string> filters;
         std::vector<const CField*> blobs;
         std::vector<const CField*> texts;
     };
@@ -49,6 +50,8 @@ namespace Shard::Engine::Plugins::CAbi {
     };
 
     bool BuildFieldSet(FieldSet& out, const std::string& full, const ShardFieldDesc* fields, uint32_t count, uint32_t size, size_t storageBase, size_t textBase, bool script, std::string& why);
+
+    bool ApplyFieldHints(FieldSet& set, const ShardFieldHint* hints, uint32_t count, std::string& why);
 
     void ZeroHandleFields(const FieldSet& set, unsigned char* storage);
 

@@ -278,6 +278,7 @@ SHARD_WASM_IMPORT("assets.mesh_info") ShardResult shard_wasm_assets_mesh_info(in
 SHARD_WASM_IMPORT("assets.mesh_read") ShardResult shard_wasm_assets_mesh_read(int32_t id, ShardMeshRead* io);
 SHARD_WASM_IMPORT("assets.image_info") ShardResult shard_wasm_assets_image_info(int32_t id, uint32_t* width, uint32_t* height);
 SHARD_WASM_IMPORT("assets.image_read") ShardResult shard_wasm_assets_image_read(int32_t id, uint8_t* out, uint64_t capacity, uint64_t* size);
+SHARD_WASM_IMPORT("assets.mesh_skin_read") ShardResult shard_wasm_assets_mesh_skin_read(int32_t id, ShardSkinRead* io);
 
 /* ---- shard.jobs ---- */
 SHARD_WASM_IMPORT("jobs.worker_count") uint32_t shard_wasm_jobs_worker_count(void);
@@ -318,6 +319,9 @@ SHARD_WASM_IMPORT("editor.set_panel_visible") ShardResult shard_wasm_editor_set_
 SHARD_WASM_IMPORT("editor.undo_push") ShardResult shard_wasm_editor_undo_push(ShardPluginCtx ctx, ShardStr label, ShardUndoFn undo, ShardUndoFn redo, void* user);
 SHARD_WASM_IMPORT("editor.add_asset_opener") ShardResult shard_wasm_editor_add_asset_opener(ShardPluginCtx ctx, ShardStr extension, ShardOpenAssetFn open, void* user);
 SHARD_WASM_IMPORT("editor.add_asset_template") ShardResult shard_wasm_editor_add_asset_template(ShardPluginCtx ctx, ShardStr label, ShardStr default_name, const void* data, uint64_t size);
+SHARD_WASM_IMPORT("editor.add_actor_template") ShardResult shard_wasm_editor_add_actor_template(ShardPluginCtx ctx, ShardStr path, const ShardStr* components, uint32_t count);
+SHARD_WASM_IMPORT("editor.add_asset_action") ShardResult shard_wasm_editor_add_asset_action(ShardPluginCtx ctx, ShardStr extension, ShardStr label, ShardAssetActionFn run, void* user);
+SHARD_WASM_IMPORT("editor.add_actor_action") ShardResult shard_wasm_editor_add_actor_action(ShardPluginCtx ctx, ShardStr label, ShardActorActionFn run, void* user);
 
 /* ---- shard.ui ---- */
 SHARD_WASM_IMPORT("ui.text") void shard_wasm_ui_text(ShardStr text);
@@ -698,6 +702,7 @@ static const ShardAssetsApi shard_wasm_api_assets = {
     shard_wasm_assets_mesh_read,
     shard_wasm_assets_image_info,
     shard_wasm_assets_image_read,
+    shard_wasm_assets_mesh_skin_read,
 };
 static const ShardJobsApi shard_wasm_api_jobs = {
     sizeof(ShardJobsApi),
@@ -741,6 +746,9 @@ static const ShardEditorApi shard_wasm_api_editor = {
     shard_wasm_editor_undo_push,
     shard_wasm_editor_add_asset_opener,
     shard_wasm_editor_add_asset_template,
+    shard_wasm_editor_add_actor_template,
+    shard_wasm_editor_add_asset_action,
+    shard_wasm_editor_add_actor_action,
 };
 
 typedef struct ShardWasmInterface {
@@ -983,6 +991,11 @@ SHARD_WASM_ASSERT(offsetof(ShardCVarsApi, set_bool) == 36, "ShardCVarsApi.set_bo
 SHARD_WASM_ASSERT(offsetof(ShardCVarsApi, set_int) == 40, "ShardCVarsApi.set_int");
 SHARD_WASM_ASSERT(offsetof(ShardCVarsApi, set_float) == 44, "ShardCVarsApi.set_float");
 SHARD_WASM_ASSERT(offsetof(ShardCVarsApi, set_string) == 48, "ShardCVarsApi.set_string");
+SHARD_WASM_ASSERT(sizeof(ShardFieldHint) == 40 && _Alignof(ShardFieldHint) == 8, "ShardFieldHint");
+SHARD_WASM_ASSERT(offsetof(ShardFieldHint, structSize) == 0, "ShardFieldHint.structSize");
+SHARD_WASM_ASSERT(offsetof(ShardFieldHint, flags) == 4, "ShardFieldHint.flags");
+SHARD_WASM_ASSERT(offsetof(ShardFieldHint, field) == 8, "ShardFieldHint.field");
+SHARD_WASM_ASSERT(offsetof(ShardFieldHint, assets) == 24, "ShardFieldHint.assets");
 SHARD_WASM_ASSERT(sizeof(ShardFieldDesc) == 56 && _Alignof(ShardFieldDesc) == 8, "ShardFieldDesc");
 SHARD_WASM_ASSERT(offsetof(ShardFieldDesc, structSize) == 0, "ShardFieldDesc.structSize");
 SHARD_WASM_ASSERT(offsetof(ShardFieldDesc, type) == 4, "ShardFieldDesc.type");
@@ -999,7 +1012,7 @@ SHARD_WASM_ASSERT(offsetof(ShardComponentCallbacks, on_added) == 8, "ShardCompon
 SHARD_WASM_ASSERT(offsetof(ShardComponentCallbacks, on_removed) == 12, "ShardComponentCallbacks.on_removed");
 SHARD_WASM_ASSERT(offsetof(ShardComponentCallbacks, on_changed) == 16, "ShardComponentCallbacks.on_changed");
 SHARD_WASM_ASSERT(offsetof(ShardComponentCallbacks, user) == 20, "ShardComponentCallbacks.user");
-SHARD_WASM_ASSERT(sizeof(ShardComponentDesc) == 48 && _Alignof(ShardComponentDesc) == 8, "ShardComponentDesc");
+SHARD_WASM_ASSERT(sizeof(ShardComponentDesc) == 88 && _Alignof(ShardComponentDesc) == 8, "ShardComponentDesc");
 SHARD_WASM_ASSERT(offsetof(ShardComponentDesc, structSize) == 0, "ShardComponentDesc.structSize");
 SHARD_WASM_ASSERT(offsetof(ShardComponentDesc, size) == 4, "ShardComponentDesc.size");
 SHARD_WASM_ASSERT(offsetof(ShardComponentDesc, align) == 8, "ShardComponentDesc.align");
@@ -1008,6 +1021,11 @@ SHARD_WASM_ASSERT(offsetof(ShardComponentDesc, name) == 16, "ShardComponentDesc.
 SHARD_WASM_ASSERT(offsetof(ShardComponentDesc, fields) == 32, "ShardComponentDesc.fields");
 SHARD_WASM_ASSERT(offsetof(ShardComponentDesc, defaults) == 36, "ShardComponentDesc.defaults");
 SHARD_WASM_ASSERT(offsetof(ShardComponentDesc, callbacks) == 40, "ShardComponentDesc.callbacks");
+SHARD_WASM_ASSERT(offsetof(ShardComponentDesc, hints) == 44, "ShardComponentDesc.hints");
+SHARD_WASM_ASSERT(offsetof(ShardComponentDesc, hintCount) == 48, "ShardComponentDesc.hintCount");
+SHARD_WASM_ASSERT(offsetof(ShardComponentDesc, reserved) == 52, "ShardComponentDesc.reserved");
+SHARD_WASM_ASSERT(offsetof(ShardComponentDesc, displayName) == 56, "ShardComponentDesc.displayName");
+SHARD_WASM_ASSERT(offsetof(ShardComponentDesc, category) == 72, "ShardComponentDesc.category");
 SHARD_WASM_ASSERT(sizeof(ShardComponentsApi) == 52 && _Alignof(ShardComponentsApi) == 4, "ShardComponentsApi");
 SHARD_WASM_ASSERT(offsetof(ShardComponentsApi, structSize) == 0, "ShardComponentsApi.structSize");
 SHARD_WASM_ASSERT(offsetof(ShardComponentsApi, register_type) == 4, "ShardComponentsApi.register_type");
@@ -1169,7 +1187,7 @@ SHARD_WASM_ASSERT(offsetof(ShardScriptCallbacks, on_field_changed) == 84, "Shard
 SHARD_WASM_ASSERT(offsetof(ShardScriptCallbacks, on_overlap_begin) == 88, "ShardScriptCallbacks.on_overlap_begin");
 SHARD_WASM_ASSERT(offsetof(ShardScriptCallbacks, on_overlap_end) == 92, "ShardScriptCallbacks.on_overlap_end");
 SHARD_WASM_ASSERT(offsetof(ShardScriptCallbacks, on_hit) == 96, "ShardScriptCallbacks.on_hit");
-SHARD_WASM_ASSERT(sizeof(ShardScriptDesc) == 64 && _Alignof(ShardScriptDesc) == 8, "ShardScriptDesc");
+SHARD_WASM_ASSERT(sizeof(ShardScriptDesc) == 112 && _Alignof(ShardScriptDesc) == 8, "ShardScriptDesc");
 SHARD_WASM_ASSERT(offsetof(ShardScriptDesc, structSize) == 0, "ShardScriptDesc.structSize");
 SHARD_WASM_ASSERT(offsetof(ShardScriptDesc, size) == 4, "ShardScriptDesc.size");
 SHARD_WASM_ASSERT(offsetof(ShardScriptDesc, align) == 8, "ShardScriptDesc.align");
@@ -1182,6 +1200,11 @@ SHARD_WASM_ASSERT(offsetof(ShardScriptDesc, flags) == 44, "ShardScriptDesc.flags
 SHARD_WASM_ASSERT(offsetof(ShardScriptDesc, reserved) == 48, "ShardScriptDesc.reserved");
 SHARD_WASM_ASSERT(offsetof(ShardScriptDesc, collision_kinds) == 52, "ShardScriptDesc.collision_kinds");
 SHARD_WASM_ASSERT(offsetof(ShardScriptDesc, reserved2) == 56, "ShardScriptDesc.reserved2");
+SHARD_WASM_ASSERT(offsetof(ShardScriptDesc, displayName) == 64, "ShardScriptDesc.displayName");
+SHARD_WASM_ASSERT(offsetof(ShardScriptDesc, hints) == 80, "ShardScriptDesc.hints");
+SHARD_WASM_ASSERT(offsetof(ShardScriptDesc, hintCount) == 84, "ShardScriptDesc.hintCount");
+SHARD_WASM_ASSERT(offsetof(ShardScriptDesc, reserved3) == 88, "ShardScriptDesc.reserved3");
+SHARD_WASM_ASSERT(offsetof(ShardScriptDesc, category) == 96, "ShardScriptDesc.category");
 SHARD_WASM_ASSERT(sizeof(ShardScriptsApi) == 16 && _Alignof(ShardScriptsApi) == 4, "ShardScriptsApi");
 SHARD_WASM_ASSERT(offsetof(ShardScriptsApi, structSize) == 0, "ShardScriptsApi.structSize");
 SHARD_WASM_ASSERT(offsetof(ShardScriptsApi, register_script) == 4, "ShardScriptsApi.register_script");
@@ -1402,7 +1425,26 @@ SHARD_WASM_ASSERT(offsetof(ShardMeshRead, normals) == 32, "ShardMeshRead.normals
 SHARD_WASM_ASSERT(offsetof(ShardMeshRead, uvs) == 36, "ShardMeshRead.uvs");
 SHARD_WASM_ASSERT(offsetof(ShardMeshRead, indices) == 40, "ShardMeshRead.indices");
 SHARD_WASM_ASSERT(offsetof(ShardMeshRead, slices) == 44, "ShardMeshRead.slices");
-SHARD_WASM_ASSERT(sizeof(ShardAssetsApi) == 48 && _Alignof(ShardAssetsApi) == 4, "ShardAssetsApi");
+SHARD_WASM_ASSERT(sizeof(ShardSkinNode) == 172 && _Alignof(ShardSkinNode) == 4, "ShardSkinNode");
+SHARD_WASM_ASSERT(offsetof(ShardSkinNode, name) == 0, "ShardSkinNode.name");
+SHARD_WASM_ASSERT(offsetof(ShardSkinNode, parent) == 128, "ShardSkinNode.parent");
+SHARD_WASM_ASSERT(offsetof(ShardSkinNode, translation) == 132, "ShardSkinNode.translation");
+SHARD_WASM_ASSERT(offsetof(ShardSkinNode, rotation) == 144, "ShardSkinNode.rotation");
+SHARD_WASM_ASSERT(offsetof(ShardSkinNode, scale) == 160, "ShardSkinNode.scale");
+SHARD_WASM_ASSERT(sizeof(ShardSkinRead) == 48 && _Alignof(ShardSkinRead) == 4, "ShardSkinRead");
+SHARD_WASM_ASSERT(offsetof(ShardSkinRead, structSize) == 0, "ShardSkinRead.structSize");
+SHARD_WASM_ASSERT(offsetof(ShardSkinRead, vertexCapacity) == 4, "ShardSkinRead.vertexCapacity");
+SHARD_WASM_ASSERT(offsetof(ShardSkinRead, nodeCapacity) == 8, "ShardSkinRead.nodeCapacity");
+SHARD_WASM_ASSERT(offsetof(ShardSkinRead, jointCapacity) == 12, "ShardSkinRead.jointCapacity");
+SHARD_WASM_ASSERT(offsetof(ShardSkinRead, vertexCount) == 16, "ShardSkinRead.vertexCount");
+SHARD_WASM_ASSERT(offsetof(ShardSkinRead, nodeCount) == 20, "ShardSkinRead.nodeCount");
+SHARD_WASM_ASSERT(offsetof(ShardSkinRead, jointCount) == 24, "ShardSkinRead.jointCount");
+SHARD_WASM_ASSERT(offsetof(ShardSkinRead, joints) == 28, "ShardSkinRead.joints");
+SHARD_WASM_ASSERT(offsetof(ShardSkinRead, weights) == 32, "ShardSkinRead.weights");
+SHARD_WASM_ASSERT(offsetof(ShardSkinRead, nodes) == 36, "ShardSkinRead.nodes");
+SHARD_WASM_ASSERT(offsetof(ShardSkinRead, jointNodes) == 40, "ShardSkinRead.jointNodes");
+SHARD_WASM_ASSERT(offsetof(ShardSkinRead, inverseBind) == 44, "ShardSkinRead.inverseBind");
+SHARD_WASM_ASSERT(sizeof(ShardAssetsApi) == 52 && _Alignof(ShardAssetsApi) == 4, "ShardAssetsApi");
 SHARD_WASM_ASSERT(offsetof(ShardAssetsApi, structSize) == 0, "ShardAssetsApi.structSize");
 SHARD_WASM_ASSERT(offsetof(ShardAssetsApi, resolve) == 4, "ShardAssetsApi.resolve");
 SHARD_WASM_ASSERT(offsetof(ShardAssetsApi, info) == 8, "ShardAssetsApi.info");
@@ -1415,6 +1457,7 @@ SHARD_WASM_ASSERT(offsetof(ShardAssetsApi, mesh_info) == 32, "ShardAssetsApi.mes
 SHARD_WASM_ASSERT(offsetof(ShardAssetsApi, mesh_read) == 36, "ShardAssetsApi.mesh_read");
 SHARD_WASM_ASSERT(offsetof(ShardAssetsApi, image_info) == 40, "ShardAssetsApi.image_info");
 SHARD_WASM_ASSERT(offsetof(ShardAssetsApi, image_read) == 44, "ShardAssetsApi.image_read");
+SHARD_WASM_ASSERT(offsetof(ShardAssetsApi, mesh_skin_read) == 48, "ShardAssetsApi.mesh_skin_read");
 SHARD_WASM_ASSERT(sizeof(ShardJobsApi) == 36 && _Alignof(ShardJobsApi) == 4, "ShardJobsApi");
 SHARD_WASM_ASSERT(offsetof(ShardJobsApi, structSize) == 0, "ShardJobsApi.structSize");
 SHARD_WASM_ASSERT(offsetof(ShardJobsApi, worker_count) == 4, "ShardJobsApi.worker_count");
@@ -1568,7 +1611,7 @@ SHARD_WASM_ASSERT(offsetof(ShardGizmoApi, sphere) == 16, "ShardGizmoApi.sphere")
 SHARD_WASM_ASSERT(offsetof(ShardGizmoApi, box) == 20, "ShardGizmoApi.box");
 SHARD_WASM_ASSERT(offsetof(ShardGizmoApi, arrow) == 24, "ShardGizmoApi.arrow");
 SHARD_WASM_ASSERT(offsetof(ShardGizmoApi, text) == 28, "ShardGizmoApi.text");
-SHARD_WASM_ASSERT(sizeof(ShardEditorApi) == 52 && _Alignof(ShardEditorApi) == 4, "ShardEditorApi");
+SHARD_WASM_ASSERT(sizeof(ShardEditorApi) == 64 && _Alignof(ShardEditorApi) == 4, "ShardEditorApi");
 SHARD_WASM_ASSERT(offsetof(ShardEditorApi, structSize) == 0, "ShardEditorApi.structSize");
 SHARD_WASM_ASSERT(offsetof(ShardEditorApi, add_panel) == 4, "ShardEditorApi.add_panel");
 SHARD_WASM_ASSERT(offsetof(ShardEditorApi, add_menu_item) == 8, "ShardEditorApi.add_menu_item");
@@ -1582,6 +1625,9 @@ SHARD_WASM_ASSERT(offsetof(ShardEditorApi, set_panel_visible) == 36, "ShardEdito
 SHARD_WASM_ASSERT(offsetof(ShardEditorApi, undo_push) == 40, "ShardEditorApi.undo_push");
 SHARD_WASM_ASSERT(offsetof(ShardEditorApi, add_asset_opener) == 44, "ShardEditorApi.add_asset_opener");
 SHARD_WASM_ASSERT(offsetof(ShardEditorApi, add_asset_template) == 48, "ShardEditorApi.add_asset_template");
+SHARD_WASM_ASSERT(offsetof(ShardEditorApi, add_actor_template) == 52, "ShardEditorApi.add_actor_template");
+SHARD_WASM_ASSERT(offsetof(ShardEditorApi, add_asset_action) == 56, "ShardEditorApi.add_asset_action");
+SHARD_WASM_ASSERT(offsetof(ShardEditorApi, add_actor_action) == 60, "ShardEditorApi.add_actor_action");
 SHARD_WASM_ASSERT(sizeof(ShardStr) == 16 && _Alignof(ShardStr) == 8, "ShardStr");
 SHARD_WASM_ASSERT(offsetof(ShardStr, data) == 0, "ShardStr.data");
 SHARD_WASM_ASSERT(offsetof(ShardStr, size) == 8, "ShardStr.size");

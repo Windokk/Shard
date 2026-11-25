@@ -139,6 +139,9 @@ namespace Shard {
     };
 
     namespace detail {
+        /// `static constexpr const char* kDisplayName` / `kCategory` in a component struct : its name and its submenu in "Add Component"
+        template <typename T, typename = void> struct LookOf { static std::string DisplayName() { return {}; } static std::string Category() { return {}; } };
+        template <typename T> struct LookOf<T, std::void_t<decltype(T::kCategory), decltype(T::kDisplayName)>> { static std::string DisplayName() { return T::kDisplayName; } static std::string Category() { return T::kCategory; } };
         /// The ShardFieldDesc of the fields SHARD_COMPONENT lists for T ; their strings point into `sample` and `options`
         template <typename T, typename Traits = ComponentTraits<T>>
         std::vector<ShardFieldDesc> FieldsOf(const T& sample, std::initializer_list<FieldOptions> options = {})
@@ -212,7 +215,10 @@ namespace Shard {
             static_assert(alignof(T) <= 16, "a component is aligned on 16 bytes at most");
             const T sample{};
             const std::vector<ShardFieldDesc> fields = detail::FieldsOf<T>(sample, options);
+            const std::string displayName = detail::LookOf<T>::DisplayName(), category = detail::LookOf<T>::Category();
             ShardComponentDesc desc{};
+            desc.displayName = Str(displayName);
+            desc.category = Str(category);
             desc.structSize = sizeof(ShardComponentDesc);
             desc.size = uint32_t(sizeof(T));
             desc.align = uint32_t(alignof(T));

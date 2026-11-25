@@ -1,4 +1,4 @@
-/* Interface "shard.extensions" 1.0 : what a plugin adds to the engine's subsystems through their extension points. The C ABI offers the
+/* Interface "shard.extensions" 1.1 : what a plugin adds to the engine's subsystems through their extension points. The C ABI offers the
  * points whose items are only data and functions :
  *   "tool.validator"   a check the asset validator (ShardAssetValidator) runs on a project
  *   "asset.type"       a kind of asset : file extensions the project indexes, and the loader the resource cache calls
@@ -37,6 +37,18 @@ typedef struct ShardValidatorItem {
     void* user;
 } ShardValidatorItem;
 
+/* One flat shape of an asset type's icon, on a 24 x 24 grid, drawn in the type's accent colour. */
+#define SHARD_ICON_RECT  0u     /* v : x0, y0, x1, y1 */
+#define SHARD_ICON_DISC  1u     /* v : x, y, radius */
+#define SHARD_ICON_POLY  2u     /* v : up to 4 points x, y (convex), pointCount of them */
+
+typedef struct ShardIconShape {
+    uint32_t kind;              /* SHARD_ICON_* */
+    uint32_t pointCount;        /* SHARD_ICON_POLY : 3 or 4 */
+    float alpha;                /* 0..1 : 1 for what matters, about 0.5 for the rest */
+    float v[8];
+} ShardIconShape;
+
 typedef struct ShardAssetTypeItem {
     uint32_t structSize;
     uint32_t extensionCount;
@@ -47,6 +59,11 @@ typedef struct ShardAssetTypeItem {
     void* (SHARD_CALL *load)(void* user, ShardPluginCtx ctx, ShardStr path, ShardStr file);
     void  (SHARD_CALL *unload)(void* user, ShardPluginCtx ctx, void* resource);
     void* user;
+    /* ---- 1.11 : how the content browser shows the files of the type. All optional, a descriptor without them is shown as a plain file ---- */
+    ShardStr displayName;           /* "Post Profile" : what the browser calls the type. Empty : `name` */
+    uint32_t accent;                /* 0xRRGGBB : the colour of the icon and the label. 0 : a colour derived from `name` */
+    uint32_t iconCount;
+    const ShardIconShape* icon;     /* iconCount shapes, copied during the call. NULL : a generic file icon in the accent */
 } ShardAssetTypeItem;
 
 typedef struct ShardImporterItem {

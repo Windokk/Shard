@@ -161,12 +161,31 @@ namespace Shard::Editor::GUI {
             }
         }
 
+        void DrawLookIcon(const Canvas& c, const Engine::Filesystem::AssetLook& look)
+        {
+            using Kind = Engine::Filesystem::IconShape::Kind;
+            for (const Engine::Filesystem::IconShape& s : look.icon)
+            {
+                switch (s.kind)
+                {
+                    case Kind::Rect: c.Rect(s.v[0], s.v[1], s.v[2], s.v[3], s.alpha); break;
+                    case Kind::Disc: c.Disc(s.v[0], s.v[1], s.v[2], s.alpha); break;
+                    case Kind::Poly:
+                        if (s.pointCount == 3)
+                            c.Poly({{s.v[0], s.v[1]}, {s.v[2], s.v[3]}, {s.v[4], s.v[5]}}, s.alpha);
+                        else
+                            c.Poly({{s.v[0], s.v[1]}, {s.v[2], s.v[3]}, {s.v[4], s.v[5]}, {s.v[6], s.v[7]}}, s.alpha);
+                        break;
+                }
+            }
+        }
+
         bool WantsBadge(Type type)
         {
             switch (type)
             {
                 case Type::T_MODEL: case Type::T_IMAGE: case Type::T_SOUND: case Type::T_SCRIPT: case Type::T_SHADER:
-                case Type::T_COMPUTE_SHADER: case Type::T_FONT: case Type::T_CONFIG: case Type::T_TEXT:
+                case Type::T_COMPUTE_SHADER: case Type::T_FONT: case Type::T_CONFIG: case Type::T_TEXT: case Type::T_CUSTOM:
                     return true;
                 default:
                     return false;
@@ -193,7 +212,16 @@ namespace Shard::Editor::GUI {
             return;
         }
 
-        Glyph(c, type);
+        if (type == Type::T_CUSTOM)
+        {
+            const auto look = extension ? Engine::Filesystem::CustomExtensionLook(extension) : nullptr;
+            if (look && !look->icon.empty())
+                DrawLookIcon(c, *look);
+            else
+                Glyph(c, Type::T_TEXT);
+        }
+        else
+            Glyph(c, type);
 
         if (extension && extension[0] && WantsBadge(type) && size >= 44.0f)
         {

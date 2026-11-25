@@ -103,6 +103,8 @@ namespace Shard::Editor::GUI {
     const AtlasRegion &IconAtlas::GetRegion(const Engine::Filesystem::Type type) const
     {
         auto it = regions.find(type);
+        if (it == regions.end())
+            it = regions.find(Engine::Filesystem::Type::T_TEXT);
         assert(it != regions.end() && "Requested IconType not found in atlas!");
         return it->second;
     }

@@ -9,6 +9,7 @@
 #include <filesystem>
 #include <algorithm>
 #include <fstream>
+#include <memory>
 
 #include <nlohmann/json.hpp>
 
@@ -36,9 +37,24 @@ namespace Shard::Engine::Filesystem{
         T_PREFAB
     };
 
-    bool RegisterCustomExtension(const std::string& extension);
+    struct IconShape {
+        enum class Kind : uint8_t { Rect, Disc, Poly };
+        Kind kind = Kind::Rect;
+        uint8_t pointCount = 0;
+        float alpha = 1.0f;
+        float v[8] = {};
+    };
+
+    struct AssetLook {
+        std::string displayName;
+        uint32_t accent = 0;
+        std::vector<IconShape> icon;
+    };
+
+    bool RegisterCustomExtension(const std::string& extension, std::shared_ptr<const AssetLook> look = nullptr);
     bool UnregisterCustomExtension(const std::string& extension);
     bool IsCustomExtension(const std::string& extension);
+    std::shared_ptr<const AssetLook> CustomExtensionLook(const std::string& extension);
 
     class Path {
 

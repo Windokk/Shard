@@ -16,6 +16,10 @@
 #include "apps/editor/gui/main_window.hpp"
 #include "apps/editor/gui/IconsLucide.h"
 #include "apps/editor/gui/notifications.hpp"
+#include "apps/editor/gui/plugin_ui.hpp"
+#include "engine/plugins/manager.hpp"
+#include "engine/plugins/plugin.hpp"
+#include "engine/world/components/registry/component_registry.hpp"
 #include "apps/editor/gui/dragdrop/asset_drag_drop.hpp"
 #include "apps/editor/commands/actor_commands.hpp"
 #include "apps/editor/commands/command_stack.hpp"
@@ -112,7 +116,7 @@ namespace Shard::Editor::GUI{
                 const ClassDescriptor* descriptor = component->GetDescriptor();
                 if (!descriptor || descriptor->name == "Transform")
                     continue;
-                names.push_back(PrettyName(descriptor->name));
+                names.push_back(descriptor->displayName.empty() ? PrettyName(descriptor->name) : descriptor->displayName);
             }
             return names;
         }
@@ -384,6 +388,38 @@ namespace Shard::Editor::GUI{
         ImGui::Separator();
         create("Probe Volume", "Probe Volume", "Create Probe Volume", [](const ActorPtr& a){ a->AddComponent<C::ProbeVolume>(); });
         create("Reflection Probe", "Reflection Probe", "Create Reflection Probe", [](const ActorPtr& a){ a->AddComponent<C::ReflectionProbe>(); });
+
+        std::vector<PathEntry> templates;
+        for (const auto& tpl : Engine::Plugins::PluginManager::Get().Extensions().Get<Engine::Plugins::EditorActorTemplateItem>("editor.actortemplate"))
+        {
+            const std::string name = tpl->path.substr(tpl->path.rfind('/') == std::string::npos ? 0 : tpl->path.rfind('/') + 1);
+            templates.push_back({ tpl->path, [this, tpl, name, parentActor, folder] {
+                pendingEdit = [this, tpl, name, parentActor, folder] {
+                    auto& stack = Commands::CommandStack::Get();
+                    stack.Begin("Create " + name);
+                    ActorPtr actor = Commands::Actions::CreateActor(parentActor, name, folder);
+                    if (actor)
+                        for (const std::string& type : tpl->components)
+                            if (auto component = Engine::Objects::Components::GetComponentRegistry().CreateComponentByName(type))
+                                actor->AddComponentRaw(component);
+                    stack.End();
+                    if (!actor)
+                        return;
+                    if (parentActor)
+                        openActors.insert(parentActor->GetID().GetAsInt());
+                    selectedFolder.clear();
+                    parent->SetSelectedActor(actor);
+                    anchorId = actor->GetID().GetAsInt();
+                    selectionTouched = true;
+                    BeginRename(actor);
+                };
+            } });
+        }
+        if (!templates.empty())
+        {
+            ImGui::Separator();
+            DrawPathEntries(templates);
+        }
     }
 
     bool WorldTree::HasActiveFilter() const
@@ -1379,6 +1415,17 @@ namespace Shard::Editor::GUI{
         }
 
         DrawPrefabMenu(actor, single);
+
+        {
+            std::vector<PathEntry> actions;
+            for (const auto& action : Engine::Plugins::PluginManager::Get().Extensions().Get<Engine::Plugins::EditorActorActionItem>("editor.actoraction"))
+                actions.push_back({ action->label, [this, action] { pendingEdit = [this, action] { action->run(parent->GetSelectedActors()); }; } });
+            if (!actions.empty())
+            {
+                ImGui::Separator();
+                DrawPathEntries(actions);
+            }
+        }
 
         if (ImGui::MenuItem(ICON_LC_GROUP "  Group", "Ctrl+G"))
         {

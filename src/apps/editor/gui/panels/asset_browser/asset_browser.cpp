@@ -21,6 +21,7 @@
 #include "apps/editor/gui/dragdrop/asset_drag_drop.hpp"
 #include "apps/editor/gui/IconsLucide.h"
 #include "apps/editor/gui/popups.hpp"
+#include "apps/editor/gui/plugin_ui.hpp"
 #include "apps/editor/gui/notifications.hpp"
 #include "apps/editor/gui/panels/asset_browser/asset_operations.hpp"
 #include "apps/editor/gui/panels/asset_browser/sound_thumbnail.hpp"
@@ -35,10 +36,23 @@ namespace Shard::Editor::GUI{
 
     const ImGuiTableSortSpecs* Asset::s_current_sort_specs = NULL;
 
-    static ImU32 GetTypeAccentColor(Engine::Filesystem::Type type, bool isDirectory)
+    static ImU32 CustomAccentColor(const std::string& extension)
+    {
+        const auto look = Engine::Filesystem::CustomExtensionLook(extension);
+        if (look && look->accent != 0)
+            return IM_COL32((look->accent >> 16) & 0xFF, (look->accent >> 8) & 0xFF, look->accent & 0xFF, 255);
+
+        const float hue = float(std::hash<std::string>{}(extension) % 360) / 360.0f;
+        return ImColor::HSV(hue, 0.55f, 0.85f);
+    }
+
+    static ImU32 GetTypeAccentColor(Engine::Filesystem::Type type, bool isDirectory, const std::string& extension = {})
     {
         if (isDirectory)
             return IM_COL32(226, 188, 116, 255);
+
+        if (type == Engine::Filesystem::Type::T_CUSTOM)
+            return CustomAccentColor(extension);
 
         switch (type)
         {
@@ -61,10 +75,16 @@ namespace Shard::Editor::GUI{
         }
     }
 
-    static const char* GetTypeDisplayName(Engine::Filesystem::Type type, bool isDirectory)
+    static std::string GetTypeDisplayName(Engine::Filesystem::Type type, bool isDirectory, const std::string& extension = {})
     {
         if (isDirectory)
             return "Folder";
+
+        if (type == Engine::Filesystem::Type::T_CUSTOM)
+        {
+            const auto look = Engine::Filesystem::CustomExtensionLook(extension);
+            return look && !look->displayName.empty() ? look->displayName : "Asset";
+        }
 
         switch (type)
         {
@@ -83,6 +103,7 @@ namespace Shard::Editor::GUI{
             case Engine::Filesystem::Type::T_FONT:           return "Font";
             case Engine::Filesystem::Type::T_CONFIG:         return "Config";
             case Engine::Filesystem::Type::T_TEXT:           return "Text File";
+            case Engine::Filesystem::Type::T_CUSTOM:         return "Plugin Asset";
             default:                                         return "Asset";
         }
     }
@@ -236,7 +257,7 @@ namespace Shard::Editor::GUI{
 
             if (searching
                 && asset.lowerName.find(needle) == std::string::npos
-                && lower(GetTypeDisplayName(file.type, file.isDirectory)).find(needle) == std::string::npos)
+                && lower(GetTypeDisplayName(file.type, file.isDirectory, file.path.GetExtensionString())).find(needle) == std::string::npos)
                 continue;
 
             items.push_back(std::move(asset));
@@ -602,7 +623,7 @@ namespace Shard::Editor::GUI{
         using Engine::Filesystem::Type;
         static const Type kTypes[] = {
             Type::T_MODEL, Type::T_MATERIAL, Type::T_IMAGE, Type::T_SOUND, Type::T_WORLD, Type::T_SCRIPT, Type::T_SHADER,
-            Type::T_COMPUTE_SHADER, Type::T_FONT, Type::T_PROBES, Type::T_LIGHTMAP, Type::T_PHYSICS_MATERIAL, Type::T_PREFAB, Type::T_TEXT, Type::T_CONFIG
+            Type::T_COMPUTE_SHADER, Type::T_FONT, Type::T_PROBES, Type::T_LIGHTMAP, Type::T_PHYSICS_MATERIAL, Type::T_PREFAB, Type::T_TEXT, Type::T_CONFIG, Type::T_CUSTOM
         };
 
         for (Type type : kTypes)
@@ -611,7 +632,7 @@ namespace Shard::Editor::GUI{
 
             ImGui::PushID((int)type);
             ImGui::PushStyleColor(ImGuiCol_CheckMark, ImGui::ColorConvertU32ToFloat4(GetTypeAccentColor(type, false)));
-            if (ImGui::Checkbox(GetTypeDisplayName(type, false), &shown))
+            if (ImGui::Checkbox(GetTypeDisplayName(type, false).c_str(), &shown))
             {
                 typeHidden[(int)type] = !shown;
                 changed = true;
@@ -893,10 +914,11 @@ namespace Shard::Editor::GUI{
                         {
                             ImGui::BeginTooltip();
 
-                            ImVec4 accentColor = ImGui::ColorConvertU32ToFloat4(GetTypeAccentColor(item_data->type, item_data->isDirectory));
+                            const std::string itemExtension = item_data->isDirectory ? std::string() : item_data->path.GetExtensionString();
+                            ImVec4 accentColor = ImGui::ColorConvertU32ToFloat4(GetTypeAccentColor(item_data->type, item_data->isDirectory, itemExtension));
 
                             ImGui::TextUnformatted(item_data->path.GetFilename().c_str());
-                            ImGui::TextColored(accentColor, "%s", GetTypeDisplayName(item_data->type, item_data->isDirectory));
+                            ImGui::TextColored(accentColor, "%s", GetTypeDisplayName(item_data->type, item_data->isDirectory, itemExtension).c_str());
 
                             if (!item_data->isDirectory)
                             {
@@ -948,8 +970,9 @@ namespace Shard::Editor::GUI{
                             if (payloadNames.size() == 1)
                             {
                                 Engine::Filesystem::Type t = Engine::Filesystem::Path(payloadNames[0]).GetExtensionType();
-                                ImGui::TextColored(ImGui::ColorConvertU32ToFloat4(GetTypeAccentColor(t, false)),
-                                    "%s", GetTypeDisplayName(t, false));
+                                const std::string draggedExtension = Engine::Filesystem::Path(payloadNames[0]).GetExtensionString();
+                                ImGui::TextColored(ImGui::ColorConvertU32ToFloat4(GetTypeAccentColor(t, false, draggedExtension)),
+                                    "%s", GetTypeDisplayName(t, false, draggedExtension).c_str());
                             }
                             else
                             {
@@ -972,7 +995,8 @@ namespace Shard::Editor::GUI{
                             ImVec2 box_min(pos.x - 1, pos.y - 1);
                             ImVec2 box_max(box_min.x + LayoutItemSize.x + 2, box_min.y + LayoutItemSize.y + 2);
 
-                            ImU32 accent = GetTypeAccentColor(item_data->type, item_data->isDirectory);
+                            const std::string extension = item_data->isDirectory ? std::string() : item_data->path.GetExtensionString();
+                            ImU32 accent = GetTypeAccentColor(item_data->type, item_data->isDirectory, extension);
                             ImVec4 accentF = ImGui::ColorConvertU32ToFloat4(accent);
 
                             ImVec2 icon_min, icon_max;
@@ -1056,7 +1080,6 @@ namespace Shard::Editor::GUI{
                             }
                             else
                             {
-                                const std::string extension = item_data->isDirectory ? std::string() : item_data->path.GetExtensionString();
                                 DrawAssetIcon(draw_list, icon_min, icon_max, item_data->type, item_data->isDirectory, accent, extension.c_str());
                             }
 
@@ -1080,7 +1103,7 @@ namespace Shard::Editor::GUI{
 
                                 if (showColumns)
                                 {
-                                    draw_list->AddText(ImVec2(typeX, textY), accent, GetTypeDisplayName(item_data->type, item_data->isDirectory));
+                                    draw_list->AddText(ImVec2(typeX, textY), accent, GetTypeDisplayName(item_data->type, item_data->isDirectory, extension).c_str());
 
                                     if (!item_data->isDirectory)
                                     {
@@ -1374,6 +1397,21 @@ namespace Shard::Editor::GUI{
             if (ImGui::MenuItem("Delete", "Del"))
                 pendingAction = Action::Delete;
 
+            if (single && !target->isDirectory)
+            {
+                std::string extension = std::filesystem::path(target->path.full).extension().string();
+                std::transform(extension.begin(), extension.end(), extension.begin(), [](unsigned char c) { return char(std::tolower(c)); });
+                std::vector<PathEntry> actions;
+                for (const auto& action : Engine::Plugins::PluginManager::Get().Extensions().Get<Engine::Plugins::EditorAssetActionItem>("editor.assetaction"))
+                    if (action->extension == extension)
+                        actions.push_back({ action->label, [action, name = target->nameInProject] { action->run(name); } });
+                if (!actions.empty())
+                {
+                    ImGui::Separator();
+                    DrawPathEntries(actions);
+                }
+            }
+
             ImGui::Separator();
 
             if (ImGui::MenuItem("Copy Path", nullptr, false, single))
@@ -1398,20 +1436,22 @@ namespace Shard::Editor::GUI{
                     pendingAction = Action::NewPhysicsMaterial;
                 if (ImGui::MenuItem("World"))
                     pendingAction = Action::NewWorld;
+                std::vector<PathEntry> templates;
                 for (const auto& tpl : Engine::Plugins::PluginManager::Get().Extensions().Get<Engine::Plugins::EditorAssetTemplateItem>("editor.assettemplate"))
                 {
-                    if (!ImGui::MenuItem(tpl->label.c_str()))
-                        continue;
-                    Engine::Filesystem::Path created;
-                    const AssetOperations::Result r = AssetOperations::CreateFromBytes(currentPath, tpl->defaultName, tpl->bytes, created);
-                    if (r.ok)
-                    {
-                        BeginRename(created);
-                        pendingAction = Action::Refresh;
-                    }
-                    else
-                        ReportFailures("Create", { r.message });
+                    templates.push_back({ tpl->label, [this, tpl] {
+                        Engine::Filesystem::Path created;
+                        const AssetOperations::Result r = AssetOperations::CreateFromBytes(currentPath, tpl->defaultName, tpl->bytes, created);
+                        if (r.ok)
+                        {
+                            BeginRename(created);
+                            pendingAction = Action::Refresh;
+                        }
+                        else
+                            ReportFailures("Create", { r.message });
+                    } });
                 }
+                DrawPathEntries(templates);
                 ImGui::EndMenu();
             }
 

@@ -1,4 +1,7 @@
+#include <algorithm>
+#include <cstddef>
 #include <cstring>
+#include <iterator>
 #include <memory>
 
 #include <shard/shard_extensions.h>
@@ -49,6 +52,35 @@ namespace Shard::Engine::Plugins::CAbi {
             return out;
         }
 
+        std::shared_ptr<const Filesystem::AssetLook> ReadLook(const ShardAssetTypeItem& item)
+        {
+            auto look = std::make_shared<Filesystem::AssetLook>();
+            look->displayName = ToString(item.name);
+            if (item.structSize >= offsetof(ShardAssetTypeItem, displayName) + sizeof(ShardStr) && item.displayName.size)
+                look->displayName = ToString(item.displayName);
+            if (item.structSize >= offsetof(ShardAssetTypeItem, accent) + sizeof(uint32_t)) look->accent = item.accent;
+            if (item.structSize >= offsetof(ShardAssetTypeItem, icon) + sizeof(void*) && item.icon) {
+                for (uint32_t i = 0; i < std::min<uint32_t>(item.iconCount, 32); ++i) {
+                    const ShardIconShape& in = item.icon[i];
+                    Filesystem::IconShape shape;
+                    switch (in.kind) {
+                        case SHARD_ICON_RECT: shape.kind = Filesystem::IconShape::Kind::Rect; break;
+                        case SHARD_ICON_DISC: shape.kind = Filesystem::IconShape::Kind::Disc; break;
+                        case SHARD_ICON_POLY:
+                            if (in.pointCount < 3 || in.pointCount > 4) continue;
+                            shape.kind = Filesystem::IconShape::Kind::Poly;
+                            shape.pointCount = uint8_t(in.pointCount);
+                            break;
+                        default: continue;
+                    }
+                    shape.alpha = std::clamp(in.alpha, 0.0f, 1.0f);
+                    std::copy(std::begin(in.v), std::end(in.v), shape.v);
+                    look->icon.push_back(shape);
+                }
+            }
+            return look;
+        }
+
         ShardResult SHARD_CALL AddValidator(ShardPluginCtx handle, const ShardValidatorItem* item)
         {
             try {
@@ -78,7 +110,7 @@ namespace Shard::Engine::Plugins::CAbi {
         ShardResult SHARD_CALL AddAssetType(ShardPluginCtx handle, const ShardAssetTypeItem* item)
         {
             try {
-                if (!item || item->structSize < sizeof(ShardAssetTypeItem) || !item->load || !item->name.size) return SHARD_E_INVALID_ARG;
+                if (!item || item->structSize < offsetof(ShardAssetTypeItem, displayName) || !item->load || !item->name.size) return SHARD_E_INVALID_ARG;
                 if (item->extensionCount == 0 || !item->extensions) return SHARD_E_INVALID_ARG;
                 PluginContext* ctx = FindContext(handle);
                 if (!ctx) return SHARD_E_STALE_HANDLE;
@@ -86,6 +118,7 @@ namespace Shard::Engine::Plugins::CAbi {
                 auto type = std::make_shared<Core::Resources::AssetTypeExtension>();
                 type->name = ToString(item->name);
                 type->extensions = ReadExtensions(item->extensions, item->extensionCount);
+                type->look = ReadLook(*item);
                 const auto load = item->load;
                 const auto unload = item->unload;
                 void* user = item->user;

@@ -1,6 +1,7 @@
 #include "filesystem.hpp"
 
 #include <mutex>
+#include <map>
 #include <set>
 
 #include "engine/platform/filesystem/paths.hpp"
@@ -178,7 +179,7 @@ namespace Shard::Engine::Filesystem{
 
     namespace {
         std::mutex& CustomMutex() { static std::mutex m; return m; }
-        std::set<std::string>& CustomExtensions() { static std::set<std::string> s; return s; }
+        std::map<std::string, std::shared_ptr<const AssetLook>>& CustomExtensions() { static std::map<std::string, std::shared_ptr<const AssetLook>> s; return s; }
 
         std::string NormalizeExtension(std::string ext)
         {
@@ -189,20 +190,24 @@ namespace Shard::Engine::Filesystem{
         }
     }
 
-    bool RegisterCustomExtension(const std::string& extension)
+    bool RegisterCustomExtension(const std::string& extension, std::shared_ptr<const AssetLook> look)
     {
         const std::string ext = NormalizeExtension(extension);
         if(ext.size() < 2)
             return false;
         {
             std::lock_guard<std::mutex> lock(CustomMutex());
-            if(CustomExtensions().count(ext))
+            auto found = CustomExtensions().find(ext);
+            if(found != CustomExtensions().end()){
+                if(look)
+                    found->second = std::move(look);
                 return true;
+            }
         }
         if(Path("x" + ext).GetExtensionType() != Type::T_TEXT || ext == ".txt" || ext == ".md")
             return false;
         std::lock_guard<std::mutex> lock(CustomMutex());
-        CustomExtensions().insert(ext);
+        CustomExtensions()[ext] = std::move(look);
         return true;
     }
 
@@ -216,6 +221,13 @@ namespace Shard::Engine::Filesystem{
     {
         std::lock_guard<std::mutex> lock(CustomMutex());
         return CustomExtensions().count(NormalizeExtension(extension)) > 0;
+    }
+
+    std::shared_ptr<const AssetLook> CustomExtensionLook(const std::string& extension)
+    {
+        std::lock_guard<std::mutex> lock(CustomMutex());
+        auto found = CustomExtensions().find(NormalizeExtension(extension));
+        return found != CustomExtensions().end() ? found->second : nullptr;
     }
 
     Type Path::GetExtensionType() const

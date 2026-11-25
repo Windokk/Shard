@@ -20,6 +20,8 @@
 //   Tooltip("text")     what the inspector shows when the mouse rests on the field
 //   Runtime()           the inspector shows it, read only, and the world file does not save it
 //   Hidden()            neither shown nor saved (the object keeps it; not for a string)
+//   Assets(".fbx;.glb") a std::string field takes the project files of these extensions dropped on it in the inspector
+//   AssetList()         with Assets : each drop is added to the text, a list of files separated by ';'
 //
 // The type is any of the field types of shard/cpp/component.hpp (numbers, bool, Vec2/3/4, Quat, Color, Text, AssetId, std::string, Actor, Blob).
 #pragma once
@@ -41,6 +43,8 @@ namespace Shard {
         uint32_t flags = 0;
         float min = 0.f, max = 0.f;
         std::string tooltip;
+        std::string assets;
+        bool assetList = false;
     };
 
     /// The options of SHARD_FIELD : `using namespace Shard::field` brings them in scope, the macro does it for its arguments
@@ -57,6 +61,14 @@ namespace Shard {
         };
         struct Runtime {
             void Apply(FieldSpec& spec) const { spec.flags |= SHARD_FIELD_RUNTIME; }
+        };
+        struct Assets {
+            const char* extensions;
+            explicit Assets(const char* accepted) : extensions(accepted) {}
+            void Apply(FieldSpec& spec) const { spec.assets = extensions ? extensions : ""; }
+        };
+        struct AssetList {
+            void Apply(FieldSpec& spec) const { spec.assetList = true; }
         };
         struct Hidden {
             void Apply(FieldSpec& spec) const { spec.flags |= SHARD_FIELD_PRIVATE; }
@@ -147,6 +159,19 @@ namespace Shard {
                 f.max = declared.spec->max;
                 f.tooltip = Str(declared.spec->tooltip);
                 fields.push_back(f);
+            }
+        }
+
+        inline void AppendDeclaredHints(const FieldCollector& collector, std::vector<ShardFieldHint>& hints)
+        {
+            for (const DeclaredField& declared : collector.fields) {
+                if (declared.spec->assets.empty() && !declared.spec->assetList) continue;
+                ShardFieldHint hint{};
+                hint.structSize = sizeof(ShardFieldHint);
+                hint.flags = declared.spec->assetList ? SHARD_HINT_ASSET_LIST : 0u;
+                hint.field = Str(declared.name);
+                hint.assets = Str(declared.spec->assets);
+                hints.push_back(hint);
             }
         }
     }

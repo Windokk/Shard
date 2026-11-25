@@ -337,12 +337,80 @@ namespace Shard::Engine::Plugins {
                     return ctx->Assets().Add<EditorAssetTemplateItem>("editor.assettemplate", name, std::move(item)) ? SHARD_OK : SHARD_E_ALREADY_EXISTS;
                 } catch (...) { return SHARD_E_INTERNAL; }
             }
+
+            bool ValidMenuPath(const std::string& path)
+            {
+                return !path.empty() && path.front() != '/' && path.back() != '/' && path.find("//") == std::string::npos;
+            }
+
+            ShardResult SHARD_CALL AddActorTemplate(ShardPluginCtx handle, ShardStr path, const ShardStr* components, uint32_t count)
+            {
+                try {
+                    ShardResult result;
+                    PluginContext* ctx = Contribution(handle, result);
+                    if (!ctx) return result;
+                    const std::string where = ToString(path);
+                    if (!ValidMenuPath(where) || (!components && count)) return SHARD_E_INVALID_ARG;
+                    auto item = std::make_shared<EditorActorTemplateItem>();
+                    item->path = where;
+                    for (uint32_t i = 0; i < count; ++i) {
+                        item->components.push_back(ToString(components[i]));
+                    }
+                    return ctx->Assets().Add<EditorActorTemplateItem>("editor.actortemplate", where, std::move(item)) ? SHARD_OK : SHARD_E_ALREADY_EXISTS;
+                } catch (...) { return SHARD_E_INTERNAL; }
+            }
+
+            ShardResult SHARD_CALL AddAssetAction(ShardPluginCtx handle, ShardStr extension, ShardStr label, ShardAssetActionFn run, void* user)
+            {
+                try {
+                    ShardResult result;
+                    PluginContext* ctx = Contribution(handle, result);
+                    if (!ctx) return result;
+                    std::string ext = ToString(extension);
+                    const std::string name = ToString(label);
+                    if (!run || ext.size() < 2 || ext[0] != '.' || !ValidMenuPath(name)) return SHARD_E_INVALID_ARG;
+                    for (char& c : ext) c = char(std::tolower((unsigned char)c));
+                    std::atomic<uint32_t>* active = ActiveCounter(*ctx);
+                    auto report = ctx->Bindings().reportError;
+                    const PluginOwner owner = PluginOwner(handle);
+                    auto item = std::make_shared<EditorAssetActionItem>();
+                    item->extension = ext;
+                    item->label = name;
+                    item->run = [name, run, user, active, report, owner](const std::string& path) {
+                        Guarded(active, owner, report, "asset action '" + name + "'", [&] { run(user, ToStr(path)); });
+                    };
+                    return ctx->Assets().Add<EditorAssetActionItem>("editor.assetaction", ext + "|" + name, std::move(item)) ? SHARD_OK : SHARD_E_ALREADY_EXISTS;
+                } catch (...) { return SHARD_E_INTERNAL; }
+            }
+
+            ShardResult SHARD_CALL AddActorAction(ShardPluginCtx handle, ShardStr label, ShardActorActionFn run, void* user)
+            {
+                try {
+                    ShardResult result;
+                    PluginContext* ctx = Contribution(handle, result);
+                    if (!ctx) return result;
+                    const std::string name = ToString(label);
+                    if (!run || !ValidMenuPath(name)) return SHARD_E_INVALID_ARG;
+                    std::atomic<uint32_t>* active = ActiveCounter(*ctx);
+                    auto report = ctx->Bindings().reportError;
+                    const PluginOwner owner = PluginOwner(handle);
+                    auto item = std::make_shared<EditorActorActionItem>();
+                    item->label = name;
+                    item->run = [name, run, user, active, report, owner](const std::vector<std::shared_ptr<Objects::Actor>>& actors) {
+                        std::vector<ShardActor> handles;
+                        for (const auto& actor : actors) handles.push_back(ActorHandle(actor));
+                        Guarded(active, owner, report, "actor action '" + name + "'", [&] { run(user, handles.data(), uint32_t(handles.size())); });
+                    };
+                    return ctx->Assets().Add<EditorActorActionItem>("editor.actoraction", name, std::move(item)) ? SHARD_OK : SHARD_E_ALREADY_EXISTS;
+                } catch (...) { return SHARD_E_INTERNAL; }
+            }
         }
 
         const void* EditorApi()
         {
             static const ShardEditorApi api = { sizeof(ShardEditorApi), &AddPanel, &AddMenuItem, &AddToolbarButton, &AddInspector, &AddGizmo,
-                                                &SubscribeSelection, &GetSelection, &Notify, &SetPanelVisible, &UndoPush, &AddAssetOpener, &AddAssetTemplate };
+                                                &SubscribeSelection, &GetSelection, &Notify, &SetPanelVisible, &UndoPush, &AddAssetOpener, &AddAssetTemplate,
+                                                &AddActorTemplate, &AddAssetAction, &AddActorAction };
             return &api;
         }
     }

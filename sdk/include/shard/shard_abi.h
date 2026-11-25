@@ -16,7 +16,7 @@ extern "C" {
 #endif
 
 #define SHARD_ABI_MAJOR 1
-#define SHARD_ABI_MINOR 10
+#define SHARD_ABI_MINOR 11
 
 /* Calling convention of every function pointer in the tables. Empty on x86_64 and arm64. */
 #define SHARD_CALL

@@ -1,4 +1,4 @@
-/* Interface "shard.editor" 1.2 : the editor's windows, menus, toolbar, inspectors and gizmos, drawn with a small set of widgets.
+/* Interface "shard.editor" 1.3 : the editor's windows, menus, toolbar, inspectors and gizmos, drawn with a small set of widgets.
  *
  * ImGui has no stable ABI, so a plugin does not draw with it : it adds a panel and draws the contents with the widgets of ShardUiApi, which
  * the editor implements with its own ImGui. The panel is a window of the editor's Window menu (hidden until the user opens it). Its draw
@@ -237,6 +237,10 @@ typedef void (SHARD_CALL *ShardSelectionFn)(void* user, const ShardActor* actors
 typedef void (SHARD_CALL *ShardUndoFn)(void* user);
 /* The user opened (double click, "Open") the asset at `path` in the project, of an extension the plugin registered with add_asset_opener */
 typedef void (SHARD_CALL *ShardOpenAssetFn)(void* user, ShardStr path);
+/* An entry of the content browser's context menu was chosen for the asset at `path` in the project (1.3) */
+typedef void (SHARD_CALL *ShardAssetActionFn)(void* user, ShardStr path);
+/* An entry of the world tree's context menu was chosen : the selected actors, valid for the call (1.3) */
+typedef void (SHARD_CALL *ShardActorActionFn)(void* user, const ShardActor* actors, uint32_t count);
 
 #define SHARD_EDITOR_NOTIFY_INFO     0
 #define SHARD_EDITOR_NOTIFY_WARNING  1
@@ -282,6 +286,17 @@ typedef struct ShardEditorApi {
     /* An entry "label" of the content browser's Create menu that writes a new file with these bytes (copied) under `default_name`
      * ("NewTree.bt") in the folder shown. The file is renamed by the user like any other. */
     ShardResult (SHARD_CALL *add_asset_template)(ShardPluginCtx ctx, ShardStr label, ShardStr default_name, const void* data, uint64_t size);
+    /* ---- 1.3 ---- */
+    /* `label` of add_asset_template may hold '/' : "Rendering/Post Profile" is the entry "Post Profile" of the submenu "Rendering".
+     *
+     * An entry of the world tree's Create menus (the menu of the tree and "Create Child") that makes an actor with these components : `path`
+     * ("Post Process/Volume", '/' = submenus, the last part names the entry and the new actor) and the full names of `count` component types
+     * (components and scripts of the plugins, "<plugin id>.<name>"). A type that is not registered when the entry is used is skipped (declared components are registered after OnLoad). */
+    ShardResult (SHARD_CALL *add_actor_template)(ShardPluginCtx ctx, ShardStr path, const ShardStr* components, uint32_t count);
+    /* An entry "label" ('/' = submenus) in the context menu of the content browser for a single asset of that extension (".postprofile") */
+    ShardResult (SHARD_CALL *add_asset_action)(ShardPluginCtx ctx, ShardStr extension, ShardStr label, ShardAssetActionFn run, void* user);
+    /* An entry "label" ('/' = submenus) in the context menu of the world tree : `run` gets the selected actors */
+    ShardResult (SHARD_CALL *add_actor_action)(ShardPluginCtx ctx, ShardStr label, ShardActorActionFn run, void* user);
 } ShardEditorApi;
 
 #ifdef __cplusplus

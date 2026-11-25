@@ -119,7 +119,7 @@ static_assert(offsetof(ShardValidatorItem, name) == 8, "ShardValidatorItem.name"
 static_assert(offsetof(ShardValidatorItem, validate) == 24, "ShardValidatorItem.validate");
 static_assert(offsetof(ShardValidatorItem, user) == 32, "ShardValidatorItem.user");
 
-static_assert(sizeof(ShardAssetTypeItem) == 56, "ShardAssetTypeItem");
+static_assert(sizeof(ShardAssetTypeItem) == 88, "ShardAssetTypeItem");
 static_assert(offsetof(ShardAssetTypeItem, structSize) == 0, "ShardAssetTypeItem.structSize");
 static_assert(offsetof(ShardAssetTypeItem, extensionCount) == 4, "ShardAssetTypeItem.extensionCount");
 static_assert(offsetof(ShardAssetTypeItem, name) == 8, "ShardAssetTypeItem.name");
@@ -127,6 +127,14 @@ static_assert(offsetof(ShardAssetTypeItem, extensions) == 24, "ShardAssetTypeIte
 static_assert(offsetof(ShardAssetTypeItem, load) == 32, "ShardAssetTypeItem.load");
 static_assert(offsetof(ShardAssetTypeItem, unload) == 40, "ShardAssetTypeItem.unload");
 static_assert(offsetof(ShardAssetTypeItem, user) == 48, "ShardAssetTypeItem.user");
+static_assert(offsetof(ShardAssetTypeItem, displayName) == 56, "ShardAssetTypeItem.displayName");
+static_assert(offsetof(ShardAssetTypeItem, accent) == 72, "ShardAssetTypeItem.accent");
+static_assert(offsetof(ShardAssetTypeItem, iconCount) == 76, "ShardAssetTypeItem.iconCount");
+static_assert(offsetof(ShardAssetTypeItem, icon) == 80, "ShardAssetTypeItem.icon");
+static_assert(sizeof(ShardIconShape) == 44, "ShardIconShape");
+static_assert(offsetof(ShardIconShape, pointCount) == 4, "ShardIconShape.pointCount");
+static_assert(offsetof(ShardIconShape, alpha) == 8, "ShardIconShape.alpha");
+static_assert(offsetof(ShardIconShape, v) == 12, "ShardIconShape.v");
 
 static_assert(sizeof(ShardImporterItem) == 48, "ShardImporterItem");
 static_assert(offsetof(ShardImporterItem, structSize) == 0, "ShardImporterItem.structSize");
@@ -298,9 +306,17 @@ static_assert(offsetof(ShardComponentCallbacks, on_added) == 8, "ShardComponentC
 static_assert(offsetof(ShardComponentCallbacks, on_removed) == 16, "ShardComponentCallbacks.on_removed");
 static_assert(offsetof(ShardComponentCallbacks, on_changed) == 24, "ShardComponentCallbacks.on_changed");
 static_assert(offsetof(ShardComponentCallbacks, user) == 32, "ShardComponentCallbacks.user");
-static_assert(sizeof(ShardComponentDesc) == 56, "ShardComponentDesc");
+static_assert(sizeof(ShardComponentDesc) == 104, "ShardComponentDesc");
 static_assert(offsetof(ShardComponentDesc, defaults) == 40, "ShardComponentDesc.defaults");
 static_assert(offsetof(ShardComponentDesc, callbacks) == 48, "ShardComponentDesc.callbacks");
+static_assert(offsetof(ShardComponentDesc, hints) == 56, "ShardComponentDesc.hints");
+static_assert(offsetof(ShardComponentDesc, hintCount) == 64, "ShardComponentDesc.hintCount");
+static_assert(offsetof(ShardComponentDesc, displayName) == 72, "ShardComponentDesc.displayName");
+static_assert(offsetof(ShardComponentDesc, category) == 88, "ShardComponentDesc.category");
+static_assert(sizeof(ShardFieldHint) == 40, "ShardFieldHint");
+static_assert(offsetof(ShardFieldHint, flags) == 4, "ShardFieldHint.flags");
+static_assert(offsetof(ShardFieldHint, field) == 8, "ShardFieldHint.field");
+static_assert(offsetof(ShardFieldHint, assets) == 24, "ShardFieldHint.assets");
 static_assert(sizeof(ShardActorsApi) == 288, "ShardActorsApi");
 static_assert(offsetof(ShardActorsApi, erase_component_field) == 232, "ShardActorsApi.erase_component_field");
 static_assert(offsetof(ShardActorsApi, get_stable_id) == 240, "ShardActorsApi.get_stable_id");
@@ -316,10 +332,14 @@ static_assert(offsetof(ShardScriptCallbacks, on_field_changed) == 168, "ShardScr
 static_assert(offsetof(ShardScriptCallbacks, on_overlap_begin) == 176, "ShardScriptCallbacks.on_overlap_begin");
 static_assert(offsetof(ShardScriptCallbacks, on_overlap_end) == 184, "ShardScriptCallbacks.on_overlap_end");
 static_assert(offsetof(ShardScriptCallbacks, on_hit) == 192, "ShardScriptCallbacks.on_hit");
-static_assert(sizeof(ShardScriptDesc) == 72, "ShardScriptDesc");
+static_assert(sizeof(ShardScriptDesc) == 120, "ShardScriptDesc");
 static_assert(offsetof(ShardScriptDesc, callbacks) == 48, "ShardScriptDesc.callbacks");
 static_assert(offsetof(ShardScriptDesc, flags) == 56, "ShardScriptDesc.flags");
 static_assert(offsetof(ShardScriptDesc, collision_kinds) == 64, "ShardScriptDesc.collision_kinds");
+static_assert(offsetof(ShardScriptDesc, displayName) == 72, "ShardScriptDesc.displayName");
+static_assert(offsetof(ShardScriptDesc, hints) == 88, "ShardScriptDesc.hints");
+static_assert(offsetof(ShardScriptDesc, hintCount) == 96, "ShardScriptDesc.hintCount");
+static_assert(offsetof(ShardScriptDesc, category) == 104, "ShardScriptDesc.category");
 static_assert(sizeof(ShardRayHit) == 72, "ShardRayHit");
 static_assert(offsetof(ShardRayHit, distance) == 40, "ShardRayHit.distance");
 static_assert(offsetof(ShardRayHit, collider) == 48, "ShardRayHit.collider");
@@ -377,11 +397,14 @@ static_assert(offsetof(ShardInputApi, capture) == 192, "ShardInputApi.capture");
 static_assert(sizeof(ShardWorldsApi) == 88, "ShardWorldsApi");
 static_assert(offsetof(ShardWorldsApi, spawn_prefab) == 32, "ShardWorldsApi.spawn_prefab");
 static_assert(offsetof(ShardWorldsApi, world_at) == 40, "ShardWorldsApi.world_at");
-static_assert(sizeof(ShardEditorApi) == 104, "ShardEditorApi");
+static_assert(sizeof(ShardEditorApi) == 128, "ShardEditorApi");
 static_assert(offsetof(ShardEditorApi, set_panel_visible) == 72, "ShardEditorApi.set_panel_visible");
 static_assert(offsetof(ShardEditorApi, undo_push) == 80, "ShardEditorApi.undo_push");
 static_assert(offsetof(ShardEditorApi, add_asset_opener) == 88, "ShardEditorApi.add_asset_opener");
 static_assert(offsetof(ShardEditorApi, add_asset_template) == 96, "ShardEditorApi.add_asset_template");
+static_assert(offsetof(ShardEditorApi, add_actor_template) == 104, "ShardEditorApi.add_actor_template");
+static_assert(offsetof(ShardEditorApi, add_asset_action) == 112, "ShardEditorApi.add_asset_action");
+static_assert(offsetof(ShardEditorApi, add_actor_action) == 120, "ShardEditorApi.add_actor_action");
 static_assert(sizeof(ShardUiApi) == 936, "ShardUiApi");
 static_assert(offsetof(ShardUiApi, is_item_double_clicked) == 616, "ShardUiApi.is_item_double_clicked");
 static_assert(offsetof(ShardUiApi, draw_line) == 624, "ShardUiApi.draw_line");
@@ -692,7 +715,7 @@ static_assert(SHARD_PHASE_UPDATE == 4 && SHARD_PHASE_LATE == 5 && SHARD_PHASE_EX
 static_assert(SHARD_SYSTEM_EXCLUSIVE == 1 && SHARD_SYSTEM_MAIN_THREAD == 2, "system flags");
 static_assert(SHARD_PRIORITY_EARLIEST == -200 && SHARD_PRIORITY_EARLY == -100 && SHARD_PRIORITY_NORMAL == 0 && SHARD_PRIORITY_LATE == 100 && SHARD_PRIORITY_LATEST == 200, "priorities");
 static_assert(SHARD_LOG_INFO == 0 && SHARD_LOG_WARNING == 1 && SHARD_LOG_ERROR == 2, "log levels");
-static_assert(SHARD_ABI_MAJOR == 1 && SHARD_ABI_MINOR == 10, "the ABI revision of these headers");
+static_assert(SHARD_ABI_MAJOR == 1 && SHARD_ABI_MINOR == 11, "the ABI revision of these headers");
 
 TEST(AbiLayout, HeadersPinLayout)
 {

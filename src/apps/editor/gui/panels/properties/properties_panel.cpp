@@ -19,6 +19,8 @@
 #include <unordered_map>
 #include <algorithm>
 #include <vector>
+#include <functional>
+#include <tuple>
 #include <string>
 
 #include "engine/audio/audio_source.hpp"
@@ -300,6 +302,59 @@ namespace Shard::Editor::GUI{
             if (std::tolower(static_cast<unsigned char>(name[name.size() - length + i])) != std::tolower(static_cast<unsigned char>(extension[i])))
                 return false;
         return true;
+    }
+
+    static bool MatchesAssetFilter(const std::string& name, const char* filter)
+    {
+        const std::string list = filter;
+        size_t begin = 0;
+        while (begin <= list.size())
+        {
+            size_t end = list.find(';', begin);
+            if (end == std::string::npos)
+                end = list.size();
+            const std::string extension = list.substr(begin, end - begin);
+            if (!extension.empty() && HasExtension(name, extension.c_str()))
+                return true;
+            begin = end + 1;
+        }
+        return false;
+    }
+
+    static bool DropAssetsOnText(std::string& value, const FieldInfo* field)
+    {
+        if (!ImGui::BeginDragDropTarget())
+            return false;
+
+        std::vector<std::string> matching;
+        for (std::string& name : DragDrop::PeekAssetDragDropPayload())
+            if (name.find(';') == std::string::npos && MatchesAssetFilter(name, field->assetFilter))
+                matching.push_back(std::move(name));
+
+        bool changed = false;
+        if (!matching.empty() && !DragDrop::AcceptAssetDragDropPayload().empty())
+        {
+            if (field->flags & AssetList)
+            {
+                const std::string current = ";" + value + ";";
+                for (const std::string& name : matching)
+                {
+                    if (current.find(";" + name + ";") != std::string::npos)
+                        continue;
+                    if (!value.empty())
+                        value += ';';
+                    value += name;
+                    changed = true;
+                }
+            }
+            else if (value != matching[0])
+            {
+                value = matching[0];
+                changed = true;
+            }
+        }
+        ImGui::EndDragDropTarget();
+        return changed;
     }
 
     static bool DrawAssetField(const std::string& id, Filesystem::AssetID& value, AssetBrowser* browser, const char* onlyExtension = nullptr);
@@ -914,6 +969,58 @@ namespace Shard::Editor::GUI{
     {
         namespace C = Engine::Objects::Components;
 
+        struct Entry { std::vector<std::string> path; std::string label, name; };
+        std::vector<Entry> entries;
+        for (auto& [name, factory] : GetComponentRegistry().GetAll())
+        {
+            const ClassDescriptor* descriptor = GetComponentRegistry().DescriptorOf(name);
+            Entry entry{ {}, descriptor && !descriptor->displayName.empty() ? descriptor->displayName : name, name };
+            if (descriptor) {
+                size_t start = 0;
+                const std::string& category = descriptor->category;
+                while (start < category.size()) {
+                    size_t end = category.find('/', start);
+                    if (end == std::string::npos) end = category.size();
+                    if (end > start) entry.path.push_back(category.substr(start, end - start));
+                    start = end + 1;
+                }
+            }
+            entries.push_back(std::move(entry));
+        }
+        std::sort(entries.begin(), entries.end(), [](const Entry& a, const Entry& b) { return std::tie(a.label, a.name) < std::tie(b.label, b.name); });
+
+        std::function<void(const std::vector<const Entry*>&, size_t)> drawGroup = [&](const std::vector<const Entry*>& group, size_t depth)
+        {
+            std::vector<std::string> submenus;
+            for (const Entry* entry : group)
+                if (entry->path.size() > depth && std::find(submenus.begin(), submenus.end(), entry->path[depth]) == submenus.end())
+                    submenus.push_back(entry->path[depth]);
+            std::sort(submenus.begin(), submenus.end());
+            for (const std::string& submenu : submenus)
+            {
+                if (!ImGui::BeginMenu(submenu.c_str())) continue;
+                std::vector<const Entry*> inside;
+                for (const Entry* entry : group) if (entry->path.size() > depth && entry->path[depth] == submenu) inside.push_back(entry);
+                drawGroup(inside, depth + 1);
+                ImGui::EndMenu();
+            }
+            for (const Entry* entry : group)
+            {
+                if (entry->path.size() != depth || !ImGui::MenuItem(entry->label.c_str())) continue;
+                std::shared_ptr<Component> component = GetComponentRegistry().CreateComponentByName(entry->name);
+                if (component) Commands::Actions::EditActor(actor, "Add Component", [&]{ actor->AddComponentRaw(component); });
+            }
+        };
+        auto inCategory = [&](const std::string& root) {
+            std::vector<const Entry*> group;
+            for (const Entry& entry : entries) if (!entry.path.empty() && entry.path[0] == root) group.push_back(&entry);
+            return group;
+        };
+        auto drawPlugins = [&](const std::string& root) {
+            const std::vector<const Entry*> group = inCategory(root);
+            if (!group.empty()) { ImGui::Separator(); drawGroup(group, 1); }
+        };
+
         #define SHARD_ADD_ITEM(label, Type) \
             if (ImGui::MenuItem(label)) \
                 Commands::Actions::EditActor(actor, "Add Component", [&]{ actor->AddComponent<C::Type>(); })
@@ -925,6 +1032,7 @@ namespace Shard::Editor::GUI{
             ImGui::Separator();
             SHARD_ADD_ITEM("Probe Volume", ProbeVolume);
             SHARD_ADD_ITEM("Reflection Probe", ReflectionProbe);
+            drawPlugins("Rendering");
             ImGui::EndMenu();
         }
 
@@ -947,6 +1055,7 @@ namespace Shard::Editor::GUI{
                 SHARD_ADD_ITEM("Swing Twist", SwingTwistConstraint);
                 ImGui::EndMenu();
             }
+            drawPlugins("Physics");
             ImGui::EndMenu();
         }
 
@@ -954,33 +1063,24 @@ namespace Shard::Editor::GUI{
             SHARD_ADD_ITEM("Audio Source", AudioSource);
             SHARD_ADD_ITEM("Audio Listener", AudioListener);
             SHARD_ADD_ITEM("Reverb Zone", ReverbZone);
+            drawPlugins("Audio");
             ImGui::EndMenu();
         }
 
         #undef SHARD_ADD_ITEM
 
-        const auto& customComponents = GetComponentRegistry().GetAll();
-        if (!customComponents.empty() && ImGui::BeginMenu("Scripts"))
+        std::vector<const Entry*> uncategorized;
+        std::vector<std::string> roots;
+        for (const Entry& entry : entries)
         {
-            std::vector<std::string> names;
-            names.reserve(customComponents.size());
-            for (auto& [name, factory] : customComponents)
-                names.push_back(name);
-            std::sort(names.begin(), names.end());
-
-            for (const std::string& name : names)
-            {
-                if (ImGui::MenuItem(name.c_str()))
-                {
-                    std::shared_ptr<Component> component = GetComponentRegistry().CreateComponentByName(name);
-                    if (component)
-                    {
-                        Commands::Actions::EditActor(actor, "Add Component", [&]{ actor->AddComponentRaw(component); });
-                    }
-                }
-            }
-            ImGui::EndMenu();
+            if (entry.path.empty()) { uncategorized.push_back(&entry); continue; }
+            const std::string& root = entry.path[0];
+            if (root != "Rendering" && root != "Physics" && root != "Audio" && std::find(roots.begin(), roots.end(), root) == roots.end()) roots.push_back(root);
         }
+        std::sort(roots.begin(), roots.end());
+        for (const std::string& root : roots)
+            if (ImGui::BeginMenu(root.c_str())) { drawGroup(inCategory(root), 1); ImGui::EndMenu(); }
+        if (!uncategorized.empty() && ImGui::BeginMenu("Scripts")) { drawGroup(uncategorized, 0); ImGui::EndMenu(); }
     }
 
     void PropertiesPanel::DrawActorInfo(std::shared_ptr<Actor> actor)
@@ -1051,7 +1151,8 @@ namespace Shard::Editor::GUI{
             ImGui::SetNextItemAllowOverlap();
 
         ImGuiTreeNodeFlags flags = ImGuiTreeNodeFlags_DefaultOpen;
-        bool open = ImGui::CollapsingHeader(desc->name.c_str(), flags);
+        const std::string& title = desc->displayName.empty() ? desc->name : desc->displayName;
+        bool open = ImGui::CollapsingHeader(title.c_str(), flags);
 
         if (removable)
         {
@@ -1516,6 +1617,16 @@ namespace Shard::Editor::GUI{
                     *str = std::string(buffer);
                     FieldChangedEvent evt{ field };
                     comp->OnFieldChanged(evt); MarkWorldDirty();
+                }
+                else if (field->assetFilter && field->assetFilter[0])
+                {
+                    if (ImGui::IsItemHovered(ImGuiHoveredFlags_ForTooltip))
+                        ImGui::SetTooltip("Drop %s here (%s)", (field->flags & AssetList) ? "assets" : "an asset", field->assetFilter);
+                    if (DropAssetsOnText(*str, field))
+                    {
+                        FieldChangedEvent evt{ field };
+                        comp->OnFieldChanged(evt); MarkWorldDirty();
+                    }
                 }
                 break;
             }

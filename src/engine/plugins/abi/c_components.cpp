@@ -569,6 +569,11 @@ namespace Shard::Engine::Plugins::CAbi {
 
                 std::string why;
                 if (!BuildFieldSet(*type, full, desc->fields, desc->fieldCount, desc->size, CAbiComponent::StorageOffset(), CAbiComponent::TextOffset(0), false, why)) return refuse(why);
+                if (desc->structSize >= offsetof(ShardComponentDesc, hintCount) + sizeof(uint32_t) && !ApplyFieldHints(*type, desc->hints, desc->hintCount, why)) return refuse(why);
+                if (desc->structSize >= offsetof(ShardComponentDesc, category) + sizeof(ShardStr)) {
+                    type->descriptor.displayName = ToString(desc->displayName);
+                    type->descriptor.category = ToString(desc->category);
+                }
                 // A default blob would be shared by every new component, so blob fields start empty.
                 if (!type->defaults.empty()) ZeroHandleFields(*type, type->defaults.data());
 
@@ -836,6 +841,26 @@ namespace Shard::Engine::Plugins::CAbi {
             out.infos.push_back(info);
         }
         for (FieldInfo& info : out.infos) out.descriptor.fields.push_back(&info);
+        return true;
+    }
+
+    bool ApplyFieldHints(FieldSet& set, const ShardFieldHint* hints, uint32_t count, std::string& why)
+    {
+        if (count && !hints) { why = "'" + set.descriptor.name + "' : hintCount without hints"; return false; }
+        for (uint32_t i = 0; i < count; ++i) {
+            const ShardFieldHint& hint = hints[i];
+            if (hint.structSize < sizeof(ShardFieldHint)) { why = "'" + set.descriptor.name + "' : hint " + std::to_string(i) + " has a ShardFieldHint too small"; return false; }
+            const std::string field = ToString(hint.field);
+            const CField* described = nullptr;
+            for (const CField& f : set.fields) if (f.name == field) described = &f;
+            if (!described || described->type != SHARD_FIELD_STRING) { why = "'" + set.descriptor.name + "' : the hint is about '" + field + "', which is not a string field"; return false; }
+            FieldInfo* info = nullptr;
+            for (FieldInfo& candidate : set.infos) if (field == candidate.name) info = &candidate;
+            if (!info) continue;
+            set.filters.push_back(ToString(hint.assets));
+            info->assetFilter = set.filters.back().c_str();
+            if (hint.flags & SHARD_HINT_ASSET_LIST) info->flags |= uint32_t(AssetList);
+        }
         return true;
     }
 

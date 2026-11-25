@@ -159,7 +159,7 @@ namespace Shard::Engine{
                         type->kind = m_Context.resourcesManager->AllocateUserKind();
                         m_Context.resourcesManager->RegisterKind(type->kind, type->info);
                         for(const std::string& extension : type->extensions){
-                            if(!Filesystem::RegisterCustomExtension(extension))
+                            if(!Filesystem::RegisterCustomExtension(extension, type->look))
                                 DEBUG_WARNING("Asset type '", type->name, "' : the extension ", extension, " is one the engine reads itself, not registered");
                         }
                         DEBUG_INFO("Asset type : ", type->name);

@@ -88,6 +88,7 @@ MANUAL = {
     'assets.write': 'the id is optional (a null pointer), and the path is checked : a file of the project only',
     'assets.exists': 'the path is checked : a file of the project only, never a path of the machine',
     'assets.mesh_read': 'arrays of the module that the host fills',
+    'assets.mesh_skin_read': 'arrays of the module that the host fills',
     'assets.image_read': 'a buffer of the module that the host fills',
     'jobs.worker_count': "one : the module's jobs run one after the other on the main thread",
     'jobs.run': 'a callback : a table index of the module, run later on the main thread',
@@ -114,7 +115,7 @@ MANUAL = {
     'ui.combo': 'an array of strings',
 }
 # Answered with SHARD_E_UNSUPPORTED: they expose host paths (content.*) or take pointers/callbacks the sandbox does not marshal yet. Moving one to MANUAL is a normal addition.
-DENIED_ALWAYS = {'content.resolve', 'content.resolve_logical', 'ShardPhysicsApi.raycast_all', 'physics.raycast_all', 'physics.overlap_sphere', 'physics.overlap_box', 'physics.overlap_capsule', 'physics.sweep_sphere', 'physics.sweep_box', 'physics.collider_create', 'physics.collider_set_pose', 'physics.collider_update', 'editor.undo_push', 'editor.add_asset_opener', 'ui.accept_drag_drop_payload'}
+DENIED_ALWAYS = {'content.resolve', 'content.resolve_logical', 'ShardPhysicsApi.raycast_all', 'physics.raycast_all', 'physics.overlap_sphere', 'physics.overlap_box', 'physics.overlap_capsule', 'physics.sweep_sphere', 'physics.sweep_box', 'physics.collider_create', 'physics.collider_set_pose', 'physics.collider_update', 'editor.undo_push', 'editor.add_asset_opener', 'editor.add_actor_template', 'editor.add_asset_action', 'editor.add_actor_action', 'ui.accept_drag_drop_payload'}
 FUNCTION_PERMISSIONS = {
     'assets.write': 'fs.write:project',
     'time.set_time_scale': 'time.control',
@@ -126,7 +127,7 @@ FUNCTION_PERMISSIONS = {
 }
 
 SCALARS = {
-    'int8_t': (1, 1, 'i'), 'uint8_t': (1, 1, 'i'), 'int16_t': (2, 2, 'i'), 'uint16_t': (2, 2, 'i'),
+    'char': (1, 1, 'i'), 'int8_t': (1, 1, 'i'), 'uint8_t': (1, 1, 'i'), 'int16_t': (2, 2, 'i'), 'uint16_t': (2, 2, 'i'),
     'int32_t': (4, 4, 'i'), 'uint32_t': (4, 4, 'i'), 'float': (4, 4, 'f'),
     'int64_t': (8, 8, 'l'), 'uint64_t': (8, 8, 'l'), 'double': (8, 8, 'd'),
 }
@@ -245,6 +246,7 @@ class Headers:
         self.typedefs = {}
         self.callbacks = {}
         self.defines = {}
+        self.numbers = {}
         self.interface_minor = {}
         self.order = []
 
@@ -255,6 +257,8 @@ class Headers:
             self.interface_minor[header] = (m.group(1), int(m.group(2)), int(m.group(3)))
         for d in re.finditer(r'#define\s+(SHARD_IFACE_\w+)\s+"([\w.]+)"', raw):
             self.defines[d.group(1)] = d.group(2)
+        for d in re.finditer(r'^[ \t]*#define\s+(\w+)\s+(\d+)u?\s*$', raw, re.M):
+            self.numbers[d.group(1)] = int(d.group(2))
         text = strip_comments(raw)
         for sm in re.finditer(r'typedef\s+struct\s+(\w+)\s*\{(.*?)\}\s*(\w+)\s*;', text):
             name = sm.group(3)
@@ -321,7 +325,7 @@ def type_layout(h, t, cache):
     else:
         raise GenError('the type "%s" has no wasm32 layout here' % t.base)
     if t.array:
-        size *= int(t.array)
+        size *= int(h.numbers.get(t.array, t.array))
     return size, align
 
 

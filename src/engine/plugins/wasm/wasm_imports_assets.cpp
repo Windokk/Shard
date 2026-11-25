@@ -225,6 +225,61 @@ namespace Shard::Engine::Plugins::Wasm {
             return true;
         });
 
+        imports.AddManual("assets.mesh_skin_read", [&s, api, allowed](Instance& in, const uint64_t* a, uint64_t* r) {
+            namespace Ls = Layout::ShardSkinRead;
+            (void)s;
+            if (!allowed() || !SHARD_HAS(api, mesh_skin_read)) { r[0] = uint32_t(SHARD_E_UNSUPPORTED); return true; }
+            const uint8_t* raw = Span(in, a[1], Ls::kSize, "skin");
+            if (!raw) return false;
+            uint8_t head[Ls::kSize];
+            std::memcpy(head, raw, Ls::kSize);
+            if (Load<uint32_t>(head, Ls::o_structSize) < Ls::o_inverseBind) { r[0] = uint32_t(SHARD_E_INVALID_ARG); return true; }
+            const uint32_t vertexCapacity = Load<uint32_t>(head, Ls::o_vertexCapacity), nodeCapacity = Load<uint32_t>(head, Ls::o_nodeCapacity);
+            const uint32_t jointCapacity = Load<uint32_t>(head, Ls::o_jointCapacity);
+            const uint32_t jointsAt = Load<uint32_t>(head, Ls::o_joints), weightsAt = Load<uint32_t>(head, Ls::o_weights), nodesAt = Load<uint32_t>(head, Ls::o_nodes);
+            const uint32_t jointNodesAt = Load<uint32_t>(head, Ls::o_jointNodes), inverseBindAt = Load<uint32_t>(head, Ls::o_inverseBind);
+            if (vertexCapacity > kMaxElements || nodeCapacity > kMaxElements || jointCapacity > kMaxElements) {
+                in.HostTrap("a skin read of more than 16 million elements");
+                return false;
+            }
+            static_assert(sizeof(ShardSkinNode) == Layout::ShardSkinNode::kSize);
+            if ((jointsAt && !Span(in, jointsAt, uint64_t(vertexCapacity) * 8, "joints")) || (weightsAt && !Span(in, weightsAt, uint64_t(vertexCapacity) * 16, "weights")) ||
+                (nodesAt && !Span(in, nodesAt, uint64_t(nodeCapacity) * Layout::ShardSkinNode::kSize, "nodes")) ||
+                (jointNodesAt && !Span(in, jointNodesAt, uint64_t(jointCapacity) * 4, "joint nodes")) ||
+                (inverseBindAt && !Span(in, inverseBindAt, uint64_t(jointCapacity) * 64, "inverse bind")))
+                return false;
+
+            std::vector<uint16_t> joints(jointsAt ? size_t(vertexCapacity) * 4 : 0);
+            std::vector<float> weights(weightsAt ? size_t(vertexCapacity) * 4 : 0), inverseBind(inverseBindAt ? size_t(jointCapacity) * 16 : 0);
+            std::vector<ShardSkinNode> nodes(nodesAt ? nodeCapacity : 0);
+            std::vector<int32_t> jointNodes(jointNodesAt ? jointCapacity : 0);
+            ShardSkinRead io{};
+            io.structSize = sizeof(ShardSkinRead);
+            io.vertexCapacity = jointsAt || weightsAt ? vertexCapacity : 0;
+            io.nodeCapacity = nodesAt ? nodeCapacity : 0;
+            io.jointCapacity = jointNodesAt || inverseBindAt ? jointCapacity : 0;
+            io.joints = joints.empty() ? nullptr : joints.data();
+            io.weights = weights.empty() ? nullptr : weights.data();
+            io.nodes = nodes.empty() ? nullptr : nodes.data();
+            io.jointNodes = jointNodes.empty() ? nullptr : jointNodes.data();
+            io.inverseBind = inverseBind.empty() ? nullptr : inverseBind.data();
+            const ShardResult result = api->mesh_skin_read(int32_t(uint32_t(a[0])), &io);
+            r[0] = uint32_t(result);
+            if (result != SHARD_OK) return true;
+
+            const uint32_t vertices = std::min(io.vertexCount, io.vertexCapacity), nodeCount = std::min(io.nodeCount, io.nodeCapacity), jointCount = std::min(io.jointCount, io.jointCapacity);
+            bool ok = true;
+            if (jointsAt && vertices) ok = ok && in.Write(jointsAt, joints.data(), vertices * 8);
+            if (weightsAt && vertices) ok = ok && in.Write(weightsAt, weights.data(), vertices * 16);
+            if (nodesAt && nodeCount) ok = ok && in.Write(nodesAt, nodes.data(), nodeCount * Layout::ShardSkinNode::kSize);
+            if (jointNodesAt && jointCount) ok = ok && in.Write(jointNodesAt, jointNodes.data(), jointCount * 4);
+            if (inverseBindAt && jointCount) ok = ok && in.Write(inverseBindAt, inverseBind.data(), jointCount * 64);
+            ok = ok && in.Write(uint32_t(a[1]) + Ls::o_vertexCount, &io.vertexCount, 4) && in.Write(uint32_t(a[1]) + Ls::o_nodeCount, &io.nodeCount, 4) &&
+                 in.Write(uint32_t(a[1]) + Ls::o_jointCount, &io.jointCount, 4);
+            if (!ok) { in.HostTrap("skin out of the memory"); return false; }
+            return true;
+        });
+
         imports.AddManual("assets.image_read", [&s, api, allowed](Instance& in, const uint64_t* a, uint64_t* r) {
             (void)s;
             if (!allowed() || !SHARD_HAS(api, image_read)) { r[0] = uint32_t(SHARD_E_UNSUPPORTED); return true; }

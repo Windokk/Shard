@@ -19,13 +19,13 @@ Strings are `ShardStr` : UTF-8, not necessarily zero terminated, valid for the d
 | [`shard_plugin.h`](#shard_pluginh) | `shard.plugin` 1.2 | who the plugin is, as the host read it from the manifest, and where it runs |
 | [`shard_cvars.h`](#shard_cvarsh) | `shard.cvars` 1.0 | variables the plugin owns, readable from the console and the config files like the engine's own |
 | [`shard_commands.h`](#shard_commandsh) | `shard.commands` 1.1 | console commands |
-| [`shard_components.h`](#shard_componentsh) | `shard.components` 1.4 | component types described field by field |
+| [`shard_components.h`](#shard_componentsh) | `shard.components` 1.5 | component types described field by field |
 | [`shard_ecs.h`](#shard_ecsh) | `shard.ecs` 1.1 | entities and their components, from inside a system |
 | [`shard_systems.h`](#shard_systemsh) | `shard.systems` 1.0 | functions the engine's scheduler runs every frame, in a phase, in parallel with the systems they do not conflict with |
 | [`shard_events.h`](#shard_eventsh) | `shard.events` 1.1 | events found by NAME, carrying bytes |
 | [`shard_hooks.h`](#shard_hooksh) | `shard.hooks` 1.0 | the points of the engine a plugin can intercept, and cancel |
 | [`shard_services.h`](#shard_servicesh) | `shard.services` 1.0 | interfaces plugins offer each other, by name and version, without including each other's code |
-| [`shard_extensions.h`](#shard_extensionsh) | `shard.extensions` 1.0 | what a plugin adds to the engine's subsystems through their extension points |
+| [`shard_extensions.h`](#shard_extensionsh) | `shard.extensions` 1.1 | what a plugin adds to the engine's subsystems through their extension points |
 | [`shard_content.h`](#shard_contenth) | `shard.content` 1.0 | the content folders of the loaded modules |
 | [`shard_state.h`](#shard_stateh) | `shard.state` 1.0 | what a plugin keeps across a hot reload |
 | [`shard_actors.h`](#shard_actorsh) | | Interface `"shard.actors"` 1.2 (1.0 + the fields of a component, one at a time in 1.1 ; stable ids, bounds and neighbours in 1.2) |
@@ -33,7 +33,7 @@ Strings are `ShardStr` : UTF-8, not necessarily zero terminated, valid for the d
 | [`shard_audio.h`](#shard_audioh) | `shard.audio` 1.0 | sounds |
 | [`shard_collision.h`](#shard_collisionh) | `shard.collision` 1.0 | collision profiles, overlap and hit events, temporary changes and the reason two actors do or do not collide |
 | [`shard_debug.h`](#shard_debugh) | `shard.debug` 1.0 | drawing for the developer, in the world, from anywhere : a navigation mesh, the path an agent follows, a field of view, a voxel chunk's bounds, a bone, a network ghost, the node a graph is running |
-| [`shard_editor.h`](#shard_editorh) | `shard.editor` 1.2 | the editor's windows, menus, toolbar, inspectors and gizmos, drawn with a small set of widgets |
+| [`shard_editor.h`](#shard_editorh) | `shard.editor` 1.3 | the editor's windows, menus, toolbar, inspectors and gizmos, drawn with a small set of widgets |
 | [`shard_experimental.h`](#shard_experimentalh) | `shard.experimental.world_ecs` 0.1 | the engine's entities from the main thread, outside the systems |
 | [`shard_input.h`](#shard_inputh) | `shard.input` 1.1 | keyboard, mouse and gamepads, polled ; and the window system's events, in order |
 | [`shard_jobs.h`](#shard_jobsh) | `shard.jobs` 1.0 | the engine's worker threads, for a plugin's own work |
@@ -41,7 +41,7 @@ Strings are `ShardStr` : UTF-8, not necessarily zero terminated, valid for the d
 | [`shard_physics.h`](#shard_physicsh) | `shard.physics` 1.1 | the rigid bodies of actors, ray casts and volume queries, and colliders a plugin builds itself |
 | [`shard_reflect.h`](#shard_reflecth) | `shard.reflect` 1.0 | what exists in the engine and in the other plugins, described at run time ; and functions plugins offer to be called by name |
 | [`shard_render.h`](#shard_renderh) | `shard.render` 1.0 | what a plugin puts on the screen that the engine's components do not : meshes it builds, textures it fills, sprites, instances and a 2D overlay |
-| [`shard_scripts.h`](#shard_scriptsh) | `shard.scripts` 1.2 | scripts, the components that carry a plugin's gameplay code |
+| [`shard_scripts.h`](#shard_scriptsh) | `shard.scripts` 1.3 | scripts, the components that carry a plugin's gameplay code |
 | [`shard_time.h`](#shard_timeh) | `shard.time` 1.0 | the simulation's clock, and a fingerprint of its state |
 | [`shard_timers.h`](#shard_timersh) | `shard.timers` 1.0 | delays, repeating timers and coroutines, run by the simulation |
 | [`shard_wasm.h`](#shard_wasmh) | | Sandboxed plugins (tier 2, `"abi"`: `"wasm1"`) |
@@ -65,7 +65,7 @@ Changing a struct without bumping `SHARD_ABI_MINOR` is a bug : `tests/plugins/ab
 | | Value | |
 |---|---|---|
 | `SHARD_ABI_MAJOR` | `1` |  |
-| `SHARD_ABI_MINOR` | `10` |  |
+| `SHARD_ABI_MINOR` | `11` |  |
 
 Calling convention of every function pointer in the tables. Empty on `x86_64` and arm64.
 
@@ -380,7 +380,7 @@ ShardResult execute(ShardPluginCtx ctx, ShardStr line, char* output, uint64_t ca
 
 ### shard_components.h
 
-Interface `"shard.components"` 1.4 : component types described field by field.
+Interface `"shard.components"` 1.5 : component types described field by field.
 
 One registration gives a type two faces, under one name (`"<plugin id>.<name>"`, made by the host) :
 
@@ -443,14 +443,23 @@ Field flags. Without any, a field is saved and editable in the inspector.
 | `SHARD_FIELD_ACCESSOR` | `4u` | a `SHARD_FIELD_STRING` of a script that is not a handle : the plugin's own string at that offset, read and writt |
 
 ```c
-* by the script's text_get and text_set callbacks (shard_scripts.h) instead of a blob (1.5) */ typedef struct ShardFieldDesc { uint32_t structSize;
+* by the script's text_get and text_set callbacks (shard_scripts.h) instead of a blob (1.5) */ #define SHARD_HINT_ASSET_LIST 1u typedef struct ShardFieldHint { uint32_t structSize;
+uint32_t flags;    // SHARD_HINT_*
+ShardStr field;    // a SHARD_FIELD_STRING of the type
+ShardStr assets;
+} ShardFieldHint;
+```
+
+#### ShardFieldDesc
+
+```c
+uint32_t structSize;
 uint32_t type;    // SHARD_FIELD_*
 ShardStr name;    // letters, digits and '_' ; "type", "active" and "tags" are reserved
 uint32_t offset;    // in the block, aligned for its type
 uint32_t flags;    // SHARD_FIELD_RUNTIME...
 float min, max;    // bounds of the inspector's widget ; min == max : none
 ShardStr tooltip;    // optional
-} ShardFieldDesc;
 ```
 
 Told about the actor components of a type (1.4). `actor` is the `ShardActor` that carries it, `entity` its ECS entity, `block` the component's block (valid for the call). All of them run on the main thread, outside the systems, in the editor's edit mode as well as in play mode, with the values the world file or the inspector gave already in the block.
@@ -496,6 +505,16 @@ const void* defaults;    // `size` bytes : the value of a new component. NULL : 
 
 ```c
 const ShardComponentCallbacks* callbacks;    // optional, copied up to its structSize during the call
+```
+
+**1.5**
+
+```c
+const ShardFieldHint* hints;    // optional, read during the call only
+uint32_t hintCount;
+uint32_t reserved;
+ShardStr displayName;    // what the editor shows instead of the name ; empty : the name
+ShardStr category;    // where "Add Component" files the type : "Rendering/Post Process" ; empty : under "Scripts"
 ```
 
 | | Value | |
@@ -961,7 +980,7 @@ ShardResult release(ShardPluginCtx ctx, ShardServiceRef ref);
 
 ### shard_extensions.h
 
-Interface `"shard.extensions"` 1.0 : what a plugin adds to the engine's subsystems through their extension points. The C ABI offers the points whose items are only data and functions :
+Interface `"shard.extensions"` 1.1 : what a plugin adds to the engine's subsystems through their extension points. The C ABI offers the points whose items are only data and functions :
 
 ```
 "tool.validator"   a check the asset validator (ShardAssetValidator) runs on a project
@@ -1013,6 +1032,23 @@ ShardResult validate(void* user, ShardPluginCtx ctx, ShardStr projectFile, const
 void* user;
 ```
 
+One flat shape of an asset type's icon, on a 24 x 24 grid, drawn in the type's accent colour.
+
+| | Value | |
+|---|---|---|
+| `SHARD_ICON_RECT` | `0u` | v : x0, y0, x1, y1 |
+| `SHARD_ICON_DISC` | `1u` | v : x, y, radius |
+| `SHARD_ICON_POLY` | `2u` | v : up to 4 points x, y (convex), pointCount of them |
+
+#### ShardIconShape
+
+```c
+uint32_t kind;    // SHARD_ICON_*
+uint32_t pointCount;    // SHARD_ICON_POLY : 3 or 4
+float alpha;    // 0..1 : 1 for what matters, about 0.5 for the rest
+float v[8];
+```
+
 #### ShardAssetTypeItem
 
 ```c
@@ -1028,6 +1064,15 @@ Builds the resource from its file (`file` : absolute path, `path` : its path in 
 void* load(void* user, ShardPluginCtx ctx, ShardStr path, ShardStr file);
 void unload(void* user, ShardPluginCtx ctx, void* resource);
 void* user;
+```
+
+**1.11 : how the content browser shows the files of the type. All optional, a descriptor without them is shown as a plain file**
+
+```c
+ShardStr displayName;    // "Post Profile" : what the browser calls the type. Empty : `name`
+uint32_t accent;    // 0xRRGGBB : the colour of the icon and the label. 0 : a colour derived from `name`
+uint32_t iconCount;
+const ShardIconShape* icon;    // iconCount shapes, copied during the call. NULL : a generic file icon in the accent
 ```
 
 #### ShardImporterItem
@@ -1764,7 +1809,7 @@ void clear(void);
 
 ### shard_editor.h
 
-Interface `"shard.editor"` 1.2 : the editor's windows, menus, toolbar, inspectors and gizmos, drawn with a small set of widgets.
+Interface `"shard.editor"` 1.3 : the editor's windows, menus, toolbar, inspectors and gizmos, drawn with a small set of widgets.
 
 ImGui has no stable ABI, so a plugin does not draw with it : it adds a panel and draws the contents with the widgets of `ShardUiApi`, which the editor implements with its own ImGui. The panel is a window of the editor's Window menu (hidden until the user opens it). Its draw function runs every frame while the window is open, on the editor's main thread, and may call the widgets then and only then. The same widgets draw an inspector (below a component in the Properties panel) ; `ShardGizmoApi` draws over the viewport.
 
@@ -2133,6 +2178,18 @@ The user opened (double click, `"Open"`) the asset at `path` in the project, of 
 typedef void (*ShardOpenAssetFn)(void* user, ShardStr path);
 ```
 
+An entry of the content browser's context menu was chosen for the asset at `path` in the project (1.3)
+
+```c
+typedef void (*ShardAssetActionFn)(void* user, ShardStr path);
+```
+
+An entry of the world tree's context menu was chosen : the selected actors, valid for the call (1.3)
+
+```c
+typedef void (*ShardActorActionFn)(void* user, const ShardActor* actors, uint32_t count);
+```
+
 | | Value | |
 |---|---|---|
 | `SHARD_EDITOR_NOTIFY_INFO` | `0` |  |
@@ -2219,6 +2276,28 @@ An entry `"label"` of the content browser's Create menu that writes a new file w
 
 ```c
 ShardResult add_asset_template(ShardPluginCtx ctx, ShardStr label, ShardStr default_name, const void* data, uint64_t size);
+```
+
+**1.3**
+
+`label` of `add_asset_template` may hold '/' : `"Rendering/Post Profile"` is the entry `"Post Profile"` of the submenu `"Rendering"`.
+
+An entry of the world tree's Create menus (the menu of the tree and `"Create Child"`) that makes an actor with these components : `path` (`"Post Process/Volume"`, '/' = submenus, the last part names the entry and the new actor) and the full names of `count` component types (components and scripts of the plugins, `"<plugin id>.<name>"`). A type that is not registered when the entry is used is skipped (declared components are registered after OnLoad).
+
+```c
+ShardResult add_actor_template(ShardPluginCtx ctx, ShardStr path, const ShardStr* components, uint32_t count);
+```
+
+An entry `"label"` ('/' = submenus) in the context menu of the content browser for a single asset of that extension (`".postprofile"`)
+
+```c
+ShardResult add_asset_action(ShardPluginCtx ctx, ShardStr extension, ShardStr label, ShardAssetActionFn run, void* user);
+```
+
+An entry `"label"` ('/' = submenus) in the context menu of the world tree : `run` gets the selected actors
+
+```c
+ShardResult add_actor_action(ShardPluginCtx ctx, ShardStr label, ShardActorActionFn run, void* user);
 ```
 
 ### shard_experimental.h
@@ -3643,7 +3722,7 @@ ShardResult screen_to_ray(float x, float y, double origin[3], float direction[3]
 
 ### shard_scripts.h
 
-Interface `"shard.scripts"` 1.2 : scripts, the components that carry a plugin's gameplay code.
+Interface `"shard.scripts"` 1.3 : scripts, the components that carry a plugin's gameplay code.
 
 A script is an object of the plugin (a C++ class in the SDK) that lives on an actor, as the engine's own Script components do. The host owns its memory and calls it back : it is created with the component, receives the callbacks of the actor's life and of the frame (play, tick, fixed tick, late tick, stop...), in the order of the scripts of the world, and goes with the actor. Its fields are shown by the inspector, saved with the world and copied with the actor (play mode copies the world), exactly as for a component of `shard_components.h` : the same `ShardFieldDesc`, the same field types (text, assets, blobs included), at offsets in the object.
 
@@ -3788,6 +3867,16 @@ uint32_t reserved;
 ```c
 uint32_t collision_kinds;    // SHARD_COLLISION_* : the kinds of event the host subscribes the script to, among the ones it has a callback for. A descriptor without this field (older) gets all of them. 0 : none, nothing is produced for the script.
 uint32_t reserved2;
+```
+
+**1.3**
+
+```c
+ShardStr displayName;    // what the editor shows instead of the registered name ("Animator 3D") ; empty : the name
+const ShardFieldHint* hints;    // optional : see shard_components.h. Read during the call only.
+uint32_t hintCount;
+uint32_t reserved3;
+ShardStr category;    // where "Add Component" files the script : "Rendering/Post Process" (submenus by '/') ; empty : under "Scripts"
 ```
 
 #### ShardScriptsApi
@@ -4697,12 +4786,36 @@ using AssetLoadFn = std::function<void*(std::string_view path, std::string_view 
 using AssetUnloadFn = std::function<void(void* resource)>;
 ```
 
+#### `Icon`
+
+The icon of an asset type : flat shapes on a 24 x 24 grid, in the type's accent. `alpha` 1 for what matters, about 0.5 for the rest.
+
+```cpp
+Icon& Rect(float x0, float y0, float x1, float y1, float alpha = 1.f);
+Icon& Disc(float x, float y, float radius, float alpha = 1.f);
+Icon& Poly(std::initializer_list<float> xy, float alpha = 1.f);
+std::vector<ShardIconShape> shapes;
+```
+
+#### `AssetLook`
+
+How the content browser shows the files of an asset type
+
+```cpp
+/// "Post Profile" ; empty : the type's name
+std::string displayName;
+/// 0xRRGGBB ; 0 : derived from the name
+uint32_t accent = 0;
+/// none : a generic file icon
+Icon icon;
+```
+
 #### `Extensions`
 
 ```cpp
 void AddValidator(const std::string& name, ValidatorFn fn) const;
 void AddImporter(const std::string& name, const std::vector<std::string>& extensions, ImporterFn fn) const;
-void AddAssetType(const std::string& name, const std::vector<std::string>& extensions, AssetLoadFn load, AssetUnloadFn unload) const;
+void AddAssetType(const std::string& name, const std::vector<std::string>& extensions, AssetLoadFn load, AssetUnloadFn unload, const AssetLook& look = {}) const;
 bool Remove(const std::string& point, const std::string& name) const;
 /// The resource of one of this plugin's asset types at `path`, loaded if needed (null if it cannot be)
 void* GetAsset(const std::string& typeName, const std::string& path) const;
@@ -5381,8 +5494,16 @@ bool SetPanelVisible(const std::string& title, bool visible) const;
 bool PushUndo(const std::string& label, std::function<void()> undo, std::function<void()> redo) const;
 /// A double click on an asset of that extension (".bt") in the content browser calls `open` with its path in the project
 bool AddAssetOpener(const std::string& extension, std::function<void(std::string_view path)> open) const;
-/// An entry of the content browser Create menu that writes a new file with these bytes
+/// An entry of the content browser Create menu that writes a new file with these bytes. `label` may hold '/' : "Rendering/Post Profile" is
+/// the entry "Post Profile" of the submenu "Rendering".
 bool AddAssetTemplate(const std::string& label, const std::string& defaultName, const std::string& bytes) const;
+/// An entry of the world tree's Create menus ("Post Process/Volume") that makes an actor named after the last part, with these components
+/// (registered names). False : the editor is older.
+bool AddActorTemplate(const std::string& path, const std::vector<std::string>& components) const;
+/// An entry ("Bake/Rebuild", '/' = submenus) of the content browser's context menu for a single asset of that extension
+bool AddAssetAction(const std::string& extension, const std::string& label, std::function<void(std::string_view path)> run) const;
+/// An entry of the world tree's context menu ('/' = submenus) : `run` gets the selected actors
+bool AddActorAction(const std::string& label, SelectionFn run) const;
 ```
 
 ```cpp
@@ -5702,6 +5823,8 @@ Range(min, max)     the bounds of the inspector's widget
 Tooltip("text")     what the inspector shows when the mouse rests on the field
 Runtime()           the inspector shows it, read only, and the world file does not save it
 Hidden()            neither shown nor saved (the object keeps it; not for a string)
+Assets(".fbx;.glb") a std::string field takes the project files of these extensions dropped on it in the inspector
+AssetList()         with Assets : each drop is added to the text, a list of files separated by ';'
 ```
 
 The type is any of the field types of `shard/cpp/component.hpp` (numbers, bool, `Vec2/3/4`, Quat, Color, Text, AssetId, `std::string`, Actor, Blob).
@@ -5714,6 +5837,8 @@ What the options of a field add to it
 uint32_t flags = 0;
 float min = 0.f, max = 0.f;
 std::string tooltip;
+std::string assets;
+bool assetList = false;
 ```
 
 #### `Range`
@@ -5731,6 +5856,19 @@ void Apply(FieldSpec& spec) const;
 ```
 
 #### `Runtime`
+
+```cpp
+void Apply(FieldSpec& spec) const;
+```
+
+#### `Assets`
+
+```cpp
+const char* extensions;
+void Apply(FieldSpec& spec) const;
+```
+
+#### `AssetList`
 
 ```cpp
 void Apply(FieldSpec& spec) const;

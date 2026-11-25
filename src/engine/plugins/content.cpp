@@ -459,6 +459,8 @@ namespace Shard::Engine::Plugins {
         DeclaredComponent c;
         if (!j.contains("name") || !j["name"].is_string() || j["name"].get<std::string>().empty()) return Core::Err("a component needs a name");
         c.name = j["name"].get<std::string>();
+        c.displayName = j.value("displayName", std::string());
+        c.category = j.value("category", std::string());
         if (!j.contains("fields") || !j["fields"].is_object()) return Core::Err("component '" + c.name + "' needs a \"fields\" object");
         static const std::set<std::string> kTypes = { "bool", "int", "float", "string", "vec3", "color" };
         for (auto it = j["fields"].begin(); it != j["fields"].end(); ++it) {
@@ -477,6 +479,11 @@ namespace Shard::Engine::Plugins {
             } else {
                 f.defaultValue = f.type == "bool" ? json(false) : f.type == "int" ? json(0) : f.type == "float" ? json(0.0) : f.type == "string" ? json("") :
                                  f.type == "vec3" ? json::array({ 0.0, 0.0, 0.0 }) : json::array({ 1.0, 1.0, 1.0, 1.0 });
+            }
+            if (d.contains("assets")) {
+                if (f.type != "string" || !d["assets"].is_string()) return Core::Err("'assets' of '" + f.name + "' in '" + c.name + "' is a string, on a string field");
+                f.assets = d["assets"].get<std::string>();
+                f.list = d.value("list", false);
             }
             c.fields.push_back(std::move(f));
         }

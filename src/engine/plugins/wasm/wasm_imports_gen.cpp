@@ -212,6 +212,7 @@ namespace Shard::Engine::Plugins::Wasm {
             { "assets.mesh_read", { { I, I }, { I } }, true },
             { "assets.image_info", { { I, I, I }, { I } }, false },
             { "assets.image_read", { { I, I, L, I }, { I } }, true },
+            { "assets.mesh_skin_read", { { I, I }, { I } }, true },
             { "jobs.worker_count", { {  }, { I } }, true },
             { "jobs.run", { { L, I, I, I }, { I } }, true },
             { "jobs.parallel_for", { { L, I, I, I, I }, { I } }, true },
@@ -246,6 +247,9 @@ namespace Shard::Engine::Plugins::Wasm {
             { "editor.undo_push", { { L, I, I, I, I }, { I } }, false },
             { "editor.add_asset_opener", { { L, I, I, I }, { I } }, false },
             { "editor.add_asset_template", { { L, I, I, I, L }, { I } }, false },
+            { "editor.add_actor_template", { { L, I, I, I }, { I } }, false },
+            { "editor.add_asset_action", { { L, I, I, I, I }, { I } }, false },
+            { "editor.add_actor_action", { { L, I, I, I }, { I } }, false },
             { "ui.text", { { I }, {  } }, false },
             { "ui.text_colored", { { I, I }, {  } }, false },
             { "ui.text_wrapped", { { I }, {  } }, false },
@@ -1881,6 +1885,18 @@ namespace Shard::Engine::Plugins::Wasm {
                 const auto rv = api->add_asset_template(s.ctx, ToStr(p1), ToStr(p2), p3.empty() ? nullptr : p3.data(), uint64_t(a[4]));
                 r[0] = uint32_t(rv);
                 return true;
+            });
+            imports.Add("editor.add_actor_template", { { L, I, I, I }, { I } }, [&s, api](Instance& in, const uint64_t* a, uint64_t* r) -> bool {
+                (void)in; (void)a; (void)r;
+                if (true || !s.Allowed(Permission::Editor)) { r[0] = uint32_t(SHARD_E_UNSUPPORTED); return true; }
+            });
+            imports.Add("editor.add_asset_action", { { L, I, I, I, I }, { I } }, [&s, api](Instance& in, const uint64_t* a, uint64_t* r) -> bool {
+                (void)in; (void)a; (void)r;
+                if (true || !s.Allowed(Permission::Editor)) { r[0] = uint32_t(SHARD_E_UNSUPPORTED); return true; }
+            });
+            imports.Add("editor.add_actor_action", { { L, I, I, I }, { I } }, [&s, api](Instance& in, const uint64_t* a, uint64_t* r) -> bool {
+                (void)in; (void)a; (void)r;
+                if (true || !s.Allowed(Permission::Editor)) { r[0] = uint32_t(SHARD_E_UNSUPPORTED); return true; }
             });
         }
 
