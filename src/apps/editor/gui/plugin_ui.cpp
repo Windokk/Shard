@@ -547,6 +547,28 @@ namespace Shard::Editor::GUI {
         return true;
     }
 
+    std::vector<std::string> UnsavedPluginAssetEditors()
+    {
+        std::vector<std::string> paths;
+        for (OpenAssetEditor& e : gAssetEditors) {
+            const auto item = FindAssetEditor(LowerExtensionOf(e.path));
+            if (!item) continue;
+            if (item->isDirty) e.dirty = item->isDirty(e.path);
+            if (e.dirty) paths.push_back(e.path);
+        }
+        return paths;
+    }
+
+    bool SavePluginAssetEditors()
+    {
+        // Over a copy : a plugin's callback may open another editor.
+        for (const std::string& path : UnsavedPluginAssetEditors()) {
+            const auto item = FindAssetEditor(LowerExtensionOf(path));
+            if (item && item->onSave) item->onSave(path);
+        }
+        return UnsavedPluginAssetEditors().empty();
+    }
+
     void DrawPluginAssetEditors()
     {
         // Index loop : a plugin's callback may open another editor.
@@ -568,6 +590,7 @@ namespace Shard::Editor::GUI {
             const size_t slash = path.find_last_of("/\\");
             const std::string file = slash == std::string::npos ? path : path.substr(slash + 1);
 
+            if (item->isDirty) gAssetEditors[i].dirty = item->isDirty(path);
             const bool dirty = gAssetEditors[i].dirty;
             const std::string title = item->title + " - " + file + (dirty ? "*" : "") + "###plugasset:" + path;
             if (gAssetEditors[i].focus) {
@@ -607,6 +630,11 @@ namespace Shard::Editor::GUI {
             ImGui::End();
 
             if (save && item->onSave) item->onSave(path);
+            if (item->isDirty) {
+                gAssetEditors[i].dirty = item->isDirty(path);
+                // The save failed : closing now would lose the changes
+                if (save && gAssetEditors[i].dirty) closeNow = false;
+            }
 
             // The close button of a dirty window asks first, a clean one closes.
             if (!open) {

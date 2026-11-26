@@ -173,6 +173,7 @@ namespace Shard::Engine::Plugins {
         std::function<void(const std::string& pathInProject)> onOpen;
         std::function<void(const std::string& pathInProject)> onClose;
         std::function<void(const std::string& pathInProject)> onSave;
+        std::function<bool(const std::string& pathInProject)> isDirty;
     };
 
     struct EditorGizmoItem {

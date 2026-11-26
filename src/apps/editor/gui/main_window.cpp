@@ -1363,19 +1363,30 @@ namespace Shard::Editor::Core{
 
     bool EditorMainWindow::ShouldClose() const
     {
-        return SDLWindow::ShouldClose() && (closeConfirmed || !HasUnsavedProjectSettings());
+        return SDLWindow::ShouldClose() && (closeConfirmed || (!HasUnsavedProjectSettings() && GUI::UnsavedPluginAssetEditors().empty()));
     }
 
     void EditorMainWindow::UpdateCloseRequest()
     {
-        if(!SDLWindow::ShouldClose() || closeConfirmed || !HasUnsavedProjectSettings())
+        if(!SDLWindow::ShouldClose() || closeConfirmed)
+            return;
+
+        std::string unsaved = HasUnsavedProjectSettings() ? "Project Settings" : "";
+        for(const std::string& path : GUI::UnsavedPluginAssetEditors())
+            unsaved += (unsaved.empty() ? "" : ", ") + path;
+        if(unsaved.empty())
             return;
 
         CancelClose();
-        GUI::Popups::ConfirmUnsavedChanges("Project Settings",
+        GUI::Popups::ConfirmUnsavedChanges(unsaved,
             [this]{
-                if(!projectSettingsPanel->Save())
+                if(HasUnsavedProjectSettings() && !projectSettingsPanel->Save())
                     return;
+                if(!GUI::SavePluginAssetEditors())
+                {
+                    GUI::Notifications::Error("Some changes could not be saved, the editor stays open");
+                    return;
+                }
                 closeConfirmed = true;
                 RequestClose();
             },

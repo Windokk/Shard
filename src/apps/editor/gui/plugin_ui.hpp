@@ -39,6 +39,10 @@ namespace Shard::Editor::GUI {
     bool SetPluginAssetEditorDirty(const std::string& pathInProject, bool dirty);
     /// Draws the open windows, once per frame
     void DrawPluginAssetEditors();
+    /// The paths of the open assets with unsaved changes
+    std::vector<std::string> UnsavedPluginAssetEditors();
+    /// Saves them. False when one is still dirty : it failed, or its editor has no on_save
+    bool SavePluginAssetEditors();
 
     // ---- Drop hooks of plugins : true when a plugin took the drop, the editor then does nothing with it ----
     bool DispatchPluginDrop(const Engine::Plugins::EditorDropEvent& event);

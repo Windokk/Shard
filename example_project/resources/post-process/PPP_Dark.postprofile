@@ -1,7 +1,6 @@
 {
   "bloom": {
-    "enabled": false,
-    "intensity": 0.20000000298023224,
+    "intensity": 0.8,
     "threshold": 1.0,
     "knee": 0.5,
     "radius": 1.0,
@@ -10,18 +9,18 @@
       1.0,
       1.0
     ],
-    "mips": 5.0
+    "mips": 5.0,
+    "enabled": false
   },
   "autoExposure": {
-    "enabled": false,
     "strength": 1.0,
     "key": 0.18000000715255737,
     "minEV": -3.0,
-    "maxEV": 4.0,
-    "speed": 1.5
+    "maxEV": 0.0,
+    "speed": 1.5,
+    "enabled": false
   },
   "colorAdjustments": {
-    "enabled": false,
     "postExposure": 0.0,
     "contrast": 10.0,
     "colorFilter": [
@@ -30,7 +29,8 @@
       1.0
     ],
     "hueShift": 0.0,
-    "saturation": 10.0
+    "saturation": 2.0,
+    "enabled": false
   },
   "whiteBalance": {
     "enabled": false,
@@ -110,10 +110,9 @@
     ]
   },
   "vignette": {
-    "enabled": false,
-    "intensity": 0.3499999940395355,
-    "smoothness": 0.4000000059604645,
-    "roundness": 1.0,
+    "intensity": 0.58,
+    "smoothness": 1.0,
+    "roundness": 0.5,
     "rounded": 0.0,
     "color": [
       0.0,
@@ -123,48 +122,49 @@
     "center": [
       0.5,
       0.5
-    ]
+    ],
+    "enabled": false
   },
   "chromaticAberration": {
-    "enabled": false,
-    "intensity": 0.15000000596046448
-  },
-  "filmGrain": {
-    "enabled": false,
-    "intensity": 0.25,
-    "response": 0.800000011920929,
-    "size": 1.0
+    "intensity": 0.75,
+    "enabled": false
   },
   "lensDistortion": {
-    "enabled": false,
-    "intensity": 30.0,
+    "intensity": 1.0,
     "xMultiplier": 1.0,
     "yMultiplier": 1.0,
     "center": [
       0.5,
       0.5
     ],
-    "scale": 1.0
+    "scale": 1.0,
+    "enabled": false
   },
   "paniniProjection": {
-    "enabled": false,
-    "distance": 0.20000000298023224,
-    "cropToFit": 1.0
+    "distance": 0.0,
+    "cropToFit": 1.0,
+    "enabled": false
   },
   "sharpen": {
-    "enabled": false,
-    "intensity": 0.30000001192092896
+    "intensity": 0.0,
+    "enabled": false
   },
   "depthOfField": {
-    "enabled": false,
     "strength": 1.0,
-    "focusDistance": 10.0,
-    "focusRange": 4.0,
-    "maxBlur": 12.0
+    "focusDistance": 0.35,
+    "focusRange": 1.76,
+    "maxBlur": 5.0,
+    "enabled": false
   },
   "motionBlur": {
-    "enabled": false,
-    "intensity": 0.5,
-    "samples": 12.0
+    "intensity": 0.1,
+    "samples": 12.0,
+    "enabled": false
+  },
+  "filmGrain": {
+    "intensity": 0.25,
+    "response": 0.8,
+    "size": 1.0,
+    "enabled": false
   }
 }
