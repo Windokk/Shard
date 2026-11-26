@@ -1,6 +1,9 @@
+#include "engine/core/text/fuzzy_match.hpp"
 #include "apps/editor/debug/collision_debug_state.hpp"
 #include "properties_panel.hpp"
 #include "apps/editor/gui/plugin_ui.hpp"
+#include "engine/plugins/plugin.hpp"
+#include "imgui/imgui_internal.h"
 
 #include "engine/assets/reflection/reflection_fields.hpp"
 #include "engine/world/engine.hpp"
@@ -354,6 +357,141 @@ namespace Shard::Editor::GUI{
             }
         }
         ImGui::EndDragDropTarget();
+        return changed;
+    }
+
+    // The button after a text field that takes project assets (the field's assetFilter) : opens a searchable list of the matching ones.
+    // Picking sets the text, or appends to it when the field holds a list. Returns true when the text changed.
+    static bool PickAssetForString(const std::string& id, std::string& value, const FieldInfo* field)
+    {
+        auto* manager = Engine::Core::GetEngine().GetAssetIDManager();
+        if (!manager)
+            return false;
+
+        const bool isList = (field->flags & AssetList) != 0;
+        bool changed = false;
+
+        ImGui::SameLine(0.0f, ImGui::GetStyle().ItemInnerSpacing.x);
+        const float buttonSize = ImGui::GetFrameHeight();
+        if (ImGui::Button((std::string(ICON_LC_FOLDER_SEARCH) + id + "Pick").c_str(), ImVec2(buttonSize, buttonSize)))
+            ImGui::OpenPopup("##StringAssetPicker");
+        if (ImGui::IsItemHovered(ImGuiHoveredFlags_ForTooltip))
+            ImGui::SetTooltip("Pick an asset (%s)", field->assetFilter);
+
+        ImGui::SetNextWindowSizeConstraints(ImVec2(280.0f, 120.0f), ImVec2(FLT_MAX, 420.0f));
+        if (!ImGui::BeginPopup("##StringAssetPicker"))
+            return false;
+
+        static char filter[128] = "";
+        // Ranked list, rebuilt when the popup opens or the search text changes (the same cache as the asset slots).
+        static std::string builtFor;
+        static std::vector<std::string> candidates;
+        const bool appearing = ImGui::IsWindowAppearing();
+        if (appearing)
+        {
+            filter[0] = '\0';
+            ImGui::SetKeyboardFocusHere();
+        }
+
+        ImGui::SetNextItemWidth(-FLT_MIN);
+        const bool enterPressed = ImGui::InputTextWithHint("##PickerFilter", ICON_LC_SEARCH "  Search...", filter, sizeof(filter), ImGuiInputTextFlags_EnterReturnsTrue);
+        ImGui::Separator();
+
+        auto pick = [&](const std::string& name)
+        {
+            if (isList)
+            {
+                if ((";" + value + ";").find(";" + name + ";") == std::string::npos)
+                {
+                    if (!value.empty())
+                        value += ';';
+                    value += name;
+                    changed = true;
+                }
+            }
+            else if (value != name)
+            {
+                value = name;
+                changed = true;
+            }
+        };
+
+        if (!isList && ImGui::Selectable("None", value.empty()))
+        {
+            if (!value.empty())
+            {
+                value.clear();
+                changed = true;
+            }
+            ImGui::CloseCurrentPopup();
+        }
+
+        if (appearing || builtFor != filter)
+        {
+            builtFor = filter;
+            candidates.clear();
+
+            struct Ranked { std::string name; int score; };
+            std::vector<Ranked> ranked;
+            for (const auto& [assetId, info] : manager->AssetIDMap)
+            {
+                if (!info || info->baseInfos.isDirectory || info->baseInfos.nameInProject.empty())
+                    continue;
+                const std::string& path = info->baseInfos.nameInProject;
+                if (!MatchesAssetFilter(path, field->assetFilter))
+                    continue;
+
+                int score = 0;
+                if (filter[0] != '\0')
+                {
+                    const size_t slash = path.find_last_of("/\\");
+                    const std::string_view fileName = slash == std::string::npos ? std::string_view(path) : std::string_view(path).substr(slash + 1);
+                    const Engine::Core::Text::FuzzyResult match = Engine::Core::Text::FuzzyMatchAny(filter, { fileName, std::string_view(path) }, { 100, 55 });
+                    if (!match.matched)
+                        continue;
+                    score = match.score;
+                }
+                ranked.push_back({ path, score });
+            }
+            std::sort(ranked.begin(), ranked.end(), [](const Ranked& l, const Ranked& r)
+            {
+                if (l.score != r.score)
+                    return l.score > r.score;
+                return l.name < r.name;
+            });
+            for (Ranked& r : ranked)
+                candidates.push_back(std::move(r.name));
+        }
+
+        if (enterPressed && filter[0] != '\0' && !candidates.empty())
+        {
+            pick(candidates[0]);
+            ImGui::CloseCurrentPopup();
+        }
+
+        ImGui::BeginChild("##PickerList", ImVec2(0.0f, 260.0f));
+        if (candidates.empty())
+            ImGui::TextDisabled("No matching asset in the project");
+        ImGuiListClipper clipper;
+        clipper.Begin((int)candidates.size());
+        while (clipper.Step())
+        {
+            for (int i = clipper.DisplayStart; i < clipper.DisplayEnd; i++)
+            {
+                const bool selected = !isList && candidates[i] == value;
+                if (ImGui::Selectable(candidates[i].c_str(), selected))
+                {
+                    pick(candidates[i]);
+                    // A list stays open : several files can be added in a row.
+                    if (!isList)
+                        ImGui::CloseCurrentPopup();
+                }
+                if (selected && ImGui::IsWindowAppearing())
+                    ImGui::SetScrollHereY();
+            }
+        }
+        ImGui::EndChild();
+        ImGui::EndPopup();
         return changed;
     }
 
@@ -776,7 +914,8 @@ namespace Shard::Editor::GUI{
 
             for (int i = 0; i < static_cast<int>(actor->GetComponents().size()); i++)
             {
-                ImGui::PushID(i);
+                // Keyed by the component, not its place : its open / closed state follows it when the list is reordered
+                ImGui::PushID(actor->GetComponents()[i].get());
                 if (DrawComponent(actor->GetComponents()[i]))
                     componentToRemove = actor->GetComponents()[i];
                 if (const ClassDescriptor* described = actor->GetComponents()[i]->GetDescriptor())
@@ -787,6 +926,9 @@ namespace Shard::Editor::GUI{
 
             if (componentToRemove)
                 Commands::Actions::EditActor(actor, "Remove Component", [&]{ actor->RemoveComponent(componentToRemove); });
+            else if (pendingComponentMove.requested)
+                Commands::Actions::MoveComponent(actor, pendingComponentMove.from, pendingComponentMove.to);
+            pendingComponentMove.requested = false;
 
             ImGui::Separator();
 
@@ -813,6 +955,26 @@ namespace Shard::Editor::GUI{
                     ImGuiPopupFlags_MouseButtonRight | ImGuiPopupFlags_NoOpenOverItems)) {
                 DrawAddComponentMenu(actor);
                 ImGui::EndPopup();
+            }
+
+            // Assets dropped on the empty part of the panel only mean something to plugin drop hooks (slot "properties")
+            if (!ImGui::IsAnyItemHovered())
+            {
+                const ImVec2 windowMin = ImGui::GetWindowPos();
+                const ImVec2 windowMax(windowMin.x + ImGui::GetWindowWidth(), windowMin.y + ImGui::GetWindowHeight());
+                if (ImGui::BeginDragDropTargetCustom(ImRect(windowMin, windowMax), ImGui::GetID("##PropertiesDropZone")))
+                {
+                    std::vector<std::string> dropped = DragDrop::AcceptAssetDragDropPayload();
+                    if (!dropped.empty())
+                    {
+                        Engine::Plugins::EditorDropEvent dropEvent;
+                        dropEvent.slot = 3;
+                        dropEvent.targetActor = static_cast<uint64_t>(actor->GetID().GetAsInt());
+                        dropEvent.assets = std::move(dropped);
+                        DispatchPluginDrop(dropEvent);
+                    }
+                    ImGui::EndDragDropTarget();
+                }
             }
         }
 
@@ -1154,6 +1316,49 @@ namespace Shard::Editor::GUI{
         const std::string& title = desc->displayName.empty() ? desc->name : desc->displayName;
         bool open = ImGui::CollapsingHeader(title.c_str(), flags);
 
+        // Drag the header to reorder the components (the Transform stays first : it is neither moved nor a drop target)
+        if (drawnActor)
+        {
+            const auto& list = drawnActor->GetComponents();
+            const size_t self = static_cast<size_t>(std::find(list.begin(), list.end(), comp) - list.begin());
+            const ImVec2 headerMin = ImGui::GetItemRectMin();
+            const ImVec2 headerMax = ImGui::GetItemRectMax();
+
+            if (removable && self < list.size() && ImGui::BeginDragDropSource(ImGuiDragDropFlags_SourceAllowNullID))
+            {
+                const int dragged = static_cast<int>(self);
+                ImGui::SetDragDropPayload("SHARD_COMPONENT_ORDER", &dragged, sizeof(dragged));
+                ImGui::TextUnformatted(title.c_str());
+                ImGui::EndDragDropSource();
+            }
+
+            if (removable && self < list.size() && ImGui::BeginDragDropTarget())
+            {
+                const ImGuiPayload* payload = ImGui::AcceptDragDropPayload("SHARD_COMPONENT_ORDER",
+                    ImGuiDragDropFlags_AcceptBeforeDelivery | ImGuiDragDropFlags_AcceptNoDrawDefaultRect);
+                if (payload && payload->DataSize == sizeof(int))
+                {
+                    const size_t from = static_cast<size_t>(*static_cast<const int*>(payload->Data));
+                    const bool after = ImGui::GetIO().MousePos.y > (headerMin.y + headerMax.y) * 0.5f;
+
+                    // Final index of the moved component once it is taken out and put back
+                    size_t to;
+                    if (from < self)
+                        to = after ? self : self - 1;
+                    else
+                        to = after ? self + 1 : self;
+
+                    const float lineY = after ? headerMax.y : headerMin.y;
+                    ImGui::GetForegroundDrawList()->AddLine(ImVec2(headerMin.x, lineY), ImVec2(headerMax.x, lineY),
+                                                            ImGui::GetColorU32(ImGuiCol_DragDropTarget), 2.5f);
+
+                    if (payload->IsDelivery() && from < list.size() && to < list.size() && from != to)
+                        pendingComponentMove = { from, to, true };
+                }
+                ImGui::EndDragDropTarget();
+            }
+        }
+
         if (removable)
         {
             ImGui::SameLine();
@@ -1322,14 +1527,18 @@ namespace Shard::Editor::GUI{
         if (ImGui::BeginPopup("##AssetPicker"))
         {
             static char filter[128] = "";
-            if (ImGui::IsWindowAppearing())
+            // Ranked list, rebuilt when the popup opens or the search text changes, not every frame : scoring every asset of a big project is not free.
+            static std::string builtFor;
+            static std::vector<std::shared_ptr<Filesystem::AssetInfos>> candidates;
+            const bool appearing = ImGui::IsWindowAppearing();
+            if (appearing)
             {
                 filter[0] = '\0';
                 ImGui::SetKeyboardFocusHere();
             }
 
             ImGui::SetNextItemWidth(-FLT_MIN);
-            ImGui::InputTextWithHint("##PickerFilter", ICON_LC_SEARCH "  Search...", filter, sizeof(filter));
+            const bool enterPressed = ImGui::InputTextWithHint("##PickerFilter", ICON_LC_SEARCH "  Search...", filter, sizeof(filter), ImGuiInputTextFlags_EnterReturnsTrue);
             ImGui::Separator();
 
             if (ImGui::Selectable("None", !current))
@@ -1338,23 +1547,52 @@ namespace Shard::Editor::GUI{
                 ImGui::CloseCurrentPopup();
             }
 
-            auto lower = [](std::string v) { std::transform(v.begin(), v.end(), v.begin(), ::tolower); return v; };
-            const std::string needle = lower(filter);
-
-            std::vector<std::shared_ptr<Filesystem::AssetInfos>> candidates;
-            for (const auto& [assetId, info] : manager->AssetIDMap)
+            if (appearing || builtFor != filter)
             {
-                if (!info || info->baseInfos.isDirectory || info->baseInfos.nameInProject.empty())
-                    continue;
-                if (current && info->baseInfos.type != current->baseInfos.type)
-                    continue;
-                if (onlyExtension && !HasExtension(info->baseInfos.nameInProject, onlyExtension))
-                    continue;
-                if (!needle.empty() && lower(info->baseInfos.nameInProject).find(needle) == std::string::npos)
-                    continue;
-                candidates.push_back(info);
+                builtFor = filter;
+                candidates.clear();
+
+                struct Ranked { std::shared_ptr<Filesystem::AssetInfos> info; int score; };
+                std::vector<Ranked> ranked;
+                for (const auto& [assetId, info] : manager->AssetIDMap)
+                {
+                    if (!info || info->baseInfos.isDirectory || info->baseInfos.nameInProject.empty())
+                        continue;
+                    if (current && info->baseInfos.type != current->baseInfos.type)
+                        continue;
+                    if (onlyExtension && !HasExtension(info->baseInfos.nameInProject, onlyExtension))
+                        continue;
+
+                    int score = 0;
+                    if (filter[0] != '\0')
+                    {
+                        // The file name outranks the folders in front of it.
+                        const std::string& path = info->baseInfos.nameInProject;
+                        const size_t slash = path.find_last_of("/\\");
+                        const std::string_view fileName = slash == std::string::npos ? std::string_view(path) : std::string_view(path).substr(slash + 1);
+                        const Engine::Core::Text::FuzzyResult match = Engine::Core::Text::FuzzyMatchAny(filter, { fileName, std::string_view(path) }, { 100, 55 });
+                        if (!match.matched)
+                            continue;
+                        score = match.score;
+                    }
+                    ranked.push_back({ info, score });
+                }
+                std::sort(ranked.begin(), ranked.end(), [](const Ranked& l, const Ranked& r)
+                {
+                    if (l.score != r.score)
+                        return l.score > r.score;
+                    return l.info->baseInfos.nameInProject < r.info->baseInfos.nameInProject;
+                });
+                for (Ranked& r : ranked)
+                    candidates.push_back(std::move(r.info));
             }
-            std::sort(candidates.begin(), candidates.end(), [](const auto& l, const auto& r) { return l->baseInfos.nameInProject < r->baseInfos.nameInProject; });
+
+            // Enter takes the best match.
+            if (enterPressed && filter[0] != '\0' && !candidates.empty())
+            {
+                assign(candidates[0]);
+                ImGui::CloseCurrentPopup();
+            }
 
             ImGui::BeginChild("##PickerList", ImVec2(0.0f, 260.0f));
             ImGuiListClipper clipper;
@@ -1611,14 +1849,16 @@ namespace Shard::Editor::GUI{
                 strncpy(buffer, str->c_str(), sizeof(buffer) - 1);
                 buffer[sizeof(buffer) - 1] = '\0';
 
-                ImGui::SetNextItemWidth(-FLT_MIN);
+                const bool takesAssets = field->assetFilter && field->assetFilter[0];
+                // Room for the picker button after the text.
+                ImGui::SetNextItemWidth(takesAssets ? -(ImGui::GetFrameHeight() + ImGui::GetStyle().ItemInnerSpacing.x) : -FLT_MIN);
                 if (ImGui::InputText(id.c_str(), buffer, sizeof(buffer)))
                 {
                     *str = std::string(buffer);
                     FieldChangedEvent evt{ field };
                     comp->OnFieldChanged(evt); MarkWorldDirty();
                 }
-                else if (field->assetFilter && field->assetFilter[0])
+                else if (takesAssets)
                 {
                     if (ImGui::IsItemHovered(ImGuiHoveredFlags_ForTooltip))
                         ImGui::SetTooltip("Drop %s here (%s)", (field->flags & AssetList) ? "assets" : "an asset", field->assetFilter);
@@ -1627,6 +1867,11 @@ namespace Shard::Editor::GUI{
                         FieldChangedEvent evt{ field };
                         comp->OnFieldChanged(evt); MarkWorldDirty();
                     }
+                }
+                if (takesAssets && PickAssetForString(id, *str, field))
+                {
+                    FieldChangedEvent evt{ field };
+                    comp->OnFieldChanged(evt); MarkWorldDirty();
                 }
                 break;
             }

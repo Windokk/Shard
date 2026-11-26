@@ -52,6 +52,15 @@ namespace Shard::Engine::Objects{
 
             void RemoveComponent(std::shared_ptr<Component> component);
 
+            // Moves a component to another place of the list (the order of the Properties panel and of the save file). The Transform stays first.
+            // Only the order changes : local ids, world registrations and tags are not touched. False when nothing moved.
+            bool MoveComponent(size_t from, size_t to);
+            bool MoveComponent(const std::shared_ptr<Component>& component, size_t to);
+            void SetComponentsOrder(const std::vector<std::shared_ptr<Component>>& order);
+
+            // Puts this actor before or after a sibling (same parent, or both at the root of the world) in the outliner / save order.
+            bool MoveNextTo(const std::shared_ptr<Actor>& anchor, bool after);
+
             template <typename T>
             bool HasComponent();
 

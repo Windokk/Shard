@@ -74,6 +74,8 @@ namespace Shard::Editor::GUI{
 
         std::string filename;
         std::string lowerName;
+        // Fuzzy search rank, higher is a better match. 0 when no search is active.
+        int searchScore = 0;
         std::string line1, line2;
         float wrapWidth = -1.0f;
 
@@ -265,6 +267,8 @@ namespace Shard::Editor::GUI{
 
             bool dirty = true;
             std::shared_ptr<std::vector<std::string>> staleThumbnails = std::make_shared<std::vector<std::string>>();
+            // Time spent this frame loading image previews that were not resident yet (see the tile drawing).
+            double previewLoadSpentMs = 0.0;
             bool hotReloadListening = false;
             uint64_t hotReloadRevision = 0;
 
@@ -284,6 +288,7 @@ namespace Shard::Editor::GUI{
                 Engine::Filesystem::Type::T_PHYSICS_MATERIAL,
                 Engine::Filesystem::Type::T_CONFIG,
                 Engine::Filesystem::Type::T_PREFAB,
+                Engine::Filesystem::Type::T_CUSTOM,
                 Engine::Filesystem::Type::T_DIRECTORY
             };
 

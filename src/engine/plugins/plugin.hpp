@@ -147,6 +147,34 @@ namespace Shard::Engine::Plugins {
         std::function<void(const std::vector<std::shared_ptr<Objects::Actor>>& actors)> run;
     };
 
+    // What was dropped on a slot of the editor (ShardDropEvent's engine side).
+    struct EditorDropEvent {
+        uint32_t slot = 0;
+        uint64_t targetActor = 0;
+        std::string folder;
+        bool hasPosition = false;
+        float position[3] = { 0.f, 0.f, 0.f };
+        std::vector<std::string> assets;
+    };
+
+    struct EditorDropHandlerItem {
+        uint32_t slot = 0;
+        // Lower case with the dot, empty = any asset.
+        std::vector<std::string> extensions;
+        // True when the plugin took the drop. Only the assets that match `extensions` are passed.
+        std::function<bool(const EditorDropEvent& event)> handle;
+    };
+
+    // A window per open asset of one extension, managed by the editor.
+    struct EditorAssetEditorItem {
+        std::string extension;
+        std::string title;
+        std::function<void(const ShardUiApi* ui, const std::string& pathInProject)> draw;
+        std::function<void(const std::string& pathInProject)> onOpen;
+        std::function<void(const std::string& pathInProject)> onClose;
+        std::function<void(const std::string& pathInProject)> onSave;
+    };
+
     struct EditorGizmoItem {
         std::string name;
         std::function<void(const ShardGizmoApi* gizmo, uint64_t actor)> draw;

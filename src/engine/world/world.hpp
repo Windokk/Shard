@@ -35,6 +35,8 @@ namespace Shard::Engine::Worlds{
     class World : public Core::TagContainer::Listener{
 
         std::unordered_map<Core::ObjectID, std::shared_ptr<Objects::Actor>> rootActors;
+        // The root actors in their display / save order (new ones go last). Same ids as rootActors.
+        std::vector<Core::ObjectID> rootOrder;
         std::string name;
         
         Filesystem::Path path;
@@ -78,6 +80,12 @@ namespace Shard::Engine::Worlds{
             std::shared_ptr<Objects::Actor> GetActor(Core::ObjectID id, bool recursive = false);
             std::vector<Core::ObjectID> GetActorsID(bool recursive = false);
             std::unordered_map<Core::ObjectID, std::shared_ptr<Objects::Actor>> GetRootActors() { return rootActors; };
+
+            // The root actors in their saved order (the order the outliner lets you change)
+            std::vector<std::shared_ptr<Objects::Actor>> GetRootActorsOrdered() const;
+            const std::vector<Core::ObjectID>& GetRootOrder() const { return rootOrder; }
+            bool MoveRootActorNextTo(Core::ObjectID actor, Core::ObjectID anchor, bool after);
+            void SetRootOrder(const std::vector<Core::ObjectID>& order);
 
             const std::string& GetName() const;
             void SetName(const std::string& name);

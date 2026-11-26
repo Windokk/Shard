@@ -341,6 +341,33 @@ namespace Shard {
     using GizmoFn = std::function<void(Gizmo&, Actor)>;
     using SelectionFn = std::function<void(const std::vector<Actor>&)>;
 
+    /// Where assets can be dropped in the editor (shard.editor 1.4)
+    enum class DropSlot : uint32_t {
+        Viewport = SHARD_DROP_SLOT_VIEWPORT,           ///< position : the point under the cursor
+        Outliner = SHARD_DROP_SLOT_OUTLINER,           ///< target : the actor under the cursor (invalid on empty space)
+        AssetBrowser = SHARD_DROP_SLOT_ASSET_BROWSER,  ///< folder : where it lands, a path in the project
+        Properties = SHARD_DROP_SLOT_PROPERTIES,       ///< target : the actor the panel shows
+    };
+    /// What was dropped, valid for the call
+    struct DropEvent {
+        DropSlot slot = DropSlot::Viewport;
+        Actor target;
+        std::string_view folder;
+        bool hasPosition = false;
+        Vec3 position;
+        std::vector<std::string_view> assets; ///< paths in the project
+    };
+    using DropFn = std::function<bool(const DropEvent&)>;
+
+    /// A custom editor for the assets of one extension : the editor makes a window per open asset and calls these with its path in the project
+    struct AssetEditor {
+        std::string title;                                  ///< "Post Profile Editor" : the window is "<title> - <file>"
+        std::function<void(Ui&, std::string_view)> draw;    ///< required : fills the window each frame
+        std::function<void(std::string_view)> onOpen;       ///< the window just opened : load the file
+        std::function<void(std::string_view)> onClose;      ///< the window closed
+        std::function<void(std::string_view)> onSave;       ///< Ctrl+S, or Save when closing a dirty window : write the file, then SetAssetEditorDirty(path, false)
+    };
+
     class Editor {
     public:
         explicit Editor(ShardPluginCtx ctx) : m_Ctx(ctx) {}
@@ -492,7 +519,56 @@ namespace Shard {
             return api->add_actor_action(m_Ctx, Str(label), &Selection, kept) == SHARD_OK;
         }
 
+        // ---- shard.editor 1.4 ----
+
+        /// Takes the drops of assets on a slot of the editor before the editor does. `extensions` is ".fbx;.obj" (empty : any asset). `handle`
+        /// returns true when it took the drop (the editor then does nothing with it), false to let the next handler and the editor's own behaviour run.
+        bool AddDropHandler(DropSlot slot, const std::string& extensions, DropFn handle) const
+        {
+            const ShardEditorApi* api = Api14();
+            if (!api || !api->add_drop_handler) return false;
+            DropFn* kept = detail::Keep(std::move(handle));
+            return api->add_drop_handler(m_Ctx, uint32_t(slot), Str(extensions), &Drop, kept) == SHARD_OK;
+        }
+
+        /// A window of the editor for the assets of an extension, one per open asset : a double click in the content browser opens it, and it takes
+        /// priority over the editor's own editor for that extension. False outside the editor, before 1.4, or when another plugin has that extension.
+        bool AddAssetEditor(const std::string& extension, AssetEditor editor) const
+        {
+            const ShardEditorApi* api = Api14();
+            if (!api || !api->add_asset_editor || !editor.draw) return false;
+            AssetEditor* kept = detail::Keep(std::move(editor));
+            // Keep the strings the descriptor points to alive as long as the plugin
+            std::string* ext = detail::Keep(std::string(extension));
+            std::string* title = detail::Keep(std::string(kept->title));
+            ShardAssetEditorDesc desc = {};
+            desc.structSize = sizeof(desc);
+            desc.extension = Str(*ext);
+            desc.title = Str(*title);
+            desc.draw = &AssetEditorDraw;
+            desc.on_open = kept->onOpen ? &AssetEditorOpen : nullptr;
+            desc.on_close = kept->onClose ? &AssetEditorClose : nullptr;
+            desc.on_save = kept->onSave ? &AssetEditorSave : nullptr;
+            desc.user = kept;
+            return api->add_asset_editor(m_Ctx, &desc) == SHARD_OK;
+        }
+
+        /// Marks the asset open in its editor window as changed or saved (the window shows a "*", asks before closing, and calls onSave on Ctrl+S)
+        bool SetAssetEditorDirty(std::string_view path, bool dirty) const
+        {
+            const ShardEditorApi* api = Api14();
+            return api && api->set_asset_editor_dirty && api->set_asset_editor_dirty(m_Ctx, Str(path), dirty ? 1 : 0) == SHARD_OK;
+        }
+
+        /// Opens (or focuses) the editor window of that asset, as a double click does. False when no asset editor handles its extension.
+        bool OpenAssetEditor(std::string_view path) const
+        {
+            const ShardEditorApi* api = Api14();
+            return api && api->open_asset_editor && api->open_asset_editor(m_Ctx, Str(path)) == SHARD_OK;
+        }
+
     private:
+        static const ShardEditorApi* Api14() { return detail::Interface<ShardEditorApi>(SHARD_IFACE_EDITOR, 4); }
         static const ShardEditorApi* Api13() { return detail::Interface<ShardEditorApi>(SHARD_IFACE_EDITOR, 3); }
         static const ShardEditorApi* Api11() { return detail::Interface<ShardEditorApi>(SHARD_IFACE_EDITOR, 1); }
         static const ShardEditorApi* Api12() { return detail::Interface<ShardEditorApi>(SHARD_IFACE_EDITOR, 2); }
@@ -529,6 +605,36 @@ namespace Shard {
         {
             Gizmo gizmo(api);
             Guarded("a gizmo", [&] { (*static_cast<GizmoFn*>(user))(gizmo, Actor(actor)); });
+        }
+        static int32_t SHARD_CALL Drop(void* user, const ShardDropEvent* raw)
+        {
+            DropEvent event;
+            event.slot = DropSlot(raw->slot);
+            event.target = Actor(raw->target_actor);
+            event.folder = View(raw->folder);
+            event.hasPosition = raw->has_position != 0;
+            event.position = { raw->position[0], raw->position[1], raw->position[2] };
+            for (uint32_t i = 0; i < raw->asset_count; ++i) event.assets.push_back(View(raw->assets[i]));
+            bool handled = false;
+            Guarded("a drop handler", [&] { handled = (*static_cast<DropFn*>(user))(event); });
+            return handled ? 1 : 0;
+        }
+        static void SHARD_CALL AssetEditorDraw(void* user, const ShardUiApi* api, ShardStr path)
+        {
+            Ui ui(api);
+            Guarded("an asset editor", [&] { static_cast<AssetEditor*>(user)->draw(ui, View(path)); });
+        }
+        static void SHARD_CALL AssetEditorOpen(void* user, ShardStr path)
+        {
+            Guarded("an asset editor", [&] { static_cast<AssetEditor*>(user)->onOpen(View(path)); });
+        }
+        static void SHARD_CALL AssetEditorClose(void* user, ShardStr path)
+        {
+            Guarded("an asset editor", [&] { static_cast<AssetEditor*>(user)->onClose(View(path)); });
+        }
+        static void SHARD_CALL AssetEditorSave(void* user, ShardStr path)
+        {
+            Guarded("an asset editor", [&] { static_cast<AssetEditor*>(user)->onSave(View(path)); });
         }
         static void SHARD_CALL Selection(void* user, const ShardActor* actors, uint32_t count)
         {

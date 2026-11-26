@@ -176,7 +176,73 @@ namespace Shard::Editor::Commands{
             bool active;
     };
 
+    // The order of the siblings of one parent (null parent : the root actors of the world), as it is before / after an edit.
+    struct SiblingOrder {
+        std::shared_ptr<ObjectRef> parent;
+        std::vector<std::shared_ptr<ObjectRef>> actors;
+
+        bool operator==(const SiblingOrder& other) const { return parent == other.parent && actors == other.actors; }
+
+        static SiblingOrder Capture(const std::shared_ptr<Engine::Objects::Actor>& parent);
+    };
+
+    // Restores sibling orders. An edit that also moves actors between parents records two of these around its other commands :
+    // one that only acts on Undo (it runs last, once the actors are back where they were) and one that only acts on Redo (it runs last too, once they are moved).
+    class ReorderActorsCommand final : public Command {
+        public:
+            // Takes the lists as they are now (before the edit), and acts on Undo.
+            ReorderActorsCommand(std::string label, const std::vector<std::shared_ptr<Engine::Objects::Actor>>& parents);
+
+            // The partner that acts on Redo : same lists to compare with, built after the edit.
+            ReorderActorsCommand(const ReorderActorsCommand& first, bool actsOnUndo);
+
+            void Finalize() override;
+            bool IsValid() const override { return before != after; }
+
+            void Undo() override { if (actsOnUndo) Apply(before); }
+            void Redo() override { if (!actsOnUndo) Apply(after); }
+
+            const std::string& GetName() const override { return name; }
+
+        private:
+            static void Apply(const std::vector<SiblingOrder>& orders);
+
+            std::string name;
+            bool actsOnUndo = true;
+            std::vector<std::shared_ptr<ObjectRef>> parentRefs;
+            std::vector<SiblingOrder> before;
+            std::vector<SiblingOrder> after;
+    };
+
+    class ReorderComponentsCommand final : public Command {
+        public:
+            explicit ReorderComponentsCommand(const std::shared_ptr<Engine::Objects::Actor>& actor);
+
+            void Finalize() override;
+            bool IsValid() const override { return before != after; }
+
+            void Undo() override { Apply(before); }
+            void Redo() override { Apply(after); }
+
+            const std::string& GetName() const override { return name; }
+
+        private:
+            static std::vector<std::shared_ptr<ObjectRef>> Capture(const std::shared_ptr<Engine::Objects::Actor>& actor);
+            void Apply(const std::vector<std::shared_ptr<ObjectRef>>& order);
+
+            std::string name = "Reorder Components";
+            std::shared_ptr<ObjectRef> actor;
+            std::vector<std::shared_ptr<ObjectRef>> before;
+            std::vector<std::shared_ptr<ObjectRef>> after;
+    };
+
     namespace Actions {
+
+        // Moves the component of an actor to another place of its list (undoable). False when nothing moved (the Transform stays first).
+        bool MoveComponent(const std::shared_ptr<Engine::Objects::Actor>& actor, size_t from, size_t to);
+
+        // Puts the actors before or after `anchor`, under its parent and in its folder (one undo step). Returns how many actors were moved.
+        int MoveActorsNextTo(const std::vector<std::shared_ptr<Engine::Objects::Actor>>& actors, const std::shared_ptr<Engine::Objects::Actor>& anchor, bool after);
 
         void RecordCreated(const std::shared_ptr<Engine::Objects::Actor>& actor, const std::string& label = "Create Actor");
 

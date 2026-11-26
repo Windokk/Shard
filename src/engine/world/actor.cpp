@@ -130,6 +130,74 @@ namespace Shard::Engine::Objects{
         components.erase(it);
     }
 
+    bool Actor::MoveComponent(size_t from, size_t to)
+    {
+        if (from >= components.size() || to >= components.size() || from == to)
+            return false;
+
+        // Index 0 is the Transform, it has to stay there (the file is read back with it first)
+        if (dynamic_cast<Transform*>(components[from].get()) || dynamic_cast<Transform*>(components[to].get()))
+            return false;
+
+        std::shared_ptr<Component> moved = components[from];
+        components.erase(components.begin() + from);
+        components.insert(components.begin() + to, std::move(moved));
+        return true;
+    }
+
+    bool Actor::MoveComponent(const std::shared_ptr<Component>& component, size_t to)
+    {
+        auto it = std::find(components.begin(), components.end(), component);
+        if (it == components.end())
+            return false;
+
+        return MoveComponent(static_cast<size_t>(it - components.begin()), to);
+    }
+
+    void Actor::SetComponentsOrder(const std::vector<std::shared_ptr<Component>>& order)
+    {
+        std::vector<std::shared_ptr<Component>> result;
+        result.reserve(components.size());
+
+        // The Transform first, then the requested ones, then whatever was not mentioned
+        for (const auto& component : components)
+            if (dynamic_cast<Transform*>(component.get()))
+                result.push_back(component);
+
+        auto has = [&](const std::shared_ptr<Component>& c){ return std::find(result.begin(), result.end(), c) != result.end(); };
+        auto owned = [&](const std::shared_ptr<Component>& c){ return std::find(components.begin(), components.end(), c) != components.end(); };
+
+        for (const auto& component : order)
+            if (component && owned(component) && !has(component))
+                result.push_back(component);
+
+        for (const auto& component : components)
+            if (!has(component))
+                result.push_back(component);
+
+        components = std::move(result);
+    }
+
+    bool Actor::MoveNextTo(const std::shared_ptr<Actor>& anchor, bool after)
+    {
+        if (!anchor || anchor.get() == this)
+            return false;
+
+        std::shared_ptr<WorldObject> parentObject = GetParent();
+        std::shared_ptr<WorldObject> anchorParent = anchor->GetParent();
+
+        if (parentObject) {
+            if (!anchorParent || anchorParent->GetID() != parentObject->GetID())
+                return false;
+            return parentObject->MoveChildNextTo(id, anchor->GetID(), after);
+        }
+
+        if (anchorParent || !world || anchor->world != world)
+            return false;
+
+        return world->MoveRootActorNextTo(id, anchor->GetID(), after);
+    }
+
     void Actor::Destroy()
     {
         for(auto& component : components){

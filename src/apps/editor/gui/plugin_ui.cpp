@@ -1,6 +1,7 @@
 #include "plugin_ui.hpp"
 
 #include <algorithm>
+#include <cctype>
 #include <cstring>
 #include <memory>
 #include <string>
@@ -12,6 +13,7 @@
 #include <shard/shard_input.h>
 
 #include "apps/editor/commands/command_stack.hpp"
+#include "apps/editor/gui/dragdrop/asset_drag_drop.hpp"
 #include "apps/editor/gui/main_window.hpp"
 #include "apps/editor/gui/notifications.hpp"
 #include "engine/plugins/abi/c_plugin.hpp"
@@ -258,6 +260,12 @@ namespace Shard::Editor::GUI {
         void SHARD_CALL SetDragDropPayload(ShardStr type, const void* data, uint64_t size)
         {
             std::string name = Z(type);
+            // "shard.asset" is an asset's path : it travels as the editor's own asset payload, so the content browser, the world tree and the
+            // viewport take it like an asset dragged from the content browser.
+            if (name == "shard.asset") {
+                DragDrop::SetAssetDragDropPayload({ std::string(static_cast<const char*>(data ? data : ""), data ? size_t(size) : 0) });
+                return;
+            }
             if (name.size() > 32) name.resize(32);
             ImGui::SetDragDropPayload(name.c_str(), data, size_t(size));
         }
@@ -266,6 +274,13 @@ namespace Shard::Editor::GUI {
         int32_t SHARD_CALL AcceptDragDropPayload(ShardStr type, void* out, uint64_t capacity, uint64_t* size)
         {
             std::string name = Z(type);
+            if (name == "shard.asset") {
+                const std::vector<std::string> assets = DragDrop::AcceptAssetDragDropPayload();
+                if (assets.empty()) return SHARD_FALSE;
+                if (size) *size = uint64_t(assets.front().size());
+                if (out && capacity) std::memcpy(out, assets.front().data(), size_t(std::min<uint64_t>(capacity, uint64_t(assets.front().size()))));
+                return SHARD_TRUE;
+            }
             if (name.size() > 32) name.resize(32);
             const ImGuiPayload* payload = ImGui::AcceptDragDropPayload(name.c_str());
             if (!payload) return SHARD_FALSE;
@@ -348,7 +363,11 @@ namespace Shard::Editor::GUI {
             Commands::CommandStack::Get().Record(std::make_unique<PluginCommand>(label, std::move(undo), std::move(redo)));
         }
 
-        const Engine::Plugins::EditorUiBackend kBackend = { &kWidgets, &BeginWindow, &EndWindow, &Notify, &Selection, &PushUndo };
+        bool BackendOpenAssetEditor(const std::string& path) { return OpenPluginAssetEditor(path); }
+        bool BackendSetAssetEditorDirty(const std::string& path, bool dirty) { return SetPluginAssetEditorDirty(path, dirty); }
+
+        const Engine::Plugins::EditorUiBackend kBackend = { &kWidgets, &BeginWindow, &EndWindow, &Notify, &Selection, &PushUndo,
+                                                            &BackendOpenAssetEditor, &BackendSetAssetEditorDirty };
     }
 
     namespace {
@@ -453,8 +472,167 @@ namespace Shard::Editor::GUI {
         }
     }
 
+    namespace {
+        std::string LowerExtensionOf(const std::string& path)
+        {
+            const size_t dot = path.find_last_of('.');
+            const size_t slash = path.find_last_of("/\\");
+            if (dot == std::string::npos || (slash != std::string::npos && dot < slash)) return {};
+            std::string ext = path.substr(dot);
+            for (char& c : ext) c = char(std::tolower((unsigned char)c));
+            return ext;
+        }
+
+        std::shared_ptr<Engine::Plugins::EditorAssetEditorItem> FindAssetEditor(const std::string& extension)
+        {
+            if (extension.empty()) return nullptr;
+            for (const auto& item : Engine::Plugins::PluginManager::Get().Extensions().Get<Engine::Plugins::EditorAssetEditorItem>("editor.asseteditor"))
+                if (item->extension == extension) return item;
+            return nullptr;
+        }
+
+        // One window per open asset of a plugin's extension.
+        struct OpenAssetEditor {
+            std::string path;
+            bool dirty = false;
+            bool opened = false;        // on_open ran
+            bool askClose = false;      // the close button was pressed while dirty : the confirmation opens
+            bool focus = false;
+        };
+        std::vector<OpenAssetEditor> gAssetEditors;
+
+        OpenAssetEditor* FindOpenEditor(const std::string& path)
+        {
+            for (OpenAssetEditor& e : gAssetEditors)
+                if (e.path == path) return &e;
+            return nullptr;
+        }
+
+        void CloseAssetEditor(const std::string& path, const Engine::Plugins::EditorAssetEditorItem& item)
+        {
+            if (item.onClose) item.onClose(path);
+            for (size_t k = 0; k < gAssetEditors.size(); ++k) {
+                if (gAssetEditors[k].path == path) {
+                    gAssetEditors.erase(gAssetEditors.begin() + std::ptrdiff_t(k));
+                    break;
+                }
+            }
+        }
+    }
+
+    bool HasPluginAssetEditor(const std::string& pathInProject)
+    {
+        return FindAssetEditor(LowerExtensionOf(pathInProject)) != nullptr;
+    }
+
+    bool OpenPluginAssetEditor(const std::string& pathInProject)
+    {
+        if (!FindAssetEditor(LowerExtensionOf(pathInProject))) return false;
+        if (OpenAssetEditor* existing = FindOpenEditor(pathInProject)) {
+            existing->focus = true;
+            return true;
+        }
+        OpenAssetEditor e;
+        e.path = pathInProject;
+        e.focus = true;
+        gAssetEditors.push_back(std::move(e));
+        return true;
+    }
+
+    bool SetPluginAssetEditorDirty(const std::string& pathInProject, bool dirty)
+    {
+        OpenAssetEditor* e = FindOpenEditor(pathInProject);
+        if (!e) return false;
+        e->dirty = dirty;
+        return true;
+    }
+
+    void DrawPluginAssetEditors()
+    {
+        // Index loop : a plugin's callback may open another editor.
+        for (size_t i = 0; i < gAssetEditors.size();) {
+            const std::string path = gAssetEditors[i].path;
+            const auto item = FindAssetEditor(LowerExtensionOf(path));
+            if (!item) {
+                // The plugin went away.
+                gAssetEditors.erase(gAssetEditors.begin() + std::ptrdiff_t(i));
+                continue;
+            }
+
+            if (!gAssetEditors[i].opened) {
+                gAssetEditors[i].opened = true;
+                if (item->onOpen) item->onOpen(path);
+                if (i >= gAssetEditors.size() || gAssetEditors[i].path != path) continue;
+            }
+
+            const size_t slash = path.find_last_of("/\\");
+            const std::string file = slash == std::string::npos ? path : path.substr(slash + 1);
+
+            const bool dirty = gAssetEditors[i].dirty;
+            const std::string title = item->title + " - " + file + (dirty ? "*" : "") + "###plugasset:" + path;
+            if (gAssetEditors[i].focus) {
+                ImGui::SetNextWindowFocus();
+                gAssetEditors[i].focus = false;
+            }
+            ImGui::SetNextWindowSize(ImVec2(640.0f, 480.0f), ImGuiCond_FirstUseEver);
+
+            bool open = true;
+            bool save = false;          // call on_save, keep the window
+            bool closeNow = false;      // close without asking
+            const bool visible = ImGui::Begin(title.c_str(), &open, dirty ? ImGuiWindowFlags_UnsavedDocument : ImGuiWindowFlags_None);
+            if (visible) {
+                if (dirty && item->onSave && ImGui::IsWindowFocused(ImGuiFocusedFlags_RootAndChildWindows) && ImGui::GetIO().KeyCtrl && ImGui::IsKeyPressed(ImGuiKey_S, false))
+                    save = true;
+
+                if (item->draw) item->draw(&kWidgets, path);
+
+                const std::string popup = "Unsaved changes###plugasset-close:" + path;
+                if (gAssetEditors[i].askClose) {
+                    ImGui::OpenPopup(popup.c_str());
+                    gAssetEditors[i].askClose = false;
+                }
+                if (ImGui::BeginPopupModal(popup.c_str(), nullptr, ImGuiWindowFlags_AlwaysAutoResize)) {
+                    ImGui::Text("%s has unsaved changes.", file.c_str());
+                    ImGui::Spacing();
+                    if (item->onSave) {
+                        if (ImGui::Button("Save")) { save = true; closeNow = true; ImGui::CloseCurrentPopup(); }
+                        ImGui::SameLine();
+                    }
+                    if (ImGui::Button("Discard")) { closeNow = true; ImGui::CloseCurrentPopup(); }
+                    ImGui::SameLine();
+                    if (ImGui::Button("Cancel")) ImGui::CloseCurrentPopup();
+                    ImGui::EndPopup();
+                }
+            }
+            ImGui::End();
+
+            if (save && item->onSave) item->onSave(path);
+
+            // The close button of a dirty window asks first, a clean one closes.
+            if (!open) {
+                if (gAssetEditors[i].dirty) gAssetEditors[i].askClose = true;
+                else closeNow = true;
+            }
+
+            if (closeNow) {
+                CloseAssetEditor(path, *item);
+                continue;
+            }
+            ++i;
+        }
+    }
+
+    bool DispatchPluginDrop(const Engine::Plugins::EditorDropEvent& event)
+    {
+        for (const auto& item : Engine::Plugins::PluginManager::Get().Extensions().Get<Engine::Plugins::EditorDropHandlerItem>("editor.drophandler")) {
+            if (item->slot != event.slot || !item->handle) continue;
+            if (item->handle(event)) return true;
+        }
+        return false;
+    }
+
     void InstallPluginUi(Core::EditorMainWindow* window) { gWindow = window; Engine::Plugins::SetEditorUiBackend(&kBackend); }
-    void RemovePluginUi() { Engine::Plugins::SetEditorUiBackend(nullptr); gWindow = nullptr; }
+    void RemovePluginUi() { Engine::Plugins::SetEditorUiBackend(nullptr); gWindow = nullptr; gAssetEditors.clear(); }
 
     const ShardUiApi* PluginWidgets() { return &kWidgets; }
 }

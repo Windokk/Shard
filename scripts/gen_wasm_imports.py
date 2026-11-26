@@ -115,7 +115,7 @@ MANUAL = {
     'ui.combo': 'an array of strings',
 }
 # Answered with SHARD_E_UNSUPPORTED: they expose host paths (content.*) or take pointers/callbacks the sandbox does not marshal yet. Moving one to MANUAL is a normal addition.
-DENIED_ALWAYS = {'content.resolve', 'content.resolve_logical', 'ShardPhysicsApi.raycast_all', 'physics.raycast_all', 'physics.overlap_sphere', 'physics.overlap_box', 'physics.overlap_capsule', 'physics.sweep_sphere', 'physics.sweep_box', 'physics.collider_create', 'physics.collider_set_pose', 'physics.collider_update', 'editor.undo_push', 'editor.add_asset_opener', 'editor.add_actor_template', 'editor.add_asset_action', 'editor.add_actor_action', 'ui.accept_drag_drop_payload'}
+DENIED_ALWAYS = {'content.resolve', 'content.resolve_logical', 'ShardPhysicsApi.raycast_all', 'physics.raycast_all', 'physics.overlap_sphere', 'physics.overlap_box', 'physics.overlap_capsule', 'physics.sweep_sphere', 'physics.sweep_box', 'physics.collider_create', 'physics.collider_set_pose', 'physics.collider_update', 'editor.undo_push', 'editor.add_asset_opener', 'editor.add_actor_template', 'editor.add_asset_action', 'editor.add_actor_action', 'editor.add_drop_handler', 'editor.add_asset_editor', 'editor.set_asset_editor_dirty', 'editor.open_asset_editor', 'ui.accept_drag_drop_payload'}
 FUNCTION_PERMISSIONS = {
     'assets.write': 'fs.write:project',
     'time.set_time_scale': 'time.control',

@@ -397,7 +397,16 @@ static_assert(offsetof(ShardInputApi, capture) == 192, "ShardInputApi.capture");
 static_assert(sizeof(ShardWorldsApi) == 88, "ShardWorldsApi");
 static_assert(offsetof(ShardWorldsApi, spawn_prefab) == 32, "ShardWorldsApi.spawn_prefab");
 static_assert(offsetof(ShardWorldsApi, world_at) == 40, "ShardWorldsApi.world_at");
-static_assert(sizeof(ShardEditorApi) == 128, "ShardEditorApi");
+static_assert(sizeof(ShardEditorApi) == 160, "ShardEditorApi");
+static_assert(sizeof(ShardDropEvent) == 64, "ShardDropEvent");
+static_assert(offsetof(ShardDropEvent, target_actor) == 8, "ShardDropEvent.target_actor");
+static_assert(offsetof(ShardDropEvent, folder) == 16, "ShardDropEvent.folder");
+static_assert(offsetof(ShardDropEvent, position) == 32, "ShardDropEvent.position");
+static_assert(offsetof(ShardDropEvent, assets) == 56, "ShardDropEvent.assets");
+static_assert(sizeof(ShardAssetEditorDesc) == 80, "ShardAssetEditorDesc");
+static_assert(offsetof(ShardAssetEditorDesc, extension) == 8, "ShardAssetEditorDesc.extension");
+static_assert(offsetof(ShardAssetEditorDesc, draw) == 40, "ShardAssetEditorDesc.draw");
+static_assert(offsetof(ShardAssetEditorDesc, user) == 72, "ShardAssetEditorDesc.user");
 static_assert(offsetof(ShardEditorApi, set_panel_visible) == 72, "ShardEditorApi.set_panel_visible");
 static_assert(offsetof(ShardEditorApi, undo_push) == 80, "ShardEditorApi.undo_push");
 static_assert(offsetof(ShardEditorApi, add_asset_opener) == 88, "ShardEditorApi.add_asset_opener");
@@ -405,6 +414,10 @@ static_assert(offsetof(ShardEditorApi, add_asset_template) == 96, "ShardEditorAp
 static_assert(offsetof(ShardEditorApi, add_actor_template) == 104, "ShardEditorApi.add_actor_template");
 static_assert(offsetof(ShardEditorApi, add_asset_action) == 112, "ShardEditorApi.add_asset_action");
 static_assert(offsetof(ShardEditorApi, add_actor_action) == 120, "ShardEditorApi.add_actor_action");
+static_assert(offsetof(ShardEditorApi, add_drop_handler) == 128, "ShardEditorApi.add_drop_handler");
+static_assert(offsetof(ShardEditorApi, add_asset_editor) == 136, "ShardEditorApi.add_asset_editor");
+static_assert(offsetof(ShardEditorApi, set_asset_editor_dirty) == 144, "ShardEditorApi.set_asset_editor_dirty");
+static_assert(offsetof(ShardEditorApi, open_asset_editor) == 152, "ShardEditorApi.open_asset_editor");
 static_assert(sizeof(ShardUiApi) == 936, "ShardUiApi");
 static_assert(offsetof(ShardUiApi, is_item_double_clicked) == 616, "ShardUiApi.is_item_double_clicked");
 static_assert(offsetof(ShardUiApi, draw_line) == 624, "ShardUiApi.draw_line");
@@ -715,7 +728,7 @@ static_assert(SHARD_PHASE_UPDATE == 4 && SHARD_PHASE_LATE == 5 && SHARD_PHASE_EX
 static_assert(SHARD_SYSTEM_EXCLUSIVE == 1 && SHARD_SYSTEM_MAIN_THREAD == 2, "system flags");
 static_assert(SHARD_PRIORITY_EARLIEST == -200 && SHARD_PRIORITY_EARLY == -100 && SHARD_PRIORITY_NORMAL == 0 && SHARD_PRIORITY_LATE == 100 && SHARD_PRIORITY_LATEST == 200, "priorities");
 static_assert(SHARD_LOG_INFO == 0 && SHARD_LOG_WARNING == 1 && SHARD_LOG_ERROR == 2, "log levels");
-static_assert(SHARD_ABI_MAJOR == 1 && SHARD_ABI_MINOR == 11, "the ABI revision of these headers");
+static_assert(SHARD_ABI_MAJOR == 1 && SHARD_ABI_MINOR == 12, "the ABI revision of these headers");
 
 TEST(AbiLayout, HeadersPinLayout)
 {

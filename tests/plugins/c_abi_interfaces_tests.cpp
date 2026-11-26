@@ -696,7 +696,7 @@ TEST_F(CAbiTest, RevisionInterfacesOffered)
     EXPECT_EQ(ask(SHARD_IFACE_NET, 0), SHARD_OK);
     EXPECT_EQ(ask(SHARD_IFACE_NET, 1), SHARD_E_NOT_FOUND);
     EXPECT_EQ(ask(SHARD_IFACE_EDITOR, 0), SHARD_E_NOT_FOUND);
-    EXPECT_EQ(SHARD_ABI_MINOR, 11);
+    EXPECT_EQ(SHARD_ABI_MINOR, 12);
 }
 
 TEST(CAbiAssets, ExistsOnlyLooksInsideTheProject)

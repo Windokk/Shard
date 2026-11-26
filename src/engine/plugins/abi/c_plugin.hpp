@@ -39,6 +39,9 @@ namespace Shard::Engine::Plugins {
         void (*notify)(uint32_t level, const char* text) = nullptr;
         std::vector<std::shared_ptr<Objects::Actor>> (*selection)() = nullptr;
         void (*pushUndo)(const std::string& label, std::function<void()> undo, std::function<void()> redo) = nullptr;
+        // 1.4 : the asset editor windows the editor manages. Both return false when nothing is registered / open for that path.
+        bool (*openAssetEditor)(const std::string& pathInProject) = nullptr;
+        bool (*setAssetEditorDirty)(const std::string& pathInProject, bool dirty) = nullptr;
     };
 
     void NotifyEditorSelection(const std::vector<std::shared_ptr<Objects::Actor>>& selected);

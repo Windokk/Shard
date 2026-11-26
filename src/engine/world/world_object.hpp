@@ -1,5 +1,6 @@
 #pragma once
 
+#include <algorithm>
 #include <vector>
 #include <memory>
 
@@ -7,6 +8,49 @@
 
 
 namespace Shard::Engine::Objects{
+
+    // Moves `item` right before (or after) `anchor` in a list of sibling ids. False when either is missing or they are the same.
+    inline bool MoveIdNextTo(std::vector<Core::ObjectID>& list, Core::ObjectID item, Core::ObjectID anchor, bool after)
+    {
+        if (item.GetAsInt() == anchor.GetAsInt())
+            return false;
+
+        auto find = [&](Core::ObjectID id){
+            return std::find_if(list.begin(), list.end(), [&](const Core::ObjectID& other){ return other.GetAsInt() == id.GetAsInt(); });
+        };
+
+        auto from = find(item);
+        if (from == list.end() || find(anchor) == list.end())
+            return false;
+
+        const Core::ObjectID moved = *from;
+        list.erase(from);
+
+        auto to = find(anchor);
+        list.insert(after ? to + 1 : to, moved);
+        return true;
+    }
+
+    // Puts the ids of `order` first, in that order (the ones that are not in `list` are ignored), the other ids of `list` keep their order after them.
+    inline void ApplyIdOrder(std::vector<Core::ObjectID>& list, const std::vector<Core::ObjectID>& order)
+    {
+        std::vector<Core::ObjectID> result;
+        result.reserve(list.size());
+
+        auto contains = [](const std::vector<Core::ObjectID>& ids, Core::ObjectID id){
+            return std::any_of(ids.begin(), ids.end(), [&](const Core::ObjectID& other){ return other.GetAsInt() == id.GetAsInt(); });
+        };
+
+        for (const Core::ObjectID& id : order)
+            if (contains(list, id) && !contains(result, id))
+                result.push_back(id);
+
+        for (const Core::ObjectID& id : list)
+            if (!contains(result, id))
+                result.push_back(id);
+
+        list = std::move(result);
+    }
 
     class WorldObject : public Core::Object{
         public:
@@ -34,6 +78,10 @@ namespace Shard::Engine::Objects{
                 return ids;
             }
             int GetChildrenCount() { return children.size(); }
+
+            // Order among the siblings : the children are listed (and saved) in this order.
+            bool MoveChildNextTo(Core::ObjectID child, Core::ObjectID anchor, bool after) { return MoveIdNextTo(children, child, anchor, after); }
+            void SetChildrenOrder(const std::vector<Core::ObjectID>& order) { ApplyIdOrder(children, order); }
 
             virtual void AddChild(std::shared_ptr<WorldObject> o);
 

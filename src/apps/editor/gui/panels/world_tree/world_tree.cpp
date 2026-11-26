@@ -1,3 +1,4 @@
+#include "engine/core/text/fuzzy_match.hpp"
 #include "world_tree.hpp"
 
 #include "engine/world/engine.hpp"
@@ -80,6 +81,17 @@ namespace Shard::Editor::GUI{
         {
             const size_t slash = path.rfind('/');
             return slash == std::string::npos ? path : path.substr(slash + 1);
+        }
+
+        /// Offers an asset drop on the outliner to the plugin drop hooks (slot "outliner"). True when a plugin took it.
+        bool DispatchAssetDrop(const std::vector<std::string>& assets, uint64_t targetActor, const std::string& folder)
+        {
+            Engine::Plugins::EditorDropEvent event;
+            event.slot = 1;
+            event.targetActor = targetActor;
+            event.folder = folder;
+            event.assets = assets;
+            return DispatchPluginDrop(event);
         }
 
         std::string ParentPathOf(const std::string& path)
@@ -437,8 +449,24 @@ namespace Shard::Editor::GUI{
 
         if (!queryLower.empty())
         {
-            if (Lower(actor->GetName()).find(queryLower) == std::string::npos &&
-                Lower(TypeOf(actor)).find(queryLower) == std::string::npos)
+            // Fuzzy on the name or the type : "pl cam" finds "PlayerCamera", "mesh" every MeshRenderer actor.
+            if (searchCacheQuery != searchBuffer)
+            {
+                searchCache.clear();
+                searchCacheQuery = searchBuffer;
+            }
+
+            const std::string name = actor->GetName();
+            const size_t componentCount = actor->GetComponents().size();
+            SearchCacheEntry& entry = searchCache[actor->GetID().GetAsInt()];
+            if (entry.name != name || entry.componentCount != componentCount)
+            {
+                entry.name = name;
+                entry.componentCount = componentCount;
+                entry.matched = Engine::Core::Text::FuzzyMatchAny(searchBuffer, { name, TypeOf(actor) }).matched;
+            }
+
+            if (!entry.matched)
                 return false;
         }
 
@@ -534,14 +562,10 @@ namespace Shard::Editor::GUI{
         queryLower = Lower(searchBuffer);
         const bool filtering = HasActiveFilter();
 
-        std::vector<ActorPtr> roots;
-        for (const auto& [id, actor] : world->GetRootActors())
-            if (actor)
-                roots.push_back(actor);
+        // The default order is the saved one (what the outliner's drag and drop edits)
+        std::vector<ActorPtr> roots = world->GetRootActorsOrdered();
 
-        if (sortColumn < 0)
-            std::sort(roots.begin(), roots.end(), [](const ActorPtr& a, const ActorPtr& b){ return a->GetID().GetAsInt() < b->GetID().GetAsInt(); });
-        else
+        if (sortColumn >= 0)
             SortActors(roots);
 
         for (const auto& actor : roots)
@@ -587,7 +611,7 @@ namespace Shard::Editor::GUI{
 
                 const bool contentShown = row.open && row.hasChildren ? EmitFolderContents(path, depth + 1, filtering) : false;
 
-                const bool nameMatches = !queryLower.empty() && Lower(row.label).find(queryLower) != std::string::npos;
+                const bool nameMatches = !queryLower.empty() && Engine::Core::Text::FuzzyContains(searchBuffer, row.label);
                 if (filtering && !contentShown && !nameMatches)
                     rows.resize(mark);
                 else
@@ -856,21 +880,79 @@ namespace Shard::Editor::GUI{
                 return actors;
             };
 
-            if (const ImGuiPayload* payload = ImGui::AcceptDragDropPayload(kActorsPayload))
+            // On an actor row the payload is also seen while hovering, to preview where it lands :
+            // the upper / lower quarter of the row puts the actors before / after it (reorder), the middle makes them its children.
+            const ImGuiDragDropFlags acceptFlags = isFolder ? ImGuiDragDropFlags_None
+                : (ImGuiDragDropFlags_AcceptBeforeDelivery | ImGuiDragDropFlags_AcceptNoDrawDefaultRect);
+
+            if (const ImGuiPayload* payload = ImGui::AcceptDragDropPayload(kActorsPayload, acceptFlags))
             {
-                std::vector<ActorPtr> actors = droppedActors(payload);
-                if (isFolder)
+                enum class Zone { Into, Before, After };
+                Zone zone = Zone::Into;
+                ActorPtr anchor = row.actor;
+
+                // Reordering means something only in the default order (a sorted column or a filter decides the order itself)
+                if (!isFolder && sortColumn < 0 && !HasActiveFilter())
                 {
-                    const std::string folder = row.path;
-                    pendingEdit = [this, actors, folder]{
-                        Commands::Actions::MoveToFolder(actors, folder);
-                        closedFolders.erase(folder);
-                    };
+                    const float height = std::max(rowMax.y - rowMin.y, 1.0f);
+                    const float t = (io.MousePos.y - rowMin.y) / height;
+                    if (t < 0.25f)
+                    {
+                        zone = Zone::Before;
+                    }
+                    else if (t > 0.75f)
+                    {
+                        zone = Zone::After;
+
+                        // Just under an open parent is the place before its first child
+                        if (row.open && row.hasChildren)
+                        {
+                            const std::vector<ActorPtr> kids = ChildrenOf(row.actor);
+                            if (!kids.empty())
+                            {
+                                anchor = kids.front();
+                                zone = Zone::Before;
+                            }
+                        }
+                    }
                 }
-                else
+
+                if (!isFolder)
                 {
-                    ActorPtr target = row.actor;
-                    pendingEdit = [this, actors, target]{ ReparentSelection(actors, target); };
+                    const ImU32 accent = ImGui::GetColorU32(ImGuiCol_DragDropTarget);
+                    ImDrawList* overlay = ImGui::GetForegroundDrawList();
+                    if (zone == Zone::Into)
+                    {
+                        overlay->AddRect(rowMin, rowMax, accent, 0.0f, 0, 1.5f);
+                    }
+                    else
+                    {
+                        const float lineY = (zone == Zone::After || anchor != row.actor) ? rowMax.y : rowMin.y;
+                        overlay->AddLine(ImVec2(rowMin.x, lineY), ImVec2(rowMax.x, lineY), accent, 2.5f);
+                    }
+                }
+
+                if (payload->IsDelivery())
+                {
+                    std::vector<ActorPtr> actors = droppedActors(payload);
+                    if (isFolder)
+                    {
+                        const std::string folder = row.path;
+                        pendingEdit = [this, actors, folder]{
+                            Commands::Actions::MoveToFolder(actors, folder);
+                            closedFolders.erase(folder);
+                        };
+                    }
+                    else if (zone == Zone::Into)
+                    {
+                        ActorPtr target = row.actor;
+                        pendingEdit = [this, actors, target]{ ReparentSelection(actors, target); };
+                    }
+                    else
+                    {
+                        const bool after = zone == Zone::After;
+                        pendingEdit = [actors, anchor, after]{ Commands::Actions::MoveActorsNextTo(actors, anchor, after); };
+                    }
                 }
             }
 
@@ -894,7 +976,20 @@ namespace Shard::Editor::GUI{
                 {
                     const std::string folder = row.path;
                     auto* world = GetEngine().GetWorldManager()->GetWorldAt(0);
-                    pendingEdit = [this, world, assets, folder]{ SpawnAssets(world, assets, folder); };
+                    pendingEdit = [this, world, assets, folder]{
+                        if (!DispatchAssetDrop(assets, 0, folder))
+                            SpawnAssets(world, assets, folder);
+                    };
+                }
+            }
+            else
+            {
+                // Dropping assets on an actor only means something to plugin drop hooks (slot "outliner")
+                std::vector<std::string> assets = DragDrop::AcceptAssetDragDropPayload();
+                if (!assets.empty())
+                {
+                    const uint64_t target = static_cast<uint64_t>(row.actor->GetID().GetAsInt());
+                    pendingEdit = [assets, target]{ DispatchAssetDrop(assets, target, std::string()); };
                 }
             }
 
@@ -1581,7 +1676,7 @@ namespace Shard::Editor::GUI{
             return;
 
         std::vector<std::string> assets = DragDrop::AcceptAssetDragDropPayload();
-        if (!assets.empty())
+        if (!assets.empty() && !DispatchAssetDrop(assets, 0, std::string()))
             SpawnAssets(world, assets, std::string());
 
         if (const ImGuiPayload* payload = ImGui::AcceptDragDropPayload(kActorsPayload))

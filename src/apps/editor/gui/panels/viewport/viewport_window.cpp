@@ -1,6 +1,7 @@
 #include "viewport_window.hpp"
 #include "apps/editor/gui/plugin_ui.hpp"
 #include "engine/c_abi_render.hpp"
+#include "engine/plugins/plugin.hpp"
 
 #include "engine/world/engine.hpp"
 #include "engine/platform/windowing/iplatform.hpp"
@@ -906,6 +907,20 @@ namespace Shard::Editor::GUI {
 
                 Engine::Physics::RaycastResult hit = Engine::Core::GetEngine().GetPhysicsManager()->RayCast({nearPoint, dir, 10000.0f});
                 glm::vec3 spawnPos = nearPoint + dir * (hit.hit ? hit.hitDistance : 15.0f);
+
+                // A plugin drop hook can take the drop (slot "viewport") before the editor spawns anything
+                Engine::Plugins::EditorDropEvent dropEvent;
+                dropEvent.slot = 0;
+                dropEvent.hasPosition = true;
+                dropEvent.position[0] = spawnPos.x;
+                dropEvent.position[1] = spawnPos.y;
+                dropEvent.position[2] = spawnPos.z;
+                dropEvent.assets = dropped;
+                if (DispatchPluginDrop(dropEvent))
+                {
+                    ImGui::EndDragDropTarget();
+                    return;
+                }
 
                 std::shared_ptr<Engine::Objects::Actor> lastSpawned;
 

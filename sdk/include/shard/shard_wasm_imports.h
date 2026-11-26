@@ -322,6 +322,10 @@ SHARD_WASM_IMPORT("editor.add_asset_template") ShardResult shard_wasm_editor_add
 SHARD_WASM_IMPORT("editor.add_actor_template") ShardResult shard_wasm_editor_add_actor_template(ShardPluginCtx ctx, ShardStr path, const ShardStr* components, uint32_t count);
 SHARD_WASM_IMPORT("editor.add_asset_action") ShardResult shard_wasm_editor_add_asset_action(ShardPluginCtx ctx, ShardStr extension, ShardStr label, ShardAssetActionFn run, void* user);
 SHARD_WASM_IMPORT("editor.add_actor_action") ShardResult shard_wasm_editor_add_actor_action(ShardPluginCtx ctx, ShardStr label, ShardActorActionFn run, void* user);
+SHARD_WASM_IMPORT("editor.add_drop_handler") ShardResult shard_wasm_editor_add_drop_handler(ShardPluginCtx ctx, uint32_t slot, ShardStr extensions, ShardDropFn fn, void* user);
+SHARD_WASM_IMPORT("editor.add_asset_editor") ShardResult shard_wasm_editor_add_asset_editor(ShardPluginCtx ctx, const ShardAssetEditorDesc* desc);
+SHARD_WASM_IMPORT("editor.set_asset_editor_dirty") ShardResult shard_wasm_editor_set_asset_editor_dirty(ShardPluginCtx ctx, ShardStr path, int32_t dirty);
+SHARD_WASM_IMPORT("editor.open_asset_editor") ShardResult shard_wasm_editor_open_asset_editor(ShardPluginCtx ctx, ShardStr path);
 
 /* ---- shard.ui ---- */
 SHARD_WASM_IMPORT("ui.text") void shard_wasm_ui_text(ShardStr text);
@@ -749,6 +753,10 @@ static const ShardEditorApi shard_wasm_api_editor = {
     shard_wasm_editor_add_actor_template,
     shard_wasm_editor_add_asset_action,
     shard_wasm_editor_add_actor_action,
+    shard_wasm_editor_add_drop_handler,
+    shard_wasm_editor_add_asset_editor,
+    shard_wasm_editor_set_asset_editor_dirty,
+    shard_wasm_editor_open_asset_editor,
 };
 
 typedef struct ShardWasmInterface {
@@ -1611,7 +1619,25 @@ SHARD_WASM_ASSERT(offsetof(ShardGizmoApi, sphere) == 16, "ShardGizmoApi.sphere")
 SHARD_WASM_ASSERT(offsetof(ShardGizmoApi, box) == 20, "ShardGizmoApi.box");
 SHARD_WASM_ASSERT(offsetof(ShardGizmoApi, arrow) == 24, "ShardGizmoApi.arrow");
 SHARD_WASM_ASSERT(offsetof(ShardGizmoApi, text) == 28, "ShardGizmoApi.text");
-SHARD_WASM_ASSERT(sizeof(ShardEditorApi) == 64 && _Alignof(ShardEditorApi) == 4, "ShardEditorApi");
+SHARD_WASM_ASSERT(sizeof(ShardDropEvent) == 56 && _Alignof(ShardDropEvent) == 8, "ShardDropEvent");
+SHARD_WASM_ASSERT(offsetof(ShardDropEvent, structSize) == 0, "ShardDropEvent.structSize");
+SHARD_WASM_ASSERT(offsetof(ShardDropEvent, slot) == 4, "ShardDropEvent.slot");
+SHARD_WASM_ASSERT(offsetof(ShardDropEvent, target_actor) == 8, "ShardDropEvent.target_actor");
+SHARD_WASM_ASSERT(offsetof(ShardDropEvent, folder) == 16, "ShardDropEvent.folder");
+SHARD_WASM_ASSERT(offsetof(ShardDropEvent, position) == 32, "ShardDropEvent.position");
+SHARD_WASM_ASSERT(offsetof(ShardDropEvent, has_position) == 44, "ShardDropEvent.has_position");
+SHARD_WASM_ASSERT(offsetof(ShardDropEvent, asset_count) == 48, "ShardDropEvent.asset_count");
+SHARD_WASM_ASSERT(offsetof(ShardDropEvent, assets) == 52, "ShardDropEvent.assets");
+SHARD_WASM_ASSERT(sizeof(ShardAssetEditorDesc) == 64 && _Alignof(ShardAssetEditorDesc) == 8, "ShardAssetEditorDesc");
+SHARD_WASM_ASSERT(offsetof(ShardAssetEditorDesc, structSize) == 0, "ShardAssetEditorDesc.structSize");
+SHARD_WASM_ASSERT(offsetof(ShardAssetEditorDesc, extension) == 8, "ShardAssetEditorDesc.extension");
+SHARD_WASM_ASSERT(offsetof(ShardAssetEditorDesc, title) == 24, "ShardAssetEditorDesc.title");
+SHARD_WASM_ASSERT(offsetof(ShardAssetEditorDesc, draw) == 40, "ShardAssetEditorDesc.draw");
+SHARD_WASM_ASSERT(offsetof(ShardAssetEditorDesc, on_open) == 44, "ShardAssetEditorDesc.on_open");
+SHARD_WASM_ASSERT(offsetof(ShardAssetEditorDesc, on_close) == 48, "ShardAssetEditorDesc.on_close");
+SHARD_WASM_ASSERT(offsetof(ShardAssetEditorDesc, on_save) == 52, "ShardAssetEditorDesc.on_save");
+SHARD_WASM_ASSERT(offsetof(ShardAssetEditorDesc, user) == 56, "ShardAssetEditorDesc.user");
+SHARD_WASM_ASSERT(sizeof(ShardEditorApi) == 80 && _Alignof(ShardEditorApi) == 4, "ShardEditorApi");
 SHARD_WASM_ASSERT(offsetof(ShardEditorApi, structSize) == 0, "ShardEditorApi.structSize");
 SHARD_WASM_ASSERT(offsetof(ShardEditorApi, add_panel) == 4, "ShardEditorApi.add_panel");
 SHARD_WASM_ASSERT(offsetof(ShardEditorApi, add_menu_item) == 8, "ShardEditorApi.add_menu_item");
@@ -1628,6 +1654,10 @@ SHARD_WASM_ASSERT(offsetof(ShardEditorApi, add_asset_template) == 48, "ShardEdit
 SHARD_WASM_ASSERT(offsetof(ShardEditorApi, add_actor_template) == 52, "ShardEditorApi.add_actor_template");
 SHARD_WASM_ASSERT(offsetof(ShardEditorApi, add_asset_action) == 56, "ShardEditorApi.add_asset_action");
 SHARD_WASM_ASSERT(offsetof(ShardEditorApi, add_actor_action) == 60, "ShardEditorApi.add_actor_action");
+SHARD_WASM_ASSERT(offsetof(ShardEditorApi, add_drop_handler) == 64, "ShardEditorApi.add_drop_handler");
+SHARD_WASM_ASSERT(offsetof(ShardEditorApi, add_asset_editor) == 68, "ShardEditorApi.add_asset_editor");
+SHARD_WASM_ASSERT(offsetof(ShardEditorApi, set_asset_editor_dirty) == 72, "ShardEditorApi.set_asset_editor_dirty");
+SHARD_WASM_ASSERT(offsetof(ShardEditorApi, open_asset_editor) == 76, "ShardEditorApi.open_asset_editor");
 SHARD_WASM_ASSERT(sizeof(ShardStr) == 16 && _Alignof(ShardStr) == 8, "ShardStr");
 SHARD_WASM_ASSERT(offsetof(ShardStr, data) == 0, "ShardStr.data");
 SHARD_WASM_ASSERT(offsetof(ShardStr, size) == 8, "ShardStr.size");

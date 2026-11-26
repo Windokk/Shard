@@ -1133,6 +1133,7 @@ namespace Shard::Editor::Core{
                 if(panel->visible && panel->draw)
                     panel->draw(&panel->visible);
             }
+            GUI::DrawPluginAssetEditors();
 
             materialEditorPanel->Draw();
             physicsMaterialEditorPanel->Draw();

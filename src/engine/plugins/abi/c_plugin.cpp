@@ -452,7 +452,7 @@ namespace Shard::Engine::Plugins {
                 { SHARD_IFACE_NET, 1, 0, NetApi() },
                 { SHARD_IFACE_RENDER, 1, 0, RenderApi() },
                 { SHARD_IFACE_DEBUG, 1, 0, DebugApi() },
-                { SHARD_IFACE_EDITOR, 1, 3, EditorApi() },
+                { SHARD_IFACE_EDITOR, 1, 4, EditorApi() },
                 // Experimental: major 0, only handed out for the exact minor
                 { SHARD_IFACE_EXPERIMENTAL_WORLD_ECS, 0, 1, WorldEcsApi() },
             };

@@ -1,3 +1,4 @@
+#include "engine/core/text/fuzzy_match.hpp"
 #include "tag_widgets.hpp"
 
 #include "engine/core/tags/tag_registry.hpp"
@@ -22,14 +23,6 @@ namespace Shard::Editor::GUI::TagWidgets{
         const ImVec4 kErrorColor(0.90f, 0.35f, 0.35f, 1.0f);
 
         char gSearch[128] = "";
-
-        bool ContainsNoCase(const std::string& text, const char* search)
-        {
-            const std::string needle = search;
-            auto it = std::search(text.begin(), text.end(), needle.begin(), needle.end(),
-                [](char a, char b) { return std::tolower(static_cast<unsigned char>(a)) == std::tolower(static_cast<unsigned char>(b)); });
-            return it != text.end();
-        }
 
         void TagTooltip(Core::Tag tag)
         {
@@ -155,12 +148,21 @@ namespace Shard::Editor::GUI::TagWidgets{
             ImGui::TextDisabled("No tag yet : add some in Project Settings > Tags");
 
         if (gSearch[0] != '\0') {
+            // Best match first : typing "hit" lists Combat.Hit before Combat.Shield.Hit.
+            struct Ranked { Core::Tag tag; std::string name; int score; };
+            std::vector<Ranked> ranked;
             for (Core::Tag tag : registry.GetAll()) {
-                const std::string name = tag.ToString();
-                if (!ContainsNoCase(name, gSearch))
-                    continue;
+                std::string name = tag.ToString();
+                const Engine::Core::Text::FuzzyResult match = Engine::Core::Text::FuzzyMatch(gSearch, name);
+                if (match.matched)
+                    ranked.push_back({ tag, std::move(name), match.score });
+            }
+            std::stable_sort(ranked.begin(), ranked.end(), [](const Ranked& a, const Ranked& b) { return a.score > b.score; });
+
+            for (const Ranked& r : ranked) {
+                const Core::Tag tag = r.tag;
                 const bool isMarked = marked && marked->HasTagExact(tag);
-                if (ImGui::Selectable((std::string(isMarked ? ICON_LC_CHECK " " : "") + name).c_str(), isMarked)) {
+                if (ImGui::Selectable((std::string(isMarked ? ICON_LC_CHECK " " : "") + r.name).c_str(), isMarked)) {
                     picked = tag;
                     clicked = true;
                 }

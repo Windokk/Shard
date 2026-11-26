@@ -150,6 +150,115 @@ namespace Shard::Editor::Commands{
             world->GetFolders() = folders;
     }
 
+    SiblingOrder SiblingOrder::Capture(const std::shared_ptr<Actor>& parent)
+    {
+        SiblingOrder order;
+        order.parent = ObjectRefs::Get(parent);
+
+        if (parent)
+        {
+            for (const auto& child : ChildrenOf(parent))
+                order.actors.push_back(ObjectRefs::Get(child));
+        }
+        else if (auto* world = CurrentWorld())
+        {
+            for (const auto& root : world->GetRootActorsOrdered())
+                order.actors.push_back(ObjectRefs::Get(root));
+        }
+        return order;
+    }
+
+    ReorderActorsCommand::ReorderActorsCommand(std::string label, const std::vector<std::shared_ptr<Actor>>& parents)
+        : name(std::move(label))
+    {
+        for (const auto& parent : parents)
+        {
+            parentRefs.push_back(ObjectRefs::Get(parent));
+            before.push_back(SiblingOrder::Capture(parent));
+        }
+    }
+
+    ReorderActorsCommand::ReorderActorsCommand(const ReorderActorsCommand& first, bool actsOnUndo)
+        : name(first.name), actsOnUndo(actsOnUndo), parentRefs(first.parentRefs), before(first.before)
+    {
+    }
+
+    void ReorderActorsCommand::Finalize()
+    {
+        if (!after.empty())
+            return;
+
+        for (const auto& ref : parentRefs)
+        {
+            // A parent that is gone (destroyed by the edit) has no list left to order
+            std::shared_ptr<Actor> parent = ref ? ref->Resolve<Actor>() : nullptr;
+            if (ref && !parent)
+            {
+                after.push_back(SiblingOrder{ ref, {} });
+                continue;
+            }
+            after.push_back(SiblingOrder::Capture(parent));
+        }
+    }
+
+    void ReorderActorsCommand::Apply(const std::vector<SiblingOrder>& orders)
+    {
+        Engine::Worlds::World* world = CurrentWorld();
+        if (!world)
+            return;
+
+        for (const auto& order : orders)
+        {
+            std::shared_ptr<Actor> parent = order.parent ? order.parent->Resolve<Actor>() : nullptr;
+            if (order.parent && !parent)
+                continue;
+
+            std::vector<Engine::Core::ObjectID> ids;
+            for (const auto& ref : order.actors)
+                if (auto actor = ref ? ref->Resolve<Actor>() : nullptr)
+                    ids.push_back(actor->GetID());
+
+            if (parent)
+                parent->SetChildrenOrder(ids);
+            else
+                world->SetRootOrder(ids);
+        }
+    }
+
+    ReorderComponentsCommand::ReorderComponentsCommand(const std::shared_ptr<Actor>& target)
+        : actor(ObjectRefs::Get(target)), before(Capture(target))
+    {
+    }
+
+    void ReorderComponentsCommand::Finalize()
+    {
+        if (after.empty())
+            after = Capture(actor ? actor->Resolve<Actor>() : nullptr);
+    }
+
+    std::vector<std::shared_ptr<ObjectRef>> ReorderComponentsCommand::Capture(const std::shared_ptr<Actor>& target)
+    {
+        std::vector<std::shared_ptr<ObjectRef>> order;
+        if (target)
+            for (const auto& component : target->GetComponents())
+                order.push_back(ObjectRefs::Get(component));
+        return order;
+    }
+
+    void ReorderComponentsCommand::Apply(const std::vector<std::shared_ptr<ObjectRef>>& order)
+    {
+        auto target = actor ? actor->Resolve<Actor>() : nullptr;
+        if (!target)
+            return;
+
+        std::vector<std::shared_ptr<Component>> components;
+        for (const auto& ref : order)
+            if (auto component = ref ? ref->Resolve<Component>() : nullptr)
+                components.push_back(component);
+
+        target->SetComponentsOrder(components);
+    }
+
     namespace Actions {
 
         namespace {
@@ -296,6 +405,79 @@ namespace Shard::Editor::Commands{
 
             CommandStack::Get().Record(std::make_unique<SetComponentActiveCommand>(component, active));
             MarkWorldDirty();
+        }
+
+        bool MoveComponent(const std::shared_ptr<Actor>& actor, size_t from, size_t to)
+        {
+            if (!actor)
+                return false;
+
+            auto command = std::make_unique<ReorderComponentsCommand>(actor);
+            if (!actor->MoveComponent(from, to))
+                return false;
+
+            CommandStack::Get().Record(std::move(command));
+            MarkWorldDirty();
+            return true;
+        }
+
+        int MoveActorsNextTo(const std::vector<std::shared_ptr<Actor>>& actors, const std::shared_ptr<Actor>& anchor, bool after)
+        {
+            if (!anchor || !CurrentWorld())
+                return 0;
+
+            // Neither the anchor nor something that holds it can be moved next to it
+            std::vector<std::shared_ptr<Actor>> moving;
+            for (const auto& actor : TopLevel(actors))
+                if (actor != anchor && !IsSelfOrAncestor(actor, anchor))
+                    moving.push_back(actor);
+            if (moving.empty())
+                return 0;
+
+            const std::shared_ptr<Actor> newParent = ParentOf(anchor);
+
+            // Every list that can change : the one they go in, and the ones they leave
+            std::vector<std::shared_ptr<Actor>> parents{ newParent };
+            for (const auto& actor : moving)
+            {
+                const auto from = ParentOf(actor);
+                if (std::find(parents.begin(), parents.end(), from) == parents.end())
+                    parents.push_back(from);
+            }
+
+            auto& stack = CommandStack::Get();
+            stack.Begin("Reorder Actors");
+            auto undoOrder = std::make_unique<ReorderActorsCommand>("Reorder Actors", parents);
+            auto redoOrder = std::make_unique<ReorderActorsCommand>(*undoOrder, false);
+            stack.Record(std::move(undoOrder));
+
+            if (!newParent)
+            {
+                auto folderCommand = std::make_unique<SetFolderCommand>("Reorder Actors");
+                for (const auto& actor : moving)
+                    folderCommand->AddActor(actor, anchor->GetFolder());
+                for (const auto& actor : moving)
+                    actor->SetFolder(anchor->GetFolder());
+                stack.Record(std::move(folderCommand));
+            }
+
+            for (const auto& actor : moving)
+                if (ParentOf(actor) != newParent)
+                    Reparent(actor, newParent);
+
+            // After : the last one goes first, so the group keeps its order
+            if (after)
+                for (auto it = moving.rbegin(); it != moving.rend(); ++it)
+                    (*it)->MoveNextTo(anchor, true);
+            else
+                for (const auto& actor : moving)
+                    actor->MoveNextTo(anchor, false);
+
+            stack.Record(std::move(redoOrder));
+            stack.End();
+
+            MarkWorldDirty();
+            return static_cast<int>(moving.size());
         }
 
         void EditActor(const std::shared_ptr<Actor>& actor, const std::string& label, const std::function<void()>& edit)

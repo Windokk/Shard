@@ -467,14 +467,8 @@ namespace Shard::Engine::Worlds{
         if(!folders.empty())
             full["folders"] = folders;
 
-        std::vector<std::pair<Core::ObjectID, std::shared_ptr<Objects::Actor>>> sortedActors(
-            rootActors.begin(), rootActors.end()
-        );
-
-        std::sort(sortedActors.begin(), sortedActors.end(),
-                [](const auto& a, const auto& b) { return a.first < b.first; });
-
-        for(auto& [id, actorPtr] : sortedActors){
+        // Saved in the order of the outliner, so reloading the world gives the same order back
+        for(auto& actorPtr : GetRootActorsOrdered()){
             SerializeActor(actorPtr, &actorsArray);
         }
 
@@ -560,6 +554,7 @@ namespace Shard::Engine::Worlds{
         for (Core::ObjectID id : rootIDs)
             RemoveActorRecursive(id);
 
+        rootOrder.clear();
         frames.Clear();
         folders.clear();
 
@@ -636,14 +631,44 @@ namespace Shard::Engine::Worlds{
 
     void World::AddActor(std::shared_ptr<Objects::Actor> a)
     {
-        rootActors.emplace(a->GetID(), a);
+        if(rootActors.emplace(a->GetID(), a).second)
+            rootOrder.push_back(a->GetID());
         a->SetWorld(this);
     }
 
     void World::RemoveActor(Core::ObjectID id)
     {
-        if(rootActors.find(id) != rootActors.end())
+        if(rootActors.find(id) != rootActors.end()){
             rootActors.erase(id);
+            rootOrder.erase(std::remove_if(rootOrder.begin(), rootOrder.end(), [&](const Core::ObjectID& other){ return other.GetAsInt() == id.GetAsInt(); }), rootOrder.end());
+        }
+    }
+
+    std::vector<std::shared_ptr<Objects::Actor>> World::GetRootActorsOrdered() const
+    {
+        std::vector<std::shared_ptr<Objects::Actor>> ordered;
+        ordered.reserve(rootOrder.size());
+        for(const Core::ObjectID& id : rootOrder){
+            auto it = rootActors.find(id);
+            if(it != rootActors.end() && it->second)
+                ordered.push_back(it->second);
+        }
+        return ordered;
+    }
+
+    bool World::MoveRootActorNextTo(Core::ObjectID actor, Core::ObjectID anchor, bool after)
+    {
+        if(!Objects::MoveIdNextTo(rootOrder, actor, anchor, after))
+            return false;
+
+        dirty = true;
+        return true;
+    }
+
+    void World::SetRootOrder(const std::vector<Core::ObjectID>& order)
+    {
+        Objects::ApplyIdOrder(rootOrder, order);
+        dirty = true;
     }
 
     std::shared_ptr<Objects::Actor> World::GetActor(Core::ObjectID id, bool recursive)

@@ -1,4 +1,4 @@
-/* Interface "shard.editor" 1.3 : the editor's windows, menus, toolbar, inspectors and gizmos, drawn with a small set of widgets.
+/* Interface "shard.editor" 1.4 : the editor's windows, menus, toolbar, inspectors and gizmos, drawn with a small set of widgets.
  *
  * ImGui has no stable ABI, so a plugin does not draw with it : it adds a panel and draws the contents with the widgets of ShardUiApi, which
  * the editor implements with its own ImGui. The panel is a window of the editor's Window menu (hidden until the user opens it). Its draw
@@ -18,7 +18,13 @@
  * 1.2 added to ShardUiApi (from draw_line on) what a node editor, a timeline or a curve editor needs : a draw list (lines, shapes, Bezier curves,
  * text, clipping) in the window's coordinates, the cursor and mouse queries to build interactions on top of it, hit areas, images, and drag and
  * drop ; and to ShardEditorApi (from undo_push on) : the undo history, opening an asset of a plugin's type with a double click, and the entries
- * of the content browser's "Create" menu. A graph editor (visual scripting, behaviour trees, animation graphs) is made of exactly these. */
+ * of the content browser's "Create" menu. A graph editor (visual scripting, behaviour trees, animation graphs) is made of exactly these.
+ *
+ * 1.3 added to ShardEditorApi (from add_actor_template on) : entries of the Create menus, of the content browser's and the world tree's context menus.
+ *
+ * 1.4 added to ShardEditorApi (from add_drop_handler on) : drop hooks (a plugin takes what is dropped on the viewport, the world tree, the content
+ * browser or the Properties panel), and custom asset editors (a window the editor manages for each open asset of a plugin's extension, with
+ * a dirty mark, Ctrl+S and close handling). */
 #ifndef SHARD_EDITOR_H
 #define SHARD_EDITOR_H
 
@@ -242,6 +248,45 @@ typedef void (SHARD_CALL *ShardAssetActionFn)(void* user, ShardStr path);
 /* An entry of the world tree's context menu was chosen : the selected actors, valid for the call (1.3) */
 typedef void (SHARD_CALL *ShardActorActionFn)(void* user, const ShardActor* actors, uint32_t count);
 
+/* Where assets can be dropped in the editor (1.4) */
+#define SHARD_DROP_SLOT_VIEWPORT       0  /* on the 3D viewport : `position` is the point under the cursor on the ground / surface */
+#define SHARD_DROP_SLOT_OUTLINER       1  /* on the world tree : `target_actor` is the actor under the cursor (0 : empty space) */
+#define SHARD_DROP_SLOT_ASSET_BROWSER  2  /* on the content browser : `folder` is the folder it lands in (path in the project) */
+#define SHARD_DROP_SLOT_PROPERTIES     3  /* on the Properties panel : `target_actor` is the actor it shows */
+
+/* What was dropped. Valid for the call. */
+typedef struct ShardDropEvent {
+    uint32_t structSize;
+    uint32_t slot;              /* SHARD_DROP_SLOT_* */
+    ShardActor target_actor;    /* 0 when the slot has none */
+    ShardStr folder;            /* SHARD_DROP_SLOT_ASSET_BROWSER only, empty otherwise */
+    float position[3];          /* SHARD_DROP_SLOT_VIEWPORT only, valid when has_position */
+    uint32_t has_position;
+    uint32_t asset_count;
+    const ShardStr* assets;     /* the paths of the dropped assets in the project, `asset_count` of them */
+} ShardDropEvent;
+
+/* Asks the plugin to take a drop : returns non zero when it handled it (the editor then does nothing with it), 0 to let the next handler
+ * and then the editor's own behaviour (a model becomes an actor, an asset moves into a folder...) run. (1.4) */
+typedef int32_t (SHARD_CALL *ShardDropFn)(void* user, const ShardDropEvent* event);
+
+/* A custom editor for the assets of one extension, shown by the editor in a window of its own (1.4) */
+typedef void (SHARD_CALL *ShardAssetEditorDrawFn)(void* user, const ShardUiApi* ui, ShardStr path);
+/* The window opens or closes for the asset at `path` (the asset's path in the project) */
+typedef void (SHARD_CALL *ShardAssetEditorEventFn)(void* user, ShardStr path);
+
+typedef struct ShardAssetEditorDesc {
+    uint32_t structSize;
+    ShardStr extension;                 /* ".postprofile" */
+    ShardStr title;                     /* names the window together with the file : "Post Profile Editor" */
+    ShardAssetEditorDrawFn draw;        /* required : fills the window, each frame, with `ui` */
+    ShardAssetEditorEventFn on_open;    /* optional : the window just opened for `path` (load the file here) */
+    ShardAssetEditorEventFn on_close;   /* optional : the window closed by the user */
+    ShardAssetEditorEventFn on_save;    /* optional : Ctrl+S in the window, or "Save" in the question asked when a dirty window is closed. Write the file, then
+                                           call set_asset_editor_dirty(path, 0) */
+    void* user;
+} ShardAssetEditorDesc;
+
 #define SHARD_EDITOR_NOTIFY_INFO     0
 #define SHARD_EDITOR_NOTIFY_WARNING  1
 #define SHARD_EDITOR_NOTIFY_ERROR    2
@@ -297,6 +342,21 @@ typedef struct ShardEditorApi {
     ShardResult (SHARD_CALL *add_asset_action)(ShardPluginCtx ctx, ShardStr extension, ShardStr label, ShardAssetActionFn run, void* user);
     /* An entry "label" ('/' = submenus) in the context menu of the world tree : `run` gets the selected actors */
     ShardResult (SHARD_CALL *add_actor_action)(ShardPluginCtx ctx, ShardStr label, ShardActorActionFn run, void* user);
+    /* ---- 1.4 : thread : main, from on_load ---- */
+    /* Takes the drops of assets on a slot of the editor (SHARD_DROP_SLOT_*) before the editor does, for the assets of these extensions
+     * (".fbx;.obj", separated by ';', empty = any). When a drop holds several assets, `fn` gets the ones that match and the drop is handled
+     * only if it returns non zero. Handlers run in the order plugins were loaded. SHARD_E_INVALID_ARG : unknown slot. */
+    ShardResult (SHARD_CALL *add_drop_handler)(ShardPluginCtx ctx, uint32_t slot, ShardStr extensions, ShardDropFn fn, void* user);
+    /* A window of the editor for the assets of an extension : a double click or "Open" in the content browser opens one window per asset,
+     * titled "<title> - <file name>" (with a "*" while dirty), and `draw` fills it. It takes priority over the editor's own editor for that
+     * extension, if any. SHARD_E_ALREADY_EXISTS : another plugin opens that extension (add_asset_opener included). */
+    ShardResult (SHARD_CALL *add_asset_editor)(ShardPluginCtx ctx, const ShardAssetEditorDesc* desc);
+    /* Marks the asset open at `path` as changed (dirty != 0) or saved : the window shows it, asks before closing, and calls on_save on Ctrl+S.
+     * SHARD_E_NOT_FOUND : no window is open for it. */
+    ShardResult (SHARD_CALL *set_asset_editor_dirty)(ShardPluginCtx ctx, ShardStr path, int32_t dirty);
+    /* Opens (or focuses) the window of the asset editor registered for that path's extension, as a double click does.
+     * SHARD_E_NOT_FOUND : no asset editor is registered for that extension. */
+    ShardResult (SHARD_CALL *open_asset_editor)(ShardPluginCtx ctx, ShardStr path);
 } ShardEditorApi;
 
 #ifdef __cplusplus

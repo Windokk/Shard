@@ -404,13 +404,145 @@ namespace Shard::Engine::Plugins {
                     return ctx->Assets().Add<EditorActorActionItem>("editor.actoraction", name, std::move(item)) ? SHARD_OK : SHARD_E_ALREADY_EXISTS;
                 } catch (...) { return SHARD_E_INTERNAL; }
             }
+
+            std::string LowerExtension(const std::string& path)
+            {
+                const size_t dot = path.find_last_of('.');
+                const size_t slash = path.find_last_of("/\\");
+                if (dot == std::string::npos || (slash != std::string::npos && dot < slash)) return {};
+                std::string ext = path.substr(dot);
+                for (char& c : ext) c = char(std::tolower((unsigned char)c));
+                return ext;
+            }
+
+            ShardResult SHARD_CALL AddDropHandler(ShardPluginCtx handle, uint32_t slot, ShardStr extensions, ShardDropFn fn, void* user)
+            {
+                try {
+                    ShardResult result;
+                    PluginContext* ctx = Contribution(handle, result);
+                    if (!ctx) return result;
+                    if (!fn || slot > SHARD_DROP_SLOT_PROPERTIES) return SHARD_E_INVALID_ARG;
+
+                    std::vector<std::string> list;
+                    const std::string raw = ToString(extensions);
+                    for (size_t i = 0; i < raw.size();) {
+                        size_t end = raw.find(';', i);
+                        if (end == std::string::npos) end = raw.size();
+                        std::string ext = raw.substr(i, end - i);
+                        for (char& c : ext) c = char(std::tolower((unsigned char)c));
+                        if (!ext.empty()) {
+                            if (ext[0] != '.' || ext.size() < 2) return SHARD_E_INVALID_ARG;
+                            list.push_back(std::move(ext));
+                        }
+                        i = end + 1;
+                    }
+
+                    static std::atomic<uint32_t> counter{ 0 };
+                    std::atomic<uint32_t>* active = ActiveCounter(*ctx);
+                    auto report = ctx->Bindings().reportError;
+                    const PluginOwner owner = PluginOwner(handle);
+                    auto item = std::make_shared<EditorDropHandlerItem>();
+                    item->slot = slot;
+                    item->extensions = list;
+                    item->handle = [slot, list, fn, user, active, report, owner](const EditorDropEvent& event) {
+                        std::vector<std::string> matching;
+                        for (const std::string& asset : event.assets) {
+                            if (list.empty() || std::find(list.begin(), list.end(), LowerExtension(asset)) != list.end())
+                                matching.push_back(asset);
+                        }
+                        if (matching.empty()) return false;
+                        std::vector<ShardStr> strs;
+                        strs.reserve(matching.size());
+                        for (const std::string& s : matching) strs.push_back(ToStr(s));
+                        ShardDropEvent e{};
+                        e.structSize = sizeof(ShardDropEvent);
+                        e.slot = slot;
+                        e.target_actor = event.targetActor;
+                        e.folder = ToStr(event.folder);
+                        for (int k = 0; k < 3; ++k) e.position[k] = event.position[k];
+                        e.has_position = event.hasPosition ? 1u : 0u;
+                        e.asset_count = uint32_t(strs.size());
+                        e.assets = strs.data();
+                        bool handled = false;
+                        Guarded(active, owner, report, "drop handler", [&] { handled = fn(user, &e) != 0; });
+                        return handled;
+                    };
+                    return ctx->Assets().Add<EditorDropHandlerItem>("editor.drophandler", std::to_string(slot) + "#" + std::to_string(counter++), std::move(item)) ? SHARD_OK : SHARD_E_ALREADY_EXISTS;
+                } catch (...) { return SHARD_E_INTERNAL; }
+            }
+
+            ShardResult SHARD_CALL AddAssetEditor(ShardPluginCtx handle, const ShardAssetEditorDesc* desc)
+            {
+                try {
+                    ShardResult result;
+                    PluginContext* ctx = Contribution(handle, result);
+                    if (!ctx) return result;
+                    if (!desc || desc->structSize < sizeof(ShardAssetEditorDesc) || !desc->draw) return SHARD_E_INVALID_ARG;
+                    std::string ext = ToString(desc->extension);
+                    if (ext.size() < 2 || ext[0] != '.') return SHARD_E_INVALID_ARG;
+                    for (char& c : ext) c = char(std::tolower((unsigned char)c));
+                    for (const auto& existing : PluginManager::Get().Extensions().Get<EditorAssetOpenerItem>("editor.assetopener"))
+                        if (existing->extension == ext) return SHARD_E_ALREADY_EXISTS;
+                    for (const auto& existing : PluginManager::Get().Extensions().Get<EditorAssetEditorItem>("editor.asseteditor"))
+                        if (existing->extension == ext) return SHARD_E_ALREADY_EXISTS;
+
+                    std::string title = ToString(desc->title);
+                    if (title.empty()) title = "Asset Editor";
+                    std::atomic<uint32_t>* active = ActiveCounter(*ctx);
+                    auto report = ctx->Bindings().reportError;
+                    const PluginOwner owner = PluginOwner(handle);
+                    const ShardAssetEditorDesc d = *desc;
+                    void* user = d.user;
+                    auto item = std::make_shared<EditorAssetEditorItem>();
+                    item->extension = ext;
+                    item->title = title;
+                    item->draw = [d, user, active, report, owner, ext](const ShardUiApi* ui, const std::string& path) {
+                        Guarded(active, owner, report, "asset editor of '" + ext + "'", [&] { d.draw(user, ui, ToStr(path)); });
+                    };
+                    auto event = [user, active, report, owner, ext](ShardAssetEditorEventFn fn, const char* what) -> std::function<void(const std::string&)> {
+                        if (!fn) return nullptr;
+                        return [=](const std::string& path) {
+                            Guarded(active, owner, report, std::string("asset editor of '") + ext + "' (" + what + ")", [&] { fn(user, ToStr(path)); });
+                        };
+                    };
+                    item->onOpen = event(d.on_open, "on_open");
+                    item->onClose = event(d.on_close, "on_close");
+                    item->onSave = event(d.on_save, "on_save");
+                    return ctx->Assets().Add<EditorAssetEditorItem>("editor.asseteditor", ext, std::move(item)) ? SHARD_OK : SHARD_E_ALREADY_EXISTS;
+                } catch (...) { return SHARD_E_INTERNAL; }
+            }
+
+            ShardResult SHARD_CALL SetAssetEditorDirty(ShardPluginCtx handle, ShardStr path, int32_t dirty)
+            {
+                try {
+                    ShardResult result;
+                    PluginContext* ctx = Contribution(handle, result);
+                    if (!ctx) return result;
+                    const EditorUiBackend* backend = gBackend.load();
+                    if (!backend || !backend->setAssetEditorDirty) return SHARD_E_UNSUPPORTED;
+                    return backend->setAssetEditorDirty(ToString(path), dirty != 0) ? SHARD_OK : SHARD_E_NOT_FOUND;
+                } catch (...) { return SHARD_E_INTERNAL; }
+            }
+
+            ShardResult SHARD_CALL OpenAssetEditor(ShardPluginCtx handle, ShardStr path)
+            {
+                try {
+                    ShardResult result;
+                    PluginContext* ctx = Contribution(handle, result);
+                    if (!ctx) return result;
+                    const EditorUiBackend* backend = gBackend.load();
+                    if (!backend || !backend->openAssetEditor) return SHARD_E_UNSUPPORTED;
+                    return backend->openAssetEditor(ToString(path)) ? SHARD_OK : SHARD_E_NOT_FOUND;
+                } catch (...) { return SHARD_E_INTERNAL; }
+            }
         }
 
         const void* EditorApi()
         {
             static const ShardEditorApi api = { sizeof(ShardEditorApi), &AddPanel, &AddMenuItem, &AddToolbarButton, &AddInspector, &AddGizmo,
                                                 &SubscribeSelection, &GetSelection, &Notify, &SetPanelVisible, &UndoPush, &AddAssetOpener, &AddAssetTemplate,
-                                                &AddActorTemplate, &AddAssetAction, &AddActorAction };
+                                                &AddActorTemplate, &AddAssetAction, &AddActorAction,
+                                                &AddDropHandler, &AddAssetEditor, &SetAssetEditorDirty, &OpenAssetEditor };
             return &api;
         }
     }

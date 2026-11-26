@@ -250,6 +250,10 @@ namespace Shard::Engine::Plugins::Wasm {
             { "editor.add_actor_template", { { L, I, I, I }, { I } }, false },
             { "editor.add_asset_action", { { L, I, I, I, I }, { I } }, false },
             { "editor.add_actor_action", { { L, I, I, I }, { I } }, false },
+            { "editor.add_drop_handler", { { L, I, I, I, I }, { I } }, false },
+            { "editor.add_asset_editor", { { L, I }, { I } }, false },
+            { "editor.set_asset_editor_dirty", { { L, I, I }, { I } }, false },
+            { "editor.open_asset_editor", { { L, I }, { I } }, false },
             { "ui.text", { { I }, {  } }, false },
             { "ui.text_colored", { { I, I }, {  } }, false },
             { "ui.text_wrapped", { { I }, {  } }, false },
@@ -1895,6 +1899,22 @@ namespace Shard::Engine::Plugins::Wasm {
                 if (true || !s.Allowed(Permission::Editor)) { r[0] = uint32_t(SHARD_E_UNSUPPORTED); return true; }
             });
             imports.Add("editor.add_actor_action", { { L, I, I, I }, { I } }, [&s, api](Instance& in, const uint64_t* a, uint64_t* r) -> bool {
+                (void)in; (void)a; (void)r;
+                if (true || !s.Allowed(Permission::Editor)) { r[0] = uint32_t(SHARD_E_UNSUPPORTED); return true; }
+            });
+            imports.Add("editor.add_drop_handler", { { L, I, I, I, I }, { I } }, [&s, api](Instance& in, const uint64_t* a, uint64_t* r) -> bool {
+                (void)in; (void)a; (void)r;
+                if (true || !s.Allowed(Permission::Editor)) { r[0] = uint32_t(SHARD_E_UNSUPPORTED); return true; }
+            });
+            imports.Add("editor.add_asset_editor", { { L, I }, { I } }, [&s, api](Instance& in, const uint64_t* a, uint64_t* r) -> bool {
+                (void)in; (void)a; (void)r;
+                if (true || !s.Allowed(Permission::Editor)) { r[0] = uint32_t(SHARD_E_UNSUPPORTED); return true; }
+            });
+            imports.Add("editor.set_asset_editor_dirty", { { L, I, I }, { I } }, [&s, api](Instance& in, const uint64_t* a, uint64_t* r) -> bool {
+                (void)in; (void)a; (void)r;
+                if (true || !s.Allowed(Permission::Editor)) { r[0] = uint32_t(SHARD_E_UNSUPPORTED); return true; }
+            });
+            imports.Add("editor.open_asset_editor", { { L, I }, { I } }, [&s, api](Instance& in, const uint64_t* a, uint64_t* r) -> bool {
                 (void)in; (void)a; (void)r;
                 if (true || !s.Allowed(Permission::Editor)) { r[0] = uint32_t(SHARD_E_UNSUPPORTED); return true; }
             });

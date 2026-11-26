@@ -1,7 +1,10 @@
 #include "asset_browser.hpp"
 
+#include <chrono>
+
 #include "apps/editor/gui/main_window.hpp"
 
+#include "engine/core/text/fuzzy_match.hpp"
 #include "engine/assets/project/project.hpp"
 #include "engine/world/world_manager.hpp"
 #include "engine/world/world.hpp"
@@ -229,9 +232,6 @@ namespace Shard::Editor::GUI{
             treeDirty = true;
         navigationOnly = false;
 
-        auto lower = [](std::string v) { std::transform(v.begin(), v.end(), v.begin(), ::tolower); return v; };
-        const std::string needle = lower(searchBuffer);
-
         auto atlas = EditorResources::Instance().GetIconAtlas();
 
         visibleItemCount = static_cast<int>(files.size());
@@ -245,6 +245,22 @@ namespace Shard::Editor::GUI{
             if (!file.isDirectory && Engine::Rendering::IsTextureSettingsFile(file.path.full))
                 continue;
 
+            int searchScore = 0;
+            if (searching)
+            {
+                // Scored before the Asset is built : most files do not match and would be built for nothing.
+                const std::string filename = file.path.GetFilename();
+                // Name first, then the type ("texture", "prefab"...) and the project path, which only ranks when the name does not match.
+                const std::string typeName = GetTypeDisplayName(file.type, file.isDirectory, file.path.GetExtensionString());
+                const Engine::Core::Text::FuzzyResult match = Engine::Core::Text::FuzzyMatchAny(
+                    searchBuffer,
+                    { filename, typeName, file.nameInProject },
+                    { 100, 40, 25 });
+                if (!match.matched)
+                    continue;
+                searchScore = match.score;
+            }
+
             Asset asset(
                 ImHashStr(file.path.full.c_str()),
                 file.path,
@@ -254,19 +270,19 @@ namespace Shard::Editor::GUI{
                 file.nameInProject,
                 file.size
             );
-
-            if (searching
-                && asset.lowerName.find(needle) == std::string::npos
-                && lower(GetTypeDisplayName(file.type, file.isDirectory, file.path.GetExtensionString())).find(needle) == std::string::npos)
-                continue;
+            asset.searchScore = searchScore;
 
             items.push_back(std::move(asset));
         }
 
         const SortKey key = sortKey;
         const bool ascending = sortAscending;
-        std::stable_sort(items.begin(), items.end(), [key, ascending](const Asset& a, const Asset& b)
+        std::stable_sort(items.begin(), items.end(), [key, ascending, searching](const Asset& a, const Asset& b)
         {
+            // A search lists the best match first, folders and files together; ties fall back to the chosen sort.
+            if (searching && a.searchScore != b.searchScore)
+                return a.searchScore > b.searchScore;
+
             if (a.isDirectory != b.isDirectory)
                 return a.isDirectory;
 
@@ -338,6 +354,7 @@ namespace Shard::Editor::GUI{
             Refresh();
 
         Engine::Core::GetEngine().GetRenderer()->GetThumbnailService()->BeginFrame();
+        previewLoadSpentMs = 0.0;
 
         ImGui::Begin("Asset Browser");
 
@@ -1053,7 +1070,22 @@ namespace Shard::Editor::GUI{
 
                             Engine::Rendering::ThumbnailRequest request;
                             if (!item_data->isDirectory && item_data->type == Engine::Filesystem::Type::T_IMAGE)
-                                imageThumbnail = Engine::Core::GetEngine().GetResourcesManager()->Get<Engine::Rendering::Texture2D>(Engine::Core::Resources::AssetKind::Texture, item_data->nameInProject);
+                            {
+                                // Loading is synchronous (decode + upload of the full image) : a search that turns up many textures at once
+                                // used to stall the frame. Resident ones are free; the others load while this frame's budget lasts and show
+                                // their icon until then, the next frames fill the rest in.
+                                constexpr double kPreviewLoadBudgetMs = 6.0;
+                                auto* resources = Engine::Core::GetEngine().GetResourcesManager();
+                                const auto kind = Engine::Core::Resources::AssetKind::Texture;
+                                if (resources->Has(kind, item_data->nameInProject))
+                                    imageThumbnail = resources->Get<Engine::Rendering::Texture2D>(kind, item_data->nameInProject);
+                                else if (previewLoadSpentMs < kPreviewLoadBudgetMs)
+                                {
+                                    const auto loadStart = std::chrono::steady_clock::now();
+                                    imageThumbnail = resources->Get<Engine::Rendering::Texture2D>(kind, item_data->nameInProject);
+                                    previewLoadSpentMs += std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - loadStart).count();
+                                }
+                            }
                             else if (MakeThumbnailRequest(*item_data, request))
                                 hasAssetThumbnail = thumbnails->Get(request, assetThumbnail);
 
@@ -1334,6 +1366,8 @@ namespace Shard::Editor::GUI{
                     return;
                 }
             }
+            if (OpenPluginAssetEditor(item.nameInProject))
+                return;
             AssetEditorRegistry::Instance().TryOpen(item.type, item.path);
         }
     }
@@ -1926,6 +1960,18 @@ namespace Shard::Editor::GUI{
     void AssetBrowser::MoveItemsInto(const std::vector<std::string>& namesInProject, const Engine::Filesystem::Path& folder)
     {
         namespace fs = std::filesystem;
+
+        // A plugin drop hook (slot "asset browser") can take the drop instead of the move
+        {
+            Engine::Plugins::EditorDropEvent dropEvent;
+            dropEvent.slot = 2;
+            dropEvent.folder = Engine::Core::GetEngine().GetFileManager()->GetFileInfos(folder).nameInProject;
+            if (dropEvent.folder.empty())
+                dropEvent.folder = folder.full;
+            dropEvent.assets = namesInProject;
+            if (DispatchPluginDrop(dropEvent))
+                return;
+        }
 
         std::vector<std::string> failures;
         bool moved = false;

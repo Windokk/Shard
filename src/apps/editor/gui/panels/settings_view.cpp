@@ -2,6 +2,8 @@
 
 #include "apps/editor/gui/IconsLucide.h"
 
+#include "engine/core/text/fuzzy_match.hpp"
+
 #include "imgui/imgui.h"
 
 #include <algorithm>
@@ -16,12 +18,7 @@ namespace Shard::Editor::GUI{
         {
             if (!haystack)
                 return false;
-            std::string h = haystack;
-            std::string n = needle;
-            auto lower = [](unsigned char c){ return static_cast<char>(std::tolower(c)); };
-            std::transform(h.begin(), h.end(), h.begin(), lower);
-            std::transform(n.begin(), n.end(), n.begin(), lower);
-            return h.find(n) != std::string::npos;
+            return Engine::Core::Text::FuzzyContains(needle, haystack);
         }
 
         void WrappedTooltip(const char* text)

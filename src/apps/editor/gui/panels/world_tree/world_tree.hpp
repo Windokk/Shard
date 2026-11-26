@@ -10,6 +10,7 @@
 #include <set>
 #include <string>
 #include <typeinfo>
+#include <unordered_map>
 #include <unordered_set>
 #include <vector>
 
@@ -103,6 +104,16 @@ namespace Shard::Editor::GUI{
             bool focusSearch = false;
             unsigned categoryMask = 0x1FF;
             std::string queryLower;
+
+            // Result of the fuzzy search per actor, so that a frame does not score the whole world again (BuildRows runs every frame).
+            // An entry is reused while the query, the actor's name and its component count are the same.
+            struct SearchCacheEntry {
+                std::string name;
+                size_t componentCount = 0;
+                bool matched = false;
+            };
+            mutable std::unordered_map<int, SearchCacheEntry> searchCache;
+            mutable std::string searchCacheQuery;
             bool onlySelected = false;
 
             int sortColumn = -1;

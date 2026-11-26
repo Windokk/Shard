@@ -53,6 +53,14 @@ namespace Shard::Editor::GUI{
 
             std::unique_ptr<Commands::ActorSnapshotCommand> pendingActorEdit;
 
+            // A component dragged onto another one's header : applied once the list has been drawn (final index of the moved one).
+            struct PendingComponentMove {
+                size_t from = 0;
+                size_t to = 0;
+                bool requested = false;
+            };
+            PendingComponentMove pendingComponentMove;
+
             std::shared_ptr<Engine::Objects::Actor> nameEditActor;
             std::string nameBeforeEdit;
     };

@@ -1,0 +1,170 @@
+{
+  "bloom": {
+    "enabled": false,
+    "intensity": 0.20000000298023224,
+    "threshold": 1.0,
+    "knee": 0.5,
+    "radius": 1.0,
+    "tint": [
+      1.0,
+      1.0,
+      1.0
+    ],
+    "mips": 5.0
+  },
+  "autoExposure": {
+    "enabled": false,
+    "strength": 1.0,
+    "key": 0.18000000715255737,
+    "minEV": -3.0,
+    "maxEV": 4.0,
+    "speed": 1.5
+  },
+  "colorAdjustments": {
+    "enabled": false,
+    "postExposure": 0.0,
+    "contrast": 10.0,
+    "colorFilter": [
+      1.0,
+      1.0,
+      1.0
+    ],
+    "hueShift": 0.0,
+    "saturation": 10.0
+  },
+  "whiteBalance": {
+    "enabled": false,
+    "temperature": 0.0,
+    "tint": 0.0
+  },
+  "channelMixer": {
+    "enabled": false,
+    "red": [
+      1.0,
+      0.0,
+      0.0
+    ],
+    "green": [
+      0.0,
+      1.0,
+      0.0
+    ],
+    "blue": [
+      0.0,
+      0.0,
+      1.0
+    ]
+  },
+  "splitToning": {
+    "enabled": false,
+    "shadows": [
+      0.44999998807907104,
+      0.550000011920929,
+      0.699999988079071
+    ],
+    "highlights": [
+      0.75,
+      0.6000000238418579,
+      0.44999998807907104
+    ],
+    "balance": 0.0
+  },
+  "shadowsMidtonesHighlights": {
+    "enabled": false,
+    "shadows": [
+      1.0,
+      1.0,
+      1.0
+    ],
+    "midtones": [
+      1.0,
+      1.0,
+      1.0
+    ],
+    "highlights": [
+      1.0,
+      1.0,
+      1.0
+    ],
+    "shadowsStart": 0.0,
+    "shadowsEnd": 0.30000001192092896,
+    "highlightsStart": 0.550000011920929,
+    "highlightsEnd": 1.0
+  },
+  "liftGammaGain": {
+    "enabled": false,
+    "lift": [
+      0.0,
+      0.0,
+      0.0
+    ],
+    "gamma": [
+      1.0,
+      1.0,
+      1.0
+    ],
+    "gain": [
+      1.0,
+      1.0,
+      1.0
+    ]
+  },
+  "vignette": {
+    "enabled": false,
+    "intensity": 0.3499999940395355,
+    "smoothness": 0.4000000059604645,
+    "roundness": 1.0,
+    "rounded": 0.0,
+    "color": [
+      0.0,
+      0.0,
+      0.0
+    ],
+    "center": [
+      0.5,
+      0.5
+    ]
+  },
+  "chromaticAberration": {
+    "enabled": false,
+    "intensity": 0.15000000596046448
+  },
+  "filmGrain": {
+    "enabled": false,
+    "intensity": 0.25,
+    "response": 0.800000011920929,
+    "size": 1.0
+  },
+  "lensDistortion": {
+    "enabled": false,
+    "intensity": 30.0,
+    "xMultiplier": 1.0,
+    "yMultiplier": 1.0,
+    "center": [
+      0.5,
+      0.5
+    ],
+    "scale": 1.0
+  },
+  "paniniProjection": {
+    "enabled": false,
+    "distance": 0.20000000298023224,
+    "cropToFit": 1.0
+  },
+  "sharpen": {
+    "enabled": false,
+    "intensity": 0.30000001192092896
+  },
+  "depthOfField": {
+    "enabled": false,
+    "strength": 1.0,
+    "focusDistance": 10.0,
+    "focusRange": 4.0,
+    "maxBlur": 12.0
+  },
+  "motionBlur": {
+    "enabled": false,
+    "intensity": 0.5,
+    "samples": 12.0
+  }
+}

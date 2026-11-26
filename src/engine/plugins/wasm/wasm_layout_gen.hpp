@@ -63,7 +63,7 @@ namespace Shard::Engine::Plugins::Wasm {
         { "shard.assets", "assets", 1, Permission::FsReadProject },
         { "shard.jobs", "jobs", 0, Permission::None },
         { "shard.debug", "debug", 0, Permission::None },
-        { "shard.editor", "editor", 3, Permission::Editor },
+        { "shard.editor", "editor", 4, Permission::Editor },
     };
 
     /// The native tables of the host, as the sandbox's imports call them (null where the host does not have the interface)
@@ -116,7 +116,7 @@ namespace Shard::Engine::Plugins::Wasm {
         apis.assets = static_cast<const ShardAssetsApi*>(query("shard.assets", 1));
         apis.jobs = static_cast<const ShardJobsApi*>(query("shard.jobs", 0));
         apis.debug = static_cast<const ShardDebugApi*>(query("shard.debug", 0));
-        apis.editor = static_cast<const ShardEditorApi*>(query("shard.editor", 3));
+        apis.editor = static_cast<const ShardEditorApi*>(query("shard.editor", 4));
         return apis;
     }
 
@@ -872,8 +872,30 @@ namespace Shard::Engine::Plugins::Wasm {
             inline constexpr uint32_t o_arrow = 24;
             inline constexpr uint32_t o_text = 28;
         }
+        namespace ShardDropEvent {
+            inline constexpr uint32_t kSize = 56, kAlign = 8;
+            inline constexpr uint32_t o_structSize = 0;
+            inline constexpr uint32_t o_slot = 4;
+            inline constexpr uint32_t o_target_actor = 8;
+            inline constexpr uint32_t o_folder = 16;
+            inline constexpr uint32_t o_position = 32;
+            inline constexpr uint32_t o_has_position = 44;
+            inline constexpr uint32_t o_asset_count = 48;
+            inline constexpr uint32_t o_assets = 52;
+        }
+        namespace ShardAssetEditorDesc {
+            inline constexpr uint32_t kSize = 64, kAlign = 8;
+            inline constexpr uint32_t o_structSize = 0;
+            inline constexpr uint32_t o_extension = 8;
+            inline constexpr uint32_t o_title = 24;
+            inline constexpr uint32_t o_draw = 40;
+            inline constexpr uint32_t o_on_open = 44;
+            inline constexpr uint32_t o_on_close = 48;
+            inline constexpr uint32_t o_on_save = 52;
+            inline constexpr uint32_t o_user = 56;
+        }
         namespace ShardEditorApi {
-            inline constexpr uint32_t kSize = 64, kAlign = 4;
+            inline constexpr uint32_t kSize = 80, kAlign = 4;
             inline constexpr uint32_t o_structSize = 0;
             inline constexpr uint32_t o_add_panel = 4;
             inline constexpr uint32_t o_add_menu_item = 8;
@@ -890,6 +912,10 @@ namespace Shard::Engine::Plugins::Wasm {
             inline constexpr uint32_t o_add_actor_template = 52;
             inline constexpr uint32_t o_add_asset_action = 56;
             inline constexpr uint32_t o_add_actor_action = 60;
+            inline constexpr uint32_t o_add_drop_handler = 64;
+            inline constexpr uint32_t o_add_asset_editor = 68;
+            inline constexpr uint32_t o_set_asset_editor_dirty = 72;
+            inline constexpr uint32_t o_open_asset_editor = 76;
         }
         namespace ShardStr {
             inline constexpr uint32_t kSize = 16, kAlign = 8;
