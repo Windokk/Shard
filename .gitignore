@@ -4,3 +4,5 @@ build/
 lucide.ttf
 OpenSans-Regular.ttf
 plugins/
+*.lock
+plugin-trust.json
